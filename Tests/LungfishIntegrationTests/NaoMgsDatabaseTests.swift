@@ -176,6 +176,34 @@ struct NaoMgsDatabaseTests {
         #expect(try buildStateValue(at: url) == "complete")
     }
 
+    @Test
+    func failedStreamingCreatePreservesExistingDatabase() async throws {
+        let hits = makeSyntheticHits()
+        let url = temporaryDatabaseURL()
+        let malformedURL = url.deletingLastPathComponent()
+            .appendingPathComponent("naomgs_bad_\(UUID().uuidString).tsv")
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: malformedURL)
+        }
+
+        _ = try NaoMgsDatabase.create(at: url, hits: hits)
+        let originalBytes = try Data(contentsOf: url)
+        try "not\tenough\nvalue\t1\n".write(to: malformedURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await NaoMgsDatabase.createStreaming(at: url, from: [malformedURL])
+            Issue.record("Expected malformed streaming import to fail")
+        } catch {
+            // Expected: malformed input must not replace the existing database.
+        }
+
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect(try Data(contentsOf: url) == originalBytes)
+        let reopened = try NaoMgsDatabase(at: url)
+        #expect(try reopened.totalHitCount() == 24)
+    }
+
     // MARK: - fetchSamples
 
     @Test

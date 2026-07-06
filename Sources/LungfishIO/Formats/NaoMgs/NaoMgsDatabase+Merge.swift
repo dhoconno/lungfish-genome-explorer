@@ -21,45 +21,41 @@ extension NaoMgsDatabase {
         at url: URL,
         from stageInputs: [NaoMgsStageDatabaseInput]
     ) throws {
-        try? FileManager.default.removeItem(at: url)
-
+        let stagingURL = ClassifierSQLiteDatabaseSupport.stagingURL(for: url)
         var mergedDB: OpaquePointer?
-        let rc = sqlite3_open_v2(
-            url.path, &mergedDB,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        )
-        guard rc == SQLITE_OK, let mergedDB else {
-            let msg = mergedDB.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-            sqlite3_close(mergedDB)
-            throw NaoMgsDatabaseError.createFailed(msg)
-        }
-
-        sqlite3_exec(mergedDB, "PRAGMA journal_mode = WAL", nil, nil, nil)
-        sqlite3_exec(mergedDB, "PRAGMA synchronous = NORMAL", nil, nil, nil)
-        sqlite3_exec(mergedDB, "PRAGMA cache_size = -65536", nil, nil, nil)
-        sqlite3_exec(mergedDB, "PRAGMA temp_store = MEMORY", nil, nil, nil)
-
         do {
-            try createSchema(db: mergedDB)
+            mergedDB = try ClassifierSQLiteDatabaseSupport.openWritableDatabase(at: stagingURL)
+            guard let openedDB = mergedDB else {
+                throw NaoMgsDatabaseError.createFailed("SQLite handle was nil")
+            }
+            ClassifierSQLiteDatabaseSupport.configureForBulkImport(openedDB)
+
+            try createSchema(db: openedDB)
             try ClassifierSQLiteDatabaseSupport.markBuildState(
                 ClassifierSQLiteDatabaseSupport.buildStateBuilding,
-                db: mergedDB
+                db: openedDB
             )
-            try mergeStageSummaries(into: mergedDB, from: stageInputs)
-            try createIndices(db: mergedDB)
+            try mergeStageSummaries(into: openedDB, from: stageInputs)
+            try createIndices(db: openedDB)
             try ClassifierSQLiteDatabaseSupport.finalizeSuccessfulBuild(
-                db: mergedDB,
+                db: openedDB,
                 requiredTables: Self.requiredTables,
                 requiredIndexes: Self.buildRequiredIndexes
             )
 
-            sqlite3_close(mergedDB)
+            sqlite3_close(openedDB)
+            mergedDB = nil
+            try ClassifierSQLiteDatabaseSupport.publish(stagingURL: stagingURL, to: url)
             naoMgsDatabaseLogger.info("Created merged NAO-MGS summary database from \(stageInputs.count) staged samples at \(url.lastPathComponent)")
         } catch {
-            sqlite3_close(mergedDB)
-            try? FileManager.default.removeItem(at: url)
-            throw error
+            if let mergedDB {
+                sqlite3_close(mergedDB)
+            }
+            ClassifierSQLiteDatabaseSupport.removeSQLiteDatabase(at: stagingURL)
+            if let error = error as? NaoMgsDatabaseError {
+                throw error
+            }
+            throw NaoMgsDatabaseError.createFailed(error.localizedDescription)
         }
     }
 

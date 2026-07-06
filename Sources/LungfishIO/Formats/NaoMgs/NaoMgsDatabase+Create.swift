@@ -13,8 +13,8 @@ extension NaoMgsDatabase {
 
     /// Creates a new NAO-MGS database from parsed virus hits.
     ///
-    /// Deletes any existing file at `url`, creates the schema, bulk-inserts all hits,
-    /// builds indices, and computes taxon summaries via SQL aggregation.
+    /// Builds the database in a sibling staging file, validates it, then publishes
+    /// it over any existing database at `url`.
     ///
     /// - Parameters:
     ///   - url: Path for the new SQLite database file.
@@ -28,63 +28,57 @@ extension NaoMgsDatabase {
         hits: [NaoMgsVirusHit],
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> NaoMgsDatabase {
-        // Delete existing file
-        try? FileManager.default.removeItem(at: url)
-
+        let stagingURL = ClassifierSQLiteDatabaseSupport.stagingURL(for: url)
         var db: OpaquePointer?
-        let rc = sqlite3_open_v2(
-            url.path, &db,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        )
-        guard rc == SQLITE_OK, let db else {
-            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-            sqlite3_close(db)
-            throw NaoMgsDatabaseError.createFailed(msg)
-        }
-
-        // Performance pragmas for bulk import
-        sqlite3_exec(db, "PRAGMA journal_mode = WAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA cache_size = -65536", nil, nil, nil)    // 64 MB
-        sqlite3_exec(db, "PRAGMA temp_store = MEMORY", nil, nil, nil)
-
         do {
-            try createSchema(db: db)
+            db = try ClassifierSQLiteDatabaseSupport.openWritableDatabase(at: stagingURL)
+            guard let openedDB = db else {
+                throw NaoMgsDatabaseError.createFailed("SQLite handle was nil")
+            }
+            ClassifierSQLiteDatabaseSupport.configureForBulkImport(openedDB)
+
+            try createSchema(db: openedDB)
             try ClassifierSQLiteDatabaseSupport.markBuildState(
                 ClassifierSQLiteDatabaseSupport.buildStateBuilding,
-                db: db
+                db: openedDB
             )
             progress?(0.05, "Schema created")
 
-            try bulkInsertHits(db: db, hits: hits, progress: progress)
-            try populateTaxonReadNames(db: db)
-            try populateSampleHitCounts(db: db)
+            try bulkInsertHits(db: openedDB, hits: hits, progress: progress)
+            try populateTaxonReadNames(db: openedDB)
+            try populateSampleHitCounts(db: openedDB)
             progress?(0.70, "Building indices...")
 
-            try createIndices(db: db)
+            try createIndices(db: openedDB)
             progress?(0.80, "Computing taxon summaries...")
 
-            try computeTaxonSummaries(db: db)
+            try computeTaxonSummaries(db: openedDB)
             progress?(0.90, "Computing accession summaries...")
 
-            try computeAccessionSummaries(db: db)
+            try computeAccessionSummaries(db: openedDB)
             progress?(0.95, "Finalizing...")
 
             try ClassifierSQLiteDatabaseSupport.finalizeSuccessfulBuild(
-                db: db,
+                db: openedDB,
                 requiredTables: Self.requiredTables,
                 requiredIndexes: Self.buildRequiredIndexes
             )
-            sqlite3_close(db)
+            sqlite3_close(openedDB)
+            db = nil
+            try ClassifierSQLiteDatabaseSupport.publish(stagingURL: stagingURL, to: url)
             naoMgsDatabaseLogger.info("Created NAO-MGS database with \(hits.count) hits at \(url.lastPathComponent)")
 
             progress?(1.0, "Complete")
             return try NaoMgsDatabase(at: url)
         } catch {
-            sqlite3_close(db)
-            try? FileManager.default.removeItem(at: url)
-            throw error
+            if let db {
+                sqlite3_close(db)
+            }
+            ClassifierSQLiteDatabaseSupport.removeSQLiteDatabase(at: stagingURL)
+            if let error = error as? NaoMgsDatabaseError {
+                throw error
+            }
+            throw NaoMgsDatabaseError.createFailed(error.localizedDescription)
         }
     }
 
@@ -130,32 +124,19 @@ extension NaoMgsDatabase {
             throw NaoMgsDatabaseError.createFailed("No TSV files provided")
         }
 
-        // Delete existing file
-        try? FileManager.default.removeItem(at: url)
-
+        let stagingURL = ClassifierSQLiteDatabaseSupport.stagingURL(for: url)
         var db: OpaquePointer?
-        let rc = sqlite3_open_v2(
-            url.path, &db,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        )
-        guard rc == SQLITE_OK, let db else {
-            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-            sqlite3_close(db)
-            throw NaoMgsDatabaseError.createFailed(msg)
-        }
-
-        // Performance pragmas for bulk import
-        sqlite3_exec(db, "PRAGMA journal_mode = WAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA cache_size = -65536", nil, nil, nil)    // 64 MB
-        sqlite3_exec(db, "PRAGMA temp_store = MEMORY", nil, nil, nil)
-
         do {
-            try createSchema(db: db)
+            db = try ClassifierSQLiteDatabaseSupport.openWritableDatabase(at: stagingURL)
+            guard let openedDB = db else {
+                throw NaoMgsDatabaseError.createFailed("SQLite handle was nil")
+            }
+            ClassifierSQLiteDatabaseSupport.configureForBulkImport(openedDB)
+
+            try createSchema(db: openedDB)
             try ClassifierSQLiteDatabaseSupport.markBuildState(
                 ClassifierSQLiteDatabaseSupport.buildStateBuilding,
-                db: db
+                db: openedDB
             )
             progress?(0.02, "Schema created")
 
@@ -172,8 +153,8 @@ extension NaoMgsDatabase {
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """
             var insertStmt: OpaquePointer?
-            guard sqlite3_prepare_v2(db, insertSQL, -1, &insertStmt, nil) == SQLITE_OK else {
-                let msg = String(cString: sqlite3_errmsg(db))
+            guard sqlite3_prepare_v2(openedDB, insertSQL, -1, &insertStmt, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(openedDB))
                 throw NaoMgsDatabaseError.insertFailed("Prepare failed: \(msg)")
             }
             defer { sqlite3_finalize(insertStmt) }
@@ -183,13 +164,13 @@ extension NaoMgsDatabase {
             VALUES (?, ?, ?)
             """
             var insertReadNameStmt: OpaquePointer?
-            guard sqlite3_prepare_v2(db, insertReadNameSQL, -1, &insertReadNameStmt, nil) == SQLITE_OK else {
-                let msg = String(cString: sqlite3_errmsg(db))
+            guard sqlite3_prepare_v2(openedDB, insertReadNameSQL, -1, &insertReadNameStmt, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(openedDB))
                 throw NaoMgsDatabaseError.insertFailed("Prepare failed: \(msg)")
             }
             defer { sqlite3_finalize(insertReadNameStmt) }
 
-            sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+            sqlite3_exec(openedDB, "BEGIN TRANSACTION", nil, nil, nil)
 
             var insertedCount = 0
             var firstSampleName: String?
@@ -427,8 +408,8 @@ extension NaoMgsDatabase {
                     }
 
                     guard sqlite3_step(insertStmt) == SQLITE_DONE else {
-                        let msg = String(cString: sqlite3_errmsg(db))
-                        sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                        let msg = String(cString: sqlite3_errmsg(openedDB))
+                        sqlite3_exec(openedDB, "ROLLBACK", nil, nil, nil)
                         throw NaoMgsDatabaseError.insertFailed("Row \(lineNumber) failed: \(msg)")
                     }
 
@@ -438,8 +419,8 @@ extension NaoMgsDatabase {
                     sqlite3_bind_int64(insertReadNameStmt, 2, Int64(taxId))
                     naoBindText(insertReadNameStmt, 3, String(fields[map.seqId]))
                     guard sqlite3_step(insertReadNameStmt) == SQLITE_DONE else {
-                        let msg = String(cString: sqlite3_errmsg(db))
-                        sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                        let msg = String(cString: sqlite3_errmsg(openedDB))
+                        sqlite3_exec(openedDB, "ROLLBACK", nil, nil, nil)
                         throw NaoMgsDatabaseError.insertFailed("Read-name row \(lineNumber) failed: \(msg)")
                     }
 
@@ -501,8 +482,8 @@ extension NaoMgsDatabase {
                     }
 
                     if insertedCount % batchSize == 0 {
-                        sqlite3_exec(db, "COMMIT", nil, nil, nil)
-                        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+                        sqlite3_exec(openedDB, "COMMIT", nil, nil, nil)
+                        sqlite3_exec(openedDB, "BEGIN TRANSACTION", nil, nil, nil)
                         let fraction = 0.02 + 0.63 * Double(fileIndex) / Double(totalFiles)
                             + 0.63 / Double(totalFiles)
                             * Double(insertedCount) / Double(max(1, insertedCount + 1_000_000))
@@ -550,31 +531,31 @@ extension NaoMgsDatabase {
                 }
             }
 
-            guard sqlite3_exec(db, "COMMIT", nil, nil, nil) == SQLITE_OK else {
-                let msg = String(cString: sqlite3_errmsg(db))
+            guard sqlite3_exec(openedDB, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(openedDB))
                 throw NaoMgsDatabaseError.insertFailed("Commit failed: \(msg)")
             }
-            sqlite3_wal_checkpoint_v2(db, nil, SQLITE_CHECKPOINT_TRUNCATE, nil, nil)
-            try populateSampleHitCounts(db: db)
+            sqlite3_wal_checkpoint_v2(openedDB, nil, SQLITE_CHECKPOINT_TRUNCATE, nil, nil)
+            try populateSampleHitCounts(db: openedDB)
 
             progress?(0.70, "Building indices...")
-            try createIndices(db: db)
+            try createIndices(db: openedDB)
 
             progress?(0.80, "Writing taxon summaries...")
-            try bulkInsertTaxonSummaries(db: db, accumulators: accumulators)
+            try bulkInsertTaxonSummaries(db: openedDB, accumulators: accumulators)
 
             progress?(0.90, "Writing accession summaries...")
-            try bulkInsertAccessionSummaries(db: db, accumulators: accumulators)
+            try bulkInsertAccessionSummaries(db: openedDB, accumulators: accumulators)
 
             progress?(0.93, "Storing reference lengths...")
-            try bulkInsertReferenceLengths(db: db, accumulators: accumulators)
+            try bulkInsertReferenceLengths(db: openedDB, accumulators: accumulators)
 
             progress?(0.95, "Finalizing...")
 
             // Get distinct taxon count (not sample×taxon pairs) for user-facing display
             var taxonCount = 0
             var countStmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, "SELECT COUNT(DISTINCT tax_id) FROM taxon_summaries", -1, &countStmt, nil) == SQLITE_OK {
+            if sqlite3_prepare_v2(openedDB, "SELECT COUNT(DISTINCT tax_id) FROM taxon_summaries", -1, &countStmt, nil) == SQLITE_OK {
                 if sqlite3_step(countStmt) == SQLITE_ROW {
                     taxonCount = Int(sqlite3_column_int64(countStmt, 0))
                 }
@@ -582,11 +563,13 @@ extension NaoMgsDatabase {
             }
 
             try ClassifierSQLiteDatabaseSupport.finalizeSuccessfulBuild(
-                db: db,
+                db: openedDB,
                 requiredTables: Self.requiredTables,
                 requiredIndexes: Self.buildRequiredIndexes
             )
-            sqlite3_close(db)
+            sqlite3_close(openedDB)
+            db = nil
+            try ClassifierSQLiteDatabaseSupport.publish(stagingURL: stagingURL, to: url)
             naoMgsDatabaseLogger.info("Created NAO-MGS database (streaming) with \(insertedCount) hits at \(url.lastPathComponent)")
 
             progress?(1.0, "Complete")
@@ -602,9 +585,14 @@ extension NaoMgsDatabase {
                 virusHitsFile: tsvURLs[0]
             )
         } catch {
-            sqlite3_close(db)
-            try? FileManager.default.removeItem(at: url)
-            throw error
+            if let db {
+                sqlite3_close(db)
+            }
+            ClassifierSQLiteDatabaseSupport.removeSQLiteDatabase(at: stagingURL)
+            if let error = error as? NaoMgsDatabaseError {
+                throw error
+            }
+            throw NaoMgsDatabaseError.createFailed(error.localizedDescription)
         }
     }
 
