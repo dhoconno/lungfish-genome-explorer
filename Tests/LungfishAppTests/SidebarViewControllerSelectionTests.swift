@@ -110,6 +110,57 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         ])
     }
 
+    func testSidebarProvenanceRehydrationUsesFinalPathDurableReplayForCLICreatedBundles() throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundle = tempDir.appendingPathComponent("staging/Source.lungfishfastq", isDirectory: true)
+        let destinationBundle = tempDir.appendingPathComponent("Project/Source copy.lungfishfastq", isDirectory: true)
+        let sourcePayload = sourceBundle.appendingPathComponent("reads/source.fastq")
+        let destinationPayload = destinationBundle.appendingPathComponent("reads/source.fastq")
+        try FileManager.default.createDirectory(at: sourcePayload.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("@r\nTGCA\n+\n!!!!\n".utf8).write(to: sourcePayload, options: .atomic)
+
+        let cliEnvelope = try ProvenanceRunBuilder(
+            workflowName: "CLI FASTQ Bundle Import",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "import", "fastq", "--bundle", sourceBundle.path])
+        .output(sourcePayload, format: .fastq, role: .output)
+        .step(
+            ProvenanceStep(
+                toolName: "lungfish-cli",
+                toolVersion: "2026.05",
+                argv: ["lungfish-cli", "import", "fastq", "--bundle", sourceBundle.path],
+                outputs: [try ProvenanceFileDescriptor.file(url: sourcePayload, format: .fastq, role: .output)],
+                exitStatus: 0,
+                wallTimeSeconds: 2
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 20),
+            endedAt: Date(timeIntervalSince1970: 22)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(cliEnvelope, to: sourceBundle)
+        try FileManager.default.createDirectory(at: destinationBundle.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: sourceBundle, to: destinationBundle)
+        try FileManager.default.removeItem(at: sourceBundle)
+
+        SidebarViewController().rehydrateScientificProvenance(from: sourceBundle, to: destinationBundle)
+
+        let stored = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: destinationBundle))
+        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+        XCTAssertEqual(stored.output?.path, destinationPayload.path)
+        XCTAssertEqual(stored.steps[0].outputs.map(\.path), [destinationPayload.path])
+        XCTAssertEqual(stored.steps[0].argv.last, sourceBundle.path)
+        XCTAssertEqual(stored.steps[0].durableReplayArgv?.last, destinationBundle.path)
+        XCTAssertFalse(stored.outputs.contains { $0.path.hasPrefix(sourceBundle.path) })
+    }
+
     func testFASTQExportSuggestedFilenameUsesBundleNameForONTChunkedBundles() throws {
         let temp = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: temp) }

@@ -66,6 +66,57 @@ public enum GUIImportedProvenanceRehydrator {
     }
 
     @discardableResult
+    public static func rehydrateRelocatedImportedCopy(
+        from sourceURL: URL,
+        to destinationURL: URL
+    ) throws -> ProvenanceEnvelope {
+        let sourceRoot = provenanceRoot(for: sourceURL)
+        let destinationRoot = try finalProvenanceRoot(for: destinationURL)
+        let source = try loadSourceEnvelopeRecord(for: destinationURL, sourceRoot: destinationRoot)
+        guard isLungfishCLIEnvelope(source.envelope) else {
+            throw GUIImportedProvenanceRehydratorError.unsupportedSourceProvenance(destinationURL.path)
+        }
+        let sourceDescriptors = outputDescriptors(from: source.envelope)
+            .filter {
+                isRelevantCopiedOutputPath(
+                    $0.path,
+                    sourceURL: sourceURL,
+                    sourceRoot: sourceRoot
+                )
+            }
+        let pathMap = try outputPathMap(
+            from: source.envelope,
+            sourceURL: sourceURL,
+            sourceRoot: sourceRoot,
+            destinationURL: destinationURL,
+            destinationRoot: destinationRoot,
+            validateSourceIntegrity: false
+        )
+        guard !pathMap.isEmpty else {
+            throw ProvenanceRehydrationError.outputPathNotMapped(sourceURL.path)
+        }
+        try validateMappedOutputIntegrity(sourceDescriptors, pathMap: pathMap)
+
+        var argumentPathMap = pathMap
+        argumentPathMap[sourceURL.standardizedFileURL.path] = destinationURL.standardizedFileURL.path
+        argumentPathMap[sourceRoot.standardizedFileURL.path] = destinationRoot.standardizedFileURL.path
+
+        let rehydrated = try rewriteSelectedOutputDescriptors(
+            in: source.envelope,
+            pathMap: pathMap,
+            sourceProvenancePath: source.sidecarURL.path
+        )
+        let withImportStep = try appendingGUIImportStep(
+            to: rehydrated,
+            sourceURL: sourceURL,
+            destinationURL: destinationURL
+        )
+        let rewrittenArguments = rewriteEnvelopeArguments(in: withImportStep, pathMap: argumentPathMap)
+        try ProvenanceWriter(signingProvider: nil).write(rewrittenArguments, to: destinationRoot)
+        return rewrittenArguments
+    }
+
+    @discardableResult
     public static func rehydrateImportedFileSidecar(
         from sourceURL: URL,
         to destinationURL: URL
@@ -420,7 +471,8 @@ public enum GUIImportedProvenanceRehydrator {
         sourceURL: URL,
         sourceRoot: URL,
         destinationURL: URL,
-        destinationRoot: URL
+        destinationRoot: URL,
+        validateSourceIntegrity: Bool = true
     ) throws -> [String: String] {
         var pathMap: [String: String] = [:]
         let sourceDescriptors = outputDescriptors(from: envelope)
@@ -431,7 +483,9 @@ public enum GUIImportedProvenanceRehydrator {
                     sourceRoot: sourceRoot
                 )
             }
-        try validateCopiedOutputIntegrity(sourceDescriptors, sourceRoot: sourceRoot)
+        if validateSourceIntegrity {
+            try validateCopiedOutputIntegrity(sourceDescriptors, sourceRoot: sourceRoot)
+        }
         var seenPaths = Set<String>()
         let sourcePaths = sourceDescriptors
             .map(\.path)
@@ -530,6 +584,27 @@ public enum GUIImportedProvenanceRehydrator {
         }
     }
 
+    private static func validateMappedOutputIntegrity(
+        _ descriptors: [ProvenanceFileDescriptor],
+        pathMap: [String: String]
+    ) throws {
+        for descriptor in descriptors {
+            guard let expectedChecksum = descriptor.checksumSHA256,
+                  let expectedFileSize = descriptor.fileSize else {
+                throw GUIImportedProvenanceRehydratorError.sourceOutputIntegrityMissing(descriptor.path)
+            }
+            guard let finalPath = mappedPath(for: descriptor.path, in: pathMap) else {
+                continue
+            }
+            let finalURL = URL(fileURLWithPath: finalPath)
+            let actualChecksum = try ProvenanceFileHasher.sha256(of: finalURL)
+            let actualFileSize = try ProvenanceFileHasher.fileSize(of: finalURL)
+            guard expectedChecksum == actualChecksum, expectedFileSize == actualFileSize else {
+                throw GUIImportedProvenanceRehydratorError.sourceOutputIntegrityMismatch(descriptor.path)
+            }
+        }
+    }
+
     private static func validateCopiedOutputIntegrity(
         _ descriptors: [ProvenanceFileDescriptor],
         sourceRoot: URL
@@ -582,7 +657,7 @@ public enum GUIImportedProvenanceRehydrator {
         if standardizedPath == standardizedSourceURL {
             return true
         }
-        guard isDirectory(sourceURL) else {
+        guard isDirectory(sourceURL) || ProvenanceWriter.isBundleDirectory(sourceURL) else {
             return false
         }
         let copiedPrefix = standardizedSourceURL.hasSuffix("/")
