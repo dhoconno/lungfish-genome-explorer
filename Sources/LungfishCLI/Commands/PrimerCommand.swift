@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 struct PrimerCommand: ParsableCommand {
@@ -61,7 +62,7 @@ struct PrimerCommand: ParsableCommand {
                     equivalentAccessions: equivalentAccessions,
                     argv: argv,
                     workflowName: "lungfish primers import",
-                    toolVersion: "lungfish-cli 0.5.0-alpha35"
+                    toolVersion: LungfishAppVersion.cliToolVersion
                 )
             )
         }
