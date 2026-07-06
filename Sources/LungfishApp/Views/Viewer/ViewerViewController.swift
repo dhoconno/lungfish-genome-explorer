@@ -2123,6 +2123,7 @@ public class ViewerViewController: NSViewController {
         let stem = Self.sanitizedFilesystemStem(suggestedName)
         let sourceURL = tempDirectory.appendingPathComponent("\(stem).fasta")
         let annotationURL = tempDirectory.appendingPathComponent("\(stem).bed")
+        let provenanceStartedAt = Date()
         do {
             try records.joined(separator: "").write(to: sourceURL, atomically: true, encoding: .utf8)
             try Self.writeAnnotationBED(annotationsByRecord, to: annotationURL)
@@ -2169,12 +2170,13 @@ public class ViewerViewController: NSViewController {
                 }
                 let annotationResult = try await ReferenceBundleAnnotationImportService()
                     .attachAnnotationTrack(sourceURL: annotationURL, bundleURL: result.bundleURL)
-                try Self.writeMSAExtractionAnnotationProvenance(
+                try MSAExtractionAnnotationProvenance.write(
                     bundleURL: result.bundleURL,
                     sourceAlignmentBundleURL: sourceAlignmentBundleURL,
                     sourceFASTAURL: sourceURL,
                     sourceAnnotationURL: annotationURL,
-                    annotationResult: annotationResult
+                    annotationResult: annotationResult,
+                    startedAt: provenanceStartedAt
                 )
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
@@ -2330,45 +2332,6 @@ public class ViewerViewController: NSViewController {
             }
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
-    }
-
-    nonisolated private static func writeMSAExtractionAnnotationProvenance(
-        bundleURL: URL,
-        sourceAlignmentBundleURL: URL?,
-        sourceFASTAURL: URL,
-        sourceAnnotationURL: URL,
-        annotationResult: ReferenceBundleAnnotationImportResult
-    ) throws {
-        let provenanceURL = bundleURL
-            .appendingPathComponent("annotations", isDirectory: true)
-            .appendingPathComponent("msa-extraction-annotations-provenance.json")
-        var payload: [String: Any] = [
-            "schemaVersion": 1,
-            "workflowName": "msa-selection-reference-bundle-extraction",
-            "toolName": "lungfish-gui msa extract annotated bundle",
-            "toolVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "debug",
-            "argv": [
-                "lungfish-gui",
-                "msa",
-                "extract-annotated-bundle",
-                "--source-fasta", sourceFASTAURL.path,
-                "--source-annotations", sourceAnnotationURL.path,
-                "--output", bundleURL.path,
-            ],
-            "inputPaths": sourceAlignmentBundleURL.map { [$0.path] } ?? [sourceFASTAURL.path, sourceAnnotationURL.path],
-            "stagedInputPaths": [sourceFASTAURL.path, sourceAnnotationURL.path],
-            "outputBundlePath": bundleURL.path,
-            "outputAnnotationTrackID": annotationResult.track.id,
-            "outputAnnotationTrackName": annotationResult.track.name,
-            "featureCount": annotationResult.featureCount,
-            "exitStatus": 0,
-            "createdAt": ISO8601DateFormatter().string(from: Date()),
-        ]
-        if let sourceAlignmentBundleURL {
-            payload["sourceAlignmentBundlePath"] = sourceAlignmentBundleURL.path
-        }
-        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: provenanceURL, options: .atomic)
     }
 
     nonisolated private static func sanitizeBEDField(_ value: String) -> String {
