@@ -76,7 +76,24 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
         )
 
         let outputURL = URL(fileURLWithPath: output.output)
-        if materializedURL != outputURL {
+        var gzipResult: FASTQGzipProvenanceResult?
+        if output.compress {
+            let gzipInputURL: URL
+            if materializedURL.standardizedFileURL == outputURL.standardizedFileURL {
+                let stagedInputURL = tempDirectory.appendingPathComponent(
+                    "materialized-uncompressed-\(UUID().uuidString).fastq"
+                )
+                try FileManager.default.copyItem(at: materializedURL, to: stagedInputURL)
+                gzipInputURL = stagedInputURL
+            } else {
+                gzipInputURL = materializedURL
+            }
+            gzipResult = try gzipCompressFASTQ(
+                sourceURL: gzipInputURL,
+                outputURL: outputURL,
+                failureDescription: "materialized FASTQ"
+            )
+        } else if materializedURL.standardizedFileURL != outputURL.standardizedFileURL {
             if FileManager.default.fileExists(atPath: outputURL.path) {
                 try FileManager.default.removeItem(at: outputURL)
             }
@@ -105,6 +122,34 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
         if let inputPayload = FASTQBundle.resolvePrimarySequenceURL(for: inputURL) {
             parameters["inputPayload"] = .file(inputPayload)
         }
+        var extraSteps: [ProvenanceStep] = []
+        if let gzipResult {
+            let completedAt = Date()
+            let gzipInput = try ProvenanceFileDescriptor.file(
+                url: gzipResult.inputURL,
+                format: .fastq,
+                role: .input
+            )
+            let gzipOutput = try ProvenanceFileDescriptor.file(
+                url: gzipResult.outputURL,
+                format: .fastq,
+                role: .output
+            )
+            extraSteps.append(
+                ProvenanceStep(
+                    toolName: gzipResult.command.first ?? "/usr/bin/gzip",
+                    toolVersion: "system",
+                    argv: gzipResult.command,
+                    inputs: [gzipInput],
+                    outputs: [gzipOutput],
+                    exitStatus: Int(gzipResult.exitCode),
+                    wallTimeSeconds: gzipResult.wallTime,
+                    stderr: gzipResult.stderr,
+                    startedAt: completedAt.addingTimeInterval(-gzipResult.wallTime),
+                    completedAt: completedAt
+                )
+            )
+        }
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: CLISequenceInputMaterialization.materializationToolName,
             parameters: parameters,
@@ -117,6 +162,7 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
             toolVersion: WorkflowRun.currentAppVersion,
             command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             stepCommand: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+            extraSteps: extraSteps,
             inputs: inputRecords,
             outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)],
             exitCode: 0,

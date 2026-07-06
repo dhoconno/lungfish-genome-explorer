@@ -711,6 +711,48 @@ struct FASTQGzipProvenanceResult {
     let stderr: String?
 }
 
+func gzipCompressFASTQ(
+    sourceURL: URL,
+    outputURL: URL,
+    failureDescription: String
+) throws -> FASTQGzipProvenanceResult {
+    if FileManager.default.fileExists(atPath: outputURL.path) {
+        try FileManager.default.removeItem(at: outputURL)
+    }
+    FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+    let outputHandle = try FileHandle(forWritingTo: outputURL)
+    defer { try? outputHandle.close() }
+
+    let process = Process()
+    let command = ["/usr/bin/gzip", "-c", sourceURL.path]
+    let stderrPipe = Pipe()
+    let startedAt = Date()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+    process.arguments = Array(command.dropFirst())
+    process.standardOutput = outputHandle
+    process.standardError = stderrPipe
+    try process.run()
+    process.waitUntilExit()
+    let stderr = String(
+        decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+        as: UTF8.self
+    )
+    let wallTime = Date().timeIntervalSince(startedAt)
+    guard process.terminationReason == .exit, process.terminationStatus == 0 else {
+        let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = detail.isEmpty ? "" : ": \(detail)"
+        throw CLIError.conversionFailed(reason: "gzip failed while compressing \(failureDescription) \(outputURL.path)\(suffix)")
+    }
+    return FASTQGzipProvenanceResult(
+        command: command,
+        inputURL: sourceURL,
+        outputURL: outputURL,
+        exitCode: process.terminationStatus,
+        wallTime: wallTime,
+        stderr: stderr
+    )
+}
+
 @discardableResult
 func recordFASTQMergeProvenance(
     cliArguments: [String],
@@ -1909,7 +1951,10 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
             try outputHandle.close()
             concatenateWallTime = Date().timeIntervalSince(concatenateStartedAt)
             if output.compress {
-                gzipResult = try gzipCompress(sourceURL: concatenatedURL, outputURL: outputURL)
+                gzipResult = try gzipCompress(
+                    sourceURL: concatenatedURL,
+                    outputURL: outputURL
+                )
             }
         }
         var cliArguments = ["merge", inputURL.path]
@@ -1989,40 +2034,10 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
     }
 
     private func gzipCompress(sourceURL: URL, outputURL: URL) throws -> FASTQGzipProvenanceResult {
-        if FileManager.default.fileExists(atPath: outputURL.path) {
-            try FileManager.default.removeItem(at: outputURL)
-        }
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-
-        let process = Process()
-        let command = ["/usr/bin/gzip", "-c", sourceURL.path]
-        let stderrPipe = Pipe()
-        let startedAt = Date()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = Array(command.dropFirst())
-        process.standardOutput = outputHandle
-        process.standardError = stderrPipe
-        try process.run()
-        process.waitUntilExit()
-        let stderr = String(
-            decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-            as: UTF8.self
-        )
-        let wallTime = Date().timeIntervalSince(startedAt)
-        guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-            let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            let suffix = detail.isEmpty ? "" : ": \(detail)"
-            throw CLIError.conversionFailed(reason: "gzip failed while compressing merged FASTQ \(outputURL.path)\(suffix)")
-        }
-        return FASTQGzipProvenanceResult(
-            command: command,
-            inputURL: sourceURL,
+        try gzipCompressFASTQ(
+            sourceURL: sourceURL,
             outputURL: outputURL,
-            exitCode: process.terminationStatus,
-            wallTime: wallTime,
-            stderr: stderr
+            failureDescription: "merged FASTQ"
         )
     }
 }
