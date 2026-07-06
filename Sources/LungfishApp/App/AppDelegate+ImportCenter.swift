@@ -2467,6 +2467,7 @@ extension AppDelegate {
         format: SequenceExportFormat,
         compression: SequenceExportCompression
     ) async throws -> Int {
+        let startedAt = Date()
         if sidebarURLs.count == 1,
            let bundleURL = sidebarURLs.first,
            bundleURL.pathExtension.lowercased() == "lungfishref" {
@@ -2563,6 +2564,17 @@ extension AppDelegate {
                 break
             }
         }
+
+        let sourceURLs = sidebarURLs.isEmpty ? documents.map(\.url) : sidebarURLs
+        try Self.writeSequenceExportProvenance(
+            sourceURLs: sourceURLs,
+            outputURL: outputURL,
+            format: format,
+            compression: compression,
+            sequenceCount: allSequences.count,
+            annotationCount: allAnnotations.count,
+            startedAt: startedAt
+        )
 
         return allSequences.count
     }
@@ -2672,6 +2684,7 @@ extension AppDelegate {
         format: SequenceExportFormat,
         compression: SequenceExportCompression
     ) async throws -> Int {
+        let startedAt = Date()
         let manifest = try BundleManifest.load(from: bundleURL)
         try Task.checkCancellation()
         guard let genome = manifest.genome, !genome.chromosomes.isEmpty else {
@@ -2750,7 +2763,84 @@ extension AppDelegate {
             try compressExportFile(writeURL, to: outputURL, compression: compression)
         }
 
+        try Self.writeSequenceExportProvenance(
+            sourceURLs: [bundleURL],
+            outputURL: outputURL,
+            format: format,
+            compression: compression,
+            sequenceCount: genome.chromosomes.count,
+            annotationCount: annotations.count,
+            startedAt: startedAt
+        )
+
         return genome.chromosomes.count
+    }
+
+    @discardableResult
+    nonisolated private static func writeSequenceExportProvenance(
+        sourceURLs: [URL],
+        outputURL: URL,
+        format: SequenceExportFormat,
+        compression: SequenceExportCompression,
+        sequenceCount: Int,
+        annotationCount: Int,
+        startedAt: Date
+    ) throws -> URL {
+        try ScientificFileExportProvenance.write(.init(
+            workflowName: "lungfish app sequence export",
+            sourceURLs: sourceURLs.map(\.standardizedFileURL),
+            outputURL: outputURL,
+            outputFormat: sequenceExportProvenanceFormat(for: format),
+            argv: sequenceExportProvenanceArgv(
+                sourceURLs: sourceURLs,
+                outputURL: outputURL,
+                format: format,
+                compression: compression
+            ),
+            explicitOptions: [
+                "outputPath": .file(outputURL),
+                "format": .string(format.cliFormat),
+                "compression": .string(compression.provenanceValue),
+            ],
+            defaults: [
+                "includeAnnotations": .boolean(true),
+            ],
+            resolved: [
+                "sourceCount": .integer(sourceURLs.count),
+                "sequenceCount": .integer(sequenceCount),
+                "annotationCount": .integer(annotationCount),
+                "format": .string(format.cliFormat),
+                "compression": .string(compression.provenanceValue),
+            ],
+            startedAt: startedAt
+        ))
+    }
+
+    nonisolated private static func sequenceExportProvenanceArgv(
+        sourceURLs: [URL],
+        outputURL: URL,
+        format: SequenceExportFormat,
+        compression: SequenceExportCompression
+    ) -> [String] {
+        var argv = ["Lungfish.app", "export-sequences"]
+        for url in sourceURLs {
+            argv.append(contentsOf: ["--input", url.path])
+        }
+        argv.append(contentsOf: [
+            "--output", outputURL.path,
+            "--format", format.cliFormat,
+            "--compression", compression.provenanceValue,
+        ])
+        return argv
+    }
+
+    nonisolated private static func sequenceExportProvenanceFormat(for format: SequenceExportFormat) -> FileFormat {
+        switch format {
+        case .fasta:
+            return .fasta
+        case .genbank:
+            return .genBank
+        }
     }
 
     nonisolated private func sequenceForWholeChromosome(_ chromosome: ChromosomeInfo, in bundle: ReferenceBundle) async throws -> LungfishCore.Sequence {

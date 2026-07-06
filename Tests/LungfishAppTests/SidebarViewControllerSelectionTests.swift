@@ -81,7 +81,7 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         )
 
         XCTAssertEqual(commands.count, 2)
-        XCTAssertTrue(commands[0].contains("lungfish convert"))
+        XCTAssertTrue(commands[0].contains("\(CLICommandIdentity.executableName) convert"))
         XCTAssertTrue(commands[0].contains("--to-format genbank"))
         XCTAssertTrue(commands[0].contains("--include-annotations"))
         XCTAssertTrue(commands[0].contains("--force"))

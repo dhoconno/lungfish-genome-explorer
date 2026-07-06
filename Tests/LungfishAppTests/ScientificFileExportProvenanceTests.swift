@@ -441,6 +441,24 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertTrue(fastqMetadataSource.contains("assignmentCount"))
     }
 
+    func testImportCenterSequenceExportersWriteScientificProvenanceSidecars() throws {
+        let source = try String(
+            contentsOf: repositoryRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ImportCenter.swift"),
+            encoding: .utf8
+        )
+        let exportStart = try XCTUnwrap(source.range(of: "nonisolated private func performSequenceExport"))
+        let batchTargetsStart = try XCTUnwrap(source.range(of: "nonisolated static func batchSequenceExportTargets"))
+        let exportBody = source[exportStart.lowerBound..<batchTargetsStart.lowerBound]
+        let referenceStart = try XCTUnwrap(source.range(of: "nonisolated private func performReferenceBundleSequenceExport"))
+        let referenceEnd = try XCTUnwrap(source.range(of: "nonisolated private func sequenceForWholeChromosome"))
+        let referenceBody = source[referenceStart.lowerBound..<referenceEnd.lowerBound]
+
+        XCTAssertTrue(exportBody.contains("try Self.writeSequenceExportProvenance("))
+        XCTAssertTrue(referenceBody.contains("try Self.writeSequenceExportProvenance("))
+        XCTAssertTrue(source.contains(#"workflowName: "lungfish app sequence export""#))
+        XCTAssertTrue(source.contains(#""compression": .string(compression.provenanceValue)"#))
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

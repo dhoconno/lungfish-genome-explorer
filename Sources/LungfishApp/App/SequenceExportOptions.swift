@@ -40,4 +40,12 @@ enum SequenceExportCompression {
         case .zstd: return "zst"
         }
     }
+
+    var provenanceValue: String {
+        switch self {
+        case .none: return "none"
+        case .gzip: return "gzip"
+        case .zstd: return "zstd"
+        }
+    }
 }
