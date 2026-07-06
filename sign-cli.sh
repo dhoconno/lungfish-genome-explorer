@@ -1,16 +1,17 @@
 #!/bin/bash
 # Sign the lungfish-cli binary with virtualization entitlement
-# Run this after building with: swift build -c release
+# Run this after building with: swift build --configuration release --product lungfish-cli
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLI_PATH="${SCRIPT_DIR}/.build/release/lungfish-cli"
+BIN_DIR="$(swift build --package-path "$SCRIPT_DIR" --configuration release --show-bin-path | tail -n 1)"
+CLI_PATH="${BIN_DIR}/lungfish-cli"
 ENTITLEMENTS="${SCRIPT_DIR}/lungfish-cli.entitlements"
 
 if [ ! -f "$CLI_PATH" ]; then
     echo "Error: lungfish-cli not found at $CLI_PATH"
-    echo "Build first with: swift build -c release"
+    echo "Build first with: swift build --configuration release --product lungfish-cli"
     exit 1
 fi
 

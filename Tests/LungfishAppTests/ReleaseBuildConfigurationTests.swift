@@ -253,6 +253,86 @@ struct ReleaseBuildConfigurationTests {
         #expect(FileManager.default.fileExists(atPath: scriptURL.path) == false)
     }
 
+    @Test("CLI signing helper resolves release binary through SwiftPM")
+    func cliSigningHelperResolvesReleaseBinaryThroughSwiftPM() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot().appendingPathComponent("sign-cli.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("--configuration release"))
+        #expect(script.contains("--show-bin-path"))
+        #expect(script.contains(".build/release/lungfish-cli") == false)
+    }
+
+    @Test("Shared CLI locator avoids hardcoded SwiftPM executable paths")
+    func sharedCLILocatorAvoidsHardcodedSwiftPMExecutablePaths() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let sources = [
+            "Sources/LungfishKit/CLIBinaryLocator.swift",
+            "Sources/LungfishKit/LungfishCLIRunner.swift",
+            "Sources/LungfishApp/Services/CLIImportRunner.swift",
+        ]
+
+        for sourcePath in sources {
+            let source = try String(
+                contentsOf: repositoryRoot.appendingPathComponent(sourcePath),
+                encoding: .utf8
+            )
+            #expect(source.contains(".build/release/lungfish-cli") == false)
+            #expect(source.contains(".build/arm64-apple-macosx/debug/lungfish-cli") == false)
+            #expect(source.contains(".build/debug/lungfish-cli") == false)
+        }
+
+        let locatorSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/LungfishKit/CLIBinaryLocator.swift"),
+            encoding: .utf8
+        )
+        #expect(locatorSource.contains("--show-bin-path"))
+    }
+
+    @Test("CLI subprocess tests resolve binaries through SwiftPM bin path")
+    func cliSubprocessTestsResolveBinariesThroughSwiftPMBinPath() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let sources = [
+            "Tests/LungfishCLITests/ApplicationExportImportE2ETests.swift",
+            "Tests/LungfishCLITests/CLIExitCodeProcessTests.swift",
+            "Tests/LungfishCLITests/ExtractContigsCommandTests.swift",
+            "Tests/LungfishCLITests/ImportFastqE2ETests.swift",
+            "Tests/LungfishCLITests/ImportMSATreeE2ETests.swift",
+            "Tests/LungfishCLITests/MarkdupCommandTests.swift",
+            "Tests/LungfishIntegrationTests/CLIBAMFilteringIntegrationTests.swift",
+            "Tests/LungfishXCUITests/TestSupport/AssemblyRobot.swift",
+            "Tests/LungfishXCUITests/TestSupport/BundleBrowserRobot.swift",
+            "Tests/LungfishXCUITests/TestSupport/LungfishProjectFixtureBuilder.swift",
+            "Tests/LungfishXCUITests/TestSupport/MappingRobot.swift",
+        ]
+
+        for sourcePath in sources {
+            let source = try String(
+                contentsOf: repositoryRoot.appendingPathComponent(sourcePath),
+                encoding: .utf8
+            )
+            #expect(source.contains(".build/release/lungfish-cli") == false)
+            #expect(source.contains(".build/arm64-apple-macosx/debug/lungfish-cli") == false)
+            #expect(source.contains(".build/x86_64-apple-macosx/debug/lungfish-cli") == false)
+            #expect(source.contains(".build/debug/lungfish-cli") == false)
+        }
+    }
+
+    @Test("Primer-trim GUI integration locates CLI through SwiftPM bin path")
+    func primerTrimGUIIntegrationLocatesCLIThroughSwiftPMBinPath() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("Tests/LungfishIntegrationTests/PrimerTrim/PrimerTrimGUIIntegrationTests.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("--show-bin-path"))
+        #expect(source.contains(".build/release/lungfish-cli") == false)
+        #expect(source.contains(".build/debug/lungfish-cli") == false)
+    }
+
     @Test("Bundled tool manifest keeps only micromamba")
     func bundledToolManifestKeepsOnlyMicromamba() throws {
         let manifest = try String(

@@ -4,26 +4,16 @@
 
 import XCTest
 import Foundation
+import LungfishTestSupport
 import LungfishWorkflow
 
 final class ImportFastqE2ETests: XCTestCase {
 
-    /// Find the CLI binary in the build products directory.
-    /// Checks both `.build/debug/` (symlink) and the arch-specific path.
+    /// Find the CLI binary in SwiftPM's active build products directory.
     private var cliBinaryPath: URL? {
-        let thisFile = URL(fileURLWithPath: #filePath)
-        let repoRoot = thisFile
-            .deletingLastPathComponent() // LungfishCLITests/
-            .deletingLastPathComponent() // Tests/
-            .deletingLastPathComponent() // repo root
-
-        // Try the symlink first, then the arch-specific path
-        let candidates = [
-            repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
-        ]
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        CLITestBinaryResolver.cliBinaryURL(
+            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+        )
     }
 
     /// Sarscov2 fixtures directory containing test_1.fastq.gz and test_2.fastq.gz

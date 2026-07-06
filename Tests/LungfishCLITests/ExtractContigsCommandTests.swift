@@ -1,6 +1,7 @@
 import XCTest
 import ArgumentParser
 import Foundation
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishCLI
 @testable import LungfishCore
@@ -8,18 +9,9 @@ import LungfishWorkflow
 
 final class ExtractContigsCommandTests: XCTestCase {
     private var cliBinaryPath: URL? {
-        let thisFile = URL(fileURLWithPath: #filePath)
-        let repoRoot = thisFile
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-
-        let candidates = [
-            repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
-        ]
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        CLITestBinaryResolver.cliBinaryURL(
+            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+        )
     }
 
     func testParseBundleModeRequiresProjectRoot() throws {

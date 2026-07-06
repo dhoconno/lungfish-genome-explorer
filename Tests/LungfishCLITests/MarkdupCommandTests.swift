@@ -498,19 +498,9 @@ final class MarkdupCommandTests: XCTestCase {
     }
 
     private func cliBinaryURL() throws -> URL {
-        let thisFile = URL(fileURLWithPath: #filePath)
-        let repoRoot = thisFile
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-
-        let candidates = [
-            repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
-        ]
-
-        guard let binary = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
+        guard let binary = CLITestBinaryResolver.cliBinaryURL(
+            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+        ) else {
             throw XCTSkip("CLI binary not built at expected path — run `swift build --product lungfish-cli` first")
         }
         return binary

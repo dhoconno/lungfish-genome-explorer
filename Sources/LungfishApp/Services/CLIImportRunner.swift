@@ -65,9 +65,20 @@ public actor CLIImportRunner {
         mainExecutableURL: URL?,
         currentWorkingDirectoryURL: URL?,
         environment: [String: String] = [:],
-        pathLookup: () -> URL?
+        pathLookup: () -> URL?,
+        swiftPMBinPathLookup: ((URL) -> URL?)? = nil
     ) -> URL? {
-        CLIBinaryLocator.resolveCLIPath(
+        if let swiftPMBinPathLookup {
+            return CLIBinaryLocator.resolveCLIPath(
+                mainExecutableURL: mainExecutableURL,
+                currentWorkingDirectoryURL: currentWorkingDirectoryURL,
+                environment: environment,
+                pathLookup: pathLookup,
+                swiftPMBinPathLookup: swiftPMBinPathLookup
+            )
+        }
+
+        return CLIBinaryLocator.resolveCLIPath(
             mainExecutableURL: mainExecutableURL,
             currentWorkingDirectoryURL: currentWorkingDirectoryURL,
             environment: environment,
