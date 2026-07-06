@@ -489,6 +489,28 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
         let manifest = try BundleManifest.load(from: bundleURL)
         XCTAssertEqual(manifest.name, "Managed Bundle")
         XCTAssertEqual(manifest.source.database, "MEGAHIT 1.2.9")
+        let genomePath = try XCTUnwrap(manifest.genome?.path)
+        let finalPayloadURL = bundleURL.appendingPathComponent(genomePath)
+
+        let rootProvenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let rollupProvenanceURL = bundleURL
+            .appendingPathComponent("provenance", isDirectory: true)
+            .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rootProvenanceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rollupProvenanceURL.path))
+
+        let rootEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        XCTAssertEqual(rootEnvelope.workflowName, "Assembly Bundle Wrapping")
+        XCTAssertEqual(rootEnvelope.toolName, "MEGAHIT")
+        XCTAssertEqual(rootEnvelope.exitStatus, 0)
+        let rootOutputPaths = Set(rootEnvelope.outputs.map(resolvedPath))
+        XCTAssertTrue(rootOutputPaths.contains(resolvedPath(finalPayloadURL)))
+        XCTAssertTrue(rootOutputPaths.contains(resolvedPath(bundleURL.appendingPathComponent(BundleManifest.filename))))
+        XCTAssertTrue(rootOutputPaths.contains(resolvedPath(bundleURL.appendingPathComponent("assembly/provenance.json"))))
+
+        let rollupEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: rollupProvenanceURL))
+        XCTAssertEqual(rollupEnvelope.id, rootEnvelope.id)
+        XCTAssertTrue(Set(rollupEnvelope.outputs.map(resolvedPath)).contains(resolvedPath(finalPayloadURL)))
 
         let bundle = try await ReferenceBundle(url: bundleURL)
         XCTAssertEqual(bundle.chromosomeNames, ["megahit_ctg_1", "megahit_ctg_2"])
@@ -617,5 +639,13 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
             ">\(name)\n\(sequence)\n"
         }.joined()
         try body.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func resolvedPath(_ descriptor: ProvenanceFileDescriptor) -> String {
+        URL(fileURLWithPath: descriptor.path).resolvingSymlinksInPath().path
+    }
+
+    private func resolvedPath(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().path
     }
 }
