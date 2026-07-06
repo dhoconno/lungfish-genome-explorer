@@ -22,29 +22,70 @@ private struct FASTQImportManifest: Codable, Sendable {
     let recipeApplied: RecipeAppliedInfo?
 }
 
-private actor FASTQImportSlotCoordinator {
+actor FASTQImportSlotCoordinator {
     static let shared = FASTQImportSlotCoordinator()
 
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Error>
+    }
+
     private var activeImports = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-    private let maxConcurrentImports = 1
+    private var waiters: [Waiter] = []
+    private let maxConcurrentImports: Int
 
-    private init() {}
+    init(maxConcurrentImports: Int = 1) {
+        self.maxConcurrentImports = maxConcurrentImports
+    }
 
-    func acquire() async {
-        if activeImports >= maxConcurrentImports {
-            await withCheckedContinuation { continuation in
-                waiters.append(continuation)
-            }
+    func testingSnapshot() -> (activeImports: Int, waitingImports: Int) {
+        (activeImports, waiters.count)
+    }
+
+    func acquire() async throws {
+        try Task.checkCancellation()
+        guard activeImports >= maxConcurrentImports else {
+            activeImports += 1
+            return
         }
-        activeImports += 1
+
+        let waiterID = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    waiters.append(Waiter(id: waiterID, continuation: continuation))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: waiterID) }
+        }
+
+        do {
+            try Task.checkCancellation()
+        } catch {
+            release()
+            throw error
+        }
     }
 
     func release() {
-        activeImports = max(0, activeImports - 1)
-        guard activeImports < maxConcurrentImports, !waiters.isEmpty else { return }
+        guard activeImports > 0 else { return }
+        guard !waiters.isEmpty else {
+            activeImports -= 1
+            return
+        }
         let next = waiters.removeFirst()
-        next.resume()
+        next.continuation.resume()
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume(throwing: CancellationError())
     }
 }
 
@@ -186,6 +227,20 @@ public enum FASTQIngestionService {
 
     // MARK: - Pipeline Runners
 
+    nonisolated private static func withImportSlot<Value>(
+        _ body: () async throws -> Value
+    ) async throws -> Value {
+        try await FASTQImportSlotCoordinator.shared.acquire()
+        do {
+            let value = try await body()
+            await FASTQImportSlotCoordinator.shared.release()
+            return value
+        } catch {
+            await FASTQImportSlotCoordinator.shared.release()
+            throw error
+        }
+    }
+
     /// Runs the ingestion pipeline off the main actor.
     ///
     /// Must be `nonisolated` — the cooperative executor does not reliably schedule
@@ -205,67 +260,64 @@ public enum FASTQIngestionService {
                 )
             }
         }
-        await FASTQImportSlotCoordinator.shared.acquire()
-        defer {
-            Task { await FASTQImportSlotCoordinator.shared.release() }
-        }
-
         do {
-            let pipeline = FASTQIngestionPipeline()
-            let result = try await pipeline.run(config: config) { fraction, message in
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.updateWithLog(
-                            id: opID,
-                            progress: fraction,
-                            detail: message
-                        )
+            try await withImportSlot {
+                let pipeline = FASTQIngestionPipeline()
+                let result = try await pipeline.run(config: config) { fraction, message in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.updateWithLog(
+                                id: opID,
+                                progress: fraction,
+                                detail: message
+                            )
+                        }
                     }
                 }
-            }
 
-            guard result.wasClumpified else {
-                throw FASTQIngestionError.clumpifyFailed("pipeline completed without clumpifying reads")
-            }
-            // Update metadata sidecar
-            let pairingMode: IngestionMetadata.PairingMode = {
-                switch result.pairingMode {
-                case .singleEnd: return .singleEnd
-                case .pairedEnd: return .interleaved  // paired-end becomes interleaved after clumpify
-                case .interleaved: return .interleaved
+                guard result.wasClumpified else {
+                    throw FASTQIngestionError.clumpifyFailed("pipeline completed without clumpifying reads")
                 }
-            }()
+                // Update metadata sidecar
+                let pairingMode: IngestionMetadata.PairingMode = {
+                    switch result.pairingMode {
+                    case .singleEnd: return .singleEnd
+                    case .pairedEnd: return .interleaved  // paired-end becomes interleaved after clumpify
+                    case .interleaved: return .interleaved
+                    }
+                }()
 
-            let ingestion = IngestionMetadata(
-                isClumpified: result.wasClumpified,
-                isCompressed: true,
-                pairingMode: pairingMode,
-                qualityBinning: result.qualityBinning.rawValue,
-                originalFilenames: result.originalFilenames,
-                ingestionDate: Date(),
-                originalSizeBytes: result.originalSizeBytes
-            )
+                let ingestion = IngestionMetadata(
+                    isClumpified: result.wasClumpified,
+                    isCompressed: true,
+                    pairingMode: pairingMode,
+                    qualityBinning: result.qualityBinning.rawValue,
+                    originalFilenames: result.originalFilenames,
+                    ingestionDate: Date(),
+                    originalSizeBytes: result.originalSizeBytes
+                )
 
-            var metadata = existingMetadata ?? PersistedFASTQMetadata()
-            metadata.ingestion = ingestion
-            FASTQMetadataStore.save(metadata, for: result.outputFile)
-            try saveInPlaceIngestionProvenance(result: result, config: config, ingestion: ingestion)
+                var metadata = existingMetadata ?? PersistedFASTQMetadata()
+                metadata.ingestion = ingestion
+                FASTQMetadataStore.save(metadata, for: result.outputFile)
+                try saveInPlaceIngestionProvenance(result: result, config: config, ingestion: ingestion)
 
-            let savedStr = ByteCountFormatter.string(
-                fromByteCount: result.originalSizeBytes - result.finalSizeBytes,
-                countStyle: .file
-            )
-            let detail = result.wasClumpified
-                ? "Clumpified and compressed (saved \(savedStr))"
-                : "Compressed (saved \(savedStr))"
+                let savedStr = ByteCountFormatter.string(
+                    fromByteCount: result.originalSizeBytes - result.finalSizeBytes,
+                    countStyle: .file
+                )
+                let detail = result.wasClumpified
+                    ? "Clumpified and compressed (saved \(savedStr))"
+                    : "Compressed (saved \(savedStr))"
 
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: [])
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: [])
+                    }
                 }
-            }
 
-            logger.info("Ingestion complete: \(result.outputFile.lastPathComponent)")
+                logger.info("Ingestion complete: \(result.outputFile.lastPathComponent)")
+            }
 
         } catch is CancellationError {
             DispatchQueue.main.async {
@@ -383,21 +435,20 @@ public enum FASTQIngestionService {
                 )
             }
         }
-        await FASTQImportSlotCoordinator.shared.acquire()
-
-        // Run the import, then ALWAYS release the slot before returning.
-        // We avoid `defer { Task { await release() } }` because that
-        // fire-and-forget Task is not guaranteed to execute promptly from
-        // a Task.detached context.
-        let result = await _runCLIImport(
-            pair: pair,
-            projectDirectory: projectDirectory,
-            bundleName: bundleName,
-            importConfig: importConfig,
-            operationID: opID
-        )
-
-        await FASTQImportSlotCoordinator.shared.release()
+        let result: Result<URL, Error>
+        do {
+            result = try await withImportSlot {
+                await _runCLIImport(
+                    pair: pair,
+                    projectDirectory: projectDirectory,
+                    bundleName: bundleName,
+                    importConfig: importConfig,
+                    operationID: opID
+                )
+            }
+        } catch {
+            result = .failure(error)
+        }
 
         // Deliver the result on the main actor
         logger.info("runIngestAndBundle: delivering result to main actor")
