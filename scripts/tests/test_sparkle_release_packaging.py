@@ -31,17 +31,17 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn("<key>SUVerifyUpdateBeforeExtraction</key>", self.info_plist)
         self.assertIn("<true/>", self.info_plist)
         self.assertIn(
-            "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-alpha/appcast-alpha.xml",
+            "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-beta/appcast-beta.xml",
             self.info_plist,
         )
 
-    def test_release_script_can_publish_github_hosted_alpha_appcast(self):
+    def test_release_script_can_publish_github_hosted_beta_appcast(self):
         self.assertIn("--sparkle-generate-appcast", self.release_script)
         self.assertIn("--sparkle-ed-key-file", self.release_script)
         self.assertIn("--sparkle-appcast-dir", self.release_script)
         self.assertIn("--sparkle-publish-release", self.release_script)
         self.assertIn("--github-release-tag", self.release_script)
-        self.assertIn("appcast-alpha.xml", self.release_script)
+        self.assertIn("appcast-beta.xml", self.release_script)
         self.assertIn('-o "$SPARKLE_APPCAST_PATH"', self.release_script)
         self.assertIn('--ed-key-file "$SPARKLE_ED_KEY_FILE"', self.release_script)
         self.assertIn("--download-url-prefix", self.release_script)

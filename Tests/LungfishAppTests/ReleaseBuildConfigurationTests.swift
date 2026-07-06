@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import Testing
 
 @Suite("Release Build Configuration")
@@ -20,6 +21,47 @@ struct ReleaseBuildConfigurationTests {
         #expect(releaseBlock.contains("EXCLUDED_ARCHS = x86_64;"))
         #expect(releaseBlock.contains("ONLY_ACTIVE_ARCH = YES;"))
         #expect(releaseBlock.contains("ENABLE_HARDENED_RUNTIME = YES;"))
+    }
+
+    @Test("Release identity uses canonical beta1 version and Sparkle channel")
+    func releaseIdentityUsesCanonicalBetaVersionAndSparkleChannel() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+        let infoPlist = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish-Info.plist"),
+            encoding: .utf8
+        )
+        let releaseScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            encoding: .utf8
+        )
+
+        #expect(project.contains(#"MARKETING_VERSION = "\#(LungfishAppVersion.short)";"#))
+        #expect(project.contains("0.5.0-alpha") == false)
+        #expect(infoPlist.contains("sparkle-beta/appcast-beta.xml"))
+        #expect(infoPlist.contains("sparkle-alpha") == false)
+        #expect(releaseScript.contains("${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/appcast-beta.xml"))
+        #expect(releaseScript.contains("appcast-alpha.xml") == false)
+    }
+
+    @Test("Xcode Swift language mode stays on Swift 6 while SwiftPM pins the 6.2 toolchain")
+    func xcodeSwiftLanguageModeStaysOnSwift6() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let packageManifest = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Package.swift"),
+            encoding: .utf8
+        )
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+
+        #expect(packageManifest.hasPrefix("// swift-tools-version: 6.2"))
+        #expect(project.contains("SWIFT_VERSION = 6.0;"))
+        #expect(project.contains("SWIFT_VERSION = 5.") == false)
     }
 
     @Test("Xcode app bundle metadata uses 2026 Dave O'Connor copyright")

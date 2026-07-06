@@ -29,7 +29,7 @@ Optional:
   --sparkle-public-ed-key KEY
                       Sparkle public EdDSA key embedded in the app (default: LUNGFISH_SPARKLE_PUBLIC_ED_KEY)
   --sparkle-generate-appcast PATH
-                      Sparkle generate_appcast tool path. When set, update appcast-alpha.xml after DMG notarization
+                      Sparkle generate_appcast tool path. When set, update appcast-beta.xml after DMG notarization
   --sparkle-ed-key-file PATH
                       Private Sparkle EdDSA key file passed to generate_appcast instead of using the Keychain
   --sparkle-appcast-dir PATH
@@ -37,7 +37,7 @@ Optional:
   --sparkle-download-url-prefix URL
                       URL prefix for versioned DMG downloads (default: GitHub release v<version>)
   --sparkle-publish-release TAG
-                      Upload appcast-alpha.xml and release notes to this GitHub release tag with gh
+                      Upload appcast-beta.xml and release notes to this GitHub release tag with gh
 
 The archive step writes an Xcode timing summary to stdout and stores an
 archive result bundle under <release-dir>/logs/archive.xcresult.
@@ -162,7 +162,7 @@ fi
 if [ -z "$DERIVED_DATA_PATH" ]; then
     DERIVED_DATA_PATH="${PROJECT_ROOT}/.build/release-derived-data"
 fi
-SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-alpha}/appcast-alpha.xml"
+SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/appcast-beta.xml"
 RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
 ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
 
@@ -341,7 +341,7 @@ generate_sparkle_appcast() {
         /usr/bin/install -m 644 "$notes_source" "$notes_dest"
     fi
 
-    SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/appcast-alpha.xml"
+    SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/appcast-beta.xml"
     local appcast_args=(
         --download-url-prefix "$download_url_prefix"
         --release-notes-url-prefix "$release_notes_url_prefix"
@@ -363,8 +363,8 @@ generate_sparkle_appcast() {
             local target_commit
             target_commit="$(git rev-parse HEAD)"
             gh release create "$SPARKLE_PUBLISH_RELEASE" \
-                --title "Lungfish Sparkle Alpha Appcast" \
-                --notes "Mutable Sparkle alpha appcast feed for Lungfish Genome Explorer." \
+                --title "Lungfish Sparkle Beta Appcast" \
+                --notes "Mutable Sparkle beta appcast feed for Lungfish Genome Explorer." \
                 --prerelease \
                 --target "$target_commit"
         else
