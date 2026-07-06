@@ -36,6 +36,7 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         XCTAssertEqual(provenance.name, "Metagenomics Classification")
         XCTAssertEqual(provenance.status, .completed)
         let krakenStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "kraken2" })
+        let gzipStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "gzip" })
         let sidecarURL = config.outputDirectory.appendingPathComponent(ClassificationResult.sidecarFilename)
         let sidecarStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "Lungfish Classification Result Sidecar" })
 
@@ -62,6 +63,13 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
                     && $0.sha256 != nil && $0.sizeBytes != nil
             }
         )
+        XCTAssertEqual(gzipStep.command.first, "/bin/sh")
+        XCTAssertEqual(gzipStep.command.dropFirst().first, "-c")
+        let gzipReplayCommand = try XCTUnwrap(gzipStep.command.last)
+        XCTAssertTrue(gzipReplayCommand.contains("/usr/bin/gzip -c \(shellEscape(config.outputURL.path))"))
+        XCTAssertTrue(gzipReplayCommand.contains("> \(shellEscape(compressedOutputURL.path))"))
+        XCTAssertEqual(gzipStep.inputs.map(\.path), [config.outputURL.path])
+        XCTAssertEqual(gzipStep.outputs.map(\.path), [compressedOutputURL.path])
         XCTAssertTrue(
             provenance.steps.flatMap(\.outputs).contains {
                 $0.path == indexURL.path && $0.format == .unknown && $0.role == .index

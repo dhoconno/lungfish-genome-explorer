@@ -595,7 +595,7 @@ public actor ClassificationPipeline {
                 runID: runID,
                 toolName: "gzip",
                 toolVersion: "system",
-                command: ["/usr/bin/gzip", "-c", rawURL.path],
+                command: gzipReplayCommand(source: rawURL, destination: compressedURL),
                 inputs: [
                     ProvenanceRecorder.fileRecord(url: rawURL, format: .text, role: .input),
                 ],
@@ -618,6 +618,11 @@ public actor ClassificationPipeline {
             try? fm.removeItem(at: indexURL)
             return nil
         }
+    }
+
+    private func gzipReplayCommand(source: URL, destination: URL) -> [String] {
+        let command = "/usr/bin/gzip -c \(shellEscape(source.path)) > \(shellEscape(destination.path))"
+        return ["/bin/sh", "-c", command]
     }
 
     private func gzipCopy(source: URL, destination: URL) throws {
