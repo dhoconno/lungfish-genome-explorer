@@ -1695,7 +1695,14 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             "source-deacon-ribo-norrna.\(FASTQBundle.directoryExtension)",
             isDirectory: true
         )
-        let ingestor = SpyFASTQOutputIngestor()
+        let ingestor = SpyFASTQOutputIngestor { config in
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: destinationBundle.path),
+                "FASTQ operation imports must not expose the final bundle until ingestion, manifest, and provenance are complete."
+            )
+            XCTAssertNotEqual(config.outputDirectory, destinationBundle)
+            XCTAssertTrue(config.outputDirectory.lastPathComponent.hasPrefix(".\(destinationBundle.lastPathComponent).staging-"))
+        }
         let writer = AppFASTQOutputBundleWriter(ingestor: ingestor)
         let request = FASTQOperationLaunchRequest.derivative(
             request: .ribosomalRNAFilter(retention: .nonRRNA, ensure: .rrna),
@@ -1713,7 +1720,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(bundleURL, destinationBundle)
         let config = try XCTUnwrap(ingestor.configs.first)
         XCTAssertEqual(config.inputFiles, [stagedFASTQ])
-        XCTAssertEqual(config.outputDirectory, destinationBundle)
+        XCTAssertNotEqual(config.outputDirectory, destinationBundle)
         XCTAssertFalse(config.skipClumpify)
         XCTAssertTrue(config.deleteOriginals)
         XCTAssertEqual(config.pairingMode.rawValue, FASTQIngestionConfig.PairingMode.interleaved.rawValue)
@@ -3440,12 +3447,18 @@ private final class SpyFASTQOutputBundleWriter: @unchecked Sendable, FASTQOutput
 
 private final class SpyFASTQOutputIngestor: @unchecked Sendable, FASTQOutputIngesting {
     private(set) var configs: [FASTQIngestionConfig] = []
+    private let onIngest: @Sendable (FASTQIngestionConfig) throws -> Void
+
+    init(onIngest: @escaping @Sendable (FASTQIngestionConfig) throws -> Void = { _ in }) {
+        self.onIngest = onIngest
+    }
 
     func ingest(
         config: FASTQIngestionConfig,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> FASTQIngestionResult {
         configs.append(config)
+        try onIngest(config)
         progress(0.5, "ingesting")
 
         let outputURL = config.outputDirectory

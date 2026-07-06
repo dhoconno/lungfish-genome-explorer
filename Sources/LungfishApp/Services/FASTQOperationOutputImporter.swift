@@ -53,17 +53,29 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         originalRequest: FASTQOperationLaunchRequest,
         sourceInputURL: URL?
     ) async throws -> URL {
-        let destinationExistedBeforeImport = FileManager.default.fileExists(atPath: bundleURL.path)
+        let fileManager = FileManager.default
+        let finalBundleURL = bundleURL.standardizedFileURL
+        guard !fileManager.fileExists(atPath: finalBundleURL.path) else {
+            throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: finalBundleURL.path])
+        }
+
+        let stagingBundleURL = stagingBundleURL(for: finalBundleURL)
+        var publishedFinalBundle = false
         do {
+            try fileManager.createDirectory(
+                at: finalBundleURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try fileManager.createDirectory(at: stagingBundleURL, withIntermediateDirectories: true)
+
             let pairingMode = pairingMode(for: sourceInputURL)
             let stats = try await computeStatistics(from: sourceURL)
 
-            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
             let result = try await ingestor.ingest(
                 config: FASTQIngestionConfig(
                     inputFiles: [sourceURL],
                     pairingMode: ingestionPipelinePairingMode(for: pairingMode),
-                    outputDirectory: bundleURL,
+                    outputDirectory: stagingBundleURL,
                     threads: max(1, ProcessInfo.processInfo.activeProcessorCount),
                     deleteOriginals: true,
                     qualityBinning: .illumina4,
@@ -71,6 +83,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 ),
                 progress: { _, _ in }
             )
+            let finalOutputURL = finalBundleURL.appendingPathComponent(result.outputFile.lastPathComponent)
 
             var metadata = FASTQMetadataStore.load(for: result.outputFile) ?? PersistedFASTQMetadata()
             metadata.ingestion = IngestionMetadata(
@@ -86,8 +99,10 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
 
             let operation = try writeDerivedManifest(
                 for: result.outputFile,
-                in: bundleURL,
+                in: stagingBundleURL,
+                manifestBundleURL: finalBundleURL,
                 sourceURL: sourceURL,
+                recordedOutputURL: finalOutputURL,
                 originalRequest: originalRequest,
                 sourceInputURL: sourceInputURL,
                 stats: stats,
@@ -95,20 +110,48 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
             )
             try await writeOperationProvenance(
                 for: result.outputFile,
-                in: bundleURL,
+                in: stagingBundleURL,
                 sourceURL: sourceURL,
+                recordedOutputURL: result.outputFile,
                 originalRequest: originalRequest,
                 sourceInputURL: sourceInputURL,
                 operation: operation
             )
 
-            return bundleURL
+            try fileManager.moveItem(at: stagingBundleURL, to: finalBundleURL)
+            publishedFinalBundle = true
+            do {
+                try await writeOperationProvenance(
+                    for: finalOutputURL,
+                    in: finalBundleURL,
+                    sourceURL: sourceURL,
+                    recordedOutputURL: finalOutputURL,
+                    originalRequest: originalRequest,
+                    sourceInputURL: sourceInputURL,
+                    operation: operation
+                )
+            } catch {
+                try? fileManager.removeItem(at: finalBundleURL)
+                throw error
+            }
+
+            return finalBundleURL
         } catch {
-            if !destinationExistedBeforeImport {
-                try? FileManager.default.removeItem(at: bundleURL)
+            try? fileManager.removeItem(at: stagingBundleURL)
+            if publishedFinalBundle {
+                try? fileManager.removeItem(at: finalBundleURL)
             }
             throw error
         }
+    }
+
+    private func stagingBundleURL(for finalBundleURL: URL) -> URL {
+        finalBundleURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(finalBundleURL.lastPathComponent).staging-\(UUID().uuidString)",
+                isDirectory: true
+            )
     }
 
     private func computeStatistics(from sourceURL: URL) async throws -> FASTQDatasetStatistics {
@@ -171,8 +214,10 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
 
     private func writeDerivedManifest(
         for outputFASTQ: URL,
-        in bundleURL: URL,
+        in storageBundleURL: URL,
+        manifestBundleURL: URL,
         sourceURL: URL,
+        recordedOutputURL: URL,
         originalRequest: FASTQOperationLaunchRequest,
         sourceInputURL: URL?,
         stats: FASTQDatasetStatistics,
@@ -181,7 +226,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         let operation = derivativeOperation(
             for: originalRequest,
             sourceURL: sourceURL,
-            outputURL: outputFASTQ
+            outputURL: recordedOutputURL
         )
         let parentBundleURL = sourceInputURL.flatMap(enclosingFASTQBundleURL(for:))
         let sourceManifest = parentBundleURL.flatMap { FASTQBundle.loadDerivedManifest(in: $0) }
@@ -189,13 +234,13 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         let checksum = try PayloadChecksum.sha256Hex(fileAt: outputFASTQ)
 
         let parentRelativePath = parentBundleURL.map {
-            FASTQBundle.projectRelativePath(for: $0, from: bundleURL)
-                ?? FASTQOperationPlanner.relativePath(from: bundleURL, to: $0)
+            FASTQBundle.projectRelativePath(for: $0, from: manifestBundleURL)
+                ?? FASTQOperationPlanner.relativePath(from: manifestBundleURL, to: $0)
                 ?? "."
         } ?? "."
 
         let manifest = FASTQDerivedBundleManifest(
-            name: bundleURL.deletingPathExtension().lastPathComponent,
+            name: manifestBundleURL.deletingPathExtension().lastPathComponent,
             parentBundleRelativePath: parentRelativePath,
             rootBundleRelativePath: ".",
             rootFASTQFilename: outputFASTQ.lastPathComponent,
@@ -210,7 +255,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
             ]),
             materializationState: .materialized(checksum: checksum)
         )
-        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+        try FASTQBundle.saveDerivedManifest(manifest, in: storageBundleURL)
         return operation
     }
 
@@ -218,6 +263,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         for outputFASTQ: URL,
         in bundleURL: URL,
         sourceURL: URL,
+        recordedOutputURL: URL,
         originalRequest: FASTQOperationLaunchRequest,
         sourceInputURL: URL?,
         operation: FASTQDerivativeOperation
@@ -227,7 +273,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         try FASTQOperationProvenanceRehydrator().rehydrateOperationOutput(
             sourceURL: sourceURL,
             finalDirectory: bundleURL,
-            finalOutputURL: outputFASTQ,
+            finalOutputURL: recordedOutputURL,
             sourceInputURL: sourceInputURL
         )
     }
