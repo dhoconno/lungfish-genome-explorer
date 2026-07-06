@@ -246,6 +246,13 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("download_ucsc_tools") == false)
     }
 
+    @Test("Retired standalone cutadapt bundler is removed")
+    func retiredStandaloneCutadaptBundlerIsRemoved() {
+        let scriptURL = Self.repositoryRoot().appendingPathComponent("scripts/build-cutadapt.sh")
+
+        #expect(FileManager.default.fileExists(atPath: scriptURL.path) == false)
+    }
+
     @Test("Bundled tool manifest keeps only micromamba")
     func bundledToolManifestKeepsOnlyMicromamba() throws {
         let manifest = try String(
