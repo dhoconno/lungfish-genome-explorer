@@ -66,6 +66,9 @@ extension ViewerViewController {
 
             let cliCancellation = LungfishCLIRunner.CancellationHandle()
             let task = Task.detached {
+                defer {
+                    try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
+                }
                 do {
                     try FileManager.default.createDirectory(
                         at: exportURL.deletingLastPathComponent(),
@@ -218,6 +221,15 @@ extension ViewerViewController {
         }
         flush()
         return records
+    }
+
+    nonisolated static func removeTwelveSBlastPreparationArtifacts(for exportURL: URL) throws {
+        let stagingDirectory = exportURL.deletingLastPathComponent()
+        guard stagingDirectory.lastPathComponent.hasPrefix("lungfish-12s-blast-"),
+              FileManager.default.fileExists(atPath: stagingDirectory.path) else {
+            return
+        }
+        try FileManager.default.removeItem(at: stagingDirectory)
     }
 
     private nonisolated static func verifyTwelveSBlastPreparationProvenance(
