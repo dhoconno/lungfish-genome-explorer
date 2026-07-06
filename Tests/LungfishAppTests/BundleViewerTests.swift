@@ -711,12 +711,23 @@ final class BundleValidationErrorTests: XCTestCase {
                       "Error should mention the expected format. Got: \(description!)")
     }
 
+    func testInvalidPathErrorDescription() {
+        let error = BundleValidationError.invalidPath("variants[snps].path", "../snps.bcf")
+        let description = error.errorDescription
+        XCTAssertNotNil(description)
+        XCTAssertTrue(description!.contains("variants[snps].path"),
+                      "Error should mention the manifest field. Got: \(description!)")
+        XCTAssertTrue(description!.contains("../snps.bcf"),
+                      "Error should mention the unsafe path. Got: \(description!)")
+    }
+
     func testAllValidationErrorsConformToLocalizedError() {
         let errors: [BundleValidationError] = [
             .missingField("name"),
             .duplicateTrackId("track1"),
             .fileNotFound("missing.bb"),
             .invalidFileFormat("bad.txt", "BigBed"),
+            .invalidPath("variants[snps].path", "../snps.bcf"),
         ]
         for error in errors {
             let localized = error.localizedDescription

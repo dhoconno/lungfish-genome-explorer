@@ -205,7 +205,11 @@ extension ProjectUniversalSearchIndex {
             )
 
             guard let dbPath = track.databasePath else { continue }
-            let dbURL = bundleURL.appendingPathComponent(dbPath)
+            guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                for: dbPath,
+                in: bundleURL,
+                field: "variants[\(trackID)].databasePath"
+            ) else { continue }
             guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
             guard let variantDB = try? VariantDatabase(url: dbURL) else { continue }
 

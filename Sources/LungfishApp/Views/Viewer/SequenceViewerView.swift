@@ -1826,8 +1826,12 @@ public class SequenceViewerView: NSView {
         self.variantTrackChromosomeMap = [:]
         for trackId in bundle.variantTrackIds {
             if let trackInfo = bundle.variantTrack(id: trackId),
-               let dbPath = trackInfo.databasePath {
-                let dbURL = bundle.url.appendingPathComponent(dbPath)
+               let dbPath = trackInfo.databasePath,
+               let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                   for: dbPath,
+                   in: bundle.url,
+                   field: "variants[\(trackId)].databasePath"
+               ) {
                 if let db = try? VariantDatabase(url: dbURL) {
                     let count = db.sampleCount()
                     if count > 0 {

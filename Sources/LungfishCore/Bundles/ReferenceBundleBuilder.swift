@@ -1314,14 +1314,24 @@ private struct ReferenceBundleBuildExecutor: Sendable {
             validationErrors.append(contentsOf: manifestErrors.map { $0.localizedDescription })
 
             if let genome = manifest.genome {
-                let genomePath = bundleURL.appendingPathComponent(genome.path)
-                if !fileManager.fileExists(atPath: genomePath.path) {
-                    validationErrors.append("Genome file not found: \(genome.path)")
+                if let genomePath = try? BundleManifest.validatedBundleMemberURL(
+                    for: genome.path,
+                    in: bundleURL,
+                    field: "genome.path"
+                ) {
+                    if !fileManager.fileExists(atPath: genomePath.path) {
+                        validationErrors.append("Genome file not found: \(genome.path)")
+                    }
                 }
 
-                let indexPath = bundleURL.appendingPathComponent(genome.indexPath)
-                if !fileManager.fileExists(atPath: indexPath.path) {
-                    validationErrors.append("Genome index not found: \(genome.indexPath)")
+                if let indexPath = try? BundleManifest.validatedBundleMemberURL(
+                    for: genome.indexPath,
+                    in: bundleURL,
+                    field: "genome.indexPath"
+                ) {
+                    if !fileManager.fileExists(atPath: indexPath.path) {
+                        validationErrors.append("Genome index not found: \(genome.indexPath)")
+                    }
                 }
             }
 

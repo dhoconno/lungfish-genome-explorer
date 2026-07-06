@@ -2768,7 +2768,11 @@ extension AppDelegate {
         var annotations: [SequenceAnnotation] = []
         for track in manifest.annotations {
             guard let dbPath = track.databasePath else { continue }
-            let dbURL = bundleURL.appendingPathComponent(dbPath)
+            guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                for: dbPath,
+                in: bundleURL,
+                field: "annotations[\(track.id)].databasePath"
+            ) else { continue }
             guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
             let db = try AnnotationDatabase(url: dbURL)
             let records = db.query(limit: Int.max)
@@ -2844,8 +2848,12 @@ extension AppDelegate {
             var annotations: [SequenceAnnotation] = []
             for track in manifest.annotations {
                 // Prefer SQLite database (has rich metadata) over BigBed
-                if let dbPath = track.databasePath {
-                    let dbURL = url.appendingPathComponent(dbPath)
+                if let dbPath = track.databasePath,
+                   let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                       for: dbPath,
+                       in: url,
+                       field: "annotations[\(track.id)].databasePath"
+                   ) {
                     if FileManager.default.fileExists(atPath: dbURL.path) {
                         let db = try AnnotationDatabase(url: dbURL)
                         let records = db.query(limit: Int.max)

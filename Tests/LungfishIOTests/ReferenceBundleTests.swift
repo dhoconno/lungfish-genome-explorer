@@ -91,6 +91,55 @@ final class ReferenceBundleTests: XCTestCase {
         }
     }
 
+    func testOpenRejectsGenomeSymlinkEscapingBundle() async throws {
+        let bundleURL = tempDirectory.appendingPathComponent("symlink-escape.lungfishref", isDirectory: true)
+        let genomeDirectory = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+
+        let outsideFASTA = tempDirectory.appendingPathComponent("outside.fa")
+        try ">chr1\nACGT\n".write(to: outsideFASTA, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            at: genomeDirectory.appendingPathComponent("sequence.fa"),
+            withDestinationURL: outsideFASTA
+        )
+        try "chr1\t4\t6\t4\t5\n".write(
+            to: genomeDirectory.appendingPathComponent("sequence.fa.fai"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Symlink Escape",
+            identifier: "test.symlink-escape",
+            source: SourceInfo(organism: "Test organism", assembly: "TestAssembly"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 4,
+                chromosomes: [
+                    ChromosomeInfo(name: "chr1", length: 4, offset: 6, lineBases: 4, lineWidth: 5)
+                ]
+            )
+        )
+        try manifest.save(to: bundleURL)
+
+        do {
+            _ = try await ReferenceBundle(url: bundleURL)
+            XCTFail("Expected symlink-escaping genome path to be rejected")
+        } catch let error as ReferenceBundleError {
+            guard case .validationFailed(let errors) = error else {
+                return XCTFail("Expected validationFailed error, got \(error)")
+            }
+            XCTAssertTrue(errors.contains { validationError in
+                guard case .invalidPath(let field, let path) = validationError else { return false }
+                return field == "genome.path" && path == "genome/sequence.fa"
+            })
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
     // MARK: - Chromosome Information Tests
 
     func testChromosomeNames() async throws {

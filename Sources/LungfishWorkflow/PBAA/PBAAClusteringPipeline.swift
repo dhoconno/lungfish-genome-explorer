@@ -356,14 +356,22 @@ public struct PBAAClusteringPipeline: Sendable {
         if let genome = manifest.genome {
             descriptors.append(
                 try ProvenanceFileDescriptor.file(
-                    url: bundleURL.appendingPathComponent(genome.path),
+                    url: try BundleManifest.validatedBundleMemberURL(
+                        for: genome.path,
+                        in: bundleURL,
+                        field: "genome.path"
+                    ),
                     format: .fasta,
                     role: .output
                 )
             )
             descriptors.append(
                 try ProvenanceFileDescriptor.file(
-                    url: bundleURL.appendingPathComponent(genome.indexPath),
+                    url: try BundleManifest.validatedBundleMemberURL(
+                        for: genome.indexPath,
+                        in: bundleURL,
+                        field: "genome.indexPath"
+                    ),
                     format: .text,
                     role: .index
                 )
@@ -371,7 +379,11 @@ public struct PBAAClusteringPipeline: Sendable {
             if let gzipIndexPath = genome.gzipIndexPath {
                 descriptors.append(
                     try ProvenanceFileDescriptor.file(
-                        url: bundleURL.appendingPathComponent(gzipIndexPath),
+                        url: try BundleManifest.validatedBundleMemberURL(
+                            for: gzipIndexPath,
+                            in: bundleURL,
+                            field: "genome.gzipIndexPath"
+                        ),
                         format: .unknown,
                         role: .index
                     )

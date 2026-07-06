@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -393,8 +394,13 @@ final class BAMVariantCallingDialogState {
         guard let track = selectedAlignmentTrack else { return nil }
         guard let genome = bundle.manifest.genome else { return nil }
 
-        let referenceURL = bundle.url.appendingPathComponent(genome.path)
-        let bamURL = bundle.url.appendingPathComponent(track.sourcePath)
+        guard let referenceURL = try? BundleManifest.validatedBundleMemberURL(
+            for: genome.path,
+            in: bundle.url,
+            field: "genome.path"
+        ),
+              let bamPath = try? bundle.resolveAlignmentPath(track) else { return nil }
+        let bamURL = URL(fileURLWithPath: bamPath)
         let outputURL = bundle.url
             .appendingPathComponent("variants/gatk", isDirectory: true)
             .appendingPathComponent("\(generatedTrackID).vcf.gz")
@@ -417,8 +423,13 @@ final class BAMVariantCallingDialogState {
         guard let track = selectedAlignmentTrack else { return nil }
         guard let genome = bundle.manifest.genome else { return nil }
 
-        let referenceURL = bundle.url.appendingPathComponent(genome.path)
-        let bamURL = bundle.url.appendingPathComponent(track.sourcePath)
+        guard let referenceURL = try? BundleManifest.validatedBundleMemberURL(
+            for: genome.path,
+            in: bundle.url,
+            field: "genome.path"
+        ),
+              let bamPath = try? bundle.resolveAlignmentPath(track) else { return nil }
+        let bamURL = URL(fileURLWithPath: bamPath)
         let outputURL = bundle.url
             .appendingPathComponent("variants/phased", isDirectory: true)
             .appendingPathComponent("\(generatedTrackID).phased.vcf.gz")

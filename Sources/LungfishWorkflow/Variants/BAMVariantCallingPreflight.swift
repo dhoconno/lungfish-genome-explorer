@@ -157,11 +157,19 @@ public actor BAMVariantCallingPreflight {
             throw BAMVariantCallingPreflightError.missingAlignmentIndex(alignmentIndexURL.path)
         }
 
-        let referenceFASTAURL = request.bundleURL.appendingPathComponent(genome.path)
+        let referenceFASTAURL = try BundleManifest.validatedBundleMemberURL(
+            for: genome.path,
+            in: request.bundleURL,
+            field: "genome.path"
+        )
         guard FileManager.default.fileExists(atPath: referenceFASTAURL.path) else {
             throw BAMVariantCallingPreflightError.missingReferenceFASTA(genome.path)
         }
-        let referenceFAIURL = request.bundleURL.appendingPathComponent(genome.indexPath)
+        let referenceFAIURL = try BundleManifest.validatedBundleMemberURL(
+            for: genome.indexPath,
+            in: request.bundleURL,
+            field: "genome.indexPath"
+        )
         guard FileManager.default.fileExists(atPath: referenceFAIURL.path) else {
             throw BAMVariantCallingPreflightError.missingReferenceFAI(genome.indexPath)
         }

@@ -658,7 +658,14 @@ extension SequenceViewerView {
                     continue
                 }
 
-                let dbURL = bundle.url.appendingPathComponent(dbPath)
+                guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                    for: dbPath,
+                    in: bundle.url,
+                    field: "annotations[\(trackId)].databasePath"
+                ) else {
+                    sequenceViewerLogger.error("fetchAnnotationsAsync: Annotation database path is unsafe for \(trackId) at \(dbPath)")
+                    continue
+                }
                 guard FileManager.default.fileExists(atPath: dbURL.path) else {
                     sequenceViewerLogger.error("fetchAnnotationsAsync: Annotation database missing for \(trackId) at \(dbPath)")
                     continue
@@ -838,7 +845,11 @@ extension SequenceViewerView {
             for trackId in bundle.variantTrackIds {
                 guard let trackInfo = bundle.variantTrack(id: trackId),
                       let dbPath = trackInfo.databasePath else { continue }
-                let dbURL = bundle.url.appendingPathComponent(dbPath)
+                guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                    for: dbPath,
+                    in: bundle.url,
+                    field: "variants[\(trackId)].databasePath"
+                ) else { continue }
                 guard let db = try? VariantDatabase(url: dbURL) else { continue }
 
                 let aliasMap = Self.buildVariantChromosomeAliasMap(

@@ -312,11 +312,23 @@ public enum SequenceAnnotationTrackWorkflow {
             )
             var inputURLs = [
                 manifestURL,
-                request.bundleURL.appendingPathComponent(genome.path),
-                request.bundleURL.appendingPathComponent(genome.indexPath)
+                try BundleManifest.validatedBundleMemberURL(
+                    for: genome.path,
+                    in: request.bundleURL,
+                    field: "genome.path"
+                ),
+                try BundleManifest.validatedBundleMemberURL(
+                    for: genome.indexPath,
+                    in: request.bundleURL,
+                    field: "genome.indexPath"
+                )
             ]
             if let gzipIndexPath = genome.gzipIndexPath {
-                inputURLs.append(request.bundleURL.appendingPathComponent(gzipIndexPath))
+                inputURLs.append(try BundleManifest.validatedBundleMemberURL(
+                    for: gzipIndexPath,
+                    in: request.bundleURL,
+                    field: "genome.gzipIndexPath"
+                ))
             }
             let inputDescriptors = try provenanceInputDescriptors(for: inputURLs)
 

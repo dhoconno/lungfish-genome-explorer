@@ -220,8 +220,12 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         var manifest = try BundleManifest.load(from: bundleURL)
         for track in tracks {
             manifest = manifest.removingAlignmentTrack(id: track.id)
-            if let dbPath = track.metadataDBPath {
-                let dbURL = bundleURL.appendingPathComponent(dbPath)
+            if let dbPath = track.metadataDBPath,
+               let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                   for: dbPath,
+                   in: bundleURL,
+                   field: "alignments[\(track.id)].metadataDBPath"
+               ) {
                 try? FileManager.default.removeItem(at: dbURL)
             }
             if let sourceURL = resolveBundleOrAbsoluteURL(track.sourcePath, bundleURL: bundleURL),

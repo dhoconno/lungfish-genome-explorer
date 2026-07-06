@@ -95,12 +95,12 @@ public final class ReferenceBundle: Sendable {
 
         // Verify essential genome files exist (variant-only bundles skip this).
         if let genome = manifest.genome {
-            let genomeURL = url.appendingPathComponent(genome.path)
+            let genomeURL = try validatedBundleMemberURL(path: genome.path, field: "genome.path")
             guard FileManager.default.fileExists(atPath: genomeURL.path) else {
                 throw ReferenceBundleError.missingFile(genome.path)
             }
 
-            let indexURL = url.appendingPathComponent(genome.indexPath)
+            let indexURL = try validatedBundleMemberURL(path: genome.indexPath, field: "genome.indexPath")
             guard FileManager.default.fileExists(atPath: indexURL.path) else {
                 throw ReferenceBundleError.missingFile(genome.indexPath)
             }
@@ -199,12 +199,12 @@ public final class ReferenceBundle: Sendable {
         }
         let fetchRegion = canonicalRegion(region, for: chromInfo)
 
-        let genomeURL = url.appendingPathComponent(genome.path)
-        let faiURL = url.appendingPathComponent(genome.indexPath)
+        let genomeURL = try validatedBundleMemberURL(path: genome.path, field: "genome.path")
+        let faiURL = try validatedBundleMemberURL(path: genome.indexPath, field: "genome.indexPath")
 
         // Check if we have a bgzip-compressed file with GZI index
         if let gzipIndexPath = genome.gzipIndexPath {
-            let gziURL = url.appendingPathComponent(gzipIndexPath)
+            let gziURL = try validatedBundleMemberURL(path: gzipIndexPath, field: "genome.gzipIndexPath")
 
             // Use bgzip-aware reader for random access to compressed files
             let reader = try await BgzipIndexedFASTAReader(url: genomeURL, faiURL: faiURL, gziURL: gziURL)
@@ -251,12 +251,12 @@ public final class ReferenceBundle: Sendable {
         }
         let fetchRegion = canonicalRegion(region, for: chromInfo)
 
-        let genomeURL = url.appendingPathComponent(genome.path)
-        let faiURL = url.appendingPathComponent(genome.indexPath)
+        let genomeURL = try validatedBundleMemberURL(path: genome.path, field: "genome.path")
+        let faiURL = try validatedBundleMemberURL(path: genome.indexPath, field: "genome.indexPath")
 
         // Check if we have a bgzip-compressed file with GZI index
         if let gzipIndexPath = genome.gzipIndexPath {
-            let gziURL = url.appendingPathComponent(gzipIndexPath)
+            let gziURL = try validatedBundleMemberURL(path: gzipIndexPath, field: "genome.gzipIndexPath")
 
             logger.info("fetchSequenceSync: Creating SyncBgzipFASTAReader for \(genomeURL.lastPathComponent)")
             // Use synchronous bgzip reader
@@ -349,7 +349,7 @@ public final class ReferenceBundle: Sendable {
 
         // Try SQLite database first (fast path)
         if let dbPath = trackInfo.databasePath {
-            let dbURL = url.appendingPathComponent(dbPath)
+            let dbURL = try validatedBundleMemberURL(path: dbPath, field: "variants[\(trackId)].databasePath")
             guard FileManager.default.fileExists(atPath: dbURL.path) else {
                 throw ReferenceBundleError.variantReadFailed(
                     "SQLite sidecar '\(dbPath)' for track '\(trackId)' is missing"
@@ -372,7 +372,7 @@ public final class ReferenceBundle: Sendable {
             }
         }
 
-        let trackURL = url.appendingPathComponent(trackInfo.path)
+        let trackURL = try validatedBundleMemberURL(path: trackInfo.path, field: "variants[\(trackId)].path")
         guard FileManager.default.fileExists(atPath: trackURL.path) else {
             throw ReferenceBundleError.missingFile(trackInfo.path)
         }
@@ -397,7 +397,7 @@ public final class ReferenceBundle: Sendable {
 
         // Try SQLite database (fast path)
         if let dbPath = trackInfo.databasePath {
-            let dbURL = url.appendingPathComponent(dbPath)
+            let dbURL = try validatedBundleMemberURL(path: dbPath, field: "variants[\(trackId)].databasePath")
             guard FileManager.default.fileExists(atPath: dbURL.path) else {
                 throw ReferenceBundleError.variantReadFailed(
                     "SQLite sidecar '\(dbPath)' for track '\(trackId)' is missing"
@@ -424,7 +424,7 @@ public final class ReferenceBundle: Sendable {
             }
         }
 
-        let trackURL = url.appendingPathComponent(trackInfo.path)
+        let trackURL = try validatedBundleMemberURL(path: trackInfo.path, field: "variants[\(trackId)].path")
         guard FileManager.default.fileExists(atPath: trackURL.path) else {
             throw ReferenceBundleError.missingFile(trackInfo.path)
         }
@@ -452,7 +452,7 @@ public final class ReferenceBundle: Sendable {
         guard let dbPath = trackInfo.databasePath else {
             return []
         }
-        let dbURL = url.appendingPathComponent(dbPath)
+        let dbURL = try validatedBundleMemberURL(path: dbPath, field: "annotations[\(trackId)].databasePath")
         let db = try AnnotationDatabase(url: dbURL)
         let queryChromosomes = annotationQueryChromosomes(for: region.chromosome, database: db)
         var records: [AnnotationDatabaseRecord] = []
@@ -540,7 +540,10 @@ public final class ReferenceBundle: Sendable {
     /// - Returns: The resolved path to the alignment file
     /// - Throws: If the file cannot be found
     public func resolveAlignmentPath(_ trackInfo: AlignmentTrackInfo) throws -> String {
-        let sourcePath = resolveBundleRelativePath(trackInfo.sourcePath)
+        let sourcePath = try resolveBundleRelativePath(
+            trackInfo.sourcePath,
+            field: "alignments[\(trackInfo.id)].sourcePath"
+        )
 
         // Check if file exists at original path
         if FileManager.default.fileExists(atPath: sourcePath) {
@@ -568,7 +571,10 @@ public final class ReferenceBundle: Sendable {
     ///
     /// Supports both legacy absolute external paths and bundle-relative paths.
     public func resolveAlignmentIndexPath(_ trackInfo: AlignmentTrackInfo) throws -> String {
-        let indexPath = resolveBundleRelativePath(trackInfo.indexPath)
+        let indexPath = try resolveBundleRelativePath(
+            trackInfo.indexPath,
+            field: "alignments[\(trackInfo.id)].indexPath"
+        )
 
         if FileManager.default.fileExists(atPath: indexPath) {
             return indexPath
@@ -596,7 +602,9 @@ public final class ReferenceBundle: Sendable {
     /// - Returns: The metadata database, or nil if not available
     public func alignmentMetadataDB(for trackInfo: AlignmentTrackInfo) -> AlignmentMetadataDatabase? {
         guard let dbPath = trackInfo.metadataDBPath else { return nil }
-        let dbURL = url.appendingPathComponent(dbPath)
+        guard let dbURL = try? validatedBundleMemberURL(path: dbPath, field: "alignments[\(trackInfo.id)].metadataDBPath") else {
+            return nil
+        }
         guard FileManager.default.fileExists(atPath: dbURL.path) else { return nil }
         return try? AlignmentMetadataDatabase(url: dbURL)
     }
@@ -605,15 +613,25 @@ public final class ReferenceBundle: Sendable {
     /// Needed by `AlignmentDataProvider` for CRAM file access.
     public func referenceFASTAPath() -> String? {
         guard let genome = manifest.genome else { return nil }
-        let fastaURL = url.appendingPathComponent(genome.path)
+        guard let fastaURL = try? validatedBundleMemberURL(path: genome.path, field: "genome.path") else {
+            return nil
+        }
         return FileManager.default.fileExists(atPath: fastaURL.path) ? fastaURL.path : nil
     }
 
-    private func resolveBundleRelativePath(_ path: String) -> String {
+    private func resolveBundleRelativePath(_ path: String, field: String) throws -> String {
         if URL(fileURLWithPath: path).isFileURL && path.hasPrefix("/") {
             return path
         }
-        return url.appendingPathComponent(path).path
+        return try validatedBundleMemberURL(path: path, field: field).path
+    }
+
+    private func validatedBundleMemberURL(path: String, field: String) throws -> URL {
+        do {
+            return try BundleManifest.validatedBundleMemberURL(for: path, in: url, field: field)
+        } catch let error as BundleValidationError {
+            throw ReferenceBundleError.validationFailed([error])
+        }
     }
 
     private func unsupportedVariantTrackFormat(_ trackInfo: VariantTrackInfo) -> ReferenceBundleError {

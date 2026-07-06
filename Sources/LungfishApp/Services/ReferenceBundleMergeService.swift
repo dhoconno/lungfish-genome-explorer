@@ -256,8 +256,13 @@ enum ReferenceBundleMergeService {
 
     private static func finalGenomePayloadURL(in bundleURL: URL, outputPayloadURLs: [URL]) -> URL? {
         if let manifest = try? BundleManifest.load(from: bundleURL),
-           let genome = manifest.genome {
-            return bundleURL.appendingPathComponent(genome.path).standardizedFileURL
+           let genome = manifest.genome,
+           let genomeURL = try? BundleManifest.validatedBundleMemberURL(
+               for: genome.path,
+               in: bundleURL,
+               field: "genome.path"
+           ) {
+            return genomeURL.standardizedFileURL
         }
         return outputPayloadURLs.first(where: isFASTAFileURL(_:))?.standardizedFileURL
     }

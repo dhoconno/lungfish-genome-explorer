@@ -393,7 +393,11 @@ extension InspectorViewController {
         for vTrackId in bundle.variantTrackIds {
             guard let trackInfo = bundle.variantTrack(id: vTrackId),
                   let dbPath = trackInfo.databasePath else { continue }
-            let dbURL = bundle.url.appendingPathComponent(dbPath)
+            guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                for: dbPath,
+                in: bundle.url,
+                field: "variants[\(vTrackId)].databasePath"
+            ) else { continue }
             guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
             do {
                 let db = try VariantDatabase(url: dbURL)
