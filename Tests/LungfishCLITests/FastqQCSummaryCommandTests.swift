@@ -91,6 +91,31 @@ final class FastqQCSummaryCommandTests: XCTestCase {
         XCTAssertNotNil(ProvenanceRecorder.findProvenance(forFile: outputURL))
     }
 
+    func testQCSummaryRemovesOutputWhenProvenanceCannotBeWritten() async throws {
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent("fastq-qc-rollback-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        let outputURL = tempDir.appendingPathComponent("qc-summary.json")
+        try "@read1\nACGT\n+\n!!!!\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        try fm.createDirectory(at: tempDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename), withIntermediateDirectories: true)
+
+        let command = try FastqQCSummarySubcommand.parse([
+            inputURL.path,
+            "--output", outputURL.path,
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected provenance publication to fail")
+        } catch {
+            XCTAssertFalse(fm.fileExists(atPath: outputURL.path))
+            XCTAssertFalse(fm.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: outputURL).path))
+        }
+    }
+
     func testFastqCommandRegistersQCSummarySubcommand() {
         let names = FastqCommand.configuration.subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("qc-summary"))
