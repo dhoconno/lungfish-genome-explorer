@@ -5,6 +5,14 @@ import XCTest
 @testable import LungfishIO
 
 final class MultipleSequenceAlignmentBundleTests: XCTestCase {
+    enum AnnotationEditOriginalFailure: Error, Equatable {
+        case failed
+    }
+
+    enum AnnotationEditRollbackFailure: Error, Equatable {
+        case failed
+    }
+
     private var workspace: URL!
 
     override func setUpWithError() throws {
@@ -521,6 +529,22 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: annotationJSONURL), originalAnnotationJSON)
         XCTAssertEqual(try Data(contentsOf: annotationSQLiteURL), originalAnnotationSQLite)
         XCTAssertEqual(try Data(contentsOf: provenanceURL), originalProvenance)
+    }
+
+    func testAnnotationEditRollbackHelperReportsRestoreFailureDetails() throws {
+        XCTAssertThrowsError(
+            try MultipleSequenceAlignmentBundle.throwAfterAnnotationEditPublicationFailure(
+                AnnotationEditOriginalFailure.failed,
+                restore: { throw AnnotationEditRollbackFailure.failed }
+            )
+        ) { error in
+            guard let rollbackError = error as? MultipleSequenceAlignmentBundle.AnnotationEditRollbackError else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(rollbackError.originalErrorDescription.contains("AnnotationEditOriginalFailure.failed"))
+            XCTAssertTrue(rollbackError.rollbackErrorDescription.contains("AnnotationEditRollbackFailure.failed"))
+            XCTAssertTrue(rollbackError.localizedDescription.contains("rollback failed"))
+        }
     }
 
     private func writeInput(named filename: String, contents: String) throws -> URL {

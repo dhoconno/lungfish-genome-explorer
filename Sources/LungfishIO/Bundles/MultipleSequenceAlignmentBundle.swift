@@ -754,9 +754,39 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
             try Self.encode(updatedManifest, to: manifestURL)
             return try Self.load(from: url)
         } catch {
-            try? publicationSnapshot.restore()
-            throw error
+            try Self.throwAfterAnnotationEditPublicationFailure(error) {
+                try publicationSnapshot.restore()
+            }
         }
+    }
+
+    struct AnnotationEditRollbackError: Error, LocalizedError {
+        let originalErrorDescription: String
+        let rollbackErrorDescription: String
+
+        init(originalError: Error, rollbackError: Error) {
+            originalErrorDescription = String(reflecting: originalError)
+            rollbackErrorDescription = String(reflecting: rollbackError)
+        }
+
+        var errorDescription: String? {
+            "MSA annotation edit failed and rollback failed; original error: \(originalErrorDescription); rollback failed: \(rollbackErrorDescription)"
+        }
+    }
+
+    static func throwAfterAnnotationEditPublicationFailure(
+        _ originalError: Error,
+        restore: () throws -> Void
+    ) throws -> Never {
+        do {
+            try restore()
+        } catch {
+            throw AnnotationEditRollbackError(
+                originalError: originalError,
+                rollbackError: error
+            )
+        }
+        throw originalError
     }
 
     private struct FilePublicationSnapshot {
