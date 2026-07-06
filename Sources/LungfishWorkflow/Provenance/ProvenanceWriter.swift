@@ -467,6 +467,7 @@ private extension ProvenanceStep {
             outputs: outputs,
             exitStatus: exitStatus,
             wallTimeSeconds: wallTimeSeconds,
+            peakMemoryBytes: peakMemoryBytes,
             stderr: stderr,
             dependsOn: dependsOn,
             startedAt: startedAt,

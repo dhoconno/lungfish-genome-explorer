@@ -428,6 +428,7 @@ public enum ProvenanceRehydrator {
             },
             exitStatus: step.exitStatus,
             wallTimeSeconds: step.wallTimeSeconds,
+            peakMemoryBytes: step.peakMemoryBytes,
             stderr: step.stderr,
             dependsOn: step.dependsOn,
             startedAt: step.startedAt,

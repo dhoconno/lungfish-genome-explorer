@@ -122,11 +122,9 @@ enum CLIProvenanceSupport {
         outputDirectory: URL,
         writeFileSidecars: Bool = true
     ) async throws -> ProvenanceEnvelope {
-        _ = peakMemoryBytes
-        _ = status
-
         let startedAt = Date().addingTimeInterval(-wallTime)
         let completedAt = Date()
+        let runtimeIdentity = ProvenanceRuntimeIdentity()
         let stepInputDescriptors = (stepInputs ?? inputs).map { ProvenanceFileDescriptor(fileRecord: $0) }
         let stepOutputDescriptors = (stepOutputs ?? outputs).map { ProvenanceFileDescriptor(fileRecord: $0) }
         let step = ProvenanceStep(
@@ -138,9 +136,32 @@ enum CLIProvenanceSupport {
             outputs: stepOutputDescriptors,
             exitStatus: Int(exitCode),
             wallTimeSeconds: wallTime,
+            peakMemoryBytes: peakMemoryBytes,
             stderr: stderr,
             startedAt: startedAt,
             completedAt: completedAt
+        )
+        let compatibilityRun = WorkflowRun(
+            name: name,
+            startTime: startedAt,
+            endTime: completedAt,
+            status: status,
+            appVersion: WorkflowRun.currentAppVersion,
+            hostOS: WorkflowRun.currentHostOS,
+            runtime: WorkflowRuntime(
+                appVersion: runtimeIdentity.appVersion,
+                hostOS: runtimeIdentity.operatingSystemVersion,
+                user: runtimeIdentity.user
+            ),
+            steps: ([step] + extraSteps).map {
+                compatibilityStep(
+                    from: $0,
+                    fallbackStart: startedAt,
+                    fallbackEnd: completedAt,
+                    runtimeIdentity: runtimeIdentity
+                )
+            },
+            parameters: parameters
         )
 
         var builder = ProvenanceRunBuilder(
@@ -156,7 +177,7 @@ enum CLIProvenanceSupport {
             defaults: defaults,
             resolved: resolvedOptions(explicit: parameters, defaults: defaults, resolved: resolved)
         )
-        .runtime(ProvenanceRuntimeIdentity())
+        .runtime(runtimeIdentity)
 
         for input in inputs {
             builder = try appendInputRecord(input, to: builder)
@@ -175,7 +196,8 @@ enum CLIProvenanceSupport {
             exitStatus: Int(exitCode),
             stderr: stderr,
             startedAt: startedAt,
-            endedAt: completedAt
+            endedAt: completedAt,
+            legacyWorkflowRun: compatibilityRun
         )
 
         let writer = ProvenanceWriter()
@@ -226,6 +248,44 @@ enum CLIProvenanceSupport {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: record.path, isDirectory: &isDirectory)
             && isDirectory.boolValue
+    }
+
+    private static func compatibilityStep(
+        from step: ProvenanceStep,
+        fallbackStart: Date,
+        fallbackEnd: Date,
+        runtimeIdentity: ProvenanceRuntimeIdentity
+    ) -> StepExecution {
+        StepExecution(
+            id: step.id,
+            toolName: step.toolName,
+            toolVersion: step.toolVersion,
+            githubReleaseVersion: step.githubReleaseVersion,
+            containerImage: runtimeIdentity.containerImage,
+            containerDigest: runtimeIdentity.containerDigest,
+            command: legacyCommand(argv: step.argv, reproducibleCommand: step.reproducibleCommand),
+            durableReplayArgv: step.durableReplayArgv,
+            inputs: step.inputs.map(FileRecord.init(provenanceFile:)),
+            outputs: step.outputs.map(FileRecord.init(provenanceFile:)),
+            exitCode: step.exitStatus.map(Int32.init),
+            wallTime: step.wallTimeSeconds,
+            peakMemoryBytes: step.peakMemoryBytes,
+            stderr: step.stderr,
+            dependsOn: step.dependsOn,
+            startTime: step.startedAt ?? fallbackStart,
+            endTime: step.completedAt ?? fallbackEnd
+        )
+    }
+
+    private static func legacyCommand(argv: [String], reproducibleCommand: String) -> [String] {
+        if !argv.isEmpty {
+            return argv
+        }
+        let trimmed = reproducibleCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return []
+        }
+        return ["/bin/sh", "-lc", trimmed]
     }
 
     private static func shouldUseDescriptorVerbatim(for path: String) -> Bool {

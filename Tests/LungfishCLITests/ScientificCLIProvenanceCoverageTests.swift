@@ -5,6 +5,49 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class ScientificCLIProvenanceCoverageTests: XCTestCase {
+    func testSingleStepHelperPreservesCallerStatusAndPeakMemoryInCompatibilityRun() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("single-step-helper-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let inputURL = root.appendingPathComponent("reads.fastq")
+        let outputURL = root.appendingPathComponent("cancelled.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        try Data().write(to: outputURL)
+
+        let envelope = try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fastq cancelled-fixture",
+            parameters: ["limit": .integer(10)],
+            toolName: "lungfish fastq cancelled-fixture",
+            toolVersion: "fixture",
+            command: [CLICommandIdentity.executableName, "fastq", "cancelled-fixture", inputURL.path],
+            inputs: [
+                FileRecord(path: inputURL.path, format: .fastq, role: .input),
+            ],
+            outputs: [
+                FileRecord(path: outputURL.path, format: .fastq, role: .output),
+            ],
+            exitCode: 130,
+            wallTime: 0.25,
+            peakMemoryBytes: 42_000_000,
+            stderr: "cancelled by user",
+            status: .cancelled,
+            outputDirectory: root,
+            writeFileSidecars: false
+        )
+
+        let compatibilityRun = envelope.legacyWorkflowRun()
+        XCTAssertEqual(compatibilityRun.status, .cancelled)
+        XCTAssertEqual(compatibilityRun.steps.first?.peakMemoryBytes, 42_000_000)
+
+        let decoded = try ProvenanceEnvelopeReader.decode(try Data(
+            contentsOf: root.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        ))
+        XCTAssertEqual(decoded.legacyWorkflowRun().status, .cancelled)
+        XCTAssertEqual(decoded.legacyWorkflowRun().steps.first?.peakMemoryBytes, 42_000_000)
+    }
+
     func testScientificTopLevelCommandsHavePolicyEntries() {
         let nonScientificTopLevelCommands: Set<String> = [
             "version",

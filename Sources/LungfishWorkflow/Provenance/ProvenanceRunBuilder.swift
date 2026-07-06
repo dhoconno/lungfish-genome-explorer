@@ -187,6 +187,22 @@ public struct ProvenanceRunBuilder: Sendable {
         startedAt: Date,
         endedAt: Date
     ) throws -> ProvenanceEnvelope {
+        try complete(
+            exitStatus: exitStatus,
+            stderr: stderr,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            legacyWorkflowRun: nil
+        )
+    }
+
+    public func complete(
+        exitStatus: Int,
+        stderr: String? = nil,
+        startedAt: Date,
+        endedAt: Date,
+        legacyWorkflowRun: WorkflowRun?
+    ) throws -> ProvenanceEnvelope {
         guard endedAt >= startedAt else {
             throw ProvenanceBuilderError.invalidTimeRange(workflowName)
         }
@@ -228,7 +244,8 @@ public struct ProvenanceRunBuilder: Sendable {
             steps: provenanceSteps,
             wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
             exitStatus: exitStatus,
-            stderr: ProvenanceStderr.normalized(stderr)
+            stderr: ProvenanceStderr.normalized(stderr),
+            legacyWorkflowRun: legacyWorkflowRun
         )
     }
 

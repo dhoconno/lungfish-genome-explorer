@@ -36,7 +36,7 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.toolName, "lungfish fastq import-ont")
         XCTAssertEqual(envelope.exitStatus, 0)
         XCTAssertEqual(envelope.argv, [
-            "lungfish", "fastq", "import-ont",
+            CLICommandIdentity.executableName, "fastq", "import-ont",
             sourceURL.path, "--output", outputURL.path, "--concurrency", "1",
         ])
         XCTAssertEqual(envelope.options.defaults["includeUnclassified"], .boolean(false))
