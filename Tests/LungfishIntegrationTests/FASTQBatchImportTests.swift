@@ -217,6 +217,45 @@ final class FASTQBatchImportTests: XCTestCase {
         )
     }
 
+    func testBatchImportDoesNotReplaceIncompleteBundleWithoutForce() async throws {
+        let projectDir = tempDir!
+        let pair = SamplePair(
+            sampleName: "test",
+            r1: TestFixtures.sarscov2.fastqR1,
+            r2: TestFixtures.sarscov2.fastqR2
+        )
+        let existingBundleURL = FASTQBatchImporter.bundleOutputURL(for: pair, in: projectDir)
+        try FileManager.default.createDirectory(at: existingBundleURL, withIntermediateDirectories: true)
+        let sentinelURL = existingBundleURL.appendingPathComponent("do-not-delete.txt")
+        try "existing user data".write(to: sentinelURL, atomically: true, encoding: .utf8)
+
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: projectDir,
+            recipe: nil,
+            qualityBinning: .illumina4,
+            threads: 4,
+            logDirectory: nil
+        )
+
+        let collector = EventCollector()
+        let result = await FASTQBatchImporter.runBatchImport(
+            pairs: [pair],
+            config: config,
+            log: { event in
+                collector.append(FASTQBatchImporter.encodeLogEvent(event))
+            }
+        )
+
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.skipped, 0)
+        XCTAssertEqual(result.failed, 1)
+        XCTAssertEqual(result.errors.first?.sample, "test")
+        XCTAssertTrue(result.errors.first?.error.contains("--force") == true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sentinelURL.path))
+        XCTAssertEqual(try String(contentsOf: sentinelURL, encoding: .utf8), "existing user data")
+        XCTAssertTrue(collector.events.contains { $0.contains("sampleFailed") && $0.contains("--force") })
+    }
+
     func testBatchImportEmitsImportStartAndComplete() async throws {
         let projectDir = tempDir!
 

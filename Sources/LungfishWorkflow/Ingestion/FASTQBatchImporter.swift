@@ -82,7 +82,7 @@ public enum BatchImportError: Error, LocalizedError {
         case .recipeNotApplicable(let recipe, let sample, let reason):
             return "Recipe '\(recipe)' cannot be applied to sample '\(sample)': \(reason)"
         case .outputBundleAlreadyExists(let url):
-            return "Output FASTQ bundle already exists: \(url.path)"
+            return "Output FASTQ bundle already exists: \(url.path). Use --force to replace it."
         case .statisticsUnavailable(let reason):
             return "FASTQ statistics could not be computed: \(reason)"
         }
@@ -419,6 +419,23 @@ public enum FASTQBatchImporter {
         return isCompleteFASTQImportBundle(at: bundleURL)
     }
 
+    private enum ExistingImportBundleStatus {
+        case missing
+        case complete
+        case incomplete(URL)
+    }
+
+    private static func existingImportBundleStatus(
+        for pair: SamplePair,
+        in projectDir: URL
+    ) -> ExistingImportBundleStatus {
+        let bundleURL = bundleOutputURL(for: pair, in: projectDir)
+        guard FileManager.default.fileExists(atPath: bundleURL.path) else {
+            return .missing
+        }
+        return isCompleteFASTQImportBundle(at: bundleURL) ? .complete : .incomplete(bundleURL)
+    }
+
     private static func isCompleteFASTQImportBundle(at bundleURL: URL) -> Bool {
         guard FASTQBundle.isBundleURL(bundleURL),
               let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL),
@@ -617,12 +634,25 @@ public enum FASTQBatchImporter {
 
         for (index, pair) in pairs.enumerated() {
             // Check for skip before allocating anything (unless forceReimport is set)
-            if !config.forceReimport && bundleExists(for: pair, in: config.projectDirectory) {
-                let reason = "Bundle already exists"
-                log?(.sampleSkip(sample: pair.sampleName, reason: reason))
-                logger.info("Skipping \(pair.sampleName): \(reason)")
-                skipped += 1
-                continue
+            if !config.forceReimport {
+                switch existingImportBundleStatus(for: pair, in: config.projectDirectory) {
+                case .complete:
+                    let reason = "Bundle already exists"
+                    log?(.sampleSkip(sample: pair.sampleName, reason: reason))
+                    logger.info("Skipping \(pair.sampleName): \(reason)")
+                    skipped += 1
+                    continue
+                case .incomplete(let bundleURL):
+                    let error = BatchImportError.outputBundleAlreadyExists(bundleURL)
+                    let message = error.localizedDescription
+                    log?(.sampleFailed(sample: pair.sampleName, error: message))
+                    logger.error("Sample \(pair.sampleName) failed: \(message)")
+                    errors.append((sample: pair.sampleName, error: message))
+                    failed += 1
+                    continue
+                case .missing:
+                    break
+                }
             }
 
             // Process this sample; autoreleasepool drains synchronous ObjC objects between iterations
@@ -953,7 +983,7 @@ public enum FASTQBatchImporter {
             try publishFASTQBundle(
                 from: stagingBundleURL,
                 to: bundleURL,
-                replaceExisting: config.forceReimport || !isCompleteFASTQImportBundle(at: bundleURL)
+                replaceExisting: config.forceReimport
             )
             didPublishBundle = true
 
