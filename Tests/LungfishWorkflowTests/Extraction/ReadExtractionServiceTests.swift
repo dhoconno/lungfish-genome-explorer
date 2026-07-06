@@ -64,5 +64,26 @@ final class ReadExtractionServiceTests: XCTestCase {
         XCTAssertEqual(persisted.ingestion?.pairingMode, .pairedEnd)
         XCTAssertEqual(persisted.ingestion?.originalFilenames, ["selected_R1.fastq", "selected_R2.fastq"])
         XCTAssertEqual(persisted.downloadSource, "read-extraction")
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.workflowName, "Classifier Read Extraction")
+        XCTAssertEqual(provenance.toolName, "test")
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.options.resolvedDefaults["readCount"], .integer(1))
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == movedR1.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == bundleURL.appendingPathComponent("extraction-metadata.json").path
+                && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: bundleURL
+                    .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                    .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+                    .path
+            )
+        )
     }
 }

@@ -758,6 +758,21 @@ final class ClassifierReadResolverTests: XCTestCase {
         )
         let persisted = try XCTUnwrap(FASTQMetadataStore.load(for: fastqURL))
         XCTAssertEqual(persisted.ingestion?.pairingMode, .singleEnd)
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.workflowName, "Classifier Read Extraction")
+        XCTAssertEqual(provenance.options.resolvedDefaults["readCount"], .integer(n))
+        XCTAssertEqual(provenance.options.resolvedDefaults["outputFormat"], .string("fastq"))
+        XCTAssertTrue(provenance.files.contains {
+            $0.role == .input && $0.path == bamDest.standardizedFileURL.path
+                && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == fastqURL.standardizedFileURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == metadataURL.standardizedFileURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
     }
 
     func testDestination_clipboard_returnsSerializedFASTQ() async throws {

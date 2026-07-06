@@ -914,6 +914,7 @@ public actor ClassifierReadResolver {
                 "classifierExtractionOutputFormat": outputFormat,
                 "classifierExtractionReadCountUnit": "reads",
             ])
+            .recordingSourceURLs(provenanceSourceURLs)
             // Classifier extraction intentionally normalizes BAM-backed and
             // Kraken2 selections into one output file before bundling. Any
             // upstream mate layout has already been flattened, so the bundle

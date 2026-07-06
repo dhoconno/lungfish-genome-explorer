@@ -583,7 +583,8 @@ public actor ReadExtractionService {
                 bundleURL: bundleURL,
                 payloadURLs: result.fastqURLs.map { bundleURL.appendingPathComponent($0.lastPathComponent) },
                 metadataURL: metadataURL,
-                metadata: metadata
+                metadata: metadata,
+                readCount: result.readCount
             )
         } catch {
             throw ExtractionError.bundleCreationFailed(
@@ -616,52 +617,99 @@ public actor ReadExtractionService {
         bundleURL: URL,
         payloadURLs: [URL],
         metadataURL: URL,
-        metadata: ExtractionMetadata
+        metadata: ExtractionMetadata,
+        readCount: Int
     ) throws {
         let commandString = metadata.parameters["reproducibleCommand"]
         let command = commandString.map { ["sh", "-lc", $0] }
             ?? ["lungfish-cli", "extract", "reads", "--by-classifier"]
+        let reproducibleCommand = commandString ?? command.map(shellEscape).joined(separator: " ")
+        let sourceURLs = metadata.sourceURLs
         let inputRecords: [FileRecord]
-        if let resultPath = metadata.parameters["resultPath"] {
-            inputRecords = [ProvenanceRecorder.fileRecord(url: URL(fileURLWithPath: resultPath), role: .input)]
+        if !sourceURLs.isEmpty {
+            inputRecords = sourceURLs.map { ProvenanceRecorder.fileOrDirectoryRecord(url: $0, role: .input) }
+        } else if let resultPath = metadata.parameters["resultPath"] {
+            inputRecords = [
+                ProvenanceRecorder.fileOrDirectoryRecord(url: URL(fileURLWithPath: resultPath), role: .input)
+            ]
         } else {
             inputRecords = []
         }
         let outputRecords =
-            payloadURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .output) }
+            payloadURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: extractionFormat(for: $0), role: .output) }
             + [ProvenanceRecorder.fileRecord(url: metadataURL, format: .json, role: .output)]
         let parameters = metadata.parameters.reduce(into: [String: ParameterValue]()) { partialResult, entry in
             partialResult[entry.key] = .string(entry.value)
         }
         let completedAt = Date()
-        let step = StepExecution(
+        let inputs = inputRecords.map { ProvenanceFileDescriptor(fileRecord: $0) }
+        let outputs = outputRecords.map { ProvenanceFileDescriptor(fileRecord: $0) }
+        let wallTime = completedAt.timeIntervalSince(metadata.extractionDate)
+        let step = ProvenanceStep(
             toolName: metadata.toolName,
             toolVersion: WorkflowRun.currentAppVersion,
-            command: command,
-            inputs: inputRecords,
-            outputs: outputRecords,
-            exitCode: 0,
-            wallTime: completedAt.timeIntervalSince(metadata.extractionDate),
-            startTime: metadata.extractionDate,
-            endTime: completedAt
+            argv: command,
+            reproducibleCommand: reproducibleCommand,
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: 0,
+            wallTimeSeconds: wallTime,
+            startedAt: metadata.extractionDate,
+            completedAt: completedAt
         )
-        var run = WorkflowRun(
-            name: "Classifier Read Extraction",
-            startTime: metadata.extractionDate,
-            endTime: completedAt,
-            status: .completed,
+        let outputFormat = payloadURLs.first.map { extractionFormat(for: $0).rawValue } ?? FileFormat.unknown.rawValue
+        let envelope = ProvenanceEnvelope(
+            createdAt: metadata.extractionDate,
+            workflowName: "Classifier Read Extraction",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: metadata.toolName,
+            toolVersion: WorkflowRun.currentAppVersion,
+            tool: ProvenanceToolIdentity(name: metadata.toolName, version: WorkflowRun.currentAppVersion, kind: "app"),
+            argv: command,
+            reproducibleCommand: reproducibleCommand,
+            options: ProvenanceOptions(
+                explicit: parameters,
+                resolvedDefaults: [
+                    "readCount": .integer(readCount),
+                    "sourceCount": .integer(inputRecords.count),
+                    "outputFormat": .string(outputFormat),
+                ]
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            files: deduplicated(inputs + outputs),
+            output: outputs.first,
+            outputs: outputs,
             steps: [step],
-            parameters: parameters
+            wallTimeSeconds: wallTime,
+            exitStatus: 0
         )
-        run.endTime = completedAt
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(run)
-        try data.write(
-            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            options: .atomic
-        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+    }
+
+    private func extractionFormat(for url: URL) -> FileFormat {
+        switch url.pathExtension.lowercased() {
+        case "fa", "fasta", "fna":
+            return .fasta
+        case "fq", "fastq":
+            return .fastq
+        case "gz":
+            let stemExtension = url.deletingPathExtension().pathExtension.lowercased()
+            return ["fq", "fastq"].contains(stemExtension) ? .fastq : .unknown
+        default:
+            return .unknown
+        }
+    }
+
+    private func deduplicated(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors {
+            let key = "\(descriptor.role.rawValue)\u{0}\(descriptor.path)"
+            if seen.insert(key).inserted {
+                result.append(descriptor)
+            }
+        }
+        return result
     }
 
     // MARK: - Private Helpers

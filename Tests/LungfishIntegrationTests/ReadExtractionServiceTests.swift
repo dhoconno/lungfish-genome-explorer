@@ -310,13 +310,12 @@ final class ReadExtractionServiceTests: XCTestCase {
         XCTAssertEqual(decoded.toolName, "TestSuite")
         XCTAssertEqual(decoded.sourceDescription, "SARS-CoV-2 test")
 
-        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
-        XCTAssertEqual(provenance.name, "Classifier Read Extraction")
-        XCTAssertEqual(provenance.status, .completed)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.workflowName, "Classifier Read Extraction")
+        XCTAssertEqual(provenance.exitStatus, 0)
         XCTAssertEqual(provenance.steps.first?.toolName, "TestSuite")
-        XCTAssertTrue(provenance.allOutputFiles.contains { $0.path.hasSuffix("extraction-metadata.json") })
-        XCTAssertTrue(provenance.allOutputFiles.contains { $0.path.hasSuffix(".fastq") })
+        XCTAssertTrue(provenance.outputs.contains { $0.path.hasSuffix("extraction-metadata.json") })
+        XCTAssertTrue(provenance.outputs.contains { $0.path.hasSuffix(".fastq") })
     }
 
     // MARK: - BAMRegionMatcher with Real BAM
