@@ -218,6 +218,48 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         XCTAssertEqual(UserDefaults.standard.string(forKey: "database.human-scrubber.overrideFilename"), installed.lastPathComponent)
     }
 
+    func testManagedDatabaseInstallWritesCanonicalProvenanceEnvelope() async throws {
+        let bundledRoot = try bundledDatabasesRoot()
+        let userRoot = tempDir.appendingPathComponent("user-databases", isDirectory: true)
+        let downloadDirectory = tempDir.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadDirectory, withIntermediateDirectories: true)
+        let payload = Data("human-scrubber-payload\n".utf8)
+        let expectedMD5 = Self.md5Hex(payload)
+        let downloader: ManagedDatabaseDownloader = { url, progress in
+            let outputURL = downloadDirectory
+                .appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
+            let data = url.lastPathComponent.hasSuffix(".md5")
+                ? Data("\(expectedMD5)  human_filter.db.20250916v2\n".utf8)
+                : payload
+            try data.write(to: outputURL)
+            progress(1.0, Int64(data.count), Int64(data.count))
+            return ManagedDatabaseDownloadResult(fileURL: outputURL, wallTime: 0.125)
+        }
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: bundledRoot,
+            userDatabasesRoot: userRoot,
+            managedDatabaseDownloader: downloader
+        )
+
+        let installed = try await registry.installManagedDatabase("human-scrubber", reinstall: true)
+
+        let provenanceURL = installed.deletingLastPathComponent()
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertEqual(envelope.workflowName, "Human Read Scrubber Database managed database install")
+        XCTAssertEqual(envelope.toolName, "URLSession")
+        XCTAssertEqual(envelope.tool.kind, "cli")
+        XCTAssertEqual(envelope.options.explicit["databaseID"]?.stringValue, "human-scrubber")
+        XCTAssertEqual(envelope.options.explicit["expectedMD5"]?.stringValue, expectedMD5)
+        XCTAssertEqual(envelope.output?.path, installed.path)
+        XCTAssertEqual(envelope.output?.fileSize, UInt64(payload.count))
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(envelope.legacyRun?.parameters["databaseID"]?.stringValue, "human-scrubber")
+    }
+
     func testDeaconPanhumanInstallWritesManagedDatabaseProvenance() async throws {
         let bundledRoot = try bundledDatabasesRoot()
         let userRoot = tempDir.appendingPathComponent("user-databases", isDirectory: true)

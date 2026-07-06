@@ -1242,11 +1242,7 @@ public actor DatabaseRegistry {
     }
 
     private static func writeManagedDatabaseProvenance(_ run: WorkflowRun, to provenanceURL: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(run)
-        try data.write(to: provenanceURL, options: .atomic)
+        try ProvenanceWriter().write(run.canonicalEnvelope(), toSidecar: provenanceURL)
     }
 
     private func remoteFileRecord(url: URL, format: FileFormat, role: FileRole) -> FileRecord {
