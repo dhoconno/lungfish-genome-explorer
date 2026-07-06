@@ -890,6 +890,32 @@ final class BlastServiceTests: XCTestCase {
         }
     }
 
+    func testGetResultsDoesNotPersistDebugArtifacts() async throws {
+        let rid = "NODEBUG123"
+        let debugDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-blast-debug")
+        try? FileManager.default.removeItem(at: debugDir)
+        defer { try? FileManager.default.removeItem(at: debugDir) }
+
+        await mockClient.register(
+            pattern: "blast/Blast.cgi",
+            response: .text(mockBlastJSON2Response())
+        )
+
+        let results = try await service.getResults(rid: rid)
+        XCTAssertEqual(results.count, 2)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: debugDir.appendingPathComponent("\(rid)-raw-response").path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: debugDir.appendingPathComponent("\(rid)-extracted.json").path
+            )
+        )
+    }
+
     // MARK: - Verdict Assignment Tests
 
     func testVerdictVerified() async {

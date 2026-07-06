@@ -773,14 +773,6 @@ public actor BlastService {
         let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
         logger.info("getResults: received \(data.count, privacy: .public) bytes, Content-Type=\(contentType, privacy: .public)")
 
-        // Save raw BLAST response for debugging. Written to the same temp
-        // directory the OS cleans up automatically.
-        let debugDir = FileManager.default.temporaryDirectory.appendingPathComponent("lungfish-blast-debug")
-        try? FileManager.default.createDirectory(at: debugDir, withIntermediateDirectories: true)
-        let rawFile = debugDir.appendingPathComponent("\(rid)-raw-response")
-        try? data.write(to: rawFile)
-        logger.info("getResults: saved raw response to \(rawFile.path, privacy: .public)")
-
         // NCBI sometimes returns BLAST JSON2 results as a ZIP archive.
         // Detect ZIP magic bytes (PK\x03\x04) and decompress before parsing.
         let resultData: Data
@@ -790,11 +782,6 @@ public actor BlastService {
         } else {
             resultData = data
         }
-
-        // Save extracted/decompressed content for debugging
-        let jsonFile = debugDir.appendingPathComponent("\(rid)-extracted.json")
-        try? resultData.write(to: jsonFile)
-        logger.info("getResults: saved extracted content to \(jsonFile.path, privacy: .public)")
 
         return try parseJSON2Results(resultData)
     }
