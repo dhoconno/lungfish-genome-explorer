@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import ArgumentParser
+import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -144,6 +145,7 @@ struct NCBISubcommand: AsyncParsableCommand {
                     outputURL: URL(fileURLWithPath: outputPath),
                     startedAt: startedAt,
                     completedAt: Date(),
+                    fetchedRecords: fetchedRecords,
                     retryEvents: retryEvents
                 )
                 if !globalOptions.quiet {
@@ -179,6 +181,7 @@ struct NCBISubcommand: AsyncParsableCommand {
         startedAt: Date,
         completedAt: Date,
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        fetchedRecords: [(accession: String, content: String)]? = nil,
         retryEvents: [NCBIRetryEvent] = []
     ) throws {
         let fm = FileManager.default
@@ -214,14 +217,17 @@ struct NCBISubcommand: AsyncParsableCommand {
                 format: tempRecord.format,
                 role: tempRecord.role
             )
-            try ncbiFetchProvenanceData(
+            let provenanceEnvelope = try ncbiFetchProvenanceEnvelope(
                 outputURL: outputURL,
                 outputRecord: finalOutputRecord,
                 startedAt: startedAt,
                 completedAt: completedAt,
                 environment: environment,
+                outputContent: content,
+                fetchedRecords: fetchedRecords,
                 retryEvents: retryEvents
-            ).write(to: tempProvenanceURL, options: .atomic)
+            )
+            try ProvenanceWriter(signingProvider: nil).write(provenanceEnvelope, toSidecar: tempProvenanceURL)
 
             if fm.fileExists(atPath: outputURL.path) {
                 try fm.moveItem(at: outputURL, to: backupOutputURL)
@@ -271,68 +277,103 @@ struct NCBISubcommand: AsyncParsableCommand {
             format: fileFormat(forFetchFormat: fetchFormat),
             role: .output
         )
-        try ncbiFetchProvenanceData(
+        let outputContent = try String(contentsOf: outputURL, encoding: .utf8)
+        let provenanceEnvelope = try ncbiFetchProvenanceEnvelope(
             outputURL: outputURL,
             outputRecord: outputRecord,
             startedAt: startedAt,
             completedAt: completedAt,
             environment: environment,
+            outputContent: outputContent,
+            fetchedRecords: nil,
             retryEvents: retryEvents
-        ).write(
-            to: Self.provenanceSidecarURL(for: outputURL),
-            options: .atomic
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            provenanceEnvelope,
+            toSidecar: Self.provenanceSidecarURL(for: outputURL)
         )
     }
 
-    private func ncbiFetchProvenanceData(
+    private func ncbiFetchProvenanceEnvelope(
         outputURL: URL,
         outputRecord: FileRecord,
         startedAt: Date,
         completedAt: Date,
         environment: [String: String],
+        outputContent: String,
+        fetchedRecords: [(accession: String, content: String)]?,
         retryEvents: [NCBIRetryEvent]
-    ) throws -> Data {
-        let step = StepExecution(
+    ) throws -> ProvenanceEnvelope {
+        let command = ncbiFetchCommand(outputPath: outputURL.path)
+        let inputDescriptors = ncbiInputDescriptors(outputContent: outputContent, fetchedRecords: fetchedRecords)
+        let outputDescriptor = ProvenanceFileDescriptor(fileRecord: outputRecord)
+        let step = ProvenanceStep(
             toolName: "ncbi-efetch",
             toolVersion: "NCBI E-utilities API",
-            command: ncbiFetchCommand(outputPath: outputURL.path),
-            inputs: ncbiInputRecords(),
-            outputs: [outputRecord],
-            exitCode: 0,
-            wallTime: completedAt.timeIntervalSince(startedAt),
+            argv: command,
+            durableReplayArgv: command,
+            inputs: inputDescriptors,
+            outputs: [outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             stderr: nil,
-            startTime: startedAt,
-            endTime: completedAt
+            startedAt: startedAt,
+            completedAt: completedAt
         )
-        let run = WorkflowRun(
+        let legacyRun = WorkflowRun(
             name: "ncbi-sequence-fetch",
             startTime: startedAt,
             endTime: completedAt,
             status: .completed,
             appVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
             hostOS: WorkflowRun.currentHostOS,
-            steps: [step],
-            parameters: [
-                "accessions": .array(accessions.map { .string($0) }),
-                "database": .string(database),
-                "fetchFormat": .string(fetchFormat),
-                "resolvedFetchFormat": .string(Self.resolvedFetchFormatName(for: fetchFormat)),
-                "saveTo": .string(outputURL.standardizedFileURL.path),
-                "apiKeyProvided": .boolean(Self.apiKeyProvided(explicitAPIKey: apiKey, environment: environment)),
-                "retryEnabled": .boolean(!noRetry),
-                "retryCount": .integer(retryEvents.count),
-                "retryEvents": .array(Self.retryEventParameterValues(retryEvents)),
-                "outputFormat": .string(globalOptions.outputFormat.rawValue),
-                "quiet": .boolean(globalOptions.quiet),
-                "endpoint": .string("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"),
-                "containerRuntime": .string("none"),
-                "condaEnvironment": .string("none")
-            ]
+            steps: [StepExecution(
+                toolName: "ncbi-efetch",
+                toolVersion: "NCBI E-utilities API",
+                command: command,
+                inputs: inputDescriptors.map(FileRecord.init(provenanceFile:)),
+                outputs: [outputRecord],
+                exitCode: 0,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: nil,
+                startTime: startedAt,
+                endTime: completedAt
+            )],
+            parameters: ncbiFetchParameters(
+                outputURL: outputURL,
+                environment: environment,
+                retryEvents: retryEvents
+            )
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(run)
+        let parameters = ncbiFetchParameters(
+            outputURL: outputURL,
+            environment: environment,
+            retryEvents: retryEvents
+        )
+        let defaults = ncbiFetchDefaults()
+        return ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: "ncbi-sequence-fetch",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "ncbi-efetch",
+            toolVersion: "NCBI E-utilities API",
+            argv: command,
+            durableReplayArgv: command,
+            reproducibleCommand: command.map(fetchShellEscape).joined(separator: " "),
+            options: ProvenanceOptions(
+                explicit: parameters,
+                defaults: defaults,
+                resolvedDefaults: resolvedProvenanceOptions(explicit: parameters, defaults: defaults)
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            files: inputDescriptors + [outputDescriptor],
+            output: outputDescriptor,
+            outputs: [outputDescriptor],
+            steps: [step],
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: 0,
+            legacyWorkflowRun: legacyRun
+        )
     }
 
     private func ncbiFetchCommand(outputPath: String) -> [String] {
@@ -352,6 +393,65 @@ struct NCBISubcommand: AsyncParsableCommand {
             command.append("--quiet")
         }
         return command
+    }
+
+    private func ncbiFetchParameters(
+        outputURL: URL,
+        environment: [String: String],
+        retryEvents: [NCBIRetryEvent]
+    ) -> [String: ParameterValue] {
+        [
+            "accessions": .array(accessions.map { .string($0) }),
+            "database": .string(database),
+            "fetchFormat": .string(fetchFormat),
+            "resolvedFetchFormat": .string(Self.resolvedFetchFormatName(for: fetchFormat)),
+            "saveTo": .string(outputURL.standardizedFileURL.path),
+            "apiKeyProvided": .boolean(Self.apiKeyProvided(explicitAPIKey: apiKey, environment: environment)),
+            "retryEnabled": .boolean(!noRetry),
+            "retryCount": .integer(retryEvents.count),
+            "retryEvents": .array(Self.retryEventParameterValues(retryEvents)),
+            "outputFormat": .string(globalOptions.outputFormat.rawValue),
+            "quiet": .boolean(globalOptions.quiet),
+            "endpoint": .string("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"),
+            "containerRuntime": .string("none"),
+            "condaEnvironment": .string("none")
+        ]
+    }
+
+    private func ncbiFetchDefaults() -> [String: ParameterValue] {
+        [
+            "database": .string("nucleotide"),
+            "fetchFormat": .string("fasta"),
+            "resolvedFetchFormat": .string("fasta"),
+            "saveTo": .null,
+            "apiKeyProvided": .boolean(false),
+            "retryEnabled": .boolean(true),
+            "retryCount": .integer(0),
+            "retryEvents": .array([]),
+            "outputFormat": .string(OutputFormat.text.rawValue),
+            "quiet": .boolean(false),
+            "endpoint": .string("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"),
+            "containerRuntime": .string("none"),
+            "condaEnvironment": .string("none")
+        ]
+    }
+
+    private func ncbiInputDescriptors(
+        outputContent: String,
+        fetchedRecords: [(accession: String, content: String)]?
+    ) -> [ProvenanceFileDescriptor] {
+        let rettype = Self.ncbiRettype(for: fetchFormat)
+        let records = fetchedRecords ?? accessions.map { (accession: $0, content: outputContent) }
+        return records.map { record in
+            let data = Data(record.content.utf8)
+            return ProvenanceFileDescriptor(
+                path: "ncbi://\(database)/\(record.accession)?rettype=\(rettype)",
+                checksumSHA256: Self.sha256Hex(data),
+                fileSize: UInt64(data.count),
+                format: fileFormat(forFetchFormat: fetchFormat),
+                role: .input
+            )
+        }
     }
 
     static func resolvedAPIKey(explicitAPIKey: String?, environment: [String: String]) -> String? {
@@ -380,17 +480,6 @@ struct NCBISubcommand: AsyncParsableCommand {
         }
     }
 
-    private func ncbiInputRecords() -> [FileRecord] {
-        let rettype = Self.ncbiRettype(for: fetchFormat)
-        return accessions.map { accession in
-            FileRecord(
-                path: "ncbi://\(database)/\(accession)?rettype=\(rettype)",
-                format: fileFormat(forFetchFormat: fetchFormat),
-                role: .input
-            )
-        }
-    }
-
     static func ncbiRettype(for fetchFormat: String) -> String {
         guard let format = try? ncbiFormat(for: fetchFormat) else {
             return fetchFormat
@@ -405,6 +494,10 @@ struct NCBISubcommand: AsyncParsableCommand {
         case .xml:
             return "native"
         }
+    }
+
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func fileFormat(forFetchFormat fetchFormat: String) -> FileFormat {
@@ -1390,13 +1483,14 @@ struct ENAFastaSubcommand: AsyncParsableCommand {
                 format: tempRecord.format,
                 role: tempRecord.role
             )
-            try enaFastaProvenanceData(
+            let provenanceEnvelope = try enaFastaProvenanceEnvelope(
                 outputURL: outputURL,
                 inputRecord: remoteInputRecord,
                 outputRecord: finalOutputRecord,
                 startedAt: startedAt,
                 completedAt: completedAt
-            ).write(to: tempProvenanceURL, options: .atomic)
+            )
+            try ProvenanceWriter(signingProvider: nil).write(provenanceEnvelope, toSidecar: tempProvenanceURL)
 
             if fm.fileExists(atPath: outputURL.path) {
                 try fm.moveItem(at: outputURL, to: backupOutputURL)
@@ -1434,47 +1528,98 @@ struct ENAFastaSubcommand: AsyncParsableCommand {
         return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
-    private func enaFastaProvenanceData(
+    private func enaFastaProvenanceEnvelope(
         outputURL: URL,
         inputRecord: FileRecord,
         outputRecord: FileRecord,
         startedAt: Date,
         completedAt: Date
-    ) throws -> Data {
-        let step = StepExecution(
+    ) throws -> ProvenanceEnvelope {
+        let command = enaFastaFetchCommand(outputPath: outputURL.path)
+        let inputDescriptor = ProvenanceFileDescriptor(fileRecord: inputRecord)
+        let outputDescriptor = ProvenanceFileDescriptor(fileRecord: outputRecord)
+        let step = ProvenanceStep(
             toolName: "ena-fetch-fasta",
             toolVersion: "ENA Browser API",
-            command: enaFastaFetchCommand(outputPath: outputURL.path),
-            inputs: [inputRecord],
-            outputs: [outputRecord],
-            exitCode: 0,
-            wallTime: completedAt.timeIntervalSince(startedAt),
+            argv: command,
+            durableReplayArgv: command,
+            inputs: [inputDescriptor],
+            outputs: [outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             stderr: nil,
-            startTime: startedAt,
-            endTime: completedAt
+            startedAt: startedAt,
+            completedAt: completedAt
         )
-        let run = WorkflowRun(
+        let parameters = enaFastaParameters(outputURL: outputURL)
+        let legacyRun = WorkflowRun(
             name: "ena-fasta-fetch",
             startTime: startedAt,
             endTime: completedAt,
             status: .completed,
             appVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
             hostOS: WorkflowRun.currentHostOS,
-            steps: [step],
-            parameters: [
-                "accession": .string(accession),
-                "saveTo": .string(outputURL.standardizedFileURL.path),
-                "outputFormat": .string(globalOptions.outputFormat.rawValue),
-                "quiet": .boolean(globalOptions.quiet),
-                "endpoint": .string("https://www.ebi.ac.uk/ena/browser/api/fasta"),
-                "containerRuntime": .string("none"),
-                "condaEnvironment": .string("none")
-            ]
+            steps: [StepExecution(
+                toolName: "ena-fetch-fasta",
+                toolVersion: "ENA Browser API",
+                command: command,
+                inputs: [inputRecord],
+                outputs: [outputRecord],
+                exitCode: 0,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: nil,
+                startTime: startedAt,
+                endTime: completedAt
+            )],
+            parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(run)
+        let defaults = enaFastaDefaults()
+        return ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: "ena-fasta-fetch",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "ena-fetch-fasta",
+            toolVersion: "ENA Browser API",
+            argv: command,
+            durableReplayArgv: command,
+            reproducibleCommand: command.map(fetchShellEscape).joined(separator: " "),
+            options: ProvenanceOptions(
+                explicit: parameters,
+                defaults: defaults,
+                resolvedDefaults: resolvedProvenanceOptions(explicit: parameters, defaults: defaults)
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            files: [inputDescriptor, outputDescriptor],
+            output: outputDescriptor,
+            outputs: [outputDescriptor],
+            steps: [step],
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: 0,
+            legacyWorkflowRun: legacyRun
+        )
+    }
+
+    private func enaFastaParameters(outputURL: URL) -> [String: ParameterValue] {
+        [
+            "accession": .string(accession),
+            "saveTo": .string(outputURL.standardizedFileURL.path),
+            "outputFormat": .string(globalOptions.outputFormat.rawValue),
+            "quiet": .boolean(globalOptions.quiet),
+            "endpoint": .string("https://www.ebi.ac.uk/ena/browser/api/fasta"),
+            "containerRuntime": .string("none"),
+            "condaEnvironment": .string("none")
+        ]
+    }
+
+    private func enaFastaDefaults() -> [String: ParameterValue] {
+        [
+            "saveTo": .null,
+            "outputFormat": .string(OutputFormat.text.rawValue),
+            "quiet": .boolean(false),
+            "endpoint": .string("https://www.ebi.ac.uk/ena/browser/api/fasta"),
+            "containerRuntime": .string("none"),
+            "condaEnvironment": .string("none")
+        ]
     }
 
     private func enaFastaFetchCommand(outputPath: String) -> [String] {
@@ -1489,6 +1634,28 @@ struct ENAFastaSubcommand: AsyncParsableCommand {
         return command
     }
 
+}
+
+private func resolvedProvenanceOptions(
+    explicit: [String: ParameterValue],
+    defaults: [String: ParameterValue]
+) -> [String: ParameterValue] {
+    var resolved = defaults
+    explicit.forEach { key, value in
+        resolved[key] = value
+    }
+    return resolved
+}
+
+private func fetchShellEscape(_ value: String) -> String {
+    if value.isEmpty {
+        return "''"
+    }
+    let safeCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./:=+-")
+    if value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+        return value
+    }
+    return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
 /// JSON output for ENA search

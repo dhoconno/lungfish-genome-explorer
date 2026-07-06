@@ -156,7 +156,7 @@ final class FetchNCBIProvenanceTests: XCTestCase {
         XCTAssertEqual(try loadFileSidecarEnvelope(for: finalGFFURL).output?.path, finalGFFURL.path)
     }
 
-    func testSaveToWritesOutputAndFileSpecificWorkflowProvenance() throws {
+    func testSaveToWritesOutputAndFileSpecificCanonicalProvenance() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FetchNCBIProvenanceOutputTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -183,12 +183,31 @@ final class FetchNCBIProvenanceTests: XCTestCase {
         let provenanceURL = NCBISubcommand.provenanceSidecarURL(for: outputURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let run = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
-        XCTAssertEqual(run.steps.first?.outputs.first?.path, outputURL.path)
-        XCTAssertNotNil(run.steps.first?.outputs.first?.sha256)
-        XCTAssertEqual(run.steps.first?.outputs.first?.sizeBytes, 17)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(envelope.workflowName, "ncbi-sequence-fetch")
+        XCTAssertEqual(envelope.toolName, "ncbi-efetch")
+        XCTAssertEqual(envelope.argv, [
+            "lungfish-cli", "fetch", "ncbi", "MN908947.3",
+            "--db", "nucleotide",
+            "--fetch-format", "fasta",
+            "--save-to", outputURL.path,
+            "--format", "json"
+        ])
+        XCTAssertEqual(envelope.durableReplayArgv, envelope.argv)
+        XCTAssertEqual(envelope.options.explicit["saveTo"]?.stringValue, outputURL.path)
+        XCTAssertEqual(envelope.options.resolvedDefaults["containerRuntime"]?.stringValue, "none")
+        XCTAssertEqual(envelope.output?.path, outputURL.standardizedFileURL.path)
+        XCTAssertEqual(envelope.output?.checksumSHA256, ProvenanceRecorder.sha256(of: outputURL))
+        XCTAssertEqual(envelope.output?.fileSize, 17)
+
+        let step = try XCTUnwrap(envelope.steps.first)
+        XCTAssertEqual(step.toolName, "ncbi-efetch")
+        XCTAssertEqual(step.exitStatus, 0)
+        XCTAssertEqual(step.wallTimeSeconds, 2)
+        XCTAssertEqual(step.inputs.first?.path, "ncbi://nucleotide/MN908947.3?rettype=fasta")
+        XCTAssertNotNil(step.inputs.first?.checksumSHA256)
+        XCTAssertEqual(step.outputs.first?.path, outputURL.standardizedFileURL.path)
+        XCTAssertEqual(step.outputs.first?.checksumSHA256, envelope.output?.checksumSHA256)
     }
 
     func testNCBISaveToRefusesToReplaceExistingDirectory() throws {
@@ -231,7 +250,7 @@ final class FetchNCBIProvenanceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: NCBISubcommand.provenanceSidecarURL(for: outputURL).path))
     }
 
-    func testENAFastaSaveToWritesOutputAndFileSpecificWorkflowProvenance() throws {
+    func testENAFastaSaveToWritesOutputAndFileSpecificCanonicalProvenance() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FetchENAProvenanceOutputTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -258,33 +277,31 @@ final class FetchNCBIProvenanceTests: XCTestCase {
         let provenanceURL = ENAFastaSubcommand.provenanceSidecarURL(for: outputURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let run = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
 
-        XCTAssertEqual(run.name, "ena-fasta-fetch")
-        XCTAssertEqual(run.status, .completed)
-        XCTAssertEqual(run.parameters["accession"]?.stringValue, "AB123456")
-        XCTAssertEqual(run.parameters["saveTo"]?.stringValue, outputURL.path)
-        XCTAssertEqual(run.parameters["endpoint"]?.stringValue, "https://www.ebi.ac.uk/ena/browser/api/fasta")
-        XCTAssertEqual(run.parameters["containerRuntime"]?.stringValue, "none")
-        XCTAssertEqual(run.parameters["condaEnvironment"]?.stringValue, "none")
+        XCTAssertEqual(envelope.workflowName, "ena-fasta-fetch")
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(envelope.options.explicit["accession"]?.stringValue, "AB123456")
+        XCTAssertEqual(envelope.options.explicit["saveTo"]?.stringValue, outputURL.path)
+        XCTAssertEqual(envelope.options.resolvedDefaults["endpoint"]?.stringValue, "https://www.ebi.ac.uk/ena/browser/api/fasta")
+        XCTAssertEqual(envelope.options.resolvedDefaults["containerRuntime"]?.stringValue, "none")
+        XCTAssertEqual(envelope.options.resolvedDefaults["condaEnvironment"]?.stringValue, "none")
 
-        let step = try XCTUnwrap(run.steps.first)
+        let step = try XCTUnwrap(envelope.steps.first)
         XCTAssertEqual(step.toolName, "ena-fetch-fasta")
-        XCTAssertEqual(step.exitCode, 0)
-        XCTAssertEqual(step.wallTime, 3)
-        XCTAssertTrue(step.command.contains("--save-to"))
-        XCTAssertTrue(step.command.contains(outputURL.path))
+        XCTAssertEqual(step.exitStatus, 0)
+        XCTAssertEqual(step.wallTimeSeconds, 3)
+        XCTAssertTrue(step.argv.contains("--save-to"))
+        XCTAssertTrue(step.argv.contains(outputURL.path))
         XCTAssertEqual(step.inputs.first?.path, "ena://fasta/AB123456")
         XCTAssertEqual(step.inputs.first?.format, .fasta)
-        XCTAssertNotNil(step.inputs.first?.sha256)
-        XCTAssertEqual(step.inputs.first?.sha256, step.outputs.first?.sha256)
-        XCTAssertEqual(step.inputs.first?.sizeBytes, UInt64(Data(content.utf8).count))
-        XCTAssertEqual(step.outputs.first?.path, outputURL.path)
+        XCTAssertNotNil(step.inputs.first?.checksumSHA256)
+        XCTAssertEqual(step.inputs.first?.checksumSHA256, step.outputs.first?.checksumSHA256)
+        XCTAssertEqual(step.inputs.first?.fileSize, UInt64(Data(content.utf8).count))
+        XCTAssertEqual(step.outputs.first?.path, outputURL.standardizedFileURL.path)
         XCTAssertEqual(step.outputs.first?.format, .fasta)
-        XCTAssertNotNil(step.outputs.first?.sha256)
-        XCTAssertEqual(step.outputs.first?.sizeBytes, UInt64(Data(content.utf8).count))
+        XCTAssertNotNil(step.outputs.first?.checksumSHA256)
+        XCTAssertEqual(step.outputs.first?.fileSize, UInt64(Data(content.utf8).count))
         XCTAssertFalse(
             String(decoding: try Data(contentsOf: provenanceURL), as: UTF8.self).contains(".tmp"),
             "Saved-file provenance should reference durable output paths, not temporary publish files"
@@ -327,7 +344,7 @@ final class FetchNCBIProvenanceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: ENAFastaSubcommand.provenanceSidecarURL(for: outputURL).path))
     }
 
-    func testSaveToWritesFileSpecificWorkflowProvenance() throws {
+    func testSaveToWritesFileSpecificCanonicalProvenance() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FetchNCBIProvenanceTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -353,29 +370,28 @@ final class FetchNCBIProvenanceTests: XCTestCase {
         let provenanceURL = NCBISubcommand.provenanceSidecarURL(for: outputURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let run = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
 
-        XCTAssertEqual(run.name, "ncbi-sequence-fetch")
-        XCTAssertEqual(run.status, .completed)
-        XCTAssertEqual(run.parameters["database"]?.stringValue, "nucleotide")
-        XCTAssertEqual(run.parameters["fetchFormat"]?.stringValue, "fasta")
-        XCTAssertEqual(run.parameters["saveTo"]?.stringValue, outputURL.path)
-        XCTAssertEqual(run.parameters["endpoint"]?.stringValue, "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi")
-        XCTAssertEqual(run.steps.count, 1)
+        XCTAssertEqual(envelope.workflowName, "ncbi-sequence-fetch")
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(envelope.options.explicit["database"]?.stringValue, "nucleotide")
+        XCTAssertEqual(envelope.options.explicit["fetchFormat"]?.stringValue, "fasta")
+        XCTAssertEqual(envelope.options.explicit["saveTo"]?.stringValue, outputURL.path)
+        XCTAssertEqual(envelope.options.resolvedDefaults["endpoint"]?.stringValue, "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi")
+        XCTAssertEqual(envelope.steps.count, 1)
 
-        let step = try XCTUnwrap(run.steps.first)
+        let step = try XCTUnwrap(envelope.steps.first)
         XCTAssertEqual(step.toolName, "ncbi-efetch")
-        XCTAssertEqual(step.exitCode, 0)
-        XCTAssertEqual(step.wallTime, 2)
-        XCTAssertTrue(step.command.contains("--save-to"))
-        XCTAssertTrue(step.command.contains(outputURL.path))
+        XCTAssertEqual(step.exitStatus, 0)
+        XCTAssertEqual(step.wallTimeSeconds, 2)
+        XCTAssertTrue(step.argv.contains("--save-to"))
+        XCTAssertTrue(step.argv.contains(outputURL.path))
         XCTAssertEqual(step.inputs.first?.path, "ncbi://nucleotide/MN908947.3?rettype=fasta")
-        XCTAssertEqual(step.outputs.first?.path, outputURL.path)
+        XCTAssertEqual(step.inputs.first?.checksumSHA256, ProvenanceRecorder.sha256(of: outputURL))
+        XCTAssertEqual(step.outputs.first?.path, outputURL.standardizedFileURL.path)
         XCTAssertEqual(step.outputs.first?.format, .fasta)
-        XCTAssertNotNil(step.outputs.first?.sha256)
-        XCTAssertEqual(step.outputs.first?.sizeBytes, 17)
+        XCTAssertNotNil(step.outputs.first?.checksumSHA256)
+        XCTAssertEqual(step.outputs.first?.fileSize, 17)
     }
 
     func testProvenanceRecordsEnvironmentAPIKeyPresenceWithoutSecret() throws {
@@ -406,12 +422,10 @@ final class FetchNCBIProvenanceTests: XCTestCase {
         let rawProvenance = try String(contentsOf: provenanceURL, encoding: .utf8)
         XCTAssertFalse(rawProvenance.contains("secret-from-env"))
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let run = try decoder.decode(WorkflowRun.self, from: Data(rawProvenance.utf8))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
 
-        XCTAssertEqual(run.parameters["apiKeyProvided"]?.booleanValue, true)
-        XCTAssertFalse(try XCTUnwrap(run.steps.first).command.contains("--api-key"))
+        XCTAssertEqual(envelope.options.explicit["apiKeyProvided"]?.booleanValue, true)
+        XCTAssertFalse(try XCTUnwrap(envelope.steps.first).argv.contains("--api-key"))
     }
 
     func testProvenanceRecordsRetryMetadataAndNoRetryFlag() throws {
@@ -442,16 +456,13 @@ final class FetchNCBIProvenanceTests: XCTestCase {
             ]
         )
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let run = try decoder.decode(
-            WorkflowRun.self,
-            from: try Data(contentsOf: NCBISubcommand.provenanceSidecarURL(for: outputURL))
-        )
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: NCBISubcommand.provenanceSidecarURL(for: outputURL)
+        ))
 
-        XCTAssertEqual(run.parameters["retryEnabled"]?.booleanValue, false)
-        XCTAssertEqual(run.parameters["retryCount"]?.integerValue, 2)
-        guard case .array(let retryValues) = run.parameters["retryEvents"] else {
+        XCTAssertEqual(envelope.options.explicit["retryEnabled"]?.booleanValue, false)
+        XCTAssertEqual(envelope.options.explicit["retryCount"]?.integerValue, 2)
+        guard case .array(let retryValues) = envelope.options.explicit["retryEvents"] else {
             return XCTFail("Expected retryEvents array")
         }
         XCTAssertEqual(retryValues.count, 2)
@@ -461,7 +472,7 @@ final class FetchNCBIProvenanceTests: XCTestCase {
         XCTAssertEqual(firstRetry["attempt"]?.integerValue, 1)
         XCTAssertEqual(firstRetry["statusCode"]?.integerValue, 429)
         XCTAssertEqual(firstRetry["delaySeconds"]?.numberValue, 5)
-        XCTAssertTrue(try XCTUnwrap(run.steps.first).command.contains("--no-retry"))
+        XCTAssertTrue(try XCTUnwrap(envelope.steps.first).argv.contains("--no-retry"))
     }
 
     private func loadFileSidecarEnvelope(for outputURL: URL) throws -> ProvenanceEnvelope {
