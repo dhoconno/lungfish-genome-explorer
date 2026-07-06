@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishIO
+import LungfishWorkflow
 
 final class AnalysesMigrationTests: XCTestCase {
     private var tempDir: URL!
@@ -61,6 +62,61 @@ final class AnalysesMigrationTests: XCTestCase {
         XCTAssertEqual(migrated, 1)
         let analyses = try AnalysesFolder.listAnalyses(in: tempDir)
         XCTAssertEqual(analyses.first?.tool, "kraken2")
+    }
+
+    func testMigrateWritesCanonicalProvenanceIntoMovedAnalysisDirectory() throws {
+        let bundleDir = tempDir.appendingPathComponent("sample.lungfishfastq")
+        let derivDir = bundleDir.appendingPathComponent("derivatives")
+            .appendingPathComponent("classification-provenance")
+        try FileManager.default.createDirectory(at: derivDir, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: TestAnalysisFixtures.kraken2Result.appendingPathComponent("classification-result.json"),
+            to: derivDir.appendingPathComponent("classification-result.json")
+        )
+        let legacyResultURL = derivDir.appendingPathComponent("classification-result.json")
+        let legacyChecksum = try XCTUnwrap(ProvenanceFileHasher.sha256(of: legacyResultURL))
+        let legacySize = try ProvenanceFileHasher.fileSize(of: legacyResultURL)
+
+        let migrated = try AnalysesMigration.migrateProject(at: tempDir)
+
+        XCTAssertEqual(migrated, 1)
+        let analysis = try XCTUnwrap(try AnalysesFolder.listAnalyses(in: tempDir).first)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: analysis.url))
+        let finalResultURL = analysis.url.appendingPathComponent("classification-result.json")
+        let finalResultRecord = try XCTUnwrap(envelope.files.first {
+            standardizedPath($0.path) == standardizedPath(finalResultURL.path)
+        })
+        let sourceDirectoryRecord = try XCTUnwrap(envelope.files.first {
+            standardizedPath($0.path) == standardizedPath(derivDir.path) && $0.role == .input
+        })
+        let finalDirectoryRecord = try XCTUnwrap(envelope.outputs.first {
+            standardizedPath($0.path) == standardizedPath(analysis.url.path)
+        })
+
+        XCTAssertEqual(envelope.workflowName, "lungfish analyses migrate")
+        XCTAssertEqual(envelope.toolName, "lungfish analyses migrate")
+        XCTAssertEqual(envelope.argv, ["lungfish-internal", "analyses", "migrate", "--project", tempDir.path])
+        XCTAssertEqual(envelope.options.explicit["tool"]?.stringValue, "kraken2")
+        XCTAssertEqual(envelope.options.explicit["sourceBundle"]?.stringValue, standardizedPath(bundleDir.path))
+        XCTAssertEqual(envelope.options.explicit["legacyAnalysisDirectory"]?.stringValue, standardizedPath(derivDir.path))
+        XCTAssertEqual(envelope.options.resolvedDefaults["analysisDirectory"]?.stringValue, standardizedPath(analysis.url.path))
+        XCTAssertEqual(sourceDirectoryRecord.originPath, standardizedPath(derivDir.path))
+        XCTAssertNotNil(sourceDirectoryRecord.checksumSHA256)
+        XCTAssertNotNil(sourceDirectoryRecord.fileSize)
+        XCTAssertEqual(finalDirectoryRecord.originPath, standardizedPath(derivDir.path))
+        XCTAssertNotNil(finalDirectoryRecord.checksumSHA256)
+        XCTAssertNotNil(finalDirectoryRecord.fileSize)
+        XCTAssertEqual(finalResultRecord.originPath, standardizedPath(legacyResultURL.path))
+        XCTAssertEqual(finalResultRecord.checksumSHA256, legacyChecksum)
+        XCTAssertEqual(finalResultRecord.fileSize, legacySize)
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertNotNil(envelope.wallTimeSeconds)
+        XCTAssertNotNil(envelope.runtimeIdentity.executablePath)
+        XCTAssertEqual(envelope.steps.count, 1)
+        XCTAssertEqual(
+            standardizedPath(envelope.steps.first?.outputs.first?.path ?? ""),
+            standardizedPath(analysis.url.path)
+        )
     }
 
     func testMigrateFindsFASTQBundlesInsideProjectFolders() throws {
@@ -269,5 +325,10 @@ final class AnalysesMigrationTests: XCTestCase {
         let migrated = try AnalysesMigration.migrateProject(at: tempDir)
         XCTAssertEqual(migrated, 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: derivDir.path))
+    }
+
+    private func standardizedPath(_ path: String) -> String {
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+        return resolved.hasPrefix("/var/") ? "/private\(resolved)" : resolved
     }
 }
