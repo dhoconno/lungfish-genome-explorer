@@ -450,6 +450,8 @@ XCODE_OTHER_CFLAGS="-ffile-prefix-map=$SCRATCH_PATH=/swiftpm-build -fdebug-prefi
 if [ "$REUSE_ARCHIVE" -eq 1 ]; then
     printf 'Reusing existing archive: %s\n' "$ARCHIVE_PATH"
 else
+    /bin/bash "$PROJECT_ROOT/scripts/check-package-resolved-consistency.sh" --repair "$PROJECT_ROOT"
+
     LUNGFISH_SKIP_EMBED_LUNGFISH_CLI=1 \
     LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1 \
     xcodebuild -project Lungfish.xcodeproj \

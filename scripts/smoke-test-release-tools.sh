@@ -213,7 +213,14 @@ run_test() {
 
 run_portability_scan() {
     local leak_patterns=(
+        "/Users/"
         "/Users/dho"
+        "/private/tmp"
+        "/var/folders"
+        "/tmp/lungfish"
+        "DerivedData"
+        ".worktrees/"
+        "/.tmp/"
         ".build/xcode-cli-release"
         "/opt/homebrew"
         "/opt/homebrew/Cellar"

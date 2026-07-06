@@ -9,6 +9,7 @@ class ReleaseSmokeTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(__file__).resolve().parents[2]
         self.script = self.root / "scripts" / "smoke-test-release-tools.sh"
+        self.lockfile_script = self.root / "scripts" / "check-package-resolved-consistency.sh"
 
     def test_smoke_test_fails_when_app_icon_resource_is_missing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -57,6 +58,74 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertIn("PASS lungfish-cli-tools", result.stdout)
             self.assertIn("PASS lungfish-cli-qc-summary", result.stdout)
             self.assertIn("PASS micromamba", result.stdout)
+
+    def test_smoke_test_rejects_generic_local_absolute_paths(self):
+        leak_markers = [
+            "/Users/alice/project",
+            "/private/tmp/lungfish",
+            "/var/folders/abc/lungfish",
+            "/tmp/lungfish",
+            "DerivedData/Lungfish",
+            ".worktrees/codebase-quality",
+            "/.tmp/lungfish",
+        ]
+        for marker in leak_markers:
+            with self.subTest(marker=marker):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
+                    leak_file = app_path / "Contents" / "Resources" / "leak.txt"
+                    leak_file.write_text(f"debug path: {marker}\n", encoding="utf-8")
+
+                    result = subprocess.run(
+                        ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        check=False,
+                    )
+
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(marker, result.stderr)
+
+    def test_package_resolved_guard_fails_when_xcode_lockfile_diverges(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            self._write_package_resolved(repo / "Package.resolved", revision="root")
+            self._write_package_resolved(
+                repo / "Lungfish.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+                revision="xcode",
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(self.lockfile_script), str(repo)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Package.resolved divergence", result.stderr)
+
+    def test_package_resolved_guard_accepts_matching_xcode_lockfile(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            self._write_package_resolved(repo / "Package.resolved", revision="same")
+            self._write_package_resolved(
+                repo / "Lungfish.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+                revision="same",
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(self.lockfile_script), str(repo)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PASS Package.resolved consistency", result.stdout)
 
     def _make_minimal_app(self, root, include_icon=False, include_cli=False):
         app_path = root / "Lungfish.app"
@@ -142,6 +211,27 @@ esac
             os.chmod(cli, 0o755)
 
         return app_path
+
+    def _write_package_resolved(self, path, revision):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            f"""{{
+  "pins" : [
+    {{
+      "identity" : "swift-argument-parser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-argument-parser.git",
+      "state" : {{
+        "revision" : "{revision}",
+        "version" : "1.0.0"
+      }}
+    }}
+  ],
+  "version" : 2
+}}
+""",
+            encoding="utf-8",
+        )
 
 
 if __name__ == "__main__":

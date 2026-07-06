@@ -51,6 +51,9 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
+      - name: Check Package.resolved consistency
+        run: bash scripts/check-package-resolved-consistency.sh
+
       - name: Run smoke package tests
         run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\.ScientificCLIProvenanceCoverageTests)(/|$)'
 
