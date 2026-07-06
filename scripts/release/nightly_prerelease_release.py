@@ -96,11 +96,6 @@ def next_prerelease_version(current_version: str, tags: list[str]) -> str:
     return f"{prefix}{highest + 1}"
 
 
-def next_alpha_version(current_version: str, tags: list[str]) -> str:
-    parse_prerelease_version(current_version, expected_channel="alpha")
-    return next_prerelease_version(current_version, tags)
-
-
 def previous_prerelease_tag(current_version: str, tags: list[str]) -> str:
     base, channel, current_number = parse_prerelease_version(current_version)
     prefix = f"{base}-{channel}"
@@ -117,11 +112,6 @@ def previous_prerelease_tag(current_version: str, tags: list[str]) -> str:
     if not prior_numbers:
         raise NightlyReleaseError(f"no previous {channel} tag found for {current_version}")
     return f"v{prefix}{prior_numbers[-1]}"
-
-
-def previous_alpha_tag(current_version: str, tags: list[str]) -> str:
-    parse_prerelease_version(current_version, expected_channel="alpha")
-    return previous_prerelease_tag(current_version, tags)
 
 
 def update_versioned_files(root: Path, old_version: str, new_version: str) -> list[str]:

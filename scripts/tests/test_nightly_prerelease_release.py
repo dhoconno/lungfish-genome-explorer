@@ -10,15 +10,15 @@ from unittest import mock
 
 def load_module():
     root = Path(__file__).resolve().parents[2]
-    module_path = root / "scripts" / "release" / "nightly_alpha_release.py"
-    spec = importlib.util.spec_from_file_location("nightly_alpha_release", module_path)
+    module_path = root / "scripts" / "release" / "nightly_prerelease_release.py"
+    spec = importlib.util.spec_from_file_location("nightly_prerelease_release", module_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
 
-class NightlyAlphaReleaseTests(unittest.TestCase):
+class NightlyPrereleaseTests(unittest.TestCase):
     def setUp(self):
         self.release = load_module()
 
@@ -51,18 +51,18 @@ class NightlyAlphaReleaseTests(unittest.TestCase):
         self.assertFalse(self.release.is_agent_worktree_path(root / ".worktrees" / "manual-feature", root))
         self.assertFalse(self.release.is_agent_worktree_path(root / "feature-checkout", root))
 
-    def test_next_alpha_version_increments_highest_existing_tag_for_current_series(self):
+    def test_next_prerelease_version_increments_highest_existing_tag_for_current_beta_series(self):
         tags = [
-            "v0.4.0-alpha16",
-            "v0.5.0-alpha9",
-            "v0.5.0-alpha13",
-            "v0.5.0-alpha12",
-            "v0.6.0-alpha1",
+            "v0.4.0-beta16",
+            "v0.5.0-beta9",
+            "v0.5.0-beta13",
+            "v0.5.0-beta12",
+            "v0.6.0-beta1",
         ]
 
         self.assertEqual(
-            self.release.next_alpha_version("0.5.0-alpha13", tags),
-            "0.5.0-alpha14",
+            self.release.next_prerelease_version("0.5.0-beta13", tags),
+            "0.5.0-beta14",
         )
 
     def test_next_prerelease_version_increments_beta_series_without_mixing_alpha_tags(self):
@@ -78,17 +78,17 @@ class NightlyAlphaReleaseTests(unittest.TestCase):
             "0.5.0-beta4",
         )
 
-    def test_previous_alpha_tag_falls_back_to_latest_existing_tag_when_current_version_is_untagged(self):
+    def test_previous_prerelease_tag_falls_back_to_latest_existing_tag_when_current_version_is_untagged(self):
         tags = [
-            "v0.4.0-alpha16",
-            "v0.5.0-alpha12",
-            "v0.5.0-alpha13",
-            "v0.6.0-alpha1",
+            "v0.4.0-beta16",
+            "v0.5.0-beta12",
+            "v0.5.0-beta13",
+            "v0.6.0-beta1",
         ]
 
         self.assertEqual(
-            self.release.previous_alpha_tag("0.5.0-alpha14", tags),
-            "v0.5.0-alpha13",
+            self.release.previous_prerelease_tag("0.5.0-beta14", tags),
+            "v0.5.0-beta13",
         )
 
     def test_previous_prerelease_tag_falls_back_to_matching_beta_channel(self):
@@ -112,10 +112,10 @@ class NightlyAlphaReleaseTests(unittest.TestCase):
             root = Path(temp_dir)
             notes_dir = root / "docs" / "release-notes"
             notes_dir.mkdir(parents=True, exist_ok=True)
-            prewritten = notes_dir / "v0.5.0-alpha15.md"
-            prewritten_text = """# Lungfish 0.5.0-alpha15
+            prewritten = notes_dir / "v0.5.0-beta15.md"
+            prewritten_text = """# Lungfish 0.5.0-beta15
 
-Previous release: v0.5.0-alpha14
+Previous release: v0.5.0-beta14
 
 ## Summary
 
@@ -130,9 +130,9 @@ Codex-authored narrative summary.
             ):
                 notes_path = self.release.write_release_notes(
                     root=root,
-                    old_version="0.5.0-alpha14",
-                    new_version="0.5.0-alpha15",
-                    previous_tag="v0.5.0-alpha14",
+                    old_version="0.5.0-beta14",
+                    new_version="0.5.0-beta15",
+                    previous_tag="v0.5.0-beta14",
                 )
 
             self.assertEqual(notes_path.read_text(encoding="utf-8"), prewritten_text)
@@ -143,31 +143,31 @@ Codex-authored narrative summary.
             for relative_path in self.release.VERSIONED_FILES:
                 target = root / relative_path
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text("version 0.5.0-alpha13\n", encoding="utf-8")
+                target.write_text("version 0.5.0-beta13\n", encoding="utf-8")
 
-            old_release_note = root / "docs" / "release-notes" / "v0.5.0-alpha13.md"
+            old_release_note = root / "docs" / "release-notes" / "v0.5.0-beta13.md"
             old_release_note.parent.mkdir(parents=True, exist_ok=True)
-            old_release_note.write_text("# Lungfish 0.5.0-alpha13\n", encoding="utf-8")
+            old_release_note.write_text("# Lungfish 0.5.0-beta13\n", encoding="utf-8")
 
             changed = self.release.update_versioned_files(
                 root,
-                "0.5.0-alpha13",
-                "0.5.0-alpha14",
+                "0.5.0-beta13",
+                "0.5.0-beta14",
             )
 
             self.assertEqual(set(changed), set(self.release.VERSIONED_FILES))
             for relative_path in self.release.VERSIONED_FILES:
-                self.assertIn("0.5.0-alpha14", (root / relative_path).read_text(encoding="utf-8"))
+                self.assertIn("0.5.0-beta14", (root / relative_path).read_text(encoding="utf-8"))
             self.assertEqual(
                 old_release_note.read_text(encoding="utf-8"),
-                "# Lungfish 0.5.0-alpha13\n",
+                "# Lungfish 0.5.0-beta13\n",
             )
 
     def test_rescue_retention_prunes_archives_older_than_two_days(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             rescue_root = Path(temp_dir)
-            stale = rescue_root / "v0.5.0-alpha13"
-            fresh = rescue_root / "v0.5.0-alpha14"
+            stale = rescue_root / "v0.5.0-beta13"
+            fresh = rescue_root / "v0.5.0-beta14"
             stale.mkdir()
             fresh.mkdir()
             now = time.time()
@@ -198,7 +198,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             rescue_root = root / ".build" / "rescue"
-            lock_path = root / ".build" / "nightly-alpha-release.lock"
+            lock_path = root / ".build" / "nightly-prerelease-release.lock"
             calls = []
 
             def record(name):

@@ -11,7 +11,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 export LUNGFISH_SPARKLE_PUBLIC_ED_KEY="${LUNGFISH_SPARKLE_PUBLIC_ED_KEY:-FtnZIDTqGTwkglQR0z8iSgVvxvT26a05QB3cI4xQw/c=}"
 
-exec /usr/bin/env python3 "${SCRIPT_DIR}/nightly_alpha_release.py" \
+exec /usr/bin/env python3 "${SCRIPT_DIR}/nightly_prerelease_release.py" \
   --repo "${PROJECT_ROOT}" \
   --team-id "29G3WN2GSA" \
   --notary-profile "LungfishNotary" \
