@@ -194,7 +194,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
             ["stash@{0}", "stash@{2}", "stash@{3}"],
         )
 
-    def test_main_builds_and_verifies_before_pushing_release_refs(self):
+    def test_main_builds_locally_then_pushes_release_refs_before_remote_publication(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             rescue_root = root / ".build" / "rescue"
@@ -218,6 +218,9 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                 lock_path.mkdir(parents=True)
                 return lock_path
 
+            def fake_build_release(_root, _args, _release_tag, *, defer_remote_publish):
+                calls.append(("build_release", defer_remote_publish))
+
             with mock.patch.object(self.release, "create_lock", fake_create_lock), \
                 mock.patch.object(self.release, "ensure_rescue_root_is_ignored", record("ensure_rescue_root_is_ignored")), \
                 mock.patch.object(self.release, "prune_rescue_archives", record("prune_rescue_archives")), \
@@ -232,8 +235,10 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                 mock.patch.object(self.release, "merge_agent_branches", record("merge_agent_branches")), \
                 mock.patch.object(self.release, "prepare_release_commit", record("prepare_release_commit")), \
                 mock.patch.object(self.release, "run_tests", record("run_tests")), \
-                mock.patch.object(self.release, "build_release", record("build_release")), \
-                mock.patch.object(self.release, "verify_release", side_effect=lambda *_args: calls.append("verify_release") or {}), \
+                mock.patch.object(self.release, "build_release", fake_build_release), \
+                mock.patch.object(self.release, "verify_release_artifacts", side_effect=lambda *_args: calls.append("verify_release_artifacts") or {}), \
+                mock.patch.object(self.release, "publish_release", record("publish_release")), \
+                mock.patch.object(self.release, "verify_published_release", side_effect=lambda *_args: calls.append("verify_published_release") or {}), \
                 mock.patch.object(self.release, "cleanup_agent_refs", record("cleanup_agent_refs")), \
                 mock.patch.object(self.release, "print_summary", record("print_summary")):
                 status = self.release.main([
@@ -246,14 +251,19 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                 ])
 
             self.assertEqual(status, 0)
-            self.assertLess(calls.index("run_tests"), calls.index("build_release"))
-            self.assertLess(calls.index("build_release"), calls.index("verify_release"))
-            first_push_index = min(
+            build_call = ("build_release", True)
+            self.assertIn(build_call, calls)
+            self.assertLess(calls.index("run_tests"), calls.index(build_call))
+            self.assertLess(calls.index(build_call), calls.index("verify_release_artifacts"))
+            push_indexes = [
                 index
                 for index, call in enumerate(calls)
                 if isinstance(call, tuple) and call[0] == "git" and call[1][0] == "push"
-            )
-            self.assertLess(calls.index("verify_release"), first_push_index)
+            ]
+            self.assertEqual(len(push_indexes), 2)
+            self.assertLess(calls.index("verify_release_artifacts"), push_indexes[0])
+            self.assertLess(push_indexes[-1], calls.index("publish_release"))
+            self.assertLess(calls.index("publish_release"), calls.index("verify_published_release"))
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-publish-release TAG]
+Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-publish-release TAG] [--defer-remote-publish]
 
 Required:
   --signing-identity  Developer ID Application identity used for codesign
@@ -38,6 +38,8 @@ Optional:
                       URL prefix for versioned DMG downloads (default: GitHub release v<version>)
   --sparkle-publish-release TAG
                       Upload appcast-beta.xml and release notes to this GitHub release tag with gh
+  --defer-remote-publish
+                      Build, notarize, and generate appcast files without running gh uploads
 
 The archive step writes an Xcode timing summary to stdout and stores an
 archive result bundle under <release-dir>/logs/archive.xcresult.
@@ -66,6 +68,7 @@ SPARKLE_RELEASE_NOTES=""
 SPARKLE_BUILD_NUMBER="${LUNGFISH_BUILD_NUMBER:-}"
 SPARKLE_FEED_URL=""
 GITHUB_RELEASE_TAG=""
+DEFER_REMOTE_PUBLISH=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -133,6 +136,10 @@ while [ "$#" -gt 0 ]; do
             SPARKLE_PUBLISH_RELEASE="$2"
             shift 2
             ;;
+        --defer-remote-publish)
+            DEFER_REMOTE_PUBLISH=1
+            shift
+            ;;
         --sparkle-release-notes)
             SPARKLE_RELEASE_NOTES="$2"
             shift 2
@@ -182,7 +189,7 @@ for command in xcodebuild xcrun swift codesign hdiutil ditto shasum mktemp /usr/
     require_command "$command"
 done
 
-if [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; then
+if [ "$DEFER_REMOTE_PUBLISH" -eq 0 ] && { [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; }; then
     require_command gh
 fi
 
@@ -278,6 +285,9 @@ publish_github_release_dmg() {
     if [ -z "$GITHUB_RELEASE_TAG" ]; then
         return
     fi
+    if [ "$DEFER_REMOTE_PUBLISH" -eq 1 ]; then
+        return
+    fi
 
     local notes_source
     local target_commit
@@ -358,7 +368,7 @@ generate_sparkle_appcast() {
         exit 72
     fi
 
-    if [ -n "$SPARKLE_PUBLISH_RELEASE" ]; then
+    if [ -n "$SPARKLE_PUBLISH_RELEASE" ] && [ "$DEFER_REMOTE_PUBLISH" -eq 0 ]; then
         if ! gh release view "$SPARKLE_PUBLISH_RELEASE" >/dev/null 2>&1; then
             local target_commit
             target_commit="$(git rev-parse HEAD)"

@@ -453,7 +453,13 @@ def run_tests(root: Path, test_command: str) -> None:
     run(["/bin/bash", "-lc", test_command], cwd=root)
 
 
-def build_release(root: Path, args: argparse.Namespace, release_tag: str) -> None:
+def build_release(
+    root: Path,
+    args: argparse.Namespace,
+    release_tag: str,
+    *,
+    defer_remote_publish: bool = False,
+) -> None:
     command = [
         "/bin/bash",
         str(args.release_script),
@@ -474,6 +480,8 @@ def build_release(root: Path, args: argparse.Namespace, release_tag: str) -> Non
         command.extend(["--sparkle-public-ed-key", args.sparkle_public_ed_key])
     if args.sparkle_ed_key_file:
         command.extend(["--sparkle-ed-key-file", args.sparkle_ed_key_file])
+    if defer_remote_publish:
+        command.append("--defer-remote-publish")
     env = os.environ.copy()
     if args.sparkle_public_ed_key:
         env["LUNGFISH_SPARKLE_PUBLIC_ED_KEY"] = args.sparkle_public_ed_key
@@ -489,13 +497,21 @@ def parse_metadata(path: Path) -> dict[str, str]:
     return values
 
 
-def verify_release(root: Path, release_tag: str, sparkle_release: str) -> dict[str, str]:
+def release_artifact_path(root: Path, metadata: dict[str, str], key: str) -> Path:
+    value = metadata.get(key, "")
+    if not value:
+        raise NightlyReleaseError(f"release metadata missing {key}")
+    path = Path(value)
+    return path if path.is_absolute() else root / path
+
+
+def verify_release_artifacts(root: Path) -> dict[str, str]:
     metadata_path = root / "build" / "Release" / "release-metadata.txt"
     if not metadata_path.is_file():
         raise NightlyReleaseError("release metadata was not written")
     metadata = parse_metadata(metadata_path)
-    dmg_path = root / metadata["DMG_PATH"]
-    app_path = root / metadata["release_app_path"]
+    dmg_path = release_artifact_path(root, metadata, "DMG_PATH")
+    app_path = release_artifact_path(root, metadata, "release_app_path")
     expected_sha = metadata["dmg_sha256"]
     actual_sha = output(["shasum", "-a", "256", str(dmg_path)], cwd=root).split()[0]
     if actual_sha != expected_sha:
@@ -506,6 +522,93 @@ def verify_release(root: Path, release_tag: str, sparkle_release: str) -> dict[s
     run(["xcrun", "stapler", "validate", str(dmg_path)], cwd=root)
     run(["spctl", "-a", "-vv", "-t", "open", "--context", "context:primary-signature", str(dmg_path)], cwd=root)
     run(["scripts/smoke-test-release-tools.sh", str(app_path)], cwd=root)
+    return metadata
+
+
+def github_release_exists(root: Path, release_tag: str) -> bool:
+    return subprocess.run(
+        ["gh", "release", "view", release_tag],
+        cwd=root,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    ).returncode == 0
+
+
+def publish_release(root: Path, args: argparse.Namespace, release_tag: str, metadata: dict[str, str]) -> None:
+    target_commit = git_output(root, "rev-parse", "HEAD").strip()
+    dmg_path = release_artifact_path(root, metadata, "DMG_PATH")
+    notes_source = root / "docs" / "release-notes" / f"{release_tag}.md"
+
+    if github_release_exists(root, release_tag):
+        run(["gh", "release", "edit", release_tag, "--target", target_commit], cwd=root)
+        run(["gh", "release", "upload", release_tag, str(dmg_path), "--clobber"], cwd=root)
+    else:
+        create_args = [
+            "gh",
+            "release",
+            "create",
+            release_tag,
+            str(dmg_path),
+            "--title",
+            release_tag,
+            "--prerelease",
+            "--target",
+            target_commit,
+        ]
+        if notes_source.is_file():
+            create_args.extend(["--notes-file", str(notes_source)])
+        else:
+            create_args.extend(["--notes", f"Lungfish {metadata.get('version', release_tag)} prerelease."])
+        run(create_args, cwd=root)
+
+    sparkle_release = args.sparkle_publish_release
+    if not sparkle_release:
+        return
+
+    appcast_path = release_artifact_path(root, metadata, "sparkle_appcast_path")
+    version = metadata.get("version")
+    if not version:
+        raise NightlyReleaseError("release metadata missing version")
+    notes_dest = appcast_path.parent / f"Lungfish-{version}-arm64.md"
+
+    if github_release_exists(root, sparkle_release):
+        run(["gh", "release", "edit", sparkle_release, "--target", target_commit], cwd=root)
+    else:
+        run(
+            [
+                "gh",
+                "release",
+                "create",
+                sparkle_release,
+                "--title",
+                "Lungfish Sparkle Beta Appcast",
+                "--notes",
+                "Mutable Sparkle beta appcast feed for Lungfish Genome Explorer.",
+                "--prerelease",
+                "--target",
+                target_commit,
+            ],
+            cwd=root,
+        )
+
+    run(["gh", "release", "upload", sparkle_release, str(appcast_path), "--clobber"], cwd=root)
+    if notes_dest.is_file():
+        run(["gh", "release", "upload", sparkle_release, str(notes_dest), "--clobber"], cwd=root)
+    for signed_feed_asset in sorted(appcast_path.parent.glob(f"{appcast_path.name}.*")):
+        if signed_feed_asset.is_file():
+            run(["gh", "release", "upload", sparkle_release, str(signed_feed_asset), "--clobber"], cwd=root)
+    for signed_notes_asset in sorted(notes_dest.parent.glob(f"{notes_dest.name}.*")):
+        if signed_notes_asset.is_file():
+            run(["gh", "release", "upload", sparkle_release, str(signed_notes_asset), "--clobber"], cwd=root)
+
+
+def verify_published_release(
+    root: Path,
+    release_tag: str,
+    sparkle_release: str,
+    metadata: dict[str, str],
+) -> dict[str, str]:
     release_json = output(["gh", "release", "view", release_tag, "--json", "url"], cwd=root)
     sparkle_json = output(["gh", "release", "view", sparkle_release, "--json", "url"], cwd=root)
     metadata["github_release"] = json.loads(release_json)["url"]
@@ -605,10 +708,12 @@ def main(argv: list[str]) -> int:
         prepare_release_commit(root, release_tag, old_version, new_version, previous_prerelease_tag(old_version, tags))
         run_tests(root, args.test_command)
         git(root, "tag", "-a", release_tag, "-m", f"Lungfish {release_tag}")
-        build_release(root, args, release_tag)
-        metadata = verify_release(root, release_tag, args.sparkle_publish_release)
+        build_release(root, args, release_tag, defer_remote_publish=True)
+        metadata = verify_release_artifacts(root)
         git(root, "push", args.remote, args.main_branch)
         git(root, "push", args.remote, release_tag)
+        publish_release(root, args, release_tag, metadata)
+        metadata = verify_published_release(root, release_tag, args.sparkle_publish_release, metadata)
         cleanup_agent_refs(root, args.remote, candidates, rescue_dir)
         ensure_clean_main(root, args.main_branch)
         print_summary(metadata, release_tag, rescue_dir)
