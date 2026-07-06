@@ -264,6 +264,32 @@ public final class VariantDatabase: @unchecked Sendable {
         guard version == expectedSchemaVersion else {
             throw VariantDatabaseError.invalidSchema("Unsupported schema_version \(version); expected \(expectedSchemaVersion)")
         }
+        try validateCompletedImport(db: db)
+    }
+
+    private static func validateCompletedImport(db: OpaquePointer) throws {
+        guard let importState = readMetadataValue(db, key: "import_state") else {
+            throw VariantDatabaseError.invalidSchema("Missing db_metadata import_state; expected complete")
+        }
+        guard importState == "complete" else {
+            throw VariantDatabaseError.invalidSchema(
+                "Variant database import_state is '\(importState)'; expected complete before opening for queries"
+            )
+        }
+
+        let skipVariantInfo = readMetadataValue(db, key: "skip_variant_info") == "true"
+        let requiredIndexNames = allIndexStatements
+            .filter { !(skipVariantInfo && $0.name.contains("variant_info")) }
+            .map(\.name)
+        let existingIndexNames = listExistingIndexes(db)
+        let missingIndexes = requiredIndexNames
+            .filter { !existingIndexNames.contains($0) }
+            .sorted()
+        guard missingIndexes.isEmpty else {
+            throw VariantDatabaseError.invalidSchema(
+                "Missing required indexes: \(missingIndexes.joined(separator: ", "))"
+            )
+        }
     }
 
     /// Whether this database was imported with `skipVariantInfo = true`, meaning the

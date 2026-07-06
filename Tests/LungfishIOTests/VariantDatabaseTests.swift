@@ -145,6 +145,8 @@ final class VariantDatabaseTests: XCTestCase {
 
         let mergedCount = try VariantDatabase.mergeImportedDatabase(into: dbAURL, from: dbBURL)
         XCTAssertEqual(mergedCount, 1)
+        XCTAssertEqual(VariantDatabase.importState(at: dbAURL), "complete")
+        XCTAssertEqual(VariantDatabase.metadataValue(at: dbAURL, key: "import_variant_count"), "2")
 
         let mergedDB = try VariantDatabase(url: dbAURL)
         XCTAssertEqual(mergedDB.totalCount(), 2)
@@ -241,6 +243,47 @@ final class VariantDatabaseTests: XCTestCase {
                 return XCTFail("Expected invalidSchema error, got \(error)")
             }
             XCTAssertTrue(message.contains("Unsupported schema_version"))
+        }
+    }
+
+    func testOpenRejectsIncompleteImportState() throws {
+        let vcfURL = try createTempVCF(content: testVCF)
+        let dbURL = tempDir.appendingPathComponent("incomplete_import.db")
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
+
+        var rawDB: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(dbURL.path, &rawDB), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(rawDB, "UPDATE db_metadata SET value = 'inserting' WHERE key = 'import_state'", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(rawDB)
+
+        XCTAssertThrowsError(try VariantDatabase(url: dbURL)) { error in
+            guard case VariantDatabaseError.invalidSchema(let message) = error else {
+                XCTFail("Expected invalidSchema, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("import_state"))
+            XCTAssertTrue(message.contains("inserting"))
+            XCTAssertTrue(message.contains("complete"))
+        }
+    }
+
+    func testOpenRejectsMissingRequiredIndex() throws {
+        let vcfURL = try createTempVCF(content: testVCF)
+        let dbURL = tempDir.appendingPathComponent("missing_index.db")
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
+
+        var rawDB: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(dbURL.path, &rawDB), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(rawDB, "DROP INDEX IF EXISTS idx_variants_region", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(rawDB)
+
+        XCTAssertThrowsError(try VariantDatabase(url: dbURL)) { error in
+            guard case VariantDatabaseError.invalidSchema(let message) = error else {
+                XCTFail("Expected invalidSchema, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("Missing required indexes"))
+            XCTAssertTrue(message.contains("idx_variants_region"))
         }
     }
 
@@ -1160,9 +1203,14 @@ final class VariantDatabaseTests: XCTestCase {
         XCTAssertEqual(inserted, 7)
         XCTAssertEqual(VariantDatabase.importState(at: dbURL), "indexing")
 
-        // Insert phase should still produce queryable rows even before indexes.
-        let preResumeDB = try VariantDatabase(url: dbURL)
-        XCTAssertEqual(preResumeDB.query(chromosome: "chr1", start: 0, end: 1000).count, 5)
+        XCTAssertThrowsError(try VariantDatabase(url: dbURL)) { error in
+            guard case VariantDatabaseError.invalidSchema(let message) = error else {
+                XCTFail("Expected invalidSchema, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("import_state"))
+            XCTAssertTrue(message.contains("indexing"))
+        }
 
         let resumedCount = try VariantDatabase.resumeImport(existingDBURL: dbURL)
         XCTAssertEqual(resumedCount, 7)
