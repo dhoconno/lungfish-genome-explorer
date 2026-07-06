@@ -222,6 +222,35 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         ))
     }
 
+    func testAnnotationImportReportsRollbackFailureWhenProvenanceRestoreFails() async throws {
+        let bundleURL = try makeBundle(named: "M1")
+        let provenanceURL = bundleURL.appendingPathComponent("provenance", isDirectory: true)
+        try FileManager.default.createDirectory(at: provenanceURL, withIntermediateDirectories: true)
+        let annotationsBlockerURL = provenanceURL.appendingPathComponent("annotations")
+        try "not a directory".write(to: annotationsBlockerURL, atomically: true, encoding: .utf8)
+        try setUserImmutable(true, at: annotationsBlockerURL)
+        defer { try? setUserImmutable(false, at: annotationsBlockerURL) }
+
+        let bedURL = tempRoot.appendingPathComponent("rollback_fail.bed")
+        try "chr1\t1\t12\tgeneA\t0\t+\n".write(to: bedURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+                sourceURL: bedURL,
+                bundleURL: bundleURL,
+                trackID: "rollback_fail",
+                trackName: "Rollback Fail"
+            )
+            XCTFail("Expected annotation import rollback failure to be reported.")
+        } catch let error as ProvenancePublicationRollbackError {
+            XCTAssertTrue(error.originalErrorDescription.contains("provenance/annotations"))
+            XCTAssertTrue(error.rollbackErrorDescription.contains("Cocoa"))
+            XCTAssertTrue(error.errorDescription?.contains("rollback failed") == true)
+        } catch {
+            XCTFail("Expected ProvenancePublicationRollbackError, got \(error).")
+        }
+    }
+
     func testDiscoverReferenceBundlesReturnsProjectRelativeDisplayPaths() throws {
         _ = try makeBundle(named: "M1", relativePath: "Reference Sequences/M1.lungfishref")
         _ = try makeBundle(named: "M1", relativePath: "Imported/Nested/M1.lungfishref")
@@ -310,5 +339,16 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         )
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+
+    private func setUserImmutable(_ enabled: Bool, at url: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/chflags")
+        process.arguments = [enabled ? "uchg" : "nouchg", url.path]
+        try process.run()
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            throw POSIXError(.EPERM)
+        }
     }
 }

@@ -86,17 +86,17 @@ public final class ReferenceBundleAnnotationImportService {
             )
         }
 
-        func restore() {
+        func restore() throws {
             if let rootProvenanceData {
-                try? rootProvenanceData.write(to: rootProvenanceURL, options: .atomic)
+                try rootProvenanceData.write(to: rootProvenanceURL, options: .atomic)
             } else if FileManager.default.fileExists(atPath: rootProvenanceURL.path) {
-                try? FileManager.default.removeItem(at: rootProvenanceURL)
+                try FileManager.default.removeItem(at: rootProvenanceURL)
             }
             if FileManager.default.fileExists(atPath: provenanceDirectoryURL.path) {
-                try? FileManager.default.removeItem(at: provenanceDirectoryURL)
+                try FileManager.default.removeItem(at: provenanceDirectoryURL)
             }
             if hadProvenanceDirectory {
-                try? FileManager.default.copyItem(at: provenanceDirectoryBackupURL, to: provenanceDirectoryURL)
+                try FileManager.default.copyItem(at: provenanceDirectoryBackupURL, to: provenanceDirectoryURL)
             }
         }
     }
@@ -232,11 +232,15 @@ public final class ReferenceBundleAnnotationImportService {
                 startedAt: startedAt
             )
         } catch {
-            try? removeAnnotationDatabaseArtifacts(at: databaseURL)
-            try? FileManager.default.removeItem(at: importProvenanceURL(bundleURL: standardizedBundleURL, trackID: trackID))
-            try? originalManifest.save(to: standardizedBundleURL)
-            provenanceSnapshot.restore()
-            throw error
+            try throwAfterProvenancePublicationFailure(error) {
+                try removeAnnotationDatabaseArtifacts(at: databaseURL)
+                let legacyProvenanceURL = importProvenanceURL(bundleURL: standardizedBundleURL, trackID: trackID)
+                if FileManager.default.fileExists(atPath: legacyProvenanceURL.path) {
+                    try FileManager.default.removeItem(at: legacyProvenanceURL)
+                }
+                try originalManifest.save(to: standardizedBundleURL)
+                try provenanceSnapshot.restore()
+            }
         }
         annotationImportLogger.info("Attached annotation track \(trackID, privacy: .public) to \(standardizedBundleURL.lastPathComponent, privacy: .public)")
 
