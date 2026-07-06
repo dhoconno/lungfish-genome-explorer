@@ -1118,16 +1118,24 @@ struct ProvenanceBuilderTests {
 
     @Test("Publication rollback helper reports rollback failure details")
     func publicationRollbackHelperReportsRollbackFailureDetails() throws {
+        let error = try #require(
+            capturedPublicationFailureError { throw PublicationRollbackFailure.failed }
+                as? ProvenancePublicationRollbackError
+        )
+
+        #expect(error.originalErrorDescription.contains("PublicationOriginalFailure.failed"))
+        #expect(error.rollbackErrorDescription.contains("PublicationRollbackFailure.failed"))
+        #expect(error.errorDescription?.contains("rollback failed") == true)
+    }
+
+    private func capturedPublicationFailureError(restore: () throws -> Void) -> Error {
         do {
             try throwAfterProvenancePublicationFailure(
                 PublicationOriginalFailure.failed,
-                restore: { throw PublicationRollbackFailure.failed }
+                restore: restore
             )
-            Issue.record("Expected rollback helper to throw")
-        } catch let error as ProvenancePublicationRollbackError {
-            #expect(error.originalErrorDescription.contains("PublicationOriginalFailure.failed"))
-            #expect(error.rollbackErrorDescription.contains("PublicationRollbackFailure.failed"))
-            #expect(error.errorDescription?.contains("rollback failed") == true)
+        } catch {
+            return error
         }
     }
 

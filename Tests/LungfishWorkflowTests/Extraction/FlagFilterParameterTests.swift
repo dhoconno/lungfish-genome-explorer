@@ -31,6 +31,5 @@ final class FlagFilterParameterTests: XCTestCase {
             = ReadExtractionService().extractByBAMRegion
         _ = method
         // If this file compiles, the parameter exists in the expected position.
-        XCTAssertTrue(true)
     }
 }

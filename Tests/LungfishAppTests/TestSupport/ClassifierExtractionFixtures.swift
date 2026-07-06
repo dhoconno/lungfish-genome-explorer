@@ -9,7 +9,7 @@ import XCTest
 
 /// Factory that builds minimal per-tool classifier result layouts backed by
 /// the flag-augmented `Tests/Fixtures/sarscov2/test.paired_end.sorted.markers.bam`
-/// for all BAM-backed tools and the existing `Tests/Fixtures/kraken2-mini/`
+/// for all BAM-backed tools and the committed `Tests/Fixtures/kraken2-mini/`
 /// fixture for Kraken2.
 ///
 /// The fixtures are written to a throwaway directory under the test's
@@ -28,6 +28,23 @@ import XCTest
 ///
 /// All methods are static and file-system-only. Safe to call from any test.
 enum ClassifierExtractionFixtures {
+    enum FixtureError: LocalizedError, CustomStringConvertible {
+        case missingFile(String)
+        case missingClassifiedTaxon(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .missingFile(let path):
+                return "Required classifier extraction fixture is missing: \(path)"
+            case .missingClassifiedTaxon(let path):
+                return "Kraken2 fixture has no classified taxa: \(path)"
+            }
+        }
+
+        var description: String {
+            errorDescription ?? "Classifier extraction fixture error"
+        }
+    }
 
     // MARK: - Repository root
 
@@ -119,19 +136,16 @@ enum ClassifierExtractionFixtures {
             return (resultPath: resultDir.appendingPathComponent("fake.sqlite"), projectRoot: projectRoot)
 
         case .kraken2:
-            // The existing kraken2-mini fixture lives at
-            // Tests/Fixtures/kraken2-mini/SRR35517702/classification-result.json
-            // and references input files outside the test environment. Full
-            // extraction would require a self-contained fixture (Phase 7
-            // work). For now, point the resultPath at the SRR result dir if
-            // present, else skip.
+            // The kraken2-mini fixture is self-contained: result metadata,
+            // per-read assignments, kreport summary, and source FASTQ live
+            // together in the sample directory.
             let miniDir = repositoryRoot.appendingPathComponent("Tests/Fixtures/kraken2-mini/SRR35517702")
             guard fm.fileExists(atPath: miniDir.path) else {
-                throw XCTSkip("kraken2-mini fixture missing at \(miniDir.path)")
+                throw FixtureError.missingFile(miniDir.path)
             }
             let sidecar = miniDir.appendingPathComponent("classification-result.json")
             guard fm.fileExists(atPath: sidecar.path) else {
-                throw XCTSkip("kraken2-mini classification-result.json missing")
+                throw FixtureError.missingFile(sidecar.path)
             }
             return (resultPath: miniDir, projectRoot: projectRoot)
         }
@@ -222,14 +236,9 @@ enum ClassifierExtractionFixtures {
         } else {
             // Kraken2: pick a taxon with non-zero clade reads from the fixture.
             let (resultPath, _) = try buildFixture(tool: .kraken2, sampleId: sampleId)
-            let result: ClassificationResult
-            do {
-                result = try ClassificationResult.load(from: resultPath)
-            } catch {
-                throw XCTSkip("kraken2-mini fixture cannot be loaded: \(error)")
-            }
+            let result = try ClassificationResult.load(from: resultPath)
             guard let taxon = result.tree.allNodes().first(where: { $0.readsClade > 0 && $0.taxId != 0 }) else {
-                throw XCTSkip("kraken2-mini has no classified taxa")
+                throw FixtureError.missingClassifiedTaxon(resultPath.path)
             }
             return [ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: [taxon.taxId])]
         }

@@ -299,8 +299,8 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
     /// Parameterized over all 4 BAM-backed tools: verify the resolver actually
     /// dispatches the right flag for both include-unmapped-mates values.
     ///
-    /// The per-tool loop uses `<=` defensively (a future fixture with zero
-    /// duplicates/unmapped reads would still be correct), but the test also
+    /// The per-tool loop uses `<=` defensively because a fixture with zero
+    /// duplicates or unmapped reads would still be correct, but the test also
     /// asserts a strict `<` delta using NVD against the markers BAM directly.
     /// On that fixture, 0x404 should produce 199 reads and 0x400 should
     /// produce 202, so a regression that collapses the two flag paths to
@@ -434,16 +434,6 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         let (resultPath, projectRoot) = try ClassifierExtractionFixtures.buildFixture(tool: tool, sampleId: sampleId)
         defer { try? FileManager.default.removeItem(at: projectRoot) }
 
-        if tool == .kraken2 {
-            try XCTSkipUnless(
-                Self.kraken2FixtureHasResolvableSourceFASTQ(at: resultPath),
-                "Kraken2 round-trip fixture is not self-contained yet"
-            )
-        }
-
-        // `defaultSelection` itself throws XCTSkip when a fixture is
-        // incomplete (e.g. missing kraken2-mini), so we let that propagate
-        // naturally via `try`. Any non-skip error should fail the test.
         let selections = try await ClassifierExtractionFixtures.defaultSelection(
             for: tool, sampleId: sampleId
         )
@@ -452,23 +442,14 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         let resolver = ClassifierReadResolver()
         let guiOut = FileManager.default.temporaryDirectory.appendingPathComponent("gui-\(UUID().uuidString).fastq")
         defer { try? FileManager.default.removeItem(at: guiOut) }
-        do {
-            _ = try await resolver.resolveAndExtract(
-                tool: tool,
-                resultPath: resultPath,
-                selections: selections,
-                options: ExtractionOptions(format: .fastq, includeUnmappedMates: false),
-                destination: .file(guiOut),
-                progress: nil
-            )
-        } catch ClassifierExtractionError.kraken2SourceMissing {
-            // The kraken2-mini fixture points at source FASTQs that don't
-            // live in the test environment — a self-contained Kraken2
-            // fixture is Phase 7 work. Only this specific error converts
-            // to a skip; any other resolver error is a real regression and
-            // must fail the test.
-            throw XCTSkip("\(tool.displayName) kraken2 source FASTQ unavailable in test fixture (Phase 7 will land a complete fixture)")
-        }
+        _ = try await resolver.resolveAndExtract(
+            tool: tool,
+            resultPath: resultPath,
+            selections: selections,
+            options: ExtractionOptions(format: .fastq, includeUnmappedMates: false),
+            destination: .file(guiOut),
+            progress: nil
+        )
 
         // Step B: build the equivalent CLI command string and parse it.
         let ctx = TaxonomyReadExtractionAction.Context(
@@ -567,37 +548,6 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         return records.sorted()
     }
 
-    private static func kraken2FixtureHasResolvableSourceFASTQ(at resultPath: URL) -> Bool {
-        let fm = FileManager.default
-        guard let classResult = try? ClassificationResult.load(from: resultPath) else {
-            return false
-        }
-
-        if let originals = classResult.config.originalInputFiles, !originals.isEmpty {
-            let resolvedOriginals = originals.compactMap { url -> URL? in
-                if FASTQBundle.isBundleURL(url) {
-                    return FASTQBundle.resolvePrimaryFASTQURL(for: url)
-                }
-                return url
-            }
-            if !resolvedOriginals.isEmpty,
-               resolvedOriginals.allSatisfy({ fm.fileExists(atPath: $0.path) }) {
-                return true
-            }
-        }
-
-        let derivativesDir = classResult.config.outputDirectory.deletingLastPathComponent()
-        let bundleDir = derivativesDir.deletingLastPathComponent()
-        if FASTQBundle.isBundleURL(bundleDir),
-           let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: bundleDir),
-           fm.fileExists(atPath: resolved.path) {
-            return true
-        }
-
-        return !classResult.config.inputFiles.isEmpty &&
-            classResult.config.inputFiles.allSatisfy { fm.fileExists(atPath: $0.path) }
-    }
-
     func testI7_esviritu_roundTrip() async throws {
         try await assertI7(tool: .esviritu)
     }
@@ -611,10 +561,6 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         try await assertI7(tool: .nvd)
     }
     func testI7_kraken2_roundTrip() async throws {
-        // The kraken2-mini fixture references source FASTQs outside the test
-        // environment; the full round-trip needs a self-contained fixture
-        // (Phase 7 work). assertI7 converts the resulting error into XCTSkip
-        // automatically when the GUI path fails on the incomplete fixture.
         try await assertI7(tool: .kraken2)
     }
 }

@@ -1209,6 +1209,53 @@ final class ClassificationResultPersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.tree.speciesCount, tree.speciesCount)
     }
 
+    /// Verifies relative paths persisted in a moved classification result are
+    /// resolved against the result directory before extraction uses them.
+    func testLoadResolvesRelativeConfigPathsAgainstResultDirectory() throws {
+        let kreportURL = try makeMinimalKreport()
+        let krakenURL = try makeKrakenOutput()
+        let sourceURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read1\nACGT\n+\n!!!!\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let sidecar = """
+        {
+          "config": {
+            "confidence": 0.2,
+            "databaseName": "Fixture",
+            "databasePath": "database",
+            "databaseVersion": "fixture",
+            "goal": "classify",
+            "inputFiles": ["reads.fastq"],
+            "isPairedEnd": false,
+            "memoryMapping": false,
+            "minimumHitGroups": 2,
+            "originalInputFiles": ["reads.fastq"],
+            "outputDirectory": ".",
+            "quickMode": false,
+            "sampleDisplayName": "fixture",
+            "threads": 1
+          },
+          "outputPath": "\(krakenURL.lastPathComponent)",
+          "reportPath": "\(kreportURL.lastPathComponent)",
+          "runtime": 1.25,
+          "savedAt": "2026-06-01T00:00:00Z",
+          "toolVersion": "2.17.1"
+        }
+        """
+        try sidecar.write(
+            to: tempDir.appendingPathComponent("classification-result.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loaded = try ClassificationResult.load(from: tempDir)
+
+        XCTAssertEqual(loaded.config.inputFiles, [sourceURL])
+        XCTAssertEqual(loaded.config.originalInputFiles, [sourceURL])
+        XCTAssertEqual(loaded.config.outputDirectory, tempDir)
+        XCTAssertEqual(loaded.config.databasePath, tempDir.appendingPathComponent("database"))
+    }
+
     /// Verifies that loading from a kreport correctly rebuilds the tree.
     func testLoadFromKreport() async throws {
         let kreportURL = try makeMinimalKreport()
