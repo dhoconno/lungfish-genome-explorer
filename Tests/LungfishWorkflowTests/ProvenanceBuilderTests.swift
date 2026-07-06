@@ -8,6 +8,14 @@ import Testing
 
 @Suite("Provenance Builder")
 struct ProvenanceBuilderTests {
+    enum PublicationOriginalFailure: Error, Equatable {
+        case failed
+    }
+
+    enum PublicationRollbackFailure: Error, Equatable {
+        case failed
+    }
+
     @Test("Builder writes canonical signed sidecar with argv options files runtime and signature reference")
     func builderWritesCanonicalSignedSidecar() throws {
         let workingDirectory = try makeTempDirectory()
@@ -1033,6 +1041,31 @@ struct ProvenanceBuilderTests {
         let run = ProvenanceRecorder.findProvenance(forFile: selectedURL)
 
         #expect(run == nil)
+    }
+
+    @Test("Publication rollback helper preserves original failure when restore succeeds")
+    func publicationRollbackHelperPreservesOriginalFailureWhenRestoreSucceeds() throws {
+        #expect(throws: PublicationOriginalFailure.failed) {
+            try throwAfterProvenancePublicationFailure(
+                PublicationOriginalFailure.failed,
+                restore: {}
+            )
+        }
+    }
+
+    @Test("Publication rollback helper reports rollback failure details")
+    func publicationRollbackHelperReportsRollbackFailureDetails() throws {
+        do {
+            try throwAfterProvenancePublicationFailure(
+                PublicationOriginalFailure.failed,
+                restore: { throw PublicationRollbackFailure.failed }
+            )
+            Issue.record("Expected rollback helper to throw")
+        } catch let error as ProvenancePublicationRollbackError {
+            #expect(error.originalErrorDescription.contains("PublicationOriginalFailure.failed"))
+            #expect(error.rollbackErrorDescription.contains("PublicationRollbackFailure.failed"))
+            #expect(error.errorDescription?.contains("rollback failed") == true)
+        }
     }
 
     private func successfulEnvelope(stderr: String?) throws -> ProvenanceEnvelope {

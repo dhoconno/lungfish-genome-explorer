@@ -269,8 +269,9 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
                 commandHistory: commandHistory
             )
         } catch {
-            try? publicationSnapshot.restore()
-            throw error
+            try throwAfterProvenancePublicationFailure(error) {
+                try publicationSnapshot.restore()
+            }
         }
     }
 

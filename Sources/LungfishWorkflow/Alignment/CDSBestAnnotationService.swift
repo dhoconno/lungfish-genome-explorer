@@ -207,7 +207,9 @@ public final class CDSBestAnnotationService: @unchecked Sendable {
             )
         } catch {
             if error as? CDSBestAnnotationServiceError != .outputBundleExists(outputBundleURL) {
-                try? outputBundleSnapshot.restore()
+                try throwAfterProvenancePublicationFailure(error) {
+                    try outputBundleSnapshot.restore()
+                }
             }
             throw error
         }

@@ -208,7 +208,9 @@ public final class BestMappedReadsAnnotationService: @unchecked Sendable {
             )
         } catch {
             if error as? BestMappedReadsAnnotationServiceError != .outputBundleExists(outputBundleURL) {
-                try? outputBundleSnapshot.restore()
+                try throwAfterProvenancePublicationFailure(error) {
+                    try outputBundleSnapshot.restore()
+                }
             }
             throw error
         }

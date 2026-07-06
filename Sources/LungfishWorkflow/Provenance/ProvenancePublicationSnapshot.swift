@@ -61,6 +61,35 @@ public struct ProvenancePublicationSnapshot {
     }
 }
 
+struct ProvenancePublicationRollbackError: Error, LocalizedError {
+    let originalErrorDescription: String
+    let rollbackErrorDescription: String
+
+    init(originalError: Error, rollbackError: Error) {
+        originalErrorDescription = String(reflecting: originalError)
+        rollbackErrorDescription = String(reflecting: rollbackError)
+    }
+
+    var errorDescription: String? {
+        "Provenance publication failed and rollback failed; original error: \(originalErrorDescription); rollback failed: \(rollbackErrorDescription)"
+    }
+}
+
+func throwAfterProvenancePublicationFailure(
+    _ originalError: Error,
+    restore: () throws -> Void
+) throws -> Never {
+    do {
+        try restore()
+    } catch {
+        throw ProvenancePublicationRollbackError(
+            originalError: originalError,
+            rollbackError: error
+        )
+    }
+    throw originalError
+}
+
 public enum ProvenancePublicationArtifacts {
     public static func bundleRootArtifacts(for rootURL: URL) -> [URL] {
         sidecarArtifacts(for: rootURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))

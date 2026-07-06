@@ -231,8 +231,9 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
                 includedQualities: request.includeQualities
             )
         } catch {
-            try? publicationSnapshot.restore()
-            throw error
+            try throwAfterProvenancePublicationFailure(error) {
+                try publicationSnapshot.restore()
+            }
         }
     }
 
