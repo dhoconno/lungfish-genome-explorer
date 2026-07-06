@@ -1559,7 +1559,6 @@ final class FASTQDerivativesTests: XCTestCase {
     // MARK: 2.3 Atomic Sidecar Writes
 
     func testAtomicOrientMapWriteNoPartialFile() throws {
-        // Verify that orient map write creates the file atomically (no .tmp left behind)
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("atomic-orient-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -1573,14 +1572,28 @@ final class FASTQDerivativesTests: XCTestCase {
         ]
         try FASTQOrientMapFile.write(records, to: url)
 
-        // Final file exists
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
-        // Temp file cleaned up
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathExtension("tmp").path))
 
         let loaded = try FASTQOrientMapFile.load(from: url)
         XCTAssertEqual(loaded.count, 3)
         XCTAssertEqual(loaded["read2"], "-")
+    }
+
+    func testOrientMapWriteIgnoresStaleDeterministicTempFile() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("orient-stale-temp-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let url = tempDir.appendingPathComponent("orient-map.tsv")
+        try "old-read\t-\nold-read-2\t+\nold-read-3\t-\n"
+            .write(to: url.appendingPathExtension("tmp"), atomically: true, encoding: .utf8)
+
+        try FASTQOrientMapFile.write([("r", "+")], to: url)
+
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "r\t+\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathExtension("tmp").path))
     }
 
     func testAtomicTrimWriteNoPartialFile() throws {
@@ -1600,6 +1613,25 @@ final class FASTQDerivativesTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathExtension("tmp").path))
     }
 
+    func testTrimPositionWriteIgnoresStaleDeterministicTempFile() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trim-stale-temp-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let url = tempDir.appendingPathComponent("trim-positions.tsv")
+        try "\(FASTQTrimPositionFile.formatHeader)\nread_id\tmate\ttrim_start\ttrim_end\nold\t0\t1\t100\nold2\t0\t2\t200\n"
+            .write(to: url.appendingPathExtension("tmp"), atomically: true, encoding: .utf8)
+
+        try FASTQTrimPositionFile.write([
+            FASTQTrimRecord(readID: "r", mate: 0, trimStart: 1, trimEnd: 2),
+        ], to: url)
+
+        let expected = "\(FASTQTrimPositionFile.formatHeader)\nread_id\tmate\ttrim_start\ttrim_end\nr\t0\t1\t2\n"
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), expected)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathExtension("tmp").path))
+    }
+
     func testAtomicWriteOverwritesExistingFile() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("atomic-overwrite-\(UUID().uuidString)")
@@ -1607,12 +1639,10 @@ final class FASTQDerivativesTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let url = tempDir.appendingPathComponent("orient-map.tsv")
-        // Write initial data
         try FASTQOrientMapFile.write([("read1", "+")], to: url)
         let initial = try FASTQOrientMapFile.load(from: url)
         XCTAssertEqual(initial.count, 1)
 
-        // Overwrite with different data
         try FASTQOrientMapFile.write([("readA", "-"), ("readB", "+")], to: url)
         let updated = try FASTQOrientMapFile.load(from: url)
         XCTAssertEqual(updated.count, 2)

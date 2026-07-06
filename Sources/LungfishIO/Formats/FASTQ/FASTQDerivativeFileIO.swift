@@ -15,11 +15,7 @@ public enum FASTQOrientMapFile {
     ///
     /// - Precondition: Each record's orientation must be "+" or "-".
     public static func write(_ records: [(readID: String, orientation: String)], to url: URL) throws {
-        let fm = FileManager.default
-        let tmpURL = url.appendingPathExtension("tmp")
-        fm.createFile(atPath: tmpURL.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: tmpURL)
-        do {
+        try FASTQAtomicFileWriter.write(to: url) { handle in
             for record in records {
                 precondition(record.orientation == "+" || record.orientation == "-",
                              "Orientation must be + or -, got \(record.orientation)")
@@ -27,17 +23,6 @@ public enum FASTQOrientMapFile {
                     .data(using: .utf8) else { continue }
                 handle.write(data)
             }
-            try handle.close()
-        } catch {
-            try? handle.close()
-            try? fm.removeItem(at: tmpURL)
-            throw error
-        }
-        // POSIX rename is atomic on same filesystem
-        if rename(tmpURL.path, url.path) != 0 {
-            // Fallback for cross-device moves
-            try? fm.removeItem(at: url)
-            try fm.moveItem(at: tmpURL, to: url)
         }
     }
 
@@ -127,11 +112,7 @@ public enum FASTQTrimPositionFile {
     /// Writes trim records in v2 format with `#format` header and mate column.
     /// Uses atomic write (tmp file + rename) and streaming FileHandle writes.
     public static func write(_ records: [FASTQTrimRecord], to url: URL) throws {
-        let fm = FileManager.default
-        let tmpURL = url.appendingPathExtension("tmp")
-        fm.createFile(atPath: tmpURL.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: tmpURL)
-        do {
+        try FASTQAtomicFileWriter.write(to: url) { handle in
             if let headerData = "\(formatHeader)\nread_id\tmate\ttrim_start\ttrim_end\n".data(using: .utf8) {
                 handle.write(headerData)
             }
@@ -140,16 +121,6 @@ public enum FASTQTrimPositionFile {
                     .data(using: .utf8) else { continue }
                 handle.write(data)
             }
-            try handle.close()
-        } catch {
-            try? handle.close()
-            try? fm.removeItem(at: tmpURL)
-            throw error
-        }
-        // POSIX rename is atomic on same filesystem
-        if rename(tmpURL.path, url.path) != 0 {
-            try? fm.removeItem(at: url)
-            try fm.moveItem(at: tmpURL, to: url)
         }
     }
 

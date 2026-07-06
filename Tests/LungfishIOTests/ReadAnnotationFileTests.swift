@@ -94,6 +94,23 @@ final class ReadAnnotationFileTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathExtension("tmp").path))
     }
 
+    func testWriteIgnoresStaleDeterministicTempFile() throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let url = tempDir.appendingPathComponent("annot.tsv")
+        try "\(ReadAnnotationFile.formatHeader)\nread_id\tmate\ttype\tstart\tend\tstrand\tlabel\tmetadata\nold\t0\ttest\t0\t10\t+\tOLD\t\nold2\t0\ttest\t0\t10\t+\tOLD\t\n"
+            .write(to: url.appendingPathExtension("tmp"), atomically: true, encoding: .utf8)
+
+        try ReadAnnotationFile.write([
+            ReadAnnotationFile.Annotation(readID: "r", annotationType: "test", start: 0, end: 1, label: "X"),
+        ], to: url)
+
+        let expected = "\(ReadAnnotationFile.formatHeader)\nread_id\tmate\ttype\tstart\tend\tstrand\tlabel\tmetadata\nr\t0\ttest\t0\t1\t+\tX\t\n"
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), expected)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathExtension("tmp").path))
+    }
+
     // MARK: - Filtered Load
 
     func testLoadWithReadIDFilter() throws {
