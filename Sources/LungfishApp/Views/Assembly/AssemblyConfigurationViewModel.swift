@@ -47,8 +47,8 @@ public enum AssemblyRunner {
 
     /// Launches a managed assembly request in the background.
     ///
-    /// Task 4 routes the shared UI through ``AssemblyRunRequest`` even while
-    /// the standalone execution backend is being generalized.
+    /// Routes the shared UI through ``AssemblyRunRequest`` while preserving the
+    /// standalone execution backend boundary.
     public static func run(request: AssemblyRunRequest, routeContext: OperationRouteContext? = nil) {
         Task {
             if let warning = await AssemblyRuntimePreflight.warningMessage(for: request) {

@@ -9,10 +9,7 @@ import Foundation
 /// Resolves the Deacon database path via `DatabaseRegistry` at execution time,
 /// allowing the user to override the default bundled database.
 ///
-/// NOTE: `.deacon` may not yet exist in `NativeTool` (that is Task 6).
-/// The `execute()` body is implemented but will only compile once `.deacon` is
-/// added to `NativeTool`.  The unit tests for this step only test parameter
-/// parsing and do not call `execute()`.
+/// Executes via `NativeTool.deacon`; the database is resolved at runtime.
 public struct DeaconScrubStep: RecipeStepExecutor {
 
     // MARK: - RecipeStepExecutor
