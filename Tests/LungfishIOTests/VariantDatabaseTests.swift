@@ -170,6 +170,28 @@ final class VariantDatabaseTests: XCTestCase {
         XCTAssertEqual(count1, count2)
     }
 
+    func testCreateFromVCFFailurePreservesExistingDatabase() throws {
+        let vcfURL = try createTempVCF(content: testVCF)
+        let dbURL = tempDir.appendingPathComponent("variants.db")
+        let originalCount = try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
+
+        XCTAssertThrowsError(
+            try VariantDatabase.createFromVCF(
+                vcfURL: vcfURL,
+                outputURL: dbURL,
+                shouldCancel: { true }
+            )
+        ) { error in
+            guard case VariantDatabaseError.cancelled = error else {
+                return XCTFail("Expected cancellation error, got \(error)")
+            }
+        }
+
+        let preservedDB = try VariantDatabase(url: dbURL)
+        XCTAssertEqual(preservedDB.totalCount(), originalCount)
+        XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "import_state"), "complete")
+    }
+
     func testCreateFromEmptyVCF() throws {
         let emptyVCF = """
         ##fileformat=VCFv4.3

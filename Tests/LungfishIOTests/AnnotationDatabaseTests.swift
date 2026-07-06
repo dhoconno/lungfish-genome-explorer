@@ -68,6 +68,46 @@ final class AnnotationDatabaseTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: dbURL.path))
     }
 
+    func testCreateFromBEDFailurePreservesExistingDatabase() throws {
+        let initialBEDURL = try createBEDFile(
+            lines: [
+                bed14(chrom: "chr1", start: 100, end: 200, name: "geneA", type: "gene"),
+            ],
+            filename: "initial.bed"
+        )
+        let dbURL = tempDir.appendingPathComponent("preserve-existing.db")
+        XCTAssertEqual(try AnnotationDatabase.createFromBED(bedURL: initialBEDURL, outputURL: dbURL), 1)
+
+        let failingBEDURL = try createBEDFile(
+            lines: [
+                bed14(chrom: "chr2", start: 300, end: 400, name: "geneB", type: "gene"),
+            ],
+            filename: "failing.bed"
+        )
+        var buildPlan = AnnotationDatabaseBuildPlan.default
+        buildPlan.schemaSQL += """
+
+        CREATE TRIGGER fail_annotation_insert
+        BEFORE INSERT ON annotations
+        BEGIN
+            SELECT RAISE(FAIL, 'injected insert failure');
+        END;
+        """
+
+        XCTAssertThrowsError(
+            try AnnotationDatabase.createFromBED(
+                bedURL: failingBEDURL,
+                outputURL: dbURL,
+                buildPlan: buildPlan
+            )
+        )
+
+        let preservedDB = try AnnotationDatabase(url: dbURL)
+        XCTAssertEqual(preservedDB.totalCount(), 1)
+        XCTAssertEqual(preservedDB.query(nameFilter: "geneA").map(\.name), ["geneA"])
+        XCTAssertTrue(preservedDB.query(nameFilter: "geneB").isEmpty)
+    }
+
     // MARK: - BED14 Helper
 
     /// Creates a full BED14 line (12 standard + type + attributes).

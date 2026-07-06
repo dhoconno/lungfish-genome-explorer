@@ -128,7 +128,45 @@ extension VariantDatabase {
         partitionByChromosome: Bool = false,
         onlyChromosome: String? = nil
     ) throws -> Int {
-        try? FileManager.default.removeItem(at: outputURL)
+        let stagingURL = SQLiteDatabasePublication.stagingURL(for: outputURL)
+        defer { SQLiteDatabasePublication.removeDatabase(at: stagingURL) }
+
+        let insertCount = try createFromVCFInPlace(
+            vcfURL: vcfURL,
+            outputURL: stagingURL,
+            parseGenotypes: parseGenotypes,
+            sourceFile: sourceFile,
+            progressHandler: progressHandler,
+            shouldCancel: shouldCancel,
+            importSemantics: importSemantics,
+            importProfile: importProfile,
+            deferIndexBuild: deferIndexBuild,
+            partitionByChromosome: partitionByChromosome,
+            onlyChromosome: onlyChromosome
+        )
+        do {
+            try SQLiteDatabasePublication.publish(stagingURL: stagingURL, to: outputURL)
+        } catch {
+            throw VariantDatabaseError.createFailed("publish variant database: \(error.localizedDescription)")
+        }
+        return insertCount
+    }
+
+    @discardableResult
+    private static func createFromVCFInPlace(
+        vcfURL: URL,
+        outputURL: URL,
+        parseGenotypes: Bool = true,
+        sourceFile: String? = nil,
+        progressHandler: (@Sendable (Double, String) -> Void)? = nil,
+        shouldCancel: (@Sendable () -> Bool)? = nil,
+        importSemantics: VCFImportSemantics = .standard,
+        importProfile: VCFImportProfile = .auto,
+        deferIndexBuild: Bool = false,
+        partitionByChromosome: Bool = false,
+        onlyChromosome: String? = nil
+    ) throws -> Int {
+        SQLiteDatabasePublication.removeDatabase(at: outputURL)
 
         let fileSize: Int64 = (try? FileManager.default.attributesOfItem(atPath: vcfURL.path)[.size] as? Int64) ?? 0
         let ext = vcfURL.pathExtension.lowercased()

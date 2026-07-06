@@ -109,6 +109,14 @@ extension AnnotationDatabase {
         }
     }
 
+    private static func publishBuiltAnnotationDatabase(stagingURL: URL, to outputURL: URL) throws {
+        do {
+            try SQLiteDatabasePublication.publish(stagingURL: stagingURL, to: outputURL)
+        } catch {
+            throw AnnotationDatabaseError.createFailed("publish annotation database: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Static Creation (for bundle building)
 
     /// Creates a new annotation database from BED file content.
@@ -132,10 +140,12 @@ extension AnnotationDatabase {
         outputURL: URL,
         buildPlan: AnnotationDatabaseBuildPlan
     ) throws -> Int {
-        try? FileManager.default.removeItem(at: outputURL)
+        let stagingURL = SQLiteDatabasePublication.stagingURL(for: outputURL)
+        defer { SQLiteDatabasePublication.removeDatabase(at: stagingURL) }
 
+        let insertCount: Int
         do {
-            return try withNewSQLiteDatabase(at: outputURL) { db in
+            insertCount = try withNewSQLiteDatabase(at: stagingURL) { db in
                 try createSchema(in: db, buildPlan: buildPlan)
 
                 // Begin transaction for bulk insert
@@ -244,7 +254,6 @@ extension AnnotationDatabase {
                     try executeSQLite(db, "COMMIT", context: "commit annotation import transaction")
                     transactionOpen = false
 
-                    dbLogger.info("Created annotation database with \(insertCount) records at \(outputURL.lastPathComponent)")
                     return insertCount
                 } catch {
                     if transactionOpen {
@@ -253,10 +262,10 @@ extension AnnotationDatabase {
                     throw error
                 }
             }
-        } catch {
-            try? FileManager.default.removeItem(at: outputURL)
-            throw error
         }
+        try publishBuiltAnnotationDatabase(stagingURL: stagingURL, to: outputURL)
+        dbLogger.info("Created annotation database with \(insertCount) records at \(outputURL.lastPathComponent)")
+        return insertCount
     }
 
     // MARK: - Static Creation from GFF3
@@ -294,8 +303,6 @@ extension AnnotationDatabase {
         chromosomeSizes: [(String, Int64)]? = nil,
         buildPlan: AnnotationDatabaseBuildPlan
     ) async throws -> Int {
-        try? FileManager.default.removeItem(at: outputURL)
-
         let chromSizeMap: [String: Int64]?
         if let sizes = chromosomeSizes {
             chromSizeMap = Dictionary(uniqueKeysWithValues: sizes)
@@ -378,8 +385,12 @@ extension AnnotationDatabase {
 
         dbLogger.info("createFromGFF3: Parsed \(allFeatures.count) features from \(gffURL.lastPathComponent)")
 
+        let stagingURL = SQLiteDatabasePublication.stagingURL(for: outputURL)
+        defer { SQLiteDatabasePublication.removeDatabase(at: stagingURL) }
+
+        let insertCount: Int
         do {
-            return try withNewSQLiteDatabase(at: outputURL) { db in
+            insertCount = try withNewSQLiteDatabase(at: stagingURL) { db in
                 try createSchema(in: db, buildPlan: buildPlan)
 
                 // Group features by GFF3 ID for same-ID merging (e.g., CDS with multiple intervals)
@@ -620,7 +631,6 @@ extension AnnotationDatabase {
                     try executeSQLite(db, "COMMIT", context: "commit annotation import transaction")
                     transactionOpen = false
 
-                    dbLogger.info("Created GFF3 annotation database with \(insertCount) records at \(outputURL.lastPathComponent)")
                     return insertCount
                 } catch {
                     if transactionOpen {
@@ -629,10 +639,10 @@ extension AnnotationDatabase {
                     throw error
                 }
             }
-        } catch {
-            try? FileManager.default.removeItem(at: outputURL)
-            throw error
         }
+        try publishBuiltAnnotationDatabase(stagingURL: stagingURL, to: outputURL)
+        dbLogger.info("Created GFF3 annotation database with \(insertCount) records at \(outputURL.lastPathComponent)")
+        return insertCount
     }
 
     /// Parses GFF3 or GTF-style attributes string into a dictionary.

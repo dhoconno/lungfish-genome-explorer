@@ -31,11 +31,7 @@ enum ClassifierSQLiteDatabaseSupport {
     private static let transientDestructor = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     static func stagingURL(for finalURL: URL) -> URL {
-        finalURL.deletingLastPathComponent()
-            .appendingPathComponent(
-                ".\(finalURL.lastPathComponent).\(UUID().uuidString).building",
-                isDirectory: false
-            )
+        SQLiteDatabasePublication.stagingURL(for: finalURL)
     }
 
     static func openWritableDatabase(at url: URL) throws -> OpaquePointer {
@@ -173,49 +169,14 @@ enum ClassifierSQLiteDatabaseSupport {
 
     static func publish(stagingURL: URL, to finalURL: URL) throws {
         do {
-            try FileManager.default.createDirectory(
-                at: finalURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            if FileManager.default.fileExists(atPath: finalURL.path) {
-                prepareExistingDatabaseForReplacement(at: finalURL)
-                _ = try FileManager.default.replaceItemAt(
-                    finalURL,
-                    withItemAt: stagingURL,
-                    backupItemName: nil,
-                    options: []
-                )
-            } else {
-                try FileManager.default.moveItem(at: stagingURL, to: finalURL)
-            }
-            removeSQLiteSidecars(at: finalURL)
+            try SQLiteDatabasePublication.publish(stagingURL: stagingURL, to: finalURL)
         } catch {
             throw ClassifierSQLiteDatabaseError.publishFailed(error.localizedDescription)
         }
     }
 
     static func removeSQLiteDatabase(at url: URL) {
-        try? FileManager.default.removeItem(at: url)
-        removeSQLiteSidecars(at: url)
-    }
-
-    private static func prepareExistingDatabaseForReplacement(at url: URL) {
-        var db: OpaquePointer?
-        if sqlite3_open_v2(
-            url.path,
-            &db,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        ) == SQLITE_OK, let db {
-            sqlite3_wal_checkpoint_v2(db, nil, SQLITE_CHECKPOINT_TRUNCATE, nil, nil)
-        }
-        sqlite3_close(db)
-        removeSQLiteSidecars(at: url)
-    }
-
-    private static func removeSQLiteSidecars(at url: URL) {
-        try? FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + "-wal"))
-        try? FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + "-shm"))
+        SQLiteDatabasePublication.removeDatabase(at: url)
     }
 
     private static func runQuickCheck(_ db: OpaquePointer) throws {
