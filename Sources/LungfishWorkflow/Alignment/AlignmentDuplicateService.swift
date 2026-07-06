@@ -15,6 +15,7 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         _ duplicateMode: Bool,
         _ commandHistory: [AlignmentCommandExecutionRecord]
     ) throws -> Void
+    typealias ReferenceBundleFactory = @Sendable (URL, BundleManifest) -> ReferenceBundle
 
     /// Result of a duplicate workflow.
     public struct WorkflowResult: Sendable {
@@ -39,6 +40,7 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
             markdupPipeline: markdupPipeline,
             attachmentService: attachmentService,
             metadataAppender: appendDuplicateMetadata,
+            referenceBundleFactory: makeReferenceBundle(url:manifest:),
             trackIDProvider: trackIDProvider
         )
     }
@@ -49,6 +51,7 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         markdupPipeline: any AlignmentMarkdupPipelining = AlignmentMarkdupPipeline(),
         attachmentService: PreparedAlignmentAttachmentService = PreparedAlignmentAttachmentService(),
         metadataAppender: @escaping DuplicateMetadataAppender,
+        referenceBundleFactory: @escaping ReferenceBundleFactory = makeReferenceBundle(url:manifest:),
         trackIDProvider: @escaping @Sendable () -> String = { "aln_\(String(UUID().uuidString.prefix(8)))" }
     ) async throws -> WorkflowResult {
         let manifest = try BundleManifest.load(from: bundleURL)
@@ -72,6 +75,7 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
             markdupPipeline: markdupPipeline,
             attachmentService: attachmentService,
             metadataAppender: metadataAppender,
+            referenceBundleFactory: referenceBundleFactory,
             trackIDProvider: trackIDProvider
         )
 
@@ -120,6 +124,7 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
             markdupPipeline: markdupPipeline,
             attachmentService: attachmentService,
             metadataAppender: appendDuplicateMetadata,
+            referenceBundleFactory: makeReferenceBundle(url:manifest:),
             trackIDProvider: trackIDProvider
         )
 
@@ -143,9 +148,12 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         markdupPipeline: any AlignmentMarkdupPipelining,
         attachmentService: PreparedAlignmentAttachmentService,
         metadataAppender: @escaping DuplicateMetadataAppender,
+        referenceBundleFactory: @escaping ReferenceBundleFactory,
         trackIDProvider: @escaping @Sendable () -> String
     ) async throws -> [String] {
         let referenceFASTAPath = findReferenceFASTA(in: bundleURL)
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let referenceBundle = referenceBundleFactory(bundleURL, manifest)
         var createdTrackIDs: [String] = []
         createdTrackIDs.reserveCapacity(tracks.count)
 
@@ -154,7 +162,10 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
             let nextProgress = Double(index + 1) / Double(max(1, tracks.count))
             progressHandler?(baseProgress, "Preparing \(track.name)...")
 
-            guard let sourcePath = resolveAlignmentPath(for: track, bundleURL: bundleURL) else {
+            let sourcePath: String
+            do {
+                sourcePath = try referenceBundle.resolveAlignmentPath(track)
+            } catch {
                 throw AlignmentDuplicateError.sourcePathNotFound(track.sourcePath)
             }
 
@@ -242,33 +253,15 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         try manifest.save(to: bundleURL)
     }
 
-    /// Resolves stale alignment source paths via bookmark if needed.
-    private static func resolveAlignmentPath(for track: AlignmentTrackInfo, bundleURL: URL) -> String? {
-        if let directURL = resolveBundleOrAbsoluteURL(track.sourcePath, bundleURL: bundleURL),
-           FileManager.default.fileExists(atPath: directURL.path) {
-            return directURL.path
-        }
-        guard let bookmarkString = track.sourceBookmark,
-              let bookmarkData = Data(base64Encoded: bookmarkString) else {
-            return nil
-        }
-        var isStale = false
-        if let resolvedURL = try? URL(
-            resolvingBookmarkData: bookmarkData,
-            options: [.withoutUI, .withSecurityScope],
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        ), FileManager.default.fileExists(atPath: resolvedURL.path) {
-            return resolvedURL.path
-        }
-        return nil
-    }
-
     private static func resolveBundleOrAbsoluteURL(_ path: String, bundleURL: URL) -> URL? {
         if path.hasPrefix("/") {
             return URL(fileURLWithPath: path)
         }
         return bundleURL.appendingPathComponent(path)
+    }
+
+    private static func makeReferenceBundle(url: URL, manifest: BundleManifest) -> ReferenceBundle {
+        ReferenceBundle(url: url, manifest: manifest)
     }
 
     /// Builds a unique output URL for a deduplicated sibling bundle.
