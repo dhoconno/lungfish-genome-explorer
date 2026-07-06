@@ -1,4 +1,4 @@
-// VariantTableEnhancementTests.swift - Tests for Phase 1 variant table features
+// VariantTableEnhancementTests.swift - variant table behavior tests
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

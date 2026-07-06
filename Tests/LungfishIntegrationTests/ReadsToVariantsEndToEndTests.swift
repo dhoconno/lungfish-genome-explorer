@@ -1,11 +1,11 @@
-// ReadsToVariantsEndToEndTests.swift — Phase 12 end-to-end regression net.
+// ReadsToVariantsEndToEndTests.swift - reads-to-variants end-to-end regression net.
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Exercises the post-mapping reads-to-variants pipeline against the small
 // `sarscov2` fixture (~200 read pairs, MT192765.1 reference) to act as the
-// regression net for the new TSV-to-VCF converter, GFF passthrough, and
-// `bam adopt-mapping` work shipped in Phases 1–11.
+// regression net for the TSV-to-VCF converter, GFF passthrough, and
+// `bam adopt-mapping` workflow.
 //
 // Adaptations from the planned spec:
 //

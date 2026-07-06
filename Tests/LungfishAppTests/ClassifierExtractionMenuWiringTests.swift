@@ -1,4 +1,4 @@
-// ClassifierExtractionMenuWiringTests.swift — VC → menu → orchestrator wiring
+// ClassifierExtractionMenuWiringTests.swift - VC-to-menu-to-orchestrator wiring
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -10,22 +10,20 @@ import XCTest
 @testable import LungfishNaoMgsUI
 @testable import LungfishWorkflow
 
-/// Phase 7 Task 7.2 — Verifies that a context-menu "Extract Reads…" click
-/// reaches `TaxonomyReadExtractionAction.present()` with the expected
-/// `Context` propagated from the table-view callback wiring.
+/// Verifies that a context-menu "Extract Reads..." click reaches
+/// `TaxonomyReadExtractionAction.present()` with the expected `Context`
+/// propagated from the table-view callback wiring.
 ///
-/// These tests complement the Phase 6 I3 invariants (which only verify the
-/// `onExtractReadsRequested` callback fires): here we plug that callback into
-/// a code path that actually calls `present()` and assert on the Context seen
+/// These tests complement the callback-only invariants: here we plug that
+/// callback into a code path that actually calls `present()` and assert on the Context seen
 /// by the orchestrator via a `#if DEBUG` capture hook (`testingCaptureOnly`).
 ///
 /// The ViralDetectionTableView and TaxonomyTableView are the two table views
 /// that live at the view-level (not buried inside a full VC). The other three
 /// tools (TaxTriage, NAO-MGS, NVD) own their outline views at the VC level
-/// and their context-menu → `present()` wiring is covered by the Phase 6
-/// source-level I1 tests plus manual smoke testing; instantiating the full
-/// VC here requires a live AppKit window hierarchy that isn't practical in
-/// unit tests.
+/// and their context-menu-to-`present()` wiring is covered by source-level
+/// tests plus manual smoke testing; instantiating the full VC here requires a
+/// live AppKit window hierarchy that isn't practical in unit tests.
 @MainActor
 final class ClassifierExtractionMenuWiringTests: XCTestCase {
 
@@ -128,9 +126,9 @@ final class ClassifierExtractionMenuWiringTests: XCTestCase {
     /// catch a regression that silently drops a `ClassifierTool` case from
     /// the dispatch switch.
     ///
-    /// NOTE: The per-VC menu-click tests for TaxTriage/NAO-MGS/NVD are
-    /// deliberately deferred to Phase 8 manual GUI verification because
-    /// instantiating those VCs requires a live NSApplication context.
+    /// Per-VC menu-click tests for TaxTriage/NAO-MGS/NVD remain manual GUI
+    /// smoke coverage because instantiating those VCs requires a live
+    /// NSApplication context.
     func testAllTools_orchestratorAcceptsAllClassifierTools() {
         let host = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),

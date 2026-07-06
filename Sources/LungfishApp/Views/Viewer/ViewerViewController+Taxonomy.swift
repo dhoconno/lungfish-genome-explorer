@@ -37,8 +37,8 @@ extension ViewerViewController {
     /// view controller filling the content area.
     ///
     /// Follows the exact same child-VC pattern as ``displayFASTACollection(sequences:annotations:)``.
-    /// Read extraction is now driven by ``TaxonomyReadExtractionAction.shared.present(...)``
-    /// which the VC fires from its action bar / context menu (Phase 5).
+    /// Read extraction is driven by ``TaxonomyReadExtractionAction.shared.present(...)``,
+    /// which the VC fires from its action bar or context menu.
     ///
     /// - Parameter result: The classification result to display.
     public func displayTaxonomyResult(_ result: ClassificationResult) {

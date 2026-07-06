@@ -371,8 +371,7 @@ extension AppDelegate {
 
                         // For the extract goal, auto-present the unified
                         // extraction dialog after showing the taxonomy browser
-                        // so the user can pick taxa. Phase 5 routes through
-                        // TaxonomyReadExtractionAction.shared.present(...).
+                        // so the user can pick taxa.
                         if capturedConfig.goal == .extract,
                            viewerController.taxonomyViewController != nil,
                            let topSpecies = result.tree.dominantSpecies,

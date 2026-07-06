@@ -2,18 +2,16 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Track A3: Alignment Viewer viewport class.
-//
 // Displays BAM alignment output summaries from read-mapping tools (minimap2,
 // BWA-MEM2, Bowtie2). Detailed pileup and coverage inspection is handled by
 // the project's BAM track viewers; this result viewport remains a lightweight
 // summary surface.
 //
 // ## Viewport class conventions
-// All alignment tools share this single viewport. The ResultType is
-// Minimap2Result because minimap2 is the first tool in this class; future
-// tools (BWA-MEM2, Bowtie2) will contribute the same result type or a common
-// AlignmentResult wrapper once those pipelines are added.
+// Mapping workflows that produce sorted, indexed BAM tracks share this
+// viewport. The concrete result type remains `Minimap2Result` for compatibility
+// with the original mapping workflow while newer toolchains route through the
+// same summary surface.
 
 import AppKit
 import LungfishWorkflow

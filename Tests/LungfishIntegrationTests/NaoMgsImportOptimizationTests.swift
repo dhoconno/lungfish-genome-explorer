@@ -963,7 +963,7 @@ struct NaoMgsImportOptimizationTests {
         }
     }
 
-    // MARK: - Staged Import Pipeline (Task 4)
+    // MARK: - Staged import pipeline
 
     @Test
     func importNaoMgsDirectoryWithSplitSampleFilesProducesSingleMergedBundle() async throws {
@@ -999,7 +999,7 @@ struct NaoMgsImportOptimizationTests {
         #expect(sampleBRow?.hitCount == 1, "SAMPLE_B should have 1 hit")
     }
 
-    // MARK: - Post-Merge Cleanup (Task 5)
+    // MARK: - Post-merge cleanup
 
     @Test
     func importNaoMgsRemovesStagingDirectoryOnSuccess() async throws {

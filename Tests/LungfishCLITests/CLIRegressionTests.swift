@@ -3075,6 +3075,38 @@ final class DebugCommandRegressionTests: XCTestCase {
     func testDefaultSubcommand() {
         XCTAssertNotNil(DebugCommand.configuration.defaultSubcommand)
     }
+
+    func testFastqIngestWritesCanonicalProvenanceForFinalOutput() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("debug-fastq-ingest-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let inputURL = root.appendingPathComponent("reads.fastq.gz")
+        try "@r1\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        let outputDirectory = root.appendingPathComponent("out", isDirectory: true)
+
+        let command = try FASTQIngestSubcommand.parse([
+            inputURL.path,
+            "--output-dir", outputDirectory.path,
+            "--skip-clumpify",
+            "--quiet"
+        ])
+        try await command.run()
+
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: inputURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish debug fastq-ingest")
+        XCTAssertEqual(envelope.toolName, "FASTQIngestionPipeline")
+        XCTAssertEqual(envelope.output?.path, inputURL.path)
+        XCTAssertEqual(envelope.options.explicit["skipClumpify"], .boolean(true))
+        XCTAssertEqual(envelope.options.defaults["skipClumpify"], .boolean(false))
+        XCTAssertEqual(envelope.options.resolvedDefaults["threads"], .integer(max(1, ProcessInfo.processInfo.activeProcessorCount)))
+        XCTAssertTrue(envelope.argv.starts(with: [CLICommandIdentity.executableName, "debug", "fastq-ingest"]))
+        XCTAssertNotNil(envelope.output?.checksumSHA256)
+        XCTAssertNotNil(envelope.output?.fileSize)
+        XCTAssertEqual(envelope.exitStatus, 0)
+    }
 }
 
 // MARK: - ProvisionToolsCommand

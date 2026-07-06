@@ -1347,7 +1347,7 @@ final class TaxTriageViewControllerBatchGroupModeTests: XCTestCase {
 
 // MARK: - BatchGroupRoutingTests
 
-/// Tests for the `.batchGroup` sidebar routing logic added in Task 8.
+/// Tests for the `.batchGroup` sidebar routing logic.
 ///
 /// These tests verify:
 /// 1. `.batchGroup` items are included in displayable items (no longer filtered).
@@ -1360,15 +1360,15 @@ final class BatchGroupRoutingTests: XCTestCase {
 
     /// `.batchGroup` items must NOT be filtered out of the displayable items list.
     ///
-    /// Before Task 8, `.batchGroup` was in the filter alongside `.folder`, `.project`,
-    /// and `.group`. This test verifies the filter was correctly narrowed.
+    /// `.batchGroup` must remain displayable while folder-like containers stay
+    /// filtered out.
     func testBatchGroupItemIsDisplayable() {
         let allTypes: [SidebarItemType] = [
             .folder, .project, .group, .batchGroup,
             .classificationResult, .esvirituResult, .taxTriageResult,
         ]
 
-        // Mirror the filter logic from sidebarDidSelectItems (after Task 8 fix).
+        // Mirror the filter logic from sidebarDidSelectItems.
         let displayable = allTypes.filter { type in
             type != .folder && type != .project && type != .group
         }
@@ -1606,7 +1606,7 @@ final class BatchGroupRoutingTests: XCTestCase {
 
 // MARK: - BatchInspectorSectionTests
 
-/// Tests for Task 9: batch operation details and source sample links in the Inspector.
+/// Tests for batch operation details and source sample links in the Inspector.
 ///
 /// Covers:
 /// 1. `DocumentSectionViewModel` batch properties default values.

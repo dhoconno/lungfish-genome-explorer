@@ -721,7 +721,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         return false
     }
 
-    // MARK: - Surgical row removal (Task 18)
+    // MARK: - Surgical row removal
 
     /// A grouped set of rows to remove from the outline: the `parent` under which the
     /// rows live (`nil` for top-level `rootItems`) and the `IndexSet` of child indices

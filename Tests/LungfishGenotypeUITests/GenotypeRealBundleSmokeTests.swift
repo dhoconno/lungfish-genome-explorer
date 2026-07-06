@@ -1,7 +1,4 @@
-// GenotypeRealBundleSmokeTests.swift
-// Programmatic smoke against the real barcode08 bundle on /Volumes/iWES_WNPRC.
-// Skips automatically when the bundle is not mounted, so CI on machines
-// without the volume keeps passing.
+// GenotypeRealBundleSmokeTests.swift - optional smoke against a local real bundle
 
 import XCTest
 import AppKit
@@ -11,12 +8,16 @@ import LungfishIO
 
 @MainActor
 final class GenotypeRealBundleSmokeTests: XCTestCase {
-    private let realBundlePath = "/Volumes/iWES_WNPRC/32271/32271.lungfish/Analyses/ONT genotyping results/barcode08-mhc-haplotypingv1.lungfishgenotype"
+    private let realBundleEnvironmentKey = "LUNGFISH_GENOTYPE_REAL_BUNDLE"
 
     private func loadRealBundleOrSkip() throws -> ONTGenotypeResultBundleData {
+        guard let realBundlePath = ProcessInfo.processInfo.environment[realBundleEnvironmentKey],
+              !realBundlePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw XCTSkip("Set \(realBundleEnvironmentKey) to run the optional real genotype bundle smoke test")
+        }
         let url = URL(fileURLWithPath: realBundlePath)
         guard FileManager.default.fileExists(atPath: realBundlePath) else {
-            throw XCTSkip("Real bundle not mounted at \(realBundlePath)")
+            throw XCTSkip("Real genotype bundle not found at \(realBundlePath)")
         }
         return try ONTGenotypeResultBundle.loadResult(from: url)
     }

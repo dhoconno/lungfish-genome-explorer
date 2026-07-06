@@ -100,8 +100,7 @@ extension MainSplitViewController {
             return
         }
 
-        // TaxTriage results — all go through the DB router now.
-        // Per-sample display will be handled via DB queries (Task 6).
+        // TaxTriage results all go through the DB-backed classifier router.
         if item.type == .taxTriageResult, let url = item.url {
             routeClassifierDisplay(url: url)
             return

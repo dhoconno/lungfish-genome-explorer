@@ -1104,7 +1104,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(snapshot.rows.first?.sampleReads, ["DW472": 148])
     }
 
-    // MARK: - Sample column windowing (Task 22)
+    // MARK: - Sample column windowing
 
     private func makeManySampleMatrix(sampleCount: Int) -> GenotypeComparisonMatrixView {
         let matrix = GenotypeComparisonMatrixView()

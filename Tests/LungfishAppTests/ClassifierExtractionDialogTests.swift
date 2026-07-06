@@ -123,7 +123,7 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertFalse(m.destination.showsNameField)
     }
 
-    // MARK: - Bundle clobber defense (Phase 2 review-2 forwarded item)
+    // MARK: - Bundle clobber defense
 
     /// Verifies the `ISO8601DateFormatter.shortStamp` helper used by
     /// `resolveDestination`'s bundle disambiguation suffix produces a stable,
@@ -184,8 +184,8 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         )
     }
 
-    /// Same-second collision defense (Phase 4 review-1 critical #1): two
-    /// calls inside the same wall-clock second MUST produce different suffixes
+    /// Same-second collision defense: two calls inside the same wall-clock
+    /// second MUST produce different suffixes
     /// so back-to-back Create-Bundle clicks don't silently overwrite each
     /// other in `ReadExtractionService.createBundle` (which removes-then-moves
     /// the target directory unconditionally).
@@ -307,8 +307,7 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertTrue(cli.contains("--taxon 9606"), "missing --taxon 9606 in: \(cli)")
         XCTAssertTrue(cli.contains("--taxon 562"), "missing --taxon 562 in: \(cli)")
         XCTAssertFalse(cli.contains("--include-unmapped-mates"), "unexpected --include-unmapped-mates in: \(cli)")
-        // With sampleId: nil, the builder must NOT emit a --sample flag
-        // (Phase 4 review-1 test gap).
+        // With sampleId: nil, the builder must NOT emit a --sample flag.
         XCTAssertFalse(cli.contains(" --sample "), "unexpected --sample when sampleId is nil, in: \(cli)")
     }
 
@@ -335,8 +334,8 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertTrue(cli.contains("--taxon 9606"), "missing --taxon 9606 in: \(cli)")
     }
 
-    /// Phase 3 deviation: classifier extraction emits --read-format (not
-    /// --format) so the flag doesn't collide with GlobalOptions.format.
+    /// Classifier extraction emits --read-format (not --format) so the flag
+    /// doesn't collide with GlobalOptions.format.
     func testBuildCLIString_formatFasta_flaggedAsReadFormat() {
         let ctx = TaxonomyReadExtractionAction.Context(
             tool: .nvd,
@@ -472,7 +471,7 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertNil(clipboard.fileProvenance)
     }
 
-    // MARK: - TaskBox cancel contract (Phase 4 review-2 critical #1)
+    // MARK: - TaskBox cancel contract
 
     /// Pins the two-task-cancel contract that underpins the dialog's Cancel
     /// button. The `TaskBox` must be able to hold both the pre-flight estimate
@@ -481,10 +480,10 @@ final class ClassifierExtractionDialogTests: XCTestCase {
     /// cancellation so the dialog's `onCancel` closure can tear down whichever
     /// is currently running (estimate before Create Bundle, extraction after).
     ///
-    /// This test exercises the building block the critical #1 fix depends on;
-    /// the full integration path through `present()` + `startExtraction()` is
-    /// gated on a real `NSWindow` and `ClassifierReadResolver` so is not
-    /// directly unit-testable today. See review-2 disposition.
+    /// This test exercises the building block behind dialog cancellation; the
+    /// full integration path through `present()` + `startExtraction()` is gated
+    /// on a real `NSWindow` and `ClassifierReadResolver` so is not directly
+    /// unit-testable today.
     func testTaskBox_cancelBothTasks_cancelsSeparately() async {
         let box = TaxonomyReadExtractionAction.TaskBox()
 

@@ -144,7 +144,7 @@ public actor ClassifierReadResolver {
         }
     }
 
-    /// Cheap pre-flight count. Implemented in Task 2.2.
+    /// Cheap pre-flight count for the selected classifier rows.
     public func estimateReadCount(
         tool: ClassifierTool,
         resultPath: URL,
