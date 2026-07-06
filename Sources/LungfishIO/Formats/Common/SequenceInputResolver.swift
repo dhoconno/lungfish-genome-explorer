@@ -46,10 +46,8 @@ public enum SequenceInputResolver {
         }
 
         if let bundleURL = enclosingReferenceBundleURL(for: standardizedURL),
-           let manifest = try? BundleManifest.load(from: bundleURL),
-           let genomePath = manifest.genome?.path {
-            let sequenceURL = bundleURL.appendingPathComponent(genomePath).standardizedFileURL
-            return FileManager.default.fileExists(atPath: sequenceURL.path) ? sequenceURL : nil
+           let sequenceURL = resolveReferenceBundleSequenceURL(in: bundleURL) {
+            return sequenceURL
         }
 
         guard SequenceFormat.from(url: standardizedURL) != nil else {
@@ -158,14 +156,28 @@ public enum SequenceInputResolver {
     }
 
     private static func resolveReferenceBundleSequenceURL(for candidateURL: URL) -> URL? {
-        guard let bundleURL = enclosingReferenceBundleURL(for: candidateURL),
-              let manifest = try? BundleManifest.load(from: bundleURL),
+        guard let bundleURL = enclosingReferenceBundleURL(for: candidateURL) else {
+            return nil
+        }
+
+        return resolveReferenceBundleSequenceURL(in: bundleURL)
+    }
+
+    private static func resolveReferenceBundleSequenceURL(in bundleURL: URL) -> URL? {
+        guard let manifest = try? BundleManifest.load(from: bundleURL),
               let genomePath = manifest.genome?.path else {
             return nil
         }
 
-        let sequenceURL = bundleURL.appendingPathComponent(genomePath).standardizedFileURL
-        return FileManager.default.fileExists(atPath: sequenceURL.path) ? sequenceURL : nil
+        guard let sequenceURL = try? BundleManifest.validatedBundleMemberURL(
+            for: genomePath,
+            in: bundleURL,
+            field: "genome.path"
+        ), FileManager.default.fileExists(atPath: sequenceURL.path) else {
+            return nil
+        }
+
+        return sequenceURL
     }
 
     private static func isReferenceBundleURL(_ url: URL) -> Bool {
