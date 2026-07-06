@@ -144,6 +144,7 @@ extension MainSplitViewController {
                 title: "Annotation Import",
                 detail: "Importing \(url.lastPathComponent)...",
                 operationType: .bundleBuild,
+                targetBundleURL: bundleURL,
                 cliCommand: nil,
                 routeContext: operationRouteContext
             )

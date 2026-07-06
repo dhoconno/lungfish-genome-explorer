@@ -220,7 +220,9 @@ public final class OperationCenter: ObservableObject {
             onCancel: (@Sendable () -> Void)? = nil,
             cliCommand: String? = nil,
             workflowRunID: UUID? = nil,
-            routeContext: OperationRouteContext? = nil
+            routeContext: OperationRouteContext? = nil,
+            errorMessage: String? = nil,
+            errorDetail: String? = nil
         ) {
             self.id = id
             self.title = title
@@ -239,6 +241,8 @@ public final class OperationCenter: ObservableObject {
             self.cliCommand = cliCommand
             self.workflowRunID = workflowRunID
             self.routeContext = routeContext
+            self.errorMessage = errorMessage
+            self.errorDetail = errorDetail
         }
     }
 
@@ -352,6 +356,33 @@ public final class OperationCenter: ObservableObject {
         onCancel: (@Sendable () -> Void)? = nil
     ) -> UUID {
         let id = UUID()
+        if let targetBundleURL,
+           let lockHolder = activeLockHolder(for: targetBundleURL) {
+            let finishedAt = Date()
+            let blockedDetail = "\"\(lockHolder.title)\" is currently running on this bundle. Please wait for it to finish."
+            items.insert(
+                Item(
+                    id: id,
+                    title: title,
+                    detail: blockedDetail,
+                    progress: 1,
+                    state: .failed,
+                    operationType: operationType,
+                    startedAt: startedAt,
+                    finishedAt: finishedAt,
+                    wallTimeSeconds: max(0, finishedAt.timeIntervalSince(startedAt)),
+                    targetBundleURL: targetBundleURL,
+                    routeContext: routeContext,
+                    errorMessage: "Bundle is busy"
+                ),
+                at: 0
+            )
+            changes.send(.inserted(id: id, index: 0))
+            notifyRemovedItems(trimCompletedItemsIfNeeded())
+            postStateChangedNotification(id: id, state: .failed)
+            return id
+        }
+
         items.insert(
             Item(
                 id: id,

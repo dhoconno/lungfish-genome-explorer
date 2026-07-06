@@ -586,6 +586,7 @@ extension AppDelegate {
             title: "Annotation Import",
             detail: "Importing \(annotationURL.lastPathComponent)...",
             operationType: .bundleBuild,
+            targetBundleURL: bundleURL,
             cliCommand: nil,
             routeContext: routeContext
         )
