@@ -927,7 +927,10 @@ final class WorkflowOperationExecutionService {
     }
 
     private static func isTwelveSAmpliconMatchingProvenance(_ envelope: ProvenanceEnvelope) -> Bool {
-        let acceptedToolNames: Set<String> = ["lungfish", CLICommandIdentity.executableName]
+        let acceptedToolNames: Set<String> = [
+            CLICommandIdentity.executableName,
+            CLICommandIdentity.legacyExecutableName,
+        ]
         guard acceptedToolNames.contains(envelope.toolName) else { return false }
         if envelope.workflowName == "lungfish fastq 12s-match" {
             return true

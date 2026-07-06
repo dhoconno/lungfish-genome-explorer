@@ -396,18 +396,21 @@ public enum GUIImportedProvenanceRehydrator {
 
     private static func isLungfishCLIName(_ value: String) -> Bool {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized == CLICommandIdentity.executableName || normalized == "lungfish"
+        return normalized == CLICommandIdentity.executableName
+            || normalized == CLICommandIdentity.legacyExecutableName
     }
 
     private static func executableIsLungfishCLI(_ value: String?) -> Bool {
         guard let value else { return false }
         let executable = URL(fileURLWithPath: value).lastPathComponent.lowercased()
-        return executable == CLICommandIdentity.executableName || executable == "lungfish"
+        return executable == CLICommandIdentity.executableName
+            || executable == CLICommandIdentity.legacyExecutableName
     }
 
     private static func commandLooksLikeLungfishCLI(_ command: String) -> Bool {
         guard let first = try? AdvancedCommandLineOptions.parse(command).first else {
-            return command.hasPrefix("lungfish-cli ") || command.hasPrefix("lungfish ")
+            return command.hasPrefix("\(CLICommandIdentity.executableName) ")
+                || command.hasPrefix("\(CLICommandIdentity.legacyExecutableName) ")
         }
         return executableIsLungfishCLI(first)
     }
