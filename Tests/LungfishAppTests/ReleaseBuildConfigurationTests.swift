@@ -393,14 +393,20 @@ struct ReleaseBuildConfigurationTests {
 
     @Test("Xcode project compiles every checked-in XCUITest file reference")
     func xcodeProjectCompilesEveryCheckedInXCUITestFileReference() throws {
+        let repositoryRoot = Self.repositoryRoot()
         let project = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
             encoding: .utf8
         )
+        let xcuiRoot = repositoryRoot.appendingPathComponent("Tests/LungfishXCUITests", isDirectory: true)
+        let checkedInSwiftFiles = try Self.swiftFiles(in: xcuiRoot, relativeTo: repositoryRoot)
 
-        #expect(project.contains("VariantCallingAutoConfirmXCUITests.swift"))
-        #expect(project.contains("VariantCallingAutoConfirmXCUITests.swift in Sources"))
+        #expect(!checkedInSwiftFiles.isEmpty)
+        for relativePath in checkedInSwiftFiles {
+            let filename = URL(fileURLWithPath: relativePath).lastPathComponent
+            #expect(project.contains("path = \(relativePath);"), "\(relativePath) should be referenced by the Xcode project")
+            #expect(project.contains("\(filename) in Sources"), "\(relativePath) should be compiled by LungfishXCUITests")
+        }
     }
 
     @Test("Sanitize bundled tools phase supports scripted release skip override")
@@ -1148,6 +1154,28 @@ struct ReleaseBuildConfigurationTests {
         }
 
         return String(project[markerRange.lowerBound..<blockEnd.upperBound])
+    }
+
+    private static func swiftFiles(in directory: URL, relativeTo repositoryRoot: URL) throws -> [String] {
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        let repositoryPath = repositoryRoot.standardizedFileURL.path + "/"
+        var files: [String] = []
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true else { continue }
+            let path = url.standardizedFileURL.path
+            guard path.hasPrefix(repositoryPath) else { continue }
+            files.append(String(path.dropFirst(repositoryPath.count)))
+        }
+        return files.sorted()
     }
 
     private static func commandBlock(containing marker: String, in script: String) -> String? {
