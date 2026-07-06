@@ -5,9 +5,12 @@ import SQLite3
 
 extension MultipleSequenceAlignmentBundle {
     static func writeAnnotationSQLiteStore(_ store: AnnotationStore, to url: URL) throws {
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
+        try writeSQLiteSidecarAtomically(to: url) { stagingURL in
+            try writeAnnotationSQLiteStoreInPlace(store, to: stagingURL)
         }
+    }
+
+    private static func writeAnnotationSQLiteStoreInPlace(_ store: AnnotationStore, to url: URL) throws {
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
               let db else {
@@ -170,9 +173,12 @@ extension MultipleSequenceAlignmentBundle {
     }
 
     static func writeSQLiteIndex(at url: URL, rows: [Row], columns: [ColumnStat]) throws {
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
+        try writeSQLiteSidecarAtomically(to: url) { stagingURL in
+            try writeSQLiteIndexInPlace(at: stagingURL, rows: rows, columns: columns)
         }
+    }
+
+    private static func writeSQLiteIndexInPlace(at url: URL, rows: [Row], columns: [ColumnStat]) throws {
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
               let db else {
@@ -246,6 +252,31 @@ extension MultipleSequenceAlignmentBundle {
             try? exec("ROLLBACK", db: db)
             throw error
         }
+    }
+
+    private static func writeSQLiteSidecarAtomically(to url: URL, build: (URL) throws -> Void) throws {
+        let fm = FileManager.default
+        let directory = url.deletingLastPathComponent()
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stagingURL = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        defer {
+            removeSQLiteArtifacts(at: stagingURL)
+        }
+
+        try build(stagingURL)
+
+        if fm.fileExists(atPath: url.path) {
+            _ = try fm.replaceItemAt(url, withItemAt: stagingURL)
+        } else {
+            try fm.moveItem(at: stagingURL, to: url)
+        }
+    }
+
+    private static func removeSQLiteArtifacts(at url: URL) {
+        let fm = FileManager.default
+        try? fm.removeItem(at: url)
+        try? fm.removeItem(at: URL(fileURLWithPath: url.path + "-wal"))
+        try? fm.removeItem(at: URL(fileURLWithPath: url.path + "-shm"))
     }
 
     private static func exec(_ sql: String, db: OpaquePointer) throws {

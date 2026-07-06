@@ -187,6 +187,34 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.path))
     }
 
+    func testSQLiteIndexWriteFailureKeepsExistingDatabase() throws {
+        let indexURL = workspace.appendingPathComponent("alignment-index.sqlite")
+        let originalRows = [makeRow(id: "row-1", order: 0)]
+        let columnStats = [makeColumnStat(index: 0)]
+        try MultipleSequenceAlignmentBundle.writeSQLiteIndex(
+            at: indexURL,
+            rows: originalRows,
+            columns: columnStats
+        )
+        let originalData = try Data(contentsOf: indexURL)
+        XCTAssertEqual(try sqliteTableCount(at: indexURL), 1)
+
+        let duplicateRows = [
+            makeRow(id: "duplicate", order: 0),
+            makeRow(id: "duplicate", order: 1),
+        ]
+        XCTAssertThrowsError(
+            try MultipleSequenceAlignmentBundle.writeSQLiteIndex(
+                at: indexURL,
+                rows: duplicateRows,
+                columns: columnStats
+            )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: indexURL), originalData)
+        XCTAssertEqual(try sqliteTableCount(at: indexURL), 1)
+    }
+
     func testManifestAndProvenanceUseFinalPathsAndChecksumsWithoutTmpPaths() throws {
         let inputURL = try writeInput(
             named: "provenance.fasta",
@@ -527,5 +555,38 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         defer { sqlite3_finalize(statement) }
         XCTAssertEqual(sqlite3_step(statement), SQLITE_ROW)
         return Int(sqlite3_column_int64(statement, 0))
+    }
+
+    private func makeRow(id: String, order: Int) -> MultipleSequenceAlignmentBundle.Row {
+        MultipleSequenceAlignmentBundle.Row(
+            id: id,
+            sourceName: id,
+            displayName: id,
+            order: order,
+            alphabet: "dna",
+            alignedLength: 1,
+            ungappedLength: 1,
+            gapCount: 0,
+            ambiguousCount: 0,
+            checksumSHA256: MultipleSequenceAlignmentBundle.sha256Hex(for: Data(id.utf8)),
+            accession: nil,
+            organism: nil,
+            geneProduct: nil,
+            haplotypeClade: nil,
+            metadata: [:]
+        )
+    }
+
+    private func makeColumnStat(index: Int) -> MultipleSequenceAlignmentBundle.ColumnStat {
+        MultipleSequenceAlignmentBundle.ColumnStat(
+            index: index,
+            consensusResidue: "A",
+            residueCounts: ["A": 1],
+            gapFraction: 0,
+            conservation: 1,
+            entropy: 0,
+            variableSite: false,
+            parsimonyInformative: false
+        )
     }
 }
