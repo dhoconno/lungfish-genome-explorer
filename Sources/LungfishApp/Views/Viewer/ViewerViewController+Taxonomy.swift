@@ -88,7 +88,7 @@ extension ViewerViewController {
                 projectURL: ProjectTempDirectory.findProjectRoot(classResult.outputURL),
                 windowStateScope: self.windowStateScope
             )
-            let batchExtractCliCmd = "# Batch extraction for collection '\(collection.name)' \u{2014} run individual 'lungfish conda extract' commands per taxon"
+            let batchExtractCliCmd = "# Taxonomy Read Extraction workflow for collection '\(collection.name)' (batch pipeline; see output provenance for replay details)"
             let opID = OperationCenter.shared.start(
                 title: "Extract \(collection.name)",
                 detail: "Preparing batch extraction\u{2026}",

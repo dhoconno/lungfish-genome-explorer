@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+@testable import LungfishCore
 @testable import LungfishWorkflow
 @testable import LungfishIO
 
@@ -420,7 +421,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
 
         let outputURLs = try await pipeline.extract(config: config, tree: tree)
         let run = try XCTUnwrap(ProvenanceRecorder.load(from: tempDir))
-        let step = try XCTUnwrap(run.steps.first { $0.toolName == "lungfish-cli conda extract" })
+        let step = try XCTUnwrap(run.steps.first { $0.toolName == "TaxonomyExtractionPipeline" })
 
         XCTAssertEqual(step.toolVersion, WorkflowRun.currentAppVersion)
         XCTAssertEqual(step.outputs.map(\.path), outputURLs.map(\.path))
@@ -444,7 +445,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         XCTAssertEqual(run.parameters["taxonomyReport"]?.stringValue, taxonomyReportURL.path)
         XCTAssertEqual(run.parameters["requestedOutputFiles"]?.arrayValue?.first?.stringValue, requestedOutputURL.path)
         XCTAssertEqual(run.parameters["actualOutputFiles"]?.arrayValue?.first?.stringValue, outputURLs.first?.path)
-        XCTAssertTrue(step.command.contains("lungfish"))
+        XCTAssertTrue(step.command.contains(CLICommandIdentity.executableName))
         XCTAssertTrue(step.command.contains("conda"))
         XCTAssertTrue(step.command.contains("extract"))
         XCTAssertTrue(step.command.contains("--kraken-output"))

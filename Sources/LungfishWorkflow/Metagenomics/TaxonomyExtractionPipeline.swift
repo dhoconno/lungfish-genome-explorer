@@ -519,7 +519,7 @@ public actor TaxonomyExtractionPipeline {
 
         await recorder.recordStep(
             runID: runID,
-            toolName: "lungfish-cli conda extract",
+            toolName: "TaxonomyExtractionPipeline",
             toolVersion: WorkflowRun.currentAppVersion,
             command: extractionReplayCommand(config: config, resolvedTaxIds: resolvedTaxIds),
             inputs: inputs,
@@ -589,6 +589,9 @@ public actor TaxonomyExtractionPipeline {
         config: TaxonomyExtractionConfig,
         resolvedTaxIds: Set<Int>
     ) -> [String] {
+        // Legacy CLI replay for taxonomy-ID extraction. The supported
+        // `extract reads --by-id` path needs a materialized read-ID file; until
+        // this workflow writes one, provenance identifies the actor above.
         let replayTaxIds = config.includeChildren && config.taxonomyReport == nil
             ? resolvedTaxIds
             : config.taxIds
