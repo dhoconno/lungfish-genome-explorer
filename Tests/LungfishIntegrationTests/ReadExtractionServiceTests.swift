@@ -477,9 +477,8 @@ final class ReadExtractionServiceTests: XCTestCase {
         }
         defer { sqlite3_close(db) }
 
-        // Create tables matching the full NAO-MGS schema (including columns
-        // added post-initial release: pcr_duplicate_count, accession_count,
-        // top_accessions_json, and the reference_lengths table).
+        // Keep this fixture aligned with NaoMgsDatabase.createSchema so tests exercise
+        // the same read contract enforced for imported classifier databases.
         let createSQL = """
         CREATE TABLE virus_hits (
             rowid INTEGER PRIMARY KEY,
@@ -500,7 +499,14 @@ final class ReadExtractionServiceTests: XCTestCase {
             is_reverse_complement INTEGER NOT NULL,
             pair_status TEXT NOT NULL,
             fragment_length INTEGER NOT NULL,
-            best_alignment_score REAL NOT NULL
+            best_alignment_score REAL NOT NULL,
+            ref_start_rev INTEGER,
+            read_sequence_rev TEXT,
+            read_quality_rev TEXT,
+            edit_distance_rev INTEGER,
+            query_length_rev INTEGER,
+            is_reverse_complement_rev INTEGER,
+            best_alignment_score_rev REAL
         );
         CREATE TABLE taxon_summaries (
             sample TEXT NOT NULL,
@@ -514,12 +520,46 @@ final class ReadExtractionServiceTests: XCTestCase {
             pcr_duplicate_count INTEGER NOT NULL DEFAULT 0,
             accession_count INTEGER NOT NULL DEFAULT 0,
             top_accessions_json TEXT NOT NULL DEFAULT '[]',
+            bam_path TEXT,
+            bam_index_path TEXT,
             PRIMARY KEY (sample, tax_id)
         );
         CREATE TABLE reference_lengths (
             accession TEXT PRIMARY KEY,
             length INTEGER NOT NULL
         );
+        CREATE TABLE accession_summaries (
+            sample TEXT NOT NULL,
+            tax_id INTEGER NOT NULL,
+            accession TEXT NOT NULL,
+            read_count INTEGER NOT NULL,
+            unique_read_count INTEGER NOT NULL,
+            reference_length INTEGER NOT NULL,
+            covered_base_pairs INTEGER NOT NULL,
+            coverage_fraction REAL NOT NULL,
+            PRIMARY KEY (sample, tax_id, accession)
+        );
+        CREATE TABLE sample_hit_counts (
+            sample TEXT PRIMARY KEY,
+            hit_count INTEGER NOT NULL
+        );
+        CREATE TABLE taxon_read_names (
+            sample TEXT NOT NULL,
+            tax_id INTEGER NOT NULL,
+            seq_id TEXT NOT NULL,
+            PRIMARY KEY (sample, tax_id, seq_id)
+        );
+        CREATE TABLE lungfish_database_state (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        INSERT INTO lungfish_database_state VALUES ('build_state', 'complete');
+        CREATE INDEX idx_hits_sample ON virus_hits(sample);
+        CREATE INDEX idx_taxon_read_names_sample_taxid ON taxon_read_names(sample, tax_id);
+        CREATE INDEX idx_sample_hit_counts_hitcount ON sample_hit_counts(hit_count DESC);
+        CREATE INDEX idx_summaries_sample ON taxon_summaries(sample);
+        CREATE INDEX idx_summaries_hitcount ON taxon_summaries(sample, hit_count DESC);
+        CREATE INDEX idx_summaries_taxid ON taxon_summaries(tax_id);
         """
         guard sqlite3_exec(db, createSQL, nil, nil, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db)!)
@@ -597,6 +637,29 @@ final class ReadExtractionServiceTests: XCTestCase {
         guard sqlite3_exec(db, taxonSQL, nil, nil, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db)!)
             throw NSError(domain: "TestDB", code: 5, userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+
+        let derivedSQL = """
+        INSERT INTO reference_lengths (accession, length)
+        VALUES ('AF304460.1', 1000),
+               ('KT253324.1', 1000),
+               ('NC_009539.1', 1000);
+
+        INSERT INTO accession_summaries (sample, tax_id, accession, read_count, unique_read_count, reference_length, covered_base_pairs, coverage_fraction)
+        VALUES ('test_sample', 11137, 'AF304460.1', 3, 3, 1000, 294, 0.294),
+               ('test_sample', 11137, 'KT253324.1', 2, 2, 1000, 196, 0.196),
+               ('test_sample', 694009, 'NC_009539.1', 3, 3, 1000, 294, 0.294);
+
+        INSERT INTO sample_hit_counts (sample, hit_count)
+        VALUES ('test_sample', 8);
+
+        INSERT INTO taxon_read_names (sample, tax_id, seq_id)
+        SELECT DISTINCT sample, tax_id, seq_id
+        FROM virus_hits;
+        """
+        guard sqlite3_exec(db, derivedSQL, nil, nil, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db)!)
+            throw NSError(domain: "TestDB", code: 6, userInfo: [NSLocalizedDescriptionKey: msg])
         }
 
         return dbURL
