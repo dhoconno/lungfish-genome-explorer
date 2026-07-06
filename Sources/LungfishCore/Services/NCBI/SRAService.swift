@@ -721,13 +721,98 @@ public actor SRAService {
         }
 
         private func terminate(_ process: Process) {
-            guard process.isRunning else { return }
-            process.terminate()
             let pid = process.processIdentifier
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
+            guard pid > 0 else {
                 if process.isRunning {
-                    kill(pid, SIGKILL)
+                    process.terminate()
                 }
+                return
+            }
+            let initialTree = processTree(rootPID: pid)
+            signal(processIDs: initialTree, rootPID: pid, signal: SIGTERM)
+            if process.isRunning {
+                process.terminate()
+            }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
+                let expandedTree = self.uniqueProcessIDs(
+                    initialTree + self.processTree(rootPID: pid) + initialTree.flatMap(self.processTree(rootPID:))
+                )
+                self.signal(processIDs: expandedTree, rootPID: pid, signal: SIGKILL)
+            }
+        }
+
+        private func processTree(rootPID: Int32) -> [Int32] {
+            var processIDs = descendantProcessIDs(of: rootPID)
+            processIDs.append(rootPID)
+            return uniqueProcessIDs(processIDs)
+        }
+
+        private func descendantProcessIDs(of rootPID: Int32) -> [Int32] {
+            let ps = Process()
+            ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+            ps.arguments = ["-Ao", "pid=,ppid="]
+            let stdoutPipe = Pipe()
+            ps.standardOutput = stdoutPipe
+            ps.standardError = Pipe()
+
+            do {
+                try ps.run()
+            } catch {
+                return []
+            }
+
+            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            ps.waitUntilExit()
+            guard ps.terminationStatus == 0,
+                  let output = String(data: data, encoding: .utf8) else {
+                return []
+            }
+
+            var childrenByParent: [Int32: [Int32]] = [:]
+            for line in output.split(separator: "\n") {
+                let fields = line.split(whereSeparator: \.isWhitespace)
+                guard fields.count == 2,
+                      let pid = Int32(fields[0]),
+                      let parentPID = Int32(fields[1]) else {
+                    continue
+                }
+                childrenByParent[parentPID, default: []].append(pid)
+            }
+
+            var descendants: [Int32] = []
+            var queue = [rootPID]
+            var seen: Set<Int32> = [rootPID]
+            while !queue.isEmpty {
+                let parent = queue.removeFirst()
+                for child in childrenByParent[parent, default: []] where seen.insert(child).inserted {
+                    descendants.append(child)
+                    queue.append(child)
+                }
+            }
+            return descendants
+        }
+
+        private func signal(processIDs: [Int32], rootPID: Int32, signal: Int32) {
+            let descendants = processIDs.filter { $0 != rootPID }
+            for pid in descendants.reversed() where processExists(pid: pid) {
+                kill(pid, signal)
+            }
+            if processExists(pid: rootPID) {
+                kill(rootPID, signal)
+            }
+        }
+
+        private func processExists(pid: Int32) -> Bool {
+            if kill(pid, 0) == 0 {
+                return true
+            }
+            return errno != ESRCH
+        }
+
+        private func uniqueProcessIDs(_ processIDs: [Int32]) -> [Int32] {
+            var seen = Set<Int32>()
+            return processIDs.filter { pid in
+                pid > 0 && seen.insert(pid).inserted
             }
         }
     }

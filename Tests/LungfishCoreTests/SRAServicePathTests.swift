@@ -248,6 +248,7 @@ final class SRAServicePathTests: XCTestCase {
         let binDir = home.appendingPathComponent(".lungfish/conda/envs/sra-tools/bin", isDirectory: true)
         let outputDir = home.appendingPathComponent("downloads", isDirectory: true)
         let prefetchPIDFile = home.appendingPathComponent("prefetch.pid")
+        let prefetchChildPIDFile = home.appendingPathComponent("prefetch-child.pid")
         try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
         addTeardownBlock {
@@ -259,7 +260,9 @@ final class SRAServicePathTests: XCTestCase {
             body: """
             #!/bin/sh
             echo $$ > '\(prefetchPIDFile.path)'
-            while true; do sleep 1; done
+            nohup /bin/sh -c 'trap "" TERM HUP INT; while :; do sleep 1; done' >/dev/null 2>&1 &
+            echo "$!" > '\(prefetchChildPIDFile.path)'
+            while kill -0 "$!" 2>/dev/null; do sleep 1; done
             """
         )
         try makeExecutableScript(
@@ -276,20 +279,30 @@ final class SRAServicePathTests: XCTestCase {
         }
 
         let prefetchPID = try await waitForPIDFile(prefetchPIDFile)
+        let prefetchChildPID = try await waitForPIDFile(prefetchChildPIDFile)
         addTeardownBlock {
             if processExists(pid: prefetchPID) {
                 kill(prefetchPID, SIGKILL)
             }
+            if processExists(pid: prefetchChildPID) {
+                kill(prefetchChildPID, SIGKILL)
+            }
         }
         XCTAssertTrue(processExists(pid: prefetchPID))
+        XCTAssertTrue(processExists(pid: prefetchChildPID))
 
         task.cancel()
 
         let exited = await waitUntilProcessExits(pid: prefetchPID, timeout: 2.0)
+        let childExited = await waitUntilProcessExits(pid: prefetchChildPID, timeout: 2.0)
         if !exited {
             kill(prefetchPID, SIGKILL)
         }
+        if !childExited {
+            kill(prefetchChildPID, SIGKILL)
+        }
         XCTAssertTrue(exited, "Cancelling SRA download must terminate the active prefetch process")
+        XCTAssertTrue(childExited, "Cancelling SRA download must terminate prefetch child processes")
 
         do {
             _ = try await task.value
