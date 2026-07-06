@@ -356,12 +356,28 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         originalRequest: FASTQOperationLaunchRequest,
         outputDirectory: URL
     ) async throws -> [URL] {
-        _ = request
-
         switch originalRequest {
         case .refreshQCSummary(let inputURLs):
             guard let reportURL = outputURLs.first else { return inputURLs }
-            try applyQCSummaryReport(from: reportURL, to: inputURLs)
+            let mutations = try applyQCSummaryReport(from: reportURL, to: inputURLs)
+            let provenanceSnapshot = try ProvenancePublicationSnapshot(
+                urls: qCSummaryProvenanceArtifacts(for: mutations),
+                backupNamePrefix: "lungfish-fastq-qc-summary-refresh"
+            )
+            do {
+                try writeQCSummaryRefreshProvenance(
+                    reportURL: reportURL,
+                    mutations: mutations,
+                    resolvedRequest: request,
+                    originalRequest: originalRequest
+                )
+                provenanceSnapshot.discard()
+            } catch {
+                try throwAfterProvenancePublicationFailure(error) {
+                    try restoreQCSummaryMutations(mutations)
+                    try provenanceSnapshot.restore()
+                }
+            }
             return inputURLs.map(selectableSourceURL(for:))
 
         case .derivative(.demultiplex, _, _):
@@ -519,13 +535,22 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         return initialURL
     }
 
-    private func applyQCSummaryReport(from reportURL: URL, to inputURLs: [URL]) throws {
+    private struct QCSummaryMutation {
+        let bundleURL: URL
+        let targetURL: URL
+        let originalData: Data?
+    }
+
+    private func applyQCSummaryReport(from reportURL: URL, to inputURLs: [URL]) throws -> [QCSummaryMutation] {
         let data = try Data(contentsOf: reportURL)
         let report = try JSONDecoder().decode(FASTQQCSummaryReport.self, from: data)
+        var mutations: [QCSummaryMutation] = []
 
         for (entry, inputURL) in zip(report.inputs, inputURLs) {
             if FASTQBundle.isDerivedBundle(inputURL),
                let manifest = FASTQBundle.loadDerivedManifest(in: inputURL) {
+                let manifestURL = FASTQBundle.derivedManifestURL(in: inputURL)
+                let originalData = try? Data(contentsOf: manifestURL)
                 let updatedManifest = FASTQDerivedBundleManifest(
                     id: manifest.id,
                     name: manifest.name,
@@ -545,14 +570,143 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                     payloadChecksums: manifest.payloadChecksums
                 )
                 try FASTQBundle.saveDerivedManifest(updatedManifest, in: inputURL)
+                mutations.append(QCSummaryMutation(
+                    bundleURL: inputURL,
+                    targetURL: manifestURL,
+                    originalData: originalData
+                ))
                 continue
             }
 
             guard let fastqURL = writableFASTQURL(for: inputURL) else { continue }
+            let metadataURL = FASTQMetadataStore.metadataURL(for: fastqURL)
+            let originalData = try? Data(contentsOf: metadataURL)
             var metadata = FASTQMetadataStore.load(for: fastqURL) ?? PersistedFASTQMetadata()
             metadata.computedStatistics = entry.statistics
             FASTQMetadataStore.save(metadata, for: fastqURL)
+            mutations.append(QCSummaryMutation(
+                bundleURL: enclosingFASTQBundleURL(for: inputURL) ?? fastqURL.deletingLastPathComponent(),
+                targetURL: metadataURL,
+                originalData: originalData
+            ))
         }
+
+        return mutations
+    }
+
+    private func writeQCSummaryRefreshProvenance(
+        reportURL: URL,
+        mutations: [QCSummaryMutation],
+        resolvedRequest: FASTQOperationLaunchRequest,
+        originalRequest: FASTQOperationLaunchRequest
+    ) throws {
+        let sourceEnvelope = try ProvenanceEnvelopeReader.load(
+            fromSidecar: ProvenanceRecorder.fileSidecarURL(for: reportURL)
+        )
+        let startedAt = Date()
+        let completedAt = startedAt
+        let groupedMutations = Dictionary(grouping: mutations, by: { $0.bundleURL.standardizedFileURL })
+
+        for (bundleURL, bundleMutations) in groupedMutations {
+            let outputDescriptors = try bundleMutations.map {
+                try ProvenanceFileDescriptor.file(url: $0.targetURL, format: .json, role: .output)
+            }
+            let reportInput = try ProvenanceFileDescriptor.file(url: reportURL, format: .json, role: .input)
+            let argv = qCSummaryRefreshArgv(
+                reportURL: reportURL,
+                bundleURL: bundleURL,
+                mutations: bundleMutations
+            )
+            let step = ProvenanceStep(
+                toolName: "lungfish-app-action:fastq-refresh-qc-summary-import",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: argv,
+                inputs: [reportInput],
+                outputs: outputDescriptors,
+                exitStatus: 0,
+                wallTimeSeconds: 0,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+
+            var builder = ProvenanceRunBuilder(
+                workflowName: "lungfish fastq refresh-qc-summary import",
+                workflowVersion: WorkflowRun.currentAppVersion,
+                toolName: "lungfish-app-action:fastq-refresh-qc-summary-import",
+                toolVersion: WorkflowRun.currentAppVersion
+            )
+            .argv(argv)
+            .options(
+                explicit: [
+                    "report": .string(reportURL.path),
+                    "bundle": .string(bundleURL.path),
+                    "targets": .array(bundleMutations.map { .string($0.targetURL.path) }),
+                ],
+                defaults: [:],
+                resolved: [
+                    "originalRequest": .string(String(describing: originalRequest)),
+                    "resolvedRequest": .string(String(describing: resolvedRequest)),
+                ]
+            )
+            .runtime(ProvenanceRuntimeIdentity())
+
+            if let sourceEnvelope {
+                for sourceStep in sourceEnvelope.steps {
+                    builder = builder.step(sourceStep)
+                }
+            }
+            builder = builder.step(step)
+            for mutation in bundleMutations {
+                builder = try builder.output(mutation.targetURL, format: .json, role: .output)
+            }
+
+            let envelope = try builder.complete(
+                exitStatus: 0,
+                startedAt: startedAt,
+                endedAt: completedAt
+            )
+            try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        }
+    }
+
+    private func qCSummaryRefreshArgv(
+        reportURL: URL,
+        bundleURL: URL,
+        mutations: [QCSummaryMutation]
+    ) -> [String] {
+        [
+            "lungfish-app-action:fastq-refresh-qc-summary-import",
+            "--report",
+            reportURL.path,
+            "--bundle",
+            bundleURL.path,
+        ] + mutations.flatMap { ["--target", $0.targetURL.path] }
+    }
+
+    private func qCSummaryProvenanceArtifacts(for mutations: [QCSummaryMutation]) -> [URL] {
+        let bundleURLs = Set(mutations.map { $0.bundleURL.standardizedFileURL })
+        return bundleURLs.flatMap { ProvenancePublicationArtifacts.bundleRootArtifacts(for: $0) }
+    }
+
+    private func restoreQCSummaryMutations(_ mutations: [QCSummaryMutation]) throws {
+        for mutation in mutations.reversed() {
+            if let originalData = mutation.originalData {
+                try FileManager.default.createDirectory(
+                    at: mutation.targetURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try originalData.write(to: mutation.targetURL, options: .atomic)
+            } else if FileManager.default.fileExists(atPath: mutation.targetURL.path) {
+                try FileManager.default.removeItem(at: mutation.targetURL)
+            }
+        }
+    }
+
+    private func enclosingFASTQBundleURL(for url: URL) -> URL? {
+        if FASTQBundle.isBundleURL(url) {
+            return url
+        }
+        return SequenceInputResolver.enclosingFASTQBundleURL(for: url)
     }
 
     private func writableFASTQURL(for inputURL: URL) -> URL? {

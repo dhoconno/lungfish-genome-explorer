@@ -15,9 +15,9 @@ final class ScientificFASTQProvenancePolicyTests: XCTestCase {
         )
     }
 
-    func testRefreshQCSummaryIsReadOnlyForProvenancePolicy() {
-        XCTAssertFalse(FASTQOperationToolID.refreshQCSummary.createsOrModifiesScientificData)
-        XCTAssertFalse(FASTQOperationToolID.refreshQCSummary.requiresProvenance)
+    func testRefreshQCSummaryRequiresProvenanceBecauseItMutatesBundleQCState() {
+        XCTAssertTrue(FASTQOperationToolID.refreshQCSummary.createsOrModifiesScientificData)
+        XCTAssertTrue(FASTQOperationToolID.refreshQCSummary.requiresProvenance)
     }
 
     func testOrientDerivativeFromVirtualSourceRecordsDurableInputProvenance() async throws {

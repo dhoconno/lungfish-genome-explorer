@@ -2290,6 +2290,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
         let reportData = try JSONEncoder().encode(report)
         try reportData.write(to: reportURL, options: .atomic)
+        try writeQCSummaryCLIProvenance(reportURL: reportURL, sourceURL: root.fastqURL)
 
         let importer = BundleFASTQOperationImporter(destinationDirectory: tempDir)
         let request = FASTQOperationLaunchRequest.refreshQCSummary(inputURLs: [derivedBundle])
@@ -2305,6 +2306,19 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let updatedManifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: derivedBundle))
         XCTAssertEqual(updatedManifest.cachedStatistics.readCount, 4)
         XCTAssertEqual(updatedManifest.cachedStatistics.baseCount, 120)
+
+        let manifestURL = FASTQBundle.derivedManifestURL(in: derivedBundle)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: derivedBundle))
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "lungfish fastq qc-summary" })
+        XCTAssertTrue(envelope.steps.contains {
+            $0.toolName == "lungfish-app-action:fastq-refresh-qc-summary-import"
+        })
+        XCTAssertTrue(envelope.outputs.contains { $0.path == manifestURL.path })
+        let manifestOutput = try XCTUnwrap(
+            envelope.steps.flatMap(\.outputs).first { $0.path == manifestURL.path }
+        )
+        XCTAssertEqual(manifestOutput.checksumSHA256, try ProvenanceFileHasher.sha256(of: manifestURL))
+        XCTAssertEqual(manifestOutput.fileSize, UInt64(try Data(contentsOf: manifestURL).count))
     }
 
     func testMapLaunchBuildsTopLevelMapInvocation() throws {
@@ -3306,6 +3320,54 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
 
         XCTAssertEqual(runner.invocations.count, 1)
     }
+}
+
+private func writeQCSummaryCLIProvenance(reportURL: URL, sourceURL: URL) throws {
+    let startedAt = Date()
+    let completedAt = startedAt.addingTimeInterval(0.1)
+    let argv = [
+        "lungfish-cli",
+        "fastq",
+        "qc-summary",
+        sourceURL.path,
+        "--output",
+        reportURL.path,
+    ]
+    let step = try ProvenanceStep(
+        toolName: "lungfish fastq qc-summary",
+        toolVersion: WorkflowRun.currentAppVersion,
+        argv: argv,
+        inputs: [
+            ProvenanceFileDescriptor.file(url: sourceURL, format: .fastq, role: .input)
+        ],
+        outputs: [
+            ProvenanceFileDescriptor.file(url: reportURL, format: .json, role: .output)
+        ],
+        exitStatus: 0,
+        wallTimeSeconds: 0.1,
+        startedAt: startedAt,
+        completedAt: completedAt
+    )
+    let envelope = try ProvenanceRunBuilder(
+        workflowName: "lungfish fastq qc-summary",
+        workflowVersion: WorkflowRun.currentAppVersion,
+        toolName: "lungfish fastq qc-summary",
+        toolVersion: WorkflowRun.currentAppVersion
+    )
+    .argv(argv)
+    .options(
+        explicit: ["output": .string(reportURL.path)],
+        defaults: [:],
+        resolved: ["output": .string(reportURL.path)]
+    )
+    .runtime(ProvenanceRuntimeIdentity())
+    .step(step)
+    .complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
+
+    try ProvenanceWriter(signingProvider: nil).write(
+        envelope,
+        toSidecar: ProvenanceRecorder.fileSidecarURL(for: reportURL)
+    )
 }
 
 private struct TestFastqQCSummaryReport: Codable {

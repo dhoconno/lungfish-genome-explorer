@@ -61,21 +61,21 @@ public struct ProvenancePublicationSnapshot {
     }
 }
 
-struct ProvenancePublicationRollbackError: Error, LocalizedError {
-    let originalErrorDescription: String
-    let rollbackErrorDescription: String
+public struct ProvenancePublicationRollbackError: Error, LocalizedError {
+    public let originalErrorDescription: String
+    public let rollbackErrorDescription: String
 
-    init(originalError: Error, rollbackError: Error) {
+    public init(originalError: Error, rollbackError: Error) {
         originalErrorDescription = String(reflecting: originalError)
         rollbackErrorDescription = String(reflecting: rollbackError)
     }
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         "Provenance publication failed and rollback failed; original error: \(originalErrorDescription); rollback failed: \(rollbackErrorDescription)"
     }
 }
 
-func throwAfterProvenancePublicationFailure(
+public func throwAfterProvenancePublicationFailure(
     _ originalError: Error,
     restore: () throws -> Void
 ) throws -> Never {
