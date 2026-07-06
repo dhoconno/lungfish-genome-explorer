@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 /// Search datasets and analysis artifacts within a single project.
 struct UniversalSearchCommand: AsyncParsableCommand {
@@ -63,7 +64,25 @@ struct UniversalSearchCommand: AsyncParsableCommand {
                     : "Building universal search index..."
                 print(formatter.info(message))
             }
+            let rebuildStartedAt = Date()
             rebuildStats = try index.rebuild()
+            try UniversalSearchIndexProvenanceWriter.write(
+                UniversalSearchIndexProvenanceRequest(
+                    workflowName: "lungfish universal-search",
+                    toolName: "lungfish universal-search",
+                    toolKind: "cli",
+                    projectURL: projectURL,
+                    databaseURL: index.databaseURL,
+                    operation: reindex ? "reindex" : "build-on-demand",
+                    argv: provenanceArgv(projectURL: projectURL, boundedLimit: boundedLimit),
+                    explicitOptions: explicitProvenanceOptions(),
+                    defaults: defaultProvenanceOptions(),
+                    resolvedDefaults: resolvedProvenanceOptions(boundedLimit: boundedLimit),
+                    buildStats: rebuildStats,
+                    startedAt: rebuildStartedAt,
+                    completedAt: Date()
+                )
+            )
         }
 
         let queryStart = Date()
@@ -194,6 +213,76 @@ struct UniversalSearchCommand: AsyncParsableCommand {
         value
             .replacingOccurrences(of: "\t", with: " ")
             .replacingOccurrences(of: "\n", with: " ")
+    }
+
+    private func provenanceArgv(projectURL: URL, boundedLimit: Int) -> [String] {
+        var argv = ["lungfish", "universal-search", projectURL.path]
+        if !query.isEmpty {
+            argv += ["--query", query]
+        }
+        if limit != 200 {
+            argv += ["--limit", "\(limit)"]
+        } else if boundedLimit != 200 {
+            argv += ["--limit", "\(boundedLimit)"]
+        }
+        if reindex {
+            argv.append("--reindex")
+        }
+        if stats {
+            argv.append("--stats")
+        }
+        if globalOptions.outputFormat != .text {
+            argv += ["--format", globalOptions.outputFormat.rawValue]
+        }
+        if globalOptions.quiet {
+            argv.append("--quiet")
+        }
+        return argv
+    }
+
+    private func defaultProvenanceOptions() -> [String: ParameterValue] {
+        [
+            "query": .string(""),
+            "limit": .integer(200),
+            "reindex": .boolean(false),
+            "stats": .boolean(false),
+            "outputFormat": .string(OutputFormat.text.rawValue),
+            "quiet": .boolean(false),
+        ]
+    }
+
+    private func explicitProvenanceOptions() -> [String: ParameterValue] {
+        var options: [String: ParameterValue] = [:]
+        if !query.isEmpty {
+            options["query"] = .string(query)
+        }
+        if limit != 200 {
+            options["limit"] = .integer(limit)
+        }
+        if reindex {
+            options["reindex"] = .boolean(true)
+        }
+        if stats {
+            options["stats"] = .boolean(true)
+        }
+        if globalOptions.outputFormat != .text {
+            options["outputFormat"] = .string(globalOptions.outputFormat.rawValue)
+        }
+        if globalOptions.quiet {
+            options["quiet"] = .boolean(true)
+        }
+        return options
+    }
+
+    private func resolvedProvenanceOptions(boundedLimit: Int) -> [String: ParameterValue] {
+        [
+            "query": .string(query),
+            "limit": .integer(boundedLimit),
+            "reindex": .boolean(reindex),
+            "stats": .boolean(stats),
+            "outputFormat": .string(globalOptions.outputFormat.rawValue),
+            "quiet": .boolean(globalOptions.quiet),
+        ]
     }
 }
 

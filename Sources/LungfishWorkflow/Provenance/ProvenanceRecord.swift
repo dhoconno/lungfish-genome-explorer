@@ -348,6 +348,7 @@ public enum FileFormat: String, Codable, Sendable {
     case genBank
     case html
     case json
+    case sqlite
     case text
     case unknown
 }

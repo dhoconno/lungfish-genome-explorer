@@ -4,6 +4,7 @@
 
 import Foundation
 import XCTest
+import LungfishWorkflow
 @testable import LungfishApp
 
 final class UniversalProjectSearchServiceTests: XCTestCase {
@@ -73,6 +74,31 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
         )
         XCTAssertEqual(results.count, 1)
         XCTAssertEqual(results.first?.kind, "fastq_dataset")
+    }
+
+    func testRebuildWritesIndexProvenanceSidecar() async throws {
+        let projectURL = try makeProject(named: "project-provenance.lungfish")
+        try writeManifest(
+            [
+                "sample_name": "Air Sample 01",
+                "collection_date": "2026-03-01",
+            ],
+            to: projectURL.appendingPathComponent("manifest.json")
+        )
+
+        let service = UniversalProjectSearchService()
+        _ = try await service.rebuild(projectURL: projectURL)
+
+        let databaseURL = projectURL.appendingPathComponent(".universal-search.db")
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: databaseURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish app universal-search")
+        XCTAssertEqual(envelope.toolName, "Lungfish.app universal-search")
+        XCTAssertEqual(envelope.output?.path, databaseURL.path)
+        XCTAssertEqual(envelope.output?.format, .sqlite)
+        XCTAssertNotNil(envelope.output?.checksumSHA256)
+        XCTAssertTrue(envelope.files.contains { $0.path == projectURL.path && $0.role == .input && $0.checksumSHA256 != nil })
+        XCTAssertEqual(envelope.options.explicit["operation"]?.stringValue, "rebuild")
     }
 
     func testSearchLimitRestrictsReturnedRows() async throws {
