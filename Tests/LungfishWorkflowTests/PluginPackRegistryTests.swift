@@ -65,6 +65,29 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(lock.managedData.count, 2)
     }
 
+    func testRequiredSetupPackFallsBackWhenManagedToolLockCannotLoad() throws {
+        let pack = PluginPack.makeRequiredSetupPack {
+            throw NSError(
+                domain: "PluginPackRegistryTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "missing test lock"]
+            )
+        }
+
+        XCTAssertEqual(pack.id, "lungfish-tools")
+        XCTAssertEqual(pack.name, "Third-Party Tools")
+        XCTAssertTrue(pack.isRequiredBeforeLaunch)
+        XCTAssertTrue(pack.isActive)
+        XCTAssertTrue(pack.description.contains("missing test lock"))
+        XCTAssertEqual(pack.packages, ["managed-tool-lock-manifest"])
+
+        let requirement = try XCTUnwrap(pack.toolRequirements.first)
+        XCTAssertEqual(requirement.id, "managed-tool-lock-manifest")
+        XCTAssertEqual(requirement.displayName, "Managed tool lock manifest")
+        XCTAssertEqual(requirement.environment, "lungfish-tools-lock")
+        XCTAssertEqual(requirement.executables, ["third-party-tools-lock.json"])
+    }
+
     func testFullLengthMHCGenotypingPackDefinesSavontAndBlastnOnly() throws {
         let pack = try XCTUnwrap(PluginPack.builtInPack(id: "full-length-mhc-genotyping"))
 
