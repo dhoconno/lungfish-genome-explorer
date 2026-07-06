@@ -2113,12 +2113,14 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let stagedFASTA = stagingDir.appendingPathComponent("filtered.rrna.fasta")
         try ">seq1\nAACCGGTTAACC\n".write(to: stagedFASTA, atomically: true, encoding: .utf8)
         let stagedSidecarURL = ProvenanceRecorder.fileSidecarURL(for: stagedFASTA)
+        let sourceDurableReplayArgv = ["deacon", "filter", sourcePayloadURL.path, "-o", stagedFASTA.path]
         try writeSyntheticProvenance(
             to: stagingDir,
             name: "Deacon rRNA FASTA filter",
             toolName: "deacon",
             toolVersion: "0.15.0",
-            command: ["deacon", "filter", sourcePayloadURL.path, "-o", stagedFASTA.path],
+            command: sourceDurableReplayArgv,
+            durableReplayArgv: sourceDurableReplayArgv,
             inputURL: sourcePayloadURL,
             outputURL: stagedFASTA,
             parameters: ["retain": .string("rrna")],
@@ -2175,6 +2177,10 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "Deacon rRNA FASTA filter")
         XCTAssertEqual(envelope.toolName, "deacon")
         XCTAssertEqual(envelope.toolVersion, "0.15.0")
+        XCTAssertEqual(envelope.durableReplayArgv, [
+            "deacon", "filter", sourcePayloadURL.path, "-o", finalPayloadURL.path
+        ])
+        XCTAssertFalse(envelope.durableReplayArgv?.contains(stagedFASTA.path) ?? true)
         XCTAssertEqual(descriptor.path, finalPayloadURL.path)
         XCTAssertEqual(descriptor.originPath, stagedFASTA.path)
         XCTAssertEqual(descriptor.sourceProvenancePath, stagedSidecarURL.path)
@@ -3431,6 +3437,7 @@ private func writeSyntheticProvenance(
     toolName: String,
     toolVersion: String,
     command: [String],
+    durableReplayArgv: [String]? = nil,
     inputURL: URL,
     outputURL: URL,
     parameters: [String: ParameterValue] = [:],
@@ -3448,6 +3455,7 @@ private func writeSyntheticProvenance(
         toolVersion: toolVersion
     )
     .argv(command)
+    .durableReplayArgv(durableReplayArgv)
     .options(explicit: parameters, defaults: [:], resolved: parameters)
     .input(inputURL, format: format, role: .input)
     .output(outputURL, format: format, role: .output)

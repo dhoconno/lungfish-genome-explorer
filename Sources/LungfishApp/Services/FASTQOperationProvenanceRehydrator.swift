@@ -61,6 +61,7 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
             toolVersion: rehydrated.toolVersion,
             tool: rehydrated.tool,
             argv: rehydrated.argv,
+            durableReplayArgv: rehydrated.durableReplayArgv,
             reproducibleCommand: rehydrated.reproducibleCommand,
             options: rehydrated.options,
             runtimeIdentity: rehydrated.runtimeIdentity,
