@@ -73,6 +73,8 @@ public enum MHCAmpliconReferenceBundleBuildError: Error, LocalizedError, Equatab
     case invalidOutputExtension(String)
     case missingHaplotypeDefinition
     case invalidDefaultHaplotypeDefinition(String)
+    case cleanupFailed(original: String, cleanupPath: String, cleanupError: String)
+    case rollbackFailed(original: String, rollbackPath: String, rollbackError: String)
 
     public var errorDescription: String? {
         switch self {
@@ -86,6 +88,10 @@ public enum MHCAmpliconReferenceBundleBuildError: Error, LocalizedError, Equatab
             return "MHC reference bundle creation requires at least one haplotype definition JSON file."
         case .invalidDefaultHaplotypeDefinition(let id):
             return "Default haplotype definition is not present in the bundle inputs: \(id)"
+        case .cleanupFailed(let original, let cleanupPath, let cleanupError):
+            return "MHC reference bundle creation failed with '\(original)', then cleanup failed at \(cleanupPath): \(cleanupError)"
+        case .rollbackFailed(let original, let rollbackPath, let rollbackError):
+            return "MHC reference bundle creation failed with '\(original)', then rollback failed for \(rollbackPath): \(rollbackError)"
         }
     }
 }
@@ -100,28 +106,32 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
         progressHandler: ProgressHandler? = nil
     ) async throws -> MHCAmpliconReferenceBundleBuildResult {
         let startedAt = Date()
+        let fileManager = FileManager.default
+        let publishedBundleURL = config.outputURL
         progressHandler?(0.02, "Validating MHC reference bundle inputs.")
         let definitionInputs = try validate(config)
 
-        if FileManager.default.fileExists(atPath: config.outputURL.path) {
-            if config.forceOverwrite {
-                try FileManager.default.removeItem(at: config.outputURL)
-            } else {
-                throw MHCAmpliconReferenceBundleBuildError.outputExists(config.outputURL.path)
-            }
+        if fileManager.fileExists(atPath: publishedBundleURL.path), !config.forceOverwrite {
+            throw MHCAmpliconReferenceBundleBuildError.outputExists(publishedBundleURL.path)
         }
+        try fileManager.createDirectory(
+            at: publishedBundleURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let stagingBundleURL = stagingBundleURL(for: publishedBundleURL)
 
         progressHandler?(0.10, "Preparing MHC reference bundle directory.")
-        try FileManager.default.createDirectory(at: config.outputURL, withIntermediateDirectories: true)
         do {
+            try fileManager.createDirectory(at: stagingBundleURL, withIntermediateDirectories: true)
+
             progressHandler?(0.24, "Copying MHC reference FASTA.")
             let referenceRelativePath = referenceCopyName(for: config.referenceFASTA)
-            let referenceURL = config.outputURL.appendingPathComponent(referenceRelativePath)
-            try FileManager.default.copyItem(at: config.referenceFASTA, to: referenceURL)
+            let referenceURL = stagingBundleURL.appendingPathComponent(referenceRelativePath)
+            try fileManager.copyItem(at: config.referenceFASTA, to: referenceURL)
 
             progressHandler?(0.42, "Copying haplotype definitions.")
-            let haplotypeDirectory = config.outputURL.appendingPathComponent("haplotypes", isDirectory: true)
-            try FileManager.default.createDirectory(at: haplotypeDirectory, withIntermediateDirectories: true)
+            let haplotypeDirectory = stagingBundleURL.appendingPathComponent("haplotypes", isDirectory: true)
+            try fileManager.createDirectory(at: haplotypeDirectory, withIntermediateDirectories: true)
             var embeddedDefinitions: [(input: ResolvedDefinitionInput, path: String)] = []
             for input in definitionInputs {
                 let definition = input.definition
@@ -130,7 +140,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 try encoder.encode(definition).write(to: destination, options: .atomic)
-                embeddedDefinitions.append((input, relativePath(for: destination, in: config.outputURL)))
+                embeddedDefinitions.append((input, relativePath(for: destination, in: stagingBundleURL)))
             }
             let haplotypePaths = embeddedDefinitions.map(\.path)
 
@@ -144,7 +154,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             ]
             for embedded in embeddedDefinitions {
                 if let sourceURL = embedded.input.sourceURL {
-                    sourceFiles.append(try copyBuildSource(sourceURL, into: config.outputURL, role: "haplotype_definition_source"))
+                    sourceFiles.append(try copyBuildSource(sourceURL, into: stagingBundleURL, role: "haplotype_definition_source"))
                 } else {
                     sourceFiles.append(MHCAmpliconReferenceBundleSourceFile(
                         path: embedded.path,
@@ -154,7 +164,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
                 }
             }
             for source in config.sourceFiles + config.sourceDirectories {
-                sourceFiles.append(try copyBuildSource(source, into: config.outputURL, role: "build_source"))
+                sourceFiles.append(try copyBuildSource(source, into: stagingBundleURL, role: "build_source"))
             }
 
             progressHandler?(0.76, "Writing MHC reference bundle manifest.")
@@ -164,7 +174,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
                 ?? definitionInputs.first?.definition.id
             let manifest = MHCAmpliconReferenceBundleManifest(
                 name: config.name?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
-                    ?? config.outputURL.deletingPathExtension().lastPathComponent,
+                    ?? publishedBundleURL.deletingPathExtension().lastPathComponent,
                 referenceFastaPath: referenceRelativePath,
                 haplotypeDefinitionPaths: haplotypePaths,
                 defaultHaplotypeDefinitionID: defaultDefinitionID,
@@ -176,23 +186,32 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
                 provenancePath: ProvenanceWriter.provenanceFilename,
                 createdAt: formatter.string(from: Date())
             )
-            try MHCAmpliconReferenceBundle.writeManifest(manifest, to: config.outputURL)
+            try MHCAmpliconReferenceBundle.writeManifest(manifest, to: stagingBundleURL)
 
             progressHandler?(0.92, "Writing MHC reference bundle provenance.")
-            let provenanceURL = try writeProvenance(
+            _ = try writeProvenance(
                 config: config,
                 definitionInputs: definitionInputs,
-                bundleURL: config.outputURL,
+                bundleURL: stagingBundleURL,
+                publishedBundleURL: publishedBundleURL,
                 startedAt: startedAt,
                 completedAt: Date()
             )
+            progressHandler?(0.98, "Publishing MHC reference bundle.")
+            try promoteStagedBundle(
+                stagingBundleURL,
+                to: publishedBundleURL,
+                forceOverwrite: config.forceOverwrite
+            )
             progressHandler?(1.0, "MHC reference bundle creation complete.")
             return MHCAmpliconReferenceBundleBuildResult(
-                bundleURL: config.outputURL.standardizedFileURL,
-                provenanceURL: provenanceURL.standardizedFileURL
+                bundleURL: publishedBundleURL.standardizedFileURL,
+                provenanceURL: publishedBundleURL
+                    .appendingPathComponent(ProvenanceWriter.provenanceFilename)
+                    .standardizedFileURL
             )
         } catch {
-            try? FileManager.default.removeItem(at: config.outputURL)
+            try removeStagingBundleAfterFailure(stagingBundleURL, originalError: error)
             throw error
         }
     }
@@ -301,6 +320,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
         config: MHCAmpliconReferenceBundleBuildConfiguration,
         definitionInputs: [ResolvedDefinitionInput],
         bundleURL: URL,
+        publishedBundleURL: URL,
         startedAt: Date,
         completedAt: Date
     ) throws -> URL {
@@ -308,7 +328,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
         var explicit: [String: ParameterValue] = [
             "referenceFASTA": .file(config.referenceFASTA),
             "haplotypeDefinitionSources": .array(definitionInputs.map(definitionSourceParameter(_:))),
-            "output": .file(bundleURL),
+            "output": .file(publishedBundleURL),
             "forceOverwrite": .boolean(config.forceOverwrite),
         ]
         if let name = config.name {
@@ -335,7 +355,10 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
         for url in config.sourceDirectories {
             inputs.append(try directoryDescriptor(url: url, role: .reference))
         }
-        let outputs = try bundleOutputDescriptors(bundleURL)
+        let outputs = try bundleOutputDescriptors(
+            bundleURL,
+            publishedBundleURL: publishedBundleURL
+        )
         let step = ProvenanceStep(
             toolName: config.provenanceWorkflowName,
             toolVersion: WorkflowRun.currentAppVersion,
@@ -363,7 +386,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
                 explicit: explicit,
                 defaults: ["forceOverwrite": .boolean(false)],
                 resolvedDefaults: [
-                    "name": .string(config.name ?? bundleURL.deletingPathExtension().lastPathComponent),
+                    "name": .string(config.name ?? publishedBundleURL.deletingPathExtension().lastPathComponent),
                     "forceOverwrite": .boolean(config.forceOverwrite),
                 ]
             ),
@@ -375,7 +398,11 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             exitStatus: 0
         )
-        return try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        return try ProvenanceWriter(signingProvider: nil).write(
+            envelope,
+            to: bundleURL,
+            bundleLayoutRoot: publishedBundleURL
+        )
     }
 
     private func definitionSourceParameter(_ input: ResolvedDefinitionInput) -> ParameterValue {
@@ -396,8 +423,17 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
         return .dictionary(fields)
     }
 
-    private func bundleOutputDescriptors(_ bundleURL: URL) throws -> [ProvenanceFileDescriptor] {
-        var descriptors = [try directoryDescriptor(url: bundleURL, role: .output)]
+    private func bundleOutputDescriptors(
+        _ bundleURL: URL,
+        publishedBundleURL: URL
+    ) throws -> [ProvenanceFileDescriptor] {
+        var descriptors = [
+            try directoryDescriptor(
+                url: publishedBundleURL,
+                contentsOf: bundleURL,
+                role: .output
+            ),
+        ]
         guard let enumerator = FileManager.default.enumerator(
             at: bundleURL,
             includingPropertiesForKeys: [.isRegularFileKey],
@@ -407,15 +443,25 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
         }
         for case let url as URL in enumerator {
             guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            let publishedURL = publishedURL(for: url, stagingRoot: bundleURL, publishedRoot: publishedBundleURL)
             descriptors.append(
-                try ProvenanceFileDescriptor.file(url: url, format: fileFormat(for: url), role: .output)
+                try fileDescriptor(
+                    physicalURL: url,
+                    publishedURL: publishedURL,
+                    format: fileFormat(for: url),
+                    role: .output
+                )
             )
         }
         return descriptors
     }
 
-    private func directoryDescriptor(url: URL, role: FileRole) throws -> ProvenanceFileDescriptor {
-        let manifest = try ProvenanceFileHasher.directoryManifest(for: url, role: role)
+    private func directoryDescriptor(
+        url: URL,
+        contentsOf contentsURL: URL? = nil,
+        role: FileRole
+    ) throws -> ProvenanceFileDescriptor {
+        let manifest = try ProvenanceFileHasher.directoryManifest(for: contentsURL ?? url, role: role)
         return ProvenanceFileDescriptor(
             path: url.standardizedFileURL.path,
             checksumSHA256: directoryChecksum(from: manifest),
@@ -423,6 +469,103 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             format: .unknown,
             role: role
         )
+    }
+
+    private func fileDescriptor(
+        physicalURL: URL,
+        publishedURL: URL,
+        format: FileFormat?,
+        role: FileRole
+    ) throws -> ProvenanceFileDescriptor {
+        ProvenanceFileDescriptor(
+            path: publishedURL.standardizedFileURL.path,
+            checksumSHA256: try ProvenanceFileHasher.sha256(of: physicalURL),
+            fileSize: try ProvenanceFileHasher.fileSize(of: physicalURL),
+            format: format,
+            role: role
+        )
+    }
+
+    private func stagingBundleURL(for publishedBundleURL: URL) -> URL {
+        let parent = publishedBundleURL.deletingLastPathComponent()
+        let baseName = publishedBundleURL.deletingPathExtension().lastPathComponent
+        let ext = publishedBundleURL.pathExtension
+        let name = ext.isEmpty
+            ? ".\(baseName).staging-\(UUID().uuidString)"
+            : ".\(baseName).staging-\(UUID().uuidString).\(ext)"
+        return parent.appendingPathComponent(name, isDirectory: true)
+    }
+
+    private func promoteStagedBundle(
+        _ stagingURL: URL,
+        to publishedURL: URL,
+        forceOverwrite: Bool
+    ) throws {
+        let fileManager = FileManager.default
+        var backupURL: URL?
+        if fileManager.fileExists(atPath: publishedURL.path) {
+            guard forceOverwrite else {
+                throw MHCAmpliconReferenceBundleBuildError.outputExists(publishedURL.path)
+            }
+            let replacementBackupURL = replacementBackupURL(for: publishedURL)
+            try fileManager.moveItem(at: publishedURL, to: replacementBackupURL)
+            backupURL = replacementBackupURL
+        }
+
+        do {
+            try fileManager.moveItem(at: stagingURL, to: publishedURL)
+        } catch {
+            if let backupURL {
+                do {
+                    if !fileManager.fileExists(atPath: publishedURL.path) {
+                        try fileManager.moveItem(at: backupURL, to: publishedURL)
+                    }
+                } catch let rollbackError {
+                    throw MHCAmpliconReferenceBundleBuildError.rollbackFailed(
+                        original: error.localizedDescription,
+                        rollbackPath: publishedURL.path,
+                        rollbackError: rollbackError.localizedDescription
+                    )
+                }
+            }
+            throw error
+        }
+
+        if let backupURL {
+            do {
+                try fileManager.removeItem(at: backupURL)
+            } catch let cleanupError {
+                throw MHCAmpliconReferenceBundleBuildError.cleanupFailed(
+                    original: "MHC reference bundle was published but the replacement backup could not be removed",
+                    cleanupPath: backupURL.path,
+                    cleanupError: cleanupError.localizedDescription
+                )
+            }
+        }
+    }
+
+    private func replacementBackupURL(for publishedURL: URL) -> URL {
+        let parent = publishedURL.deletingLastPathComponent()
+        let baseName = publishedURL.deletingPathExtension().lastPathComponent
+        let ext = publishedURL.pathExtension
+        let name = ext.isEmpty
+            ? ".\(baseName).replacement-backup-\(UUID().uuidString)"
+            : ".\(baseName).replacement-backup-\(UUID().uuidString).\(ext)"
+        return parent.appendingPathComponent(name, isDirectory: true)
+    }
+
+    private func removeStagingBundleAfterFailure(_ stagingURL: URL, originalError: Error) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: stagingURL.path) else { return }
+        do {
+            try fileManager.removeItem(at: stagingURL)
+        } catch let cleanupError {
+            throw MHCAmpliconReferenceBundleBuildError.cleanupFailed(
+                original: originalError.localizedDescription,
+                cleanupPath: stagingURL.path,
+                cleanupError: cleanupError.localizedDescription
+            )
+        }
     }
 
     private func directoryChecksum(from manifest: ProvenanceDirectoryManifest) -> String {
@@ -507,6 +650,11 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
         let path = url.standardizedFileURL.path
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
         return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
+    }
+
+    private func publishedURL(for url: URL, stagingRoot: URL, publishedRoot: URL) -> URL {
+        let relativePath = relativePath(for: url, in: stagingRoot)
+        return publishedRoot.appendingPathComponent(relativePath)
     }
 
     private func shellEscape(_ value: String) -> String {
