@@ -533,6 +533,32 @@ public actor TaxonomyExtractionPipeline {
         let outputDir = outputURLs.first?.deletingLastPathComponent()
             ?? config.outputFile.deletingLastPathComponent()
         try await recorder.save(runID: runID, to: outputDir)
+        try await writeFocusedOutputSidecars(
+            recorder: recorder,
+            runID: runID,
+            outputs: outputs
+        )
+    }
+
+    private func writeFocusedOutputSidecars(
+        recorder: ProvenanceRecorder,
+        runID: UUID,
+        outputs: [FileRecord]
+    ) async throws {
+        guard let run = await recorder.getRun(runID) else {
+            throw ProvenanceError.runNotFound(runID)
+        }
+
+        let envelope = run.canonicalEnvelope()
+        let writer = ProvenanceWriter()
+        for output in outputs {
+            let outputURL = URL(fileURLWithPath: output.path)
+            let focusedEnvelope = envelope.focusedOnOutput(ProvenanceFileDescriptor(fileRecord: output))
+            try writer.write(
+                focusedEnvelope,
+                toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)
+            )
+        }
     }
 
     private func extractionProvenanceParameters(

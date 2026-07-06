@@ -456,6 +456,20 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         XCTAssertTrue(step.command.contains(fastqURL.path))
         XCTAssertTrue(step.command.contains("--output"))
         XCTAssertTrue(step.command.contains(requestedOutputURL.path))
+
+        for outputURL in outputURLs {
+            let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+            let focusedEnvelope = try XCTUnwrap(
+                ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecarURL)
+            )
+            XCTAssertEqual(focusedEnvelope.output?.path, outputURL.path)
+            XCTAssertEqual(focusedEnvelope.outputs.map(\.path), [outputURL.path])
+            XCTAssertTrue(focusedEnvelope.output?.checksumSHA256?.isEmpty == false)
+            XCTAssertFalse(
+                focusedEnvelope.outputs.contains { $0.path == requestedOutputURL.path },
+                "Focused taxonomy extraction sidecars should describe final stored outputs"
+            )
+        }
     }
 
     func testExtractUnclassifiedReadsFromCompressedKrakenOutput() async throws {
