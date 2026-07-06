@@ -95,4 +95,99 @@ final class FastqMergeProvenanceTests: XCTestCase {
         XCTAssertEqual(fileEnvelope.steps.map(\.toolName), ["/usr/bin/gzip"])
         XCTAssertEqual(fileEnvelope.output?.path, outputURL.path)
     }
+
+    func testCompressedCountedMergeRecordsCountingAndGzipSteps() async throws {
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent("fastq-counted-merge-provenance-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let inputURL = tempDir.appendingPathComponent("interleaved.fastq")
+        let mergedURL = tempDir.appendingPathComponent("merged.fastq")
+        let unmergedURL = tempDir.appendingPathComponent("unmerged.fastq")
+        let countedRawURL = tempDir.appendingPathComponent(".counted.fastq")
+        let outputURL = tempDir.appendingPathComponent("counted.fastq.gz")
+
+        try "@r1\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        try "@r1\nACGT\n+\nIIII\n".write(to: mergedURL, atomically: true, encoding: .utf8)
+        try "@r2\nTTTT\n+\nIIII\n".write(to: unmergedURL, atomically: true, encoding: .utf8)
+        try "@u000001;size=2\nACGT\n+\nIIII\n".write(to: countedRawURL, atomically: true, encoding: .utf8)
+        try Data([0x1f, 0x8b, 0x08]).write(to: outputURL)
+
+        let bbmergeArguments = [
+            "in=\(inputURL.path)",
+            "out=\(mergedURL.path)",
+            "outu=\(unmergedURL.path)",
+            "minoverlap=12",
+        ]
+        let bbmergeResult = NativeToolResult(
+            exitCode: 0,
+            stdout: "",
+            stderr: "bbmerge summary",
+            arguments: ["/tools/bbmerge.sh"] + bbmergeArguments
+        )
+        let countedRawRecord = ProvenanceRecorder.fileRecord(url: countedRawURL, format: .fastq, role: .output)
+        let outputRecord = ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)
+        let countedResult = CountedFASTQMaterializationResult(
+            outputURL: outputURL,
+            inputRecordCount: 2,
+            totalReadCount: 2,
+            uniqueSequenceCount: 2,
+            uniqueBaseCount: 8,
+            weightedBaseCount: 8,
+            materializedOutput: countedRawRecord,
+            compression: CountedFASTQCompressionProvenance(
+                command: ["/usr/bin/gzip", "-1", "-c", countedRawURL.path],
+                input: countedRawRecord,
+                output: outputRecord,
+                exitCode: 0,
+                wallTime: 0.2,
+                stderr: ""
+            )
+        )
+
+        let envelope = try await recordFASTQCountedMergeProvenance(
+            cliArguments: ["merge", inputURL.path, "--count-duplicates", "--output", outputURL.path, "--compress"],
+            nativeArguments: bbmergeArguments,
+            bbmergeResult: bbmergeResult,
+            inputURL: inputURL,
+            bbmergeOutputURLs: [mergedURL, unmergedURL],
+            countedResult: countedResult,
+            finalOutputURL: outputURL,
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "countDuplicatesAfterMerge": .boolean(true),
+                "compress": .boolean(true),
+            ],
+            defaults: [
+                "countDuplicatesAfterMerge": .boolean(false),
+                "compress": .boolean(false),
+            ],
+            startedAt: Date().addingTimeInterval(-1)
+        )
+
+        XCTAssertEqual(envelope.workflowName, "lungfish fastq merge")
+        XCTAssertEqual(envelope.output?.path, outputURL.path)
+        XCTAssertEqual(envelope.steps.count, 3)
+
+        let bbmergeStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bbmerge" })
+        XCTAssertEqual(bbmergeStep.outputs.map(\.path), [mergedURL.path, unmergedURL.path])
+        XCTAssertFalse(bbmergeStep.outputs.contains { $0.path == outputURL.path })
+
+        let countedStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "lungfish fastq merge count-duplicates" })
+        XCTAssertEqual(countedStep.inputs.map(\.path), [mergedURL.path, unmergedURL.path])
+        XCTAssertEqual(countedStep.outputs.map(\.path), [countedRawURL.path])
+
+        let gzipStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "/usr/bin/gzip" })
+        XCTAssertEqual(gzipStep.argv, ["/usr/bin/gzip", "-1", "-c", countedRawURL.path])
+        XCTAssertEqual(gzipStep.inputs.map(\.path), [countedRawURL.path])
+        XCTAssertEqual(gzipStep.outputs.map(\.path), [outputURL.path])
+
+        let fileEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        )
+        XCTAssertEqual(fileEnvelope.steps.map(\.toolName), ["/usr/bin/gzip"])
+        XCTAssertEqual(fileEnvelope.output?.path, outputURL.path)
+    }
 }

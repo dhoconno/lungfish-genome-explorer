@@ -6,6 +6,31 @@ public enum CountedFASTQSequenceNormalization: Sendable, Equatable {
     case uppercase
 }
 
+public struct CountedFASTQCompressionProvenance: Sendable, Equatable {
+    public let command: [String]
+    public let input: FileRecord
+    public let output: FileRecord
+    public let exitCode: Int32
+    public let wallTime: TimeInterval
+    public let stderr: String?
+
+    public init(
+        command: [String],
+        input: FileRecord,
+        output: FileRecord,
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) {
+        self.command = command
+        self.input = input
+        self.output = output
+        self.exitCode = exitCode
+        self.wallTime = wallTime
+        self.stderr = stderr
+    }
+}
+
 public struct CountedFASTQMaterializationResult: Sendable, Equatable {
     public let outputURL: URL
     public let inputRecordCount: Int
@@ -13,6 +38,8 @@ public struct CountedFASTQMaterializationResult: Sendable, Equatable {
     public let uniqueSequenceCount: Int
     public let uniqueBaseCount: Int
     public let weightedBaseCount: Int
+    public let materializedOutput: FileRecord
+    public let compression: CountedFASTQCompressionProvenance?
 }
 
 public enum CountedFASTQMaterializerError: LocalizedError, Sendable {
@@ -132,11 +159,20 @@ public struct CountedFASTQMaterializer: Sendable {
             throw error
         }
 
+        let materializedOutput = ProvenanceRecorder.fileRecord(url: rawOutputURL, format: .fastq, role: .output)
         let finalURL: URL
+        let compression: CountedFASTQCompressionProvenance?
         if shouldCompress {
-            finalURL = try Self.gzipCompress(rawOutputURL, to: outputURL)
+            let gzipResult = try Self.gzipCompress(
+                rawOutputURL,
+                to: outputURL,
+                inputRecord: materializedOutput
+            )
+            finalURL = gzipResult.outputURL
+            compression = gzipResult.provenance
         } else {
             finalURL = outputURL
+            compression = nil
         }
 
         return CountedFASTQMaterializationResult(
@@ -145,7 +181,9 @@ public struct CountedFASTQMaterializer: Sendable {
             totalReadCount: totalReadCount ?? ordered.reduce(0) { $0 + $1.count },
             uniqueSequenceCount: ordered.count,
             uniqueBaseCount: uniqueBaseCount,
-            weightedBaseCount: weightedBaseCount
+            weightedBaseCount: weightedBaseCount,
+            materializedOutput: materializedOutput,
+            compression: compression
         )
     }
 
@@ -176,23 +214,58 @@ public struct CountedFASTQMaterializer: Sendable {
         }
     }
 
-    private static func gzipCompress(_ rawURL: URL, to outputURL: URL) throws -> URL {
+    private struct GzipCompressionResult {
+        let outputURL: URL
+        let provenance: CountedFASTQCompressionProvenance
+    }
+
+    private static func gzipCompress(
+        _ rawURL: URL,
+        to outputURL: URL,
+        inputRecord: FileRecord
+    ) throws -> GzipCompressionResult {
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            try FileManager.default.removeItem(at: outputURL)
+        }
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        var shouldCloseOutputHandle = true
+        defer {
+            if shouldCloseOutputHandle {
+                try? outputHandle.close()
+            }
+        }
+
         let process = Process()
+        let stderrPipe = Pipe()
+        let command = ["/usr/bin/gzip", "-1", "-c", rawURL.path]
+        let startedAt = Date()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-f", "-1", rawURL.path]
+        process.arguments = ["-1", "-c", rawURL.path]
+        process.standardOutput = outputHandle
+        process.standardError = stderrPipe
         try process.run()
         process.waitUntilExit()
+        let wallTime = Date().timeIntervalSince(startedAt)
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        try outputHandle.close()
+        shouldCloseOutputHandle = false
         guard process.terminationReason == .exit,
               process.terminationStatus == 0 else {
             throw CountedFASTQMaterializerError.compressionFailed(rawURL, process.terminationStatus)
         }
-        let gzURL = rawURL.appendingPathExtension("gz")
-        if gzURL.standardizedFileURL != outputURL.standardizedFileURL {
-            if FileManager.default.fileExists(atPath: outputURL.path) {
-                try FileManager.default.removeItem(at: outputURL)
-            }
-            try FileManager.default.moveItem(at: gzURL, to: outputURL)
-        }
-        return outputURL.standardizedFileURL
+        let outputRecord = ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)
+        try? FileManager.default.removeItem(at: rawURL)
+        return GzipCompressionResult(
+            outputURL: outputURL.standardizedFileURL,
+            provenance: CountedFASTQCompressionProvenance(
+                command: command,
+                input: inputRecord,
+                output: outputRecord,
+                exitCode: process.terminationStatus,
+                wallTime: wallTime,
+                stderr: stderr
+            )
+        )
     }
 }

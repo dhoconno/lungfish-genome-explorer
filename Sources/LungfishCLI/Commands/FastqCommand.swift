@@ -816,6 +816,92 @@ func recordFASTQMergeProvenance(
     )
 }
 
+@discardableResult
+func recordFASTQCountedMergeProvenance(
+    cliArguments: [String],
+    nativeArguments: [String],
+    bbmergeResult: NativeToolResult,
+    inputURL: URL,
+    bbmergeOutputURLs: [URL],
+    countedResult: CountedFASTQMaterializationResult,
+    finalOutputURL: URL,
+    parameters: [String: ParameterValue],
+    defaults: [String: ParameterValue] = [:],
+    startedAt: Date
+) async throws -> ProvenanceEnvelope {
+    let completedAt = Date()
+    let toolVersion = await NativeToolRunner.shared.getToolVersion(.bbmerge) ?? "unknown"
+    let bbmergeCommand = bbmergeResult.arguments.isEmpty
+        ? [NativeTool.bbmerge.executableName] + nativeArguments
+        : bbmergeResult.arguments
+    let inputRecord = ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)
+    let finalOutputRecord = ProvenanceRecorder.fileRecord(url: finalOutputURL, format: .fastq, role: .output)
+    let bbmergeOutputRecords = bbmergeOutputURLs
+        .filter { FileManager.default.fileExists(atPath: $0.path) }
+        .map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
+
+    let bbmergeStepID = UUID()
+    let countedStepID = UUID()
+    let countedInputs = bbmergeOutputRecords
+        .map { ProvenanceFileDescriptor(fileRecord: $0).withRole(.input) }
+    let countedOutput = ProvenanceFileDescriptor(fileRecord: countedResult.materializedOutput)
+    let countedCommand = ["lungfish", "fastq"] + cliArguments
+
+    var extraSteps = [
+        ProvenanceStep(
+            id: countedStepID,
+            toolName: "lungfish fastq merge count-duplicates",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: countedCommand,
+            inputs: countedInputs,
+            outputs: [countedOutput],
+            exitStatus: 0,
+            dependsOn: [bbmergeStepID],
+            startedAt: completedAt,
+            completedAt: completedAt
+        ),
+    ]
+
+    if let compression = countedResult.compression {
+        extraSteps.append(
+            ProvenanceStep(
+                toolName: compression.command.first ?? "/usr/bin/gzip",
+                toolVersion: "system",
+                argv: compression.command,
+                inputs: [ProvenanceFileDescriptor(fileRecord: compression.input).withRole(.input)],
+                outputs: [ProvenanceFileDescriptor(fileRecord: compression.output).withRole(.output)],
+                exitStatus: Int(compression.exitCode),
+                wallTimeSeconds: compression.wallTime,
+                stderr: compression.stderr,
+                dependsOn: [countedStepID],
+                startedAt: completedAt.addingTimeInterval(-compression.wallTime),
+                completedAt: completedAt
+            )
+        )
+    }
+
+    return try await CLIProvenanceSupport.recordSingleStepRun(
+        name: "lungfish fastq merge",
+        parameters: parameters,
+        defaults: defaults,
+        toolName: NativeTool.bbmerge.rawValue,
+        toolVersion: toolVersion,
+        command: ["lungfish", "fastq"] + cliArguments,
+        stepID: bbmergeStepID,
+        stepCommand: bbmergeCommand,
+        stepInputs: [inputRecord],
+        stepOutputs: bbmergeOutputRecords,
+        extraSteps: extraSteps,
+        inputs: [inputRecord],
+        outputs: [finalOutputRecord],
+        exitCode: bbmergeResult.exitCode,
+        wallTime: completedAt.timeIntervalSince(startedAt),
+        stderr: bbmergeResult.stderr,
+        status: bbmergeResult.isSuccess && (countedResult.compression?.exitCode ?? 0) == 0 ? .completed : .failed,
+        outputDirectory: finalOutputURL.deletingLastPathComponent()
+    )
+}
+
 func recordFASTQSwiftToolProvenance(
     workflowName: String,
     cliArguments: [String],
@@ -1787,7 +1873,13 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
                 FileManager.default.fileExists(atPath: $0.path)
             }
             if countedInputs.isEmpty {
-                FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+                countedResult = try CountedFASTQMaterializer().write(
+                    counts: [:],
+                    outputURL: outputURL,
+                    compress: output.compress,
+                    inputRecordCount: 0,
+                    totalReadCount: 0
+                )
             } else {
                 countedResult = try await CountedFASTQMaterializer().materialize(
                     inputs: countedInputs,
@@ -1862,14 +1954,17 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
             "compress": .boolean(false)
         ]
         if countDuplicates {
-            try await recordFASTQNativeToolProvenance(
-                workflowName: "lungfish fastq merge",
-                nativeTool: .bbmerge,
+            guard let countedResult else {
+                throw CLIError.conversionFailed(reason: "Counted merge did not produce an output for provenance recording")
+            }
+            try await recordFASTQCountedMergeProvenance(
                 cliArguments: cliArguments,
                 nativeArguments: args,
-                result: result,
-                inputURLs: [inputURL],
-                outputURLs: [outputURL],
+                bbmergeResult: result,
+                inputURL: inputURL,
+                bbmergeOutputURLs: [mergedURL, unmergedURL],
+                countedResult: countedResult,
+                finalOutputURL: outputURL,
                 parameters: provenanceParameters,
                 defaults: provenanceDefaults,
                 startedAt: startedAt
