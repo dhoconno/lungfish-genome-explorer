@@ -15,7 +15,7 @@ set -e
 
 # Configuration
 SUBSYSTEM="com.lungfish.browser"
-TEST_FOLDER="/Users/dho/Desktop/test"
+TEST_FOLDER="${LUNGFISH_DEBUG_TEST_FOLDER:-$HOME/Desktop/test}"
 LIVE_DURATION=${2:-30}
 
 # Parse arguments

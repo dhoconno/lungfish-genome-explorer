@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import LungfishCore
 import Testing
 
@@ -390,6 +391,103 @@ struct ReleaseBuildConfigurationTests {
         #expect(manifest.contains(#""name": "seqkit""#) == false)
         #expect(manifest.contains(#""name": "vsearch""#) == false)
         #expect(manifest.contains(#""name": "cutadapt""#) == false)
+    }
+
+    @Test("Shipped workflow resources do not leak developer-local paths")
+    func shippedWorkflowResourcesDoNotLeakDeveloperLocalPaths() throws {
+        let resourcesRoot = Self.repositoryRoot()
+            .appendingPathComponent("Sources/LungfishWorkflow/Resources", isDirectory: true)
+        let leakPatterns = ["/Users/"]
+        let scannedExtensions = Set(["json", "txt"])
+        var leaks: [String] = []
+
+        guard let enumerator = FileManager.default.enumerator(
+            at: resourcesRoot,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: []
+        ) else {
+            throw NSError(domain: "ReleaseBuildConfigurationTests", code: 3)
+        }
+
+        for case let fileURL as URL in enumerator {
+            guard scannedExtensions.contains(fileURL.pathExtension.lowercased()),
+                  let text = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                continue
+            }
+            for pattern in leakPatterns where text.contains(pattern) {
+                leaks.append(Self.relativePath(fileURL, from: Self.repositoryRoot()))
+                break
+            }
+        }
+
+        #expect(leaks.isEmpty, "Bundled resource leaks developer paths: \(leaks.sorted().joined(separator: ", "))")
+    }
+
+    @Test("Bundled MCM provenance manifest matches shipped payload files")
+    func bundledMCMProvenanceManifestMatchesShippedPayloadFiles() throws {
+        let bundleURL = Self.repositoryRoot()
+            .appendingPathComponent(
+                "Sources/LungfishWorkflow/Resources/MCMHaplotyping/MCM-MHC-miSeq-20260617.lungfishmhcref",
+                isDirectory: true
+            )
+        let provenanceURL = bundleURL.appendingPathComponent(".lungfish-provenance.json")
+        let provenance = try JSONDecoder().decode(
+            ShippedMCMProvenance.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let manifestEntries = provenance.bundleDirectoryManifest.sorted { $0.path < $1.path }
+        let expectedPayloadPaths = Set([
+            "haplotypes/mcm-mhc-miseq-20260617.lungfishhaplotypedef.json",
+            "mcm_mhc_miseq_reference.trimmed.unique.fasta",
+            "mhc-reference.json",
+            "sources/IPD-MHC_NHKIR_Mafa_genomic.fasta",
+            "sources/MCM_IPD_names_Acc#_Haplotype.xlsx",
+            "sources/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
+        ])
+        var failures: [String] = []
+        var seenPaths = Set<String>()
+        var totalSizeBytes = 0
+
+        #expect(Set(manifestEntries.map(\.path)) == expectedPayloadPaths)
+
+        for entry in manifestEntries {
+            if !seenPaths.insert(entry.path).inserted {
+                failures.append("\(entry.path): duplicate manifest path")
+                continue
+            }
+            do {
+                let fileURL = try BundleManifest.validatedBundleMemberURL(
+                    for: entry.path,
+                    in: bundleURL,
+                    field: "bundleDirectoryManifest[].path"
+                )
+                guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                    failures.append("\(entry.path): missing payload file")
+                    continue
+                }
+                let actualSize = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
+                let actualSHA256 = try Self.sha256Hex(of: fileURL)
+                if entry.sizeBytes != actualSize {
+                    failures.append("\(entry.path): size \(entry.sizeBytes) != \(actualSize)")
+                }
+                if entry.sha256 != actualSHA256 {
+                    failures.append("\(entry.path): sha256 \(entry.sha256) != \(actualSHA256)")
+                }
+                totalSizeBytes += actualSize
+            } catch {
+                failures.append("\(entry.path): invalid payload path")
+            }
+        }
+
+        let bundleOutput = try #require(
+            provenance.outputs.first { $0.role == "lungfish_mhc_reference_bundle" }
+        )
+        #expect(failures.isEmpty, "Bundled MCM provenance manifest mismatches: \(failures.joined(separator: ", "))")
+        #expect(bundleOutput.path == ".")
+        #expect(bundleOutput.fileCount == manifestEntries.count)
+        #expect(bundleOutput.sizeBytes == totalSizeBytes)
+        let expectedDigest = try Self.directoryDigest(for: manifestEntries)
+        #expect(bundleOutput.sha256 == expectedDigest)
     }
 
     @Test("Release tools sanitizer preserves Mach-O binaries and strips non-executables")
@@ -1288,6 +1386,56 @@ struct ReleaseBuildConfigurationTests {
         }
 
         return String(project[markerRange.lowerBound..<blockEnd.upperBound])
+    }
+
+    private static func relativePath(_ url: URL, from root: URL) -> String {
+        let rootPath = root.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : "\(rootPath)/"
+        return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
+    }
+
+    private static func sha256Hex(of url: URL) throws -> String {
+        try sha256Hex(of: Data(contentsOf: url))
+    }
+
+    private static func sha256Hex(of data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func directoryDigest(for entries: [ShippedBundleManifestEntry]) throws -> String {
+        let payload = try entries.map { entry in
+            let path = try jsonStringLiteral(entry.path)
+            let sha256 = try jsonStringLiteral(entry.sha256)
+            return #"{"path":\#(path),"sha256":\#(sha256),"sizeBytes":\#(entry.sizeBytes)}"#
+        }.joined(separator: ",")
+        return sha256Hex(of: Data("[\(payload)]".utf8))
+    }
+
+    private static func jsonStringLiteral(_ value: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: [value], options: [])
+        let encoded = String(decoding: data, as: UTF8.self)
+            .replacingOccurrences(of: #"\/"#, with: "/")
+        return String(encoded.dropFirst().dropLast())
+    }
+
+    private struct ShippedMCMProvenance: Decodable {
+        let bundleDirectoryManifest: [ShippedBundleManifestEntry]
+        let outputs: [ShippedProvenanceOutput]
+    }
+
+    private struct ShippedBundleManifestEntry: Decodable {
+        let path: String
+        let sha256: String
+        let sizeBytes: Int
+    }
+
+    private struct ShippedProvenanceOutput: Decodable {
+        let path: String
+        let role: String
+        let sha256: String?
+        let sizeBytes: Int?
+        let fileCount: Int?
     }
 
     private static func swiftFiles(in directory: URL, relativeTo repositoryRoot: URL) throws -> [String] {

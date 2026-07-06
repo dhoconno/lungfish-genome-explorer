@@ -84,7 +84,7 @@ def runtime_identity(root):
     return {
         "condaEnvironment": os.environ.get("CONDA_DEFAULT_ENV"),
         "containerImage": os.environ.get("LUNGFISH_CONTAINER_IMAGE"),
-        "executablePath": sys.executable,
+        "executablePath": "python3",
         "operatingSystemVersion": platform.platform(),
         "processIdentifier": os.getpid(),
         "pythonVersion": platform.python_version(),
