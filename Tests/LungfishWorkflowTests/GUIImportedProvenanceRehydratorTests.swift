@@ -371,6 +371,64 @@ final class GUIImportedProvenanceRehydratorTests: XCTestCase {
         }
     }
 
+    func testImportedCopyRejectsStaleSamePathCLIOutputProvenance() throws {
+        let tempDir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let stagingDirectory = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let bundleURL = tempDir.appendingPathComponent("Project/Sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let sourceFASTQ = stagingDirectory.appendingPathComponent("reads.fastq")
+        let finalFASTQ = bundleURL.appendingPathComponent("reads.fastq")
+        try Data("@old\nAAAA\n+\n!!!!\n".utf8).write(to: sourceFASTQ, options: .atomic)
+        let staleOutputDescriptor = try ProvenanceFileDescriptor.file(url: sourceFASTQ, format: .fastq, role: .output)
+        try Data("@new\nCCCC\n+\n!!!!\n".utf8).write(to: sourceFASTQ, options: .atomic)
+        try Data("@new\nCCCC\n+\n!!!!\n".utf8).write(to: finalFASTQ, options: .atomic)
+
+        let cliEnvelope = try ProvenanceRunBuilder(
+            workflowName: "CLI FASTQ Stale Copy",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "fetch", "ncbi", "SRR123", "--output", sourceFASTQ.path])
+        .output(sourceFASTQ, format: .fastq, role: .output)
+        .step(
+            ProvenanceStep(
+                toolName: "lungfish-cli",
+                toolVersion: "2026.05",
+                argv: ["lungfish-cli", "fetch", "ncbi", "SRR123", "--output", sourceFASTQ.path],
+                outputs: [staleOutputDescriptor],
+                exitStatus: 0,
+                wallTimeSeconds: 1.5
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11.5)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            cliEnvelope,
+            toSidecar: ProvenanceRecorder.fileSidecarURL(for: sourceFASTQ)
+        )
+
+        XCTAssertThrowsError(
+            try GUIImportedProvenanceRehydrator.rehydrateImportedCopy(
+                from: sourceFASTQ,
+                to: finalFASTQ
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? GUIImportedProvenanceRehydratorError,
+                .sourceOutputIntegrityMismatch(sourceFASTQ.path)
+            )
+        }
+    }
+
     private func makeTempDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("gui-imported-provenance-\(UUID().uuidString)", isDirectory: true)
