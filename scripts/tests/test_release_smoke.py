@@ -127,6 +127,17 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("PASS Package.resolved consistency", result.stdout)
 
+    def test_release_script_checks_lockfiles_before_reusing_archive(self):
+        release_script = (self.root / "scripts" / "release" / "build-notarized-dmg.sh").read_text()
+        lines = release_script.splitlines()
+        guard_index = self._line_index(
+            lines,
+            '/bin/bash "$PROJECT_ROOT/scripts/check-package-resolved-consistency.sh" --repair "$PROJECT_ROOT"',
+        )
+        reuse_index = self._line_index(lines, "printf 'Reusing existing archive: %s\\n' \"$ARCHIVE_PATH\"")
+
+        self.assertLess(guard_index, reuse_index)
+
     def _make_minimal_app(self, root, include_icon=False, include_cli=False):
         app_path = root / "Lungfish.app"
         macos = app_path / "Contents" / "MacOS"
@@ -232,6 +243,12 @@ esac
 """,
             encoding="utf-8",
         )
+
+    def _line_index(self, lines, marker):
+        for index, line in enumerate(lines):
+            if marker in line:
+                return index
+        self.fail(f"missing line containing {marker!r}")
 
 
 if __name__ == "__main__":
