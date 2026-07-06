@@ -42,8 +42,17 @@ extension NaoMgsDatabase {
 
         do {
             try createSchema(db: mergedDB)
+            try ClassifierSQLiteDatabaseSupport.markBuildState(
+                ClassifierSQLiteDatabaseSupport.buildStateBuilding,
+                db: mergedDB
+            )
             try mergeStageSummaries(into: mergedDB, from: stageInputs)
             try createIndices(db: mergedDB)
+            try ClassifierSQLiteDatabaseSupport.finalizeSuccessfulBuild(
+                db: mergedDB,
+                requiredTables: Self.requiredTables,
+                requiredIndexes: Self.buildRequiredIndexes
+            )
 
             sqlite3_close(mergedDB)
             naoMgsDatabaseLogger.info("Created merged NAO-MGS summary database from \(stageInputs.count) staged samples at \(url.lastPathComponent)")

@@ -51,6 +51,10 @@ extension NaoMgsDatabase {
 
         do {
             try createSchema(db: db)
+            try ClassifierSQLiteDatabaseSupport.markBuildState(
+                ClassifierSQLiteDatabaseSupport.buildStateBuilding,
+                db: db
+            )
             progress?(0.05, "Schema created")
 
             try bulkInsertHits(db: db, hits: hits, progress: progress)
@@ -67,6 +71,11 @@ extension NaoMgsDatabase {
             try computeAccessionSummaries(db: db)
             progress?(0.95, "Finalizing...")
 
+            try ClassifierSQLiteDatabaseSupport.finalizeSuccessfulBuild(
+                db: db,
+                requiredTables: Self.requiredTables,
+                requiredIndexes: Self.buildRequiredIndexes
+            )
             sqlite3_close(db)
             naoMgsDatabaseLogger.info("Created NAO-MGS database with \(hits.count) hits at \(url.lastPathComponent)")
 
@@ -144,6 +153,10 @@ extension NaoMgsDatabase {
 
         do {
             try createSchema(db: db)
+            try ClassifierSQLiteDatabaseSupport.markBuildState(
+                ClassifierSQLiteDatabaseSupport.buildStateBuilding,
+                db: db
+            )
             progress?(0.02, "Schema created")
 
             // Prepare insert statement
@@ -568,6 +581,11 @@ extension NaoMgsDatabase {
                 sqlite3_finalize(countStmt)
             }
 
+            try ClassifierSQLiteDatabaseSupport.finalizeSuccessfulBuild(
+                db: db,
+                requiredTables: Self.requiredTables,
+                requiredIndexes: Self.buildRequiredIndexes
+            )
             sqlite3_close(db)
             naoMgsDatabaseLogger.info("Created NAO-MGS database (streaming) with \(insertedCount) hits at \(url.lastPathComponent)")
 

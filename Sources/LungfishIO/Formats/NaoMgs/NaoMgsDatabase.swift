@@ -130,6 +130,38 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
     var db: OpaquePointer?
     let url: URL
+    private static let readOnlyFlags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
+    static let requiredTables = [
+        "virus_hits",
+        "taxon_summaries",
+        "reference_lengths",
+        "accession_summaries",
+        "sample_hit_counts",
+        "taxon_read_names",
+        ClassifierSQLiteDatabaseSupport.stateTableName,
+    ]
+    static let requiredIndexes = [
+        "idx_taxon_read_names_sample_taxid",
+        "idx_sample_hit_counts_hitcount",
+        "idx_summaries_sample",
+        "idx_summaries_hitcount",
+        "idx_summaries_taxid",
+    ]
+    static let buildRequiredIndexes = ["idx_hits_sample"] + requiredIndexes
+    private static let requiredColumns: [(table: String, column: String)] = [
+        ("taxon_summaries", "pcr_duplicate_count"),
+        ("taxon_summaries", "accession_count"),
+        ("taxon_summaries", "top_accessions_json"),
+        ("taxon_summaries", "bam_path"),
+        ("taxon_summaries", "bam_index_path"),
+        ("virus_hits", "ref_start_rev"),
+        ("virus_hits", "read_sequence_rev"),
+        ("virus_hits", "read_quality_rev"),
+        ("virus_hits", "edit_distance_rev"),
+        ("virus_hits", "query_length_rev"),
+        ("virus_hits", "is_reverse_complement_rev"),
+        ("virus_hits", "best_alignment_score_rev"),
+    ]
 
     /// The URL of the database file.
     public var databaseURL: URL { url }
@@ -142,122 +174,24 @@ public final class NaoMgsDatabase: @unchecked Sendable {
     /// - Throws: ``NaoMgsDatabaseError/openFailed(_:)`` if the file cannot be opened.
     public init(at url: URL) throws {
         self.url = url
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
-        let rc = sqlite3_open_v2(url.path, &db, flags, nil)
+        let rc = sqlite3_open_v2(url.path, &db, Self.readOnlyFlags, nil)
         guard rc == SQLITE_OK else {
             let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
             sqlite3_close(db)
             db = nil
             throw NaoMgsDatabaseError.openFailed(msg)
         }
-        // Schema migration: check which tables/columns need to be added.
-        var hasRefLengths = false
-        var hasAccessionSummaries = false
-        var hasTaxonReadNames = false
-        var hasSampleHitCounts = false
-        let tableListSQL = "SELECT name FROM sqlite_master WHERE type='table'"
-        var tblStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, tableListSQL, -1, &tblStmt, nil) == SQLITE_OK {
-            while sqlite3_step(tblStmt) == SQLITE_ROW {
-                if let namePtr = sqlite3_column_text(tblStmt, 0) {
-                    let name = String(cString: namePtr)
-                    if name == "reference_lengths" { hasRefLengths = true }
-                    if name == "accession_summaries" { hasAccessionSummaries = true }
-                    if name == "taxon_read_names" { hasTaxonReadNames = true }
-                    if name == "sample_hit_counts" { hasSampleHitCounts = true }
-                }
-            }
-            sqlite3_finalize(tblStmt)
-        }
 
-        var hasBamPath = false
-        var hasBamIndexPath = false
-        let colCheck = "PRAGMA table_info(taxon_summaries)"
-        var colStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, colCheck, -1, &colStmt, nil) == SQLITE_OK {
-            while sqlite3_step(colStmt) == SQLITE_ROW {
-                if let namePtr = sqlite3_column_text(colStmt, 1) {
-                    let colName = String(cString: namePtr)
-                    if colName == "bam_path" { hasBamPath = true }
-                    if colName == "bam_index_path" { hasBamIndexPath = true }
-                }
-            }
-            sqlite3_finalize(colStmt)
-        }
-
-        let needsMigration = !hasRefLengths || !hasAccessionSummaries || !hasTaxonReadNames || !hasSampleHitCounts || !hasBamPath || !hasBamIndexPath
-        if needsMigration {
+        do {
+            try validateReadyDatabase()
+            try validateRequiredColumns()
+        } catch {
             sqlite3_close(db)
-            self.db = nil
-
-            var rwDB: OpaquePointer?
-            if sqlite3_open_v2(url.path, &rwDB, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK {
-                if !hasRefLengths {
-                    sqlite3_exec(rwDB, "CREATE TABLE IF NOT EXISTS reference_lengths (accession TEXT PRIMARY KEY, length INTEGER NOT NULL)", nil, nil, nil)
-                }
-                if !hasBamPath {
-                    sqlite3_exec(rwDB, "ALTER TABLE taxon_summaries ADD COLUMN bam_path TEXT", nil, nil, nil)
-                }
-                if !hasBamIndexPath {
-                    sqlite3_exec(rwDB, "ALTER TABLE taxon_summaries ADD COLUMN bam_index_path TEXT", nil, nil, nil)
-                }
-                if !hasAccessionSummaries {
-                    sqlite3_exec(rwDB, """
-                    CREATE TABLE IF NOT EXISTS accession_summaries (
-                        sample TEXT NOT NULL,
-                        tax_id INTEGER NOT NULL,
-                        accession TEXT NOT NULL,
-                        read_count INTEGER NOT NULL,
-                        unique_read_count INTEGER NOT NULL,
-                        reference_length INTEGER NOT NULL,
-                        covered_base_pairs INTEGER NOT NULL,
-                        coverage_fraction REAL NOT NULL,
-                        PRIMARY KEY (sample, tax_id, accession)
-                    )
-                    """, nil, nil, nil)
-                    // Populate from virus_hits if rows exist (pre-migration database)
-                    if let rwDB {
-                        var countStmt: OpaquePointer?
-                        if sqlite3_prepare_v2(rwDB, "SELECT COUNT(*) FROM virus_hits", -1, &countStmt, nil) == SQLITE_OK {
-                            if sqlite3_step(countStmt) == SQLITE_ROW, sqlite3_column_int64(countStmt, 0) > 0 {
-                                naoMgsDatabaseLogger.info("Migrating: computing accession_summaries from virus_hits")
-                                try? Self.computeAccessionSummaries(db: rwDB)
-                            }
-                            sqlite3_finalize(countStmt)
-                        }
-                    }
-                }
-                if !hasTaxonReadNames {
-                    sqlite3_exec(rwDB, """
-                    CREATE TABLE IF NOT EXISTS taxon_read_names (
-                        sample TEXT NOT NULL,
-                        tax_id INTEGER NOT NULL,
-                        seq_id TEXT NOT NULL,
-                        PRIMARY KEY (sample, tax_id, seq_id)
-                    )
-                    """, nil, nil, nil)
-                    try? Self.populateTaxonReadNames(db: rwDB)
-                    sqlite3_exec(rwDB, "CREATE INDEX IF NOT EXISTS idx_taxon_read_names_sample_taxid ON taxon_read_names(sample, tax_id)", nil, nil, nil)
-                }
-                if !hasSampleHitCounts {
-                    sqlite3_exec(rwDB, """
-                    CREATE TABLE IF NOT EXISTS sample_hit_counts (
-                        sample TEXT PRIMARY KEY,
-                        hit_count INTEGER NOT NULL
-                    )
-                    """, nil, nil, nil)
-                    try? Self.populateSampleHitCounts(db: rwDB)
-                }
-                sqlite3_close(rwDB)
+            db = nil
+            if let error = error as? NaoMgsDatabaseError {
+                throw error
             }
-
-            let rc2 = sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil)
-            guard rc2 == SQLITE_OK else {
-                let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
-                sqlite3_close(db)
-                self.db = nil
-                throw NaoMgsDatabaseError.openFailed(msg)
-            }
+            throw NaoMgsDatabaseError.openFailed(error.localizedDescription)
         }
 
         // Read-side performance tuning
@@ -265,6 +199,62 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         sqlite3_exec(db, "PRAGMA mmap_size = 268435456", nil, nil, nil) // 256 MB
         sqlite3_exec(db, "PRAGMA temp_store = MEMORY", nil, nil, nil)
         naoMgsDatabaseLogger.info("Opened NAO-MGS database: \(url.lastPathComponent)")
+    }
+
+    private func validateReadyDatabase() throws {
+        guard let db else {
+            throw NaoMgsDatabaseError.openFailed("Database not open")
+        }
+        try ClassifierSQLiteDatabaseSupport.validateReadyDatabase(
+            db: db,
+            requiredTables: Self.requiredTables,
+            requiredIndexes: Self.requiredIndexes
+        )
+    }
+
+    private func validateRequiredColumns() throws {
+        guard let db else {
+            throw NaoMgsDatabaseError.openFailed("Database not open")
+        }
+        let missingColumns = try Self.requiredColumns.compactMap { requirement in
+            try Self.database(db, hasColumn: requirement.column, in: requirement.table)
+                ? nil
+                : "\(requirement.table).\(requirement.column)"
+        }
+        guard missingColumns.isEmpty else {
+            throw NaoMgsDatabaseError.openFailed(
+                "Missing required columns: \(missingColumns.sorted().joined(separator: ", "))"
+            )
+        }
+    }
+
+    private static func database(
+        _ db: OpaquePointer,
+        hasColumn column: String,
+        in table: String
+    ) throws -> Bool {
+        let sql = "PRAGMA table_info(\(table))"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw NaoMgsDatabaseError.openFailed("Could not inspect \(table) columns: \(msg)")
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        while true {
+            switch sqlite3_step(stmt) {
+            case SQLITE_ROW:
+                guard let name = sqlite3_column_text(stmt, 1) else { continue }
+                if String(cString: name) == column {
+                    return true
+                }
+            case SQLITE_DONE:
+                return false
+            default:
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw NaoMgsDatabaseError.openFailed("Could not read \(table) columns: \(msg)")
+            }
+        }
     }
 
     deinit {

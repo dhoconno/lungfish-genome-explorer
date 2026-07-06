@@ -59,6 +59,64 @@ struct NaoMgsDatabaseTests {
         return dir.appendingPathComponent("naomgs_test_\(UUID().uuidString).sqlite")
     }
 
+    private func tableExists(at url: URL, named table: String) throws -> Bool {
+        var db: OpaquePointer?
+        #expect(sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        let sql = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        sqlite3_bind_text(stmt, 1, (table as NSString).utf8String, -1, nil)
+        return sqlite3_step(stmt) == SQLITE_ROW
+    }
+
+    private func database(at url: URL, hasColumn column: String, in table: String) throws -> Bool {
+        var db: OpaquePointer?
+        #expect(sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        let sql = "PRAGMA table_info(\(table))"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let name = sqlite3_column_text(stmt, 1) else { continue }
+            if String(cString: name) == column { return true }
+        }
+        return false
+    }
+
+    private func buildStateValue(at url: URL) throws -> String? {
+        guard try tableExists(at: url, named: "lungfish_database_state") else {
+            return nil
+        }
+
+        var db: OpaquePointer?
+        #expect(sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        let sql = "SELECT value FROM lungfish_database_state WHERE key = 'build_state'"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let value = sqlite3_column_text(stmt, 0) else {
+            return nil
+        }
+        return String(cString: value)
+    }
+
     // MARK: - Tests
 
     @Test
@@ -105,6 +163,17 @@ struct NaoMgsDatabaseTests {
         let reopened = try NaoMgsDatabase(at: url)
         let count = try reopened.totalHitCount()
         #expect(count == 24, "Re-opened database should still contain 24 hits")
+    }
+
+    @Test
+    func createdDatabaseRecordsCompleteBuildState() throws {
+        let hits = makeSyntheticHits()
+        let url = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        _ = try NaoMgsDatabase.create(at: url, hits: hits)
+
+        #expect(try buildStateValue(at: url) == "complete")
     }
 
     // MARK: - fetchSamples
@@ -464,7 +533,7 @@ struct NaoMgsDatabaseTests {
     // MARK: - Schema Migration
 
     @Test
-    func openOldDatabaseTriggersAccessionSummaryMigration() throws {
+    func openOldDatabaseMissingAccessionSummariesFailsWithoutMutation() throws {
         // Create a database, then remove accession_summaries to simulate an old schema
         let hits = makeSyntheticHits()
         let url = temporaryDatabaseURL()
@@ -481,16 +550,22 @@ struct NaoMgsDatabaseTests {
             sqlite3_close(db)
         }
 
-        // Re-open — migration should recreate and populate accession_summaries
-        let db = try NaoMgsDatabase(at: url)
-        let summaries = try db.fetchAccessionSummaries(sample: "sample_A", taxId: 2697049)
-        #expect(summaries.count == 3, "Migration should recreate accession_summaries from virus_hits")
-        #expect(summaries[0].readCount > 0, "Migrated summaries should have read counts")
-        #expect(summaries[0].coveredBasePairs > 0, "Migrated summaries should have coverage")
+        #expect(try !tableExists(at: url, named: "accession_summaries"))
+
+        do {
+            _ = try NaoMgsDatabase(at: url)
+            Issue.record("Expected legacy NAO-MGS open to fail without mutating")
+        } catch NaoMgsDatabaseError.openFailed(let message) {
+            #expect(message.contains("accession_summaries") || message.contains("lungfish_database_state"))
+        } catch {
+            Issue.record("Expected NaoMgsDatabaseError.openFailed, got \(error)")
+        }
+
+        #expect(try !tableExists(at: url, named: "accession_summaries"))
     }
 
     @Test
-    func openLegacyDatabaseWithoutReverseColumnsMigratesAccessionSummaries() throws {
+    func openLegacyDatabaseWithoutReverseColumnsFailsWithoutMutation() throws {
         let url = temporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -595,10 +670,27 @@ struct NaoMgsDatabaseTests {
             }
         }
 
-        let migrated = try NaoMgsDatabase(at: url)
-        let summaries = try migrated.fetchAccessionSummaries(sample: "legacy_sample", taxId: 11137)
-        #expect(summaries.count == 2, "Migration should rebuild accession summaries for legacy virus_hits schemas")
-        #expect(summaries.reduce(0) { $0 + $1.readCount } == 5, "Migrated accession summaries should retain all legacy reads")
-        #expect(summaries.allSatisfy { $0.coveredBasePairs > 0 }, "Migrated legacy summaries should compute covered bases")
+        #expect(try buildStateValue(at: url) == nil)
+        #expect(try !tableExists(at: url, named: "accession_summaries"))
+        #expect(try !tableExists(at: url, named: "taxon_read_names"))
+        #expect(try !tableExists(at: url, named: "sample_hit_counts"))
+        #expect(try !database(at: url, hasColumn: "bam_path", in: "taxon_summaries"))
+        #expect(try !database(at: url, hasColumn: "bam_index_path", in: "taxon_summaries"))
+
+        do {
+            _ = try NaoMgsDatabase(at: url)
+            Issue.record("Expected legacy NAO-MGS open to fail without mutating")
+        } catch NaoMgsDatabaseError.openFailed(let message) {
+            #expect(message.contains("lungfish_database_state") || message.contains("build_state"))
+        } catch {
+            Issue.record("Expected NaoMgsDatabaseError.openFailed, got \(error)")
+        }
+
+        #expect(try buildStateValue(at: url) == nil)
+        #expect(try !tableExists(at: url, named: "accession_summaries"))
+        #expect(try !tableExists(at: url, named: "taxon_read_names"))
+        #expect(try !tableExists(at: url, named: "sample_hit_counts"))
+        #expect(try !database(at: url, hasColumn: "bam_path", in: "taxon_summaries"))
+        #expect(try !database(at: url, hasColumn: "bam_index_path", in: "taxon_summaries"))
     }
 }
