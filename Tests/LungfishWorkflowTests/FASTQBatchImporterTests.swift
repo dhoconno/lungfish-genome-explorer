@@ -787,6 +787,49 @@ final class FASTQBatchImporterTests: XCTestCase {
         )
     }
 
+    func testRecipeProvenancePrefersStructuredArgumentsOverQuotedCommandLine() throws {
+        let inputURL = URL(fileURLWithPath: "/tmp/input with spaces/Sample_R1.fastq")
+        let outputURL = URL(fileURLWithPath: "/tmp/project/Imports/Sample.lungfishfastq/Sample.fastq.gz")
+        let stepResult = RecipeStepResult(
+            stepName: "Adapter trim",
+            tool: "fastp",
+            toolVersion: "1.0",
+            commandLine: "fastp --in1 '/tmp/input with spaces/Sample_R1.fastq'",
+            commandArguments: ["fastp", "--in1", inputURL.path],
+            durationSeconds: 1.25
+        )
+
+        let steps = FASTQBatchImporter.recipeProvenanceSteps(
+            recipeStepResults: [stepResult],
+            originalInputURLs: [inputURL],
+            bundleFASTQURL: outputURL
+        )
+
+        let step = try XCTUnwrap(steps.first)
+        XCTAssertEqual(step.command, ["fastp", "--in1", inputURL.path])
+    }
+
+    func testRecipeProvenanceParsesQuotedCommandLineWhenStructuredArgumentsAreMissing() throws {
+        let inputURL = URL(fileURLWithPath: "/tmp/input with spaces/Sample_R1.fastq")
+        let outputURL = URL(fileURLWithPath: "/tmp/project/Imports/Sample.lungfishfastq/Sample.fastq.gz")
+        let stepResult = RecipeStepResult(
+            stepName: "Adapter trim",
+            tool: "fastp",
+            toolVersion: "1.0",
+            commandLine: "fastp --in1 '\(inputURL.path)' --label \"sample one\"",
+            durationSeconds: 1.25
+        )
+
+        let steps = FASTQBatchImporter.recipeProvenanceSteps(
+            recipeStepResults: [stepResult],
+            originalInputURLs: [inputURL],
+            bundleFASTQURL: outputURL
+        )
+
+        let step = try XCTUnwrap(steps.first)
+        XCTAssertEqual(step.command, ["fastp", "--in1", inputURL.path, "--label", "sample one"])
+    }
+
     // MARK: - Helpers
 
     @discardableResult

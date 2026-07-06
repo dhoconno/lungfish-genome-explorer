@@ -1382,7 +1382,7 @@ public enum FASTQBatchImporter {
         return path
     }
 
-    private static func recipeProvenanceSteps(
+    static func recipeProvenanceSteps(
         recipeStepResults: [RecipeStepResult],
         originalInputURLs: [URL],
         bundleFASTQURL: URL
@@ -1393,9 +1393,7 @@ public enum FASTQBatchImporter {
                   !result.stepName.localizedCaseInsensitiveContains("Compress") else {
                 return nil
             }
-            let command = result.commandLine?
-                .split(separator: " ")
-                .map(String.init) ?? [result.tool]
+            let command = recipeStepCommandArguments(for: result)
             let timestamp = Date()
             return StepExecution(
                 toolName: result.tool,
@@ -1412,6 +1410,78 @@ public enum FASTQBatchImporter {
                 endTime: timestamp
             )
         }
+    }
+
+    private static func recipeStepCommandArguments(for result: RecipeStepResult) -> [String] {
+        if let commandArguments = result.commandArguments, !commandArguments.isEmpty {
+            return commandArguments
+        }
+        if let commandLine = result.commandLine,
+           let parsed = shellCommandArguments(from: commandLine),
+           !parsed.isEmpty {
+            return parsed
+        }
+        return [result.tool]
+    }
+
+    private static func shellCommandArguments(from commandLine: String) -> [String]? {
+        let backslash = UnicodeScalar("\\")
+        let singleQuote = UnicodeScalar("'")
+        let doubleQuote = UnicodeScalar("\"")
+
+        var arguments: [String] = []
+        var current = ""
+        var inSingleQuote = false
+        var inDoubleQuote = false
+        var escaping = false
+        var sawToken = false
+
+        for scalar in commandLine.unicodeScalars {
+            if escaping {
+                current.unicodeScalars.append(scalar)
+                escaping = false
+                sawToken = true
+                continue
+            }
+
+            if scalar == backslash && !inSingleQuote {
+                escaping = true
+                sawToken = true
+                continue
+            }
+
+            if scalar == singleQuote && !inDoubleQuote {
+                inSingleQuote.toggle()
+                sawToken = true
+                continue
+            }
+
+            if scalar == doubleQuote && !inSingleQuote {
+                inDoubleQuote.toggle()
+                sawToken = true
+                continue
+            }
+
+            if scalar.properties.isWhitespace && !inSingleQuote && !inDoubleQuote {
+                if sawToken {
+                    arguments.append(current)
+                    current.removeAll(keepingCapacity: true)
+                    sawToken = false
+                }
+                continue
+            }
+
+            current.unicodeScalars.append(scalar)
+            sawToken = true
+        }
+
+        guard !escaping, !inSingleQuote, !inDoubleQuote else {
+            return nil
+        }
+        if sawToken {
+            arguments.append(current)
+        }
+        return arguments
     }
 
     private static func rehydratedIngestionSteps(
