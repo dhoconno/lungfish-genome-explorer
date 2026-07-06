@@ -740,7 +740,7 @@ extension AppDelegate {
 
     @objc func cancelAllOperations(_ sender: Any?) {
         let cancellableRunningCount = OperationCenter.shared.items.filter {
-            $0.state == .running && $0.isCancellable
+            $0.isCancellable
         }.count
         guard cancellableRunningCount > 0 else { return }
 
@@ -769,7 +769,7 @@ extension AppDelegate {
               let operationID = menuItem.representedObject as? UUID else { return }
 
         guard let item = OperationCenter.shared.items.first(where: { $0.id == operationID }),
-              item.state == .running else { return }
+              item.isCancellable else { return }
 
         let alert = NSAlert()
         alert.messageText = "Cancel \"\(item.title)\"?"

@@ -779,7 +779,7 @@ extension AppDelegate {
                     )
                 }}
             } catch LungfishCLIRunner.RunError.cancelled {
-                // OperationCenter.cancel has already transitioned the row to Cancelled.
+                // OperationCenter owns the final Cancelled transition after teardown returns.
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     OperationCenter.shared.log(id: opID, level: .info, message: "\(request.operation.displayName) cancelled")
                 }}

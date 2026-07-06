@@ -1304,12 +1304,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // "Cancel All Operations" needs running operations
         if menuItem.action == #selector(cancelAllOperations(_:)) {
-            return OperationCenter.shared.activeCount > 0
+            return OperationCenter.shared.items.contains { $0.isCancellable }
         }
 
         // "Clear Completed" needs finished items
         if menuItem.action == #selector(clearCompletedOperations(_:)) {
-            return OperationCenter.shared.items.contains { $0.state != .running }
+            return OperationCenter.shared.items.contains { !$0.state.isActive }
         }
 
         // "Clear Temporary Files..." requires an open project

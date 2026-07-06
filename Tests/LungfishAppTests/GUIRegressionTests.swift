@@ -698,7 +698,7 @@ final class OperationsPanelTests: XCTestCase {
             onCancel: {}
         )
         defer {
-            OperationCenter.shared.cancel(id: operationID)
+            _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
             OperationCenter.shared.clearCompleted()
         }
 
@@ -781,7 +781,7 @@ final class OperationsPanelTests: XCTestCase {
     }
 
     @MainActor
-    func testCompletedCallbacksDoNotOverwriteCancelledOperationRows() {
+    func testCompletedCallbacksDoNotOverwriteCancelledOperationRows() async throws {
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
         let operationID = OperationCenter.shared.start(
@@ -794,6 +794,8 @@ final class OperationsPanelTests: XCTestCase {
 
         _ = OperationCenter.shared.complete(id: operationID, detail: "Complete after cancellation")
 
+        XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .cancelling)
+        try await waitForOperation(operationID, toReach: .cancelled)
         XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .cancelled)
         OperationCenter.shared.clearCompleted()
     }
@@ -949,6 +951,22 @@ final class OperationsPanelTests: XCTestCase {
         window.contentView?.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    @MainActor
+    private func waitForOperation(
+        _ operationID: UUID,
+        toReach state: OperationCenter.Item.State,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == state {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTFail("Timed out waiting for operation \(operationID) to reach \(state.rawValue)")
     }
 }
 

@@ -132,9 +132,14 @@ public final class OperationCenter: ObservableObject {
     public struct Item: Identifiable, Sendable {
         public enum State: String, Sendable {
             case running
+            case cancelling
             case completed
             case cancelled
             case failed
+
+            public var isActive: Bool {
+                self == .running || self == .cancelling
+            }
         }
 
         public let id: UUID
@@ -183,6 +188,8 @@ public final class OperationCenter: ObservableObject {
             switch state {
             case .running:
                 return retryEvents.isEmpty ? "Running" : "Retrying"
+            case .cancelling:
+                return "Cancelling"
             case .completed:
                 return hasWarnings ? "Completed with Warnings" : "Completed"
             case .cancelled:
@@ -193,7 +200,7 @@ public final class OperationCenter: ObservableObject {
         }
 
         public var isCancellable: Bool {
-            onCancel != nil
+            state == .running && onCancel != nil
         }
 
         // MARK: - Byte-level progress tracking
@@ -269,7 +276,7 @@ public final class OperationCenter: ObservableObject {
     public init() {}
 
     public var activeCount: Int {
-        items.filter { $0.state == .running }.count
+        items.filter { $0.state.isActive }.count
     }
 
     // MARK: - Bundle Locking
@@ -280,7 +287,7 @@ public final class OperationCenter: ObservableObject {
         let key = bundleURL.standardizedFileURL.path
         guard let lockHolder = bundleLocks[key] else { return true }
         // Verify the lock holder is still running (stale lock protection)
-        return items.first(where: { $0.id == lockHolder && $0.state == .running }) == nil
+        return items.first(where: { $0.id == lockHolder && $0.state.isActive }) == nil
     }
 
     /// Returns the running item that currently holds the lock on the given bundle, if any.
@@ -288,7 +295,7 @@ public final class OperationCenter: ObservableObject {
         guard let bundleURL else { return nil }
         let key = bundleURL.standardizedFileURL.path
         guard let lockHolder = bundleLocks[key] else { return nil }
-        return items.first(where: { $0.id == lockHolder && $0.state == .running })
+        return items.first(where: { $0.id == lockHolder && $0.state.isActive })
     }
 
     private func lockBundle(for id: UUID, url: URL?) {
@@ -686,25 +693,24 @@ public final class OperationCenter: ObservableObject {
         return true
     }
 
-    /// Cancels a running operation by marking it cancelled and then invoking its cancel callback.
+    /// Cancels a running operation by invoking its cancel callback before releasing any bundle lock.
     /// Running operations without a cancel callback are left unchanged because the
     /// center has no mechanism to stop their underlying work.
     public func cancel(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state == .running,
               let onCancel = items[index].onCancel else { return }
-        let previousOrder = items.map(\.id)
-
-        items[index].state = .cancelled
-        items[index].detail = "Cancelled by user"
-        finishItem(at: index, finishedAt: Date())
-        unlockBundle(for: id)
-        _ = trimCompletedItemsIfNeeded()
-        publishTerminalChange(id: id, previousOrder: previousOrder)
-        postStateChangedNotification(id: id, state: .cancelled)
+        items[index].state = .cancelling
+        items[index].detail = "Cancelling..."
+        items[index].onCancel = nil
+        changes.send(.updated(id: id, index: index))
+        postStateChangedNotification(id: id, state: .cancelling)
 
         DispatchQueue.global(qos: .userInitiated).async {
             onCancel()
+            Task { @MainActor [weak self] in
+                self?.finishCancellation(id: id)
+            }
         }
     }
 
@@ -717,8 +723,8 @@ public final class OperationCenter: ObservableObject {
     }
 
     public func clearCompleted() {
-        let removedIDs = items.filter { $0.state != .running }.map(\.id)
-        items.removeAll { $0.state != .running }
+        let removedIDs = items.filter { !$0.state.isActive }.map(\.id)
+        items.removeAll { !$0.state.isActive }
         notifyRemovedItems(removedIDs)
     }
 
@@ -728,8 +734,8 @@ public final class OperationCenter: ObservableObject {
     ///
     /// - Parameter id: The item to remove.
     public func clearItem(id: UUID) {
-        let shouldRemove = items.contains { $0.id == id && $0.state != .running }
-        items.removeAll { $0.id == id && $0.state != .running }
+        let shouldRemove = items.contains { $0.id == id && !$0.state.isActive }
+        items.removeAll { $0.id == id && !$0.state.isActive }
         if shouldRemove {
             changes.send(.removed(ids: [id]))
         }
@@ -738,9 +744,9 @@ public final class OperationCenter: ObservableObject {
     private func trimCompletedItemsIfNeeded() -> [UUID] {
         let keepLimit = 20
         let previousIDs = Set(items.map(\.id))
-        let running = items.filter { $0.state == .running }
+        let running = items.filter { $0.state.isActive }
         let finished = items
-            .filter { $0.state != .running }
+            .filter { !$0.state.isActive }
             .sorted { ($0.finishedAt ?? .distantPast) > ($1.finishedAt ?? .distantPast) }
 
         items = running + Array(finished.prefix(max(0, keepLimit - running.count)))
@@ -751,6 +757,19 @@ public final class OperationCenter: ObservableObject {
     private func finishItem(at index: Int, finishedAt: Date) {
         items[index].finishedAt = finishedAt
         items[index].wallTimeSeconds = max(0, finishedAt.timeIntervalSince(items[index].startedAt))
+    }
+
+    private func finishCancellation(id: UUID, finishedAt: Date = Date()) {
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].state == .cancelling else { return }
+        let previousOrder = items.map(\.id)
+        items[index].state = .cancelled
+        items[index].detail = "Cancelled by user"
+        finishItem(at: index, finishedAt: finishedAt)
+        unlockBundle(for: id)
+        _ = trimCompletedItemsIfNeeded()
+        publishTerminalChange(id: id, previousOrder: previousOrder)
+        postStateChangedNotification(id: id, state: .cancelled)
     }
 
     private func notifyRemovedItems(_ ids: [UUID]) {

@@ -1183,6 +1183,10 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
                 statusSymbol = "play.circle"
                 statusAccessibility = "Running"
                 progressText = " (\(Int(op.progress * 100))%)"
+            case .cancelling:
+                statusSymbol = "stop.circle"
+                statusAccessibility = "Cancelling"
+                progressText = ""
             case .completed:
                 statusSymbol = "checkmark.circle"
                 statusAccessibility = "Completed"
@@ -1197,7 +1201,7 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
                 progressText = ""
             }
 
-            let canCancel = op.state == .running && op.isCancellable
+            let canCancel = op.isCancellable
             let title = canCancel ? "Cancel \(op.title)\u{2026}\(progressText)" : "\(op.title)\(progressText)"
             let menuItem = NSMenuItem(
                 title: title,
@@ -1215,7 +1219,7 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
 
     private func updateStaticActions(in menu: NSMenu) {
         let hasCancellableRunningOperation = OperationCenter.shared.items.contains {
-            $0.state == .running && $0.isCancellable
+            $0.isCancellable
         }
         menu.items
             .first { $0.action == #selector(OperationsMenuActions.cancelAllOperations(_:)) }?
