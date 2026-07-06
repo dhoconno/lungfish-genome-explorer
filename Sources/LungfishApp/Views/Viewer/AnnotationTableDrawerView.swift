@@ -1487,7 +1487,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             || baseline.end != newRegion.end
     }
 
-    /// Saved user query presets (not persisted across sessions yet — Phase 3 adds BundleViewState support).
+    /// Saved user query presets for the current drawer session. Bundle-level
+    /// persistence should be added here before callers treat presets as durable.
     var savedQueryPresets: [QueryPreset] = []
 
     // MARK: - Public API

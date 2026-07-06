@@ -1914,9 +1914,8 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     /// `outlineView.selectedRowIndexes` can hold a non-empty selection, then
     /// programmatically selects the given indices.
     ///
-    /// Used by the Phase 6 I2 invariant test to exercise
-    /// `validateMenuItem(_:)` when rows are selected, without needing a full
-    /// viral detection result to back the table.
+    /// Used by menu validation tests to exercise `validateMenuItem(_:)`
+    /// without needing a full viral detection result to back the table.
     public func setTestingSelection(indices: [Int]) {
         let rowCount = (indices.max() ?? -1) + 1
         let stub = _TestingViralStubOutlineDataSource(rows: max(rowCount, 1))
@@ -1942,9 +1941,8 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 }
 
 #if DEBUG
-/// Minimal stub NSOutlineViewDataSource used by the Phase 6 I2 invariant
-/// test to seed a non-empty `selectedRowIndexes` without instantiating a
-/// real viral detection result.
+/// Minimal stub NSOutlineViewDataSource used by tests to seed a non-empty
+/// `selectedRowIndexes` without instantiating a real viral detection result.
 fileprivate final class _TestingViralStubOutlineDataSource: NSObject, NSOutlineViewDataSource {
     let rows: Int
     init(rows: Int) { self.rows = rows }

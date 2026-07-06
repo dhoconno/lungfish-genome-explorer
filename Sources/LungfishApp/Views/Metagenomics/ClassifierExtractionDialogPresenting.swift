@@ -2,13 +2,9 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 5 simplification-pass addition. Factors out the ~10-line preamble
-// that each classifier VC's `presentUnifiedExtractionDialog()` needs to run
-// before calling `TaxonomyReadExtractionAction.shared.present(...)`.
-//
-// Each classifier VC still owns the tool-specific selector-building and
-// result-path resolution — this helper only consolidates the final "I have
-// all the inputs, now show the dialog" step so the per-VC method stays tiny.
+// Each classifier view controller owns tool-specific selector-building and
+// result-path resolution. This helper centralizes the final window lookup,
+// route-context construction, and dialog presentation step.
 
 import AppKit
 import Foundation

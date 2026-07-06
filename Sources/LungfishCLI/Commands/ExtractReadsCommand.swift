@@ -669,11 +669,9 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         case .bundle(let u, _):
             fastqURL = u
         case .clipboard, .share:
-            // Defensive dead code: the CLI always passes `.file(outputURL)` as
-            // the destination above, so the resolver never returns a
-            // clipboard/share outcome here. Keep the branch rather than
-            // `fatalError` so a future refactor that adds a CLI-side destination
-            // doesn't silently crash end users.
+            // The CLI currently requests only file output, but keep this as a
+            // recoverable validation error so future destination refactors do
+            // not turn unsupported modes into a user-facing crash.
             print("")
             print(formatter.error("Clipboard / share destinations are not supported from the CLI"))
             throw CLIExitCode.inputError.exitCode
