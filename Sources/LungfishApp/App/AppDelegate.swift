@@ -78,6 +78,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Repeating timer that cleans stale project temp directories (>24 h old) every 4 hours.
     private var projectTempCleanupTimer: Timer?
+#if DEBUG
+    /// Repeating debug-only scan for temp directories that escaped project-local storage.
+    private var debugTempEscapeScanTimer: Timer?
+#endif
     private var isTerminating = false
 
     /// Temporary storage for download URL while sheet is dismissing
@@ -517,6 +521,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Stop periodic project temp cleanup timer.
         projectTempCleanupTimer?.invalidate()
         projectTempCleanupTimer = nil
+#if DEBUG
+        debugTempEscapeScanTimer?.invalidate()
+        debugTempEscapeScanTimer = nil
+#endif
 
         // Clean up any temp files created during this session
         // Note: This is synchronous since we're terminating
@@ -773,7 +781,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
 #if DEBUG
         // In debug builds, scan for escaped temp dirs every 5 minutes.
-        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        debugTempEscapeScanTimer?.invalidate()
+        debugTempEscapeScanTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self?.debugScanForEscapedTempDirs()

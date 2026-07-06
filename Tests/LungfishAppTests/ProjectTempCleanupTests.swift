@@ -110,6 +110,14 @@ final class ProjectTempCleanupTests: XCTestCase {
         )
     }
 
+    func testDebugEscapedTempScanTimerIsRetainedAndInvalidated() {
+        let source = combinedAppDelegateSource()
+
+        XCTAssertTrue(source.contains("debugTempEscapeScanTimer"))
+        XCTAssertTrue(source.contains("debugTempEscapeScanTimer?.invalidate()"))
+        XCTAssertTrue(source.contains("debugTempEscapeScanTimer = Timer.scheduledTimer"))
+    }
+
     // MARK: - formatBytes
 
     @MainActor
