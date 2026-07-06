@@ -830,11 +830,12 @@ public final class MainMenu {
         )
 
         // Cancel All Operations
-        opsMenu.addItem(
+        let cancelAllItem = opsMenu.addItem(
             withTitle: "Cancel All Operations",
             action: #selector(OperationsMenuActions.cancelAllOperations(_:)),
             keyEquivalent: ""
         )
+        cancelAllItem.isEnabled = false
 
         opsMenuItem.submenu = opsMenu
         return opsMenuItem
@@ -1150,6 +1151,7 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         rebuildDynamicItems(in: menu)
+        updateStaticActions(in: menu)
     }
 
     private func rebuildDynamicItems(in menu: NSMenu) {
@@ -1209,6 +1211,15 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
             menuItem.toolTip = op.detail
             menu.insertItem(menuItem, at: index)
         }
+    }
+
+    private func updateStaticActions(in menu: NSMenu) {
+        let hasCancellableRunningOperation = OperationCenter.shared.items.contains {
+            $0.state == .running && $0.isCancellable
+        }
+        menu.items
+            .first { $0.action == #selector(OperationsMenuActions.cancelAllOperations(_:)) }?
+            .isEnabled = hasCancellableRunningOperation
     }
 }
 

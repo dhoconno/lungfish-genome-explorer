@@ -425,6 +425,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     @objc private func cancelItem(_ sender: NSButton) {
         let row = tableView.row(for: sender)
         guard row >= 0, row < items.count else { return }
+        guard items[row].isCancellable else { return }
         OperationCenter.shared.cancel(id: items[row].id)
     }
 
@@ -809,6 +810,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 btn.controlSize = .small
                 btn.font = .systemFont(ofSize: 10)
                 btn.translatesAutoresizingMaskIntoConstraints = false
+                btn.setAccessibilityIdentifier("operations-cancel-button")
                 cell.addSubview(btn)
                 NSLayoutConstraint.activate([
                     btn.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
@@ -836,7 +838,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
 
             switch item.state {
             case .running:
-                cancelButton.isHidden = false
+                cancelButton.isHidden = !item.isCancellable
                 issueButton.isHidden = true
             case .failed:
                 cancelButton.isHidden = true
@@ -1504,7 +1506,7 @@ extension OperationsPanelViewController: NSMenuDelegate {
             menu.addItem(.separator())
         }
 
-        if item.state == .running {
+        if item.state == .running && item.isCancellable {
             let cancelItem = NSMenuItem(title: "Cancel", action: #selector(contextCancel(_:)), keyEquivalent: "")
             cancelItem.representedObject = item.id
             cancelItem.target = self

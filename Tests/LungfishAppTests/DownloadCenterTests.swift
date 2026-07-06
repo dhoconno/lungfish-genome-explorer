@@ -573,7 +573,7 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(center.items.first { $0.id == id }?.state, .cancelled)
     }
 
-    func testCancelWithoutCallbackMarksCancelledAndReleasesBundleLock() {
+    func testCancelWithoutCallbackLeavesOperationRunningAndLocked() {
         let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
         let id = center.start(
             title: "Import",
@@ -584,9 +584,10 @@ final class DownloadCenterTests: XCTestCase {
 
         center.cancel(id: id)
 
-        XCTAssertTrue(center.canStartOperation(on: bundleURL))
-        XCTAssertNil(center.activeLockHolder(for: bundleURL))
-        XCTAssertEqual(center.items.first { $0.id == id }?.state, .cancelled)
+        XCTAssertFalse(center.canStartOperation(on: bundleURL))
+        XCTAssertEqual(center.activeLockHolder(for: bundleURL)?.id, id)
+        XCTAssertEqual(center.items.first { $0.id == id }?.state, .running)
+        XCTAssertEqual(center.items.first { $0.id == id }?.detail, "...")
     }
 
     func testCancelIgnoresCompletedItem() {
@@ -616,6 +617,23 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(center.activeCount, 0)
         try await waitUntil(timeout: 2) {
             flag1.withLock { $0 } && flag2.withLock { $0 }
+        }
+    }
+
+    func testCancelAllSkipsRunningRowsWithoutCancelCallbacks() async throws {
+        let cancelFlag = OSAllocatedUnfairLock(initialState: false)
+        let cancellableID = center.start(title: "Cancellable", detail: "", onCancel: {
+            cancelFlag.withLock { $0 = true }
+        })
+        let uncancellableID = center.start(title: "Uncancellable", detail: "")
+
+        center.cancelAll()
+
+        XCTAssertEqual(center.items.first { $0.id == cancellableID }?.state, .cancelled)
+        XCTAssertEqual(center.items.first { $0.id == uncancellableID }?.state, .running)
+        XCTAssertEqual(center.activeCount, 1)
+        try await waitUntil(timeout: 2) {
+            cancelFlag.withLock { $0 }
         }
     }
 

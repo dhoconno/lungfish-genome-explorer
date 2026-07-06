@@ -665,10 +665,12 @@ public final class OperationCenter: ObservableObject {
     }
 
     /// Cancels a running operation by marking it cancelled and then invoking its cancel callback.
+    /// Running operations without a cancel callback are left unchanged because the
+    /// center has no mechanism to stop their underlying work.
     public func cancel(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
-              items[index].state == .running else { return }
-        let onCancel = items[index].onCancel
+              items[index].state == .running,
+              let onCancel = items[index].onCancel else { return }
         let previousOrder = items.map(\.id)
 
         items[index].state = .cancelled
@@ -679,10 +681,8 @@ public final class OperationCenter: ObservableObject {
         publishTerminalChange(id: id, previousOrder: previousOrder)
         postStateChangedNotification(id: id, state: .cancelled)
 
-        if let onCancel {
-            DispatchQueue.global(qos: .userInitiated).async {
-                onCancel()
-            }
+        DispatchQueue.global(qos: .userInitiated).async {
+            onCancel()
         }
     }
 

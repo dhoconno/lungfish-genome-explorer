@@ -739,12 +739,14 @@ extension AppDelegate {
     }
 
     @objc func cancelAllOperations(_ sender: Any?) {
-        let runningCount = OperationCenter.shared.activeCount
-        guard runningCount > 0 else { return }
+        let cancellableRunningCount = OperationCenter.shared.items.filter {
+            $0.state == .running && $0.isCancellable
+        }.count
+        guard cancellableRunningCount > 0 else { return }
 
         let alert = NSAlert()
         alert.messageText = "Cancel All Operations?"
-        alert.informativeText = "This will cancel \(runningCount) running operation\(runningCount == 1 ? "" : "s")."
+        alert.informativeText = "This will cancel \(cancellableRunningCount) running operation\(cancellableRunningCount == 1 ? "" : "s")."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel Operations")
         alert.addButton(withTitle: "Keep Running")
