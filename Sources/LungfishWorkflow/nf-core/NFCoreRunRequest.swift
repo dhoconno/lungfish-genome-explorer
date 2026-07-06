@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 public enum NFCoreRunPresentationMode: Sendable, Codable, Equatable {
     case genericReport
@@ -98,7 +99,7 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         return args
     }
 
-    public func cliCommandPreview(bundlePath: URL, executableName: String = "lungfish-cli") -> String {
+    public func cliCommandPreview(bundlePath: URL, executableName: String = CLICommandIdentity.executableName) -> String {
         ([executableName] + cliArguments(bundlePath: bundlePath)).map(shellEscape).joined(separator: " ")
     }
 

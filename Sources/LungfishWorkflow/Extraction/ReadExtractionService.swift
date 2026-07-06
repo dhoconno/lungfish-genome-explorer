@@ -622,7 +622,7 @@ public actor ReadExtractionService {
     ) throws {
         let commandString = metadata.parameters["reproducibleCommand"]
         let command = commandString.map { ["sh", "-lc", $0] }
-            ?? ["lungfish-cli", "extract", "reads", "--by-classifier"]
+            ?? [CLICommandIdentity.executableName, "extract", "reads", "--by-classifier"]
         let reproducibleCommand = commandString ?? command.map(shellEscape).joined(separator: " ")
         let sourceURLs = metadata.sourceURLs
         let inputRecords: [FileRecord]

@@ -614,7 +614,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         ).run(request)
 
         XCTAssertEqual(result.provenanceURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
-        XCTAssertEqual(Array(request.argv.prefix(3)), ["lungfish", "fastq", "genotype-cohort"])
+        XCTAssertEqual(Array(request.argv.prefix(3)), ["lungfish-cli", "fastq", "genotype-cohort"])
         XCTAssertEqual(try testValue(after: "--mode", in: request.argv), "illumina-paired")
         XCTAssertEqual(try testValue(after: "--read-type", in: request.argv), "illumina")
         XCTAssertFalse(request.argv.contains("--barcodes"))

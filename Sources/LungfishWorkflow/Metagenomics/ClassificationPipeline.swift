@@ -570,7 +570,7 @@ public actor ClassificationPipeline {
                 toolName: "lungfish-kraken2-index",
                 toolVersion: Self.kraken2GithubReleaseVersion,
                 command: [
-                    "lungfish",
+                    CLICommandIdentity.executableName,
                     "internal",
                     "kraken2-index",
                     "--classified-only",

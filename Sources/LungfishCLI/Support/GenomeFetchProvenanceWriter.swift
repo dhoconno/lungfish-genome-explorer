@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 struct GenomeFetchProvenanceWriter {
@@ -220,7 +221,7 @@ struct GenomeFetchProvenanceWriter {
         quiet: Bool
     ) -> [String] {
         var command = [
-            "lungfish", "fetch", "genome", accession,
+            CLICommandIdentity.executableName, "fetch", "genome", accession,
             "--output-dir", outputDirectory.path
         ]
         if let bundleName {

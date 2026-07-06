@@ -237,7 +237,7 @@ extension ImportCommand {
 
         private func sampleMetadataProvenanceCommand(inputURL: URL, bundleURL: URL) -> [String] {
             [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "import",
                 "sample-metadata",
                 inputURL.path,
@@ -826,7 +826,7 @@ extension ImportCommand {
         }
 
         private func bamProvenanceCommand(inputURL: URL, outputDirectory: URL) -> [String] {
-            var command = ["lungfish", "import", "bam", inputURL.path, "--output-dir", outputDirectory.path]
+            var command = [CLICommandIdentity.executableName, "import", "bam", inputURL.path, "--output-dir", outputDirectory.path]
             if let name {
                 command += ["--name", name]
             }
@@ -1096,7 +1096,7 @@ extension ImportCommand {
         }
 
         private func vcfProvenanceCommand(inputURL: URL, outputDirectory: URL) -> [String] {
-            var command = ["lungfish", "import", "vcf", inputURL.path, "--output-dir", outputDirectory.path]
+            var command = [CLICommandIdentity.executableName, "import", "vcf", inputURL.path, "--output-dir", outputDirectory.path]
             if globalOptions.quiet {
                 command.append("--quiet")
             }
@@ -1349,7 +1349,7 @@ extension ImportCommand {
             bundleName: String
         ) -> [String] {
             var command = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "import",
                 "fasta",
                 sourceURL.path,
@@ -1574,7 +1574,7 @@ extension ImportCommand {
             let imported: Kraken2ImportResult
             do {
                 var provenanceCommand = [
-                    "lungfish-cli",
+                    CLICommandIdentity.executableName,
                     "import",
                     "kraken2",
                     kreportURL.path,
@@ -1684,7 +1684,7 @@ extension ImportCommand {
             let imported: EsVirituImportResult
             do {
                 var provenanceCommand = [
-                    "lungfish-cli",
+                    CLICommandIdentity.executableName,
                     "import",
                     "esviritu",
                     inputURL.path,
@@ -1765,7 +1765,7 @@ extension ImportCommand {
             let imported: TaxTriageImportResult
             do {
                 var provenanceCommand = [
-                    "lungfish-cli",
+                    CLICommandIdentity.executableName,
                     "import",
                     "taxtriage",
                     inputURL.path,
@@ -1866,7 +1866,7 @@ extension ImportCommand {
             let imported: NaoMgsImportResult
             do {
                 var provenanceCommand = [
-                    "lungfish-cli",
+                    CLICommandIdentity.executableName,
                     "import",
                     "nao-mgs",
                     inputURL.path,
@@ -1961,7 +1961,7 @@ extension ImportCommand {
             }
 
             var provenanceCommand = [
-                "lungfish-cli",
+                CLICommandIdentity.executableName,
                 "import",
                 "nvd",
                 inputURL.path,
@@ -2392,11 +2392,11 @@ private func nativeToolProvenanceStep(
             var builder = ProvenanceRunBuilder(
                 workflowName: "Sample metadata import",
                 workflowVersion: WorkflowRun.currentAppVersion,
-                toolName: "lungfish-cli",
+                toolName: CLICommandIdentity.executableName,
                 toolVersion: WorkflowRun.currentAppVersion
             )
             .argv([
-                "lungfish-cli",
+                CLICommandIdentity.executableName,
                 "import",
                 "metadata",
             ] + replayableGlobalArguments() + [

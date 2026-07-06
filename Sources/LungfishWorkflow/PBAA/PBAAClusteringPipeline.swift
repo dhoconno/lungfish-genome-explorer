@@ -133,7 +133,7 @@ public struct PBAAClusteringPipeline: Sendable {
         completedAt: Date
     ) throws {
         let argv = [
-            "lungfish", "fastq", "pbaa-cluster",
+            CLICommandIdentity.executableName, "fastq", "pbaa-cluster",
             request.inputFASTQURL.path,
             "--guide", request.guideSourceURL.path,
             "--output-dir", request.outputDirectory.path,

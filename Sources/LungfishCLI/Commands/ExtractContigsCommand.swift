@@ -380,7 +380,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
     }
 
     private func provenanceCommand(outputURL: URL?) -> [String] {
-        var command = ["lungfish", "extract", "contigs"]
+        var command = [CLICommandIdentity.executableName, "extract", "contigs"]
         if let assemblyPath {
             command += ["--assembly", assemblyPath]
         }

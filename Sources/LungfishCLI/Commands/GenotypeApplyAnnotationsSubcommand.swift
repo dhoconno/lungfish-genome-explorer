@@ -113,10 +113,10 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
                 "mergeMode": .string("append-deduplicate"),
             ],
             resolved: parameters,
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: WorkflowRun.currentAppVersion,
             command: [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "genotype",
                 "apply-annotations",
                 "--bundle", bundleURL.path,

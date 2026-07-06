@@ -864,7 +864,7 @@ extension AppDelegate {
             title: "UI test failed operation",
             detail: "Preparing deterministic failure",
             operationType: .classification,
-            cliCommand: "lungfish classify --reads '~/ui-test/R1.fastq.gz'"
+            cliCommand: "\(CLICommandIdentity.executableName) conda classify --reads '~/ui-test/R1.fastq.gz'"
         )
         OperationCenter.shared.log(
             id: operationID,

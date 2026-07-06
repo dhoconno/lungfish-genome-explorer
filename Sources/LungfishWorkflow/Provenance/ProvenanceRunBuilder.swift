@@ -155,7 +155,7 @@ public struct ProvenanceRunBuilder: Sendable {
     }
 
     public func input(_ descriptor: ProvenanceFileDescriptor) throws -> Self {
-        try validateDescriptorIsNonFile(descriptor)
+        try validateDescriptorCanBeAddedVerbatim(descriptor)
         return replacing(inputs: inputs + [descriptor])
     }
 
@@ -169,7 +169,7 @@ public struct ProvenanceRunBuilder: Sendable {
     }
 
     public func output(_ descriptor: ProvenanceFileDescriptor) throws -> Self {
-        try validateDescriptorIsNonFile(descriptor)
+        try validateDescriptorCanBeAddedVerbatim(descriptor)
         return replacing(outputs: outputs + [descriptor])
     }
 
@@ -244,11 +244,23 @@ public struct ProvenanceRunBuilder: Sendable {
         }
     }
 
-    private func validateDescriptorIsNonFile(_ descriptor: ProvenanceFileDescriptor) throws {
-        guard descriptor.path.contains("://"),
-              URLComponents(string: descriptor.path)?.scheme?.lowercased() != "file" else {
+    private func validateDescriptorCanBeAddedVerbatim(_ descriptor: ProvenanceFileDescriptor) throws {
+        if descriptor.path.contains("://"),
+           URLComponents(string: descriptor.path)?.scheme?.lowercased() != "file" {
+            return
+        }
+
+        if descriptorLooksLikeDirectory(descriptor),
+           descriptor.checksumSHA256 != nil,
+           descriptor.fileSize != nil {
+            return
+        }
+
+        if descriptor.path.isEmpty || !descriptor.path.contains("://") {
             throw ProvenanceBuilderError.localDescriptorRequiresURL(descriptor.path)
         }
+
+        throw ProvenanceBuilderError.localDescriptorRequiresURL(descriptor.path)
     }
 
     private func primaryOutput() -> ProvenanceFileDescriptor? {

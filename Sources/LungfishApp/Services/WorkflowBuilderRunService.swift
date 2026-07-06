@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 import LungfishKit
 
@@ -321,7 +322,7 @@ public final class WorkflowBuilderRunService {
             "--run-directory",
             runDirectoryURL.standardizedFileURL.path,
         ]
-        let command = (["lungfish-cli"] + arguments).map(shellEscapeForWorkflowBuilder).joined(separator: " ")
+        let command = ([CLICommandIdentity.executableName] + arguments).map(shellEscapeForWorkflowBuilder).joined(separator: " ")
         let operationID = operationCenter.start(
             title: "Workflow Builder Runner",
             detail: "Running native Workflow Builder graph",

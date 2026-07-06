@@ -37,7 +37,7 @@ public struct ONTGenotypingRunRequest: Sendable, Codable, Equatable {
     }
 
     public var argv: [String] {
-        var values = ["lungfish", "fastq", "ont-genotype"]
+        var values = [CLICommandIdentity.executableName, "fastq", "ont-genotype"]
         values.append(contentsOf: inputFASTQURLs.map(\.path))
         values += [
             "--reference", referenceSourceURL.path,
@@ -704,7 +704,7 @@ public struct ONTGenotypingPipeline: Sendable {
 
         for sampleResult in result.sampleResults {
             let mappingArgv = [
-                "lungfish", "map",
+                CLICommandIdentity.executableName, "map",
                 sampleResult.inputFASTQURL.path,
                 "--reference", result.referenceFASTAURL.path,
                 "--mapper", "minimap2",

@@ -432,7 +432,7 @@ public struct HaplotypeDefinitionProvenanceContext: Equatable, Sendable {
 
     public init(
         workflowName: String,
-        toolName: String = "lungfish-cli",
+        toolName: String = CLICommandIdentity.executableName,
         argv: [String],
         explicitOptions: [String: String] = [:],
         resolvedDefaults: [String: String] = [:],

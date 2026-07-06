@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -137,7 +138,7 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
     }
 
     private func replayArgv() -> [String] {
-        var argv = ["lungfish-cli", "fastq", "12s-match"] + inputs
+        var argv = [CLICommandIdentity.executableName, "fastq", "12s-match"] + inputs
         argv += ["--reference", reference]
         if let referenceMetadata {
             argv += ["--reference-metadata", referenceMetadata]

@@ -40,7 +40,7 @@ final class CzIdCommandTests: XCTestCase {
             atPath: outputDir.appendingPathComponent("classification.czid.tsv").path
         ))
         let recordedCommand = try firstProvenanceCommand(in: outputDir)
-        XCTAssertEqual(recordedCommand, ["lungfish", "cz-id", "import", exportDir.path, "--output-dir", outputDir.path])
+        XCTAssertEqual(recordedCommand, ["lungfish-cli", "cz-id", "import", exportDir.path, "--output-dir", outputDir.path])
     }
 
     func testImportAcceptsZipArchiveAndRecordsReplayableCommand() async throws {
@@ -70,7 +70,7 @@ final class CzIdCommandTests: XCTestCase {
             atPath: outputDir.appendingPathComponent("classification.czid.tsv").path
         ))
         let recordedCommand = try firstProvenanceCommand(in: outputDir)
-        XCTAssertEqual(recordedCommand, ["lungfish", "cz-id", "import", archiveURL.path, "--output-dir", outputDir.path])
+        XCTAssertEqual(recordedCommand, ["lungfish-cli", "cz-id", "import", archiveURL.path, "--output-dir", outputDir.path])
     }
 
     private static let czIdReportText = """

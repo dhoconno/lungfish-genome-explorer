@@ -531,7 +531,7 @@ public enum AssemblyRunner {
             ]
 
         return ProvenanceStep(
-            toolName: "lungfish fastq materialize",
+            toolName: CLISequenceInputMaterialization.materializationToolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
             durableReplayArgv: argv,

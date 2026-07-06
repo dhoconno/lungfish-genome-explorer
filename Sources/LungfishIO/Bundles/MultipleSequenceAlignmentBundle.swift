@@ -1479,7 +1479,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
     }
 
     private static func defaultArgv(inputURL: URL, bundleURL: URL, name: String) -> [String] {
-        ["lungfish", "import", "msa", inputURL.path, "--output", bundleURL.path, "--name", name]
+        [CLICommandIdentity.executableName, "import", "msa", inputURL.path, "--output", bundleURL.path, "--name", name]
     }
 
     private static func shellCommand(from argv: [String]) -> String {

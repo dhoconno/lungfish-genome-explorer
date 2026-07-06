@@ -440,7 +440,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         }
 
         let arguments = makeArguments(trackID: group.key, rowIDs: group.value)
-        let command = (["lungfish-cli"] + arguments).map(shellEscape).joined(separator: " ")
+        let command = ([CLICommandIdentity.executableName] + arguments).map(shellEscape).joined(separator: " ")
         let deletedCount = group.value.count
         let opID = OperationCenter.shared.start(
             title: deletedCount == 1 ? "Delete Annotation" : "Delete Annotations",
@@ -541,7 +541,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             trackID,
             "--quiet",
         ]
-        let command = (["lungfish-cli"] + arguments).map(shellEscape).joined(separator: " ")
+        let command = ([CLICommandIdentity.executableName] + arguments).map(shellEscape).joined(separator: " ")
         let opID = OperationCenter.shared.start(
             title: "Delete Annotation Track",
             detail: "Deleting \(trackName)...",

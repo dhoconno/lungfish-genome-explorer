@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -17,8 +18,8 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
             copy full payload). Produces a single output FASTQ file.
 
             Examples:
-              lungfish fastq materialize myreads.lungfishfastq -o output.fastq
-              lungfish fastq materialize trimmed.lungfishfastq -o reads.fastq --temp-dir /tmp/work
+              lungfish-cli fastq materialize myreads.lungfishfastq -o output.fastq
+              lungfish-cli fastq materialize trimmed.lungfishfastq -o reads.fastq --temp-dir /tmp/work
             """
     )
 
@@ -105,17 +106,17 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
             parameters["inputPayload"] = .file(inputPayload)
         }
         try await CLIProvenanceSupport.recordSingleStepRun(
-            name: "lungfish fastq materialize",
+            name: CLISequenceInputMaterialization.materializationToolName,
             parameters: parameters,
             defaults: [
                 "tempDir": .null,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
-            toolName: "lungfish fastq materialize",
+            toolName: CLISequenceInputMaterialization.materializationToolName,
             toolVersion: WorkflowRun.currentAppVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
-            stepCommand: ["lungfish", "fastq"] + cliArguments,
+            command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+            stepCommand: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             inputs: inputRecords,
             outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)],
             exitCode: 0,

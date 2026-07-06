@@ -58,7 +58,7 @@ final class FastqQCSummaryCommandTests: XCTestCase {
         XCTAssertEqual(directoryEnvelope.workflowName, "lungfish fastq qc-summary")
         XCTAssertEqual(directoryEnvelope.toolName, "lungfish fastq qc-summary")
         XCTAssertEqual(directoryEnvelope.argv, [
-            "lungfish", "fastq", "qc-summary", inputURL.path, "--output", outputURL.path
+            "lungfish-cli", "fastq", "qc-summary", inputURL.path, "--output", outputURL.path
         ])
         XCTAssertEqual(directoryEnvelope.durableReplayArgv, directoryEnvelope.argv)
         XCTAssertEqual(directoryEnvelope.exitStatus, 0)

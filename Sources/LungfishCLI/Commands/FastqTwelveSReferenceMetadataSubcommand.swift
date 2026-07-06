@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 struct FastqTwelveSReferenceMetadataSubcommand: AsyncParsableCommand {
@@ -37,7 +38,7 @@ struct FastqTwelveSReferenceMetadataSubcommand: AsyncParsableCommand {
 
     private func replayArgv() -> [String] {
         var argv = [
-            "lungfish-cli", "fastq", "12s-reference-metadata",
+            CLICommandIdentity.executableName, "fastq", "12s-reference-metadata",
             "--dedup-fasta", deduplicatedFASTA,
             "--midori-metadata", midoriMetadataTSV,
             "--output", output,

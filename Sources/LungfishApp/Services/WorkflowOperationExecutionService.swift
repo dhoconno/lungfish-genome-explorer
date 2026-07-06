@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import LungfishKit
@@ -248,7 +249,7 @@ final class WorkflowOperationExecutionService {
         )
         let arguments = twelveSReferenceBundleArguments(for: configuration)
         let cliCommand = ViralReconWorkflowCommandPreview.build(
-            executableName: "lungfish-cli",
+            executableName: CLICommandIdentity.executableName,
             arguments: arguments
         )
         let operationID = operationCenter.start(
@@ -327,7 +328,7 @@ final class WorkflowOperationExecutionService {
         try fileManager.createDirectory(at: configuration.outputDirectory, withIntermediateDirectories: true)
         let arguments = twelveSAmpliconMatchingArguments(for: configuration)
         let cliCommand = ViralReconWorkflowCommandPreview.build(
-            executableName: "lungfish-cli",
+            executableName: CLICommandIdentity.executableName,
             arguments: arguments
         )
         let bundleURL = twelveSAmpliconMatchingBundleURL(for: configuration)
@@ -407,7 +408,7 @@ final class WorkflowOperationExecutionService {
         try fileManager.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
         let arguments = ontGenotypingArguments(for: request)
         let cliCommand = ViralReconWorkflowCommandPreview.build(
-            executableName: "lungfish-cli",
+            executableName: CLICommandIdentity.executableName,
             arguments: arguments
         )
         let operationID = operationCenter.start(
@@ -528,7 +529,7 @@ final class WorkflowOperationExecutionService {
         try fileManager.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
         let arguments = fullLengthONTMHCGenotypingArguments(for: request)
         let cliCommand = ViralReconWorkflowCommandPreview.build(
-            executableName: "lungfish-cli",
+            executableName: CLICommandIdentity.executableName,
             arguments: arguments
         )
         let operationID = operationCenter.start(
@@ -926,7 +927,7 @@ final class WorkflowOperationExecutionService {
     }
 
     private static func isTwelveSAmpliconMatchingProvenance(_ envelope: ProvenanceEnvelope) -> Bool {
-        let acceptedToolNames: Set<String> = ["lungfish", "lungfish-cli"]
+        let acceptedToolNames: Set<String> = ["lungfish", CLICommandIdentity.executableName]
         guard acceptedToolNames.contains(envelope.toolName) else { return false }
         if envelope.workflowName == "lungfish fastq 12s-match" {
             return true

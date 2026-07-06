@@ -929,7 +929,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     }
 
     func provenanceCommand(outputURL: URL) -> [String] {
-        var command = ["lungfish", "extract", "reads"]
+        var command = [CLICommandIdentity.executableName, "extract", "reads"]
         if byId {
             command.append("--by-id")
             if let idsFile {

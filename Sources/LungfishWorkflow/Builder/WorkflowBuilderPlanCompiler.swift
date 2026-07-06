@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 public struct WorkflowBuilderExecutablePlan: Sendable, Codable, Equatable {
     public let graphID: UUID
@@ -67,7 +68,7 @@ public struct WorkflowBuilderPlanCompiler: Sendable {
         graph: WorkflowGraph,
         projectURL: URL,
         runDirectoryURL: URL,
-        lungfishCLIExecutable: String = "lungfish-cli"
+        lungfishCLIExecutable: String = CLICommandIdentity.executableName
     ) throws -> WorkflowBuilderExecutablePlan {
         let blockingIssues = graph.validate().filter { $0.severity == .error }
         guard blockingIssues.isEmpty else {

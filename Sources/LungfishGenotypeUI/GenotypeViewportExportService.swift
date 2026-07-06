@@ -166,7 +166,7 @@ struct GenotypeViewportExportService {
         expectedInputURLs: [URL] = []
     ) throws {
         guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL),
-              envelope.toolName == "lungfish-cli",
+              envelope.toolName == CLICommandIdentity.executableName,
               envelope.workflowName == "lungfish genotype export",
               envelope.exitStatus == 0,
               !envelope.argv.isEmpty else {

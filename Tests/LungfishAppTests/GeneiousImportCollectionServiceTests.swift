@@ -60,7 +60,7 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         XCTAssertTrue(provenance.steps.contains { $0.toolName == "Geneious Import" })
         XCTAssertEqual(
             provenance.steps.first?.command,
-            ["lungfish", "import", "geneious", archiveURL.path, "--project", projectURL.path]
+            ["lungfish-cli", "import", "geneious", archiveURL.path, "--project", projectURL.path]
         )
         XCTAssertFalse(provenance.steps.flatMap(\.command).contains("--collection"))
         XCTAssertFalse(provenance.steps.flatMap(\.command).contains("--geneious-source"))
@@ -121,7 +121,7 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         XCTAssertEqual(
             provenance.steps.first?.command,
             [
-                "lungfish", "import", "geneious", archiveURL.path,
+                "lungfish-cli", "import", "geneious", archiveURL.path,
                 "--project", projectURL.path,
                 "--collection-name", "Reviewed Batch",
             ]
@@ -567,7 +567,7 @@ private func writeMinimalReferenceBundleProvenance(
     outputDirectory: URL
 ) throws {
     let command = [
-        "lungfish", "import", "fasta", sourceURL.path,
+        "lungfish-cli", "import", "fasta", sourceURL.path,
         "--output-dir", outputDirectory.path,
     ]
     let input = ProvenanceRecorder.fileRecord(url: sourceURL, role: .input)

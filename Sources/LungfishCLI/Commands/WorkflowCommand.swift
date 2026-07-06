@@ -111,7 +111,7 @@ struct WorkflowBuilderRunSubcommand: AsyncParsableCommand {
         dryRun: Bool
     ) -> [String] {
         var argv = [
-            "lungfish-cli",
+            CLICommandIdentity.executableName,
             "workflow",
             "builder-run",
             "--workflow",
@@ -713,7 +713,7 @@ struct RunSubcommand: AsyncParsableCommand {
         wallTime: TimeInterval,
         stderr: String?
     ) throws {
-        let command = ["lungfish-cli"] + request.cliArguments(
+        let command = [CLICommandIdentity.executableName] + request.cliArguments(
             bundlePath: bundleURL,
             prepareOnly: prepareOnly
         ) + (globalOptions.quiet ? ["--quiet"] : [])
@@ -742,7 +742,7 @@ struct RunSubcommand: AsyncParsableCommand {
         }
 
         let step = StepExecution(
-            toolName: "lungfish-cli workflow run",
+            toolName: "\(CLICommandIdentity.executableName) workflow run",
             toolVersion: LungfishCLI.configuration.version,
             githubReleaseVersion: request.version,
             command: command,
@@ -775,7 +775,7 @@ struct RunSubcommand: AsyncParsableCommand {
         wallTime: TimeInterval,
         stderr: String?
     ) throws {
-        let command = ["lungfish-cli"] + request.cliArguments(
+        let command = [CLICommandIdentity.executableName] + request.cliArguments(
             bundlePath: bundleURL,
             prepareOnly: prepareOnly
         ) + (globalOptions.quiet ? ["--quiet"] : [])
@@ -806,7 +806,7 @@ struct RunSubcommand: AsyncParsableCommand {
         }
 
         let step = StepExecution(
-            toolName: "lungfish-cli workflow run",
+            toolName: "\(CLICommandIdentity.executableName) workflow run",
             toolVersion: LungfishCLI.configuration.version,
             command: command,
             inputs: inputs,

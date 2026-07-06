@@ -358,7 +358,7 @@ public final class NativeBundleBuilder: ObservableObject {
         )
         var previousNativeStepID: UUID?
         for step in nativeToolSteps {
-            let inputs = step.inputURLs.map {
+            let inputs = provenanceInputURLs(for: step, configuration: configuration).map {
                 provenanceFileRecord(
                     for: $0,
                     stagingBundleURL: stagingBundleURL,
@@ -412,6 +412,37 @@ public final class NativeBundleBuilder: ObservableObject {
             )
         }
         return ProvenanceRecorder.fileRecord(url: standardizedURL, role: role)
+    }
+
+    private func provenanceInputURLs(
+        for step: NativeBuildToolProvenanceStep,
+        configuration: BuildConfiguration
+    ) -> [URL] {
+        guard configuration.provenanceInputFiles != nil else {
+            return step.inputURLs
+        }
+
+        let durableInputs = provenanceInputURLs(for: configuration)
+        guard !durableInputs.isEmpty else {
+            return step.inputURLs
+        }
+
+        let transientInputPaths = Set(
+            ([configuration.fastaURL]
+                + configuration.annotationFiles.map(\.url)
+                + configuration.variantFiles.map(\.url)
+                + configuration.signalFiles.map(\.url))
+                .map { $0.standardizedFileURL.path }
+        )
+        var resolved: [URL] = []
+        for inputURL in step.inputURLs {
+            if transientInputPaths.contains(inputURL.standardizedFileURL.path) {
+                resolved.append(contentsOf: durableInputs)
+            } else {
+                resolved.append(inputURL)
+            }
+        }
+        return uniqueExistingFileURLs(resolved)
     }
 
     private func provenanceInputURLs(for configuration: BuildConfiguration) -> [URL] {

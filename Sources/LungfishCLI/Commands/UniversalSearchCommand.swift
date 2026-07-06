@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -216,7 +217,7 @@ struct UniversalSearchCommand: AsyncParsableCommand {
     }
 
     private func provenanceArgv(projectURL: URL, boundedLimit: Int) -> [String] {
-        var argv = ["lungfish", "universal-search", projectURL.path]
+        var argv = [CLICommandIdentity.executableName, "universal-search", projectURL.path]
         if !query.isEmpty {
             argv += ["--query", query]
         }

@@ -688,7 +688,7 @@ func recordFASTQNativeToolProvenance(
         resolved: resolved,
         toolName: nativeTool.rawValue,
         toolVersion: toolVersion,
-        command: ["lungfish", "fastq"] + cliArguments,
+        command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
         stepCommand: stepCommand,
         inputs: inputRecords ?? inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
         outputs: outputRecords ?? outputURLs
@@ -800,7 +800,7 @@ func recordFASTQMergeProvenance(
         defaults: defaults,
         toolName: NativeTool.bbmerge.rawValue,
         toolVersion: toolVersion,
-        command: ["lungfish", "fastq"] + cliArguments,
+        command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
         stepID: bbmergeStepID,
         stepCommand: bbmergeCommand,
         stepInputs: [inputRecord],
@@ -845,7 +845,7 @@ func recordFASTQCountedMergeProvenance(
     let countedInputs = bbmergeOutputRecords
         .map { ProvenanceFileDescriptor(fileRecord: $0).withRole(.input) }
     let countedOutput = ProvenanceFileDescriptor(fileRecord: countedResult.materializedOutput)
-    let countedCommand = ["lungfish", "fastq"] + cliArguments
+    let countedCommand = [CLICommandIdentity.executableName, "fastq"] + cliArguments
 
     var extraSteps = [
         ProvenanceStep(
@@ -886,7 +886,7 @@ func recordFASTQCountedMergeProvenance(
         defaults: defaults,
         toolName: NativeTool.bbmerge.rawValue,
         toolVersion: toolVersion,
-        command: ["lungfish", "fastq"] + cliArguments,
+        command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
         stepID: bbmergeStepID,
         stepCommand: bbmergeCommand,
         stepInputs: [inputRecord],
@@ -915,7 +915,7 @@ func recordFASTQSwiftToolProvenance(
 ) async throws {
     guard let firstOutputURL = outputURLs.first else { return }
     let completedAt = Date()
-    let command = ["lungfish", "fastq"] + cliArguments
+    let command = [CLICommandIdentity.executableName, "fastq"] + cliArguments
     var resolved = parameters
     for (key, value) in defaults where resolved[key] == nil {
         resolved[key] = value
@@ -2593,7 +2593,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             defaults: provenanceDefaults,
             toolName: demultiplexToolName,
             toolVersion: demultiplexToolVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
+            command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             stepCommand: stepCommand,
             inputs: inputRecords,
             outputs: outputRecords,
@@ -2760,8 +2760,8 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
             ],
             toolName: "lungfish fastq ont-fluidigm-samples",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
-            stepCommand: ["lungfish", "fastq"] + cliArguments,
+            command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+            stepCommand: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             inputs: inputRecords,
             outputs: outputs,
             exitCode: 0,
@@ -2951,8 +2951,8 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
             ],
             toolName: "lungfish fastq ont-pacbio-barcode-demux",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
-            stepCommand: ["lungfish", "fastq"] + cliArguments,
+            command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+            stepCommand: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
@@ -3095,7 +3095,7 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
         try encoder.encode(result).write(to: outputURL, options: .atomic)
 
         var command = [
-            "lungfish", "fastq", "scout",
+            CLICommandIdentity.executableName, "fastq", "scout",
             inputURL.path,
             "--kit", kit,
             "--output", outputURL.path,
@@ -3249,7 +3249,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
         }
 
         let cliArguments = cliArguments(inputURL: inputURL, outputURL: outputURL)
-        let argv = ["lungfish", "fastq"] + cliArguments
+        let argv = [CLICommandIdentity.executableName, "fastq"] + cliArguments
         if FASTQBundle.isBundleURL(inputURL) {
             let destinationBundleURL = FASTQBundleCopyImportWorkflow.resolvedDestinationBundleURL(
                 outputURL: outputURL,

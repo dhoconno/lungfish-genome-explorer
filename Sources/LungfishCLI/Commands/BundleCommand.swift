@@ -63,7 +63,7 @@ struct BundleDeduplicateAlignmentsSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         let resolvedOptions = try globalOptions.resolved(with: ProcessInfo.processInfo.arguments)
-        var command = ["lungfish", "bundle", "deduplicate-alignments", bundlePath]
+        var command = [CLICommandIdentity.executableName, "bundle", "deduplicate-alignments", bundlePath]
         if let output {
             command += ["--output", output]
         }
@@ -572,7 +572,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
         compress: Bool
     ) -> [String] {
         var command = [
-            "lungfish", "bundle", "create",
+            CLICommandIdentity.executableName, "bundle", "create",
             "--fasta", configuration.fastaURL.path,
             "--name", configuration.name,
             "--output-dir", configuration.outputDirectory.path,
@@ -733,7 +733,7 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
 
     private func provenanceCommand() -> [String] {
         var command = [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "bundle",
             "extract-annotations",
             "--bundle", bundlePath,

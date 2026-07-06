@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import LungfishKit
@@ -228,7 +229,7 @@ public final class ONTImportOperationCoordinator {
         cliArgs: [String],
         cliCommand: String
     ) -> ONTImportWorkflow.CommandContext {
-        let argv = ["lungfish", "fastq", "import-ont"] + cliArgs
+        let argv = [CLICommandIdentity.executableName, "fastq", "import-ont"] + cliArgs
         return ONTImportWorkflow.CommandContext(
             caller: .gui,
             workflowName: "lungfish fastq import-ont",

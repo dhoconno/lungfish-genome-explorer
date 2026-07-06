@@ -422,7 +422,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         try provenance.save(to: outputDir)
         let reloaded = try AssemblyProvenance.load(from: outputDir)
         let reloadedStep = try XCTUnwrap(
-            reloaded.steps.first { $0.toolName == "lungfish fastq materialize" }
+            reloaded.steps.first { $0.toolName == "lungfish-cli fastq materialize" }
         )
         let expectedCommand = CLISequenceInputMaterialization.materializationCommand(
             originalURL: derivedBundleURL,

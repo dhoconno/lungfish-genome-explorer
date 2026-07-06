@@ -1691,7 +1691,7 @@ private func defaultMetagenomicsImportCommand(
 ) -> [String] {
     let source = sourceURLs.first?.path ?? "<input>"
     var argv = [
-        "lungfish-cli",
+        CLICommandIdentity.executableName,
         "import",
         kind.importCommandToken,
         source,

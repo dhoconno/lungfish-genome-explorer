@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public enum MetagenomicsBatchProvenanceWriter {
@@ -37,7 +38,7 @@ public enum MetagenomicsBatchProvenanceWriter {
             manifest: manifest,
             summaryURL: summaryURL,
             sqliteURL: root.appendingPathComponent("esviritu.sqlite"),
-            command: ["lungfish", "esviritu", "detect"]
+            command: [CLICommandIdentity.executableName, "esviritu", "detect"]
         )
     }
 

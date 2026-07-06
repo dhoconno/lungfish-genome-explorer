@@ -51,7 +51,7 @@ extension ViewerViewController {
                 arguments += ["--sequence-id", sequenceID]
             }
             let cliCommand = ViralReconWorkflowCommandPreview.build(
-                executableName: "lungfish-cli",
+                executableName: CLICommandIdentity.executableName,
                 arguments: arguments
             )
             let operationID = OperationCenter.shared.start(
@@ -225,7 +225,7 @@ extension ViewerViewController {
         outputURL: URL
     ) throws {
         guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL),
-              envelope.toolName == "lungfish-cli",
+              envelope.toolName == CLICommandIdentity.executableName,
               envelope.workflowName == "lungfish fastq 12s-export-unresolved",
               envelope.exitStatus == 0,
               !envelope.argv.isEmpty else {

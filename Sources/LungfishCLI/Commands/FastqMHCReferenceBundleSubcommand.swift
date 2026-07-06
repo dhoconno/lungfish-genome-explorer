@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 struct FastqMHCReferenceBundleSubcommand: AsyncParsableCommand {
@@ -58,7 +59,7 @@ struct FastqMHCReferenceBundleSubcommand: AsyncParsableCommand {
 
     private func replayArgv() -> [String] {
         var argv = [
-            "lungfish-cli", "fastq", "mhc-reference-bundle",
+            CLICommandIdentity.executableName, "fastq", "mhc-reference-bundle",
             "--reference-fasta", referenceFASTA,
             "--output", output,
         ]

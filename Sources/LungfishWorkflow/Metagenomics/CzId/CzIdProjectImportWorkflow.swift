@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 public struct CzIdProjectImportResult: Sendable {
     public let bundleURL: URL
@@ -40,7 +41,7 @@ public enum CzIdProjectImportWorkflow {
             try fileManager.createDirectory(at: classificationsURL, withIntermediateDirectories: true)
 
             var command = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "import",
                 "cz-id",
                 sourceURL.path,

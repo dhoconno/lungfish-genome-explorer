@@ -1333,7 +1333,7 @@ public enum FASTQIngestionService {
 
     // MARK: - CLI Subprocess Import
 
-    /// Spawns `lungfish import fastq` as a child process for memory-safe batch import.
+    /// Spawns `lungfish-cli import fastq` as a child process for memory-safe batch import.
     ///
     /// Progress is parsed from the CLI's stdout JSON lines. The app stays alive
     /// even if the CLI process is killed by jetsam.
@@ -1346,7 +1346,10 @@ public enum FASTQIngestionService {
         completion: @escaping @MainActor (Result<Int, Error>) -> Void
     ) {
         let title = "FASTQ Batch Import"
-        let cliCmd = "lungfish import fastq \(inputDirectory.path) --project \(projectDirectory.path) --recipe \(recipe)"
+        let cliCmd = OperationCenter.buildCLICommand(
+            subcommand: "import fastq",
+            args: [inputDirectory.path, "--project", projectDirectory.path, "--recipe", recipe]
+        )
         let opID = OperationCenter.shared.start(
             title: title,
             detail: "Starting batch import\u{2026}",

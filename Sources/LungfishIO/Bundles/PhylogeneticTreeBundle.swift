@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import LungfishCore
 import SQLite3
 
 public struct PhylogeneticTreeBundle: Sendable, Equatable {
@@ -525,7 +526,7 @@ public enum PhylogeneticTreeBundleImporter {
     }
 
     private static func defaultArgv(sourceURL: URL, destinationURL: URL) -> [String] {
-        ["lungfish", "import", "tree", sourceURL.path, "--output", destinationURL.path]
+        [CLICommandIdentity.executableName, "import", "tree", sourceURL.path, "--output", destinationURL.path]
     }
 
     private static func shellCommand(_ argv: [String]) -> String {
@@ -756,7 +757,7 @@ public struct PhylogeneticTreeProvenance: Codable, Sendable, Equatable {
         workflowVersion = toolVersion
         self.toolName = toolName
         self.toolVersion = toolVersion
-        tool = ToolIdentity(name: toolName, version: toolVersion, kind: "lungfish-cli")
+        tool = ToolIdentity(name: toolName, version: toolVersion, kind: CLICommandIdentity.executableName)
         self.argv = argv
         self.durableReplayArgv = durableReplayArgv
         reproducibleCommand = command

@@ -623,7 +623,7 @@ private struct ProjectBundleMigrator {
     }
 
     private static func reproducibleCommand(projectURL: URL, dryRun: Bool) -> [String] {
-        var command = ["lungfish", "project", "migrate", projectURL.path]
+        var command = [CLICommandIdentity.executableName, "project", "migrate", projectURL.path]
         if dryRun {
             command.append("--dry-run")
         }

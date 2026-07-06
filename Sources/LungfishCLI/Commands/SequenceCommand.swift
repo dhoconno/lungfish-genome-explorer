@@ -289,7 +289,7 @@ private func provenanceCommandArguments(
         return observed
     }
     return synthesizedCommandArguments(
-        executable: "lungfish-cli",
+        executable: CLICommandIdentity.executableName,
         subcommand: subcommand,
         bundle: bundle,
         sequence: sequence,
@@ -326,7 +326,7 @@ private func deleteAnnotationTrackCommandArguments(
         return observed
     }
     var arguments = [
-        "lungfish-cli",
+        CLICommandIdentity.executableName,
         "sequence",
         "delete-annotation-track",
         bundle,
@@ -349,7 +349,7 @@ private func deleteAnnotationsCommandArguments(
         return observed
     }
     var arguments = [
-        "lungfish-cli",
+        CLICommandIdentity.executableName,
         "sequence",
         "delete-annotations",
         bundle,

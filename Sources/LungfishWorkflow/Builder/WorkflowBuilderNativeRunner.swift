@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public protocol WorkflowBuilderRecipeExecuting: Sendable {
@@ -74,7 +75,7 @@ public struct WorkflowBuilderNativeRunner: Sendable {
             graph: graph,
             projectURL: projectURL,
             runDirectoryURL: runDirectoryURL,
-            lungfishCLIExecutable: argv.first ?? "lungfish-cli"
+            lungfishCLIExecutable: argv.first ?? CLICommandIdentity.executableName
         )
         let planURL = runDirectoryURL.appendingPathComponent("builder-plan.json")
         try writePlan(plan, to: planURL)

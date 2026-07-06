@@ -47,7 +47,7 @@ final class NvdCommandProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["inputPath"]?.stringValue, nvdDir.path)
         XCTAssertEqual(envelope.options.resolvedDefaults["outputDir"]?.stringValue, outputDir.path)
         XCTAssertEqual(envelope.argv, [
-            "lungfish", "nvd", "import", nvdDir.path,
+            "lungfish-cli", "nvd", "import", nvdDir.path,
             "--output-dir", outputDir.path,
             "--name", "ImportedNVD",
         ])
@@ -59,7 +59,7 @@ final class NvdCommandProvenanceTests: XCTestCase {
         XCTAssertEqual(output.format, .json)
         XCTAssertNotNil(output.checksumSHA256)
         XCTAssertGreaterThan(output.fileSize ?? 0, 0)
-        XCTAssertTrue(envelope.reproducibleCommand.contains("lungfish nvd import"))
+        XCTAssertTrue(envelope.reproducibleCommand.contains("lungfish-cli nvd import"))
     }
 
     func testImportRemovesPartialBundleWhenProvenanceWriteFails() async throws {

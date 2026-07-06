@@ -19,7 +19,7 @@ import LungfishIO
 final class CLITopLevelRegressionTests: XCTestCase {
 
     func testLungfishCLICommandName() {
-        XCTAssertEqual(LungfishCLI.configuration.commandName, "lungfish")
+        XCTAssertEqual(LungfishCLI.configuration.commandName, CLICommandIdentity.executableName)
     }
 
     func testLungfishCLIVersion() {
@@ -345,13 +345,13 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
             .appendingPathComponent("materialized.fastq")
         let replayArgv = CLISequenceInputMaterialization.durableReplayArgv(
-            argv: ["lungfish", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
+            argv: ["lungfish-cli", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
             originalInputArguments: ["derived.lungfishfastq"],
             originalInputURLs: [fixture.derivedBundleURL],
             executionInputURLs: [materializedURL]
         )
 
-        XCTAssertEqual(replayArgv, ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"])
+        XCTAssertEqual(replayArgv, ["lungfish-cli", "classify", materializedURL.path, "--db", "FixtureDB"])
     }
 
     func testMaterializationOnlyProvenanceUsesReplayableTopLevelCommand() throws {
@@ -369,8 +369,8 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         let sidecarURL = try XCTUnwrap(CLISequenceInputMaterialization.writeMaterializationProvenance(
             workflowName: "lungfish.classify.input-materialization",
             workflowVersion: "test-version",
-            parentArgv: ["lungfish", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
-            parentDurableReplayArgv: ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"],
+            parentArgv: ["lungfish-cli", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
+            parentDurableReplayArgv: ["lungfish-cli", "classify", materializedURL.path, "--db", "FixtureDB"],
             originalInputURLs: [fixture.derivedBundleURL],
             executionInputURLs: [materializedURL],
             outputDirectory: tempDir,
@@ -383,12 +383,12 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             ProvenanceEnvelope.self,
             from: Data(contentsOf: sidecarURL)
         )
-        let expected = ["lungfish", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
+        let expected = ["lungfish-cli", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
         XCTAssertEqual(envelope.argv, expected)
         XCTAssertEqual(envelope.durableReplayArgv, expected)
         XCTAssertEqual(envelope.steps.first?.argv, expected)
         XCTAssertEqual(envelope.options.explicit["parentArgv"], .array([
-            .string("lungfish"), .string("classify"), .string("derived.lungfishfastq"), .string("--db"), .string("FixtureDB")
+            .string("lungfish-cli"), .string("classify"), .string("derived.lungfishfastq"), .string("--db"), .string("FixtureDB")
         ]))
     }
 
@@ -409,8 +409,8 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         XCTAssertThrowsError(try CLISequenceInputMaterialization.writeMaterializationProvenanceOrCleanup(
             workflowName: "lungfish.classify.input-materialization",
             workflowVersion: "test-version",
-            parentArgv: ["lungfish", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"],
-            parentDurableReplayArgv: ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"],
+            parentArgv: ["lungfish-cli", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"],
+            parentDurableReplayArgv: ["lungfish-cli", "classify", materializedURL.path, "--db", "FixtureDB"],
             originalInputURLs: [fixture.derivedBundleURL],
             executionInputURLs: [materializedURL],
             outputDirectory: blockedOutputDirectory,
@@ -469,8 +469,8 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             result: result,
             originalInputURLs: [fixture.derivedBundleURL],
             executionInputURLs: [materializedURL],
-            argv: ["lungfish", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"],
-            durableReplayArgv: ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"],
+            argv: ["lungfish-cli", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"],
+            durableReplayArgv: ["lungfish-cli", "classify", materializedURL.path, "--db", "FixtureDB"],
             startedAt: Date(timeIntervalSince1970: 100),
             endedAt: Date(timeIntervalSince1970: 104),
             materializationStartedAt: Date(timeIntervalSince1970: 100),
@@ -483,8 +483,8 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             from: Data(contentsOf: sidecarURL)
         )
         XCTAssertEqual(envelope.workflowName, "lungfish.classify")
-        XCTAssertEqual(envelope.argv, ["lungfish", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"])
-        XCTAssertEqual(envelope.durableReplayArgv, ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"])
+        XCTAssertEqual(envelope.argv, ["lungfish-cli", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"])
+        XCTAssertEqual(envelope.durableReplayArgv, ["lungfish-cli", "classify", materializedURL.path, "--db", "FixtureDB"])
         XCTAssertEqual(envelope.options.explicit["databaseName"], .string("FixtureDB"))
         XCTAssertEqual(envelope.options.explicit["originalInputs"], .array([.file(fixture.derivedBundleURL.standardizedFileURL)]))
         XCTAssertNil(envelope.options.explicit["databasePath"])
@@ -512,11 +512,11 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
                 && $0.fileSize != nil
         })
         let materializationStep = try XCTUnwrap(
-            envelope.steps.first { $0.toolName == "lungfish fastq materialize" }
+            envelope.steps.first { $0.toolName == "\(CLICommandIdentity.executableName) fastq materialize" }
         )
         XCTAssertEqual(
             materializationStep.argv,
-            ["lungfish", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
+            ["lungfish-cli", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
         )
         XCTAssertTrue(materializationStep.inputs.contains { $0.path == fixture.derivedBundleURL.path })
         XCTAssertTrue(materializationStep.outputs.contains { $0.path == materializedURL.path })
@@ -568,7 +568,7 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             originalInputURLs: [inputURL],
             executionInputURLs: [inputURL],
             argv: [
-                "lungfish", "conda", "classify", inputURL.path,
+                "lungfish-cli", "conda", "classify", inputURL.path,
                 "--db", "FixtureDB",
                 "--preset", "precise",
                 "--profile",
@@ -663,7 +663,7 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         let pipelineOnlyStep = ProvenanceStep(
             toolName: "lungfish-kraken2-index",
             toolVersion: "v2.17.1",
-            argv: ["lungfish", "internal", "kraken2-index", outputURL.path, indexURL.path],
+            argv: ["lungfish-cli", "internal", "kraken2-index", outputURL.path, indexURL.path],
             inputs: [outputDescriptor],
             outputs: [indexDescriptor],
             exitStatus: 0,
@@ -692,7 +692,7 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
             result: result,
             originalInputURLs: [inputURL],
             executionInputURLs: [inputURL],
-            argv: ["lungfish", "conda", "classify", inputURL.path, "--db", "FixtureDB"],
+            argv: ["lungfish-cli", "conda", "classify", inputURL.path, "--db", "FixtureDB"],
             startedAt: Date(timeIntervalSince1970: 100),
             endedAt: Date(timeIntervalSince1970: 104),
             writer: ProvenanceWriter(signingProvider: nil)
@@ -2173,7 +2173,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             extraArguments: ["--k-min", "21"]
         )
         let argv = [
-            "lungfish", "assemble", inputURL.path,
+            "lungfish-cli", "assemble", inputURL.path,
             "--assembler", "megahit",
             "--threads", "4",
         ]
@@ -2279,7 +2279,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             result: result,
             originalInputURLs: [derivedBundleURL],
             executionInputURLs: [materializedURL],
-            argv: ["lungfish", "assemble", derivedBundleURL.path],
+            argv: ["lungfish-cli", "assemble", derivedBundleURL.path],
             startedAt: Date(timeIntervalSince1970: 200),
             endedAt: Date(timeIntervalSince1970: 203),
             materializationStartedAt: Date(timeIntervalSince1970: 200),
@@ -2304,7 +2304,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
                 && $0.fileSize != nil
         })
         let materializationStep = try XCTUnwrap(
-            envelope.steps.first { $0.toolName == "lungfish fastq materialize" }
+            envelope.steps.first { $0.toolName == "\(CLICommandIdentity.executableName) fastq materialize" }
         )
         let expectedCommand = CLISequenceInputMaterialization.materializationCommand(
             originalURL: derivedBundleURL,
@@ -2848,8 +2848,8 @@ final class MapCommandRegressionTests: XCTestCase {
         try CLISequenceInputMaterialization.writeMaterializationProvenance(
             workflowName: "lungfish.map.input-materialization",
             workflowVersion: "test-version",
-            parentArgv: ["lungfish", "map", fixture.derivedBundleURL.path, "--reference", referenceURL.path],
-            parentDurableReplayArgv: ["lungfish", "map", materializedURL.path, "--reference", referenceURL.path],
+            parentArgv: ["lungfish-cli", "map", fixture.derivedBundleURL.path, "--reference", referenceURL.path],
+            parentDurableReplayArgv: ["lungfish-cli", "map", materializedURL.path, "--reference", referenceURL.path],
             originalInputURLs: [fixture.derivedBundleURL],
             executionInputURLs: [materializedURL],
             outputDirectory: tempDir,
@@ -2975,7 +2975,7 @@ final class MapCommandRegressionTests: XCTestCase {
             executionURL: materializedURL
         )
         XCTAssertEqual(steps.count, 1)
-        XCTAssertEqual(step.toolName, "lungfish fastq materialize")
+        XCTAssertEqual(step.toolName, "\(CLICommandIdentity.executableName) fastq materialize")
         XCTAssertEqual(step.command, expectedCommand)
         XCTAssertEqual(step.durableReplayArgv, expectedCommand)
         XCTAssertFalse(step.command.contains("materialize-inputs"))

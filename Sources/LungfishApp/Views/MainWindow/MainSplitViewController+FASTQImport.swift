@@ -189,7 +189,7 @@ extension MainSplitViewController {
                 let installedURL = try HaplotypeDefinitionCommandService(projectRoot: projectURL)
                     .installMHCReferenceBundle(
                         from: url,
-                        argv: ["lungfish-cli", "haplotypes", "bundle-install", url.path]
+                        argv: [CLICommandIdentity.executableName, "haplotypes", "bundle-install", url.path]
                     )
                 mainSplitLogger.info(
                     "handleSidebarFileDropped: Installed reference allele database at \(installedURL.path, privacy: .public)"
@@ -290,7 +290,14 @@ extension MainSplitViewController {
 
     func copyProjectItemForImport(from sourceURL: URL, to destinationURL: URL) throws -> URL {
         if FASTQBundle.isBundleURL(sourceURL) {
-            let argv = ["lungfish", "fastq", "import-ont", sourceURL.path, "--output", destinationURL.path]
+            let argv = [
+                CLICommandIdentity.executableName,
+                "fastq",
+                "import-ont",
+                sourceURL.path,
+                "--output",
+                destinationURL.path,
+            ]
             let result = try FASTQBundleCopyImportWorkflow().importBundle(
                 sourceBundleURL: sourceURL,
                 outputURL: destinationURL,
@@ -856,7 +863,10 @@ extension MainSplitViewController {
                 .path ?? workingDirectory.path
             let invocation = try FASTQOperationCLIInvocationBuilder()
                 .buildInvocation(for: request, outputTargetPath: outputTarget)
-            return ([ "lungfish-cli", invocation.subcommand ] + invocation.arguments).joined(separator: " ")
+            return OperationCenter.buildCLICommand(
+                subcommand: invocation.subcommand,
+                args: invocation.arguments
+            )
         }()
         let opTitle = "FASTQ: \(request.operationDisplayTitle)"
         let startTime = Date()
@@ -982,7 +992,10 @@ extension MainSplitViewController {
                 .path ?? workingDirectory.path
             let invocation = try FASTQOperationCLIInvocationBuilder()
                 .buildInvocation(for: request, outputTargetPath: outputTarget)
-            return ([ "lungfish-cli", invocation.subcommand ] + invocation.arguments).joined(separator: " ")
+            return OperationCenter.buildCLICommand(
+                subcommand: invocation.subcommand,
+                args: invocation.arguments
+            )
         }()
         let opTitle = "FASTQ: \(request.operationDisplayTitle)"
         let startTime = Date()

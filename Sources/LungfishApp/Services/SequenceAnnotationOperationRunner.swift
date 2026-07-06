@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishKit
 import LungfishWorkflow
 
@@ -100,7 +101,7 @@ enum SequenceAnnotationOperationRunner {
     }
 
     static func displayCommand(for request: SequenceAnnotationOperationRequest) -> String {
-        (["lungfish-cli"] + commandArguments(for: request))
+        ([CLICommandIdentity.executableName] + commandArguments(for: request))
             .map(shellEscape)
             .joined(separator: " ")
     }

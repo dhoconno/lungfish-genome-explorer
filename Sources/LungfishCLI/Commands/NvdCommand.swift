@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -92,7 +93,7 @@ struct NvdCommand: AsyncParsableCommand {
             }
 
             var provenanceCommand = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "nvd",
                 "import",
                 inputURL.path,

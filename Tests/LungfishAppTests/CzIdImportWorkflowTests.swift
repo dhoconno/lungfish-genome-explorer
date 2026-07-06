@@ -36,7 +36,7 @@ final class CzIdImportWorkflowTests: XCTestCase {
         let step = try XCTUnwrap(provenance.steps.first)
         XCTAssertEqual(step.toolName, "lungfish import cz-id")
         XCTAssertEqual(step.command, [
-            "lungfish",
+            "lungfish-cli",
             "import",
             "cz-id",
             sourceURL.path,
@@ -125,7 +125,7 @@ final class CzIdImportWorkflowTests: XCTestCase {
         let converted = try CzIdDataConverter.convertTaxonReport(
             at: reportURL,
             outputDirectory: outputDirectory,
-            command: ["lungfish", "cz-id", "import", archiveURL.path, "--output-dir", outputDirectory.path],
+            command: ["lungfish-cli", "cz-id", "import", archiveURL.path, "--output-dir", outputDirectory.path],
             sourceInputURL: archiveURL
         )
 
@@ -162,7 +162,7 @@ final class CzIdImportWorkflowTests: XCTestCase {
         _ = try CzIdDataConverter.convertTaxonReport(
             at: reportURL,
             outputDirectory: outputDirectory,
-            command: ["lungfish", "import", "cz-id", archiveURL.path, "--project", tempDir.path, "--sample-name", "Zip Sample"],
+            command: ["lungfish-cli", "import", "cz-id", archiveURL.path, "--project", tempDir.path, "--sample-name", "Zip Sample"],
             sourceInputURL: archiveURL,
             sampleNameOverride: "Zip Sample",
             provenanceToolName: "lungfish import cz-id"

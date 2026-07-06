@@ -206,7 +206,7 @@ enum CLIProvenanceSupport {
         _ record: FileRecord,
         to builder: ProvenanceRunBuilder
     ) throws -> ProvenanceRunBuilder {
-        if shouldUseDescriptorVerbatim(for: record.path) {
+        if shouldUseDescriptorVerbatim(for: record.path) || isDirectoryRecord(record) {
             return try builder.input(ProvenanceFileDescriptor(fileRecord: record))
         }
         return try builder.input(URL(fileURLWithPath: record.path), format: record.format, role: record.role)
@@ -216,10 +216,16 @@ enum CLIProvenanceSupport {
         _ record: FileRecord,
         to builder: ProvenanceRunBuilder
     ) throws -> ProvenanceRunBuilder {
-        if shouldUseDescriptorVerbatim(for: record.path) {
+        if shouldUseDescriptorVerbatim(for: record.path) || isDirectoryRecord(record) {
             return try builder.output(ProvenanceFileDescriptor(fileRecord: record))
         }
         return try builder.output(URL(fileURLWithPath: record.path), format: record.format, role: record.role)
+    }
+
+    private static func isDirectoryRecord(_ record: FileRecord) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: record.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
     }
 
     private static func shouldUseDescriptorVerbatim(for path: String) -> Bool {

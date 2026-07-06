@@ -454,7 +454,7 @@ public struct ProvenanceExporter: Sendable {
 
         let startedAt = manifest.source.downloadDate ?? manifest.createdDate
         let argv = [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "reference",
             "download",
             sourcePath,
@@ -587,7 +587,7 @@ public struct ProvenanceExporter: Sendable {
         outputDirectory: URL
     ) -> [String] {
         if !argv.isEmpty { return argv }
-        var arguments = ["lungfish", "provenance", "export"]
+        var arguments = [CLICommandIdentity.executableName, "provenance", "export"]
         if let sourceInputURL {
             arguments.append(sourceInputURL.path)
         }

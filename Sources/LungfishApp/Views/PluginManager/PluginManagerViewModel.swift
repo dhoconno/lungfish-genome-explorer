@@ -415,7 +415,7 @@ final class PluginManagerViewModel {
     func offlinePackCommandGuidance(for pack: PluginPack) -> OfflinePackCommandGuidance {
         let archivePath = "./\(pack.id)-conda-offline-pack.tgz"
         let exportCommand = shellCommand([
-            "lungfish",
+            CLICommandIdentity.executableName,
             "conda",
             "export-pack",
             "--pack",
@@ -424,7 +424,7 @@ final class PluginManagerViewModel {
             archivePath,
         ])
         let installCommand = shellCommand([
-            "lungfish",
+            CLICommandIdentity.executableName,
             "conda",
             "install",
             "--offline",

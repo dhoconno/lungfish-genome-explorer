@@ -1679,7 +1679,7 @@ public enum FASTQBatchImporter {
     private static func reproducibleImportCommand(pair: SamplePair, config: ImportConfig) -> [String] {
         if let sampleSheetURL = pair.sampleSheetURL {
             var command = [
-                "lungfish", "import", "fastq",
+                CLICommandIdentity.executableName, "import", "fastq",
                 "--samplesheet", sampleSheetURL.path,
                 "--project", config.projectDirectory.path,
                 "--platform", config.platform.rawValue,
@@ -1698,7 +1698,7 @@ public enum FASTQBatchImporter {
         }
 
         var command = [
-            "lungfish", "import", "fastq",
+            CLICommandIdentity.executableName, "import", "fastq",
             pair.r1.path,
         ]
         if let r2 = pair.r2 {

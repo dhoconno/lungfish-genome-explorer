@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public typealias ApplicationExportImportProgress = @Sendable (Double, String) -> Void
@@ -570,7 +571,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
         options: ApplicationExportImportOptions
     ) -> [String] {
         var command = [
-            "lungfish", "import", "application-export", kind.cliArgument, sourceURL.path,
+            CLICommandIdentity.executableName, "import", "application-export", kind.cliArgument, sourceURL.path,
             "--project", projectURL.path,
         ]
         if let collectionName = options.collectionName,

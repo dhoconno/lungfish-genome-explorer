@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -64,8 +65,8 @@ struct FastqQCSummarySubcommand: AsyncParsableCommand {
             ],
             toolName: "lungfish fastq qc-summary",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
-            stepCommand: ["lungfish", "fastq"] + cliArguments,
+            command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+            stepCommand: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             inputs: inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
             outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .json, role: .output)],
             exitCode: 0,

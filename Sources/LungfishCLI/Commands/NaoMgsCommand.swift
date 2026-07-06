@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -249,7 +250,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
         }
 
         private func standaloneImportReplayArgv(outputDirectory: URL) -> [String] {
-            var argv = ["lungfish-cli", "nao-mgs", "import", inputPath]
+            var argv = [CLICommandIdentity.executableName, "nao-mgs", "import", inputPath]
             if let sampleName {
                 argv += ["--sample-name", sampleName]
             }

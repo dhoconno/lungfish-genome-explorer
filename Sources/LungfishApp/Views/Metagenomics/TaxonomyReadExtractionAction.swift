@@ -700,7 +700,7 @@ public final class TaxonomyReadExtractionAction {
 
         explicitOptions["destination"] = .string(destinationKind)
         var argv: [String] = [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "extract",
             "reads",
             "--by-classifier",

@@ -73,7 +73,7 @@ final class FetchNCBIProvenanceTests: XCTestCase {
         XCTAssertEqual(storedEnvelope.workflowName, "lungfish fetch genome")
         XCTAssertEqual(storedEnvelope.toolName, "lungfish fetch genome")
         XCTAssertEqual(storedEnvelope.argv, [
-            "lungfish", "fetch", "genome", "GCF_000001405.40",
+            "lungfish-cli", "fetch", "genome", "GCF_000001405.40",
             "--output-dir", tempDir.path,
             "--name", "Human",
             "--api-key", "<redacted>",

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 enum BuildDbProvenanceTool: String {
@@ -329,7 +330,7 @@ extension BuildDbCommand {
         globalOptions: GlobalOptions,
         sampleDirectories: [URL] = []
     ) -> [String] {
-        var argv = ["lungfish", "build-db", tool.rawValue, resultURL.path]
+        var argv = [CLICommandIdentity.executableName, "build-db", tool.rawValue, resultURL.path]
         if force { argv.append("--force") }
         if noCleanup { argv.append("--no-cleanup") }
         if tool == .kraken2 {

@@ -213,9 +213,9 @@ private func writeGUISRAFASTQImportProvenance(
     } else {
         steps.append(
             StepExecution(
-                toolName: "lungfish-cli",
+                toolName: CLICommandIdentity.executableName,
                 toolVersion: WorkflowRun.currentAppVersion,
-                command: [CLIImportRunner.cliBinaryPath()?.path ?? "lungfish-cli"] + cliArguments,
+                command: [CLIImportRunner.cliBinaryPath()?.path ?? CLICommandIdentity.executableName] + cliArguments,
                 inputs: stagedFASTQFiles.map {
                     ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
                 },

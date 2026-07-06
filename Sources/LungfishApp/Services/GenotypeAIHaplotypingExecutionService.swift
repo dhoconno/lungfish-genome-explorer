@@ -315,7 +315,7 @@ final class GenotypeAIHaplotypingExecutionService {
         openAIEndpointConfiguration: OpenAIEndpointConfiguration?
     ) -> [String] {
         var command = [
-            "lungfish-cli",
+            CLICommandIdentity.executableName,
             "genotype",
             "ai-haplotyping",
             "--bundle", bundleURL.path,

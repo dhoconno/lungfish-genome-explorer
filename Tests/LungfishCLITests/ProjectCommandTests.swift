@@ -445,7 +445,7 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertEqual(step["toolName"] as? String, "lungfish project migrate")
         XCTAssertEqual(step["exitCode"] as? Int, 0)
         XCTAssertGreaterThan(step["wallTime"] as? Double ?? -1, 0)
-        XCTAssertEqual(step["command"] as? [String], ["lungfish", "project", "migrate", projectURL.path])
+        XCTAssertEqual(step["command"] as? [String], ["lungfish-cli", "project", "migrate", projectURL.path])
 
         let inputs = try XCTUnwrap(step["inputs"] as? [[String: Any]])
         XCTAssertTrue(inputs.contains { $0["path"] as? String == manifestURL.path && $0["sha256"] != nil && $0["sizeBytes"] != nil })

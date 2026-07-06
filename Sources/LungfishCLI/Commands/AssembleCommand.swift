@@ -632,7 +632,7 @@ struct AssembleCommand: AsyncParsableCommand {
                 ]
             builder = builder.step(
                 ProvenanceStep(
-                    toolName: "lungfish fastq materialize",
+                    toolName: CLISequenceInputMaterialization.materializationToolName,
                     toolVersion: LungfishCLI.configuration.version,
                     argv: materializationArgv,
                     durableReplayArgv: materializationArgv,

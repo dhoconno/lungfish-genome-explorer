@@ -813,7 +813,7 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - CLI Command Storage
 
     func testCLICommandStoredOnStart() {
-        let cmd = "lungfish classify --db standard --input /data/R1.fastq.gz"
+        let cmd = "lungfish-cli conda classify --db standard --input /data/R1.fastq.gz"
         let id = center.start(title: "Classify", detail: "Running...", cliCommand: cmd)
 
         let item = center.items.first { $0.id == id }
@@ -829,10 +829,10 @@ final class DownloadCenterTests: XCTestCase {
 
     func testBuildCLICommandShellQuotes() {
         let cmd = OperationCenter.buildCLICommand(
-            subcommand: "classify",
+            subcommand: "conda classify",
             args: ["--input", "/path with spaces/file.fastq.gz", "--db", "standard"]
         )
-        XCTAssertTrue(cmd.hasPrefix("lungfish classify"))
+        XCTAssertTrue(cmd.hasPrefix("lungfish-cli conda classify"))
         XCTAssertTrue(cmd.contains("'/path with spaces/file.fastq.gz'"),
                       "Paths with spaces should be shell-quoted: \(cmd)")
     }
@@ -843,7 +843,7 @@ final class DownloadCenterTests: XCTestCase {
             args: ["/data/run", "--output", "/tmp/project"]
         )
 
-        XCTAssertEqual(cmd, "lungfish fastq import-ont /data/run --output /tmp/project")
+        XCTAssertEqual(cmd, "lungfish-cli fastq import-ont /data/run --output /tmp/project")
         XCTAssertFalse(cmd.contains("'fastq import-ont'"))
     }
 
@@ -903,7 +903,7 @@ final class DownloadCenterTests: XCTestCase {
     // MARK: - Failure Report Data Completeness
 
     func testFailedItemWithAllFieldsHasCompleteReportData() {
-        let cmd = "lungfish classify --db standard --input /data/R1.fastq.gz"
+        let cmd = "lungfish-cli conda classify --db standard --input /data/R1.fastq.gz"
         let id = center.start(title: "Classify Reads", detail: "Starting...", cliCommand: cmd)
 
         center.log(id: id, level: .info, message: "Loading database")

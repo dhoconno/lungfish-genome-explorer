@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public enum CzIdDataConverter {
@@ -142,7 +143,7 @@ public enum CzIdDataConverter {
             sourceInput: sourceInputURL,
             outputs: [reportURL, outputURL, manifestURL, outputDirectory.appendingPathComponent("classification-result.json")],
             outputDirectory: outputDirectory,
-            command: command ?? ["lungfish", "cz-id", "import", url.path, "--output-dir", outputDirectory.path],
+            command: command ?? [CLICommandIdentity.executableName, "cz-id", "import", url.path, "--output-dir", outputDirectory.path],
             toolVersion: parsed.metadata.pipelineVersion ?? "unknown",
             startedAt: startedAt,
             additionalInputs: additionalInputURLs,

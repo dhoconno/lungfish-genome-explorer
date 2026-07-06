@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -306,7 +307,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         default:
             return FASTQDerivativeOperation(
                 kind: kind,
-                toolUsed: "lungfish-cli",
+                toolUsed: CLICommandIdentity.executableName,
                 toolCommand: derivativeRequest.cliCommand(inputPath: sourceURL.path, outputPath: outputURL.path)
             )
         }

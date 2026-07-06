@@ -4,6 +4,7 @@
 
 import Foundation
 import CryptoKit
+import LungfishCore
 import LungfishIO
 
 public protocol CLISequenceInputMaterializing {
@@ -68,6 +69,10 @@ public struct CLISequenceInputMaterializationResult: Sendable, Equatable {
 
 /// Detects virtual FASTQ bundles that CLI tools must materialize before running.
 public enum CLISequenceInputMaterialization {
+    public static var materializationToolName: String {
+        "\(CLICommandIdentity.executableName) fastq materialize"
+    }
+
     private enum PreflightInput {
         case materialized(bundleURL: URL)
         case resolved(resolvedURL: URL)
@@ -202,7 +207,7 @@ public enum CLISequenceInputMaterialization {
     public static func materializationCommand(originalURL: URL, executionURL: URL) -> [String] {
         let bundleURL = bundleRequiringMaterialization(for: originalURL) ?? originalURL.standardizedFileURL
         return [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "fastq",
             "materialize",
             bundleURL.standardizedFileURL.path,
@@ -271,7 +276,7 @@ public enum CLISequenceInputMaterialization {
                 executionURL: pair.executionURL
             )
             return ProvenanceStep(
-                toolName: "lungfish fastq materialize",
+                toolName: materializationToolName,
                 toolVersion: ProvenanceVersion.required(workflowVersion),
                 argv: command,
                 durableReplayArgv: command,
@@ -372,7 +377,7 @@ public enum CLISequenceInputMaterialization {
         var builder = ProvenanceRunBuilder(
             workflowName: workflowName,
             workflowVersion: workflowVersion,
-            toolName: "lungfish fastq materialize",
+            toolName: materializationToolName,
             toolVersion: workflowVersion
         )
         .argv(topLevelArgv)

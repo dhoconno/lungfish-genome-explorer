@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -120,7 +121,7 @@ struct MarkdupCommand: AsyncParsableCommand {
             outputFormat: input.outputFormat,
             quiet: input.quiet,
             command: [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "markdup",
                 input.path,
                 "--deduplicated-bundle",
@@ -707,7 +708,7 @@ struct MarkdupCommand: AsyncParsableCommand {
             return actual
         }
 
-        var argv = ["lungfish", "markdup", input.path, "--sort-threads", String(input.sortThreads)]
+        var argv = [CLICommandIdentity.executableName, "markdup", input.path, "--sort-threads", String(input.sortThreads)]
         if input.force {
             argv.append("--force")
         }

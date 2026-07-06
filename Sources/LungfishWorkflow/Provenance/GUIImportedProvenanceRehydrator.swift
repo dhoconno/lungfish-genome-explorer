@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 public enum GUIImportedProvenanceRehydratorError: Error, LocalizedError, Sendable, Equatable {
     case unsupportedSourceProvenance(String)
@@ -395,13 +396,13 @@ public enum GUIImportedProvenanceRehydrator {
 
     private static func isLungfishCLIName(_ value: String) -> Bool {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized == "lungfish-cli" || normalized == "lungfish"
+        return normalized == CLICommandIdentity.executableName || normalized == "lungfish"
     }
 
     private static func executableIsLungfishCLI(_ value: String?) -> Bool {
         guard let value else { return false }
         let executable = URL(fileURLWithPath: value).lastPathComponent.lowercased()
-        return executable == "lungfish-cli" || executable == "lungfish"
+        return executable == CLICommandIdentity.executableName || executable == "lungfish"
     }
 
     private static func commandLooksLikeLungfishCLI(_ command: String) -> Bool {

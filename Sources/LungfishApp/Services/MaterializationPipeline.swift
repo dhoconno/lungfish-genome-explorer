@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
@@ -417,7 +418,7 @@ public actor MaterializationPipeline {
 
     private static func materializationReplayArgv(bundleURL: URL, outputURL: URL) -> [String] {
         [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "fastq",
             "materialize",
             bundleURL.standardizedFileURL.path,

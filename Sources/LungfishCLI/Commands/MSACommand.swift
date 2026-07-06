@@ -147,7 +147,7 @@ extension MSACommand {
 
         private func canonicalAnnotateAddArgv(bundleURL: URL) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "msa",
                 "annotate",
                 "add",
@@ -278,7 +278,7 @@ extension MSACommand {
 
         private func canonicalAnnotateEditArgv(bundleURL: URL) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "msa",
                 "annotate",
                 "edit",
@@ -369,7 +369,7 @@ extension MSACommand {
 
         private func canonicalAnnotateDeleteArgv(bundleURL: URL) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "msa",
                 "annotate",
                 "delete",
@@ -479,7 +479,7 @@ extension MSACommand {
 
         private func canonicalAnnotateProjectArgv(bundleURL: URL) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "msa",
                 "annotate",
                 "project",
@@ -647,7 +647,7 @@ extension MSACommand {
 
         private func canonicalExportArgv(bundleURL: URL, outputURL: URL) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "msa",
                 "export",
                 bundleURL.path,
@@ -853,7 +853,7 @@ extension MSACommand {
 
         private func canonicalConsensusArgv(bundleURL: URL, outputURL: URL) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "msa",
                 "consensus",
                 bundleURL.path,
@@ -1086,7 +1086,7 @@ extension MSACommand {
 
         private func canonicalExtractArgv(bundleURL: URL, outputURL: URL) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "msa",
                 "extract",
                 bundleURL.path,
@@ -1276,7 +1276,7 @@ extension MSACommand {
 
         private func canonicalMaskColumnsArgv(bundleURL: URL, outputURL: URL) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "msa",
                 "mask",
                 "columns",
@@ -1644,7 +1644,7 @@ extension MSACommand {
 
         private func canonicalTrimColumnsArgv(bundleURL: URL, outputURL: URL) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "msa",
                 "trim",
                 "columns",
@@ -1796,7 +1796,7 @@ extension MSACommand {
 
         private func canonicalDistanceArgv(bundleURL: URL, outputURL: URL) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "msa",
                 "distance",
                 bundleURL.path,

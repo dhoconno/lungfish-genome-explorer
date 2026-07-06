@@ -17,10 +17,10 @@ import LungfishCore
 /// - Debugging and troubleshooting
 struct LungfishCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "lungfish",
+        commandName: CLICommandIdentity.executableName,
         abstract: "Lungfish Genome Explorer CLI - Bioinformatics tools for sequence analysis",
         discussion: """
-            The `lungfish` command provides headless access to the Lungfish Genome Explorer's
+            The `\(CLICommandIdentity.executableName)` command provides headless access to the Lungfish Genome Explorer's
             bioinformatics capabilities. Use it for scripting, automation, pipeline
             integration, and debugging workflows.
 

@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
@@ -36,7 +37,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             annotationSidecarURL: annotationSidecarURL
         )
         let cliCommand = ViralReconWorkflowCommandPreview.build(
-            executableName: "lungfish-cli",
+            executableName: CLICommandIdentity.executableName,
             arguments: arguments
         )
         let operationID = operationCenter.start(

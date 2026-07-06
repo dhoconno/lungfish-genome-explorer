@@ -336,7 +336,7 @@ struct NCBISubcommand: AsyncParsableCommand {
     }
 
     private func ncbiFetchCommand(outputPath: String) -> [String] {
-        var command = ["lungfish", "fetch", "ncbi"] + accessions + [
+        var command = [CLICommandIdentity.executableName, "fetch", "ncbi"] + accessions + [
             "--db", database,
             "--fetch-format", fetchFormat,
             "--save-to", outputPath,
@@ -829,7 +829,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
 
     private func sraDownloadCommand() -> [String] {
         var command = [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "fetch",
             "sra",
             "download",
@@ -891,7 +891,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         }
         steps.append(
             StepExecution(
-                toolName: "lungfish-cli",
+                toolName: CLICommandIdentity.executableName,
                 toolVersion: LungfishCLI.configuration.version,
                 command: sraDownloadCommand(),
                 inputs: trace.sourceInputs.map { input in
@@ -1479,7 +1479,7 @@ struct ENAFastaSubcommand: AsyncParsableCommand {
 
     private func enaFastaFetchCommand(outputPath: String) -> [String] {
         var command = [
-            "lungfish", "fetch", "ena", "fasta", accession,
+            CLICommandIdentity.executableName, "fetch", "ena", "fasta", accession,
             "--save-to", outputPath,
             "--format", globalOptions.outputFormat.rawValue
         ]

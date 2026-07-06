@@ -1001,7 +1001,10 @@ extension MainSplitViewController {
         )
         let cliCommand: String? = try? {
             let invocation = try executionService.buildInvocation(for: request)
-            return ([ "lungfish-cli", invocation.subcommand ] + invocation.arguments).joined(separator: " ")
+            return OperationCenter.buildCLICommand(
+                subcommand: invocation.subcommand,
+                args: invocation.arguments
+            )
         }()
 
         let opTitle = "FASTQ: \(request.operationDisplayTitle)"

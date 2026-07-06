@@ -69,7 +69,7 @@ final class ImportCzIdCommandTests: XCTestCase {
         let step = try XCTUnwrap(provenance.steps.first)
         XCTAssertEqual(step.toolName, "lungfish import cz-id")
         XCTAssertEqual(step.command, [
-            "lungfish",
+            "lungfish-cli",
             "import",
             "cz-id",
             fixture.path,

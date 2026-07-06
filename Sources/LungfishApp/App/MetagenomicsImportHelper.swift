@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 /// Helper-mode entrypoint used by GUI imports to execute metagenomics imports
@@ -355,7 +356,7 @@ public enum MetagenomicsImportHelper {
         fetchReferences: Bool
     ) -> [String] {
         var command = [
-            "lungfish-cli",
+            CLICommandIdentity.executableName,
             "import",
             kind.importCommandToken,
             inputURL.path,

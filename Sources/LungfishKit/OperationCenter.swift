@@ -314,20 +314,20 @@ public final class OperationCenter: ObservableObject {
 
     // MARK: - CLI Command Builder
 
-    /// Builds a properly shell-quoted `lungfish` CLI command string.
+    /// Builds a properly shell-quoted Lungfish CLI command string.
     ///
     /// Arguments containing spaces, quotes, or shell metacharacters are
     /// wrapped in single quotes with internal single quotes escaped.
     ///
     /// - Parameters:
-    ///   - subcommand: The lungfish subcommand path (e.g. `"fetch"`, `"classify"`, `"fastq import-ont"`).
+    ///   - subcommand: The lungfish-cli subcommand path (e.g. `"fetch"`, `"conda classify"`, `"fastq import-ont"`).
     ///   - args: Positional and flag arguments.
     /// - Returns: A copy-pasteable shell command string.
     public nonisolated static func buildCLICommand(subcommand: String, args: [String]) -> String {
         let subcommandParts = subcommand
             .split(whereSeparator: { $0.isWhitespace })
             .map(String.init)
-        let allParts = ["lungfish"] + subcommandParts + args
+        let allParts = [CLICommandIdentity.executableName] + subcommandParts + args
         let quoted = allParts.map { shellEscape($0) }
         return quoted.joined(separator: " ")
     }

@@ -639,7 +639,7 @@ public enum MSAReferenceBundleBuilder {
             annotationType: .custom,
             featureCount: featureCount,
             source: "Lungfish MSA annotation lift-over",
-            version: "lungfish-cli"
+            version: CLICommandIdentity.executableName
         )
         return (track, featureCount)
     }

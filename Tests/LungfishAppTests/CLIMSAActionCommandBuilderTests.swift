@@ -28,7 +28,7 @@ final class CLIMSAActionCommandBuilderTests: XCTestCase {
         ])
         XCTAssertTrue(
             CLIMSAActionCommandBuilder.displayCommand(arguments: args)
-                .hasPrefix("lungfish msa extract")
+                .hasPrefix("lungfish-cli msa extract")
         )
     }
 
@@ -65,7 +65,7 @@ final class CLIMSAActionCommandBuilderTests: XCTestCase {
         ])
         XCTAssertTrue(
             CLIMSAActionCommandBuilder.displayCommand(arguments: args)
-                .hasPrefix("lungfish tree infer iqtree")
+                .hasPrefix("lungfish-cli tree infer iqtree")
         )
     }
 
@@ -141,7 +141,7 @@ final class CLIMSAActionCommandBuilderTests: XCTestCase {
         ])
         XCTAssertTrue(
             CLIMSAActionCommandBuilder.displayCommand(arguments: args)
-                .hasPrefix("lungfish msa annotate add")
+                .hasPrefix("lungfish-cli msa annotate add")
         )
     }
 
@@ -164,7 +164,7 @@ final class CLIMSAActionCommandBuilderTests: XCTestCase {
         ])
         XCTAssertTrue(
             CLIMSAActionCommandBuilder.displayCommand(arguments: args)
-                .hasPrefix("lungfish msa annotate project")
+                .hasPrefix("lungfish-cli msa annotate project")
         )
     }
 }

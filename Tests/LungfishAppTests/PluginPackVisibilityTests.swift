@@ -452,11 +452,11 @@ final class PluginPackVisibilityTests: XCTestCase {
 
         XCTAssertEqual(
             guidance.exportCommand,
-            "lungfish conda export-pack --pack metagenomics --output ./metagenomics-conda-offline-pack.tgz"
+            "lungfish-cli conda export-pack --pack metagenomics --output ./metagenomics-conda-offline-pack.tgz"
         )
         XCTAssertEqual(
             guidance.installCommand,
-            "lungfish conda install --offline --from-bundle ./metagenomics-conda-offline-pack.tgz"
+            "lungfish-cli conda install --offline --from-bundle ./metagenomics-conda-offline-pack.tgz"
         )
         XCTAssertTrue(guidance.copyText.contains(guidance.exportCommand))
         XCTAssertTrue(guidance.copyText.contains(guidance.installCommand))

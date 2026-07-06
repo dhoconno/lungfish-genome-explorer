@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 import LungfishKit
 
@@ -163,7 +164,7 @@ final class LocalWorkflowExecutionService {
         prepareOnly: Bool
     ) -> String {
         ViralReconWorkflowCommandPreview.build(
-            executableName: "lungfish-cli",
+            executableName: CLICommandIdentity.executableName,
             arguments: request.cliArguments(bundlePath: bundleURL, prepareOnly: prepareOnly)
         )
     }
@@ -217,7 +218,7 @@ final class LocalWorkflowExecutionService {
         bundleURL: URL,
         wallTime: TimeInterval
     ) throws {
-        let command = ["lungfish-cli"] + request.cliArguments(bundlePath: bundleURL, prepareOnly: true)
+        let command = [CLICommandIdentity.executableName] + request.cliArguments(bundlePath: bundleURL, prepareOnly: true)
         let inputs = [ProvenanceRecorder.fileRecord(url: request.workflowURL, format: .text, role: .input)]
             + request.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) }
         let outputs = [

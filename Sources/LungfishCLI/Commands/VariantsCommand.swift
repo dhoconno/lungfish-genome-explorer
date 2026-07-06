@@ -430,7 +430,7 @@ extension VariantsCommand {
             try VariantsCommand.writeCommandPlanProvenance(
                 workflowName: plan.workflowName,
                 workflowVersion: plan.workflowVersion,
-                command: ["lungfish", "variants", "phase"] + originalArguments(outputDirURL: outputDirURL, outputVCFURL: outputVCFURL),
+                command: [CLICommandIdentity.executableName, "variants", "phase"] + originalArguments(outputDirURL: outputDirURL, outputVCFURL: outputVCFURL),
                 inputs: plan.inputs,
                 outputs: [ProvenanceRecorder.fileRecord(url: planURL, format: .json, role: .output)] + phaseOutputRecords(for: plan),
                 parameters: [
@@ -692,7 +692,7 @@ extension VariantsCommand {
 
         private func commandArgv(bundlePath: String, sampleName: String, outputPath: String) -> [String] {
             var argv = [
-                "lungfish", "variants", "extract-sample",
+                CLICommandIdentity.executableName, "variants", "extract-sample",
                 bundlePath,
                 "--sample", sampleName,
                 "--output", outputPath,
@@ -786,7 +786,7 @@ extension VariantsCommand {
 
         private func commandArgv(bundlePath: String, filterText: String, outputPath: String) -> [String] {
             var argv = [
-                "lungfish", "variants", "query",
+                CLICommandIdentity.executableName, "variants", "query",
                 bundlePath,
                 "--filter", filterText,
                 "--output", outputPath,
@@ -1134,7 +1134,7 @@ extension VariantsCommand {
 
         private func variantCallCommand(finalTrackName: String) -> [String] {
             var command = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "variants",
                 "call",
                 "--bundle", bundlePath,

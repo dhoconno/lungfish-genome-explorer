@@ -726,7 +726,7 @@ public struct GeneiousImportCollectionService: Sendable {
         options: GeneiousImportOptions
     ) -> [String] {
         var command = [
-            "lungfish", "import", "geneious", sourceURL.path,
+            CLICommandIdentity.executableName, "import", "geneious", sourceURL.path,
             "--project", projectURL.path,
         ]
         if let collectionName = options.collectionName,

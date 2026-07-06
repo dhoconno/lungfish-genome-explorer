@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -222,11 +223,20 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             try ProvenanceFileDescriptor.file(url: $0, role: .output)
         }
         let commandLines = invocations.map { invocation in
-            ["lungfish", invocation.subcommand] + invocation.arguments
+            let subcommandParts = invocation.subcommand
+                .split(whereSeparator: { $0.isWhitespace })
+                .map(String.init)
+            return [CLICommandIdentity.executableName] + subcommandParts + invocation.arguments
         }
         let argv = commandLines.count == 1
-            ? (commandLines.first ?? ["lungfish", "fastq"])
-            : ["lungfish", "gui", "fastq-grouped-result", "--operation", resolvedRequest.batchManifestOperationKind]
+            ? (commandLines.first ?? [CLICommandIdentity.executableName, "fastq"])
+            : [
+                CLICommandIdentity.executableName,
+                "gui",
+                "fastq-grouped-result",
+                "--operation",
+                resolvedRequest.batchManifestOperationKind,
+            ]
         let reproducibleCommand = commandLines
             .map { $0.map(shellEscape).joined(separator: " ") }
             .joined(separator: " && ")

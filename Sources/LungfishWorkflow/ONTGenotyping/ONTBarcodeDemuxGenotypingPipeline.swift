@@ -366,7 +366,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
 
     public var argv: [String] {
         var values = [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "fastq",
             cliSubcommand,
         ] + inputFASTQURLs.map(\.path) + [

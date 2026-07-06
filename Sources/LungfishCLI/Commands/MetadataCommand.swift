@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -544,7 +545,7 @@ private enum MetadataProvenanceSupport {
         startedAt: Date
     ) async throws {
         let command = [
-            "lungfish", "metadata", "set",
+            CLICommandIdentity.executableName, "metadata", "set",
             bundleURL.path,
             "--field", field,
             "--value", value
@@ -584,7 +585,7 @@ private enum MetadataProvenanceSupport {
         startedAt: Date
     ) async throws {
         let command = [
-            "lungfish", "metadata", "import",
+            CLICommandIdentity.executableName, "metadata", "import",
             folderURL.path,
             csvURL.path
         ] + (syncBundles ? ["--sync-bundles"] : []) + globalOptionArguments(globalOptions)

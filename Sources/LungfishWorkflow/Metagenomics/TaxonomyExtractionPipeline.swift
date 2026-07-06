@@ -593,7 +593,7 @@ public actor TaxonomyExtractionPipeline {
             ? resolvedTaxIds
             : config.taxIds
         var command = [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "conda",
             "extract",
             "--kraken-output",

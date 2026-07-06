@@ -561,7 +561,7 @@ public final class GenotypeAnnotationStore {
     ) throws {
         let output = try ProvenanceFileDescriptor.file(url: annotationURL, format: .json, role: .output)
         let argv = [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "genotype",
             "apply-annotations",
             "--bundle", bundleURL.path,

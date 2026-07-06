@@ -592,7 +592,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Services/FASTQOperationExecutionService.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let runnerSource = try XCTUnwrap(
-            source.range(of: "private struct LungfishCLIProcessRunner")
+            source.range(of: "struct LungfishCLIProcessRunner")
                 .flatMap { start in
                     source[start.lowerBound...].range(of: "\n    }\n}")
                         .map { String(source[start.lowerBound..<$0.upperBound]) }
@@ -3219,13 +3219,13 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
-    func testClassificationLaunchesMapToTopLevelCommands() throws {
+    func testClassificationLaunchesMapToRegisteredCLICommands() throws {
         let baseInput = [URL(fileURLWithPath: "/tmp/input.fastq")]
 
         let kraken2 = try FASTQOperationExecutionService().buildInvocation(
             for: .classify(tool: .kraken2, inputURLs: baseInput, databaseName: "kraken-db")
         )
-        XCTAssertEqual(kraken2.subcommand, "classify")
+        XCTAssertEqual(kraken2.subcommand, "conda classify")
 
         let esviritu = try FASTQOperationExecutionService().buildInvocation(
             for: .classify(tool: .esViritu, inputURLs: baseInput, databaseName: "esv-db")
@@ -3288,7 +3288,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         """.write(to: fastaURL, atomically: true, encoding: .utf8)
 
         let runner = SpyCommandRunner { invocation, _ in
-            XCTAssertEqual(invocation.subcommand, "classify")
+            XCTAssertEqual(invocation.subcommand, "conda classify")
             XCTAssertEqual(invocation.arguments.first, fastaURL.path)
             XCTAssertEqual(SequenceFormat.from(url: URL(fileURLWithPath: invocation.arguments[0])), .fasta)
             return FASTQCLIExecutionResult(outputURLs: [])

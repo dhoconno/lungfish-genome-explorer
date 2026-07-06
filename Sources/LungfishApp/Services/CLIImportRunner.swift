@@ -137,7 +137,7 @@ public actor CLIImportRunner {
     /// Builds the display form of a `lungfish-cli` command using the same
     /// argument array passed to ``run(arguments:operationID:projectDirectory:onBundleCreated:onError:)``.
     public nonisolated static func commandLine(arguments: [String]) -> String {
-        (["lungfish-cli"] + arguments).map { shellEscape($0) }.joined(separator: " ")
+        ([CLICommandIdentity.executableName] + arguments).map { shellEscape($0) }.joined(separator: " ")
     }
 
     // MARK: - Static: Event Parsing

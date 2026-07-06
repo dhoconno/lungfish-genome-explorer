@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import LungfishCore
 import LungfishIO
 
 public struct MHCAmpliconReferenceBundleDefinitionInput: Equatable, Sendable {
@@ -352,9 +353,9 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             createdAt: startedAt,
             workflowName: config.provenanceWorkflowName,
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: WorkflowRun.currentAppVersion,
-            tool: ProvenanceToolIdentity(name: "lungfish-cli", version: WorkflowRun.currentAppVersion, kind: "cli"),
+            tool: ProvenanceToolIdentity(name: CLICommandIdentity.executableName, version: WorkflowRun.currentAppVersion, kind: "cli"),
             argv: argv,
             durableReplayArgv: argv,
             reproducibleCommand: commandLine(from: argv),
@@ -457,7 +458,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
 
     private func replayArgv(for config: MHCAmpliconReferenceBundleBuildConfiguration) -> [String] {
         var argv = [
-            "lungfish-cli", "fastq", "mhc-reference-bundle",
+            CLICommandIdentity.executableName, "fastq", "mhc-reference-bundle",
             "--reference-fasta", config.referenceFASTA.path,
             "--output", config.outputURL.path,
         ]

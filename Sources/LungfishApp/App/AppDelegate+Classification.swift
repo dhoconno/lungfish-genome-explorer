@@ -282,7 +282,7 @@ extension AppDelegate {
         let operationTitle = "\(goalLabel) \(inputName)"
 
         // Register the operation with OperationCenter so it appears in the Operations Panel.
-        let cliCmd = OperationCenter.buildCLICommand(subcommand: "classify", args: {
+        let cliCmd = OperationCenter.buildCLICommand(subcommand: "conda classify", args: {
             var args = ["--db", config.databasePath.path]
             args += config.inputFiles.map(\.path)
             return args
@@ -494,7 +494,7 @@ extension AppDelegate {
             return args
         }()
         let esCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: esCliArgs)
-        let esCliArgv = ["lungfish", "esviritu", "detect"] + esCliArgs
+        let esCliArgv = [CLICommandIdentity.executableName, "esviritu", "detect"] + esCliArgs
         let opID = OperationCenter.shared.start(
             title: "EsViritu \(config.sampleName)",
             detail: "Starting EsViritu viral detection\u{2026}",
@@ -752,12 +752,12 @@ extension AppDelegate {
         }
 
         let batchCliCmd: String = {
-            guard let first = configs.first else { return "lungfish classify --batch" }
+            guard let first = configs.first else { return "\(CLICommandIdentity.executableName) conda classify --batch" }
             var args = ["--db", first.databasePath.path]
             for c in configs {
                 args += c.inputFiles.map(\.path)
             }
-            return OperationCenter.buildCLICommand(subcommand: "classify", args: args)
+            return OperationCenter.buildCLICommand(subcommand: "conda classify", args: args)
         }()
         let opID = OperationCenter.shared.start(
             title: "Classification Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
@@ -1118,7 +1118,7 @@ extension AppDelegate {
             return args
         }()
         let esBatchCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: esBatchCliArgs)
-        let esBatchCliArgv = ["lungfish", "esviritu", "detect"] + esBatchCliArgs
+        let esBatchCliArgv = [CLICommandIdentity.executableName, "esviritu", "detect"] + esBatchCliArgs
         let opID = OperationCenter.shared.start(
             title: "EsViritu Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting EsViritu batch\u{2026}",

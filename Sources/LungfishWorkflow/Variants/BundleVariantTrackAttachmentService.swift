@@ -247,7 +247,7 @@ public actor BundleVariantTrackAttachmentService {
             workflowName: "lungfish variants call",
             workflowVersion: WorkflowRun.currentAppVersion,
             command: request.variantCallerCommandLine.isEmpty
-                ? ["lungfish", "variants", "call"]
+                ? [CLICommandIdentity.executableName, "variants", "call"]
                 : ["sh", "-lc", request.variantCallerCommandLine],
             startedAt: completedAt,
             completedAt: completedAt,
@@ -259,7 +259,7 @@ public actor BundleVariantTrackAttachmentService {
         let parentStep = steps.last?.id
         let attachmentStartedAt = provenance.completedAt
         let attachmentStep = StepExecution(
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: provenance.workflowVersion,
             command: provenance.command,
             inputs: stagedInputRecords,

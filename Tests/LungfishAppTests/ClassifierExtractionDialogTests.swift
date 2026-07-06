@@ -401,7 +401,7 @@ final class ClassifierExtractionDialogTests: XCTestCase {
 
         let provenance = recorded.fileProvenance
         let argv = provenance?.argv ?? []
-        XCTAssertEqual(Array(argv.prefix(4)), ["lungfish", "extract", "reads", "--by-classifier"])
+        XCTAssertEqual(Array(argv.prefix(4)), ["lungfish-cli", "extract", "reads", "--by-classifier"])
         XCTAssertTrue(argv.contains("--tool"))
         XCTAssertTrue(argv.contains("nvd"))
         XCTAssertTrue(argv.contains("--output"))

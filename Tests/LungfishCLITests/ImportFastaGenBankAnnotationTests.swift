@@ -74,7 +74,7 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         XCTAssertEqual(importStep["exitCode"] as? Int, 0)
 
         let commandLine = try XCTUnwrap(importStep["command"] as? [String])
-        XCTAssertEqual(commandLine.first, "lungfish")
+        XCTAssertEqual(commandLine.first, "lungfish-cli")
         XCTAssertTrue(commandLine.contains("import"))
         XCTAssertTrue(commandLine.contains("fasta"))
         XCTAssertTrue(commandLine.contains(inputURL.path))

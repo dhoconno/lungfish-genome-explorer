@@ -885,7 +885,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         let provenance = HaplotypeDefinitionEditProvenance(
             workflowName: "Haplotype definition export",
             workflowVersion: HaplotypeDefinitionStore.currentToolVersion,
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: HaplotypeDefinitionStore.currentToolVersion,
             argv: argv,
             reproducibleCommand: HaplotypeDefinitionStore.shellCommand(argv),

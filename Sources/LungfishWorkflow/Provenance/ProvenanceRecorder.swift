@@ -261,6 +261,9 @@ public actor ProvenanceRecorder {
         let selectedIsDirectory = isDirectory(standardizedURL)
 
         if selectedIsDirectory {
+            if let nestedOperation = singleNestedOperationProvenanceCandidate(for: standardizedURL) {
+                return nestedOperation
+            }
             for candidate in directorySidecarCandidates(for: standardizedURL) {
                 if let envelope = loadEnvelope(fromSidecar: candidate) {
                     return (candidate, envelope)
@@ -314,6 +317,23 @@ public actor ProvenanceRecorder {
             dir = parent
         }
         return nil
+    }
+
+    private static func singleNestedOperationProvenanceCandidate(
+        for directory: URL
+    ) -> (sidecarURL: URL, envelope: ProvenanceEnvelope)? {
+        guard ProvenanceWriter.isBundleDirectory(directory) else {
+            return nil
+        }
+        let candidates: [(sidecarURL: URL, envelope: ProvenanceEnvelope)] =
+            nestedOperationSidecarCandidates(for: directory).compactMap { sidecarURL in
+                guard let envelope = loadEnvelope(fromSidecar: sidecarURL),
+                      provenanceEnvelopeProducedDescendant(envelope, of: directory) else {
+                    return nil
+                }
+                return (sidecarURL: sidecarURL, envelope: envelope)
+            }
+        return candidates.count == 1 ? candidates[0] : nil
     }
 
     private static func mappingProvenanceCandidate(
@@ -499,6 +519,20 @@ public actor ProvenanceRecorder {
             let outputURL = URL(fileURLWithPath: descriptor.path).standardizedFileURL
             return outputURL.path == selectedPath
                 || selectedPath.hasPrefix(outputURL.path + "/")
+        }
+    }
+
+    private static func provenanceEnvelopeProducedDescendant(
+        _ envelope: ProvenanceEnvelope,
+        of directory: URL
+    ) -> Bool {
+        let directoryPath = directory.standardizedFileURL.path
+        let descriptors = envelope.outputs + envelope.steps.flatMap(\.outputs)
+        return descriptors.contains { descriptor in
+            URL(fileURLWithPath: descriptor.path)
+                .standardizedFileURL
+                .path
+                .hasPrefix(directoryPath + "/")
         }
     }
 

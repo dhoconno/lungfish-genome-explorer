@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -190,7 +191,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             explicitOptions: options.explicit,
             defaultOptions: options.defaults,
             resolvedOptions: options.resolved,
-            command: ["lungfish", "fastq"] + cliArguments,
+            command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             inputURL: inputURL,
             outputURL: outputURL,
             dbPath: dbPath,

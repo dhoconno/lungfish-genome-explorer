@@ -73,7 +73,7 @@ public enum CLIBinaryLocator {
 
         if let mainExecutableURL {
             let executableDirectory = mainExecutableURL.deletingLastPathComponent()
-            let bundledCLI = executableDirectory.appendingPathComponent("lungfish-cli")
+            let bundledCLI = executableDirectory.appendingPathComponent(CLICommandIdentity.executableName)
             if FileManager.default.isExecutableFile(atPath: bundledCLI.path) {
                 return bundledCLI
             }
@@ -86,7 +86,7 @@ public enum CLIBinaryLocator {
             guard let binPath = swiftPMBinPathLookup(projectRoot) else {
                 continue
             }
-            let candidate = binPath.appendingPathComponent("lungfish-cli")
+            let candidate = binPath.appendingPathComponent(CLICommandIdentity.executableName)
             if FileManager.default.isExecutableFile(atPath: candidate.path) {
                 return candidate
             }
@@ -171,7 +171,7 @@ public enum CLIBinaryLocator {
             }
             return URL(fileURLWithPath: path, isDirectory: true)
         } catch {
-            logger.warning("SwiftPM bin path lookup for lungfish-cli failed: \(error.localizedDescription, privacy: .public)")
+            logger.warning("SwiftPM bin path lookup for \(CLICommandIdentity.executableName, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -179,7 +179,7 @@ public enum CLIBinaryLocator {
     private static func pathLookupForCLI() -> URL? {
         let whichProcess = Process()
         whichProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        whichProcess.arguments = ["lungfish-cli"]
+        whichProcess.arguments = [CLICommandIdentity.executableName]
         let pipe = Pipe()
         whichProcess.standardOutput = pipe
         whichProcess.standardError = FileHandle.nullDevice
@@ -194,7 +194,7 @@ public enum CLIBinaryLocator {
                 }
             }
         } catch {
-            logger.warning("PATH lookup for lungfish-cli failed: \(error.localizedDescription, privacy: .public)")
+            logger.warning("PATH lookup for \(CLICommandIdentity.executableName, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
         }
 
         return nil

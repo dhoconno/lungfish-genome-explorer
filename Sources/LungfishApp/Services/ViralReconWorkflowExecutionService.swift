@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishKit
 import LungfishWorkflow
 
@@ -274,7 +275,7 @@ final class ViralReconWorkflowExecutionService {
 
     private func cliCommandPreview(for request: ViralReconRunRequest, bundleURL: URL) -> String {
         ViralReconWorkflowCommandPreview.build(
-            executableName: "lungfish-cli",
+            executableName: CLICommandIdentity.executableName,
             arguments: request.cliArguments(bundlePath: bundleURL)
         )
     }
