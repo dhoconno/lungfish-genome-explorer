@@ -38,7 +38,7 @@ Lungfish Genome Explorer is built around five viewport classes (sequence, alignm
 ### Alignments (BAM / CRAM / SAM)
 
 - Pile-up viewer for sorted, indexed BAM and CRAM with coverage track, base mismatches, soft-clip indicators, and read inspector.
-- Map reads with [minimap2](https://github.com/lh3/minimap2), [BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2), or [Bowtie2](https://bowtie-bio.sourceforge.net/bowtie2/) through guided wizards or the command line. Output is always written as sorted, indexed BAM.
+- Map reads with [minimap2](https://github.com/lh3/minimap2), [BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2), [Bowtie2](https://bowtie-bio.sourceforge.net/bowtie2/), or BBMap through guided wizards or the command line. Output is always written as sorted, indexed BAM.
 - Mark and remove PCR duplicates, extract reads by region or chromosome, and verify read orientation.
 
 ### Variants (VCF)
@@ -94,8 +94,8 @@ bundle      conda        convert     cz-id     debug       esviritu
 extract     fastq        fetch       freyja    gatk        genotype
 haplotypes  import       import-fastq map      markdup     metadata
 msa         nao-mgs      nvd         ops       orient      primers
-project     provenance   run-headless search   sequence    taxtriage
-translate   tree         universal-search      variants    workflow
+project     provenance   provision-tools       run-headless search   sequence
+taxtriage   translate    tree        universal-search      variants    workflow
 ```
 
 The `fastq` command group includes 40+ subcommands; common examples include `materialize`, `trim`, `adapter-trim`, `orient`, `qc-summary`, `scrub-human`, `deacon-ribo`, 12S workflows, genotype workflows, `search-motif`, `search-text`, and `sequence-filter`. Run `lungfish fastq --help` for the full list.
@@ -104,12 +104,15 @@ The `fastq` command group includes 40+ subcommands; common examples include `mat
 
 | Category    | Read                                | Write                |
 |-------------|-------------------------------------|----------------------|
-| Sequences   | FASTA, FASTQ, GenBank, 2bit         | FASTA, FASTQ         |
+| Sequences   | FASTA, FASTQ, GenBank               | FASTA, FASTQ         |
 | Alignments  | BAM, CRAM, SAM (via HTSlib)         | sorted/indexed BAM   |
 | Variants    | VCF, VCF.GZ + TBI                   | VCF                  |
 | Annotations | GFF3, GTF, BED                      | BED                  |
-| Coverage    | BigWig, bedGraph                    | BigWig               |
+| Coverage    | bedGraph                            | BigWig via bedGraph conversion |
 | Reports     | Kraken2 kreport, EsViritu, TaxTriage, NAO-MGS | JSON, TSV |
+
+BigWig detection only is available for existing bundle artifacts; the in-process
+BigWig reader/writer API is intentionally unavailable until parser support is complete.
 
 BigBed files are recognized as bundle artifacts, but the incomplete in-process
 BigBed reader API is intentionally unavailable until parser support is complete.
