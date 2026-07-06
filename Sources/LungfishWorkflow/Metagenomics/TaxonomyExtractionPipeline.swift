@@ -269,7 +269,8 @@ public actor TaxonomyExtractionPipeline {
                 includeChildren: target.includeChildren,
                 sourceFile: sourceFile,
                 outputFile: outputFile,
-                classificationOutput: classificationResult.outputURL
+                classificationOutput: classificationResult.outputURL,
+                taxonomyReport: target.includeChildren ? classificationResult.reportURL : nil
             )
 
             do {
@@ -504,11 +505,14 @@ public actor TaxonomyExtractionPipeline {
             )
         )
 
-        let inputs = config.sourceFiles.map { url in
+        var inputs = config.sourceFiles.map { url in
             ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
         } + [
             ProvenanceRecorder.fileRecord(url: config.classificationOutput, format: .text, role: .input),
         ]
+        if let taxonomyReport = config.taxonomyReport {
+            inputs.append(ProvenanceRecorder.fileRecord(url: taxonomyReport, format: .text, role: .input))
+        }
         let outputs = outputURLs.map { url in
             ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .output)
         }
@@ -537,7 +541,7 @@ public actor TaxonomyExtractionPipeline {
         outputURLs: [URL],
         extractedCount: Int
     ) -> [String: ParameterValue] {
-        [
+        var parameters: [String: ParameterValue] = [
             "taxIds": .array(config.taxIds.sorted().map { .integer($0) }),
             "resolvedTaxIds": .array(resolvedTaxIds.sorted().map { .integer($0) }),
             "includeChildren": .boolean(config.includeChildren),
@@ -549,13 +553,19 @@ public actor TaxonomyExtractionPipeline {
             "actualOutputFiles": .array(outputURLs.map { .string($0.path) }),
             "classificationOutput": .string(config.classificationOutput.path),
         ]
+        if let taxonomyReport = config.taxonomyReport {
+            parameters["taxonomyReport"] = .string(taxonomyReport.path)
+        }
+        return parameters
     }
 
     private func extractionReplayCommand(
         config: TaxonomyExtractionConfig,
         resolvedTaxIds: Set<Int>
     ) -> [String] {
-        let replayTaxIds = config.includeChildren ? resolvedTaxIds : config.taxIds
+        let replayTaxIds = config.includeChildren && config.taxonomyReport == nil
+            ? resolvedTaxIds
+            : config.taxIds
         var command = [
             "lungfish",
             "conda",
@@ -572,6 +582,12 @@ public actor TaxonomyExtractionPipeline {
         ])
         for outputFile in config.outputFiles {
             command.append(contentsOf: ["--output", outputFile.path])
+        }
+        if config.includeChildren {
+            command.append("--include-children")
+            if let taxonomyReport = config.taxonomyReport {
+                command.append(contentsOf: ["--kreport", taxonomyReport.path])
+            }
         }
         if !config.keepReadPairs {
             command.append("--no-read-pairs")

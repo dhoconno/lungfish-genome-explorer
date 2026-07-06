@@ -395,16 +395,27 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         let classOutput = try makeClassificationOutput(reads: [
             (readId: "read1", taxId: 562, classified: true),
             (readId: "read2", taxId: 1280, classified: true),
+            (readId: "read3", taxId: 561, classified: true),
         ])
-        let fastqURL = try makeFASTQ(reads: ["read1", "read2"])
+        let fastqURL = try makeFASTQ(reads: ["read1", "read2", "read3"])
+        let taxonomyReportURL = tempDir.appendingPathComponent("classification.kreport")
+        try """
+          100.00\t3\t0\tR\t1\troot
+          100.00\t3\t0\tD\t2\t  Bacteria
+           66.67\t2\t0\tP\t1224\t    Proteobacteria
+           66.67\t2\t0\tC\t1236\t      Gammaproteobacteria
+           66.67\t2\t1\tG\t561\t        Escherichia
+           33.33\t1\t1\tS\t562\t          Escherichia coli
+        """.write(to: taxonomyReportURL, atomically: true, encoding: .utf8)
         let requestedOutputURL = tempDir.appendingPathComponent("provenance-extracted.fastq")
 
         let config = TaxonomyExtractionConfig(
-            taxIds: [562],
-            includeChildren: false,
+            taxIds: [561],
+            includeChildren: true,
             sourceFile: fastqURL,
             outputFile: requestedOutputURL,
-            classificationOutput: classOutput
+            classificationOutput: classOutput,
+            taxonomyReport: taxonomyReportURL
         )
 
         let outputURLs = try await pipeline.extract(config: config, tree: tree)
@@ -424,8 +435,13 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
             $0.path == classOutput.path && $0.format == .text && $0.role == .input
                 && $0.sha256 != nil && $0.sizeBytes != nil
         })
-        XCTAssertEqual(run.parameters["includeChildren"]?.booleanValue, false)
+        XCTAssertTrue(step.inputs.contains {
+            $0.path == taxonomyReportURL.path && $0.format == .text && $0.role == .input
+                && $0.sha256 != nil && $0.sizeBytes != nil
+        })
+        XCTAssertEqual(run.parameters["includeChildren"]?.booleanValue, true)
         XCTAssertEqual(run.parameters["keepReadPairs"]?.booleanValue, true)
+        XCTAssertEqual(run.parameters["taxonomyReport"]?.stringValue, taxonomyReportURL.path)
         XCTAssertEqual(run.parameters["requestedOutputFiles"]?.arrayValue?.first?.stringValue, requestedOutputURL.path)
         XCTAssertEqual(run.parameters["actualOutputFiles"]?.arrayValue?.first?.stringValue, outputURLs.first?.path)
         XCTAssertTrue(step.command.contains("lungfish"))
@@ -433,6 +449,9 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         XCTAssertTrue(step.command.contains("extract"))
         XCTAssertTrue(step.command.contains("--kraken-output"))
         XCTAssertTrue(step.command.contains(classOutput.path))
+        XCTAssertTrue(step.command.contains("--include-children"))
+        XCTAssertTrue(step.command.contains("--kreport"))
+        XCTAssertTrue(step.command.contains(taxonomyReportURL.path))
         XCTAssertTrue(step.command.contains("--source"))
         XCTAssertTrue(step.command.contains(fastqURL.path))
         XCTAssertTrue(step.command.contains("--output"))

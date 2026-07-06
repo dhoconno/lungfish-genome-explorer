@@ -625,6 +625,7 @@ public actor ClassifierReadResolver {
                 sourceFiles: sourceFASTQs,
                 outputFiles: outputFiles,
                 classificationOutput: classResult.outputURL,
+                taxonomyReport: classResult.reportURL,
                 keepReadPairs: true
             )
 
