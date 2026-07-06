@@ -270,6 +270,25 @@ struct NvdDatabaseTests {
         return String(cString: value)
     }
 
+    private func database(at url: URL, hasColumn column: String, in table: String) throws -> Bool {
+        var db: OpaquePointer?
+        #expect(sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        let sql = "PRAGMA table_info(\(table))"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let name = sqlite3_column_text(stmt, 1) else { continue }
+            if String(cString: name) == column { return true }
+        }
+        return false
+    }
+
     // MARK: - Tests
 
     @Test
@@ -711,38 +730,40 @@ struct NvdDatabaseTests {
     }
 
     @Test
-    func opensLegacyDatabaseAndAddsPostReleaseColumns() throws {
+    func openingLegacyDatabaseWithoutReadinessMetadataFailsWithoutMutating() throws {
         let url = temporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: url) }
         try createLegacyDatabaseWithoutPostReleaseColumns(at: url)
 
-        let db = try NvdDatabase(at: url)
+        #expect(try buildStateValue(at: url) == nil)
+        #expect(try !database(at: url, hasColumn: "unique_reads", in: "blast_hits"))
+        #expect(try !database(at: url, hasColumn: "bam_index_path", in: "samples"))
 
-        let samples = try db.allSamples()
-        #expect(samples.count == 1)
-        #expect(samples.first?.sampleId == "sample_A")
-        #expect(samples.first?.bamIndexPath == nil)
-        #expect(try db.bamIndexPath(forSample: "sample_A") == nil)
-        #expect(try buildStateValue(at: url) == "complete")
+        do {
+            _ = try NvdDatabase(at: url)
+            Issue.record("Expected legacy NVD open to fail without mutating")
+        } catch NvdDatabaseError.openFailed(let message) {
+            #expect(message.contains("lungfish_database_state") || message.contains("build_state"))
+        } catch {
+            Issue.record("Expected NvdDatabaseError.openFailed, got \(error)")
+        }
 
-        let bestHits = try db.bestHits(forSamples: ["sample_A"])
-        #expect(bestHits.count == 1)
-        #expect(bestHits.first?.sampleId == "sample_A")
-        #expect(bestHits.first?.uniqueReads == nil)
+        #expect(try buildStateValue(at: url) == nil)
+        #expect(try !database(at: url, hasColumn: "unique_reads", in: "blast_hits"))
+        #expect(try !database(at: url, hasColumn: "bam_index_path", in: "samples"))
     }
 
     @Test
-    func openingMalformedLegacyDatabaseFailsWhenMigrationCannotAddColumn() throws {
+    func openingMalformedLegacyDatabaseFailsWithoutAttemptingMigration() throws {
         let url = temporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: url) }
         try createDatabaseMissingSamplesTable(at: url)
 
         do {
             _ = try NvdDatabase(at: url)
-            Issue.record("Expected missing samples-table migration to fail")
+            Issue.record("Expected malformed legacy NVD open to fail")
         } catch NvdDatabaseError.openFailed(let message) {
-            #expect(message.contains("samples.bam_index_path"))
-            #expect(message.contains("no such table: samples"))
+            #expect(message.contains("lungfish_database_state") || message.contains("build_state"))
         } catch {
             Issue.record("Expected NvdDatabaseError.openFailed, got \(error)")
         }

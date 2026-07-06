@@ -104,7 +104,6 @@ public final class NvdDatabase: @unchecked Sendable {
     private var db: OpaquePointer?
     private let url: URL
     private static let readOnlyFlags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
-    private static let readWriteFlags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
     private static let requiredTables = [
         "blast_hits",
         "samples",
@@ -120,9 +119,9 @@ public final class NvdDatabase: @unchecked Sendable {
         "idx_hits_stitle",
         "idx_hits_best",
     ]
-    private static let columnMigrations = [
-        ColumnMigration(table: "blast_hits", column: "unique_reads", definition: "INTEGER"),
-        ColumnMigration(table: "samples", column: "bam_index_path", definition: "TEXT"),
+    private static let requiredColumns: [(table: String, column: String)] = [
+        ("blast_hits", "unique_reads"),
+        ("samples", "bam_index_path"),
     ]
     private static let hitColumns = """
     experiment, blast_task, sample_id, qseqid, qlen,
@@ -146,20 +145,8 @@ public final class NvdDatabase: @unchecked Sendable {
         self.url = url
         db = try Self.openReadOnlyDatabase(at: url)
         do {
-            guard let initialDB = db else {
-                throw NvdDatabaseError.openFailed("SQLite handle was nil")
-            }
-            let buildState = try ClassifierSQLiteDatabaseSupport.buildState(db: initialDB)
-            if buildState != nil {
-                try validateReadyDatabase()
-            }
-            for migration in Self.columnMigrations {
-                try ensureColumn(migration)
-            }
-            if buildState == nil {
-                try ensureLegacyReadinessMetadataAndIndexes()
-            }
             try validateReadyDatabase()
+            try validateRequiredColumns()
         } catch {
             sqlite3_close(db)
             db = nil
@@ -182,18 +169,8 @@ public final class NvdDatabase: @unchecked Sendable {
         }
     }
 
-    private struct ColumnMigration {
-        let table: String
-        let column: String
-        let definition: String
-    }
-
     private static func openReadOnlyDatabase(at url: URL) throws -> OpaquePointer {
         try openDatabase(at: url, flags: readOnlyFlags, description: "read-only")
-    }
-
-    private static func openReadWriteDatabase(at url: URL) throws -> OpaquePointer {
-        try openDatabase(at: url, flags: readWriteFlags, description: "read-write")
     }
 
     private static func openDatabase(
@@ -209,39 +186,6 @@ public final class NvdDatabase: @unchecked Sendable {
             throw NvdDatabaseError.openFailed("Could not open \(description) handle: \(msg)")
         }
         return openedDB
-    }
-
-    private func ensureColumn(_ migration: ColumnMigration) throws {
-        guard let currentDB = db else {
-            throw NvdDatabaseError.openFailed("Database not open for schema migration")
-        }
-        guard try !Self.database(currentDB, hasColumn: migration.column, in: migration.table) else {
-            return
-        }
-
-        sqlite3_close(currentDB)
-        db = nil
-        var writeDB: OpaquePointer? = try Self.openReadWriteDatabase(at: url)
-        defer {
-            if let writeDB {
-                sqlite3_close(writeDB)
-            }
-        }
-        guard let migrationDB = writeDB else {
-            throw NvdDatabaseError.openFailed("Database not open for schema migration")
-        }
-
-        let sql = "ALTER TABLE \(migration.table) ADD COLUMN \(migration.column) \(migration.definition)"
-        guard sqlite3_exec(migrationDB, sql, nil, nil, nil) == SQLITE_OK else {
-            let msg = String(cString: sqlite3_errmsg(migrationDB))
-            throw NvdDatabaseError.openFailed(
-                "Could not add \(migration.table).\(migration.column): \(msg)"
-            )
-        }
-
-        sqlite3_close(migrationDB)
-        writeDB = nil
-        db = try Self.openReadOnlyDatabase(at: url)
     }
 
     private static func database(
@@ -282,47 +226,20 @@ public final class NvdDatabase: @unchecked Sendable {
         )
     }
 
-    private func ensureLegacyReadinessMetadataAndIndexes() throws {
-        guard let currentDB = db else {
-            throw NvdDatabaseError.openFailed("Database not open for legacy readiness migration")
+    private func validateRequiredColumns() throws {
+        guard let db else {
+            throw NvdDatabaseError.openFailed("Database not open")
         }
-
-        sqlite3_close(currentDB)
-        db = nil
-        var writeDB: OpaquePointer? = try Self.openReadWriteDatabase(at: url)
-        defer {
-            if let writeDB {
-                sqlite3_close(writeDB)
-            }
+        let missingColumns = try Self.requiredColumns.compactMap { requirement in
+            try Self.database(db, hasColumn: requirement.column, in: requirement.table)
+                ? nil
+                : "\(requirement.table).\(requirement.column)"
         }
-        guard let migrationDB = writeDB else {
-            throw NvdDatabaseError.openFailed("Database not open for legacy readiness migration")
-        }
-
-        let sql = """
-        CREATE INDEX IF NOT EXISTS idx_hits_sample ON blast_hits(sample_id);
-        CREATE INDEX IF NOT EXISTS idx_hits_contig ON blast_hits(sample_id, qseqid);
-        CREATE INDEX IF NOT EXISTS idx_hits_taxon ON blast_hits(adjusted_taxid_name);
-        CREATE INDEX IF NOT EXISTS idx_hits_experiment ON blast_hits(experiment);
-        CREATE INDEX IF NOT EXISTS idx_hits_rank ON blast_hits(adjusted_taxid_rank);
-        CREATE INDEX IF NOT EXISTS idx_hits_evalue ON blast_hits(sample_id, qseqid, evalue);
-        CREATE INDEX IF NOT EXISTS idx_hits_stitle ON blast_hits(stitle);
-        CREATE INDEX IF NOT EXISTS idx_hits_best ON blast_hits(hit_rank, sample_id);
-        """
-        guard sqlite3_exec(migrationDB, sql, nil, nil, nil) == SQLITE_OK else {
-            let msg = String(cString: sqlite3_errmsg(migrationDB))
+        guard missingColumns.isEmpty else {
             throw NvdDatabaseError.openFailed(
-                "Could not add legacy readiness metadata and indexes: \(msg)"
+                "Missing required columns: \(missingColumns.sorted().joined(separator: ", "))"
             )
         }
-        try ClassifierSQLiteDatabaseSupport.markBuildState(
-            ClassifierSQLiteDatabaseSupport.buildStateComplete,
-            db: migrationDB
-        )
-
-        sqlite3_close(migrationDB)
-        writeDB = nil
-        db = try Self.openReadOnlyDatabase(at: url)
     }
 
     // MARK: - Create New Database
