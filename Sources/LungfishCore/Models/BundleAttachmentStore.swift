@@ -56,11 +56,20 @@ public final class BundleAttachmentStore: @unchecked Sendable {
         let fm = FileManager.default
         try fm.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
         let dest = urlForAttachment(sourceURL.lastPathComponent)
-        if fm.fileExists(atPath: dest.path) {
-            try fm.removeItem(at: dest)
+        let staged = attachmentsDirectory
+            .appendingPathComponent(".\(dest.lastPathComponent).\(UUID().uuidString).tmp")
+        do {
+            try fm.copyItem(at: sourceURL, to: staged)
+            if fm.fileExists(atPath: dest.path) {
+                _ = try fm.replaceItemAt(dest, withItemAt: staged)
+            } else {
+                try fm.moveItem(at: staged, to: dest)
+            }
+            try? fm.removeItem(at: BundleAttachmentFilenamePolicy.provenanceSidecarURL(forAttachmentURL: dest))
+        } catch {
+            try? fm.removeItem(at: staged)
+            throw error
         }
-        try? fm.removeItem(at: BundleAttachmentFilenamePolicy.provenanceSidecarURL(forAttachmentURL: dest))
-        try fm.copyItem(at: sourceURL, to: dest)
         reload()
     }
 
