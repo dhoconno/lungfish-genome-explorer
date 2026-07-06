@@ -148,6 +148,20 @@ public struct ProvenanceWriter: Sendable {
         let rollupURL = provenanceDirectory.appendingPathComponent(Self.bundleRollupFilename)
         var writtenURLs = [try write(rollupEnvelope, toSidecar: rollupURL)]
 
+        let expectedFocusedSidecars: Set<URL> = outputEntries.count <= Self.maximumBundleOutputSidecars
+            ? Set(outputEntries.map { entry in
+                Self.bundleOutputSidecarURL(
+                    forRelativeOutputPath: entry.relativePath,
+                    inProvenanceDirectory: provenanceDirectory
+                ).standardizedFileURL
+            })
+            : []
+        try pruneStaleBundleOutputSidecars(
+            in: provenanceDirectory,
+            descriptorBundleRoot: descriptorBundleRoot,
+            keeping: expectedFocusedSidecars
+        )
+
         if outputEntries.count <= Self.maximumBundleOutputSidecars {
             for entry in outputEntries {
                 let sidecarURL = Self.bundleOutputSidecarURL(
@@ -162,6 +176,69 @@ public struct ProvenanceWriter: Sendable {
         }
 
         return writtenURLs
+    }
+
+    private func pruneStaleBundleOutputSidecars(
+        in provenanceDirectory: URL,
+        descriptorBundleRoot: URL,
+        keeping expectedSidecars: Set<URL>
+    ) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: provenanceDirectory.path) else { return }
+        guard let enumerator = fileManager.enumerator(
+            at: provenanceDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let expectedPaths = Set(expectedSidecars.map { $0.standardizedFileURL.path })
+        for case let candidateURL as URL in enumerator {
+            let standardizedCandidate = candidateURL.standardizedFileURL
+            guard !expectedPaths.contains(standardizedCandidate.path),
+                  isWriterManagedBundleOutputSidecar(
+                    standardizedCandidate,
+                    provenanceDirectory: provenanceDirectory,
+                    descriptorBundleRoot: descriptorBundleRoot
+                  ) else {
+                continue
+            }
+            try removeSigningArtifacts(for: standardizedCandidate)
+            try fileManager.removeItem(at: standardizedCandidate)
+        }
+    }
+
+    private func isWriterManagedBundleOutputSidecar(
+        _ sidecarURL: URL,
+        provenanceDirectory: URL,
+        descriptorBundleRoot: URL
+    ) -> Bool {
+        guard sidecarURL.lastPathComponent != Self.bundleRollupFilename,
+              sidecarURL.lastPathComponent.hasSuffix(".lungfish-provenance.json") else {
+            return false
+        }
+        guard let relativeSidecarPath = Self.bundleRelativePath(
+            for: sidecarURL.path,
+            relativeTo: provenanceDirectory
+        ) else {
+            return false
+        }
+        guard let expectedOutputRelativePath = outputRelativePath(forBundleOutputSidecarRelativePath: relativeSidecarPath) else {
+            return false
+        }
+        guard let envelope = try? ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL),
+              envelope.outputs.count == 1,
+              let output = envelope.outputs.first,
+              Self.bundleRelativePath(for: output.path, relativeTo: descriptorBundleRoot) == expectedOutputRelativePath else {
+            return false
+        }
+        return true
+    }
+
+    private func outputRelativePath(forBundleOutputSidecarRelativePath sidecarRelativePath: String) -> String? {
+        let suffix = ".lungfish-provenance.json"
+        guard sidecarRelativePath.hasSuffix(suffix) else { return nil }
+        let outputRelativePath = String(sidecarRelativePath.dropLast(suffix.count))
+        return outputRelativePath.isEmpty ? nil : outputRelativePath
     }
 
     public static func isBundleDirectory(_ url: URL) -> Bool {

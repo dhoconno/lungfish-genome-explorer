@@ -1043,6 +1043,69 @@ struct ProvenanceBuilderTests {
         #expect(run == nil)
     }
 
+    @Test("Bundle provenance writer prunes focused sidecars for dropped outputs")
+    func bundleProvenanceWriterPrunesFocusedSidecarsForDroppedOutputs() throws {
+        let workingDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: workingDirectory) }
+        let bundleURL = workingDirectory.appendingPathComponent("Shrinking.lungfishfastq", isDirectory: true)
+        let readsDir = bundleURL.appendingPathComponent("reads", isDirectory: true)
+        try FileManager.default.createDirectory(at: readsDir, withIntermediateDirectories: true)
+        let retainedURL = readsDir.appendingPathComponent("retained.fastq")
+        let droppedURL = readsDir.appendingPathComponent("dropped.fastq")
+        try Data("@retained\nACGT\n+\n!!!!\n".utf8).write(to: retainedURL, options: .atomic)
+        try Data("@dropped\nTGCA\n+\n!!!!\n".utf8).write(to: droppedURL, options: .atomic)
+
+        let writer = ProvenanceWriter(signingProvider: nil)
+        try writer.write(bundleEnvelope(outputs: [retainedURL, droppedURL], commandSuffix: "initial"), to: bundleURL)
+        let droppedSidecarURL = try #require(ProvenanceWriter.bundleOutputSidecarURL(for: droppedURL, inBundle: bundleURL))
+        #expect(FileManager.default.fileExists(atPath: droppedSidecarURL.path))
+        #expect(ProvenanceRecorder.findProvenanceEnvelope(for: droppedURL)?.sidecarURL == droppedSidecarURL)
+
+        try writer.write(bundleEnvelope(outputs: [retainedURL], commandSuffix: "shrunk"), to: bundleURL)
+
+        #expect(!FileManager.default.fileExists(atPath: droppedSidecarURL.path))
+        #expect(ProvenanceRecorder.findProvenanceEnvelope(for: droppedURL)?.sidecarURL == nil)
+        let retainedSidecarURL = try #require(ProvenanceWriter.bundleOutputSidecarURL(for: retainedURL, inBundle: bundleURL))
+        #expect(ProvenanceRecorder.findProvenanceEnvelope(for: retainedURL)?.sidecarURL == retainedSidecarURL)
+    }
+
+    @Test("Bundle provenance writer prunes focused sidecars when output count exceeds focused sidecar cap")
+    func bundleProvenanceWriterPrunesFocusedSidecarsWhenOutputCountExceedsCap() throws {
+        let workingDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: workingDirectory) }
+        let bundleURL = workingDirectory.appendingPathComponent("Capped.lungfishfastq", isDirectory: true)
+        let readsDir = bundleURL.appendingPathComponent("reads", isDirectory: true)
+        try FileManager.default.createDirectory(at: readsDir, withIntermediateDirectories: true)
+        let firstURL = readsDir.appendingPathComponent("read-000.fastq")
+        let secondURL = readsDir.appendingPathComponent("read-001.fastq")
+        try Data("@r0\nACGT\n+\n!!!!\n".utf8).write(to: firstURL, options: .atomic)
+        try Data("@r1\nTGCA\n+\n!!!!\n".utf8).write(to: secondURL, options: .atomic)
+
+        let writer = ProvenanceWriter(signingProvider: nil)
+        try writer.write(bundleEnvelope(outputs: [firstURL, secondURL], commandSuffix: "small"), to: bundleURL)
+        let firstSidecarURL = try #require(ProvenanceWriter.bundleOutputSidecarURL(for: firstURL, inBundle: bundleURL))
+        let secondSidecarURL = try #require(ProvenanceWriter.bundleOutputSidecarURL(for: secondURL, inBundle: bundleURL))
+        #expect(FileManager.default.fileExists(atPath: firstSidecarURL.path))
+        #expect(FileManager.default.fileExists(atPath: secondSidecarURL.path))
+
+        var cappedOutputs: [URL] = []
+        for index in 0...ProvenanceWriter.maximumBundleOutputSidecars {
+            let outputURL = readsDir.appendingPathComponent(String(format: "cap-%03d.fastq", index))
+            try Data("@cap\(index)\nACGT\n+\n!!!!\n".utf8).write(to: outputURL, options: .atomic)
+            cappedOutputs.append(outputURL)
+        }
+        try writer.write(bundleEnvelope(outputs: cappedOutputs, commandSuffix: "large"), to: bundleURL)
+
+        #expect(!FileManager.default.fileExists(atPath: firstSidecarURL.path))
+        #expect(!FileManager.default.fileExists(atPath: secondSidecarURL.path))
+        #expect(ProvenanceRecorder.findProvenanceEnvelope(for: firstURL)?.sidecarURL == nil)
+        let rollupURL = bundleURL
+            .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+        #expect(FileManager.default.fileExists(atPath: rollupURL.path))
+        #expect(ProvenanceRecorder.findProvenanceEnvelope(for: cappedOutputs[0])?.sidecarURL != firstSidecarURL)
+    }
+
     @Test("Publication rollback helper preserves original failure when restore succeeds")
     func publicationRollbackHelperPreservesOriginalFailureWhenRestoreSucceeds() throws {
         #expect(throws: PublicationOriginalFailure.failed) {
@@ -1097,6 +1160,26 @@ struct ProvenanceBuilderTests {
             stderr: stderr,
             startedAt: Date(timeIntervalSince1970: 100),
             endedAt: Date(timeIntervalSince1970: 101)
+        )
+    }
+
+    private func bundleEnvelope(outputs: [URL], commandSuffix: String) throws -> ProvenanceEnvelope {
+        var builder = ProvenanceRunBuilder(
+            workflowName: "test.bundle.provenance",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "test", commandSuffix])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+
+        for output in outputs {
+            builder = try builder.output(output, format: .fastq, role: .output)
+        }
+        return try builder.complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 200),
+            endedAt: Date(timeIntervalSince1970: 201)
         )
     }
 
