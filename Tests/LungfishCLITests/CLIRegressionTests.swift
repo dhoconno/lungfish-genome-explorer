@@ -1161,20 +1161,17 @@ final class WorkflowCommandRegressionTests: XCTestCase {
 
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
-        XCTAssertEqual(provenance.status, .completed)
-        XCTAssertEqual(provenance.steps.first?.toolName, "lungfish-cli workflow run")
-        XCTAssertEqual(provenance.steps.first?.githubReleaseVersion, "3.0.0")
-        XCTAssertEqual(provenance.parameters["github_release_version"], .string("3.0.0"))
-        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
-        XCTAssertTrue(provenance.steps.first?.command.contains("--prepare-only") == true)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.toolName, "lungfish-cli workflow run")
+        XCTAssertEqual(provenance.githubReleaseVersion, "3.0.0")
+        XCTAssertEqual(provenance.options.explicit["github_release_version"], .string("3.0.0"))
+        XCTAssertTrue(provenance.argv.contains("--prepare-only"))
         XCTAssertTrue(provenance.steps.first?.inputs.contains { input in
-            input.path == samplesheet.path && input.sha256 != nil && input.sizeBytes != nil
+            input.path == samplesheet.path && input.checksumSHA256 != nil && input.fileSize != nil
         } == true)
-        XCTAssertTrue(provenance.steps.first?.outputs.contains { output in
-            output.path == bundleURL.path
+        XCTAssertTrue(provenance.outputs.contains { output in
+            output.path == bundleURL.standardizedFileURL.path && output.checksumSHA256 != nil && output.fileSize != nil
         } == true)
     }
 
@@ -1329,22 +1326,19 @@ final class WorkflowCommandRegressionTests: XCTestCase {
 
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
-        XCTAssertEqual(provenance.status, .completed)
-        XCTAssertEqual(provenance.steps.first?.toolName, "lungfish-cli workflow run")
-        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
-        XCTAssertTrue(provenance.steps.first?.command.contains(workflowURL.path) == true)
-        XCTAssertTrue(provenance.steps.first?.command.contains("--prepare-only") == true)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.toolName, "lungfish-cli workflow run")
+        XCTAssertTrue(provenance.argv.contains(workflowURL.path))
+        XCTAssertTrue(provenance.argv.contains("--prepare-only"))
         XCTAssertTrue(provenance.steps.first?.inputs.contains { input in
-            input.path == workflowURL.standardizedFileURL.path && input.sha256 != nil && input.sizeBytes != nil
+            input.path == workflowURL.standardizedFileURL.path && input.checksumSHA256 != nil && input.fileSize != nil
         } == true)
         XCTAssertTrue(provenance.steps.first?.inputs.contains { input in
-            input.path == readsURL.standardizedFileURL.path && input.sha256 != nil && input.sizeBytes != nil
+            input.path == readsURL.standardizedFileURL.path && input.checksumSHA256 != nil && input.fileSize != nil
         } == true)
-        XCTAssertTrue(provenance.steps.first?.outputs.contains { output in
-            output.path == bundleURL.standardizedFileURL.path
+        XCTAssertTrue(provenance.outputs.contains { output in
+            output.path == bundleURL.standardizedFileURL.path && output.checksumSHA256 != nil && output.fileSize != nil
         } == true)
     }
 
@@ -1459,18 +1453,14 @@ final class WorkflowCommandRegressionTests: XCTestCase {
             "snakemake warning\n"
         )
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(
-            WorkflowRun.self,
-            from: Data(contentsOf: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-        )
-        XCTAssertEqual(provenance.status, .completed)
-        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.steps.first?.exitStatus, 0)
         XCTAssertEqual(provenance.steps.first?.stderr, "snakemake warning\n")
-        XCTAssertEqual(provenance.parameters["cores"], .string("all"))
-        XCTAssertTrue(provenance.steps.first?.command.contains("--expected-output") == true)
-        XCTAssertTrue(provenance.steps.first?.outputs.contains { $0.path == expectedOutputURL.standardizedFileURL.path } == true)
+        XCTAssertEqual(provenance.options.explicit["cores"], .string("all"))
+        XCTAssertTrue(provenance.argv.contains("--expected-output"))
+        XCTAssertTrue(provenance.outputs.contains { $0.path == bundleURL.standardizedFileURL.path && $0.checksumSHA256 != nil })
+        XCTAssertTrue(provenance.outputs.contains { $0.path == expectedOutputURL.standardizedFileURL.path && $0.checksumSHA256 != nil })
 
         let outputEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: expectedOutputURL))
         XCTAssertEqual(outputEnvelope.workflowName, "Run Local Snakemake workflow")
@@ -1580,27 +1570,25 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertEqual(manifest.stdoutLogPath, "logs/stdout.log")
         XCTAssertEqual(manifest.stderrLogPath, "logs/stderr.log")
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(
-            WorkflowRun.self,
-            from: Data(contentsOf: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-        )
-        XCTAssertEqual(provenance.status, .completed)
-        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.steps.first?.exitStatus, 0)
         XCTAssertEqual(provenance.steps.first?.stderr, "nextflow warning\n")
-        XCTAssertEqual(provenance.parameters["executor"], .string("local"))
-        XCTAssertEqual(provenance.parameters["expectedOutputs"], .array([
+        XCTAssertEqual(provenance.options.explicit["executor"], .string("local"))
+        XCTAssertEqual(provenance.options.explicit["expectedOutputs"], .array([
             .file(expectedOutputURL.standardizedFileURL),
             .file(expectedReportURL.standardizedFileURL)
         ]))
-        XCTAssertTrue(provenance.steps.first?.command.contains("--expected-output") == true)
-        XCTAssertTrue(provenance.steps.first?.outputs.contains {
-            $0.path == expectedOutputURL.standardizedFileURL.path && $0.sha256 != nil && $0.sizeBytes != nil
-        } == true)
-        XCTAssertTrue(provenance.steps.first?.outputs.contains {
-            $0.path == expectedReportURL.standardizedFileURL.path && $0.sha256 != nil && $0.sizeBytes != nil
-        } == true)
+        XCTAssertTrue(provenance.argv.contains("--expected-output"))
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == expectedOutputURL.standardizedFileURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == expectedReportURL.standardizedFileURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == bundleURL.standardizedFileURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
 
         let outputEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: expectedOutputURL))
         XCTAssertEqual(outputEnvelope.workflowName, "Run nf-core/viralrecon")

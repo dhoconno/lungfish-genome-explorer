@@ -183,6 +183,62 @@ struct ProvenanceEnvelopeTests {
         #expect(decoded.outputs.first?.checksumSHA256 == String(repeating: "b", count: 64))
     }
 
+    @Test("strict canonical reader rejects legacy WorkflowRun sidecars")
+    func strictCanonicalReaderRejectsLegacyWorkflowRunSidecar() throws {
+        let legacy = WorkflowRun(
+            name: "legacy fastq trim",
+            startTime: Date(timeIntervalSince1970: 100),
+            endTime: Date(timeIntervalSince1970: 103),
+            status: .completed,
+            steps: [
+                StepExecution(
+                    toolName: "fastp",
+                    toolVersion: "0.23.4",
+                    command: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"],
+                    inputs: [FileRecord(path: "reads.fastq", format: .fastq)],
+                    outputs: [FileRecord(path: "trimmed.fastq", format: .fastq, role: .output)],
+                    exitCode: 0
+                )
+            ]
+        )
+
+        let data = try ProvenanceJSON.encoder.encode(legacy)
+
+        #expect(throws: Error.self) {
+            _ = try ProvenanceEnvelopeReader.decodeCanonical(data)
+        }
+    }
+
+    @Test("strict canonical reader accepts canonical envelope without embedded legacy run")
+    func strictCanonicalReaderAcceptsCanonicalEnvelopeWithoutEmbeddedLegacyRun() throws {
+        let envelope = ProvenanceEnvelope(
+            createdAt: Date(timeIntervalSince1970: 100),
+            workflowName: "fastq.trim.fastp",
+            workflowVersion: "fixture-workflow-version",
+            toolName: "fastp",
+            toolVersion: "0.24.1",
+            argv: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"],
+            runtimeIdentity: .fixture(),
+            files: [
+                ProvenanceFileDescriptor(path: "reads.fastq", role: .input),
+                ProvenanceFileDescriptor(path: "trimmed.fastq", role: .output),
+            ],
+            outputs: [
+                ProvenanceFileDescriptor(path: "trimmed.fastq", role: .output),
+            ],
+            exitStatus: 0
+        )
+        let data = try ProvenanceJSON.encoder.encode(envelope)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["legacyWorkflowRun"] == nil)
+
+        let decoded = try ProvenanceEnvelopeReader.decodeCanonical(data)
+
+        #expect(decoded.workflowName == "fastq.trim.fastp")
+        #expect(decoded.toolName == "fastp")
+        #expect(decoded.outputs.map(\.path) == ["trimmed.fastq"])
+    }
+
     @Test("primitive canonical sidecar decodes through compatibility reader")
     func primitiveCanonicalSidecarDecodesThroughEnvelopeReader() throws {
         let data = Data("""

@@ -188,14 +188,26 @@ final class LocalWorkflowExecutionService {
             throw LocalWorkflowExecutionError.missingProvenance(provenanceURL.path)
         }
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
-        guard provenance.status == .completed,
-              let step = provenance.steps.first,
-              step.exitCode == 0,
-              !step.command.isEmpty,
-              step.outputs.contains(where: { $0.path == bundleURL.standardizedFileURL.path || $0.path == bundleURL.path }) else {
+        let provenance: ProvenanceEnvelope
+        do {
+            guard let loadedProvenance = try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: provenanceURL) else {
+                throw LocalWorkflowExecutionError.missingProvenance(provenanceURL.path)
+            }
+            provenance = loadedProvenance
+        } catch LocalWorkflowExecutionError.missingProvenance {
+            throw LocalWorkflowExecutionError.missingProvenance(provenanceURL.path)
+        } catch {
+            throw LocalWorkflowExecutionError.invalidProvenance(provenanceURL.path)
+        }
+
+        let bundlePath = bundleURL.standardizedFileURL.path
+        let recordedOutputs = provenance.outputs + provenance.steps.flatMap(\.outputs)
+        let hasWorkflowRunStep = provenance.toolName == "lungfish-cli workflow run"
+            || provenance.steps.contains { $0.toolName == "lungfish-cli workflow run" }
+        guard provenance.exitStatus == 0,
+              hasWorkflowRunStep,
+              (!provenance.argv.isEmpty || !provenance.reproducibleCommand.isEmpty),
+              recordedOutputs.contains(where: { URL(fileURLWithPath: $0.path).standardizedFileURL.path == bundlePath }) else {
             throw LocalWorkflowExecutionError.invalidProvenance(provenanceURL.path)
         }
     }
@@ -209,8 +221,8 @@ final class LocalWorkflowExecutionService {
         let inputs = [ProvenanceRecorder.fileRecord(url: request.workflowURL, format: .text, role: .input)]
             + request.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) }
         let outputs = [
-            FileRecord(path: bundleURL.path, format: .unknown, role: .output),
-            FileRecord(path: request.outputDirectory.path, format: .unknown, role: .output),
+            ProvenanceRecorder.fileOrDirectoryRecord(url: bundleURL, role: .output),
+            ProvenanceRecorder.fileOrDirectoryRecord(url: request.outputDirectory, role: .output),
             ProvenanceRecorder.fileRecord(
                 url: bundleURL.appendingPathComponent("manifest.json"),
                 format: .json,
@@ -249,13 +261,7 @@ final class LocalWorkflowExecutionService {
             steps: [step],
             parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run).write(
-            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            options: .atomic
-        )
+        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), to: bundleURL)
     }
 }
 

@@ -721,8 +721,8 @@ struct RunSubcommand: AsyncParsableCommand {
             ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .input)
         }
         let outputs = [
-            FileRecord(path: bundleURL.path, format: .unknown, role: .output),
-            FileRecord(path: request.outputDirectory.path, format: .unknown, role: .output),
+            ProvenanceRecorder.fileOrDirectoryRecord(url: bundleURL, role: .output),
+            ProvenanceRecorder.fileOrDirectoryRecord(url: request.outputDirectory, role: .output),
             ProvenanceRecorder.fileRecord(
                 url: bundleURL.appendingPathComponent("manifest.json"),
                 format: .json,
@@ -760,13 +760,7 @@ struct RunSubcommand: AsyncParsableCommand {
             steps: [step],
             parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(run)
-        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        try data.write(to: provenanceURL, options: .atomic)
-        try signProvenanceIfConfigured(at: provenanceURL)
+        try ProvenanceWriter().write(run.canonicalEnvelope(), to: bundleURL)
         if !prepareOnly, status == .completed {
             try writeExpectedOutputProvenance(run, to: request.expectedOutputURLs)
         }
@@ -788,8 +782,8 @@ struct RunSubcommand: AsyncParsableCommand {
         let inputs = [ProvenanceRecorder.fileRecord(url: request.workflowURL, format: .text, role: .input)]
             + request.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) }
         let outputs = [
-            FileRecord(path: bundleURL.path, format: .unknown, role: .output),
-            FileRecord(path: request.outputDirectory.path, format: .unknown, role: .output),
+            ProvenanceRecorder.fileOrDirectoryRecord(url: bundleURL, role: .output),
+            ProvenanceRecorder.fileOrDirectoryRecord(url: request.outputDirectory, role: .output),
             ProvenanceRecorder.fileRecord(
                 url: bundleURL.appendingPathComponent("manifest.json"),
                 format: .json,
@@ -829,13 +823,7 @@ struct RunSubcommand: AsyncParsableCommand {
             steps: [step],
             parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(run)
-        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        try data.write(to: provenanceURL, options: .atomic)
-        try signProvenanceIfConfigured(at: provenanceURL)
+        try ProvenanceWriter().write(run.canonicalEnvelope(), to: bundleURL)
         if !prepareOnly, status == .completed {
             try writeExpectedOutputProvenance(run, to: request.expectedOutputURLs)
         }
@@ -883,10 +871,6 @@ struct RunSubcommand: AsyncParsableCommand {
         }
     }
 
-    private func signProvenanceIfConfigured(at provenanceURL: URL) throws {
-        guard let provider = ProvenanceSigningConfiguration.defaultProvider() else { return }
-        _ = try provider.sign(provenanceURL: provenanceURL)
-    }
 }
 
 struct NFCoreWorkflowProcessResult: Sendable, Equatable {
