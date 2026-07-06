@@ -165,6 +165,67 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
             ["stash@{0}", "stash@{2}", "stash@{3}"],
         )
 
+    def test_main_builds_and_verifies_before_pushing_release_refs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            rescue_root = root / ".build" / "rescue"
+            lock_path = root / ".build" / "nightly-alpha-release.lock"
+            calls = []
+
+            def record(name):
+                def inner(*_args, **_kwargs):
+                    calls.append(name)
+                return inner
+
+            def fake_git(_root, *args):
+                calls.append(("git", args))
+
+            def fake_git_output(_root, *args):
+                if args == ("tag", "--list"):
+                    return "v0.5.0-alpha34\n"
+                return ""
+
+            def fake_create_lock(_root):
+                lock_path.mkdir(parents=True)
+                return lock_path
+
+            with mock.patch.object(self.release, "create_lock", fake_create_lock), \
+                mock.patch.object(self.release, "ensure_rescue_root_is_ignored", record("ensure_rescue_root_is_ignored")), \
+                mock.patch.object(self.release, "prune_rescue_archives", record("prune_rescue_archives")), \
+                mock.patch.object(self.release, "ensure_clean_main", record("ensure_clean_main")), \
+                mock.patch.object(self.release, "git", fake_git), \
+                mock.patch.object(self.release, "git_output", fake_git_output), \
+                mock.patch.object(self.release, "current_version", return_value="0.5.0-alpha34"), \
+                mock.patch.object(self.release, "discover_agent_branches", return_value=[]), \
+                mock.patch.object(self.release, "create_rescue_dir", return_value=rescue_root), \
+                mock.patch.object(self.release, "write_rescue_archive", record("write_rescue_archive")), \
+                mock.patch.object(self.release, "commit_dirty_worktrees", record("commit_dirty_worktrees")), \
+                mock.patch.object(self.release, "merge_agent_branches", record("merge_agent_branches")), \
+                mock.patch.object(self.release, "prepare_release_commit", record("prepare_release_commit")), \
+                mock.patch.object(self.release, "run_tests", record("run_tests")), \
+                mock.patch.object(self.release, "build_release", record("build_release")), \
+                mock.patch.object(self.release, "verify_release", side_effect=lambda *_args: calls.append("verify_release") or {}), \
+                mock.patch.object(self.release, "cleanup_agent_refs", record("cleanup_agent_refs")), \
+                mock.patch.object(self.release, "print_summary", record("print_summary")):
+                status = self.release.main([
+                    "--repo", str(root),
+                    "--rescue-root", str(rescue_root),
+                    "--signing-identity", "Developer ID Application: Example",
+                    "--team-id", "TEAMID",
+                    "--notary-profile", "notary",
+                    "--sparkle-generate-appcast", str(root / "appcast.xml"),
+                ])
+
+            self.assertEqual(status, 0)
+            self.assertLess(calls.index("run_tests"), calls.index("build_release"))
+            self.assertLess(calls.index("build_release"), calls.index("verify_release"))
+            first_push_index = min(
+                index
+                for index, call in enumerate(calls)
+                if isinstance(call, tuple) and call[0] == "git" and call[1][0] == "push"
+            )
+            self.assertLess(calls.index("verify_release"), first_push_index)
+
 
 if __name__ == "__main__":
     unittest.main()
