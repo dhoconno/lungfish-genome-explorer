@@ -98,7 +98,7 @@ project     provenance   provision-tools       run-headless search   sequence
 taxtriage   translate    tree        universal-search      variants    workflow
 ```
 
-The `fastq` command group includes 40+ subcommands; common examples include `materialize`, `trim`, `adapter-trim`, `orient`, `qc-summary`, `scrub-human`, `deacon-ribo`, 12S workflows, genotype workflows, `search-motif`, `search-text`, and `sequence-filter`. Run `lungfish fastq --help` for the full list.
+The `fastq` command group includes 40+ subcommands; common examples include `materialize`, `trim`, `adapter-trim`, `orient`, `qc-summary`, `scrub-human`, `deacon-ribo`, 12S workflows, genotype workflows, `search-motif`, `search-text`, and `sequence-filter`. Run `lungfish-cli fastq --help` for the full list.
 
 ## File Format Support
 
@@ -165,7 +165,7 @@ A handful of integration tests are gated by environment variables so they do not
 | Env var                       | Gates                                                                                              | How to run locally                                                                                                                                                                                                                                                  |
 |-------------------------------|----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `LUNGFISH_VIRALRECON_PARITY`  | `IVarConverterViralReconParityTests` — asserts the Swift iVar TSV-to-VCF converter byte-matches the upstream `nf-core/viralrecon` Python script on a real SARS-CoV-2 fixture. | Install the upstream script and its Python deps, then run with the env vars set. The path of the Python script is supplied via `LUNGFISH_IVAR_TO_VCF_PY`: `pip install pandas scipy && curl -fsSL https://raw.githubusercontent.com/nf-core/viralrecon/master/bin/ivar_variants_to_vcf.py -o /tmp/ivar_variants_to_vcf.py && chmod +x /tmp/ivar_variants_to_vcf.py && LUNGFISH_VIRALRECON_PARITY=1 LUNGFISH_IVAR_TO_VCF_PY=/tmp/ivar_variants_to_vcf.py swift test --filter IVarConverterViralReconParity` |
-| `LUNGFISH_LIVE_PIPELINE_TESTS` | `ReadsToVariantsEndToEndTests` — runs the full minimap2 plus iVar pipeline against a small SARS-CoV-2 amplicon fixture and asserts the produced VCF matches the committed reference VCF. Requires the managed conda envs (`samtools`, `minimap2`, `ivar`, `bcftools`, `bgzip`, `tabix`) to be provisioned. | Provision the conda envs (run the app once and accept the on-demand install, or run `lungfish conda install`), then `LUNGFISH_LIVE_PIPELINE_TESTS=1 swift test --filter ReadsToVariantsEndToEndTests`. Expect 30 seconds to 2 minutes depending on hardware.       |
+| `LUNGFISH_LIVE_PIPELINE_TESTS` | `ReadsToVariantsEndToEndTests` — runs the full minimap2 plus iVar pipeline against a small SARS-CoV-2 amplicon fixture and asserts the produced VCF matches the committed reference VCF. Requires the managed conda envs (`samtools`, `minimap2`, `ivar`, `bcftools`, `bgzip`, `tabix`) to be provisioned. | Provision the conda envs (run the app once and accept the on-demand install, or run `lungfish-cli conda install`), then `LUNGFISH_LIVE_PIPELINE_TESTS=1 swift test --filter ReadsToVariantsEndToEndTests`. Expect 30 seconds to 2 minutes depending on hardware.       |
 
 These tests are not run in CI today. If a change touches a gated code path, please run the gate locally and paste the result into the PR description. CI catches the unit-test side automatically.
 
@@ -194,7 +194,7 @@ The app bundle carries micromamba plus Lungfish resources needed to provision to
 
 ### Installed on demand into `~/.lungfish`
 
-Managed tools are installed from [`Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`](Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json). The user-manual [Tool Versions appendix](docs/user-manual/chapters/appendices/tool-versions.md) is the release-level readable table, and `lungfish version --tools` prints the table for the running binary.
+Managed tools are installed from [`Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`](Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json). The user-manual [Tool Versions appendix](docs/user-manual/chapters/appendices/tool-versions.md) is the release-level readable table, and `lungfish-cli version --tools` prints the table for the running binary.
 
 The full canonical list of third-party notices and license text is in [`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES). For a specific analysis, the provenance sidecar remains the authority for the executable, version, command line, inputs, outputs, and runtime that actually produced the data.
 
