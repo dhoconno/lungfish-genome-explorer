@@ -6,6 +6,13 @@ import Foundation
 import LungfishCore
 
 enum MappedReadsAnnotationProvenanceWriter {
+    struct SamtoolsExecution: Sendable {
+        let version: String
+        let result: NativeToolResult
+        let startedAt: Date
+        let completedAt: Date
+    }
+
     private struct DescriptorSource {
         let url: URL
         let format: FileFormat?
@@ -23,6 +30,7 @@ enum MappedReadsAnnotationProvenanceWriter {
         relativeDatabasePath: String,
         databaseURL: URL,
         viewArguments: [String],
+        samtoolsExecution: SamtoolsExecution,
         startedAt: Date,
         completedAt: Date
     ) throws {
@@ -35,13 +43,22 @@ enum MappedReadsAnnotationProvenanceWriter {
             bundleURL: bundleURL,
             outputTrackName: outputTrackName
         )
+        let durableReplayArgv = mappedReadsArgv(
+            request: request,
+            bundleURL: bundleURL,
+            outputTrackName: outputTrackName,
+            outputTrackID: outputTrackID
+        )
         try write(
             workflowName: "lungfish bam annotate",
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             outputBundleURL: bundleURL,
             databaseURL: databaseURL,
             inputSources: inputSources,
             viewArguments: viewArguments,
+            samtoolsExecution: samtoolsExecution,
+            resetExistingBundleProvenance: false,
             options: ProvenanceOptions(
                 explicit: mappedReadsExplicitOptions(
                     request: request,
@@ -79,6 +96,7 @@ enum MappedReadsAnnotationProvenanceWriter {
         relativeDatabasePath: String,
         databaseURL: URL,
         viewArguments: [String],
+        samtoolsExecution: SamtoolsExecution,
         startedAt: Date,
         completedAt: Date
     ) throws {
@@ -93,13 +111,23 @@ enum MappedReadsAnnotationProvenanceWriter {
             outputBundleURL: outputBundleURL,
             outputTrackName: outputTrackName
         )
+        let durableReplayArgv = bestMappedReadsArgv(
+            request: request,
+            sourceBundleURL: sourceBundleURL,
+            outputBundleURL: outputBundleURL,
+            outputTrackName: outputTrackName,
+            outputTrackID: outputTrackID
+        )
         try write(
             workflowName: "lungfish bam annotate-best",
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             outputBundleURL: outputBundleURL,
             databaseURL: databaseURL,
             inputSources: inputSources,
             viewArguments: viewArguments,
+            samtoolsExecution: samtoolsExecution,
+            resetExistingBundleProvenance: true,
             options: ProvenanceOptions(
                 explicit: copiedBundleExplicitOptions(
                     sourceBundleURL: sourceBundleURL,
@@ -137,6 +165,7 @@ enum MappedReadsAnnotationProvenanceWriter {
         relativeDatabasePath: String,
         databaseURL: URL,
         viewArguments: [String],
+        samtoolsExecution: SamtoolsExecution,
         startedAt: Date,
         completedAt: Date
     ) throws {
@@ -151,13 +180,23 @@ enum MappedReadsAnnotationProvenanceWriter {
             outputBundleURL: outputBundleURL,
             outputTrackName: outputTrackName
         )
+        let durableReplayArgv = cdsBestArgv(
+            request: request,
+            sourceBundleURL: sourceBundleURL,
+            outputBundleURL: outputBundleURL,
+            outputTrackName: outputTrackName,
+            outputTrackID: outputTrackID
+        )
         try write(
             workflowName: "lungfish bam annotate-cds-best",
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             outputBundleURL: outputBundleURL,
             databaseURL: databaseURL,
             inputSources: inputSources,
             viewArguments: viewArguments,
+            samtoolsExecution: samtoolsExecution,
+            resetExistingBundleProvenance: true,
             options: ProvenanceOptions(
                 explicit: copiedBundleExplicitOptions(
                     sourceBundleURL: sourceBundleURL,
@@ -190,10 +229,13 @@ enum MappedReadsAnnotationProvenanceWriter {
     private static func write(
         workflowName: String,
         argv: [String],
+        durableReplayArgv: [String],
         outputBundleURL: URL,
         databaseURL: URL,
         inputSources: [DescriptorSource],
         viewArguments: [String],
+        samtoolsExecution: SamtoolsExecution,
+        resetExistingBundleProvenance: Bool,
         options: ProvenanceOptions,
         startedAt: Date,
         completedAt: Date
@@ -210,15 +252,15 @@ enum MappedReadsAnnotationProvenanceWriter {
         let samtoolsStep = ProvenanceStep(
             id: samtoolsStepID,
             toolName: "samtools",
-            toolVersion: "unknown",
+            toolVersion: samtoolsExecution.version,
             argv: ["samtools"] + viewArguments,
             inputs: inputDescriptors,
             outputs: [],
-            exitStatus: 0,
-            wallTimeSeconds: wallTimeSeconds,
-            stderr: nil,
-            startedAt: startedAt,
-            completedAt: completedAt
+            exitStatus: Int(samtoolsExecution.result.exitCode),
+            wallTimeSeconds: samtoolsExecution.completedAt.timeIntervalSince(samtoolsExecution.startedAt),
+            stderr: samtoolsExecution.result.stderr.isEmpty ? nil : samtoolsExecution.result.stderr,
+            startedAt: samtoolsExecution.startedAt,
+            completedAt: samtoolsExecution.completedAt
         )
         let annotationStep = ProvenanceStep(
             toolName: workflowName,
@@ -241,6 +283,7 @@ enum MappedReadsAnnotationProvenanceWriter {
             toolVersion: WorkflowRun.currentAppVersion
         )
         .argv(argv)
+        .durableReplayArgv(durableReplayArgv)
         .options(
             explicit: options.explicit,
             defaults: options.defaults,
@@ -260,6 +303,9 @@ enum MappedReadsAnnotationProvenanceWriter {
             .step(annotationStep)
             .complete(exitStatus: 0, stderr: nil, startedAt: startedAt, endedAt: completedAt)
 
+        if resetExistingBundleProvenance {
+            try removeExistingBundleProvenance(at: outputBundleURL)
+        }
         try ProvenanceWriter(signingProvider: nil).write(envelope, to: outputBundleURL)
     }
 
@@ -293,6 +339,16 @@ enum MappedReadsAnnotationProvenanceWriter {
             ),
             DescriptorSource(url: mappingResult.bamURL, format: .bam, role: .input),
         ]
+        let sourceRootProvenanceURL = sourceBundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        if FileManager.default.fileExists(atPath: sourceRootProvenanceURL.path) {
+            inputs.append(DescriptorSource(url: sourceRootProvenanceURL, format: .json, role: .input))
+        }
+        let sourceBundleProvenanceURL = sourceBundleURL
+            .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        if FileManager.default.fileExists(atPath: sourceBundleProvenanceURL.path) {
+            inputs.append(DescriptorSource(url: sourceBundleProvenanceURL, format: .json, role: .input))
+        }
         if FileManager.default.fileExists(atPath: mappingResult.baiURL.path) {
             inputs.append(DescriptorSource(url: mappingResult.baiURL, format: .unknown, role: .index))
         }
@@ -303,10 +359,20 @@ enum MappedReadsAnnotationProvenanceWriter {
         return inputs
     }
 
+    private static func removeExistingBundleProvenance(at bundleURL: URL) throws {
+        let fileManager = FileManager.default
+        for artifactURL in ProvenancePublicationArtifacts.bundleRootArtifacts(for: bundleURL) {
+            if fileManager.fileExists(atPath: artifactURL.path) {
+                try fileManager.removeItem(at: artifactURL)
+            }
+        }
+    }
+
     private static func mappedReadsArgv(
         request: MappedReadsAnnotationRequest,
         bundleURL: URL,
-        outputTrackName: String
+        outputTrackName: String,
+        outputTrackID: String? = nil
     ) -> [String] {
         var argv = [
             CLICommandIdentity.executableName,
@@ -319,7 +385,7 @@ enum MappedReadsAnnotationProvenanceWriter {
             "--output-track-name",
             outputTrackName,
         ]
-        if let outputTrackID = trimmedOutputTrackID(request.outputTrackID) {
+        if let outputTrackID = trimmedOutputTrackID(outputTrackID ?? request.outputTrackID) {
             argv += ["--output-track-id", outputTrackID]
         }
         if request.primaryOnly {
@@ -341,7 +407,8 @@ enum MappedReadsAnnotationProvenanceWriter {
         request: BestMappedReadsAnnotationRequest,
         sourceBundleURL: URL,
         outputBundleURL: URL,
-        outputTrackName: String
+        outputTrackName: String,
+        outputTrackID: String? = nil
     ) -> [String] {
         var argv = copiedBundleBaseArgv(
             subcommand: "annotate-best",
@@ -349,7 +416,7 @@ enum MappedReadsAnnotationProvenanceWriter {
             mappingResultURL: request.mappingResultURL.standardizedFileURL,
             outputBundleURL: outputBundleURL,
             outputTrackName: outputTrackName,
-            outputTrackID: request.outputTrackID
+            outputTrackID: outputTrackID ?? request.outputTrackID
         )
         if request.primaryOnly {
             argv.append("--primary-only")
@@ -364,7 +431,8 @@ enum MappedReadsAnnotationProvenanceWriter {
         request: CDSBestAnnotationRequest,
         sourceBundleURL: URL,
         outputBundleURL: URL,
-        outputTrackName: String
+        outputTrackName: String,
+        outputTrackID: String? = nil
     ) -> [String] {
         var argv = copiedBundleBaseArgv(
             subcommand: "annotate-cds-best",
@@ -372,7 +440,7 @@ enum MappedReadsAnnotationProvenanceWriter {
             mappingResultURL: request.mappingResultURL.standardizedFileURL,
             outputBundleURL: outputBundleURL,
             outputTrackName: outputTrackName,
-            outputTrackID: request.outputTrackID
+            outputTrackID: outputTrackID ?? request.outputTrackID
         )
         if request.includeSecondary {
             argv.append("--include-secondary")

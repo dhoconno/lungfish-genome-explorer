@@ -48,11 +48,29 @@ public struct BundleAlignmentFilterResult: Sendable {
     }
 }
 
+struct BundleAlignmentFilterProvenanceContext: Sendable {
+    let target: ResolvedAlignmentFilterTarget
+    let sourceTrack: AlignmentTrackInfo
+    let sourceAlignmentPath: String
+    let sourceIndexPath: String
+    let referenceFastaPath: String?
+    let outputTrackName: String
+    let outputTrackIDWasExplicit: Bool
+    let filterRequest: AlignmentFilterRequest
+    let attachment: PreparedAlignmentAttachmentResult
+    let commandHistory: [AlignmentCommandExecutionRecord]
+    let startedAt: Date
+    let completedAt: Date
+}
+
+typealias BundleAlignmentFilterProvenancePublisher = @Sendable (BundleAlignmentFilterProvenanceContext) throws -> Void
+
 public final class BundleAlignmentFilterService: @unchecked Sendable {
     private let samtoolsRunner: any AlignmentSamtoolsRunning
     private let markdupPipeline: any AlignmentMarkdupPipelining
     private let attachmentService: PreparedAlignmentAttachmentService
     private let trackIDProvider: @Sendable () -> String
+    private let provenancePublisher: BundleAlignmentFilterProvenancePublisher
 
     public init(
         samtoolsRunner: any AlignmentSamtoolsRunning = NativeToolSamtoolsRunner.shared,
@@ -65,27 +83,32 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
         self.trackIDProvider = {
             "aln_\(String(UUID().uuidString.prefix(8)))"
         }
+        self.provenancePublisher = Self.defaultProvenancePublisher
     }
 
     init(
         samtoolsRunner: any AlignmentSamtoolsRunning = NativeToolSamtoolsRunner.shared,
         markdupPipeline: (any AlignmentMarkdupPipelining)? = nil,
         attachmentService: PreparedAlignmentAttachmentService = PreparedAlignmentAttachmentService(),
-        trackIDProvider: @escaping @Sendable () -> String
+        trackIDProvider: @escaping @Sendable () -> String,
+        provenancePublisher: @escaping BundleAlignmentFilterProvenancePublisher = BundleAlignmentFilterService.defaultProvenancePublisher
     ) {
         self.samtoolsRunner = samtoolsRunner
         self.markdupPipeline = markdupPipeline ?? AlignmentMarkdupPipeline(samtoolsRunner: samtoolsRunner)
         self.attachmentService = attachmentService
         self.trackIDProvider = trackIDProvider
+        self.provenancePublisher = provenancePublisher
     }
 
     public func deriveFilteredAlignment(
         target: AlignmentFilterTarget,
         sourceTrackID: String,
         outputTrackName: String,
+        outputTrackID: String? = nil,
         filterRequest: AlignmentFilterRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> BundleAlignmentFilterResult {
+        let workflowStartedAt = Date()
         let resolvedTarget = try AlignmentFilterTargetResolver.resolve(target)
         let bundle = try await ReferenceBundle(url: resolvedTarget.bundleURL)
         guard let sourceTrack = bundle.alignmentTrack(id: sourceTrackID) else {
@@ -95,6 +118,10 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
         let sourceAlignmentPath = try bundle.resolveAlignmentPath(sourceTrack)
         let sourceIndexPath = try bundle.resolveAlignmentIndexPath(sourceTrack)
         let referenceFastaPath = bundle.referenceFASTAPath()
+        let outputTrackIDWasExplicit = outputTrackID != nil
+        let resolvedOutputTrackID = try PreparedAlignmentAttachmentPathPolicy.normalizedOutputTrackID(
+            outputTrackID ?? trackIDProvider()
+        )
         let plan = try AlignmentFilterCommandBuilder.build(from: filterRequest)
 
         progressHandler?(0.05, "Checking required SAM tags...")
@@ -105,10 +132,8 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
             sourceTrackID: sourceTrackID
         )
 
-        let outputRoot = resolvedTarget.bundleURL.appendingPathComponent("alignments/filtered", isDirectory: true)
-        try FileManager.default.createDirectory(at: outputRoot, withIntermediateDirectories: true)
-
-        let workDir = outputRoot.appendingPathComponent(".filter-\(UUID().uuidString)", isDirectory: true)
+        let workDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-bam-filter-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: workDir) }
 
@@ -116,6 +141,7 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
         let unsortedOutputURL = workDir.appendingPathComponent("\(sourceTrackID).filtered.unsorted.bam")
         var currentInputURL = URL(fileURLWithPath: sourceAlignmentPath)
         var commandHistory: [AlignmentCommandExecutionRecord] = []
+        let samtoolsVersion = await samtoolsRunner.samtoolsVersion()
 
         for step in plan.preprocessingSteps {
             switch step {
@@ -146,12 +172,14 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
             into: baseViewArguments,
             trailingArgumentCount: plan.trailingArguments.count
         )
-        _ = try await runSamtoolsOrThrow(arguments: viewArguments, timeout: 3600)
+        let viewExecution = try await runSamtoolsOrThrow(arguments: viewArguments, timeout: 3600)
         commandHistory.append(
-            AlignmentCommandExecutionRecord(
+            try alignmentCommandExecutionRecord(
                 arguments: viewArguments,
                 inputFile: currentInputURL.path,
-                outputFile: unsortedOutputURL.path
+                outputFile: unsortedOutputURL.path,
+                toolVersion: samtoolsVersion,
+                execution: viewExecution
             )
         )
 
@@ -161,56 +189,124 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
             sortArguments += ["--reference", referenceFastaPath]
         }
         sortArguments.append(unsortedOutputURL.path)
-        _ = try await runSamtoolsOrThrow(arguments: sortArguments, timeout: 3600)
+        let sortExecution = try await runSamtoolsOrThrow(arguments: sortArguments, timeout: 3600)
         commandHistory.append(
-            AlignmentCommandExecutionRecord(
+            try alignmentCommandExecutionRecord(
                 arguments: sortArguments,
                 inputFile: unsortedOutputURL.path,
-                outputFile: sortedOutputURL.path
+                outputFile: sortedOutputURL.path,
+                toolVersion: samtoolsVersion,
+                execution: sortExecution,
+                referenceFiles: referenceFastaPath.map { [$0] } ?? []
             )
         )
 
         progressHandler?(0.84, "Indexing filtered BAM...")
         let indexArguments = ["index", sortedOutputURL.path]
-        _ = try await runSamtoolsOrThrow(arguments: indexArguments, timeout: 3600)
+        let indexExecution = try await runSamtoolsOrThrow(arguments: indexArguments, timeout: 3600)
         commandHistory.append(
-            AlignmentCommandExecutionRecord(
+            try alignmentCommandExecutionRecord(
                 arguments: indexArguments,
                 inputFile: sortedOutputURL.path,
-                outputFile: sortedOutputURL.path + ".bai"
+                outputFile: sortedOutputURL.path + ".bai",
+                toolVersion: samtoolsVersion,
+                execution: indexExecution
             )
         )
 
         progressHandler?(0.9, "Attaching filtered BAM...")
-        let attachment = try await attachmentService.attach(
-            request: PreparedAlignmentAttachmentRequest(
+        let publicationSnapshot = try ProvenancePublicationSnapshot(
+            urls: filteredAlignmentPublicationArtifacts(
                 bundleURL: resolvedTarget.bundleURL,
-                stagedBAMURL: sortedOutputURL,
-                stagedIndexURL: URL(fileURLWithPath: sortedOutputURL.path + ".bai"),
-                outputTrackID: trackIDProvider(),
-                outputTrackName: outputTrackName,
-                relativeDirectory: "alignments/filtered"
+                outputTrackID: resolvedOutputTrackID
+            ),
+            backupNamePrefix: "lungfish-bam-filter"
+        )
+        defer { publicationSnapshot.discard() }
+
+        do {
+            let attachment = try await attachmentService.attach(
+                request: PreparedAlignmentAttachmentRequest(
+                    bundleURL: resolvedTarget.bundleURL,
+                    stagedBAMURL: sortedOutputURL,
+                    stagedIndexURL: URL(fileURLWithPath: sortedOutputURL.path + ".bai"),
+                    outputTrackID: resolvedOutputTrackID,
+                    outputTrackName: outputTrackName,
+                    relativeDirectory: "alignments/filtered"
+                )
             )
-        )
 
-        try appendDerivationMetadata(
-            metadataDBURL: attachment.metadataDBURL,
-            sourceTrack: sourceTrack,
-            sourceAlignmentPath: sourceAlignmentPath,
-            sourceIndexPath: sourceIndexPath,
-            filterRequest: filterRequest,
-            preprocessingSteps: plan.preprocessingSteps,
-            commandHistory: commandHistory,
-            mappingResultURL: resolvedTarget.mappingResultURL
-        )
+            try appendDerivationMetadata(
+                metadataDBURL: attachment.metadataDBURL,
+                sourceTrack: sourceTrack,
+                sourceAlignmentPath: sourceAlignmentPath,
+                sourceIndexPath: sourceIndexPath,
+                filterRequest: filterRequest,
+                preprocessingSteps: plan.preprocessingSteps,
+                commandHistory: commandHistory,
+                mappingResultURL: resolvedTarget.mappingResultURL
+            )
+            try provenancePublisher(BundleAlignmentFilterProvenanceContext(
+                target: resolvedTarget,
+                sourceTrack: sourceTrack,
+                sourceAlignmentPath: sourceAlignmentPath,
+                sourceIndexPath: sourceIndexPath,
+                referenceFastaPath: referenceFastaPath,
+                outputTrackName: outputTrackName,
+                outputTrackIDWasExplicit: outputTrackIDWasExplicit,
+                filterRequest: filterRequest,
+                attachment: attachment,
+                commandHistory: commandHistory,
+                startedAt: workflowStartedAt,
+                completedAt: Date()
+            ))
 
-        progressHandler?(1.0, "Filtered alignment attached.")
-        return BundleAlignmentFilterResult(
-            bundleURL: resolvedTarget.bundleURL,
-            mappingResultURL: resolvedTarget.mappingResultURL,
-            trackInfo: attachment.trackInfo,
-            commandHistory: commandHistory
+            progressHandler?(1.0, "Filtered alignment attached.")
+            return BundleAlignmentFilterResult(
+                bundleURL: resolvedTarget.bundleURL,
+                mappingResultURL: resolvedTarget.mappingResultURL,
+                trackInfo: attachment.trackInfo,
+                commandHistory: commandHistory
+            )
+        } catch {
+            try? publicationSnapshot.restore()
+            throw error
+        }
+    }
+
+    private static func defaultProvenancePublisher(_ context: BundleAlignmentFilterProvenanceContext) throws {
+        try BundleAlignmentFilterProvenanceWriter.write(
+            target: context.target,
+            sourceTrack: context.sourceTrack,
+            sourceAlignmentPath: context.sourceAlignmentPath,
+            sourceIndexPath: context.sourceIndexPath,
+            referenceFastaPath: context.referenceFastaPath,
+            outputTrackName: context.outputTrackName,
+            outputTrackIDWasExplicit: context.outputTrackIDWasExplicit,
+            filterRequest: context.filterRequest,
+            attachment: context.attachment,
+            commandHistory: context.commandHistory,
+            startedAt: context.startedAt,
+            completedAt: context.completedAt
         )
+    }
+
+    private func filteredAlignmentPublicationArtifacts(bundleURL: URL, outputTrackID: String) -> [URL] {
+        let bamURL = bundleURL.appendingPathComponent("alignments/filtered/\(outputTrackID).bam")
+        let indexURL = bundleURL.appendingPathComponent("alignments/filtered/\(outputTrackID).bam.bai")
+        let metadataDBURL = bundleURL.appendingPathComponent("alignments/filtered/\(outputTrackID).stats.db")
+        let payloadURLs = [
+            bamURL,
+            indexURL,
+            metadataDBURL,
+            bundleURL.appendingPathComponent(BundleManifest.filename),
+        ]
+        let outputSidecars = payloadURLs.compactMap {
+            ProvenanceWriter.bundleOutputSidecarURL(for: $0, inBundle: bundleURL)
+        }
+        return payloadURLs
+            + ProvenancePublicationArtifacts.bundleRootArtifacts(for: bundleURL)
+            + outputSidecars.flatMap(ProvenancePublicationArtifacts.sidecarArtifacts(for:))
     }
 
     private func preflightRequiredTags(
@@ -242,7 +338,8 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
     }
 
     private func alignmentCount(arguments: [String]) async throws -> Int {
-        let result = try await runSamtoolsOrThrow(arguments: arguments, timeout: 300)
+        let execution = try await runSamtoolsOrThrow(arguments: arguments, timeout: 300)
+        let result = execution.result
         guard let count = Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             throw BundleAlignmentFilterServiceError.invalidCountOutput(result.stdout)
         }
@@ -252,14 +349,20 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
     private func runSamtoolsOrThrow(
         arguments: [String],
         timeout: TimeInterval
-    ) async throws -> NativeToolResult {
+    ) async throws -> AlignmentNativeCommandExecution {
+        let startedAt = Date()
         let result = try await samtoolsRunner.runSamtools(arguments: arguments, timeout: timeout)
+        let completedAt = Date()
         guard result.isSuccess else {
             throw BundleAlignmentFilterServiceError.samtoolsFailed(
                 result.stderr.isEmpty ? "samtools exited with \(result.exitCode)" : result.stderr
             )
         }
-        return result
+        return AlignmentNativeCommandExecution(
+            result: result,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
     }
 
     private func preflightCountArguments(
@@ -356,7 +459,7 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
                 command: command.commandLine,
                 inputFile: command.inputFile,
                 outputFile: command.outputFile,
-                exitCode: 0,
+                exitCode: command.exitStatus.map { Int32($0) } ?? 0,
                 parentStep: parentStep
             )
         }

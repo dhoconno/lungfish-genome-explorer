@@ -1,3 +1,4 @@
+import LungfishCore
 import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
@@ -60,7 +61,7 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         XCTAssertEqual(
             provenance.steps.first?.command,
             [
-                "lungfish", "import", "application-export", "clc-workbench", archiveURL.path,
+                CLICommandIdentity.executableName, "import", "application-export", "clc-workbench", archiveURL.path,
                 "--project", projectURL.path,
             ]
         )
@@ -124,7 +125,7 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         XCTAssertEqual(
             provenance.steps.first?.command,
             [
-                "lungfish", "import", "application-export", "clc-workbench", archiveURL.path,
+                CLICommandIdentity.executableName, "import", "application-export", "clc-workbench", archiveURL.path,
                 "--project", projectURL.path,
                 "--collection-name", "Reviewed Batch",
             ]

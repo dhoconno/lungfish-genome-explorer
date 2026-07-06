@@ -6,9 +6,28 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
+struct MappedReadsAnnotationProvenanceContext: Sendable {
+    let request: MappedReadsAnnotationRequest
+    let bundleURL: URL
+    let sourceTrack: AlignmentTrackInfo
+    let sourceAlignmentPath: String
+    let sourceIndexPath: String?
+    let outputTrackID: String
+    let outputTrackName: String
+    let relativeDatabasePath: String
+    let databaseURL: URL
+    let viewArguments: [String]
+    let samtoolsExecution: MappedReadsAnnotationProvenanceWriter.SamtoolsExecution
+    let startedAt: Date
+    let completedAt: Date
+}
+
+typealias MappedReadsAnnotationProvenancePublisher = @Sendable (MappedReadsAnnotationProvenanceContext) throws -> Void
+
 public final class MappedReadsAnnotationService: @unchecked Sendable {
     private let samtoolsRunner: any AlignmentSamtoolsRunning
     private let trackIDProvider: @Sendable (String) -> String
+    private let provenancePublisher: MappedReadsAnnotationProvenancePublisher
 
     public init(
         samtoolsRunner: any AlignmentSamtoolsRunning = NativeToolSamtoolsRunner.shared
@@ -17,14 +36,17 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         self.trackIDProvider = { _ in
             "ann_\(String(UUID().uuidString.prefix(8)))"
         }
+        self.provenancePublisher = Self.defaultProvenancePublisher
     }
 
     init(
         samtoolsRunner: any AlignmentSamtoolsRunning = NativeToolSamtoolsRunner.shared,
-        trackIDProvider: @escaping @Sendable (String) -> String
+        trackIDProvider: @escaping @Sendable (String) -> String,
+        provenancePublisher: @escaping MappedReadsAnnotationProvenancePublisher = MappedReadsAnnotationService.defaultProvenancePublisher
     ) {
         self.samtoolsRunner = samtoolsRunner
         self.trackIDProvider = trackIDProvider
+        self.provenancePublisher = provenancePublisher
     }
 
     public func convertMappedReads(
@@ -67,12 +89,15 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
 
         progressHandler?(0.1, "Reading mapped alignments...")
         let viewArguments = ["view", "-h", sourceAlignmentPath]
+        let samtoolsStartedAt = Date()
         let samtoolsResult = try await samtoolsRunner.runSamtools(arguments: viewArguments, timeout: samtoolsTimeout(for: sourceAlignmentPath))
+        let samtoolsCompletedAt = Date()
         guard samtoolsResult.isSuccess else {
             throw MappedReadsAnnotationServiceError.samtoolsFailed(
                 samtoolsResult.stderr.isEmpty ? "samtools exited with \(samtoolsResult.exitCode)" : samtoolsResult.stderr
             )
         }
+        let samtoolsVersion = await samtoolsRunner.samtoolsVersion()
 
         progressHandler?(0.35, "Converting reads to annotations...")
         var rows: [MappedReadsAnnotationRow] = []
@@ -116,76 +141,116 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         }
 
         progressHandler?(0.78, "Writing annotation database...")
-        if request.replaceExisting {
-            for track in existingTracks {
-                removeAnnotationArtifacts(for: track, bundleURL: bundleURL)
-            }
-        }
-        let featureCount = try MappedReadsAnnotationDatabaseWriter.write(
-            rows: rows,
-            to: databaseURL,
-            metadata: [
-                "source_alignment_track_id": request.sourceTrackID,
-                "source_alignment_track_name": sourceTrack.name,
-                "source_alignment_path": sourceAlignmentPath,
-                "include_sequence": String(request.includeSequence),
-                "include_qualities": String(request.includeQualities),
-                "created_by": "mapped_reads_annotation_service",
-            ]
+        let sourceIndexPath = try? bundle.resolveAlignmentIndexPath(sourceTrack)
+        let publicationSnapshot = try ProvenancePublicationSnapshot(
+            urls: annotationPublicationArtifacts(
+                bundleURL: bundleURL,
+                databaseURL: databaseURL,
+                existingTracks: existingTracks
+            ),
+            backupNamePrefix: "lungfish-mapped-reads-annotation"
         )
+        defer { publicationSnapshot.discard() }
 
-        let trackInfo = AnnotationTrackInfo(
-            id: outputTrackID,
-            name: outputTrackName,
-            description: "Mapped reads converted from alignment track \(sourceTrack.name)",
-            path: relativeDatabasePath,
-            databasePath: relativeDatabasePath,
-            annotationType: .custom,
-            featureCount: featureCount,
-            source: sourceTrack.name,
-            version: nil
-        )
-
-        progressHandler?(0.92, "Updating bundle manifest...")
-        var updatedManifest = bundle.manifest
-        if request.replaceExisting {
-            for track in existingTracks {
-                updatedManifest = updatedManifest.removingAnnotationTrack(id: track.id)
-            }
-        }
-        updatedManifest = updatedManifest.addingAnnotationTrack(trackInfo)
         do {
-            try updatedManifest.save(to: bundleURL)
-        } catch {
-            throw MappedReadsAnnotationServiceError.manifestWriteFailed(error.localizedDescription)
-        }
-        try MappedReadsAnnotationProvenanceWriter.writeMappedReads(
-            request: request,
-            bundleURL: bundleURL,
-            sourceTrack: sourceTrack,
-            sourceAlignmentPath: sourceAlignmentPath,
-            sourceIndexPath: try? bundle.resolveAlignmentIndexPath(sourceTrack),
-            outputTrackID: outputTrackID,
-            outputTrackName: outputTrackName,
-            relativeDatabasePath: relativeDatabasePath,
-            databaseURL: databaseURL,
-            viewArguments: viewArguments,
-            startedAt: workflowStartedAt,
-            completedAt: Date()
-        )
+            if request.replaceExisting {
+                for track in existingTracks {
+                    removeAnnotationArtifacts(for: track, bundleURL: bundleURL)
+                }
+            }
+            let featureCount = try MappedReadsAnnotationDatabaseWriter.write(
+                rows: rows,
+                to: databaseURL,
+                metadata: [
+                    "source_alignment_track_id": request.sourceTrackID,
+                    "source_alignment_track_name": sourceTrack.name,
+                    "source_alignment_path": sourceAlignmentPath,
+                    "include_sequence": String(request.includeSequence),
+                    "include_qualities": String(request.includeQualities),
+                    "created_by": "mapped_reads_annotation_service",
+                ]
+            )
 
-        progressHandler?(1.0, "Mapped reads annotation track created.")
-        return MappedReadsAnnotationResult(
-            bundleURL: bundleURL,
-            sourceAlignmentTrackID: request.sourceTrackID,
-            sourceAlignmentTrackName: sourceTrack.name,
-            annotationTrackInfo: trackInfo,
-            databasePath: relativeDatabasePath,
-            convertedRecordCount: featureCount,
-            skippedUnmappedCount: skippedUnmappedCount,
-            skippedSecondarySupplementaryCount: skippedSecondarySupplementaryCount,
-            includedSequence: request.includeSequence,
-            includedQualities: request.includeQualities
+            let trackInfo = AnnotationTrackInfo(
+                id: outputTrackID,
+                name: outputTrackName,
+                description: "Mapped reads converted from alignment track \(sourceTrack.name)",
+                path: relativeDatabasePath,
+                databasePath: relativeDatabasePath,
+                annotationType: .custom,
+                featureCount: featureCount,
+                source: sourceTrack.name,
+                version: nil
+            )
+
+            progressHandler?(0.92, "Updating bundle manifest...")
+            var updatedManifest = bundle.manifest
+            if request.replaceExisting {
+                for track in existingTracks {
+                    updatedManifest = updatedManifest.removingAnnotationTrack(id: track.id)
+                }
+            }
+            updatedManifest = updatedManifest.addingAnnotationTrack(trackInfo)
+            do {
+                try updatedManifest.save(to: bundleURL)
+            } catch {
+                throw MappedReadsAnnotationServiceError.manifestWriteFailed(error.localizedDescription)
+            }
+            try provenancePublisher(MappedReadsAnnotationProvenanceContext(
+                request: request,
+                bundleURL: bundleURL,
+                sourceTrack: sourceTrack,
+                sourceAlignmentPath: sourceAlignmentPath,
+                sourceIndexPath: sourceIndexPath,
+                outputTrackID: outputTrackID,
+                outputTrackName: outputTrackName,
+                relativeDatabasePath: relativeDatabasePath,
+                databaseURL: databaseURL,
+                viewArguments: viewArguments,
+                samtoolsExecution: MappedReadsAnnotationProvenanceWriter.SamtoolsExecution(
+                    version: samtoolsVersion,
+                    result: samtoolsResult,
+                    startedAt: samtoolsStartedAt,
+                    completedAt: samtoolsCompletedAt
+                ),
+                startedAt: workflowStartedAt,
+                completedAt: Date()
+            ))
+
+            progressHandler?(1.0, "Mapped reads annotation track created.")
+            return MappedReadsAnnotationResult(
+                bundleURL: bundleURL,
+                sourceAlignmentTrackID: request.sourceTrackID,
+                sourceAlignmentTrackName: sourceTrack.name,
+                annotationTrackInfo: trackInfo,
+                databasePath: relativeDatabasePath,
+                convertedRecordCount: featureCount,
+                skippedUnmappedCount: skippedUnmappedCount,
+                skippedSecondarySupplementaryCount: skippedSecondarySupplementaryCount,
+                includedSequence: request.includeSequence,
+                includedQualities: request.includeQualities
+            )
+        } catch {
+            try? publicationSnapshot.restore()
+            throw error
+        }
+    }
+
+    private static func defaultProvenancePublisher(_ context: MappedReadsAnnotationProvenanceContext) throws {
+        try MappedReadsAnnotationProvenanceWriter.writeMappedReads(
+            request: context.request,
+            bundleURL: context.bundleURL,
+            sourceTrack: context.sourceTrack,
+            sourceAlignmentPath: context.sourceAlignmentPath,
+            sourceIndexPath: context.sourceIndexPath,
+            outputTrackID: context.outputTrackID,
+            outputTrackName: context.outputTrackName,
+            relativeDatabasePath: context.relativeDatabasePath,
+            databaseURL: context.databaseURL,
+            viewArguments: context.viewArguments,
+            samtoolsExecution: context.samtoolsExecution,
+            startedAt: context.startedAt,
+            completedAt: context.completedAt
         )
     }
 
@@ -217,6 +282,39 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
             ? URL(fileURLWithPath: path)
             : bundleURL.appendingPathComponent(path)
         try? FileManager.default.removeItem(at: url)
+    }
+
+    private func annotationPublicationArtifacts(
+        bundleURL: URL,
+        databaseURL: URL,
+        existingTracks: [AnnotationTrackInfo]
+    ) -> [URL] {
+        var urls = [
+            databaseURL,
+            bundleURL.appendingPathComponent(BundleManifest.filename),
+        ] + ProvenancePublicationArtifacts.bundleRootArtifacts(for: bundleURL)
+
+        for track in existingTracks {
+            urls.append(contentsOf: annotationArtifactURLs(for: track, bundleURL: bundleURL))
+        }
+        for url in urls.compactMap({ ProvenanceWriter.bundleOutputSidecarURL(for: $0, inBundle: bundleURL) }) {
+            urls.append(contentsOf: ProvenancePublicationArtifacts.sidecarArtifacts(for: url))
+        }
+        return urls
+    }
+
+    private func annotationArtifactURLs(for track: AnnotationTrackInfo, bundleURL: URL) -> [URL] {
+        var urls = [bundleRelativeURL(track.path, bundleURL: bundleURL)]
+        if let databasePath = track.databasePath, databasePath != track.path {
+            urls.append(bundleRelativeURL(databasePath, bundleURL: bundleURL))
+        }
+        return urls
+    }
+
+    private func bundleRelativeURL(_ path: String, bundleURL: URL) -> URL {
+        URL(fileURLWithPath: path).isFileURL && path.hasPrefix("/")
+            ? URL(fileURLWithPath: path)
+            : bundleURL.appendingPathComponent(path)
     }
 }
 

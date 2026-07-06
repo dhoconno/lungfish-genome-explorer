@@ -23,6 +23,13 @@ public enum AlignmentMarkdupPipelineError: Error, LocalizedError, Sendable, Equa
 /// Injectable samtools runner used by alignment derivation services.
 public protocol AlignmentSamtoolsRunning: Sendable {
     func runSamtools(arguments: [String], timeout: TimeInterval) async throws -> NativeToolResult
+    func samtoolsVersion() async -> String
+}
+
+public extension AlignmentSamtoolsRunning {
+    func samtoolsVersion() async -> String {
+        "unknown"
+    }
 }
 
 /// NativeToolRunner-backed samtools runner used in production code.
@@ -38,6 +45,26 @@ public actor NativeToolSamtoolsRunner: AlignmentSamtoolsRunning {
     public func runSamtools(arguments: [String], timeout: TimeInterval) async throws -> NativeToolResult {
         try await runner.run(.samtools, arguments: arguments, timeout: timeout)
     }
+
+    public func samtoolsVersion() async -> String {
+        guard let result = try? await runSamtools(arguments: ["--version"], timeout: 30),
+              result.isSuccess else {
+            return "unknown"
+        }
+        return parsedSamtoolsVersion(from: result.stdout) ?? "unknown"
+    }
+
+    private func parsedSamtoolsVersion(from stdout: String) -> String? {
+        guard let line = stdout
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .first(where: { $0.lowercased().hasPrefix("samtools ") }) else {
+            return nil
+        }
+        let fields = line.split(separator: " ", omittingEmptySubsequences: true)
+        guard fields.count >= 2 else { return nil }
+        return String(fields[1])
+    }
 }
 
 /// Recorded command metadata for minimal derivation provenance.
@@ -46,17 +73,44 @@ public struct AlignmentCommandExecutionRecord: Sendable, Equatable {
     public let arguments: [String]
     public let inputFile: String?
     public let outputFile: String?
+    public let inputDescriptor: ProvenanceFileDescriptor?
+    public let outputDescriptor: ProvenanceFileDescriptor?
+    public let additionalInputDescriptors: [ProvenanceFileDescriptor]
+    public let toolVersion: String?
+    public let exitStatus: Int?
+    public let wallTimeSeconds: TimeInterval?
+    public let stderr: String?
+    public let startedAt: Date?
+    public let completedAt: Date?
 
     public init(
         tool: String = "samtools",
         arguments: [String],
         inputFile: String? = nil,
-        outputFile: String? = nil
+        outputFile: String? = nil,
+        inputDescriptor: ProvenanceFileDescriptor? = nil,
+        outputDescriptor: ProvenanceFileDescriptor? = nil,
+        additionalInputDescriptors: [ProvenanceFileDescriptor] = [],
+        toolVersion: String? = nil,
+        exitStatus: Int? = nil,
+        wallTimeSeconds: TimeInterval? = nil,
+        stderr: String? = nil,
+        startedAt: Date? = nil,
+        completedAt: Date? = nil
     ) {
         self.tool = tool
         self.arguments = arguments
         self.inputFile = inputFile
         self.outputFile = outputFile
+        self.inputDescriptor = inputDescriptor
+        self.outputDescriptor = outputDescriptor
+        self.additionalInputDescriptors = additionalInputDescriptors
+        self.toolVersion = toolVersion
+        self.exitStatus = exitStatus
+        self.wallTimeSeconds = wallTimeSeconds
+        self.stderr = stderr
+        self.startedAt = startedAt
+        self.completedAt = completedAt
     }
 
     public var subcommand: String? {
@@ -66,6 +120,86 @@ public struct AlignmentCommandExecutionRecord: Sendable, Equatable {
     public var commandLine: String {
         ([tool] + arguments).joined(separator: " ")
     }
+}
+
+struct AlignmentNativeCommandExecution: Sendable {
+    let result: NativeToolResult
+    let startedAt: Date
+    let completedAt: Date
+
+    var exitStatus: Int {
+        Int(result.exitCode)
+    }
+
+    var wallTimeSeconds: TimeInterval {
+        completedAt.timeIntervalSince(startedAt)
+    }
+
+    var stderr: String? {
+        result.stderr.isEmpty ? nil : result.stderr
+    }
+}
+
+func alignmentCommandExecutionRecord(
+    arguments: [String],
+    inputFile: String?,
+    outputFile: String?,
+    toolVersion: String,
+    execution: AlignmentNativeCommandExecution,
+    referenceFiles: [String] = []
+) throws -> AlignmentCommandExecutionRecord {
+    let inputDescriptor = try inputFile.map {
+        try alignmentCommandFileDescriptor(path: $0, role: .input)
+    }
+    let outputDescriptor = try outputFile.map {
+        try alignmentCommandFileDescriptor(path: $0, role: .output)
+    }
+    let referenceDescriptors = try referenceFiles.map {
+        try alignmentCommandFileDescriptor(path: $0, role: .reference)
+    }
+    return AlignmentCommandExecutionRecord(
+        arguments: arguments,
+        inputFile: inputFile,
+        outputFile: outputFile,
+        inputDescriptor: inputDescriptor,
+        outputDescriptor: outputDescriptor,
+        additionalInputDescriptors: referenceDescriptors,
+        toolVersion: toolVersion,
+        exitStatus: execution.exitStatus,
+        wallTimeSeconds: execution.wallTimeSeconds,
+        stderr: execution.stderr,
+        startedAt: execution.startedAt,
+        completedAt: execution.completedAt
+    )
+}
+
+func alignmentCommandFileDescriptor(path: String, role: FileRole) throws -> ProvenanceFileDescriptor {
+    try ProvenanceFileDescriptor.file(
+        url: URL(fileURLWithPath: path),
+        format: alignmentCommandFileFormat(path: path),
+        role: role
+    )
+}
+
+private func alignmentCommandFileFormat(path: String) -> FileFormat? {
+    if path.hasSuffix(".bam") {
+        return .bam
+    }
+    if path.hasSuffix(".fa")
+        || path.hasSuffix(".fasta")
+        || path.hasSuffix(".fna")
+        || path.hasSuffix(".fa.gz")
+        || path.hasSuffix(".fasta.gz")
+        || path.hasSuffix(".fna.gz") {
+        return .fasta
+    }
+    if path.hasSuffix(".db") || path.hasSuffix(".sqlite") {
+        return .sqlite
+    }
+    if path.hasSuffix(".json") {
+        return .json
+    }
+    return .unknown
 }
 
 /// Intermediate BAMs produced by the canonical markdup workflow.
@@ -162,6 +296,8 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
         let longTimeout = max(600.0, Double(size) / 10_000_000.0)
         var commandHistory: [AlignmentCommandExecutionRecord] = []
         let threadArguments = sortThreads.map { ["-@", String(max(1, $0))] } ?? []
+        let samtoolsVersion = await samtoolsRunner.samtoolsVersion()
+        let referenceFiles = referenceFastaPath.map { [$0] } ?? []
 
         progressHandler?(0.05, "Sorting by read name...")
         var sortNameArgs = ["sort", "-n"] + threadArguments + ["-o", intermediateFiles.nameSortedBAM.path]
@@ -169,12 +305,15 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
             sortNameArgs += ["--reference", referenceFastaPath]
         }
         sortNameArgs.append(inputURL.path)
-        try await runSamtoolsOrThrow(sortNameArgs, timeout: longTimeout)
+        let sortNameExecution = try await runSamtoolsOrThrow(sortNameArgs, timeout: longTimeout)
         commandHistory.append(
-            AlignmentCommandExecutionRecord(
+            try alignmentCommandExecutionRecord(
                 arguments: sortNameArgs,
                 inputFile: inputURL.path,
-                outputFile: intermediateFiles.nameSortedBAM.path
+                outputFile: intermediateFiles.nameSortedBAM.path,
+                toolVersion: samtoolsVersion,
+                execution: sortNameExecution,
+                referenceFiles: referenceFiles
             )
         )
 
@@ -184,12 +323,15 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
             fixmateArgs += ["--reference", referenceFastaPath]
         }
         fixmateArgs += [intermediateFiles.nameSortedBAM.path, intermediateFiles.fixmateBAM.path]
-        try await runSamtoolsOrThrow(fixmateArgs, timeout: longTimeout)
+        let fixmateExecution = try await runSamtoolsOrThrow(fixmateArgs, timeout: longTimeout)
         commandHistory.append(
-            AlignmentCommandExecutionRecord(
+            try alignmentCommandExecutionRecord(
                 arguments: fixmateArgs,
                 inputFile: intermediateFiles.nameSortedBAM.path,
-                outputFile: intermediateFiles.fixmateBAM.path
+                outputFile: intermediateFiles.fixmateBAM.path,
+                toolVersion: samtoolsVersion,
+                execution: fixmateExecution,
+                referenceFiles: referenceFiles
             )
         )
 
@@ -199,12 +341,15 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
             sortCoordArgs += ["--reference", referenceFastaPath]
         }
         sortCoordArgs.append(intermediateFiles.fixmateBAM.path)
-        try await runSamtoolsOrThrow(sortCoordArgs, timeout: longTimeout)
+        let sortCoordExecution = try await runSamtoolsOrThrow(sortCoordArgs, timeout: longTimeout)
         commandHistory.append(
-            AlignmentCommandExecutionRecord(
+            try alignmentCommandExecutionRecord(
                 arguments: sortCoordArgs,
                 inputFile: intermediateFiles.fixmateBAM.path,
-                outputFile: intermediateFiles.coordinateSortedBAM.path
+                outputFile: intermediateFiles.coordinateSortedBAM.path,
+                toolVersion: samtoolsVersion,
+                execution: sortCoordExecution,
+                referenceFiles: referenceFiles
             )
         )
 
@@ -214,23 +359,27 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
             markdupArgs.append("-r")
         }
         markdupArgs += [intermediateFiles.coordinateSortedBAM.path, outputURL.path]
-        try await runSamtoolsOrThrow(markdupArgs, timeout: longTimeout)
+        let markdupExecution = try await runSamtoolsOrThrow(markdupArgs, timeout: longTimeout)
         commandHistory.append(
-            AlignmentCommandExecutionRecord(
+            try alignmentCommandExecutionRecord(
                 arguments: markdupArgs,
                 inputFile: intermediateFiles.coordinateSortedBAM.path,
-                outputFile: outputURL.path
+                outputFile: outputURL.path,
+                toolVersion: samtoolsVersion,
+                execution: markdupExecution
             )
         )
 
         progressHandler?(0.93, "Indexing output BAM...")
         let indexArgs = ["index", outputURL.path]
-        try await runSamtoolsOrThrow(indexArgs, timeout: 3600)
+        let indexExecution = try await runSamtoolsOrThrow(indexArgs, timeout: 3600)
         commandHistory.append(
-            AlignmentCommandExecutionRecord(
+            try alignmentCommandExecutionRecord(
                 arguments: indexArgs,
                 inputFile: outputURL.path,
-                outputFile: outputURL.path + ".bai"
+                outputFile: outputURL.path + ".bai",
+                toolVersion: samtoolsVersion,
+                execution: indexExecution
             )
         )
 
@@ -245,12 +394,19 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
         )
     }
 
-    private func runSamtoolsOrThrow(_ arguments: [String], timeout: TimeInterval) async throws {
+    private func runSamtoolsOrThrow(_ arguments: [String], timeout: TimeInterval) async throws -> AlignmentNativeCommandExecution {
+        let startedAt = Date()
         let result = try await samtoolsRunner.runSamtools(arguments: arguments, timeout: timeout)
+        let completedAt = Date()
         guard result.isSuccess else {
             throw AlignmentMarkdupPipelineError.samtoolsFailed(
                 result.stderr.isEmpty ? "samtools exited with \(result.exitCode)" : result.stderr
             )
         }
+        return AlignmentNativeCommandExecution(
+            result: result,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
     }
 }

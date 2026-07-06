@@ -56,6 +56,139 @@ final class BundleAlignmentFilterServiceTests: XCTestCase {
         XCTAssertEqual(db.getFileInfo("unmapped_reads"), "5")
         XCTAssertEqual(db.sampleNames(), ["sample-1"])
         XCTAssertEqual(db.provenanceHistory().map(\.subcommand), ["view", "sort", "index"])
+
+        let bamURL = fixture.bundleURL.appendingPathComponent(result.trackInfo.sourcePath)
+        let indexURL = fixture.bundleURL.appendingPathComponent(result.trackInfo.indexPath)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.bundleURL))
+        XCTAssertEqual(provenance.workflowName, "lungfish bam filter")
+        XCTAssertEqual(
+            provenance.argv,
+            [
+                CLICommandIdentity.executableName,
+                "bam",
+                "filter",
+                "--bundle",
+                fixture.bundleURL.path,
+                "--alignment-track",
+                fixture.sourceTrackID,
+                "--output-track-name",
+                "Exact Match Reads",
+                "--mapped-only",
+                "--exact-match",
+            ]
+        )
+        XCTAssertEqual(
+            provenance.durableReplayArgv,
+            [
+                CLICommandIdentity.executableName,
+                "bam",
+                "filter",
+                "--bundle",
+                fixture.bundleURL.path,
+                "--alignment-track",
+                fixture.sourceTrackID,
+                "--output-track-id",
+                fixture.derivedTrackID,
+                "--output-track-name",
+                "Exact Match Reads",
+                "--mapped-only",
+                "--exact-match",
+            ]
+        )
+        XCTAssertEqual(provenance.options.explicit["targetKind"]?.stringValue, "bundle")
+        XCTAssertEqual(provenance.options.explicit["sourceTrackID"]?.stringValue, fixture.sourceTrackID)
+        XCTAssertEqual(provenance.options.explicit["outputTrackName"]?.stringValue, "Exact Match Reads")
+        XCTAssertNil(provenance.options.explicit["outputTrackID"])
+        XCTAssertEqual(provenance.options.defaults["outputTrackID"], .null)
+        XCTAssertEqual(provenance.options.defaults["mappedOnly"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.defaults["primaryOnly"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.defaults["duplicateMode"]?.stringValue, "none")
+        XCTAssertEqual(provenance.options.defaults["identityFilter"]?.stringValue, "none")
+        XCTAssertEqual(provenance.options.resolvedDefaults["mappedOnly"]?.booleanValue, true)
+        XCTAssertEqual(provenance.options.resolvedDefaults["primaryOnly"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.resolvedDefaults["identityFilter"]?.stringValue, "exact_match")
+        XCTAssertEqual(provenance.options.resolvedDefaults["outputTrackID"]?.stringValue, fixture.derivedTrackID)
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == fixture.sourceBAMURL.path
+                && $0.format == .bam
+                && $0.role == .input
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == fixture.referenceFASTAURL.path
+                && $0.format == .fasta
+                && $0.role == .reference
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        for outputURL in [bamURL, indexURL, metadataURL] {
+            XCTAssertTrue(provenance.outputs.contains {
+                $0.path == outputURL.path
+                    && $0.role == .output
+                    && $0.checksumSHA256 != nil
+                    && $0.fileSize != nil
+            })
+        }
+        XCTAssertEqual(provenance.steps.map(\.toolName), ["samtools", "samtools", "samtools", "lungfish bam filter"])
+        XCTAssertEqual(provenance.steps.first?.argv, ["samtools"] + result.commandHistory[0].arguments)
+        XCTAssertEqual(provenance.steps.first?.toolVersion, "1.23")
+        XCTAssertEqual(provenance.steps.first?.exitStatus, 0)
+        XCTAssertNotNil(provenance.steps.first?.wallTimeSeconds)
+        XCTAssertNotNil(provenance.steps.first?.startedAt)
+        XCTAssertNotNil(provenance.steps.first?.completedAt)
+        for (step, command) in zip(provenance.steps.prefix(result.commandHistory.count), result.commandHistory) {
+            let inputFile = try XCTUnwrap(command.inputFile)
+            let outputFile = try XCTUnwrap(command.outputFile)
+            XCTAssertTrue(step.inputs.contains {
+                $0.path == inputFile
+                    && $0.role == .input
+                    && $0.checksumSHA256 != nil
+                    && $0.fileSize != nil
+            })
+            XCTAssertTrue(step.outputs.contains {
+                $0.path == outputFile
+                    && $0.role == .output
+                    && $0.checksumSHA256 != nil
+                    && $0.fileSize != nil
+            })
+        }
+        let sortStep = try XCTUnwrap(provenance.steps.first { $0.argv.dropFirst().first == "sort" })
+        XCTAssertTrue(sortStep.inputs.contains {
+            $0.path == fixture.referenceFASTAURL.path
+                && $0.role == .reference
+                && $0.checksumSHA256 != nil
+        })
+
+        let bamSidecarURL = try XCTUnwrap(ProvenanceWriter.bundleOutputSidecarURL(
+            for: bamURL,
+            inBundle: fixture.bundleURL
+        ))
+        let bamEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: bamSidecarURL))
+        XCTAssertEqual(bamEnvelope.output?.path, bamURL.path)
+        XCTAssertEqual(bamEnvelope.outputs.map(\.path), [bamURL.path])
+        let provenancePaths = try bundleProvenanceRelativePaths(in: fixture.bundleURL)
+        XCTAssertFalse(provenancePaths.contains { $0.contains(".filter-") })
+    }
+
+    func testBundleTargetRecordsExplicitOutputTrackIDInExactArgv() async throws {
+        let fixture = try AlignmentFilterFixture.make(rootURL: tempDir, includeNMTag: true)
+        let service = fixture.makeService()
+
+        let result = try await service.deriveFilteredAlignment(
+            target: .bundle(fixture.bundleURL),
+            sourceTrackID: fixture.sourceTrackID,
+            outputTrackName: "User ID Reads",
+            outputTrackID: "user-filtered",
+            filterRequest: AlignmentFilterRequest(mappedOnly: true)
+        )
+
+        XCTAssertEqual(result.trackInfo.id, "user-filtered")
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.bundleURL))
+        XCTAssertEqual(provenance.options.explicit["outputTrackID"]?.stringValue, "user-filtered")
+        XCTAssertEqual(provenance.options.resolvedDefaults["outputTrackID"]?.stringValue, "user-filtered")
+        XCTAssertEqual(provenance.argv, provenance.durableReplayArgv)
+        XCTAssertTrue(provenance.argv.contains("--output-track-id"))
     }
 
     func testMappingResultTargetResolvesViewerBundle() async throws {
@@ -75,6 +208,11 @@ final class BundleAlignmentFilterServiceTests: XCTestCase {
 
         XCTAssertEqual(result.bundleURL, fixture.bundleURL)
         XCTAssertEqual(result.mappingResultURL, fixture.mappingResultURL)
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.bundleURL))
+        XCTAssertNil(provenance.options.explicit["bundlePath"])
+        XCTAssertEqual(provenance.options.explicit["mappingResultPath"]?.fileValue?.path, fixture.mappingResultURL?.path)
+        XCTAssertEqual(provenance.options.resolvedDefaults["bundlePath"]?.fileValue?.path, fixture.bundleURL.path)
     }
 
     func testMappingResultTargetFailsClearlyWhenViewerBundleIsMissing() async throws {
@@ -149,6 +287,81 @@ final class BundleAlignmentFilterServiceTests: XCTestCase {
             "samtools markdup(removeDuplicates=false)"
         )
         XCTAssertEqual(db.provenanceHistory().first?.subcommand, "markdup")
+    }
+
+    func testDerivedFilterRollsBackAttachedArtifactsWhenProvenanceFails() async throws {
+        let fixture = try AlignmentFilterFixture.make(rootURL: tempDir, includeNMTag: true)
+        let originalRootProvenance = Data("{\"workflowName\":\"existing\"}".utf8)
+        let rootProvenanceURL = fixture.bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        try originalRootProvenance.write(to: rootProvenanceURL)
+
+        let service = BundleAlignmentFilterService(
+            samtoolsRunner: fixture.samtoolsRunner,
+            markdupPipeline: fixture.markdupPipeline,
+            attachmentService: PreparedAlignmentAttachmentService(metadataCollector: fixture.metadataCollector),
+            trackIDProvider: { fixture.derivedTrackID },
+            provenancePublisher: { _ in throw InjectedFilterProvenanceError.failed }
+        )
+
+        await XCTAssertThrowsErrorAsync(
+            try await service.deriveFilteredAlignment(
+                target: .bundle(fixture.bundleURL),
+                sourceTrackID: fixture.sourceTrackID,
+                outputTrackName: "Rollback Filter",
+                filterRequest: AlignmentFilterRequest(mappedOnly: true)
+            )
+        ) { error in
+            XCTAssertEqual(error as? InjectedFilterProvenanceError, .failed)
+        }
+
+        let manifest = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertNil(manifest.alignments.first(where: { $0.id == fixture.derivedTrackID }))
+        XCTAssertNotNil(manifest.alignments.first(where: { $0.id == fixture.sourceTrackID }))
+        for relativePath in [
+            "alignments/filtered/\(fixture.derivedTrackID).bam",
+            "alignments/filtered/\(fixture.derivedTrackID).bam.bai",
+            "alignments/filtered/\(fixture.derivedTrackID).stats.db",
+        ] {
+            XCTAssertFalse(FileManager.default.fileExists(
+                atPath: fixture.bundleURL.appendingPathComponent(relativePath).path
+            ))
+        }
+        XCTAssertEqual(try Data(contentsOf: rootProvenanceURL), originalRootProvenance)
+    }
+
+    func testDerivedFilterRollsBackNormalizedExplicitTrackIDWhenProvenanceFails() async throws {
+        let fixture = try AlignmentFilterFixture.make(rootURL: tempDir, includeNMTag: true)
+        let service = BundleAlignmentFilterService(
+            samtoolsRunner: fixture.samtoolsRunner,
+            markdupPipeline: fixture.markdupPipeline,
+            attachmentService: PreparedAlignmentAttachmentService(metadataCollector: fixture.metadataCollector),
+            trackIDProvider: { "unused-generated-id" },
+            provenancePublisher: { _ in throw InjectedFilterProvenanceError.failed }
+        )
+
+        await XCTAssertThrowsErrorAsync(
+            try await service.deriveFilteredAlignment(
+                target: .bundle(fixture.bundleURL),
+                sourceTrackID: fixture.sourceTrackID,
+                outputTrackName: "Rollback Filter",
+                outputTrackID: "  derived-track  ",
+                filterRequest: AlignmentFilterRequest(mappedOnly: true)
+            )
+        ) { error in
+            XCTAssertEqual(error as? InjectedFilterProvenanceError, .failed)
+        }
+
+        let manifest = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertNil(manifest.alignments.first(where: { $0.id == fixture.derivedTrackID }))
+        for relativePath in [
+            "alignments/filtered/\(fixture.derivedTrackID).bam",
+            "alignments/filtered/\(fixture.derivedTrackID).bam.bai",
+            "alignments/filtered/\(fixture.derivedTrackID).stats.db",
+        ] {
+            XCTAssertFalse(FileManager.default.fileExists(
+                atPath: fixture.bundleURL.appendingPathComponent(relativePath).path
+            ))
+        }
     }
 
     func testRemovalServiceDeletesDerivedTrackArtifactsAndUpdatesManifest() async throws {
@@ -365,11 +578,30 @@ final class BundleAlignmentFilterServiceTests: XCTestCase {
         FileManager.default.createFile(atPath: indexURL.path, contents: Data("bai".utf8))
         return (bamURL, indexURL)
     }
+
+    private func bundleProvenanceRelativePaths(in bundleURL: URL) throws -> [String] {
+        let provenanceURL = bundleURL.appendingPathComponent(
+            ProvenanceWriter.bundleProvenanceDirectoryName,
+            isDirectory: true
+        )
+        guard let enumerator = FileManager.default.enumerator(at: provenanceURL, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        return enumerator.compactMap { item -> String? in
+            guard let url = item as? URL else { return nil }
+            return url.path.replacingOccurrences(of: provenanceURL.path + "/", with: "")
+        }
+    }
+}
+
+private enum InjectedFilterProvenanceError: Error, Equatable {
+    case failed
 }
 
 private struct AlignmentFilterFixture {
     let bundleURL: URL
     let sourceBAMURL: URL
+    let referenceFASTAURL: URL
     let sourceTrackID: String
     let derivedTrackID: String
     let mappingResultURL: URL?
@@ -386,6 +618,13 @@ private struct AlignmentFilterFixture {
         let sourceIndexURL = alignmentsURL.appendingPathComponent("source.bam.bai")
         FileManager.default.createFile(atPath: sourceBAMURL.path, contents: Data("bam".utf8))
         FileManager.default.createFile(atPath: sourceIndexURL.path, contents: Data("bai".utf8))
+        let genomeURL = bundleURL.appendingPathComponent("genome/sequence.fa")
+        try FileManager.default.createDirectory(
+            at: genomeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(">chr1\nACGTACGTACGT\n".utf8).write(to: genomeURL)
+        try Data("chr1\t12\t6\t12\t13\n".utf8).write(to: genomeURL.appendingPathExtension("fai"))
 
         let sourceTrackID = "aln-source"
         let manifest = BundleManifest(
@@ -393,7 +632,14 @@ private struct AlignmentFilterFixture {
             name: "Fixture",
             identifier: "fixture.bundle",
             source: SourceInfo(organism: "Virus", assembly: "Fixture", database: "FixtureDB"),
-            genome: nil,
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 12,
+                chromosomes: [
+                    ChromosomeInfo(name: "chr1", length: 12, offset: 6, lineBases: 12, lineWidth: 13),
+                ]
+            ),
             alignments: [
                 AlignmentTrackInfo(
                     id: sourceTrackID,
@@ -409,6 +655,7 @@ private struct AlignmentFilterFixture {
         return AlignmentFilterFixture(
             bundleURL: bundleURL,
             sourceBAMURL: sourceBAMURL,
+            referenceFASTAURL: genomeURL,
             sourceTrackID: sourceTrackID,
             derivedTrackID: "derived-track",
             mappingResultURL: nil,
@@ -444,6 +691,7 @@ private struct AlignmentFilterFixture {
         fixture = AlignmentFilterFixture(
             bundleURL: fixture.bundleURL,
             sourceBAMURL: fixture.sourceBAMURL,
+            referenceFASTAURL: fixture.referenceFASTAURL,
             sourceTrackID: fixture.sourceTrackID,
             derivedTrackID: fixture.derivedTrackID,
             mappingResultURL: mappingResultURL,
@@ -466,10 +714,12 @@ private struct AlignmentFilterFixture {
 
 private actor RecordingAlignmentSamtoolsRunner: AlignmentSamtoolsRunning {
     private let requiredSAMTags: Set<String>
+    private let version: String
     private(set) var commands: [[String]] = []
 
-    init(requiredSAMTags: Set<String>) {
+    init(requiredSAMTags: Set<String>, version: String = "1.23") {
         self.requiredSAMTags = requiredSAMTags
+        self.version = version
     }
 
     func runSamtools(arguments: [String], timeout: TimeInterval) async throws -> NativeToolResult {
@@ -499,6 +749,10 @@ private actor RecordingAlignmentSamtoolsRunner: AlignmentSamtoolsRunning {
         }
 
         return NativeToolResult(exitCode: 0, stdout: "", stderr: "")
+    }
+
+    func samtoolsVersion() async -> String {
+        version
     }
 
     private static func requiredTag(from arguments: [String]) -> String? {

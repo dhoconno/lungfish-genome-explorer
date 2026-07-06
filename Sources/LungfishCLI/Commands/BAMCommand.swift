@@ -1000,6 +1000,7 @@ extension BAMCommand {
                 AlignmentFilterTarget,
                 String,
                 String,
+                String?,
                 AlignmentFilterRequest
             ) async throws -> BundleAlignmentFilterResult
 
@@ -1007,11 +1008,12 @@ extension BAMCommand {
 
             static func live() -> Runtime {
                 Runtime(
-                    runFilter: { target, sourceTrackID, outputTrackName, request in
+                    runFilter: { target, sourceTrackID, outputTrackName, outputTrackID, request in
                         try await BundleAlignmentFilterService().deriveFilteredAlignment(
                             target: target,
                             sourceTrackID: sourceTrackID,
                             outputTrackName: outputTrackName,
+                            outputTrackID: outputTrackID,
                             filterRequest: request
                         )
                     }
@@ -1030,6 +1032,9 @@ extension BAMCommand {
 
         @Option(name: .customLong("output-track-name"), help: "Display name for the derived alignment track")
         var outputTrackName: String
+
+        @Option(name: .customLong("output-track-id"), help: "Alignment track ID. Defaults to a generated portable ID.")
+        var outputTrackID: String?
 
         @Flag(name: .customLong("mapped-only"), help: "Exclude unmapped reads from the derived BAM")
         var mappedOnly: Bool = false
@@ -1075,6 +1080,11 @@ extension BAMCommand {
 
             if trimmedValue(outputTrackName).isEmpty {
                 throw ValidationError("--output-track-name must not be empty.")
+            }
+
+            if let outputTrackID = normalizedOutputTrackID(),
+               !isPortableAnnotationTrackID(outputTrackID) {
+                throw ValidationError("--output-track-id may only contain letters, numbers, underscores, and hyphens.")
             }
 
             let targetCount = [bundlePath, mappingResultPath].compactMap { $0 }.count
@@ -1182,6 +1192,7 @@ extension BAMCommand {
                     target,
                     alignmentTrackID,
                     normalizedOutputTrackName(),
+                    normalizedOutputTrackID(),
                     request
                 )
                 emitEvent(makeRunCompleteEvent(from: result))
@@ -1249,6 +1260,10 @@ extension BAMCommand {
 
         private func normalizedOutputTrackName() -> String {
             trimmedValue(outputTrackName)
+        }
+
+        private func normalizedOutputTrackID() -> String? {
+            trimmedOptionalTrackID(outputTrackID)
         }
 
         private func trimmedValue(_ value: String) -> String {

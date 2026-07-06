@@ -10,6 +10,7 @@ final class BAMFilterCommandTests: XCTestCase {
             "--bundle", "/tmp/Test.lungfishref",
             "--alignment-track", "aln-1",
             "--output-track-name", "Exact Match Reads",
+            "--output-track-id", "aln_exact",
             "--mapped-only",
             "--primary-only",
             "--min-mapq", "30",
@@ -19,10 +20,11 @@ final class BAMFilterCommandTests: XCTestCase {
         ])
 
         let runtime = BAMCommand.FilterSubcommand.Runtime(
-            runFilter: { target, sourceTrackID, outputTrackName, request in
+            runFilter: { target, sourceTrackID, outputTrackName, outputTrackID, request in
                 XCTAssertEqual(target, .bundle(URL(fileURLWithPath: "/tmp/Test.lungfishref")))
                 XCTAssertEqual(sourceTrackID, "aln-1")
                 XCTAssertEqual(outputTrackName, "Exact Match Reads")
+                XCTAssertEqual(outputTrackID, "aln_exact")
                 XCTAssertEqual(
                     request,
                     AlignmentFilterRequest(
@@ -81,10 +83,11 @@ final class BAMFilterCommandTests: XCTestCase {
         ])
 
         let runtime = BAMCommand.FilterSubcommand.Runtime(
-            runFilter: { target, sourceTrackID, outputTrackName, request in
+            runFilter: { target, sourceTrackID, outputTrackName, outputTrackID, request in
                 XCTAssertEqual(target, .mappingResult(URL(fileURLWithPath: "/tmp/Run")))
                 XCTAssertEqual(sourceTrackID, "aln-2")
                 XCTAssertEqual(outputTrackName, "Identity >= 99")
+                XCTAssertNil(outputTrackID)
                 XCTAssertEqual(
                     request,
                     AlignmentFilterRequest(

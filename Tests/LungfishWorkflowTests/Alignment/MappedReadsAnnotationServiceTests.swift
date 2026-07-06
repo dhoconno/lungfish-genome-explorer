@@ -75,6 +75,23 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
         XCTAssertEqual(provenance.workflowName, "lungfish bam annotate")
         XCTAssertEqual(provenance.toolName, "lungfish bam annotate")
         XCTAssertEqual(
+            provenance.durableReplayArgv,
+            [
+                CLICommandIdentity.executableName,
+                "bam",
+                "annotate",
+                "--bundle",
+                fixture.bundleURL.path,
+                "--alignment-track",
+                fixture.sourceTrackID,
+                "--output-track-name",
+                "Mapped Reads",
+                "--output-track-id",
+                "ann-mapped",
+                "--primary-only",
+            ]
+        )
+        XCTAssertEqual(
             provenance.argv,
             [
                 CLICommandIdentity.executableName,
@@ -115,8 +132,10 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
         })
         let samtoolsStep = try XCTUnwrap(provenance.steps.first)
         XCTAssertEqual(samtoolsStep.toolName, "samtools")
+        XCTAssertEqual(samtoolsStep.toolVersion, "1.23")
         XCTAssertEqual(samtoolsStep.argv, ["samtools", "view", "-h", fixture.sourceBAMURL.path])
         XCTAssertEqual(samtoolsStep.exitStatus, 0)
+        XCTAssertNotNil(samtoolsStep.wallTimeSeconds)
 
         let databaseSidecarURL = try XCTUnwrap(ProvenanceWriter.bundleOutputSidecarURL(
             for: databaseURL,
@@ -182,6 +201,50 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
         XCTAssertEqual(attributes["qualities"], "ABCD")
     }
 
+    func testConvertMappedReadsRollsBackPublishedArtifactsWhenProvenanceFails() async throws {
+        let fixture = try MappedReadsAnnotationFixture.make(rootURL: tempDir)
+        let originalRootProvenance = Data("{\"workflowName\":\"existing\"}".utf8)
+        let rootProvenanceURL = fixture.bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        try originalRootProvenance.write(to: rootProvenanceURL)
+        let existingSidecarURL = fixture.bundleURL
+            .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .appendingPathComponent("existing.lungfish-provenance.json")
+        try FileManager.default.createDirectory(
+            at: existingSidecarURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("existing sidecar".utf8).write(to: existingSidecarURL)
+
+        let runner = RecordingMappedReadsSamtoolsRunner(stdout: """
+        read-1\t0\tchr1\t101\t60\t4M\t*\t0\t0\tACGT\tABCD\tNM:i:0
+        """)
+        let service = MappedReadsAnnotationService(
+            samtoolsRunner: runner,
+            trackIDProvider: { _ in "ann-rollback" },
+            provenancePublisher: { _ in throw InjectedProvenanceError.failed }
+        )
+
+        await XCTAssertThrowsErrorAsync(
+            try await service.convertMappedReads(
+                request: MappedReadsAnnotationRequest(
+                    bundleURL: fixture.bundleURL,
+                    sourceTrackID: fixture.sourceTrackID,
+                    outputTrackName: "Rollback"
+                )
+            )
+        ) { error in
+            XCTAssertEqual(error as? InjectedProvenanceError, .failed)
+        }
+
+        let manifest = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertTrue(manifest.annotations.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.bundleURL.appendingPathComponent("annotations/ann-rollback.db").path
+        ))
+        XCTAssertEqual(try Data(contentsOf: rootProvenanceURL), originalRootProvenance)
+        XCTAssertEqual(try Data(contentsOf: existingSidecarURL), Data("existing sidecar".utf8))
+    }
+
     func testConvertMappedReadsRejectsExistingOutputUnlessReplacing() async throws {
         let fixture = try MappedReadsAnnotationFixture.make(rootURL: tempDir)
         let existingTrack = AnnotationTrackInfo(
@@ -234,6 +297,21 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
 
     func testConvertBestMappedReadsKeepsLowestNMPerOverlappingIntervalInCopiedBundle() async throws {
         let fixture = try MappedReadsAnnotationFixture.make(rootURL: tempDir)
+        let staleSourceProvenanceURL = fixture.bundleURL
+            .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .appendingPathComponent("alignments", isDirectory: true)
+            .appendingPathComponent("source.bam.lungfish-provenance.json")
+        try FileManager.default.createDirectory(
+            at: staleSourceProvenanceURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("stale copied source provenance".utf8).write(to: staleSourceProvenanceURL)
+        let staleRootProvenanceURL = fixture.bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        try Data("{\"workflowName\":\"stale\"}".utf8).write(to: staleRootProvenanceURL)
+        let staleRootSignatureURL = ProvenanceSigningConfiguration.signatureURL(for: staleRootProvenanceURL)
+        let staleRootPublicKeyURL = ProvenanceSigningConfiguration.publicKeyURL(for: staleRootProvenanceURL)
+        try Data("stale signature".utf8).write(to: staleRootSignatureURL)
+        try Data("stale public key".utf8).write(to: staleRootPublicKeyURL)
         let mappingDirectory = tempDir.appendingPathComponent("mapping", isDirectory: true)
         try FileManager.default.createDirectory(at: mappingDirectory, withIntermediateDirectories: true)
         let bamURL = mappingDirectory.appendingPathComponent("miseq.sorted.bam")
@@ -355,6 +433,67 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
         let databaseEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: databaseSidecarURL))
         XCTAssertEqual(databaseEnvelope.output?.path, databaseURL.path)
         XCTAssertEqual(databaseEnvelope.outputs.map(\.path), [databaseURL.path])
+        let inheritedStaleSidecar = outputBundleURL
+            .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .appendingPathComponent("alignments", isDirectory: true)
+            .appendingPathComponent("source.bam.lungfish-provenance.json")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: inheritedStaleSidecar.path))
+        let inheritedRootSignatureURL = ProvenanceSigningConfiguration.signatureURL(
+            for: outputBundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        )
+        let inheritedRootPublicKeyURL = ProvenanceSigningConfiguration.publicKeyURL(
+            for: outputBundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: inheritedRootSignatureURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: inheritedRootPublicKeyURL.path))
+    }
+
+    func testConvertBestMappedReadsRemovesCopiedOutputBundleWhenProvenanceFails() async throws {
+        let fixture = try MappedReadsAnnotationFixture.make(rootURL: tempDir)
+        let mappingDirectory = tempDir.appendingPathComponent("rollback-mapping", isDirectory: true)
+        try FileManager.default.createDirectory(at: mappingDirectory, withIntermediateDirectories: true)
+        let bamURL = mappingDirectory.appendingPathComponent("miseq.sorted.bam")
+        let baiURL = mappingDirectory.appendingPathComponent("miseq.sorted.bam.bai")
+        FileManager.default.createFile(atPath: bamURL.path, contents: Data("bam".utf8))
+        FileManager.default.createFile(atPath: baiURL.path, contents: Data("bai".utf8))
+        try MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            bamURL: bamURL,
+            baiURL: baiURL,
+            totalReads: 1,
+            mappedReads: 1,
+            unmappedReads: 0,
+            wallClockSeconds: 1.0,
+            contigs: []
+        ).save(to: mappingDirectory)
+
+        let runner = RecordingMappedReadsSamtoolsRunner(stdout: """
+        read-1\t0\tchr1\t101\t60\t4M\t*\t0\t0\tACGT\tABCD\tNM:i:0
+        """)
+        let service = BestMappedReadsAnnotationService(
+            samtoolsRunner: runner,
+            trackIDProvider: { _ in "ann-best-rollback" },
+            provenancePublisher: { _ in throw InjectedProvenanceError.failed }
+        )
+        let outputBundleURL = tempDir.appendingPathComponent("RollbackBest.lungfishref", isDirectory: true)
+
+        await XCTAssertThrowsErrorAsync(
+            try await service.convertBestMappedReads(
+                request: BestMappedReadsAnnotationRequest(
+                    sourceBundleURL: fixture.bundleURL,
+                    mappingResultURL: mappingDirectory,
+                    outputBundleURL: outputBundleURL,
+                    outputTrackName: "Rollback Best"
+                )
+            )
+        ) { error in
+            XCTAssertEqual(error as? InjectedProvenanceError, .failed)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputBundleURL.path))
+        let sourceManifest = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertTrue(sourceManifest.annotations.isEmpty)
     }
 
     func testConvertBestCDSCreatesGeneAndCDSRowsFromSplicedModels() async throws {
@@ -486,6 +625,23 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
         XCTAssertEqual(databaseEnvelope.outputs.map(\.path), [databaseURL.path])
     }
 
+    func testCDSBestDefaultsExcludeSecondaryAndSupplementaryAlignments() {
+        let request = CDSBestAnnotationRequest(
+            sourceBundleURL: URL(fileURLWithPath: "/tmp/source.lungfishref"),
+            mappingResultURL: URL(fileURLWithPath: "/tmp/mapping"),
+            outputBundleURL: URL(fileURLWithPath: "/tmp/output.lungfishref"),
+            outputTrackName: "CDS"
+        )
+
+        XCTAssertFalse(request.includeSecondary)
+        XCTAssertFalse(request.includeSupplementary)
+        XCTAssertEqual(request.minimumQueryCoverage, 0.5)
+    }
+
+}
+
+private enum InjectedProvenanceError: Error, Equatable {
+    case failed
 }
 
 private struct MappedReadsAnnotationFixture {
@@ -540,15 +696,21 @@ private struct MappedReadsAnnotationFixture {
 
 private actor RecordingMappedReadsSamtoolsRunner: AlignmentSamtoolsRunning {
     private let stdout: String
+    private let version: String
     private(set) var commands: [[String]] = []
 
-    init(stdout: String) {
+    init(stdout: String, version: String = "1.23") {
         self.stdout = stdout
+        self.version = version
     }
 
     func runSamtools(arguments: [String], timeout: TimeInterval) async throws -> NativeToolResult {
         commands.append(arguments)
         return NativeToolResult(exitCode: 0, stdout: stdout, stderr: "")
+    }
+
+    func samtoolsVersion() async -> String {
+        version
     }
 }
 

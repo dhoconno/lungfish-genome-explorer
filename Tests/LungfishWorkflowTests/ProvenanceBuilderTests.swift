@@ -84,6 +84,48 @@ struct ProvenanceBuilderTests {
         #expect(verification.isValid)
     }
 
+    @Test("Unsigned writer removes stale signature artifacts when replacing unsigned provenance")
+    func unsignedWriterRemovesStaleSignatureArtifacts() throws {
+        let workingDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: workingDirectory) }
+        let inputURL = workingDirectory.appendingPathComponent("reads.fastq")
+        let outputURL = workingDirectory.appendingPathComponent("trimmed.fastq")
+        try Data("@read\nACGT\n+\n!!!!\n".utf8).write(to: inputURL, options: .atomic)
+        try Data("@read\nACG\n+\n!!!\n".utf8).write(to: outputURL, options: .atomic)
+
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "fastq.trim.fastp",
+            workflowVersion: "2026.05",
+            toolName: "fastp",
+            toolVersion: "0.24.1"
+        )
+        .argv(["fastp", "-i", inputURL.path, "-o", outputURL.path])
+        .input(inputURL, format: .fastq, role: .input)
+        .output(outputURL, format: .fastq, role: .output)
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11)
+        )
+
+        let signedURL = try ProvenanceWriter(
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "stale-signature-key")
+        ).write(envelope, to: workingDirectory)
+        let signatureURL = ProvenanceSigningConfiguration.signatureURL(for: signedURL)
+        let publicKeyURL = ProvenanceSigningConfiguration.publicKeyURL(for: signedURL)
+        #expect(FileManager.default.fileExists(atPath: signatureURL.path))
+        #expect(FileManager.default.fileExists(atPath: publicKeyURL.path))
+
+        let unsignedURL = try ProvenanceWriter(signingProvider: nil).write(envelope, to: workingDirectory)
+
+        #expect(unsignedURL == signedURL)
+        #expect(!FileManager.default.fileExists(atPath: signatureURL.path))
+        #expect(!FileManager.default.fileExists(atPath: publicKeyURL.path))
+        let decoded = try ProvenanceEnvelopeReader.decode(try Data(contentsOf: unsignedURL))
+        #expect(decoded.signatures.isEmpty)
+    }
+
     @Test("Successful scientific output without argv is rejected")
     func successfulOutputWithoutArgvIsRejected() throws {
         let workingDirectory = try makeTempDirectory()

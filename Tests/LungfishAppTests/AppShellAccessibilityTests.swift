@@ -1,4 +1,5 @@
 import AppKit
+import LungfishCore
 import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
@@ -99,7 +100,7 @@ final class AppShellAccessibilityTests: XCTestCase {
         )
 
         XCTAssertEqual(argv, [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "provenance",
             "export",
             sourceURL.path,

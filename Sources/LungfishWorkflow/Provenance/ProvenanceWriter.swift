@@ -69,6 +69,9 @@ public struct ProvenanceWriter: Sendable {
         try writeUnsigned(envelope, toSidecar: provenanceURL)
 
         guard let signingProvider else {
+            if envelope.signatures.isEmpty {
+                try removeSigningArtifacts(for: provenanceURL)
+            }
             return provenanceURL
         }
 
@@ -183,6 +186,16 @@ public struct ProvenanceWriter: Sendable {
     private func writeUnsigned(_ envelope: ProvenanceEnvelope, toSidecar provenanceURL: URL) throws {
         let data = try ProvenanceJSON.encoder.encode(envelope)
         try data.write(to: provenanceURL, options: .atomic)
+    }
+
+    private func removeSigningArtifacts(for provenanceURL: URL) throws {
+        let fileManager = FileManager.default
+        for artifactURL in [
+            ProvenanceSigningConfiguration.signatureURL(for: provenanceURL),
+            ProvenanceSigningConfiguration.publicKeyURL(for: provenanceURL),
+        ] where fileManager.fileExists(atPath: artifactURL.path) {
+            try fileManager.removeItem(at: artifactURL)
+        }
     }
 
     private func validateStableArtifact(
