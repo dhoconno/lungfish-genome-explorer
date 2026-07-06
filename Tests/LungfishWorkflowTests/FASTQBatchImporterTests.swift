@@ -830,7 +830,25 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(step.command, ["fastp", "--in1", inputURL.path, "--label", "sample one"])
     }
 
+    func testPublishFASTQBundleUsesFoundationReplacementForExistingBundle() throws {
+        let source = try String(contentsOf: fastqBatchImporterSourceURL(), encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "static func publishFASTQBundle"))
+        let end = try XCTUnwrap(source.range(of: "\n    // MARK: - Structured Logging", range: start.upperBound..<source.endIndex))
+        let method = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertTrue(method.contains("replaceItemAt"))
+        XCTAssertFalse(method.contains("moveItem(at: publishedBundleURL, to:"))
+    }
+
     // MARK: - Helpers
+
+    private func fastqBatchImporterSourceURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift")
+    }
 
     @discardableResult
     private func makeCompleteImportedFASTQBundle(projectURL: URL, sampleName: String) throws -> URL {

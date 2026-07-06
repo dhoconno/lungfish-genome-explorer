@@ -478,10 +478,8 @@ public enum FASTQBatchImporter {
         return parentURL.appendingPathComponent(stagingName, isDirectory: true)
     }
 
-    private static func makeReplacementBackupURL(for publishedBundleURL: URL) throws -> URL {
-        let parentURL = publishedBundleURL.deletingLastPathComponent()
-        let backupName = ".\(publishedBundleURL.lastPathComponent).replacing-\(UUID().uuidString)"
-        return parentURL.appendingPathComponent(backupName, isDirectory: true)
+    private static func replacementBackupName(for publishedBundleURL: URL) -> String {
+        ".\(publishedBundleURL.lastPathComponent).replacing-\(UUID().uuidString)"
     }
 
     private static func publishFASTQBundle(
@@ -490,30 +488,26 @@ public enum FASTQBatchImporter {
         replaceExisting: Bool
     ) throws {
         let fileManager = FileManager.default
-        var backupURL: URL?
 
         if fileManager.fileExists(atPath: publishedBundleURL.path) {
             guard replaceExisting else {
                 throw BatchImportError.outputBundleAlreadyExists(publishedBundleURL)
             }
-            let replacementBackupURL = try makeReplacementBackupURL(for: publishedBundleURL)
-            try fileManager.moveItem(at: publishedBundleURL, to: replacementBackupURL)
-            backupURL = replacementBackupURL
+            let backupName = replacementBackupName(for: publishedBundleURL)
+            _ = try fileManager.replaceItemAt(
+                publishedBundleURL,
+                withItemAt: stagingBundleURL,
+                backupItemName: backupName,
+                options: []
+            )
+            let backupURL = publishedBundleURL
+                .deletingLastPathComponent()
+                .appendingPathComponent(backupName, isDirectory: true)
+            try? fileManager.removeItem(at: backupURL)
+            return
         }
 
-        do {
-            try fileManager.moveItem(at: stagingBundleURL, to: publishedBundleURL)
-            if let backupURL {
-                try? fileManager.removeItem(at: backupURL)
-            }
-        } catch {
-            if let backupURL,
-               !fileManager.fileExists(atPath: publishedBundleURL.path),
-               fileManager.fileExists(atPath: backupURL.path) {
-                try? fileManager.moveItem(at: backupURL, to: publishedBundleURL)
-            }
-            throw error
-        }
+        try fileManager.moveItem(at: stagingBundleURL, to: publishedBundleURL)
     }
 
     // MARK: - Structured Logging
