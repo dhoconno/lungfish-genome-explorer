@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Run the local 2AM alpha release coordinator with the signing defaults used by
+# Run the local 2AM beta prerelease coordinator with the signing defaults used by
 # the Lungfish release Mac. The Sparkle private EdDSA key is expected in the
 # login Keychain unless --sparkle-ed-key-file is supplied.
 
@@ -17,5 +17,5 @@ exec /usr/bin/env python3 "${SCRIPT_DIR}/nightly_alpha_release.py" \
   --notary-profile "LungfishNotary" \
   --signing-identity "Developer ID Application: Pathogenuity LLC (29G3WN2GSA)" \
   --sparkle-generate-appcast "${PROJECT_ROOT}/.build/artifacts/sparkle/Sparkle/bin/generate_appcast" \
-  --sparkle-publish-release "sparkle-alpha" \
+  --sparkle-publish-release "sparkle-beta" \
   "$@"

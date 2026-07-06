@@ -33,7 +33,8 @@ AGENT_BRANCH_PREFIXES = ("codex/", "claude/")
 CLAUDE_WORKTREE_PREFIX = "worktree-"
 PROTECTED_BRANCHES = {"main", "master", "develop", "development"}
 DEFAULT_TEST_COMMAND = "swift test"
-DEFAULT_SPARKLE_RELEASE = "sparkle-alpha"
+DEFAULT_SPARKLE_RELEASE = "sparkle-beta"
+PRERELEASE_PATTERN = re.compile(r"(.+)-(alpha|beta)(\d+)")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -73,12 +74,20 @@ def is_agent_worktree_path(path: Path, root: Path) -> bool:
     return len(parts) >= 3 and parts[0] == ".claude" and parts[1] == "worktrees"
 
 
-def next_alpha_version(current_version: str, tags: list[str]) -> str:
-    match = re.fullmatch(r"(.+-alpha)(\d+)", current_version)
+def parse_prerelease_version(current_version: str, expected_channel: str | None = None) -> tuple[str, str, int]:
+    match = PRERELEASE_PATTERN.fullmatch(current_version)
     if not match:
-        raise NightlyReleaseError(f"current version is not an alpha version: {current_version}")
-    prefix, current_number = match.groups()
-    highest = int(current_number)
+        raise NightlyReleaseError(f"current version is not a prerelease version: {current_version}")
+    base, channel, number = match.groups()
+    if expected_channel is not None and channel != expected_channel:
+        raise NightlyReleaseError(f"current version is not an {expected_channel} version: {current_version}")
+    return base, channel, int(number)
+
+
+def next_prerelease_version(current_version: str, tags: list[str]) -> str:
+    base, channel, current_number = parse_prerelease_version(current_version)
+    prefix = f"{base}-{channel}"
+    highest = current_number
     tag_pattern = re.compile(rf"^v{re.escape(prefix)}(\d+)$")
     for tag in tags:
         tag_match = tag_pattern.fullmatch(tag)
@@ -87,12 +96,14 @@ def next_alpha_version(current_version: str, tags: list[str]) -> str:
     return f"{prefix}{highest + 1}"
 
 
-def previous_alpha_tag(current_version: str, tags: list[str]) -> str:
-    match = re.fullmatch(r"(.+-alpha)(\d+)", current_version)
-    if not match:
-        raise NightlyReleaseError(f"current version is not an alpha version: {current_version}")
-    prefix, current_number = match.groups()
-    current_number = int(current_number)
+def next_alpha_version(current_version: str, tags: list[str]) -> str:
+    parse_prerelease_version(current_version, expected_channel="alpha")
+    return next_prerelease_version(current_version, tags)
+
+
+def previous_prerelease_tag(current_version: str, tags: list[str]) -> str:
+    base, channel, current_number = parse_prerelease_version(current_version)
+    prefix = f"{base}-{channel}"
     exact_tag = f"v{current_version}"
     if exact_tag in tags:
         return exact_tag
@@ -104,8 +115,13 @@ def previous_alpha_tag(current_version: str, tags: list[str]) -> str:
         if (tag_match := tag_pattern.fullmatch(tag)) and int(tag_match.group(1)) < current_number
     )
     if not prior_numbers:
-        raise NightlyReleaseError(f"no previous alpha tag found for {current_version}")
+        raise NightlyReleaseError(f"no previous {channel} tag found for {current_version}")
     return f"v{prefix}{prior_numbers[-1]}"
+
+
+def previous_alpha_tag(current_version: str, tags: list[str]) -> str:
+    parse_prerelease_version(current_version, expected_channel="alpha")
+    return previous_prerelease_tag(current_version, tags)
 
 
 def update_versioned_files(root: Path, old_version: str, new_version: str) -> list[str]:
@@ -190,7 +206,7 @@ def ensure_rescue_root_is_ignored(root: Path, rescue_root: Path) -> None:
 
 
 def create_lock(root: Path) -> Path:
-    lock_path = root / ".build" / "nightly-alpha-release.lock"
+    lock_path = root / ".build" / "nightly-prerelease-release.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         lock_path.mkdir()
@@ -374,7 +390,7 @@ def commit_dirty_worktrees(candidates: list[BranchCandidate]) -> None:
         if status.strip():
             run(["git", "add", "-A"], cwd=candidate.worktree_path)
             run(
-                ["git", "commit", "-m", f"chore(nightly): capture {candidate.name} work before alpha release"],
+                ["git", "commit", "-m", f"chore(nightly): capture {candidate.name} work before prerelease"],
                 cwd=candidate.worktree_path,
             )
 
@@ -416,11 +432,11 @@ def write_release_notes(root: Path, old_version: str, new_version: str, previous
 
 Previous release: v{old_version}
 
-## Nightly Alpha Release
+## Nightly Prerelease Release
 
-This automated nightly alpha release integrates Codex and Claude agent worktrees
+This automated nightly prerelease integrates Codex and Claude agent worktrees
 into `main`, publishes a notarized Apple Silicon DMG, and updates the Sparkle
-alpha appcast for testers.
+prerelease appcast for testers.
 
 ## Included Commits
 
@@ -542,7 +558,7 @@ def cleanup_agent_refs(root: Path, remote: str, candidates: list[BranchCandidate
 
 
 def print_summary(metadata: dict[str, str], release_tag: str, rescue_dir: Path) -> None:
-    print("Nightly alpha release complete:")
+    print("Nightly prerelease complete:")
     print(f"  Release: {release_tag}")
     print(f"  GitHub: {metadata.get('github_release', '')}")
     print(f"  Sparkle: {metadata.get('sparkle_release', '')}")
@@ -552,7 +568,7 @@ def print_summary(metadata: dict[str, str], release_tag: str, rescue_dir: Path) 
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Merge agent worktrees and publish a nightly Lungfish alpha release.")
+    parser = argparse.ArgumentParser(description="Merge agent worktrees and publish a nightly Lungfish prerelease.")
     parser.add_argument("--repo", type=Path, default=PROJECT_ROOT)
     parser.add_argument("--main-branch", default="main")
     parser.add_argument("--remote", default="origin")
@@ -585,7 +601,7 @@ def main(argv: list[str]) -> int:
 
         old_version = current_version(root)
         tags = git_output(root, "tag", "--list").splitlines()
-        new_version = next_alpha_version(old_version, tags)
+        new_version = next_prerelease_version(old_version, tags)
         release_tag = f"v{new_version}"
         if release_tag in tags:
             raise NightlyReleaseError(f"release tag already exists: {release_tag}")
@@ -596,7 +612,7 @@ def main(argv: list[str]) -> int:
 
         commit_dirty_worktrees(candidates)
         merge_agent_branches(root, candidates)
-        prepare_release_commit(root, release_tag, old_version, new_version, previous_alpha_tag(old_version, tags))
+        prepare_release_commit(root, release_tag, old_version, new_version, previous_prerelease_tag(old_version, tags))
         run_tests(root, args.test_command)
         git(root, "tag", "-a", release_tag, "-m", f"Lungfish {release_tag}")
         build_release(root, args, release_tag)
@@ -608,7 +624,7 @@ def main(argv: list[str]) -> int:
         print_summary(metadata, release_tag, rescue_dir)
         return 0
     except (NightlyReleaseError, subprocess.CalledProcessError) as exc:
-        print(f"nightly alpha release failed: {exc}", file=sys.stderr)
+        print(f"nightly prerelease failed: {exc}", file=sys.stderr)
         return 1
     finally:
         if lock_path is not None and lock_path.exists():

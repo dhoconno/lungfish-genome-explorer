@@ -65,6 +65,19 @@ class NightlyAlphaReleaseTests(unittest.TestCase):
             "0.5.0-alpha14",
         )
 
+    def test_next_prerelease_version_increments_beta_series_without_mixing_alpha_tags(self):
+        tags = [
+            "v0.5.0-alpha99",
+            "v0.5.0-beta1",
+            "v0.5.0-beta3",
+            "v0.6.0-beta1",
+        ]
+
+        self.assertEqual(
+            self.release.next_prerelease_version("0.5.0-beta1", tags),
+            "0.5.0-beta4",
+        )
+
     def test_previous_alpha_tag_falls_back_to_latest_existing_tag_when_current_version_is_untagged(self):
         tags = [
             "v0.4.0-alpha16",
@@ -77,6 +90,22 @@ class NightlyAlphaReleaseTests(unittest.TestCase):
             self.release.previous_alpha_tag("0.5.0-alpha14", tags),
             "v0.5.0-alpha13",
         )
+
+    def test_previous_prerelease_tag_falls_back_to_matching_beta_channel(self):
+        tags = [
+            "v0.5.0-alpha99",
+            "v0.5.0-beta1",
+            "v0.5.0-beta3",
+            "v0.6.0-beta1",
+        ]
+
+        self.assertEqual(
+            self.release.previous_prerelease_tag("0.5.0-beta4", tags),
+            "v0.5.0-beta3",
+        )
+
+    def test_default_sparkle_release_targets_beta_channel(self):
+        self.assertEqual(self.release.DEFAULT_SPARKLE_RELEASE, "sparkle-beta")
 
     def test_write_release_notes_preserves_existing_release_note_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -97,7 +126,7 @@ Codex-authored narrative summary.
             with mock.patch.object(
                 self.release,
                 "git_output",
-                return_value="cea1549e fix: unblock nightly alpha release reruns\n",
+                return_value="cea1549e fix: unblock nightly prerelease reruns\n",
             ):
                 notes_path = self.release.write_release_notes(
                     root=root,
@@ -182,7 +211,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
 
             def fake_git_output(_root, *args):
                 if args == ("tag", "--list"):
-                    return "v0.5.0-alpha34\n"
+                    return "v0.5.0-beta1\n"
                 return ""
 
             def fake_create_lock(_root):
@@ -195,7 +224,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                 mock.patch.object(self.release, "ensure_clean_main", record("ensure_clean_main")), \
                 mock.patch.object(self.release, "git", fake_git), \
                 mock.patch.object(self.release, "git_output", fake_git_output), \
-                mock.patch.object(self.release, "current_version", return_value="0.5.0-alpha34"), \
+                mock.patch.object(self.release, "current_version", return_value="0.5.0-beta1"), \
                 mock.patch.object(self.release, "discover_agent_branches", return_value=[]), \
                 mock.patch.object(self.release, "create_rescue_dir", return_value=rescue_root), \
                 mock.patch.object(self.release, "write_rescue_archive", record("write_rescue_archive")), \
