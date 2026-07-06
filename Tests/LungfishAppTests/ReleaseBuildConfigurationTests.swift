@@ -536,6 +536,11 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("version summary still references retired tool"))
         #expect(script.contains("bcftools \\\n    tabix \\\n    htslib"))
         #expect(script.contains("run_test micromamba "))
+        #expect(script.contains(#"CLI_BIN="$APP_PATH/Contents/MacOS/lungfish-cli""#))
+        #expect(script.contains("run_test lungfish-cli-version "))
+        #expect(script.contains("run_test lungfish-cli-tools "))
+        #expect(script.contains("run_test lungfish-cli-qc-summary "))
+        #expect(script.contains(#"$QC_OUTPUT.lungfish-provenance.json"#))
         #expect(script.contains("run_test samtools ") == false)
         #expect(script.contains("run_test seqkit ") == false)
     }
