@@ -23,6 +23,28 @@ final class AppUITestConfigurationTests: XCTestCase {
         XCTAssertNil(config.scenarioName)
     }
 
+    func testDisallowedBuildIgnoresUITestFlagsAndEnvironment() {
+        let config = AppUITestConfiguration(
+            arguments: ["Lungfish", "--ui-test-mode"],
+            environment: [
+                "LUNGFISH_UI_TEST_MODE": "1",
+                "LUNGFISH_UI_TEST_SCENARIO": "operations-failed-operation",
+                "LUNGFISH_UI_TEST_FIXTURE_ROOT": "/tmp/Fixtures",
+                "LUNGFISH_UI_TEST_PROJECT_PATH": "projects/Fixture.lungfish",
+                "LUNGFISH_UI_TEST_EVENT_LOG_PATH": "logs/ui-test-events.log",
+                "LUNGFISH_UI_TEST_BACKEND_MODE": "deterministic",
+            ],
+            allowsUITestMode: false
+        )
+
+        XCTAssertFalse(config.isEnabled)
+        XCTAssertNil(config.scenarioName)
+        XCTAssertNil(config.fixtureRootPath)
+        XCTAssertNil(config.projectPath)
+        XCTAssertNil(config.eventLogPath)
+        XCTAssertEqual(config.backendMode, .liveSmoke)
+    }
+
     func testNormalLaunchLeavesUITestModeDisabled() {
         let config = AppUITestConfiguration(
             arguments: ["Lungfish"],
