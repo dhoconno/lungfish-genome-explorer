@@ -580,6 +580,7 @@ sign_sparkle_framework "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
     --options runtime \
     --timestamp \
+    --entitlements "${PROJECT_ROOT}/lungfish-cli.entitlements" \
     --generate-entitlement-der \
     "$APP_PATH"
 

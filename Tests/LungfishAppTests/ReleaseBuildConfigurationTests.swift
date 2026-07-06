@@ -597,6 +597,24 @@ struct ReleaseBuildConfigurationTests {
         #expect(installIndex < dmgStageIndex)
     }
 
+    @Test("Notarized DMG release script signs outer app with app entitlements")
+    func notarizedDMGReleaseScriptSignsOuterAppWithAppEntitlements() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            encoding: .utf8
+        )
+
+        guard let appSigningBlock = Self.commandBlock(containing: #""$APP_PATH""#, in: script) else {
+            Issue.record("expected outer app codesign block in release script")
+            return
+        }
+
+        #expect(appSigningBlock.contains(#"--entitlements "${PROJECT_ROOT}/lungfish-cli.entitlements""#))
+        #expect(appSigningBlock.contains("--generate-entitlement-der"))
+        #expect(appSigningBlock.contains(#""$APP_PATH""#))
+    }
+
     @Test("Shared Info.plist declares Lungfish workflow bundle type")
     func sharedInfoPlistDeclaresWorkflowBundleType() throws {
         // The document-type and exported-UTI declarations live in the single
@@ -1105,6 +1123,33 @@ struct ReleaseBuildConfigurationTests {
         }
 
         return String(project[markerRange.lowerBound..<blockEnd.upperBound])
+    }
+
+    private static func commandBlock(containing marker: String, in script: String) -> String? {
+        let lines = script.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var index = lines.startIndex
+        while index < lines.endIndex {
+            let line = lines[index]
+            guard line.contains("/usr/bin/codesign ") else {
+                index = lines.index(after: index)
+                continue
+            }
+
+            var block = [line]
+            var cursor = index
+            while lines[cursor].trimmingCharacters(in: .whitespaces).hasSuffix("\\") {
+                cursor = lines.index(after: cursor)
+                guard cursor < lines.endIndex else { break }
+                block.append(lines[cursor])
+            }
+
+            let joined = block.joined(separator: "\n")
+            if joined.contains(marker) {
+                return joined
+            }
+            index = lines.index(after: cursor)
+        }
+        return nil
     }
 
     private static func makeExecutable(_ url: URL) throws {
