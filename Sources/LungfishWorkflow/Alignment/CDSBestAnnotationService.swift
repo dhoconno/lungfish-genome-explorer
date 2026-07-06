@@ -29,6 +29,7 @@ public final class CDSBestAnnotationService: @unchecked Sendable {
         request: CDSBestAnnotationRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> CDSBestAnnotationResult {
+        let workflowStartedAt = Date()
         let sourceBundleURL = request.sourceBundleURL.standardizedFileURL
         let outputBundleURL = request.outputBundleURL.standardizedFileURL
         guard sourceBundleURL.path != outputBundleURL.path else {
@@ -49,8 +50,9 @@ public final class CDSBestAnnotationService: @unchecked Sendable {
         try prepareOutputBundle(sourceBundleURL: sourceBundleURL, outputBundleURL: outputBundleURL, replace: request.replaceExisting)
 
         progressHandler?(0.25, "Reading mapped CDS alignments...")
+        let viewArguments = ["view", "-h", mappingResult.bamURL.path]
         let samtoolsResult = try await samtoolsRunner.runSamtools(
-            arguments: ["view", "-h", mappingResult.bamURL.path],
+            arguments: viewArguments,
             timeout: samtoolsTimeout(for: mappingResult.bamURL.path)
         )
         guard samtoolsResult.isSuccess else {
@@ -130,6 +132,19 @@ public final class CDSBestAnnotationService: @unchecked Sendable {
         } catch {
             throw CDSBestAnnotationServiceError.manifestWriteFailed(error.localizedDescription)
         }
+        try MappedReadsAnnotationProvenanceWriter.writeCDSBest(
+            request: request,
+            sourceBundleURL: sourceBundleURL,
+            outputBundleURL: outputBundleURL,
+            mappingResult: mappingResult,
+            outputTrackID: outputTrackID,
+            outputTrackName: outputTrackName,
+            relativeDatabasePath: relativeDatabasePath,
+            databaseURL: databaseURL,
+            viewArguments: viewArguments,
+            startedAt: workflowStartedAt,
+            completedAt: Date()
+        )
 
         progressHandler?(1.0, "CDS annotation track created.")
         return CDSBestAnnotationResult(

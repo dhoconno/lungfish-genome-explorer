@@ -31,8 +31,10 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         request: MappedReadsAnnotationRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> MappedReadsAnnotationResult {
+        let workflowStartedAt = Date()
+        let bundleURL = request.bundleURL.standardizedFileURL
         progressHandler?(0.02, "Opening bundle...")
-        let bundle = try await ReferenceBundle(url: request.bundleURL.standardizedFileURL)
+        let bundle = try await ReferenceBundle(url: bundleURL)
         guard let sourceTrack = bundle.alignmentTrack(id: request.sourceTrackID) else {
             throw MappedReadsAnnotationServiceError.sourceTrackNotFound(request.sourceTrackID)
         }
@@ -106,9 +108,7 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         }
 
         let relativeDatabasePath = "annotations/\(outputTrackID).db"
-        let databaseURL = request.bundleURL
-            .standardizedFileURL
-            .appendingPathComponent(relativeDatabasePath)
+        let databaseURL = bundleURL.appendingPathComponent(relativeDatabasePath)
         if existingTracks.isEmpty,
            !request.replaceExisting,
            annotationArtifactExistsCaseInsensitive(databaseURL) {
@@ -118,7 +118,7 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         progressHandler?(0.78, "Writing annotation database...")
         if request.replaceExisting {
             for track in existingTracks {
-                removeAnnotationArtifacts(for: track, bundleURL: request.bundleURL.standardizedFileURL)
+                removeAnnotationArtifacts(for: track, bundleURL: bundleURL)
             }
         }
         let featureCount = try MappedReadsAnnotationDatabaseWriter.write(
@@ -155,14 +155,28 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         }
         updatedManifest = updatedManifest.addingAnnotationTrack(trackInfo)
         do {
-            try updatedManifest.save(to: request.bundleURL.standardizedFileURL)
+            try updatedManifest.save(to: bundleURL)
         } catch {
             throw MappedReadsAnnotationServiceError.manifestWriteFailed(error.localizedDescription)
         }
+        try MappedReadsAnnotationProvenanceWriter.writeMappedReads(
+            request: request,
+            bundleURL: bundleURL,
+            sourceTrack: sourceTrack,
+            sourceAlignmentPath: sourceAlignmentPath,
+            sourceIndexPath: try? bundle.resolveAlignmentIndexPath(sourceTrack),
+            outputTrackID: outputTrackID,
+            outputTrackName: outputTrackName,
+            relativeDatabasePath: relativeDatabasePath,
+            databaseURL: databaseURL,
+            viewArguments: viewArguments,
+            startedAt: workflowStartedAt,
+            completedAt: Date()
+        )
 
         progressHandler?(1.0, "Mapped reads annotation track created.")
         return MappedReadsAnnotationResult(
-            bundleURL: request.bundleURL.standardizedFileURL,
+            bundleURL: bundleURL,
             sourceAlignmentTrackID: request.sourceTrackID,
             sourceAlignmentTrackName: sourceTrack.name,
             annotationTrackInfo: trackInfo,

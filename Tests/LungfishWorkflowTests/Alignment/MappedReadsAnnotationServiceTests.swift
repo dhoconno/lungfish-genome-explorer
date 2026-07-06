@@ -70,6 +70,61 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
 
         let commands = await runner.commands
         XCTAssertEqual(commands, [["view", "-h", fixture.sourceBAMURL.path]])
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.bundleURL))
+        XCTAssertEqual(provenance.workflowName, "lungfish bam annotate")
+        XCTAssertEqual(provenance.toolName, "lungfish bam annotate")
+        XCTAssertEqual(
+            provenance.argv,
+            [
+                CLICommandIdentity.executableName,
+                "bam",
+                "annotate",
+                "--bundle",
+                fixture.bundleURL.path,
+                "--alignment-track",
+                fixture.sourceTrackID,
+                "--output-track-name",
+                "Mapped Reads",
+                "--primary-only",
+            ]
+        )
+        XCTAssertEqual(provenance.options.explicit["sourceTrackID"]?.stringValue, fixture.sourceTrackID)
+        XCTAssertEqual(provenance.options.explicit["outputTrackName"]?.stringValue, "Mapped Reads")
+        XCTAssertEqual(provenance.options.defaults["primaryOnly"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.defaults["includeSequence"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.defaults["includeQualities"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.defaults["replaceExisting"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.resolvedDefaults["primaryOnly"]?.booleanValue, true)
+        XCTAssertEqual(provenance.options.resolvedDefaults["includeSequence"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.resolvedDefaults["includeQualities"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.resolvedDefaults["outputTrackID"]?.stringValue, "ann-mapped")
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == fixture.sourceBAMURL.path
+                && $0.format == .bam
+                && $0.role == .input
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == databaseURL.path
+                && $0.format == .sqlite
+                && $0.role == .output
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        let samtoolsStep = try XCTUnwrap(provenance.steps.first)
+        XCTAssertEqual(samtoolsStep.toolName, "samtools")
+        XCTAssertEqual(samtoolsStep.argv, ["samtools", "view", "-h", fixture.sourceBAMURL.path])
+        XCTAssertEqual(samtoolsStep.exitStatus, 0)
+
+        let databaseSidecarURL = try XCTUnwrap(ProvenanceWriter.bundleOutputSidecarURL(
+            for: databaseURL,
+            inBundle: fixture.bundleURL
+        ))
+        let databaseEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: databaseSidecarURL))
+        XCTAssertEqual(databaseEnvelope.output?.path, databaseURL.path)
+        XCTAssertEqual(databaseEnvelope.outputs.map(\.path), [databaseURL.path])
     }
 
     func testConvertMappedReadsHonorsExplicitOutputTrackID() async throws {
@@ -248,6 +303,58 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
 
         let commands = await runner.commands
         XCTAssertEqual(commands, [["view", "-h", bamURL.path]])
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputBundleURL))
+        XCTAssertEqual(provenance.workflowName, "lungfish bam annotate-best")
+        XCTAssertEqual(
+            provenance.argv,
+            [
+                CLICommandIdentity.executableName,
+                "bam",
+                "annotate-best",
+                "--bundle",
+                fixture.bundleURL.path,
+                "--mapping-result",
+                mappingDirectory.path,
+                "--output-bundle",
+                outputBundleURL.path,
+                "--output-track-name",
+                "miSeq MHC",
+                "--output-track-id",
+                "miseq_mhc_user",
+                "--primary-only",
+            ]
+        )
+        XCTAssertEqual(provenance.options.defaults["primaryOnly"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.defaults["replaceExisting"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.resolvedDefaults["primaryOnly"]?.booleanValue, true)
+        XCTAssertEqual(provenance.options.resolvedDefaults["outputTrackID"]?.stringValue, "miseq_mhc_user")
+        XCTAssertEqual(
+            provenance.options.resolvedDefaults["selectionStrategy"]?.stringValue,
+            "best_overlapping_interval_by_nm"
+        )
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == bamURL.path
+                && $0.format == .bam
+                && $0.role == .input
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        let databaseURL = outputBundleURL.appendingPathComponent("annotations/miseq_mhc_user.db")
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == databaseURL.path
+                && $0.format == .sqlite
+                && $0.role == .output
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        let databaseSidecarURL = try XCTUnwrap(ProvenanceWriter.bundleOutputSidecarURL(
+            for: databaseURL,
+            inBundle: outputBundleURL
+        ))
+        let databaseEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: databaseSidecarURL))
+        XCTAssertEqual(databaseEnvelope.output?.path, databaseURL.path)
+        XCTAssertEqual(databaseEnvelope.outputs.map(\.path), [databaseURL.path])
     }
 
     func testConvertBestCDSCreatesGeneAndCDSRowsFromSplicedModels() async throws {
@@ -322,6 +429,61 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
 
         let commands = await runner.commands
         XCTAssertEqual(commands, [["view", "-h", bamURL.path]])
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputBundleURL))
+        XCTAssertEqual(provenance.workflowName, "lungfish bam annotate-cds-best")
+        XCTAssertEqual(
+            provenance.argv,
+            [
+                CLICommandIdentity.executableName,
+                "bam",
+                "annotate-cds-best",
+                "--bundle",
+                fixture.bundleURL.path,
+                "--mapping-result",
+                mappingDirectory.path,
+                "--output-bundle",
+                outputBundleURL.path,
+                "--output-track-name",
+                "IPD CDS best",
+                "--output-track-id",
+                "ipd_cds_user",
+                "--min-query-cover",
+                "0.95",
+            ]
+        )
+        XCTAssertEqual(provenance.options.defaults["includeSecondary"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.defaults["includeSupplementary"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.defaults["minimumQueryCoverage"]?.numberValue, 0.5)
+        XCTAssertEqual(provenance.options.defaults["replaceExisting"]?.booleanValue, false)
+        XCTAssertEqual(provenance.options.resolvedDefaults["minimumQueryCoverage"]?.numberValue, 0.95)
+        XCTAssertEqual(provenance.options.resolvedDefaults["outputTrackID"]?.stringValue, "ipd_cds_user")
+        XCTAssertEqual(
+            provenance.options.resolvedDefaults["selectionStrategy"]?.stringValue,
+            "best_cds_model_by_nm_and_query_coverage"
+        )
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == bamURL.path
+                && $0.format == .bam
+                && $0.role == .input
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        let databaseURL = outputBundleURL.appendingPathComponent("annotations/ipd_cds_user.db")
+        XCTAssertTrue(provenance.outputs.contains {
+            $0.path == databaseURL.path
+                && $0.format == .sqlite
+                && $0.role == .output
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        let databaseSidecarURL = try XCTUnwrap(ProvenanceWriter.bundleOutputSidecarURL(
+            for: databaseURL,
+            inBundle: outputBundleURL
+        ))
+        let databaseEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: databaseSidecarURL))
+        XCTAssertEqual(databaseEnvelope.output?.path, databaseURL.path)
+        XCTAssertEqual(databaseEnvelope.outputs.map(\.path), [databaseURL.path])
     }
 
 }
