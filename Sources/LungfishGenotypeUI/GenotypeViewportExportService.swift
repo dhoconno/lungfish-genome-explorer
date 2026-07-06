@@ -74,9 +74,10 @@ struct DefaultGenotypeViewportExportRunner: GenotypeViewportExportRunning {
 ///
 /// The viewport's colored matrix is serialized into a ``GenotypeViewProjection``
 /// (the contract `LungfishIO` defines and the CLI deserializes), written to a
-/// temporary JSON file, and handed to the canonical CLI exporter. This export
-/// deliberately reuses CLI-authored provenance (`toolName == "lungfish-cli"`)
-/// because the output must be replayable from the recorded argv.
+/// durable sidecar beside the export, and handed to the canonical CLI exporter.
+/// This export deliberately reuses CLI-authored provenance (`toolName ==
+/// "lungfish-cli"`) because the output must be replayable from the recorded
+/// argv.
 /// Mirrors ``TwelveSAmpliconResultExportService``.
 struct GenotypeViewportExportService {
     private let runner: GenotypeViewportExportRunning
@@ -102,14 +103,12 @@ struct GenotypeViewportExportService {
         let standardizedOutputURL = outputURL.standardizedFileURL
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: standardizedOutputURL)
 
-        // Serialize exactly what the viewport rendered, then hand the JSON to
-        // the CLI. The temp file is removed regardless of outcome.
+        // Serialize exactly what the viewport rendered, then keep the JSON
+        // beside the export so the provenance argv can be replayed later.
         let projection = GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
-        let projectionURL = fileManager.temporaryDirectory
-            .appendingPathComponent("genotype-view-projection-\(UUID().uuidString).json")
+        let projectionURL = standardizedOutputURL.appendingPathExtension("view-projection.json")
         let projectionData = try JSONEncoder().encode(projection)
-        try projectionData.write(to: projectionURL)
-        defer { try? fileManager.removeItem(at: projectionURL) }
+        try projectionData.write(to: projectionURL, options: .atomic)
 
         var arguments = [
             "genotype", "export",
@@ -148,7 +147,7 @@ struct GenotypeViewportExportService {
             try verifyProvenance(
                 provenanceURL: provenanceURL,
                 outputURL: standardizedOutputURL,
-                expectedInputURLs: snapshot.annotationSidecarURL.map { [$0] } ?? []
+                expectedInputURLs: [projectionURL] + (snapshot.annotationSidecarURL.map { [$0] } ?? [])
             )
             return GenotypeViewportExportResult(
                 outputURL: standardizedOutputURL,
@@ -157,6 +156,7 @@ struct GenotypeViewportExportService {
         } catch {
             try? fileManager.removeItem(at: standardizedOutputURL)
             try? fileManager.removeItem(at: provenanceURL)
+            try? fileManager.removeItem(at: projectionURL)
             throw error
         }
     }
@@ -187,7 +187,8 @@ struct GenotypeViewportExportService {
                     .map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
             )
             for expectedInputURL in expectedInputURLs {
-                guard inputPaths.contains(expectedInputURL.standardizedFileURL.path) else {
+                guard fileManager.fileExists(atPath: expectedInputURL.path),
+                      inputPaths.contains(expectedInputURL.standardizedFileURL.path) else {
                     throw GenotypeViewportExportError.invalidProvenance(provenanceURL.path)
                 }
             }
