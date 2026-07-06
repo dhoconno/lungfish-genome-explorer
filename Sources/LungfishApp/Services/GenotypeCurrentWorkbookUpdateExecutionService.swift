@@ -71,7 +71,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             if result.exitCode != 0 {
                 let detail = "current.xlsx update failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: detail)
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: detail,
                     errorMessage: "current.xlsx update failed",
@@ -80,7 +80,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
                 throw LocalWorkflowExecutionError.nonZeroExit(result.exitCode)
             }
             let currentWorkbookURL = Self.currentWorkbookURL(for: bundle)
-            operationCenter.complete(
+            _ = operationCenter.complete(
                 id: operationID,
                 detail: "Updated current.xlsx",
                 outputURLs: [currentWorkbookURL]
@@ -88,7 +88,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             return currentWorkbookURL
         } catch {
             if operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: "current.xlsx update failed",
                     errorMessage: "current.xlsx update failed",
@@ -177,7 +177,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             operationCenter.log(id: operationID, level: .info, message: line)
         case .standardError(let line):
             if let progress = parseCLIProgressLine(line) {
-                operationCenter.updateWithLog(
+                _ = operationCenter.updateWithLog(
                     id: operationID,
                     progress: progress.fraction,
                     detail: progress.message

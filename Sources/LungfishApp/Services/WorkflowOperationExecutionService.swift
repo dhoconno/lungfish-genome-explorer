@@ -261,7 +261,7 @@ final class WorkflowOperationExecutionService {
             routeContext: routeContext
         )
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
-        operationCenter.updateWithLog(
+        _ = operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
             detail: "Launching lungfish-cli for 12S reference bundle creation..."
@@ -281,7 +281,7 @@ final class WorkflowOperationExecutionService {
             if result.exitCode != 0 {
                 let failureDetail = "12S reference bundle creation failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: failureDetail)
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: failureDetail,
                     errorMessage: "12S reference bundle creation failed",
@@ -300,7 +300,7 @@ final class WorkflowOperationExecutionService {
                 TwelveSReferenceBundle.provenanceURL(in: configuration.outputURL),
             ].compactMap { $0 })
             operationCenter.log(id: operationID, level: .info, message: "Status: completed")
-            operationCenter.complete(
+            _ = operationCenter.complete(
                 id: operationID,
                 detail: "12S reference bundle created. Output: \(configuration.outputURL.path)",
                 outputURLs: outputURLs
@@ -311,7 +311,7 @@ final class WorkflowOperationExecutionService {
             )
             return outputURLs
         } catch {
-            operationCenter.fail(
+            _ = operationCenter.fail(
                 id: operationID,
                 detail: "12S reference bundle creation failed",
                 errorMessage: "12S reference bundle creation failed",
@@ -341,7 +341,7 @@ final class WorkflowOperationExecutionService {
             routeContext: routeContext
         )
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
-        operationCenter.updateWithLog(
+        _ = operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
             detail: "Launching lungfish-cli for 12S amplicon matching..."
@@ -361,7 +361,7 @@ final class WorkflowOperationExecutionService {
             if result.exitCode != 0 {
                 let failureDetail = "12S amplicon matching failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: failureDetail)
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: failureDetail,
                     errorMessage: "12S amplicon matching failed",
@@ -379,7 +379,7 @@ final class WorkflowOperationExecutionService {
                 bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
             ])
             operationCenter.log(id: operationID, level: .info, message: "Status: completed")
-            operationCenter.complete(
+            _ = operationCenter.complete(
                 id: operationID,
                 detail: "12S amplicon matching completed. Output: \(bundleURL.path)",
                 outputURLs: outputURLs
@@ -390,7 +390,7 @@ final class WorkflowOperationExecutionService {
             )
             return outputURLs
         } catch {
-            operationCenter.fail(
+            _ = operationCenter.fail(
                 id: operationID,
                 detail: "12S amplicon matching failed",
                 errorMessage: "12S amplicon matching failed",
@@ -420,7 +420,7 @@ final class WorkflowOperationExecutionService {
             routeContext: routeContext
         )
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
-        operationCenter.updateWithLog(
+        _ = operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
             detail: "Launching lungfish-cli for miSeq amplicon MHC genotyping..."
@@ -440,7 +440,7 @@ final class WorkflowOperationExecutionService {
             if result.exitCode != 0 {
                 let failureDetail = "miSeq amplicon MHC genotyping failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: failureDetail)
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: failureDetail,
                     errorMessage: "miSeq amplicon MHC genotyping failed",
@@ -457,7 +457,7 @@ final class WorkflowOperationExecutionService {
                 cliPayload: cliPayload
             )
             if request.aiSpecialistPresetID != nil {
-                operationCenter.updateWithLog(
+                _ = operationCenter.updateWithLog(
                     id: operationID,
                     progress: 0.9,
                     detail: "Running specialist AI haplotyping..."
@@ -468,7 +468,7 @@ final class WorkflowOperationExecutionService {
                     routeContext: routeContext,
                     parentOperationID: operationID
                 )
-                operationCenter.updateWithLog(
+                _ = operationCenter.updateWithLog(
                     id: operationID,
                     progress: 0.96,
                     detail: "Updating current.xlsx with specialist AI haplotypes..."
@@ -498,7 +498,7 @@ final class WorkflowOperationExecutionService {
                 )
             }
             operationCenter.log(id: operationID, level: .info, message: "Status: completed")
-            operationCenter.complete(
+            _ = operationCenter.complete(
                 id: operationID,
                 detail: "miSeq amplicon MHC genotyping completed. Output: \(request.outputDirectory.path)",
                 outputURLs: outputURLs
@@ -512,7 +512,7 @@ final class WorkflowOperationExecutionService {
             )
             return outputURLs
         } catch {
-            operationCenter.fail(
+            _ = operationCenter.fail(
                 id: operationID,
                 detail: "miSeq amplicon MHC genotyping failed",
                 errorMessage: "miSeq amplicon MHC genotyping failed",
@@ -541,7 +541,7 @@ final class WorkflowOperationExecutionService {
             routeContext: routeContext
         )
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
-        operationCenter.updateWithLog(
+        _ = operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
             detail: "Launching lungfish-cli for full-length ONT MHC genotyping..."
@@ -561,7 +561,7 @@ final class WorkflowOperationExecutionService {
             if result.exitCode != 0 {
                 let failureDetail = "Full-length ONT MHC genotyping failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: failureDetail)
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: failureDetail,
                     errorMessage: "Full-length ONT MHC genotyping failed",
@@ -572,7 +572,7 @@ final class WorkflowOperationExecutionService {
             let cliPayload = decodeFullLengthONTMHCGenotypingPayload(from: result.standardOutput)
             let outputURLs = fullLengthONTMHCGenotypingOutputURLs(for: request, cliPayload: cliPayload)
             operationCenter.log(id: operationID, level: .info, message: "Status: completed")
-            operationCenter.complete(
+            _ = operationCenter.complete(
                 id: operationID,
                 detail: "Full-length ONT MHC genotyping completed. Output: \(request.outputDirectory.path)",
                 outputURLs: outputURLs
@@ -583,7 +583,7 @@ final class WorkflowOperationExecutionService {
             )
             return outputURLs
         } catch {
-            operationCenter.fail(
+            _ = operationCenter.fail(
                 id: operationID,
                 detail: "Full-length ONT MHC genotyping failed",
                 errorMessage: "Full-length ONT MHC genotyping failed",
@@ -979,7 +979,7 @@ final class WorkflowOperationExecutionService {
             ),
         ] {
             guard fileManager.fileExists(atPath: item.bamURL.path) else { continue }
-            operationCenter.update(
+            _ = operationCenter.update(
                 id: operationID,
                 progress: 0.96,
                 detail: "Preparing \(item.trackName) viewer..."
@@ -1160,7 +1160,7 @@ final class WorkflowOperationExecutionService {
             operationCenter.log(id: operationID, level: .info, message: line)
         case .standardError(let line):
             if let progress = parseCLIProgressLine(line) {
-                operationCenter.updateWithLog(
+                _ = operationCenter.updateWithLog(
                     id: operationID,
                     progress: progress.fraction,
                     detail: progress.message

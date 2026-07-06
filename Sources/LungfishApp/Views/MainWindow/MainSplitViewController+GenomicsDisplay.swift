@@ -321,7 +321,7 @@ extension MainSplitViewController {
                 } else if let firstAccession = ncbiAccessions.first {
                     // Strategy 2: Fall back to GenBank nucleotide fetch
                     mainSplitPerformOnMainRunLoop {
-                        DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Fetching \(firstAccession) from GenBank\u{2026}")
+                        _ = DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Fetching \(firstAccession) from GenBank\u{2026}")
                     }
 
                     let genBankVM = GenBankBundleDownloadViewModel()
@@ -331,7 +331,7 @@ extension MainSplitViewController {
                     ) { progress, message in
                         let scaledProgress = 0.15 + progress * 0.8
                         mainSplitPerformOnMainRunLoop {
-                            DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
+                            _ = DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
                         }
                     }
 
@@ -341,13 +341,13 @@ extension MainSplitViewController {
                     )
                 } else {
                     mainSplitPerformOnMainRunLoop {
-                        DownloadCenter.shared.fail(id: downloadID, detail: "No reference found for '\(assemblyName)'")
+                        _ = DownloadCenter.shared.fail(id: downloadID, detail: "No reference found for '\(assemblyName)'")
                     }
                     return
                 }
 
                 mainSplitPerformOnMainRunLoop {
-                    DownloadCenter.shared.complete(id: downloadID, detail: "Reference genome added to bundle")
+                    _ = DownloadCenter.shared.complete(id: downloadID, detail: "Reference genome added to bundle")
                 }
 
                 mainSplitLogger.info("downloadReferenceForNakedBundle: Genome merged into \(bundleURL.lastPathComponent, privacy: .public)")
@@ -362,7 +362,7 @@ extension MainSplitViewController {
             } catch {
                 let errorMessage = "\(error)"
                 mainSplitPerformOnMainRunLoop {
-                    DownloadCenter.shared.fail(id: downloadID, detail: errorMessage)
+                    _ = DownloadCenter.shared.fail(id: downloadID, detail: errorMessage)
                 }
                 mainSplitLogger.error("downloadReferenceForNakedBundle: Failed - \(errorMessage)")
             }
@@ -388,7 +388,7 @@ extension MainSplitViewController {
         let ncbi = NCBIService()
 
         mainSplitPerformOnMainRunLoop {
-            DownloadCenter.shared.update(id: downloadID, progress: 0.05, detail: "Searching NCBI Assembly for \(assembly)\u{2026}")
+            _ = DownloadCenter.shared.update(id: downloadID, progress: 0.05, detail: "Searching NCBI Assembly for \(assembly)\u{2026}")
         }
 
         let ids = try await ncbi.esearch(database: .assembly, term: searchTerm, retmax: 5)
@@ -398,7 +398,7 @@ extension MainSplitViewController {
         }
 
         mainSplitPerformOnMainRunLoop {
-            DownloadCenter.shared.update(id: downloadID, progress: 0.1, detail: "Getting assembly info\u{2026}")
+            _ = DownloadCenter.shared.update(id: downloadID, progress: 0.1, detail: "Getting assembly info\u{2026}")
         }
 
         let summaries = try await ncbi.assemblyEsummary(ids: ids)
@@ -408,7 +408,7 @@ extension MainSplitViewController {
         }
 
         mainSplitPerformOnMainRunLoop {
-            DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Downloading genome files\u{2026}")
+            _ = DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Downloading genome files\u{2026}")
         }
 
         let viewModel = GenomeDownloadViewModel()
@@ -418,7 +418,7 @@ extension MainSplitViewController {
         ) { progress, message in
             let scaledProgress = 0.15 + progress * 0.8
             mainSplitPerformOnMainRunLoop {
-                DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
+                _ = DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
             }
         }
 
@@ -515,33 +515,33 @@ extension MainSplitViewController {
 
                 // Search for the assembly
                 mainSplitPerformOnMainRunLoop {
-                    DownloadCenter.shared.update(id: downloadID, progress: 0.05, detail: "Searching NCBI for \(assembly)...")
+                    _ = DownloadCenter.shared.update(id: downloadID, progress: 0.05, detail: "Searching NCBI for \(assembly)...")
                 }
 
                 let ids = try await ncbi.esearch(database: .assembly, term: searchTerm, retmax: 5)
                 guard !ids.isEmpty else {
                     mainSplitPerformOnMainRunLoop {
-                        DownloadCenter.shared.fail(id: downloadID, detail: "No assembly found for '\(assembly)'")
+                        _ = DownloadCenter.shared.fail(id: downloadID, detail: "No assembly found for '\(assembly)'")
                     }
                     return
                 }
 
                 // Get assembly summary
                 mainSplitPerformOnMainRunLoop {
-                    DownloadCenter.shared.update(id: downloadID, progress: 0.1, detail: "Getting assembly info...")
+                    _ = DownloadCenter.shared.update(id: downloadID, progress: 0.1, detail: "Getting assembly info...")
                 }
 
                 let summaries = try await ncbi.assemblyEsummary(ids: ids)
                 guard let assemblySummary = summaries.first else {
                     mainSplitPerformOnMainRunLoop {
-                        DownloadCenter.shared.fail(id: downloadID, detail: "No assembly details found")
+                        _ = DownloadCenter.shared.fail(id: downloadID, detail: "No assembly details found")
                     }
                     return
                 }
 
                 // Download and build bundle
                 mainSplitPerformOnMainRunLoop {
-                    DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Downloading genome files...")
+                    _ = DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Downloading genome files...")
                 }
 
                 guard let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
@@ -559,19 +559,19 @@ extension MainSplitViewController {
                     // Map 0.15-0.95 range for download+build phase
                     let scaledProgress = 0.15 + progress * 0.8
                     mainSplitPerformOnMainRunLoop {
-                        DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
+                        _ = DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
                     }
                 }
 
                 mainSplitPerformOnMainRunLoop {
-                    DownloadCenter.shared.complete(id: downloadID, detail: "Bundle ready", bundleURLs: [bundleURL])
+                    _ = DownloadCenter.shared.complete(id: downloadID, detail: "Bundle ready", bundleURLs: [bundleURL])
                 }
 
                 mainSplitLogger.info("downloadReferenceForVCF: Bundle built at \(bundleURL.path, privacy: .public)")
             } catch {
                 let errorMessage = "\(error)"
                 mainSplitPerformOnMainRunLoop {
-                    DownloadCenter.shared.fail(id: downloadID, detail: errorMessage)
+                    _ = DownloadCenter.shared.fail(id: downloadID, detail: errorMessage)
                 }
                 mainSplitLogger.error("downloadReferenceForVCF: Failed - \(errorMessage)")
             }
@@ -820,7 +820,7 @@ extension MainSplitViewController {
                             MainActor.assumeIsolated {
                                 guard let self else { return }
                                 self.viewerController.updateFASTQOperationStatus(message)
-                                OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                                _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
                                 OperationCenter.shared.log(id: opID, level: .info, message: message)
                             }
                         }
@@ -845,7 +845,7 @@ extension MainSplitViewController {
                             MainActor.assumeIsolated {
                                 guard let self else { return }
                                 self.viewerController.updateFASTQOperationStatus(message)
-                                OperationCenter.shared.update(id: opID, progress: -1, detail: message)
+                                _ = OperationCenter.shared.update(id: opID, progress: -1, detail: message)
                                 OperationCenter.shared.log(id: opID, level: .info, message: message)
                             }
                         }
@@ -877,7 +877,7 @@ extension MainSplitViewController {
                         id: opID, level: .info,
                         message: "Completed in \(String(format: "%.1f", elapsed))s"
                     )
-                    OperationCenter.shared.complete(id: opID, detail: doneDetail)
+                    _ = OperationCenter.shared.complete(id: opID, detail: doneDetail)
                     if let last = derivedURLs.last {
                         self.refreshSidebarAndSelectDerivedURL(last)
                     } else {
@@ -894,7 +894,7 @@ extension MainSplitViewController {
                         id: opID, level: .info,
                         message: "Cancelled after \(String(format: "%.1f", elapsed))s"
                     )
-                    OperationCenter.shared.fail(
+                    _ = OperationCenter.shared.fail(
                         id: opID,
                         detail: "Cancelled by user"
                     )
@@ -916,7 +916,7 @@ extension MainSplitViewController {
                         id: opID, level: .error,
                         message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
                     )
-                    OperationCenter.shared.fail(
+                    _ = OperationCenter.shared.fail(
                         id: opID,
                         detail: "Failed after \(String(format: "%.1f", elapsed))s",
                         errorMessage: errorDesc,
@@ -1051,7 +1051,7 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Completed in \(String(format: "%.1f", elapsed))s"
                         )
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "Done in \(String(format: "%.1f", elapsed))s"
                         )
@@ -1083,7 +1083,7 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Cancelled after \(String(format: "%.1f", elapsed))s"
                         )
-                        OperationCenter.shared.fail(id: opID, detail: "Cancelled by user")
+                        _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled by user")
                     }
                 }
             } catch {
@@ -1096,7 +1096,7 @@ extension MainSplitViewController {
                             level: .error,
                             message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
                         )
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: opID,
                             detail: "Failed after \(String(format: "%.1f", elapsed))s",
                             errorMessage: errorDesc,

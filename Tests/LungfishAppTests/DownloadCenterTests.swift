@@ -606,6 +606,27 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(item?.state, .completed)
     }
 
+    func testCancelledOperationRejectsLateProgressCompletionAndFailure() {
+        let id = center.start(
+            title: "BLAST",
+            detail: "Running",
+            operationType: .blastVerification,
+            onCancel: {}
+        )
+        center.cancel(id: id)
+
+        XCTAssertFalse(center.update(id: id, progress: 0.9, detail: "Late progress"))
+        XCTAssertFalse(center.updateWithLog(id: id, progress: 0.95, detail: "Late logged progress"))
+        XCTAssertFalse(center.complete(id: id, detail: "Late success"))
+        XCTAssertFalse(center.completeWithWarning(id: id, detail: "Late warning"))
+        XCTAssertFalse(center.fail(id: id, detail: "Late failure"))
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.state, .cancelled)
+        XCTAssertEqual(item?.detail, "Cancelled by user")
+        XCTAssertTrue(item?.logEntries.isEmpty ?? false)
+    }
+
     func testCancelAllCancelsAllRunning() async throws {
         let flag1 = OSAllocatedUnfairLock(initialState: false)
         let flag2 = OSAllocatedUnfairLock(initialState: false)

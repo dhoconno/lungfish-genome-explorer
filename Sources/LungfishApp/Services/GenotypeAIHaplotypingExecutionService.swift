@@ -69,7 +69,7 @@ final class GenotypeAIHaplotypingExecutionService {
         let operationID: UUID
         if let parentOperationID {
             operationID = parentOperationID
-            operationCenter.updateWithLog(
+            _ = operationCenter.updateWithLog(
                 id: operationID,
                 progress: Self.nestedProgress(0),
                 detail: "Preparing \(displayName(for: mode))"
@@ -87,7 +87,7 @@ final class GenotypeAIHaplotypingExecutionService {
 
         do {
             let provider = try await resolveProvider()
-            operationCenter.updateWithLog(
+            _ = operationCenter.updateWithLog(
                 id: operationID,
                 progress: progress(0.1, ownsOperation: ownsOperation),
                 detail: "Loading genotype bundle"
@@ -124,7 +124,7 @@ final class GenotypeAIHaplotypingExecutionService {
                 arguments: Array(argv.dropFirst())
             )
             operationCenter.log(id: operationID, level: .info, message: cliCommand)
-            operationCenter.updateWithLog(
+            _ = operationCenter.updateWithLog(
                 id: operationID,
                 progress: progress(0.25, ownsOperation: ownsOperation),
                 detail: "Running structured AI haplotyping"
@@ -150,7 +150,7 @@ final class GenotypeAIHaplotypingExecutionService {
                 sidecar: sidecar,
                 options: options
             )
-            operationCenter.updateWithLog(
+            _ = operationCenter.updateWithLog(
                 id: operationID,
                 progress: progress(0.75, ownsOperation: ownsOperation),
                 detail: "Publishing AI haplotype revision"
@@ -222,13 +222,13 @@ final class GenotypeAIHaplotypingExecutionService {
             )
             let analysisURL = ONTGenotypeResultBundle.resolvedURL(for: published.revision.path, in: bundle)
             if ownsOperation {
-                operationCenter.complete(
+                _ = operationCenter.complete(
                     id: operationID,
                     detail: "Created AI haplotype revision \(published.revision.id)",
                     outputURLs: [analysisURL, published.provenanceURL, sidecarURL]
                 )
             } else {
-                operationCenter.updateWithLog(
+                _ = operationCenter.updateWithLog(
                     id: operationID,
                     progress: Self.nestedProgress(1),
                     detail: "Created AI haplotype revision \(published.revision.id)"
@@ -238,7 +238,7 @@ final class GenotypeAIHaplotypingExecutionService {
         } catch {
             if ownsOperation,
                operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: "AI haplotyping failed",
                     errorMessage: "AI haplotyping failed",

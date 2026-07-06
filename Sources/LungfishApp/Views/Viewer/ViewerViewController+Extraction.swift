@@ -492,7 +492,7 @@ extension SequenceViewerView {
                     progressHandler: { progress, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                DownloadCenter.shared.update(
+                                _ = DownloadCenter.shared.update(
                                     id: itemId,
                                     progress: progress,
                                     detail: message
@@ -508,7 +508,7 @@ extension SequenceViewerView {
                         extractionLogger.info("createExtractionBundle: SUCCESS -> \(finalBundleURL.path)")
 
                         // Mark as complete for UI cards.
-                        DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready", bundleURLs: [finalBundleURL])
+                        _ = DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready", bundleURLs: [finalBundleURL])
                     }
                 }
             } catch {
@@ -517,7 +517,7 @@ extension SequenceViewerView {
                 scheduleExtractionOnMainRunLoop {
                     MainActor.assumeIsolated {
                         extractionLogger.error("Bundle creation failed: \(errorStr)")
-                        DownloadCenter.shared.fail(
+                        _ = DownloadCenter.shared.fail(
                             id: itemId,
                             detail: "Failed: \(errorDesc)"
                         )

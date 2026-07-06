@@ -97,7 +97,7 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
         XCTAssertEqual(item?.detail, "Parsing input.fa")
         XCTAssertTrue(item?.logEntries.contains { $0.level == .warning && $0.message == "Duplicate row names are present" } == true)
         await MainActor.run {
-            OperationCenter.shared.complete(id: opID, detail: "Test complete")
+            _ = OperationCenter.shared.complete(id: opID, detail: "Test complete")
         }
     }
 

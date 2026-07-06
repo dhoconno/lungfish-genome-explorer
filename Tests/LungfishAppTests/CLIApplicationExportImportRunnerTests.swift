@@ -110,7 +110,7 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
         XCTAssertEqual(item?.detail, "Processing refs/reference.fa")
         XCTAssertTrue(item?.logEntries.contains { $0.level == .warning && $0.message == "reports/summary.tsv was preserved" } == true)
         await MainActor.run {
-            OperationCenter.shared.complete(id: opID, detail: "Test complete")
+            _ = OperationCenter.shared.complete(id: opID, detail: "Test complete")
         }
     }
 

@@ -1575,7 +1575,7 @@ public class ViewerViewController: NSViewController {
                     progress: { fraction, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                                _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
                             }
                         }
                     }
@@ -1583,7 +1583,7 @@ public class ViewerViewController: NSViewController {
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(result.verifiedCount)/\(result.readResults.count) verified"
                         )
@@ -1593,7 +1593,7 @@ public class ViewerViewController: NSViewController {
                 let errorText = error.localizedDescription
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: opID,
                             detail: errorText,
                             errorMessage: errorText
@@ -1717,7 +1717,7 @@ public class ViewerViewController: NSViewController {
                 } catch {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            _ = OperationCenter.shared.fail(
                                 id: opID,
                                 detail: error.localizedDescription,
                                 errorMessage: error.localizedDescription
@@ -1827,7 +1827,7 @@ public class ViewerViewController: NSViewController {
             } catch is CancellationError {
                 return
             } catch {
-                OperationCenter.shared.fail(
+                _ = OperationCenter.shared.fail(
                     id: opID,
                     detail: error.localizedDescription,
                     errorMessage: error.localizedDescription
@@ -1929,7 +1929,7 @@ public class ViewerViewController: NSViewController {
                 } catch {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            _ = OperationCenter.shared.fail(
                                 id: opID,
                                 detail: error.localizedDescription,
                                 errorMessage: error.localizedDescription
@@ -2017,7 +2017,7 @@ public class ViewerViewController: NSViewController {
                 } catch {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            _ = OperationCenter.shared.fail(
                                 id: opID,
                                 detail: error.localizedDescription,
                                 errorMessage: error.localizedDescription
@@ -2154,7 +2154,7 @@ public class ViewerViewController: NSViewController {
                 ) { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: min(0.82, progress * 0.82),
                                 detail: message
@@ -2164,7 +2164,7 @@ public class ViewerViewController: NSViewController {
                 }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.88, detail: "Attaching projected annotations...")
+                        _ = OperationCenter.shared.update(id: opID, progress: 0.88, detail: "Attaching projected annotations...")
                     }
                 }
                 let annotationResult = try await ReferenceBundleAnnotationImportService()
@@ -2178,7 +2178,7 @@ public class ViewerViewController: NSViewController {
                 )
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "Created \(result.bundleURL.lastPathComponent) with \(annotationResult.featureCount) annotation(s)",
                             bundleURLs: [result.bundleURL]
@@ -2188,7 +2188,7 @@ public class ViewerViewController: NSViewController {
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                     }
                 }
                 logger.error("createReferenceBundle: Annotated bundle creation failed - \(error.localizedDescription, privacy: .public)")

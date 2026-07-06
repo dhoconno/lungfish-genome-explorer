@@ -58,7 +58,7 @@ final class LocalWorkflowExecutionService {
         operationCenter.log(id: operationID, level: .info, message: request.commandPreview)
         operationCenter.log(id: operationID, level: .info, message: "Status: prepared")
         operationCenter.log(id: operationID, level: .info, message: commandPreview)
-        operationCenter.complete(
+        _ = operationCenter.complete(
             id: operationID,
             detail: "Local workflow prepared. Run bundle: \(bundleURL.path)",
             bundleURLs: [bundleURL]
@@ -101,7 +101,7 @@ final class LocalWorkflowExecutionService {
             if result.exitCode == 0 {
                 try verifyCompletedRunBundle(at: bundleURL)
                 operationCenter.log(id: operationID, level: .info, message: "Status: completed")
-                operationCenter.complete(
+                _ = operationCenter.complete(
                     id: operationID,
                     detail: "Local workflow completed. Run bundle: \(bundleURL.path)",
                     bundleURLs: [bundleURL]
@@ -109,7 +109,7 @@ final class LocalWorkflowExecutionService {
             } else {
                 let detail = "Local workflow failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: detail)
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: detail,
                     errorMessage: "Local workflow failed",
@@ -119,7 +119,7 @@ final class LocalWorkflowExecutionService {
             }
         } catch {
             if operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: "Local workflow failed",
                     errorMessage: "Local workflow failed",

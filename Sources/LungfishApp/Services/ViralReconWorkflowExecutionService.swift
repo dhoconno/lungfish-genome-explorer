@@ -67,7 +67,7 @@ final class ViralReconWorkflowExecutionService {
 
             if processResult.exitCode == 0 {
                 operationCenter.log(id: operationID, level: .info, message: "Viral Recon completed")
-                operationCenter.complete(
+                _ = operationCenter.complete(
                     id: operationID,
                     detail: completionDetail(for: persistedRequest, bundleURL: bundleURL),
                     bundleURLs: [bundleURL]
@@ -80,7 +80,7 @@ final class ViralReconWorkflowExecutionService {
                     level: .error,
                     message: "Viral Recon failed with exit code \(processResult.exitCode)"
                 )
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: failureDetail,
                     errorMessage: "Viral Recon failed",
@@ -90,7 +90,7 @@ final class ViralReconWorkflowExecutionService {
             }
         } catch {
             if operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: "Viral Recon failed",
                     errorMessage: "Viral Recon failed",

@@ -253,7 +253,7 @@ public enum FASTQIngestionService {
     ) async {
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                OperationCenter.shared.updateWithLog(
+                _ = OperationCenter.shared.updateWithLog(
                     id: opID,
                     progress: 0,
                     detail: "Waiting for available import slot\u{2026}"
@@ -266,7 +266,7 @@ public enum FASTQIngestionService {
                 let result = try await pipeline.run(config: config) { fraction, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.updateWithLog(
+                            _ = OperationCenter.shared.updateWithLog(
                                 id: opID,
                                 progress: fraction,
                                 detail: message
@@ -312,7 +312,7 @@ public enum FASTQIngestionService {
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: [])
+                        _ = OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: [])
                     }
                 }
 
@@ -322,14 +322,14 @@ public enum FASTQIngestionService {
         } catch is CancellationError {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                    _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
                 }
             }
         } catch {
             logger.error("Ingestion failed: \(error)")
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
                 }
             }
         }
@@ -428,7 +428,7 @@ public enum FASTQIngestionService {
     ) async {
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                OperationCenter.shared.updateWithLog(
+                _ = OperationCenter.shared.updateWithLog(
                     id: opID,
                     progress: 0,
                     detail: "Waiting for available import slot\u{2026}"
@@ -457,14 +457,14 @@ public enum FASTQIngestionService {
                 switch result {
                 case .success(let bundleURL):
                     logger.info("runIngestAndBundle: completing operation for \(bundleURL.lastPathComponent)")
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "Imported \(bundleURL.lastPathComponent)",
                         bundleURLs: [bundleURL]
                     )
                     completion(.success(bundleURL))
                 case .failure(let error):
-                    OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                    _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                     completion(.failure(error))
                 }
             }
@@ -1487,7 +1487,7 @@ public enum FASTQIngestionService {
 
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.updateWithLog(id: opID, progress: resolvedProgress, detail: detail)
+                                _ = OperationCenter.shared.updateWithLog(id: opID, progress: resolvedProgress, detail: detail)
                             }
                         }
                     }
@@ -1508,7 +1508,7 @@ public enum FASTQIngestionService {
                 if exitCode == 0 {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.complete(id: opID, detail: "Batch import complete", bundleURLs: [])
+                            _ = OperationCenter.shared.complete(id: opID, detail: "Batch import complete", bundleURLs: [])
                             completion(.success(Int(exitCode)))
                         }
                     }
@@ -1519,7 +1519,7 @@ public enum FASTQIngestionService {
                     let truncated = String(stderrStr.suffix(500))
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(id: opID, detail: "Exit code \(exitCode): \(truncated)")
+                            _ = OperationCenter.shared.fail(id: opID, detail: "Exit code \(exitCode): \(truncated)")
                             completion(.failure(BatchImportError.projectNotFound(projectDirectory)))
                         }
                     }
@@ -1531,7 +1531,7 @@ public enum FASTQIngestionService {
             logger.info("CLI subprocess import cancelled")
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                    _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
                     completion(.failure(CancellationError()))
                 }
             }
@@ -1539,7 +1539,7 @@ public enum FASTQIngestionService {
             logger.error("CLI subprocess failed: \(error)")
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
                     completion(.failure(error))
                 }
             }

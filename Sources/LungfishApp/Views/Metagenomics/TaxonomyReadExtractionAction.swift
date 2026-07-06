@@ -362,7 +362,7 @@ public final class TaxonomyReadExtractionAction {
                             progress: { fraction, message in
                                 DispatchQueue.main.async { [weak model] in
                                     MainActor.assumeIsolated {
-                                        OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                                        _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
                                         OperationCenter.shared.log(id: opID, level: .info, message: message)
                                         model?.progressFraction = fraction
                                         model?.progressMessage = message
@@ -384,7 +384,7 @@ public final class TaxonomyReadExtractionAction {
                     } catch is CancellationError {
                         DispatchQueue.main.async { [weak model, weak hostWindow, weak sheetWindow] in
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.fail(
+                                _ = OperationCenter.shared.fail(
                                     id: opID,
                                     detail: "Cancelled by user",
                                     errorMessage: "Cancelled by user"
@@ -412,7 +412,7 @@ public final class TaxonomyReadExtractionAction {
                         // an `assumeIsolated` block.
                         DispatchQueue.main.async { [weak self, weak model] in
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.fail(
+                                _ = OperationCenter.shared.fail(
                                     id: opID,
                                     detail: errorDesc,
                                     errorMessage: errorDesc
@@ -538,7 +538,7 @@ public final class TaxonomyReadExtractionAction {
         hostWindow: NSWindow,
         sheetWindow: NSPanel?
     ) {
-        OperationCenter.shared.complete(id: opID, detail: "Extracted \(outcome.readCount) reads")
+        _ = OperationCenter.shared.complete(id: opID, detail: "Extracted \(outcome.readCount) reads")
 
         switch outcome {
         case .file(let url, let n):

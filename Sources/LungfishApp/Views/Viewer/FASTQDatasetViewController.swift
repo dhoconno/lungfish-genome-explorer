@@ -1735,7 +1735,7 @@ public final class FASTQDatasetViewController: NSViewController {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
-                        OperationCenter.shared.complete(id: opID, detail: "Complete — \(fullStats.readCount) reads")
+                        _ = OperationCenter.shared.complete(id: opID, detail: "Complete — \(fullStats.readCount) reads")
                         self.qualityReportTask = nil
                         self.statistics = fullStats
                         self.summaryBar.update(with: fullStats)
@@ -1755,7 +1755,7 @@ public final class FASTQDatasetViewController: NSViewController {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
-                        OperationCenter.shared.complete(id: opID, detail: "Cancelled")
+                        _ = OperationCenter.shared.complete(id: opID, detail: "Cancelled")
                         self.qualityReportTask = nil
                         self.updateRunButtonState()
                         self.cancelButton.isHidden = true
@@ -1769,7 +1769,7 @@ public final class FASTQDatasetViewController: NSViewController {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
-                        OperationCenter.shared.fail(id: opID, detail: errorMessage)
+                        _ = OperationCenter.shared.fail(id: opID, detail: errorMessage)
                         self.qualityReportTask = nil
                         self.updateRunButtonState()
                         self.cancelButton.isHidden = true

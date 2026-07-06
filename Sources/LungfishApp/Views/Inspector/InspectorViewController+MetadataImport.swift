@@ -652,12 +652,12 @@ extension InspectorViewController {
                             } else {
                                 try split.viewerController.displayBundle(at: bundleURL)
                             }
-                            OperationCenter.shared.complete(
+                            _ = OperationCenter.shared.complete(
                                 id: operationID,
                                 detail: "Removed derived alignment track \"\(result.removedTrack.name)\"."
                             )
                         } catch {
-                            OperationCenter.shared.fail(id: operationID, detail: error.localizedDescription)
+                            _ = OperationCenter.shared.fail(id: operationID, detail: error.localizedDescription)
                             self.presentSimpleAlert(
                                 title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Reload Failed",
                                 message: "The derived alignment was removed, but the updated bundle could not be reloaded: \(error.localizedDescription)"
@@ -668,7 +668,7 @@ extension InspectorViewController {
             } catch {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: operationID,
                             detail: error.localizedDescription,
                             errorMessage: error.localizedDescription

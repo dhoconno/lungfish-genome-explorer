@@ -500,7 +500,7 @@ extension AppDelegate {
                 ) { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: progress,
                                 detail: message
@@ -511,7 +511,7 @@ extension AppDelegate {
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: result.detail,
                             bundleURLs: [result.resultDirectory]
@@ -538,7 +538,7 @@ extension AppDelegate {
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                         if let partialDir = (error as? MetagenomicsImportHelperClientError)?
                             .partialResultDirectory {
                             try? FileManager.default.removeItem(at: partialDir)
@@ -606,7 +606,7 @@ extension AppDelegate {
                     tempDirectory: materializeTempDir,
                     progress: { message in
                         DispatchQueue.main.async { MainActor.assumeIsolated {
-                            OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                            _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
                             OperationCenter.shared.log(id: opID, level: .info, message: message)
                         }}
                     }
@@ -622,13 +622,13 @@ extension AppDelegate {
                 let pipeline = Minimap2Pipeline()
                 let result = try await pipeline.run(config: resolvedConfig) { fraction, message in
                     DispatchQueue.main.async { MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                        _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
                         OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }}
                 }
                 let capturedConfig = config
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped",
                         bundleURLs: [result.bamURL]
@@ -656,7 +656,7 @@ extension AppDelegate {
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
                 }}
             }
         }
@@ -722,7 +722,7 @@ extension AppDelegate {
 
                 if let opID {
                     await appPerformOnMainRunLoop {
-                        OperationCenter.shared.updateWithLog(
+                        _ = OperationCenter.shared.updateWithLog(
                             id: opID,
                             progress: 0.35,
                             detail: "Converting \(preview.reportFileName)..."
@@ -739,7 +739,7 @@ extension AppDelegate {
                 let completedOpID = opID
                 await appPerformOnMainRunLoop {
                     guard let opID = completedOpID else { return }
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "Imported \(imported.sampleName)",
                         bundleURLs: [imported.bundleURL]
@@ -756,7 +756,7 @@ extension AppDelegate {
                 }
                 if let opID {
                     await appPerformOnMainRunLoop {
-                        OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                        _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
                     }
                 }
             } catch {
@@ -767,7 +767,7 @@ extension AppDelegate {
                 let failedOpID = opID
                 await appPerformOnMainRunLoop {
                     if let opID = failedOpID {
-                        OperationCenter.shared.fail(id: opID, detail: detail)
+                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
                     }
                     self?.showAlert(
                         title: "CZ-ID Import Failed",
@@ -811,7 +811,7 @@ extension AppDelegate {
                     let outputDirectory = request.outputDirectory
                     let capturedRequest = request
                     DispatchQueue.main.async { MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped"
                         )
@@ -837,7 +837,7 @@ extension AppDelegate {
                     tempDirectory: materializeTempDir,
                     progress: { message in
                         DispatchQueue.main.async { MainActor.assumeIsolated {
-                            OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                            _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
                             OperationCenter.shared.log(id: opID, level: .info, message: message)
                         }}
                     }
@@ -847,7 +847,7 @@ extension AppDelegate {
                 let pipeline = ManagedMappingPipeline()
                 let result = try await pipeline.run(request: resolvedRequest) { fraction, message in
                     DispatchQueue.main.async { MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                        _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
                         OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }}
                 }
@@ -875,7 +875,7 @@ extension AppDelegate {
 
                 let capturedRequest = request
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "Mapping complete: \(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
                         bundleURLs: [finalResult.viewerBundleURL ?? finalResult.bamURL]
@@ -905,7 +905,7 @@ extension AppDelegate {
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
                 }}
             }
         }
@@ -958,7 +958,7 @@ extension AppDelegate {
                     operationID: opID
                 )
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "MAFFT complete: \(result.rowCount) rows, \(result.alignedLength) columns",
                         bundleURLs: [result.bundleURL]
@@ -968,7 +968,7 @@ extension AppDelegate {
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(
+                    _ = OperationCenter.shared.fail(
                         id: opID,
                         detail: error.localizedDescription,
                         errorMessage: error.localizedDescription,
@@ -1031,7 +1031,7 @@ extension AppDelegate {
         let fm = FileManager.default
 
         DispatchQueue.main.async { MainActor.assumeIsolated {
-            OperationCenter.shared.update(
+            _ = OperationCenter.shared.update(
                 id: opID,
                 progress: 0.93,
                 detail: "Preparing reference mapping viewer..."
@@ -1056,7 +1056,7 @@ extension AppDelegate {
             progressHandler: { fraction, message in
                 let progress = 0.93 + (fraction * 0.06)
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.update(id: opID, progress: progress, detail: message)
+                    _ = OperationCenter.shared.update(id: opID, progress: progress, detail: message)
                     OperationCenter.shared.log(id: opID, level: .info, message: message)
                 }}
             }
@@ -1095,7 +1095,7 @@ extension AppDelegate {
                     tempDirectory: materializeTempDir,
                     progress: { message in
                         DispatchQueue.main.async { MainActor.assumeIsolated {
-                            OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                            _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
                             OperationCenter.shared.log(id: opID, level: .info, message: message)
                         }}
                     }
@@ -1114,19 +1114,19 @@ extension AppDelegate {
                 let pipeline = OrientPipeline()
                 let result = try await pipeline.run(config: resolvedConfig) { fraction, message in
                     DispatchQueue.main.async { MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                        _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
                         OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }}
                 }
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "Orient complete: \(result.forwardCount) fwd, \(result.reverseComplementedCount) RC, \(result.unmatchedCount) unmatched"
                     )
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
                 }}
             }
         }

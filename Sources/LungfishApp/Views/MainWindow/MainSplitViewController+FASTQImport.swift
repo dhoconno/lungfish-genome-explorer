@@ -83,7 +83,7 @@ extension MainSplitViewController {
                 ) { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: progress,
                                 detail: message
@@ -92,7 +92,7 @@ extension MainSplitViewController {
                     }
                 }
 
-                OperationCenter.shared.complete(
+                _ = OperationCenter.shared.complete(
                     id: opID,
                     detail: "Imported \(result.bundleURL.lastPathComponent)"
                 )
@@ -157,7 +157,7 @@ extension MainSplitViewController {
                         trackID: importConfiguration.trackID,
                         trackName: importConfiguration.trackName
                     )
-                OperationCenter.shared.complete(
+                _ = OperationCenter.shared.complete(
                     id: opID,
                     detail: "Imported \(result.featureCount) annotations"
                 )
@@ -167,7 +167,7 @@ extension MainSplitViewController {
                 }
                 postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: true, error: nil)
             } catch {
-                OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                 postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: error.localizedDescription)
             }
             return
@@ -890,7 +890,7 @@ extension MainSplitViewController {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController?.showProgress(message)
-                                OperationCenter.shared.updateWithLog(
+                                _ = OperationCenter.shared.updateWithLog(
                                     id: opID,
                                     progress: fraction,
                                     detail: message
@@ -910,7 +910,7 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Completed in \(String(format: "%.1f", elapsed))s"
                         )
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "Done in \(String(format: "%.1f", elapsed))s"
                         )
@@ -931,7 +931,7 @@ extension MainSplitViewController {
                             level: .error,
                             message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
                         )
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: opID,
                             detail: "Failed after \(String(format: "%.1f", elapsed))s",
                             errorMessage: errorDesc,
@@ -1019,7 +1019,7 @@ extension MainSplitViewController {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController?.showProgress(message)
-                                OperationCenter.shared.updateWithLog(
+                                _ = OperationCenter.shared.updateWithLog(
                                     id: opID,
                                     progress: fraction,
                                     detail: message
@@ -1039,7 +1039,7 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Completed in \(String(format: "%.1f", elapsed))s"
                         )
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "Done in \(String(format: "%.1f", elapsed))s"
                         )
@@ -1060,7 +1060,7 @@ extension MainSplitViewController {
                             level: .error,
                             message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
                         )
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: opID,
                             detail: "Failed after \(String(format: "%.1f", elapsed))s",
                             errorMessage: errorDesc,

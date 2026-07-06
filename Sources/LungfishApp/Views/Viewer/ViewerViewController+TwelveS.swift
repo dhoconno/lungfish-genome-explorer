@@ -95,7 +95,9 @@ extension ViewerViewController {
                         progress: { fraction, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    OperationCenter.shared.update(id: operationID, progress: fraction, detail: message)
+                                    guard OperationCenter.shared.update(id: operationID, progress: fraction, detail: message) else {
+                                        return
+                                    }
                                     let lower = message.lowercased()
                                     if lower.contains("waiting") {
                                         controller.showBlastLoading(phase: .waiting, requestId: nil)
@@ -110,12 +112,13 @@ extension ViewerViewController {
                     )
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.complete(
+                            let accepted = OperationCenter.shared.complete(
                                 id: operationID,
                                 detail: "BLAST results ready for \(sequences.count) unresolved sequence\(sequences.count == 1 ? "" : "s")"
                             )
-                            controller.showBlastResults(result)
                             controller.onUnresolvedBlastCancelRequested = nil
+                            guard accepted else { return }
+                            controller.showBlastResults(result)
                         }
                     }
                 } catch LungfishCLIRunner.RunError.cancelled {
@@ -129,13 +132,14 @@ extension ViewerViewController {
                     let message = error.localizedDescription
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            let accepted = OperationCenter.shared.fail(
                                 id: operationID,
                                 detail: message,
                                 errorMessage: message
                             )
-                            controller.showBlastFailure(message)
                             controller.onUnresolvedBlastCancelRequested = nil
+                            guard accepted else { return }
+                            controller.showBlastFailure(message)
                         }
                     }
                 }

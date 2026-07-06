@@ -729,7 +729,7 @@ final class OperationsPanelTests: XCTestCase {
             operationType: .bundleBuild
         )
         defer {
-            OperationCenter.shared.fail(id: operationID, detail: "cleanup")
+            _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
             OperationCenter.shared.clearCompleted()
         }
 
@@ -759,7 +759,7 @@ final class OperationsPanelTests: XCTestCase {
             operationType: .bundleBuild
         )
         defer {
-            OperationCenter.shared.fail(id: operationID, detail: "cleanup")
+            _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
             OperationCenter.shared.clearCompleted()
         }
 
@@ -792,7 +792,7 @@ final class OperationsPanelTests: XCTestCase {
         )
         OperationCenter.shared.cancel(id: operationID)
 
-        OperationCenter.shared.complete(id: operationID, detail: "Complete after cancellation")
+        _ = OperationCenter.shared.complete(id: operationID, detail: "Complete after cancellation")
 
         XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .cancelled)
         OperationCenter.shared.clearCompleted()
@@ -810,7 +810,7 @@ final class OperationsPanelTests: XCTestCase {
             detail: "Writing report",
             operationType: .export
         )
-        OperationCenter.shared.complete(
+        _ = OperationCenter.shared.complete(
             id: operationID,
             detail: "Export complete",
             outputURLs: [outputURL]
@@ -880,7 +880,7 @@ final class OperationsPanelTests: XCTestCase {
         let controller = try makeOperationsPanelController()
         defer {
             controller.close()
-            OperationCenter.shared.fail(id: operationID, detail: "cleanup")
+            _ = OperationCenter.shared.fail(id: operationID, detail: "cleanup")
             OperationCenter.shared.clearCompleted()
         }
 

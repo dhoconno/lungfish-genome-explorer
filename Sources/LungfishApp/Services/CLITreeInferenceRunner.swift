@@ -124,13 +124,13 @@ actor CLITreeInferenceRunner {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             OperationCenter.shared.log(id: opID, level: .info, message: message)
-                            OperationCenter.shared.update(id: opID, progress: max(0, min(1, progress)), detail: message)
+                            _ = OperationCenter.shared.update(id: opID, progress: max(0, min(1, progress)), detail: message)
                         }
                     }
                 case let .progress(progress, message):
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: max(0, min(1, progress)),
                                 detail: message
@@ -195,7 +195,7 @@ actor CLITreeInferenceRunner {
         }
 
         await performCLIOperationCenterUpdate {
-            OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
+            _ = OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
         }
 
         do {
@@ -254,7 +254,7 @@ actor CLITreeInferenceRunner {
 
         let bundleURL = URL(fileURLWithPath: outputPath, isDirectory: true)
         await performCLIOperationCenterUpdate {
-            OperationCenter.shared.complete(
+            _ = OperationCenter.shared.complete(
                 id: opID,
                 detail: "Tree inference complete",
                 bundleURLs: [bundleURL]
@@ -279,6 +279,6 @@ actor CLITreeInferenceRunner {
         guard OperationCenter.shared.items.first(where: { $0.id == id })?.state != .cancelled else {
             return
         }
-        OperationCenter.shared.fail(id: id, detail: message, errorMessage: message)
+        _ = OperationCenter.shared.fail(id: id, detail: message, errorMessage: message)
     }
 }

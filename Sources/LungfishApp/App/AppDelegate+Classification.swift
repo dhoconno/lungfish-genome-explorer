@@ -310,7 +310,7 @@ extension AppDelegate {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController.showProgress(message)
-                                OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
                                 OperationCenter.shared.log(id: opID, level: .info, message: message)
                             }
                         }
@@ -339,7 +339,7 @@ extension AppDelegate {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             viewerController.showProgress(message)
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: max(0, min(1, progress)),
                                 detail: message
@@ -365,7 +365,7 @@ extension AppDelegate {
                         let readCount = result.tree.totalReads
                         let classifiedCount = result.tree.classifiedReads
                         let summaryDetail = "\(classifiedCount) of \(readCount) reads classified"
-                        OperationCenter.shared.complete(id: opID, detail: summaryDetail)
+                        _ = OperationCenter.shared.complete(id: opID, detail: summaryDetail)
 
                         viewerController.displayTaxonomyResult(result)
 
@@ -426,7 +426,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
 
                         let alert = NSAlert()
                         alert.messageText = "Classification Failed"
@@ -517,7 +517,7 @@ extension AppDelegate {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController.showProgress(message)
-                                OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
                                 OperationCenter.shared.log(id: opID, level: .info, message: message)
                             }
                         }
@@ -534,7 +534,7 @@ extension AppDelegate {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController.showProgress(message)
-                                OperationCenter.shared.update(
+                                _ = OperationCenter.shared.update(
                                     id: opID,
                                     progress: max(0, min(1, progress)),
                                     detail: message
@@ -582,7 +582,7 @@ extension AppDelegate {
                 var dbBuildErrorDescription: String?
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
+                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
                         OperationCenter.shared.log(id: opID, level: .info, message: "Building esviritu.sqlite from single-sample result")
                     }
                 }
@@ -658,7 +658,7 @@ extension AppDelegate {
                                 message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
                             )
                         }
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families"
                         )
@@ -689,7 +689,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                        _ = OperationCenter.shared.fail(id: opID, detail: errorDesc)
 
                         let alert = NSAlert()
                         alert.messageText = "EsViritu Failed"
@@ -803,7 +803,7 @@ extension AppDelegate {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             viewerController.showProgress("\(samplePrefix): \(message)")
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: overall,
                                 detail: "\(samplePrefix): \(message)"
@@ -821,7 +821,7 @@ extension AppDelegate {
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
                                     viewerController.showProgress(prefixed)
-                                    OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
+                                    _ = OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
                                     OperationCenter.shared.log(id: opID, level: .info, message: prefixed)
                                 }
                             }
@@ -868,7 +868,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
+                        _ = OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
                     }
                 }
                 return
@@ -880,7 +880,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        OperationCenter.shared.fail(id: opID, detail: detail)
+                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
 
                         let alert = NSAlert()
                         alert.messageText = "Classification Batch Failed"
@@ -972,7 +972,7 @@ extension AppDelegate {
             if successfulCountForDB > 0 {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building Kraken2 database\u{2026}")
+                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building Kraken2 database\u{2026}")
                         OperationCenter.shared.log(id: opID, level: .info, message: "Building kraken2.sqlite from \(successfulCountForDB) sample(s)")
                     }
                 }
@@ -997,7 +997,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
+                        _ = OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
                     }
                 }
                 return
@@ -1013,7 +1013,7 @@ extension AppDelegate {
 
                     if successCount == 0 {
                         let detail = failedResults.first?.error ?? "All samples failed"
-                        OperationCenter.shared.fail(id: opID, detail: detail)
+                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
 
                         let alert = NSAlert()
                         alert.messageText = "Classification Batch Failed"
@@ -1035,12 +1035,12 @@ extension AppDelegate {
                     }
 
                     if failureCount == 0 {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(successCount) of \(sampleCount) samples completed"
                         )
                     } else {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(successCount) completed, \(failureCount) failed"
                         )
@@ -1155,7 +1155,7 @@ extension AppDelegate {
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
                                     viewerController.showProgress(prefixed)
-                                    OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
+                                    _ = OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
                                     OperationCenter.shared.log(id: opID, level: .info, message: prefixed)
                                 }
                             }
@@ -1173,7 +1173,7 @@ extension AppDelegate {
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
                                     viewerController.showProgress("\(samplePrefix): \(message)")
-                                    OperationCenter.shared.update(
+                                    _ = OperationCenter.shared.update(
                                         id: opID,
                                         progress: overall,
                                         detail: "\(samplePrefix): \(message)"
@@ -1286,7 +1286,7 @@ extension AppDelegate {
             if successfulCountForDB > 0 {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
+                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building EsViritu database\u{2026}")
                         OperationCenter.shared.log(id: opID, level: .info, message: "Building esviritu.sqlite from \(successfulCountForDB) sample(s)")
                     }
                 }
@@ -1316,7 +1316,7 @@ extension AppDelegate {
                     viewerController.hideProgress()
 
                     if Task.isCancelled {
-                        OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
+                        _ = OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
                         return
                     }
 
@@ -1325,7 +1325,7 @@ extension AppDelegate {
 
                     if successCount == 0 {
                         let detail = failedResults.first?.error ?? "All samples failed"
-                        OperationCenter.shared.fail(id: opID, detail: detail)
+                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
 
                         let alert = NSAlert()
                         alert.messageText = "EsViritu Batch Failed"
@@ -1347,12 +1347,12 @@ extension AppDelegate {
                     }
 
                     if failureCount == 0 {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(successCount) of \(sampleCount) samples completed"
                         )
                     } else {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(successCount) completed, \(failureCount) failed"
                         )
@@ -1449,7 +1449,7 @@ extension AppDelegate {
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
                                     viewerController.showProgress(message)
-                                    OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                    _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
                                     OperationCenter.shared.log(id: opID, level: .info, message: message)
                                 }
                             }
@@ -1468,7 +1468,7 @@ extension AppDelegate {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 viewerController.showProgress(message)
-                                OperationCenter.shared.update(
+                                _ = OperationCenter.shared.update(
                                     id: opID,
                                     progress: max(0, min(1, progress)),
                                     detail: message
@@ -1484,7 +1484,7 @@ extension AppDelegate {
                 var dbBuildErrorDescription: String?
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building TaxTriage database\u{2026}")
+                        _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building TaxTriage database\u{2026}")
                         OperationCenter.shared.log(id: opID, level: .info, message: "Building taxtriage.sqlite from TaxTriage outputs")
                     }
                 }
@@ -1559,7 +1559,7 @@ extension AppDelegate {
                         } else {
                             completionDetail = capturedResult.summary
                         }
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: completionDetail
                         )
@@ -1599,7 +1599,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                        _ = OperationCenter.shared.fail(id: opID, detail: errorDesc)
 
                         let alert = NSAlert()
                         alert.messageText = "TaxTriage Failed"

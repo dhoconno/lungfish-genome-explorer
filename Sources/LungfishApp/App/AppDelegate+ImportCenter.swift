@@ -301,7 +301,7 @@ extension AppDelegate {
                 ) { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: progress,
                                 detail: message
@@ -312,7 +312,7 @@ extension AppDelegate {
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "Imported \(result.bundleURL.lastPathComponent)",
                             bundleURLs: [result.bundleURL]
@@ -322,7 +322,7 @@ extension AppDelegate {
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                         self?.showAlert(
                             title: "Reference Import Failed",
                             message: error.localizedDescription
@@ -375,9 +375,9 @@ extension AppDelegate {
                             ? "Imported \(result.collectionURL.lastPathComponent)"
                             : "Imported \(result.collectionURL.lastPathComponent) with \(result.warningCount) warnings"
                         if result.warningCount == 0 {
-                            OperationCenter.shared.complete(id: opID, detail: detail)
+                            _ = OperationCenter.shared.complete(id: opID, detail: detail)
                         } else {
-                            OperationCenter.shared.completeWithWarning(id: opID, detail: detail)
+                            _ = OperationCenter.shared.completeWithWarning(id: opID, detail: detail)
                         }
                         self?.refreshSidebarAndSelectImportedURL(
                             result.collectionURL,
@@ -388,7 +388,7 @@ extension AppDelegate {
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                         self?.showAlert(title: "Geneious Import Failed", message: error.localizedDescription)
                     }
                 }
@@ -439,9 +439,9 @@ extension AppDelegate {
                             ? "Imported \(result.collectionURL.lastPathComponent)"
                             : "Imported \(result.collectionURL.lastPathComponent) with \(result.warningCount) warnings"
                         if result.warningCount == 0 {
-                            OperationCenter.shared.complete(id: opID, detail: detail)
+                            _ = OperationCenter.shared.complete(id: opID, detail: detail)
                         } else {
-                            OperationCenter.shared.completeWithWarning(id: opID, detail: detail)
+                            _ = OperationCenter.shared.completeWithWarning(id: opID, detail: detail)
                         }
                         self?.refreshSidebarAndSelectImportedURL(
                             result.collectionURL,
@@ -452,7 +452,7 @@ extension AppDelegate {
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                         self?.showAlert(title: "\(kind.displayName) Import Failed", message: error.localizedDescription)
                     }
                 }
@@ -514,13 +514,13 @@ extension AppDelegate {
                             ? "Imported \(result.bundleURL.lastPathComponent)"
                             : "Imported \(result.bundleURL.lastPathComponent) with \(result.warningCount) warnings"
                         if result.warningCount == 0 {
-                            OperationCenter.shared.complete(
+                            _ = OperationCenter.shared.complete(
                                 id: opID,
                                 detail: detail,
                                 bundleURLs: [result.bundleURL]
                             )
                         } else {
-                            OperationCenter.shared.completeWithWarning(
+                            _ = OperationCenter.shared.completeWithWarning(
                                 id: opID,
                                 detail: detail,
                                 bundleURLs: [result.bundleURL]
@@ -531,7 +531,7 @@ extension AppDelegate {
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                         self?.showAlert(title: "\(kind.operationTitle) Failed", message: error.localizedDescription)
                     }
                 }
@@ -599,7 +599,7 @@ extension AppDelegate {
                     trackID: trackID,
                     trackName: trackName
                 )
-            OperationCenter.shared.complete(
+            _ = OperationCenter.shared.complete(
                 id: opID,
                 detail: "Imported \(result.featureCount) annotations"
             )
@@ -610,7 +610,7 @@ extension AppDelegate {
                 try viewerController.displayBundle(at: bundleURL)
             }
         } catch {
-            OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+            _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
             showAlert(title: "Annotation Import Failed", message: error.localizedDescription)
         }
     }
@@ -731,7 +731,7 @@ extension AppDelegate {
                 ) { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: progress,
                                 detail: message
@@ -742,7 +742,7 @@ extension AppDelegate {
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: result.detail,
                             bundleURLs: [result.resultDirectory]
@@ -768,7 +768,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         let detail = error.localizedDescription
-                        OperationCenter.shared.fail(id: opID, detail: detail)
+                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
 
                         // Cleanup partial result directory left by failed import
                         if let partialDir = (error as? MetagenomicsImportHelperClientError)?
@@ -1120,7 +1120,7 @@ extension AppDelegate {
                                 let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: startedAt)
                                 let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                                 scheduleOnMainRunLoop {
-                                    OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                    _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                                 }
                             }
                         ))
@@ -1138,7 +1138,7 @@ extension AppDelegate {
                                     let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
                                     let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                                     scheduleOnMainRunLoop {
-                                        OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                        _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                                     }
                                 }
                             ))
@@ -1161,7 +1161,7 @@ extension AppDelegate {
                                     let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
                                     let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                                     scheduleOnMainRunLoop {
-                                        OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                        _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                                     }
                                 }
                             ))
@@ -1182,7 +1182,7 @@ extension AppDelegate {
                             let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
                             let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                             scheduleOnMainRunLoop {
-                                OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
                     ))
@@ -1205,7 +1205,7 @@ extension AppDelegate {
                             let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: materializeStartedAt)
                             let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                             scheduleOnMainRunLoop {
-                                OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
                     ))
@@ -1259,7 +1259,7 @@ extension AppDelegate {
                             let etaText = Self.estimatedRemainingText(progress: progress, startedAt: materializeStartedAt)
                             let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                             scheduleOnMainRunLoop {
-                                OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
                     ))
@@ -1350,7 +1350,7 @@ extension AppDelegate {
 
                 switch result {
                 case .success(let (variantCount, _)):
-                    OperationCenter.shared.complete(id: opID, detail: "\(variantCount) variants imported")
+                    _ = OperationCenter.shared.complete(id: opID, detail: "\(variantCount) variants imported")
 
                     guard let viewerController = self?.targetMainWindowController(routeContext: routeContext)?
                         .mainSplitViewController?.viewerController else {
@@ -1371,7 +1371,7 @@ extension AppDelegate {
                         debugLog("performVCFImport: Cancelled by user")
                         // cancel() already called fail() via onCancel callback
                     } else {
-                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                         debugLog("performVCFImport: Failed: \(error.localizedDescription)")
                         self?.showAlert(title: "VCF Import Failed", message: error.localizedDescription)
                     }
@@ -2164,7 +2164,7 @@ extension AppDelegate {
                         let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
                         let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                         scheduleOnMainRunLoop {
-                            OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                            _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                         }
                     }
                 )
@@ -2177,7 +2177,7 @@ extension AppDelegate {
                 switch result {
                 case .success(let importResult):
                     let readCount = importResult.mappedReads + importResult.unmappedReads
-                    OperationCenter.shared.complete(id: opID, detail: "\(readCount) reads imported")
+                    _ = OperationCenter.shared.complete(id: opID, detail: "\(readCount) reads imported")
 
                     guard let viewerController = self?.targetMainWindowController(routeContext: routeContext)?
                         .mainSplitViewController?.viewerController else {
@@ -2197,7 +2197,7 @@ extension AppDelegate {
                         debugLog("performBAMImport: Cancelled by user")
                         // cancel() already called fail() via onCancel callback
                     } else {
-                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                         debugLog("performBAMImport: Failed: \(error)")
                         self?.showAlert(title: "BAM Import Failed", message: error.localizedDescription)
                     }
@@ -2305,7 +2305,7 @@ extension AppDelegate {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.complete(
+                            _ = OperationCenter.shared.complete(
                                 id: opID,
                                 detail: "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)"
                             )
@@ -2326,7 +2326,7 @@ extension AppDelegate {
                     debugLog("exportSequences: Failed - \(error)")
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            _ = OperationCenter.shared.fail(
                                 id: opID,
                                 detail: error.localizedDescription,
                                 errorMessage: "Sequence export failed",
@@ -2398,7 +2398,7 @@ extension AppDelegate {
                         guard let outputURL = targets[bundleURL] else { continue }
                         await appPerformOnMainRunLoop {
                             let detail = "Exporting \(index + 1) of \(bundleURLs.count): \(bundleURL.deletingPathExtension().lastPathComponent)"
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: Double(index) / Double(max(bundleURLs.count, 1)),
                                 detail: detail
@@ -2416,7 +2416,7 @@ extension AppDelegate {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.complete(
+                            _ = OperationCenter.shared.complete(
                                 id: opID,
                                 detail: "Exported \(bundleURLs.count) file(s) with \(count) sequence(s)"
                             )
@@ -2437,7 +2437,7 @@ extension AppDelegate {
                     debugLog("presentBatchSequenceExport: Failed - \(error)")
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            _ = OperationCenter.shared.fail(
                                 id: opID,
                                 detail: error.localizedDescription,
                                 errorMessage: "Batch sequence export failed",

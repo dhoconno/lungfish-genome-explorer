@@ -463,7 +463,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                     }
                 }}
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "Deleted \(deletedCount) annotation\(deletedCount == 1 ? "" : "s")"
                     )
@@ -479,7 +479,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(
+                    _ = OperationCenter.shared.fail(
                         id: opID,
                         detail: "Delete Annotations failed",
                         errorMessage: error.localizedDescription
@@ -561,7 +561,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                     if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
                     }
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "Deleted annotation track \(trackName)"
                     )
@@ -577,7 +577,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(
+                    _ = OperationCenter.shared.fail(
                         id: opID,
                         detail: "Delete Annotation Track failed",
                         errorMessage: error.localizedDescription

@@ -384,7 +384,7 @@ public enum AssemblyRunner {
     ) async {
         do {
             await performAssemblyOperationCenterUpdate {
-                OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Running \(request.tool.displayName)...")
+                _ = OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Running \(request.tool.displayName)...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Launching managed assembly pipeline")
             }
 
@@ -409,14 +409,14 @@ public enum AssemblyRunner {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         let scaledProgress = 0.05 + fraction * 0.85
-                        OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
+                        _ = OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
                         OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }
                 }
             }
 
             await performAssemblyOperationCenterUpdate {
-                OperationCenter.shared.update(id: opID, progress: 0.92, detail: "Creating reference bundle...")
+                _ = OperationCenter.shared.update(id: opID, progress: 0.92, detail: "Creating reference bundle...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
             }
 
@@ -447,7 +447,7 @@ public enum AssemblyRunner {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         let scaledProgress = 0.92 + fraction * 0.08
-                        OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
+                        _ = OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
                         OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }
                 }
@@ -455,9 +455,9 @@ public enum AssemblyRunner {
 
             await performAssemblyOperationCenterUpdate {
                 if result.outcome == .completedWithNoContigs {
-                    OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: result), bundleURLs: [bundleURL])
+                    _ = OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: result), bundleURLs: [bundleURL])
                 } else {
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: completionDetail(for: result),
                         bundleURLs: [bundleURL]
@@ -476,7 +476,7 @@ public enum AssemblyRunner {
             )
         } catch {
             await performAssemblyOperationCenterUpdate {
-                OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                 OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
             }
             postNotification(
@@ -567,7 +567,7 @@ public enum AssemblyRunner {
         do {
             // Materialize virtual FASTQ bundles (subset/trim/demux produce only preview.fastq)
             await performAssemblyOperationCenterUpdate {
-                OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Resolving input files...")
+                _ = OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Resolving input files...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Checking for virtual FASTQ materialization")
             }
 
@@ -644,7 +644,7 @@ public enum AssemblyRunner {
             let runtime = try await AppleContainerRuntime()
 
             await performAssemblyOperationCenterUpdate {
-                OperationCenter.shared.update(id: opID, progress: 0.05, detail: "Container runtime initialized")
+                _ = OperationCenter.shared.update(id: opID, progress: 0.05, detail: "Container runtime initialized")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Container runtime initialized")
             }
 
@@ -656,7 +656,7 @@ public enum AssemblyRunner {
                 let scaledProgress = 0.02 + fraction * 0.93
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
+                        _ = OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
                         OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }
                 }
@@ -671,7 +671,7 @@ public enum AssemblyRunner {
 
             // Clean intermediate files
             await performAssemblyOperationCenterUpdate {
-                OperationCenter.shared.update(id: opID, progress: 0.94, detail: "Cleaning intermediate files...")
+                _ = OperationCenter.shared.update(id: opID, progress: 0.94, detail: "Cleaning intermediate files...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Cleaning intermediate files")
             }
             let freed = try? SPAdesAssemblyPipeline.cleanIntermediates(in: spadesOutputDir)
@@ -681,7 +681,7 @@ public enum AssemblyRunner {
             }
 
             await performAssemblyOperationCenterUpdate {
-                OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Creating reference bundle...")
+                _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Creating reference bundle...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
             }
 
@@ -705,7 +705,7 @@ public enum AssemblyRunner {
                 let overallFraction = 0.95 + fraction * 0.05
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: overallFraction, detail: message)
+                        _ = OperationCenter.shared.update(id: opID, progress: overallFraction, detail: message)
                         OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }
                 }
@@ -714,9 +714,9 @@ public enum AssemblyRunner {
 
             await performAssemblyOperationCenterUpdate {
                 if normalizedResult.outcome == .completedWithNoContigs {
-                    OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: normalizedResult), bundleURLs: [bundleURL])
+                    _ = OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: normalizedResult), bundleURLs: [bundleURL])
                 } else {
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: completionDetail(for: normalizedResult),
                         bundleURLs: [bundleURL]
@@ -736,13 +736,13 @@ public enum AssemblyRunner {
 
         } catch is CancellationError {
             await performAssemblyOperationCenterUpdate {
-                OperationCenter.shared.fail(id: opID, detail: "Cancelled by user")
+                _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled by user")
             }
         } catch {
             let errorMessage = "\(error)"
             logger.error("Assembly failed: \(error)")
             await performAssemblyOperationCenterUpdate {
-                OperationCenter.shared.fail(id: opID, detail: errorMessage)
+                _ = OperationCenter.shared.fail(id: opID, detail: errorMessage)
             }
 
             postNotification(

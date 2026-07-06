@@ -482,7 +482,7 @@ final class PluginManagerViewModel {
                     level: .error,
                     message: "Install failed: \(error.localizedDescription)"
                 )
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: "Failed to \(reinstall ? "reinstall" : "install") \(pack.name)",
                     errorMessage: error.localizedDescription,
@@ -526,7 +526,7 @@ final class PluginManagerViewModel {
         guard operationCenter.items.first(where: { $0.id == operationID })?.state == .running else {
             return
         }
-        operationCenter.update(
+        _ = operationCenter.update(
             id: operationID,
             progress: event.overallFraction,
             detail: event.message
@@ -538,7 +538,7 @@ final class PluginManagerViewModel {
         operationID: UUID
     ) {
         for event in events {
-            operationCenter.updateWithLog(
+            _ = operationCenter.updateWithLog(
                 id: operationID,
                 progress: event.overallFraction,
                 detail: event.message
@@ -562,9 +562,9 @@ final class PluginManagerViewModel {
         operationID: UUID
     ) {
         if let warningDetail = pluginPackWarningDetail(pack: pack, status: status) {
-            operationCenter.completeWithWarning(id: operationID, detail: warningDetail)
+            _ = operationCenter.completeWithWarning(id: operationID, detail: warningDetail)
         } else {
-            operationCenter.complete(id: operationID, detail: "\(pack.name) ready")
+            _ = operationCenter.complete(id: operationID, detail: "\(pack.name) ready")
         }
     }
 

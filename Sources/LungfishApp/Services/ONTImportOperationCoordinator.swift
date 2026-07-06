@@ -87,20 +87,20 @@ public final class ONTImportOperationCoordinator {
             ) { [operationCenter, opID] fraction, message in
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        operationCenter.update(id: opID, progress: fraction, detail: message)
+                        _ = operationCenter.update(id: opID, progress: fraction, detail: message)
                     }
                 }
             }
 
             let detail = "\(result.importResult.bundleURLs.count) barcode bundles, \(result.importResult.totalReadCount) reads"
-            operationCenter.complete(
+            _ = operationCenter.complete(
                 id: opID,
                 detail: detail,
                 bundleURLs: result.importResult.bundleURLs
             )
             return result
         } catch {
-            operationCenter.fail(id: opID, detail: "\(error)")
+            _ = operationCenter.fail(id: opID, detail: "\(error)")
             throw error
         }
     }

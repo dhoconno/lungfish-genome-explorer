@@ -871,7 +871,7 @@ extension AppDelegate {
             level: .info,
             message: "UI test seeded operation"
         )
-        OperationCenter.shared.fail(
+        _ = OperationCenter.shared.fail(
             id: operationID,
             detail: "Deterministic failure used by XCUI",
             errorMessage: "UI test failure",
