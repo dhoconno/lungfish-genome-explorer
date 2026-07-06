@@ -93,9 +93,10 @@ extension BundleManifest {
     public static func validatedBundleMemberURL(
         for relativePath: String,
         in bundleURL: URL,
-        field: String = "path"
+        field: String = "path",
+        allowReservedControlPath: Bool = false
     ) throws -> URL {
-        guard isSafeBundleMemberPath(relativePath) else {
+        guard isSafeBundleMemberPath(relativePath, allowReservedControlPath: allowReservedControlPath) else {
             throw BundleValidationError.invalidPath(field, relativePath)
         }
 
@@ -138,7 +139,10 @@ extension BundleManifest {
         appendPathValidationError(path: path, field: field, to: &errors)
     }
 
-    private static func isSafeBundleMemberPath(_ path: String) -> Bool {
+    private static func isSafeBundleMemberPath(
+        _ path: String,
+        allowReservedControlPath: Bool = false
+    ) -> Bool {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               trimmed == path,
@@ -152,7 +156,7 @@ extension BundleManifest {
             return false
         }
 
-        return !isReservedBundleControlPath(path)
+        return allowReservedControlPath || !isReservedBundleControlPath(path)
     }
 
     private static func isReservedBundleControlPath(_ path: String) -> Bool {

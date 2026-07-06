@@ -193,24 +193,25 @@ extension InspectorViewController {
 
         var artifactRows: [MHCReferenceBundleArtifactRow] = [
             MHCReferenceBundleArtifactRow(label: "Bundle Folder", fileURL: bundleURL),
-            MHCReferenceBundleArtifactRow(
-                label: "Reference FASTA",
-                fileURL: bundleURL.appendingPathComponent(manifest.referenceFastaPath)
-            ),
         ]
-        for path in manifest.haplotypeDefinitionPaths {
+        if let referenceURL = MHCAmpliconReferenceBundle.referenceFASTAURL(in: bundleURL) {
+            artifactRows.append(
+                MHCReferenceBundleArtifactRow(label: "Reference FASTA", fileURL: referenceURL)
+            )
+        }
+        for url in MHCAmpliconReferenceBundle.haplotypeDefinitionURLs(in: bundleURL) {
             artifactRows.append(
                 MHCReferenceBundleArtifactRow(
                     label: "Haplotype Definitions",
-                    fileURL: bundleURL.appendingPathComponent(path)
+                    fileURL: url
                 )
             )
         }
-        if let provenancePath = manifest.provenancePath {
+        if let provenanceURL = MHCAmpliconReferenceBundle.provenanceURL(in: bundleURL) {
             artifactRows.append(
                 MHCReferenceBundleArtifactRow(
                     label: "Provenance",
-                    fileURL: bundleURL.appendingPathComponent(provenancePath)
+                    fileURL: provenanceURL
                 )
             )
         }

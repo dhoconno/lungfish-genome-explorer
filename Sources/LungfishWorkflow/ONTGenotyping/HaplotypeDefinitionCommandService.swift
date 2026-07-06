@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public struct HaplotypeDefinitionCommandResult: Equatable, Sendable {
@@ -266,10 +267,13 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         try validateDefinition(definition)
         let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: bundleURL)
         let manifestURL = MHCAmpliconReferenceBundle.manifestURL(in: bundleURL)
-        let referenceURL = bundleURL.appendingPathComponent(manifest.referenceFastaPath).standardizedFileURL
+        guard let referenceURL = MHCAmpliconReferenceBundle.referenceFASTAURL(in: bundleURL) else {
+            throw HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference(manifest.referenceFastaPath)
+        }
         guard FileManager.default.fileExists(atPath: referenceURL.path) else {
             throw HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference(referenceURL.path)
         }
+        try MHCAmpliconReferenceBundle.validate(at: bundleURL)
 
         let existingPath = try existingDefinitionRelativePath(
             definitionID: definition.id,
@@ -370,10 +374,13 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         }
         let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: bundleURL)
         let manifestURL = MHCAmpliconReferenceBundle.manifestURL(in: bundleURL)
-        let referenceURL = bundleURL.appendingPathComponent(manifest.referenceFastaPath).standardizedFileURL
+        guard let referenceURL = MHCAmpliconReferenceBundle.referenceFASTAURL(in: bundleURL) else {
+            throw HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference(manifest.referenceFastaPath)
+        }
         guard FileManager.default.fileExists(atPath: referenceURL.path) else {
             throw HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference(referenceURL.path)
         }
+        try MHCAmpliconReferenceBundle.validate(at: bundleURL)
 
         let priorReferenceDescriptor = try ProvenanceFileDescriptor.file(url: referenceURL, format: .fasta, role: .input)
         let priorManifestDescriptor = try? ProvenanceFileDescriptor.file(url: manifestURL, format: .json, role: .input)
@@ -678,7 +685,13 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         bundleURL: URL
     ) throws -> String? {
         for relativePath in manifest.haplotypeDefinitionPaths {
-            let url = bundleURL.appendingPathComponent(relativePath)
+            guard let url = try? BundleManifest.validatedBundleMemberURL(
+                for: relativePath,
+                in: bundleURL,
+                field: "haplotypeDefinitionPaths[]"
+            ) else {
+                continue
+            }
             guard let data = try? Data(contentsOf: url),
                   let definition = try? JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data) else {
                 continue

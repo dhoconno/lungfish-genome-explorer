@@ -289,6 +289,57 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         ))
     }
 
+    func testSaveDefinitionInMHCReferenceBundleRejectsTraversalReferencePath() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        let bundleURL = projectRoot
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+            .appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        let outsideReferenceURL = bundleURL.deletingLastPathComponent().appendingPathComponent("outside.fa")
+        try writeUnsafeMHCReferenceBundle(bundleURL: bundleURL, outsideReferenceURL: outsideReferenceURL)
+
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        XCTAssertThrowsError(
+            try service.saveDefinition(
+                makeDefinition(id: "custom.bundle", displayName: "Edited Bundle Definition"),
+                inMHCReferenceBundle: bundleURL,
+                argv: ["lungfish-gui", "haplotypes", "bundle-save", bundleURL.path, "custom.bundle"]
+            )
+        ) { error in
+            guard case HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference = error else {
+                return XCTFail("Expected missingMHCReferenceBundleReference, got \(error)")
+            }
+        }
+    }
+
+    func testSaveDefinitionInMHCReferenceBundleRejectsTraversalHaplotypePath() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        let bundleURL = projectRoot
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+            .appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        let outsideDefinitionURL = bundleURL.deletingLastPathComponent().appendingPathComponent("outside.json")
+        let originalOutside = makeDefinition(id: "custom.bundle", displayName: "Outside Definition")
+        try writeUnsafeHaplotypePathMHCReferenceBundle(
+            bundleURL: bundleURL,
+            outsideDefinitionURL: outsideDefinitionURL,
+            outsideDefinition: originalOutside
+        )
+        let originalOutsideData = try Data(contentsOf: outsideDefinitionURL)
+
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        XCTAssertThrowsError(
+            try service.saveDefinition(
+                makeDefinition(id: "custom.bundle", displayName: "Edited Bundle Definition"),
+                inMHCReferenceBundle: bundleURL,
+                argv: ["lungfish-gui", "haplotypes", "bundle-save", bundleURL.path, "custom.bundle"]
+            )
+        )
+        XCTAssertEqual(try Data(contentsOf: outsideDefinitionURL), originalOutsideData)
+    }
+
     func testReplaceReferenceFASTAInMHCReferenceBundleUpdatesManifestMetricsAndProvenance() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -326,6 +377,34 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         XCTAssertEqual(provenance.workflowName, "MHC reference bundle FASTA replacement")
         XCTAssertTrue(provenance.files.contains { $0.path == replacementURL.path })
         XCTAssertTrue(provenance.outputs.contains { $0.path == storedReferenceURL.path })
+    }
+
+    func testReplaceReferenceFASTAInMHCReferenceBundleRejectsTraversalReferencePath() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        let bundleURL = projectRoot
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+            .appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        let outsideReferenceURL = bundleURL.deletingLastPathComponent().appendingPathComponent("outside.fa")
+        let originalOutsideContents = ">outside\nACGT\n"
+        try writeUnsafeMHCReferenceBundle(bundleURL: bundleURL, outsideReferenceURL: outsideReferenceURL)
+        let replacementURL = root.appendingPathComponent("replacement.fa")
+        try ">replacement\nTTTT\n".write(to: replacementURL, atomically: true, encoding: .utf8)
+
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        XCTAssertThrowsError(
+            try service.replaceReferenceFASTA(
+                inMHCReferenceBundle: bundleURL,
+                with: replacementURL,
+                argv: ["lungfish-gui", "haplotypes", "bundle-replace-reference", bundleURL.path, replacementURL.path]
+            )
+        ) { error in
+            guard case HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference = error else {
+                return XCTFail("Expected missingMHCReferenceBundleReference, got \(error)")
+            }
+        }
+        XCTAssertEqual(try String(contentsOf: outsideReferenceURL, encoding: .utf8), originalOutsideContents)
     }
 
     func testCreateMHCReferenceBundleFromProjectDefinitionEmbedsReferenceDefinitionAndProvenance() async throws {
@@ -440,6 +519,57 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
                 referenceFastaPath: "reference.fa",
                 haplotypeDefinitionPaths: ["haplotypes/\(definition.id).lungfishhaplotypedef.json"],
                 defaultHaplotypeDefinitionID: definition.id,
+                metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 1),
+                provenancePath: ProvenanceWriter.provenanceFilename,
+                createdAt: "2026-05-30T00:00:00Z"
+            ),
+            to: bundleURL
+        )
+    }
+
+    private func writeUnsafeMHCReferenceBundle(
+        bundleURL: URL,
+        outsideReferenceURL: URL
+    ) throws {
+        let definition = makeDefinition(id: "custom.bundle", displayName: "Bundle Definition")
+        let definitionURL = bundleURL
+            .appendingPathComponent("haplotypes", isDirectory: true)
+            .appendingPathComponent("\(definition.id).lungfishhaplotypedef.json")
+        try FileManager.default.createDirectory(at: definitionURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try ">outside\nACGT\n".write(to: outsideReferenceURL, atomically: true, encoding: .utf8)
+        try writeDefinition(definition, to: definitionURL)
+        try MHCAmpliconReferenceBundle.writeManifest(
+            MHCAmpliconReferenceBundleManifest(
+                name: "MCM MHC",
+                referenceFastaPath: "../outside.fa",
+                haplotypeDefinitionPaths: ["haplotypes/\(definition.id).lungfishhaplotypedef.json"],
+                defaultHaplotypeDefinitionID: definition.id,
+                metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 1),
+                provenancePath: ProvenanceWriter.provenanceFilename,
+                createdAt: "2026-05-30T00:00:00Z"
+            ),
+            to: bundleURL
+        )
+    }
+
+    private func writeUnsafeHaplotypePathMHCReferenceBundle(
+        bundleURL: URL,
+        outsideDefinitionURL: URL,
+        outsideDefinition: GenotypeHaplotypeDefinitionSet
+    ) throws {
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try ">M1\nACGT\n".write(
+            to: bundleURL.appendingPathComponent("reference.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try writeDefinition(outsideDefinition, to: outsideDefinitionURL)
+        try MHCAmpliconReferenceBundle.writeManifest(
+            MHCAmpliconReferenceBundleManifest(
+                name: "MCM MHC",
+                referenceFastaPath: "reference.fa",
+                haplotypeDefinitionPaths: ["../outside.json"],
+                defaultHaplotypeDefinitionID: outsideDefinition.id,
                 metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 1),
                 provenancePath: ProvenanceWriter.provenanceFilename,
                 createdAt: "2026-05-30T00:00:00Z"

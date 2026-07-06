@@ -22,7 +22,9 @@ struct MHCReferenceBundleViewportModel: Equatable {
     static func load(bundleURL: URL) throws -> MHCReferenceBundleViewportModel {
         let standardizedBundleURL = bundleURL.standardizedFileURL
         let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: standardizedBundleURL)
-        let fastaURL = standardizedBundleURL.appendingPathComponent(manifest.referenceFastaPath)
+        guard let fastaURL = MHCAmpliconReferenceBundle.referenceFASTAURL(in: standardizedBundleURL) else {
+            throw ReferenceBundleValidationError(kind: .missingFile(manifest.referenceFastaPath))
+        }
         let fastaText = try String(contentsOf: fastaURL, encoding: .utf8)
         let definitions = try MHCAmpliconReferenceBundle.haplotypeDefinitions(in: standardizedBundleURL)
         return MHCReferenceBundleViewportModel(
@@ -41,7 +43,9 @@ struct MHCReferenceBundleViewportModel: Equatable {
     static func loadAsync(bundleURL: URL) async throws -> MHCReferenceBundleViewportModel {
         let standardizedBundleURL = bundleURL.standardizedFileURL
         let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: standardizedBundleURL)
-        let fastaURL = standardizedBundleURL.appendingPathComponent(manifest.referenceFastaPath)
+        guard let fastaURL = MHCAmpliconReferenceBundle.referenceFASTAURL(in: standardizedBundleURL) else {
+            throw ReferenceBundleValidationError(kind: .missingFile(manifest.referenceFastaPath))
+        }
         let fastaText = try await AsyncFileReader.readString(fastaURL, encoding: .utf8)
         let definitions = try MHCAmpliconReferenceBundle.haplotypeDefinitions(in: standardizedBundleURL)
         return MHCReferenceBundleViewportModel(
