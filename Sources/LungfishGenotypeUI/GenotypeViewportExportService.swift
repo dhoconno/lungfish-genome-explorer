@@ -2,7 +2,6 @@ import Foundation
 import LungfishKit
 import LungfishCore
 import LungfishIO
-import LungfishTwelveSUI
 import LungfishWorkflow
 import UniformTypeIdentifiers
 
@@ -78,7 +77,7 @@ struct DefaultGenotypeViewportExportRunner: GenotypeViewportExportRunning {
 /// This export deliberately reuses CLI-authored provenance (`toolName ==
 /// "lungfish-cli"`) because the output must be replayable from the recorded
 /// argv.
-/// Mirrors ``TwelveSAmpliconResultExportService``.
+/// Uses the same CLI-backed export pattern as the 12S amplicon export path.
 struct GenotypeViewportExportService {
     private let runner: GenotypeViewportExportRunning
     private let fileManager: FileManager

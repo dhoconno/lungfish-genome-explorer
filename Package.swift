@@ -331,13 +331,12 @@ let package = Package(
                 "LungfishIO",
                 "LungfishWorkflow",
                 "LungfishKit",
-                "LungfishTwelveSUI",
             ],
             path: "Sources/LungfishGenotypeUI"
         ),
         .testTarget(
             name: "LungfishGenotypeUITests",
-            dependencies: ["LungfishGenotypeUI", "LungfishKit", "LungfishTwelveSUI"],
+            dependencies: ["LungfishGenotypeUI", "LungfishKit"],
             path: "Tests/LungfishGenotypeUITests"
         ),
 
