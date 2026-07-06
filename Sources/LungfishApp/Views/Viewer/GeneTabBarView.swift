@@ -53,8 +53,8 @@ public final class GeneTabBarView: NSView {
     private static let maxVisibleTabs = 8
 
     public override init(frame frameRect: NSRect) {
-        dismissButton = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close gene tabs")!,
-                                 target: nil, action: nil)
+        let dismissImage = AppSystemSymbolImage.named("xmark", accessibilityDescription: "Close gene tabs")
+        dismissButton = NSButton(image: dismissImage, target: nil, action: nil)
         super.init(frame: frameRect)
 
 

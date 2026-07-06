@@ -318,7 +318,8 @@ public final class FASTQDatasetViewController: NSViewController {
         return label
     }()
     private lazy var errorBannerDismissButton: NSButton = {
-        let btn = NSButton(image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Dismiss")!, target: self, action: #selector(dismissErrorBanner))
+        let image = AppSystemSymbolImage.named("xmark.circle.fill", accessibilityDescription: "Dismiss")
+        let btn = NSButton(image: image, target: self, action: #selector(dismissErrorBanner))
         btn.bezelStyle = .inline
         btn.isBordered = false
         return btn

@@ -697,7 +697,7 @@ extension TaxaCollectionsDrawerView: NSOutlineViewDelegate {
 
             // SF Symbol icon
             let image = NSImage(systemSymbolName: item.collection.sfSymbol, accessibilityDescription: nil)
-                ?? NSImage(systemSymbolName: "square.stack.3d.up", accessibilityDescription: "Collection")!
+                ?? AppSystemSymbolImage.named("square.stack.3d.up", accessibilityDescription: "Collection")
             let imageView = NSImageView(image: image)
             imageView.translatesAutoresizingMaskIntoConstraints = false
             imageView.contentTintColor = .secondaryLabelColor
@@ -783,7 +783,10 @@ extension TaxaCollectionsDrawerView: NSOutlineViewDelegate {
             let indicatorSymbol = detected ? "circle.fill" : "circle"
             let indicatorColor: NSColor = detected ? .systemGreen : .tertiaryLabelColor
             let indicator = NSImageView(
-                image: NSImage(systemSymbolName: indicatorSymbol, accessibilityDescription: detected ? "Detected" : "Not detected")!
+                image: AppSystemSymbolImage.named(
+                    indicatorSymbol,
+                    accessibilityDescription: detected ? "Detected" : "Not detected"
+                )
             )
             indicator.translatesAutoresizingMaskIntoConstraints = false
             indicator.contentTintColor = indicatorColor
