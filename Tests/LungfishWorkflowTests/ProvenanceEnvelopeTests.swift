@@ -1188,12 +1188,6 @@ struct ProvenanceEnvelopeTests {
         let metadataURL = msaBundleURL.appendingPathComponent("metadata", isDirectory: true)
         try FileManager.default.createDirectory(at: metadataURL, withIntermediateDirectories: true)
         let annotationSidecarURL = metadataURL.appendingPathComponent("annotation-edit-provenance.json")
-        try ProvenanceJSON.encoder.encode(
-            ProvenanceEnvelope.fixture(
-                workflowName: "multiple-sequence-alignment-import",
-                outputPath: msaBundleURL.path
-            )
-        ).write(to: msaBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
         try Data("""
         {
           "schemaVersion": 1,
@@ -1232,12 +1226,6 @@ struct ProvenanceEnvelopeTests {
         let alignmentsURL = referenceBundleURL.appendingPathComponent("alignments/mapped", isDirectory: true)
         try FileManager.default.createDirectory(at: annotationsURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: alignmentsURL, withIntermediateDirectories: true)
-        try ProvenanceJSON.encoder.encode(
-            ProvenanceEnvelope.fixture(
-                workflowName: "reference-bundle-import",
-                outputPath: referenceBundleURL.path
-            )
-        ).write(to: referenceBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
         let manualAnnotationSidecarURL = annotationsURL.appendingPathComponent("manual-annotation-provenance.json")
         try Data("""
         {
@@ -1313,15 +1301,6 @@ struct ProvenanceEnvelopeTests {
         let extractedReferenceBundleURL = root.appendingPathComponent("Extracted.lungfishref", isDirectory: true)
         let extractedAnnotationsURL = extractedReferenceBundleURL.appendingPathComponent("annotations", isDirectory: true)
         try FileManager.default.createDirectory(at: extractedAnnotationsURL, withIntermediateDirectories: true)
-        try ProvenanceJSON.encoder.encode(
-            ProvenanceEnvelope.fixture(
-                workflowName: "reference-bundle-import",
-                outputPath: extractedReferenceBundleURL.path
-            )
-        ).write(
-            to: extractedReferenceBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            options: .atomic
-        )
         let msaExtractionSidecarURL = extractedAnnotationsURL.appendingPathComponent(
             "msa-extraction-annotations-provenance.json"
         )
@@ -1364,6 +1343,35 @@ struct ProvenanceEnvelopeTests {
         #expect(resolvedAdopted.envelope.workflowName == "lungfish bam adopt-mapping")
         #expect(resolvedMSAExtraction.sidecarURL.path.hasSuffix("annotations/msa-extraction-annotations-provenance.json"))
         #expect(resolvedMSAExtraction.envelope.output?.path == extractedReferenceBundleURL.path)
+    }
+
+    @Test("recorder prefers canonical bundle provenance over legacy sidecars")
+    func recorderPrefersCanonicalBundleProvenanceOverLegacySidecars() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("lungfish-canonical-provenance-\(UUID().uuidString)", isDirectory: true)
+        let bundleURL = root.appendingPathComponent("Extracted.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Data("""
+        {
+          "sourceDescription": "stale extraction metadata",
+          "toolName": "samtools view",
+          "extractionDate": "2026-05-11T12:00:00Z"
+        }
+        """.utf8).write(to: bundleURL.appendingPathComponent("extraction-metadata.json"), options: .atomic)
+        try ProvenanceJSON.encoder.encode(
+            ProvenanceEnvelope.fixture(
+                workflowName: "canonical-fastq-import",
+                outputPath: bundleURL.path
+            )
+        ).write(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
+
+        let resolved = try #require(ProvenanceRecorder.findProvenanceEnvelope(for: bundleURL))
+
+        #expect(resolved.sidecarURL.lastPathComponent == ProvenanceRecorder.provenanceFilename)
+        #expect(resolved.envelope.workflowName == "canonical-fastq-import")
+        #expect(resolved.envelope.output?.path == bundleURL.path)
     }
 
     @Test("recorder resolves assembly provenance stored under assembly directory")

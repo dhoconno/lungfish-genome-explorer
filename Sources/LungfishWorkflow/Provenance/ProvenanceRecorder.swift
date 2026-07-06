@@ -351,7 +351,7 @@ public actor ProvenanceRecorder {
                 .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
                 .appendingPathComponent(provenanceFilename),
         ]
-        return operationCandidates + canonicalCandidates + workflowNamedRootSidecarCandidates(for: directory)
+        return canonicalCandidates + workflowNamedRootSidecarCandidates(for: directory) + operationCandidates
     }
 
     private static func workflowNamedRootSidecarCandidates(for directory: URL) -> [URL] {
