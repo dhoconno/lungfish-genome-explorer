@@ -300,49 +300,121 @@ public enum PrimerSchemeImportService {
         started: Date
     ) throws {
         let now = Date()
+        let copiedAttachmentURLs = request.attachments.map {
+            bundleURL.appendingPathComponent("attachments/\($0.lastPathComponent)")
+        }
         let outputURLs = [
             bundleURL.appendingPathComponent("manifest.json"),
             bundleURL.appendingPathComponent("primers.bed"),
             request.fastaURL == nil ? nil : bundleURL.appendingPathComponent("primers.fasta"),
             bundleURL.appendingPathComponent("PROVENANCE.md"),
-        ].compactMap { $0 }
+        ].compactMap { $0 } + copiedAttachmentURLs
         let inputURLs = [request.bedURL, request.fastaURL].compactMap { $0 } + request.attachments
+        let inputDescriptors = try inputURLs.map {
+            try ProvenanceFileDescriptor.file(
+                url: $0,
+                format: provenanceFormat(for: $0),
+                role: .input
+            )
+        }
+        let outputDescriptors = try outputURLs.map {
+            try ProvenanceFileDescriptor.file(
+                url: $0,
+                format: provenanceFormat(for: $0),
+                role: .output
+            )
+        }
+        let displayName = request.displayName?.nilIfEmpty ?? bundleURL.deletingPathExtension().lastPathComponent
+        let parameters: [String: ParameterValue] = [
+            "bed": .file(request.bedURL),
+            "fasta": request.fastaURL.map(ParameterValue.file) ?? .null,
+            "output": .file(bundleURL),
+            "project": request.projectURL.map(ParameterValue.file) ?? .null,
+            "referenceAccession": .string(canonicalAccession),
+            "equivalentAccessions": .array(request.equivalentAccessions.map(ParameterValue.string)),
+            "displayName": .string(displayName),
+            "fastaIncluded": .boolean(request.fastaURL != nil),
+            "attachmentCount": .integer(request.attachments.count),
+        ]
+        let defaults: [String: ParameterValue] = [
+            "fasta": .null,
+            "project": .null,
+            "equivalentAccessions": .array([]),
+            "fastaIncluded": .boolean(false),
+            "attachmentCount": .integer(0),
+        ]
         let step = StepExecution(
             toolName: request.workflowName,
             toolVersion: request.toolVersion,
             command: request.argv,
-            inputs: inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) },
-            outputs: outputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .output) },
+            inputs: inputDescriptors.map(FileRecord.init(provenanceFile:)),
+            outputs: outputDescriptors.map(FileRecord.init(provenanceFile:)),
             exitCode: 0,
             wallTime: now.timeIntervalSince(started),
             stderr: nil,
             startTime: started,
             endTime: now
         )
-        var run = WorkflowRun(
+        var legacyRun = WorkflowRun(
             name: request.workflowName,
             startTime: started,
             endTime: now,
             status: .completed,
-            parameters: [
-                "bed": .file(request.bedURL),
-                "fasta": request.fastaURL.map(ParameterValue.file) ?? .null,
-                "output": .file(bundleURL),
-                "project": request.projectURL.map(ParameterValue.file) ?? .null,
-                "referenceAccession": .string(canonicalAccession),
-                "displayName": .string(request.displayName?.nilIfEmpty ?? bundleURL.deletingPathExtension().lastPathComponent),
-                "fastaIncluded": .boolean(request.fastaURL != nil),
-                "attachmentCount": .integer(request.attachments.count),
-            ]
+            parameters: parameters
         )
-        run.steps = [step]
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run).write(
-            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            options: .atomic
+        legacyRun.steps = [step]
+
+        let provenanceStep = ProvenanceStep(
+            toolName: request.workflowName,
+            toolVersion: request.toolVersion,
+            argv: request.argv,
+            inputs: inputDescriptors,
+            outputs: outputDescriptors,
+            exitStatus: 0,
+            wallTimeSeconds: now.timeIntervalSince(started),
+            stderr: nil,
+            startedAt: started,
+            completedAt: now
         )
+        var builder = ProvenanceRunBuilder(
+            workflowName: request.workflowName,
+            workflowVersion: request.toolVersion,
+            toolName: request.workflowName,
+            toolVersion: request.toolVersion
+        )
+        .argv(request.argv)
+        .durableReplayArgv(request.argv)
+        .options(explicit: parameters, defaults: defaults, resolved: parameters)
+        .runtime(ProvenanceRuntimeIdentity())
+        .step(provenanceStep)
+
+        for url in inputURLs {
+            builder = try builder.input(url, format: provenanceFormat(for: url), role: .input)
+        }
+        for url in outputURLs {
+            builder = try builder.output(url, format: provenanceFormat(for: url), role: .output)
+        }
+
+        let envelope = try builder.complete(
+            exitStatus: 0,
+            startedAt: started,
+            endedAt: now,
+            legacyWorkflowRun: legacyRun
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+    }
+
+    private static func provenanceFormat(for url: URL) -> FileFormat {
+        switch url.pathExtension.lowercased() {
+        case "bed", "md", "txt":
+            return .text
+        case "fa", "fna", "fasta":
+            return .fasta
+        case "json":
+            return .json
+        default:
+            return .unknown
+        }
     }
 
     private static func shellEscape(_ argument: String) -> String {
