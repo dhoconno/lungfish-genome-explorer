@@ -48,6 +48,17 @@ private actor FASTQImportSlotCoordinator {
     }
 }
 
+private enum FASTQSampleSheetMetadataProvenanceError: LocalizedError {
+    case missingBundleProvenance(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingBundleProvenance(let path):
+            return "Cannot apply FASTQ sample-sheet metadata because the imported bundle is missing provenance: \(path)"
+        }
+    }
+}
+
 // MARK: - FASTQIngestionService
 
 /// App-level service that runs the FASTQ ingestion pipeline (clumpify → compress)
@@ -460,10 +471,11 @@ public enum FASTQIngestionService {
         // no duplicate computation needed here.
 
         if !pair.metadata.isEmpty {
-            try? FASTQBundleCSVMetadata.save(
-                FASTQBundleCSVMetadata(keyValuePairs: ["sample": pair.sampleName].merging(pair.metadata) { current, _ in current }),
-                to: bundleURL
-            )
+            do {
+                try saveSampleSheetMetadata(pair: pair, bundleURL: bundleURL)
+            } catch {
+                return .failure(error)
+            }
         }
 
         logger.info("ingestAndBundle: Created bundle \(bundleURL.lastPathComponent) via CLIImportRunner — returning success")
@@ -585,6 +597,168 @@ public enum FASTQIngestionService {
         ingestion: IngestionMetadata
     ) async throws {
         try saveInPlaceIngestionProvenance(result: result, config: config, ingestion: ingestion)
+    }
+
+    nonisolated static func testingSaveSampleSheetMetadata(pair: FASTQFilePair, bundleURL: URL) throws {
+        try saveSampleSheetMetadata(pair: pair, bundleURL: bundleURL)
+    }
+
+    nonisolated private static func saveSampleSheetMetadata(pair: FASTQFilePair, bundleURL: URL) throws {
+        guard !pair.metadata.isEmpty else { return }
+        guard try ProvenanceEnvelopeReader.load(from: bundleURL) != nil else {
+            throw FASTQSampleSheetMetadataProvenanceError.missingBundleProvenance(bundleURL.path)
+        }
+
+        let metadata = FASTQBundleCSVMetadata(
+            keyValuePairs: ["sample": pair.sampleName].merging(pair.metadata) { current, _ in current }
+        )
+        let metadataURL = FASTQBundleCSVMetadata.metadataURL(in: bundleURL)
+        let snapshot = try ProvenancePublicationSnapshot(
+            urls: [metadataURL] + ProvenancePublicationArtifacts.bundleRootArtifacts(for: bundleURL),
+            backupNamePrefix: "lungfish-fastq-samplesheet-metadata"
+        )
+        defer { snapshot.discard() }
+
+        do {
+            try FASTQBundleCSVMetadata.save(metadata, to: bundleURL)
+            try appendSampleSheetMetadataProvenance(
+                pair: pair,
+                metadata: metadata,
+                bundleURL: bundleURL,
+                metadataURL: metadataURL
+            )
+        } catch {
+            do {
+                try snapshot.restore()
+            } catch {
+                logger.error("Failed to restore FASTQ sample-sheet metadata snapshot: \(error.localizedDescription, privacy: .public)")
+            }
+            throw error
+        }
+    }
+
+    nonisolated private static func appendSampleSheetMetadataProvenance(
+        pair: FASTQFilePair,
+        metadata: FASTQBundleCSVMetadata,
+        bundleURL: URL,
+        metadataURL: URL
+    ) throws {
+        guard let existingEnvelope = try ProvenanceEnvelopeReader.load(from: bundleURL) else {
+            throw FASTQSampleSheetMetadataProvenanceError.missingBundleProvenance(bundleURL.path)
+        }
+
+        let startedAt = Date()
+        let metadataDescriptor = try ProvenanceFileDescriptor.file(url: metadataURL, format: .text, role: .output)
+        var inputs: [ProvenanceFileDescriptor] = []
+        if let sampleSheetURL = pair.sampleSheetURL {
+            inputs.append(try ProvenanceFileDescriptor.file(url: sampleSheetURL, format: .text, role: .input))
+        }
+        let command = sampleSheetMetadataCommand(
+            pair: pair,
+            metadata: metadata,
+            bundleURL: bundleURL,
+            metadataURL: metadataURL
+        )
+        let completedAt = Date()
+        let metadataStep = ProvenanceStep(
+            toolName: "lungfish-app fastq sample-sheet-metadata",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: command,
+            durableReplayArgv: command,
+            inputs: inputs,
+            outputs: [metadataDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+
+        let outputs = deduplicatedProvenanceFilesPreferringLast(existingEnvelope.outputs + [metadataDescriptor])
+        let files = deduplicatedProvenanceFilesPreferringLast(
+            existingEnvelope.files + inputs + [metadataDescriptor]
+        )
+        let options = sampleSheetMetadataOptions(
+            existing: existingEnvelope.options,
+            pair: pair,
+            metadata: metadata,
+            metadataURL: metadataURL
+        )
+        let output = existingEnvelope.output.map {
+            $0.path == metadataDescriptor.path && $0.role == metadataDescriptor.role ? metadataDescriptor : $0
+        } ?? metadataDescriptor
+
+        let mergedEnvelope = ProvenanceEnvelope(
+            schemaVersion: existingEnvelope.schemaVersion,
+            id: existingEnvelope.id,
+            createdAt: existingEnvelope.createdAt,
+            workflowName: existingEnvelope.workflowName,
+            workflowVersion: existingEnvelope.workflowVersion,
+            toolName: existingEnvelope.toolName,
+            toolVersion: existingEnvelope.toolVersion,
+            githubReleaseVersion: existingEnvelope.githubReleaseVersion,
+            tool: existingEnvelope.tool,
+            argv: existingEnvelope.argv,
+            durableReplayArgv: existingEnvelope.durableReplayArgv,
+            reproducibleCommand: existingEnvelope.reproducibleCommand,
+            options: options,
+            runtimeIdentity: existingEnvelope.runtimeIdentity,
+            files: files,
+            output: output,
+            outputs: outputs,
+            steps: existingEnvelope.steps + [metadataStep],
+            wallTimeSeconds: combinedWallTime(existingEnvelope.wallTimeSeconds, metadataStep.wallTimeSeconds),
+            exitStatus: existingEnvelope.exitStatus ?? 0,
+            stderr: existingEnvelope.stderr,
+            signatures: [],
+            legacyWorkflowRun: nil
+        )
+        try ProvenanceWriter(signingProvider: nil).write(mergedEnvelope, to: bundleURL)
+    }
+
+    nonisolated private static func sampleSheetMetadataCommand(
+        pair: FASTQFilePair,
+        metadata: FASTQBundleCSVMetadata,
+        bundleURL: URL,
+        metadataURL: URL
+    ) -> [String] {
+        var command = [
+            "lungfish-app",
+            "fastq",
+            "sample-sheet-metadata",
+            "--bundle", bundleURL.path,
+            "--metadata-csv", metadataURL.path,
+            "--sample", pair.sampleName,
+        ]
+        if let sampleSheetURL = pair.sampleSheetURL {
+            command += ["--sample-sheet", sampleSheetURL.path]
+        }
+        for (key, value) in metadata.keyValuePairs.sorted(by: { $0.key < $1.key }) {
+            command += ["--set", "\(key)=\(value)"]
+        }
+        return command
+    }
+
+    nonisolated private static func sampleSheetMetadataOptions(
+        existing: ProvenanceOptions,
+        pair: FASTQFilePair,
+        metadata: FASTQBundleCSVMetadata,
+        metadataURL: URL
+    ) -> ProvenanceOptions {
+        let metadataParameters = metadata.keyValuePairs.mapValues { ParameterValue.string($0) }
+        var explicit = existing.explicit
+        explicit["sampleName"] = .string(pair.sampleName)
+        explicit["sampleSheet"] = pair.sampleSheetURL.map(ParameterValue.file) ?? .null
+        explicit["sampleSheetMetadata"] = .dictionary(metadataParameters)
+
+        var resolved = existing.resolvedDefaults
+        resolved["metadataCSV"] = .file(metadataURL)
+        resolved["sampleSheetMetadataApplied"] = .boolean(true)
+
+        return ProvenanceOptions(
+            explicit: explicit,
+            defaults: existing.defaults,
+            resolvedDefaults: resolved
+        )
     }
 
     nonisolated private static func saveInPlaceIngestionProvenance(
@@ -808,6 +982,19 @@ public enum FASTQIngestionService {
             }
         }
         return result
+    }
+
+    nonisolated private static func deduplicatedProvenanceFilesPreferringLast(
+        _ descriptors: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors.reversed() {
+            let key = "\(descriptor.role.rawValue)\u{0}\(descriptor.path)"
+            guard seen.insert(key).inserted else { continue }
+            result.append(descriptor)
+        }
+        return result.reversed()
     }
 
     nonisolated private static func writeImportManifest(
