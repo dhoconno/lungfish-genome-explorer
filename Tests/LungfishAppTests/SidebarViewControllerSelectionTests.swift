@@ -1015,6 +1015,43 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertEqual(selection.summaryText(includeSubfolders: false), "Folder \"Runs\" expands to 2 eligible FASTQ bundles.")
     }
 
+    func testWorkflowInputSelectionExpandsLooseFASTQAndFASTASequenceChildren() {
+        let projectURL = URL(fileURLWithPath: "/tmp/project", isDirectory: true)
+        let folderURL = projectURL.appendingPathComponent("Runs", isDirectory: true)
+        let fastq = folderURL.appendingPathComponent("reads.fastq")
+        let fasta = folderURL.appendingPathComponent("contigs.fasta")
+        let nestedFASTQ = folderURL
+            .appendingPathComponent("Nested", isDirectory: true)
+            .appendingPathComponent("nested.fastq.gz")
+        let folder = SidebarItem(
+            title: "Runs",
+            type: .folder,
+            children: [
+                SidebarItem(title: "reads.fastq", type: .sequence, url: fastq),
+                SidebarItem(title: "contigs.fasta", type: .sequence, url: fasta),
+                SidebarItem(
+                    title: "Nested",
+                    type: .folder,
+                    children: [
+                        SidebarItem(title: "nested.fastq.gz", type: .sequence, url: nestedFASTQ),
+                    ],
+                    url: folderURL.appendingPathComponent("Nested", isDirectory: true)
+                ),
+            ],
+            url: folderURL
+        )
+
+        let selection = WorkflowSidebarInputSelection.resolve(items: [folder], projectURL: projectURL)
+
+        XCTAssertEqual(selection.directReadURLs, [fastq.standardizedFileURL, fasta.standardizedFileURL])
+        XCTAssertEqual(selection.recursiveReadURLs, [
+            fastq.standardizedFileURL,
+            fasta.standardizedFileURL,
+            nestedFASTQ.standardizedFileURL,
+        ])
+        XCTAssertEqual(selection.additionalDescendantBundleCount, 1)
+    }
+
     func testWorkflowInputSelectionCombinesMultipleFoldersAsOneDeduplicatedBatch() {
         let projectURL = URL(fileURLWithPath: "/tmp/project", isDirectory: true)
         let shared = projectURL.appendingPathComponent("A.lungfishfastq", isDirectory: true)

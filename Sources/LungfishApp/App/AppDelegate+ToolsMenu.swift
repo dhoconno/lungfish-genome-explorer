@@ -92,29 +92,31 @@ extension AppDelegate {
         }
 
         let routeContext = currentOperationRouteContext(for: originController)
-        let selectedInputURLs = gatherFASTQOperationInputURLs(
-            preferredInputURLs: preferredInputURLs,
-            controller: originController
-        )
-        guard !selectedInputURLs.isEmpty else {
-            let alert = NSAlert()
-            alert.alertStyle = .informational
-            alert.messageText = "No FASTQ/FASTA Inputs Selected"
-            alert.informativeText = "Select one or more FASTQ or FASTA files, sequence bundles, or reference bundles in the sidebar, then choose Tools > FASTQ/FASTA Operations."
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: window)
-            return
-        }
-
         let currentProjectURL = routeContext?.projectURL
             ?? originSplit.sidebarController?.currentProjectURL
-        FASTQOperationsDialogPresenter.present(
-            from: window,
-            selectedInputURLs: selectedInputURLs,
-            initialCategory: initialCategory,
-            initialToolID: initialToolID,
-            projectURL: currentProjectURL,
-            onRun: { [weak self] state in
+
+        func showNoInputsAlert(title: String = "No FASTQ/FASTA Inputs Selected", message: String? = nil) {
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = title
+            alert.informativeText = message ?? "Select one or more FASTQ or FASTA files, sequence bundles, or reference bundles in the sidebar, then choose Tools > FASTQ/FASTA Operations."
+            alert.addButton(withTitle: "OK")
+            alert.beginSheetModal(for: window)
+        }
+
+        func presentOperationsDialog(selectedInputURLs: [URL]) {
+            guard !selectedInputURLs.isEmpty else {
+                showNoInputsAlert()
+                return
+            }
+
+            FASTQOperationsDialogPresenter.present(
+                from: window,
+                selectedInputURLs: selectedInputURLs,
+                initialCategory: initialCategory,
+                initialToolID: initialToolID,
+                projectURL: currentProjectURL,
+                onRun: { [weak self] state in
                 guard let self else { return }
                 debugLog("showFASTQOperationsDialog: confirmed \(state.selectedToolID.rawValue) for \(state.selectedInputURLs.count) input(s)")
 
@@ -184,8 +186,42 @@ extension AppDelegate {
                     self.runTaxTriage(config: config, viewerController: viewerController, routeContext: routeContext)
                     return
                 }
+                }
+            )
+        }
+
+        if initialCategory == .classification,
+           preferredInputURLs.isEmpty,
+           let sidebarItems = originSplit.sidebarController?.selectedItems(),
+           !sidebarItems.isEmpty {
+            let folderInput = Self.classificationFolderInput(items: sidebarItems, projectURL: currentProjectURL)
+            if folderInput.folderSelectionCount > 0 {
+                if folderInput.isEmpty {
+                    showNoInputsAlert(
+                        title: "No FASTQ Samples Found",
+                        message: "No eligible FASTQ or FASTA samples were found in the selected folder."
+                    )
+                    return
+                }
+                if folderInput.hasSubfolderBundles {
+                    ClassificationFolderPrompt.present(for: folderInput, in: window) { choice in
+                        guard let readURLs = ClassificationFolderPrompt.readURLs(for: choice, from: folderInput) else {
+                            return
+                        }
+                        presentOperationsDialog(selectedInputURLs: readURLs)
+                    }
+                    return
+                }
+                presentOperationsDialog(selectedInputURLs: folderInput.directReadURLs)
+                return
             }
+        }
+
+        let selectedInputURLs = gatherFASTQOperationInputURLs(
+            preferredInputURLs: preferredInputURLs,
+            controller: originController
         )
+        presentOperationsDialog(selectedInputURLs: selectedInputURLs)
     }
 
     private func gatherFASTQOperationInputURLs(

@@ -55,6 +55,9 @@ struct ClassifyCommand: AsyncParsableCommand {
     @Flag(name: .customLong("paired"), help: "Input files are paired-end reads")
     var pairedEnd: Bool = false
 
+    @Flag(name: .customLong("recursive"), help: "When an input is a directory, include eligible FASTQ/FASTA files in subfolders")
+    var recursive: Bool = false
+
     @Flag(name: .customLong("profile"), help: "Run Bracken abundance profiling after classification")
     var profile: Bool = false
 
@@ -114,11 +117,12 @@ struct ClassifyCommand: AsyncParsableCommand {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Resolve input files.
-        let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
-        for url in inputURLs {
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                throw CLIError.inputFileNotFound(path: url.path)
-            }
+        let inputURLs = try CLIClassificationFolderResolver.expandInputArguments(
+            fastqFiles,
+            recursive: recursive
+        )
+        guard !inputURLs.isEmpty else {
+            throw CLIError.validationFailed(errors: ["No eligible FASTQ or FASTA inputs found."])
         }
 
         if pairedEnd && inputURLs.count != 2 {
