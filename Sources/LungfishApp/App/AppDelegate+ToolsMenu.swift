@@ -49,8 +49,16 @@ extension AppDelegate {
         showFASTQOperationsDialog(sender, initialCategory: .assembly)
     }
 
+    @objc func showFASTQClusteringOperations(_ sender: Any?) {
+        showFASTQOperationsDialog(sender, initialCategory: .clustering)
+    }
+
     @objc func showFASTQClassificationOperations(_ sender: Any?) {
         showFASTQOperationsDialog(sender, initialCategory: .classification)
+    }
+
+    @objc func showFASTQGenotypingOperations(_ sender: Any?) {
+        showFASTQOperationsDialog(sender, initialCategory: .genotyping)
     }
 
     @objc func showFASTQReverseComplementOperation(_ sender: Any?) {
@@ -59,6 +67,11 @@ extension AppDelegate {
 
     @objc func showFASTQTranslateOperation(_ sender: Any?) {
         showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .translate)
+    }
+
+    @objc func launchFASTQOperationToolFromMenu(_ sender: NSMenuItem) {
+        guard let toolID = sender.representedObject as? FASTQOperationToolID else { return }
+        showFASTQOperationsDialog(sender, initialCategory: toolID.categoryID, initialToolID: toolID)
     }
 
     @objc func showFreyjaDemix(_ sender: Any?) {
@@ -92,29 +105,31 @@ extension AppDelegate {
         }
 
         let routeContext = currentOperationRouteContext(for: originController)
-        let selectedInputURLs = gatherFASTQOperationInputURLs(
-            preferredInputURLs: preferredInputURLs,
-            controller: originController
-        )
-        guard !selectedInputURLs.isEmpty else {
-            let alert = NSAlert()
-            alert.alertStyle = .informational
-            alert.messageText = "No FASTQ/FASTA Inputs Selected"
-            alert.informativeText = "Select one or more FASTQ or FASTA files, sequence bundles, or reference bundles in the sidebar, then choose Tools > FASTQ/FASTA Operations."
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: window)
-            return
-        }
-
         let currentProjectURL = routeContext?.projectURL
             ?? originSplit.sidebarController?.currentProjectURL
-        FASTQOperationsDialogPresenter.present(
-            from: window,
-            selectedInputURLs: selectedInputURLs,
-            initialCategory: initialCategory,
-            initialToolID: initialToolID,
-            projectURL: currentProjectURL,
-            onRun: { [weak self] state in
+
+        func showNoInputsAlert(title: String = "No FASTQ/FASTA Inputs Selected", message: String? = nil) {
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = title
+            alert.informativeText = message ?? "Select one or more FASTQ or FASTA files, sequence bundles, or reference bundles in the sidebar, then choose the matching operation category from the Tools menu."
+            alert.addButton(withTitle: "OK")
+            alert.beginSheetModal(for: window)
+        }
+
+        func presentOperationsDialog(selectedInputURLs: [URL]) {
+            guard !selectedInputURLs.isEmpty else {
+                showNoInputsAlert()
+                return
+            }
+
+            FASTQOperationsDialogPresenter.present(
+                from: window,
+                selectedInputURLs: selectedInputURLs,
+                initialCategory: initialCategory,
+                initialToolID: initialToolID,
+                projectURL: currentProjectURL,
+                onRun: { [weak self] state in
                 guard let self else { return }
                 debugLog("showFASTQOperationsDialog: confirmed \(state.selectedToolID.rawValue) for \(state.selectedInputURLs.count) input(s)")
 
@@ -184,8 +199,42 @@ extension AppDelegate {
                     self.runTaxTriage(config: config, viewerController: viewerController, routeContext: routeContext)
                     return
                 }
+                }
+            )
+        }
+
+        if initialCategory == .classification,
+           preferredInputURLs.isEmpty,
+           let sidebarItems = originSplit.sidebarController?.selectedItems(),
+           !sidebarItems.isEmpty {
+            let folderInput = Self.classificationFolderInput(items: sidebarItems, projectURL: currentProjectURL)
+            if folderInput.folderSelectionCount > 0 {
+                if folderInput.isEmpty {
+                    showNoInputsAlert(
+                        title: "No FASTQ Samples Found",
+                        message: "No eligible FASTQ or FASTA samples were found in the selected folder."
+                    )
+                    return
+                }
+                if folderInput.hasSubfolderBundles {
+                    ClassificationFolderPrompt.present(for: folderInput, in: window) { choice in
+                        guard let readURLs = ClassificationFolderPrompt.readURLs(for: choice, from: folderInput) else {
+                            return
+                        }
+                        presentOperationsDialog(selectedInputURLs: readURLs)
+                    }
+                    return
+                }
+                presentOperationsDialog(selectedInputURLs: folderInput.directReadURLs)
+                return
             }
+        }
+
+        let selectedInputURLs = gatherFASTQOperationInputURLs(
+            preferredInputURLs: preferredInputURLs,
+            controller: originController
         )
+        presentOperationsDialog(selectedInputURLs: selectedInputURLs)
     }
 
     private func gatherFASTQOperationInputURLs(
@@ -1201,6 +1250,46 @@ extension AppDelegate {
     }
 
     @objc func showWorkflowOperations(_ sender: Any?) {
+        showWorkflowOperations(sender, preselectedWorkflowID: nil)
+    }
+
+    @objc func launchWorkflowFromMenu(_ sender: NSMenuItem) {
+        guard let workflowID = workflowOperationID(from: sender.representedObject) else { return }
+        showWorkflowOperations(sender, preselectedWorkflowID: workflowID)
+    }
+
+    @objc func promptEnableWorkflowFromMenu(_ sender: NSMenuItem) {
+        let workflowTitle = sender.title.replacingOccurrences(of: " (not enabled)", with: "")
+        guard let window = activeMainWindowController(sender: sender)?.window else {
+            WorkflowLibraryWindowController.show()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Enable “\(workflowTitle)”?"
+        alert.informativeText = "This workflow is available but not yet enabled. Enable it in the Workflow Library?"
+        alert.addButton(withTitle: "Open Workflow Library")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            WorkflowLibraryWindowController.show()
+        }
+    }
+
+    private func workflowOperationID(from representedObject: Any?) -> String? {
+        if let toolID = representedObject as? FASTQOperationToolID {
+            switch toolID {
+            case .ontGenotyping:
+                return "builtin.ont-genotyping"
+            default:
+                return toolID.rawValue
+            }
+        }
+        return representedObject as? String
+    }
+
+    private func showWorkflowOperations(_ sender: Any?, preselectedWorkflowID: String?) {
         let sourceController = activeMainWindowController(sender: sender)
         let routeContext = sourceController.map { currentOperationRouteContext(for: $0) } ?? nil
         let projectURL = routeContext?.projectURL
@@ -1215,7 +1304,8 @@ extension AppDelegate {
             projectURL: projectURL,
             routeContext: routeContext,
             selectedReadURLs: selectedReadURLs,
-            sidebarInputSelection: sidebarResolution?.sidebarInputSelection
+            sidebarInputSelection: sidebarResolution?.sidebarInputSelection,
+            initialToolID: preselectedWorkflowID
         )
     }
 

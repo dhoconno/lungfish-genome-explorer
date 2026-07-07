@@ -78,6 +78,9 @@ public struct DeaconRiboFilterStep: RecipeStepExecutor {
         let outR2 = context.workspace.appendingPathComponent(
             "\(context.sampleName)_norrna_R2.fastq.gz"
         )
+        let summary = context.workspace.appendingPathComponent(
+            "\(context.sampleName)_deacon_ribo_summary.json"
+        )
 
         let args = [
             "filter",
@@ -89,6 +92,7 @@ public struct DeaconRiboFilterStep: RecipeStepExecutor {
             r2.path,
             "-o", outR1.path,
             "-O", outR2.path,
+            "--summary", summary.path,
             "-t", "\(context.threads)",
         ]
 
@@ -110,7 +114,8 @@ public struct DeaconRiboFilterStep: RecipeStepExecutor {
             r2: outR2,
             format: .pairedR1R2,
             tool: .deacon,
-            arguments: result.arguments
+            arguments: result.arguments,
+            auxiliaryOutputs: [summary]
         )
     }
 }

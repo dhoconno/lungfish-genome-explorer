@@ -301,4 +301,47 @@ final class RecipeIntegrationTests: XCTestCase {
         let stats = try await NativeToolRunner.shared.run(.seqkit, arguments: ["stats", "--tabular", result.output.r1.path])
         XCTAssertEqual(stats.exitCode, 0)
     }
+
+    func testFullVSP2RecipeExecutionCapturesDeaconSummaryArtifact() async throws {
+        guard await toolAvailable(.fastp), await toolAvailable(.seqkit),
+              await toolAvailable(.deacon) else {
+            throw XCTSkip("Required tools not available")
+        }
+        guard let _ = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
+            throw XCTSkip("Deacon human-read removal index not installed")
+        }
+        guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
+
+        let recipes = RecipeRegistryV2.builtinRecipes()
+        let vsp2 = try XCTUnwrap(recipes.first { $0.id == "vsp2-target-enrichment" })
+        let engine = RecipeEngine()
+
+        let r1 = fixtures.appendingPathComponent("test_1.fastq.gz")
+        let r2 = fixtures.appendingPathComponent("test_2.fastq.gz")
+        let workspace = try makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let input = StepInput(r1: r1, r2: r2, format: .pairedR1R2)
+        let context = StepContext(
+            workspace: workspace,
+            threads: 2,
+            sampleName: "sarscov2-vsp2-summary",
+            runner: NativeToolRunner.shared,
+            progress: { _, _ in }
+        )
+
+        let result = try await engine.execute(recipe: vsp2, input: input, context: context)
+        let deaconStep = try XCTUnwrap(result.stepRecords.first { $0.tool == "deacon" })
+        let summaryPath = try XCTUnwrap(deaconStep.auxiliaryOutputPaths.first)
+        let summaryURL = URL(fileURLWithPath: summaryPath)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: summaryURL.path))
+        XCTAssertEqual(deaconStep.commandArguments?.contains("--summary"), true)
+        XCTAssertTrue(deaconStep.commandArguments?.contains(summaryURL.path) == true)
+
+        let data = try Data(contentsOf: summaryURL)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["deplete"] as? Bool, true)
+        XCTAssertEqual(json["seqs_in"] as? Int, 200)
+        XCTAssertNotNil(json["seqs_removed"])
+    }
 }

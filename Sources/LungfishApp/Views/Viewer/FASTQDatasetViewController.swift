@@ -2168,6 +2168,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Clustering"
         case .classification:
             return "Classification"
+        case .genotyping:
+            return "Genotyping"
         }
     }
 
@@ -2195,6 +2197,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "circle.hexagongrid"
         case .classification:
             return "square.stack.3d.up"
+        case .genotyping:
+            return "person.text.rectangle"
         }
     }
 
@@ -2222,6 +2226,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Open the FASTQ/FASTA operations dialog with clustering tools selected."
         case .classification:
             return "Open the FASTQ/FASTA operations dialog with classification tools selected."
+        case .genotyping:
+            return "Open the FASTQ/FASTA operations dialog with genotyping tools selected."
         }
     }
 

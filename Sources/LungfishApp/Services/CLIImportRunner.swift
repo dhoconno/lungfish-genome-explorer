@@ -6,6 +6,7 @@ import Foundation
 import Darwin
 import LungfishKit
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 import os.log
 
@@ -33,6 +34,14 @@ public enum CLIImportEvent: Sendable {
     case sampleStart(sample: String, index: Int, total: Int, r1: String, r2: String?)
     case stepStart(sample: String, step: String, stepIndex: Int, totalSteps: Int)
     case stepComplete(sample: String, step: String, durationSeconds: Double)
+    case recipeReadDelta(
+        sample: String,
+        label: String,
+        inputReads: Int,
+        outputReads: Int,
+        readsRemoved: Int,
+        percentRemoved: Double
+    )
     case sampleComplete(sample: String, bundle: String, durationSeconds: Double, originalBytes: Int64, finalBytes: Int64)
     case sampleSkip(sample: String, reason: String)
     case sampleFailed(sample: String, error: String)
@@ -98,6 +107,7 @@ public actor CLIImportRunner {
     ///   - recipeName: Optional recipe name (e.g. "vsp2").
     ///   - qualityBinning: Whether to enable quality score binning.
     ///   - optimizeStorage: Whether to optimize storage (omitted flag means enabled).
+    ///   - clumpingTool: Storage optimization tool selection.
     ///   - compressionLevel: Compression level (1-9).
     /// - Returns: Array of argument strings suitable for ``Process.arguments``.
     public static func buildCLIArguments(
@@ -108,6 +118,7 @@ public actor CLIImportRunner {
         recipeName: String?,
         qualityBinning: String,
         optimizeStorage: Bool,
+        clumpingTool: ClumpingTool = .default,
         compressionLevel: String
     ) -> [String] {
         var args = ["import", "fastq", r1.path]
@@ -127,8 +138,10 @@ public actor CLIImportRunner {
             args += ["--recipe", recipeName]
         }
 
-        if !optimizeStorage {
+        if !optimizeStorage || clumpingTool == .none {
             args.append("--no-optimize-storage")
+        } else if clumpingTool != .default {
+            args += ["--clumping-tool", clumpingTool.rawValue]
         }
 
         return args
@@ -185,6 +198,16 @@ public actor CLIImportRunner {
                 sample: dict["sample"] as? String ?? "",
                 step: dict["step"] as? String ?? "",
                 durationSeconds: dict["durationSeconds"] as? Double ?? 0
+            )
+
+        case "recipeReadDelta":
+            return .recipeReadDelta(
+                sample: dict["sample"] as? String ?? "",
+                label: dict["label"] as? String ?? "",
+                inputReads: dict["inputReads"] as? Int ?? 0,
+                outputReads: dict["outputReads"] as? Int ?? 0,
+                readsRemoved: dict["readsRemoved"] as? Int ?? 0,
+                percentRemoved: dict["percentRemoved"] as? Double ?? 0
             )
 
         case "sampleComplete":
@@ -350,6 +373,22 @@ public actor CLIImportRunner {
                                     id: opID,
                                     level: .info,
                                     message: "\(sample) — \(step) completed (\(String(format: "%.1f", durationSeconds))s)"
+                                )
+                            }
+                        }
+
+                    case let .recipeReadDelta(sample, label, inputReads, outputReads, _, _):
+                        let summary = RecipeAppliedInfo.ReadDeltaSummary(
+                            inputReads: inputReads,
+                            outputReads: outputReads
+                        )
+                        let message = RecipeAppliedInfo.readDeltaLogLine(label, summary)
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.log(
+                                    id: opID,
+                                    level: .info,
+                                    message: "\(sample) — \(message)"
                                 )
                             }
                         }

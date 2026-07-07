@@ -13,11 +13,12 @@ final class ManualMetadataConsistencyTests: XCTestCase {
 
     func testViralReconManualEntryPointNamesMappingDialog() throws {
         let chapter = try readManualFile("chapters/05-variants/05-consensus-and-lineage.md")
-        let mappingPath = "Tools > FASTQ/FASTA Operations > Mapping\u{2026}"
+        let mappingPath = "Tools > Mapping > Mapping\u{2026}"
 
         XCTAssertTrue(chapter.contains("\"\(mappingPath) > Viral Recon tool row\""))
         XCTAssertTrue(chapter.contains("Choose `\(mappingPath)`, then select the `Viral Recon` tool row in the Mapping category."))
         XCTAssertFalse(chapter.contains("Tools > FASTQ/FASTA Operations > Viral Recon"))
+        XCTAssertFalse(chapter.contains("Tools > FASTQ/FASTA Operations > Mapping"))
         XCTAssertFalse(chapter.contains("then select `Viral Recon` in the tool sidebar"))
     }
 

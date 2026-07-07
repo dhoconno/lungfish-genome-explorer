@@ -66,6 +66,21 @@ final class NativeToolRunnerTests: XCTestCase {
         }
     }
 
+    func testTrimGaloreResolvesFromManagedEnvironment() {
+        XCTAssertEqual(NativeTool.trimGalore.executableName, "trim_galore")
+        XCTAssertEqual(NativeTool.trimGalore.versionArguments, ["--version"])
+        XCTAssertEqual(NativeTool.trimGalore.sourcePackage, "trim-galore")
+        XCTAssertEqual(NativeTool.trimGalore.license, "GPL-3.0-only")
+
+        switch NativeTool.trimGalore.location {
+        case .managed(let environment, let executableName):
+            XCTAssertEqual(environment, "trim_galore")
+            XCTAssertEqual(executableName, "trim_galore")
+        default:
+            XCTFail("Trim Galore should resolve from a managed tool environment")
+        }
+    }
+
     func testRiboDetectorResolvesFromManagedLungfishEnvironment() {
         switch NativeTool.ribodetector.location {
         case .managed(let environment, let executableName):
@@ -711,7 +726,7 @@ final class NativeToolRunnerTests: XCTestCase {
         // The legacy human-scrubber executables were retired when Deacon replaced that path.
         // BBMap shell wrappers, full-length MHC tools, viral variant callers, phasing, and lineage demixing
         // are all part of the managed tool surface.
-        XCTAssertEqual(NativeTool.allCases.count, 29, "Should include BBTools wrappers, full-length MHC, variant callers, phasing, and lineage demixing tools")
+        XCTAssertEqual(NativeTool.allCases.count, 30, "Should include BBTools wrappers, Trim Galore, full-length MHC, variant callers, phasing, and lineage demixing tools")
     }
 
     // MARK: - Error Tests

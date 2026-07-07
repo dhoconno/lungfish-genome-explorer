@@ -118,13 +118,16 @@ public final class FASTQImportConfigSheet: NSViewController {
     private let binningLabel = NSTextField(labelWithString: "Quality Binning:")
     private let binningPopup = NSPopUpButton()
     private let clumpifyCheckbox = NSButton(checkboxWithTitle: "Optimize storage (reorder reads for better compression)", target: nil, action: nil)
-    private let compressionLabel = NSTextField(labelWithString: "Compression:")
+    private let clumpingToolLabel = NSTextField(labelWithString: "Compression Tool:")
+    private let clumpingToolPopup = NSPopUpButton()
+    private let compressionLabel = NSTextField(labelWithString: "Compression Level:")
     private let compressionPopup = NSPopUpButton()
     private let recipeCheckbox = NSButton(checkboxWithTitle: "Apply processing recipe after import", target: nil, action: nil)
     private let recipePopup = NSPopUpButton()
     private let recipeDescLabel = NSTextField(wrappingLabelWithString: "")
     private let barcodeDefinitionRow = NSStackView()
     private let barcodeDefinitionLabel = NSTextField(labelWithString: "Barcode Sheet:")
+    private let barcodeDefinitionHelpButton = NSButton(title: "", target: nil, action: nil)
     private let barcodeDefinitionPopup = NSPopUpButton()
     private let chooseBarcodeDefinitionButton = NSButton(title: "Choose...", target: nil, action: nil)
     private let barcodeDefinitionStatusLabel = NSTextField(wrappingLabelWithString: "")
@@ -134,6 +137,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
     private var binningBelowPairingConstraint: NSLayoutConstraint?
     private var binningBelowPlatformConstraint: NSLayoutConstraint?
+    private var barcodeDefinitionHelpPopover: NSPopover?
 
     // MARK: - Init
 
@@ -169,6 +173,47 @@ public final class FASTQImportConfigSheet: NSViewController {
         FASTQDemultiplexOutputFolderName.sanitize(value)
     }
 
+    public nonisolated static func barcodeSheetHelpText(for recipe: FASTQImportSheetRecipeOption) -> String {
+        switch recipe.id {
+        case FASTQImportSheetRecipeOption.ontPacBioBarcodeDemux.id:
+            return [
+                "PacBio barcode-pair sheet",
+                "",
+                "CSV or TSV with one row per sample.",
+                "",
+                "Required columns:",
+                "sample_id, barcode_1, barcode_2",
+                "",
+                "Example:",
+                "LN94, bc1001, bc1021",
+                "",
+                "Built-in PacBio Sequel 16 v3, Sequel 96 v2, and Sequel 384 v1 barcode IDs are supported. Use explicit sequences only for custom barcodes. The selected sheet is recorded in import provenance.",
+            ].joined(separator: "\n")
+        case FASTQImportSheetRecipeOption.ontFluidigmSampleSplit.id:
+            return [
+                "Fluidigm sample sheet",
+                "",
+                "CSV or TSV with one row per sample.",
+                "",
+                "Required columns:",
+                "sample, barcode",
+                "",
+                "Example:",
+                "DW472, FLD0001",
+                "",
+                "Barcode values may be Fluidigm IDs or barcode sequences. The selected sheet is recorded in import provenance.",
+            ].joined(separator: "\n")
+        default:
+            return [
+                "Barcode sheet",
+                "",
+                "CSV or TSV with one row per sample.",
+                "",
+                "Include sample identifiers and the barcode columns required by the selected recipe. The selected sheet is recorded in import provenance.",
+            ].joined(separator: "\n")
+        }
+    }
+
     // MARK: - View Lifecycle
 
     public override func loadView() {
@@ -181,7 +226,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     // MARK: - Layout
 
     private func setupUI() {
-        let labelWidth: CGFloat = 110
+        let labelWidth: CGFloat = 130
         let margin: CGFloat = 20
 
         // Header
@@ -255,11 +300,30 @@ public final class FASTQImportConfigSheet: NSViewController {
         view.addSubview(binningPopup)
 
         // Clumpify checkbox
-        clumpifyCheckbox.state = .on
+        clumpifyCheckbox.state = defaultOptimizeStorage(for: detectedPlatform) ? .on : .off
         clumpifyCheckbox.font = .systemFont(ofSize: 12)
         clumpifyCheckbox.applyLungfishHelp(LungfishHelpContent.fastqImportClumpify)
         clumpifyCheckbox.translatesAutoresizingMaskIntoConstraints = false
+        clumpifyCheckbox.target = self
+        clumpifyCheckbox.action = #selector(clumpifyToggled(_:))
         view.addSubview(clumpifyCheckbox)
+
+        // Storage optimization tool picker
+        clumpingToolLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        clumpingToolLabel.alignment = .right
+        clumpingToolLabel.translatesAutoresizingMaskIntoConstraints = false
+        clumpingToolLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        view.addSubview(clumpingToolLabel)
+
+        for tool in clumpingToolChoices {
+            clumpingToolPopup.addItem(withTitle: tool.displayName)
+            clumpingToolPopup.lastItem?.representedObject = tool
+        }
+        selectClumpingTool(defaultClumpingTool())
+        clumpingToolPopup.font = .systemFont(ofSize: 12)
+        clumpingToolPopup.translatesAutoresizingMaskIntoConstraints = false
+        clumpingToolPopup.applyLungfishHelp(LungfishHelpContent.fastqImportClumpify)
+        view.addSubview(clumpingToolPopup)
 
         // Compression level picker
         compressionLabel.font = .systemFont(ofSize: 12, weight: .medium)
@@ -324,6 +388,22 @@ public final class FASTQImportConfigSheet: NSViewController {
         barcodeDefinitionLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         barcodeDefinitionLabel.widthAnchor.constraint(equalToConstant: labelWidth).isActive = true
         barcodeDefinitionRow.addArrangedSubview(barcodeDefinitionLabel)
+
+        barcodeDefinitionHelpButton.bezelStyle = .regularSquare
+        barcodeDefinitionHelpButton.isBordered = false
+        barcodeDefinitionHelpButton.image = AppSystemSymbolImage.named(
+            "questionmark.circle",
+            accessibilityDescription: "Show barcode sheet format"
+        )
+        barcodeDefinitionHelpButton.imageScaling = .scaleProportionallyDown
+        barcodeDefinitionHelpButton.target = self
+        barcodeDefinitionHelpButton.action = #selector(showBarcodeDefinitionHelp(_:))
+        barcodeDefinitionHelpButton.setAccessibilityLabel("Show barcode sheet format")
+        barcodeDefinitionHelpButton.applyLungfishHelp(LungfishHelpContent.fastqImportBarcodeSheet)
+        barcodeDefinitionHelpButton.toolTip = "Show barcode sheet format"
+        barcodeDefinitionHelpButton.widthAnchor.constraint(equalToConstant: 18).isActive = true
+        barcodeDefinitionHelpButton.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        barcodeDefinitionRow.addArrangedSubview(barcodeDefinitionHelpButton)
 
         barcodeDefinitionPopup.font = .systemFont(ofSize: 12)
         barcodeDefinitionPopup.applyLungfishHelp(LungfishHelpContent.fastqImportBarcodeSheet)
@@ -429,8 +509,16 @@ public final class FASTQImportConfigSheet: NSViewController {
             clumpifyCheckbox.topAnchor.constraint(equalTo: binningLabel.bottomAnchor, constant: 12),
             clumpifyCheckbox.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: margin + labelWidth + 8),
 
+            // Storage optimization tool row
+            clumpingToolLabel.topAnchor.constraint(equalTo: clumpifyCheckbox.bottomAnchor, constant: 10),
+            clumpingToolLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: margin),
+            clumpingToolLabel.widthAnchor.constraint(equalToConstant: labelWidth),
+            clumpingToolPopup.centerYAnchor.constraint(equalTo: clumpingToolLabel.centerYAnchor),
+            clumpingToolPopup.leadingAnchor.constraint(equalTo: clumpingToolLabel.trailingAnchor, constant: 8),
+            clumpingToolPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
+
             // Compression row
-            compressionLabel.topAnchor.constraint(equalTo: clumpifyCheckbox.bottomAnchor, constant: 10),
+            compressionLabel.topAnchor.constraint(equalTo: clumpingToolLabel.bottomAnchor, constant: 10),
             compressionLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: margin),
             compressionLabel.widthAnchor.constraint(equalToConstant: labelWidth),
             compressionPopup.centerYAnchor.constraint(equalTo: compressionLabel.centerYAnchor),
@@ -479,6 +567,7 @@ public final class FASTQImportConfigSheet: NSViewController {
 
         populateBarcodeDefinitions()
         updateRecipeControls()
+        updateClumpingToolControls()
         updatePairingControlsForSelectedPlatform()
     }
 
@@ -517,6 +606,27 @@ public final class FASTQImportConfigSheet: NSViewController {
         }
     }
 
+    private func defaultOptimizeStorage(for platform: LungfishIO.SequencingPlatform) -> Bool {
+        switch platform {
+        case .illumina, .element, .mgi, .ultima:
+            return true
+        case .oxfordNanopore, .pacbio, .unknown:
+            return false
+        }
+    }
+
+    private var clumpingToolChoices: [ClumpingTool] {
+        [.bbtools, .trimGalore]
+    }
+
+    private func defaultClumpingTool() -> ClumpingTool {
+        ClumpingTool.auto.resolve(estimatedInputBytes: totalInputSizeBytes()).resolved
+    }
+
+    private func totalInputSizeBytes() -> Int64 {
+        pairs.reduce(Int64(0)) { $0 + $1.totalSizeBytes }
+    }
+
     private func selectedPlatform() -> LungfishIO.SequencingPlatform {
         let platforms: [LungfishIO.SequencingPlatform] = [.illumina, .oxfordNanopore, .pacbio, .element, .ultima, .mgi, .unknown]
         let idx = platformPopup.indexOfSelectedItem
@@ -539,11 +649,38 @@ public final class FASTQImportConfigSheet: NSViewController {
         }
     }
 
+    private func selectedClumpingTool() -> ClumpingTool {
+        clumpingToolPopup.selectedItem?.representedObject as? ClumpingTool ?? defaultClumpingTool()
+    }
+
+    private func selectClumpingTool(_ tool: ClumpingTool) {
+        for index in 0..<clumpingToolPopup.numberOfItems {
+            guard clumpingToolPopup.item(at: index)?.representedObject as? ClumpingTool == tool else {
+                continue
+            }
+            clumpingToolPopup.selectItem(at: index)
+            return
+        }
+    }
+
     // MARK: - Actions
 
     @objc private func platformChanged(_ sender: Any) {
         binningPopup.selectItem(at: defaultBinningIndex(for: selectedPlatform()))
+        clumpifyCheckbox.state = defaultOptimizeStorage(for: selectedPlatform()) ? .on : .off
+        selectClumpingTool(defaultClumpingTool())
+        updateClumpingToolControls()
         updatePairingControlsForSelectedPlatform()
+    }
+
+    @objc private func clumpifyToggled(_ sender: Any) {
+        updateClumpingToolControls()
+    }
+
+    private func updateClumpingToolControls() {
+        let optimizeStorage = clumpifyCheckbox.state == .on
+        clumpingToolLabel.isEnabled = optimizeStorage
+        clumpingToolPopup.isEnabled = optimizeStorage
     }
 
     private func updatePairingControlsForSelectedPlatform() {
@@ -572,7 +709,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     @objc private func chooseBarcodeDefinition(_ sender: NSButton) {
         let panel = NSOpenPanel()
         panel.title = "Choose Barcode Sheet"
-        panel.message = "Select a CSV, TSV, or text file containing sample names and barcode definitions."
+        panel.message = barcodeDefinitionChooserMessage()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
@@ -593,6 +730,66 @@ public final class FASTQImportConfigSheet: NSViewController {
             panel.beginSheetModal(for: window, completionHandler: completion)
         } else {
             panel.begin(completionHandler: completion)
+        }
+    }
+
+    @objc private func showBarcodeDefinitionHelp(_ sender: NSButton) {
+        barcodeDefinitionHelpPopover?.close()
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 340, height: 220)
+        popover.contentViewController = barcodeDefinitionHelpViewController()
+        barcodeDefinitionHelpPopover = popover
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
+    }
+
+    private func barcodeDefinitionHelpViewController() -> NSViewController {
+        let controller = NSViewController()
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 220))
+        container.translatesAutoresizingMaskIntoConstraints = false
+        controller.view = container
+
+        let text = Self.barcodeSheetHelpText(for: selectedRecipeOption ?? .ontFluidigmSampleSplit)
+        let lines = text.components(separatedBy: "\n")
+        let title = lines.first ?? "Barcode sheet"
+        let body = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(titleLabel)
+
+        let bodyLabel = NSTextField(wrappingLabelWithString: body)
+        bodyLabel.font = .systemFont(ofSize: 12)
+        bodyLabel.textColor = .secondaryLabelColor
+        bodyLabel.maximumNumberOfLines = 0
+        bodyLabel.preferredMaxLayoutWidth = 300
+        bodyLabel.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(bodyLabel)
+
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+
+            bodyLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
+            bodyLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            bodyLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            bodyLabel.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -14),
+        ])
+
+        return controller
+    }
+
+    private func barcodeDefinitionChooserMessage() -> String {
+        switch selectedRecipeOption?.id {
+        case FASTQImportSheetRecipeOption.ontPacBioBarcodeDemux.id:
+            return "Choose a CSV or TSV with columns: sample_id, barcode_1, barcode_2."
+        case FASTQImportSheetRecipeOption.ontFluidigmSampleSplit.id:
+            return "Choose a CSV or TSV with columns: sample, barcode."
+        default:
+            return "Choose a CSV or TSV containing sample names and barcode definitions."
         }
     }
 
@@ -694,7 +891,8 @@ public final class FASTQImportConfigSheet: NSViewController {
         let platform = selectedPlatform()
         let pairingMode = platform == .oxfordNanopore ? .singleEnd : selectedPairingMode()
         let binning = selectedBinning()
-        let skipClumpify = clumpifyCheckbox.state == .off
+        let selectedStorageTool = selectedClumpingTool()
+        let skipClumpify = clumpifyCheckbox.state == .off || selectedStorageTool == .none
 
         let recipe: ProcessingRecipe? = nil
 
@@ -728,6 +926,7 @@ public final class FASTQImportConfigSheet: NSViewController {
             pairingMode: pairingMode,
             qualityBinning: binning,
             skipClumpify: skipClumpify,
+            clumpingTool: skipClumpify ? .none : selectedStorageTool,
             deleteOriginals: false,
             postImportRecipe: recipe,
             resolvedPlaceholders: resolvedPlaceholders,

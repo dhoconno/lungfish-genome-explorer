@@ -93,6 +93,12 @@ extension EsVirituCommand {
         var pairedEnd: Bool = false
 
         @Flag(
+            name: .customLong("recursive"),
+            help: "When an input is a directory, include eligible FASTQ files in subfolders"
+        )
+        var recursive: Bool = false
+
+        @Flag(
             name: .customLong("no-qc"),
             help: "Skip quality filtering (fastp)"
         )
@@ -129,16 +135,13 @@ extension EsVirituCommand {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
             // Resolve input files.
-            let inputURLs = inputFiles.map { URL(fileURLWithPath: $0) }
+            let inputURLs = try CLIClassificationFolderResolver.expandInputArguments(
+                inputFiles,
+                recursive: recursive
+            )
             guard !inputURLs.isEmpty else {
                 print(formatter.error("At least one --input file is required"))
                 throw CLIExitCode.inputError.exitCode
-            }
-            for url in inputURLs {
-                guard FileManager.default.fileExists(atPath: url.path) else {
-                    print(formatter.error("Input file not found: \(url.path)"))
-                    throw CLIExitCode.inputError.exitCode
-                }
             }
 
             // Validate paired-end input count.
@@ -249,7 +252,10 @@ extension EsVirituCommand {
             outputDirectory: URL
         ) throws -> EsVirituConfig {
             EsVirituConfig(
-                inputFiles: inputFiles.map { URL(fileURLWithPath: $0) },
+                inputFiles: try CLIClassificationFolderResolver.expandInputArguments(
+                    inputFiles,
+                    recursive: recursive
+                ),
                 isPairedEnd: pairedEnd,
                 sampleName: sampleName,
                 outputDirectory: outputDirectory,

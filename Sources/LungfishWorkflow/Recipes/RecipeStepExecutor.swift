@@ -61,10 +61,13 @@ public struct StepOutput: Sendable {
     public let tool: NativeTool?
     /// The reproducible argv used for the tool, including the executable path when available.
     public let arguments: [String]?
+    /// Additional machine-readable files emitted by the tool, such as native JSON summaries.
+    public let auxiliaryOutputs: [URL]
 
     public init(r1: URL, r2: URL? = nil, r3: URL? = nil,
                 format: RecipeFileFormat, readCount: Int? = nil,
-                tool: NativeTool? = nil, arguments: [String]? = nil) {
+                tool: NativeTool? = nil, arguments: [String]? = nil,
+                auxiliaryOutputs: [URL] = []) {
         self.r1 = r1
         self.r2 = r2
         self.r3 = r3
@@ -72,6 +75,7 @@ public struct StepOutput: Sendable {
         self.readCount = readCount
         self.tool = tool
         self.arguments = arguments
+        self.auxiliaryOutputs = auxiliaryOutputs
     }
 }
 

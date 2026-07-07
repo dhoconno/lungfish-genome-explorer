@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishCLI
+import LungfishWorkflow
 
 final class FastqGenotypingCommandTests: XCTestCase {
     func testFastqCommandRegistersPlatformNeutralGenotype() {
@@ -77,6 +78,33 @@ final class FastqGenotypingCommandTests: XCTestCase {
 
         XCTAssertEqual(command.threads, 1)
         XCTAssertEqual(command.chunkJobs, max(1, ProcessInfo.processInfo.activeProcessorCount))
+    }
+
+    func testONTPacBioBarcodeDemuxProvenanceOutputsDescribeDirectories() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ont-pacbio-cli-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outputDirectory = root.appendingPathComponent("demux", isDirectory: true)
+        let bundleURL = outputDirectory.appendingPathComponent("PN358.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let fastqURL = bundleURL.appendingPathComponent("PN358.fastq.gz")
+        try Data("payload".utf8).write(to: fastqURL)
+        let manifestURL = outputDirectory.appendingPathComponent("ont-pacbio-barcode-demux-manifest.json")
+        try Data("{}".utf8).write(to: manifestURL)
+
+        let records = FastqONTPacBioBarcodeDemuxSubcommand.provenanceOutputRecords(
+            outputDirectory: outputDirectory,
+            manifestURL: manifestURL,
+            outputBundleURLs: [bundleURL],
+            outputPayloads: [fastqURL]
+        )
+
+        let outputDirectoryRecord = try XCTUnwrap(records.first { $0.path == outputDirectory.path })
+        let bundleRecord = try XCTUnwrap(records.first { $0.path == bundleURL.path })
+        XCTAssertNotNil(outputDirectoryRecord.sha256)
+        XCTAssertGreaterThan(outputDirectoryRecord.sizeBytes ?? 0, 0)
+        XCTAssertNotNil(bundleRecord.sha256)
+        XCTAssertGreaterThan(bundleRecord.sizeBytes ?? 0, 0)
     }
 
     func testGenotypeCohortParsesONTSampleBundlesWithoutBarcodes() throws {

@@ -83,7 +83,8 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "New Project" })?.identifier?.rawValue, MainMenuAccessibilityID.newProject)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Open Project Folder..." })?.identifier?.rawValue, MainMenuAccessibilityID.openProjectFolder)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Import Center…" })?.identifier?.rawValue, MainMenuAccessibilityID.importCenter)
-        XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowOperations)
+        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
+        XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Genotyping" })?.submenu)
         XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Library…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowLibrary)
         XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Builder (Experimental)…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
         XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Plugin Manager…" })?.identifier?.rawValue, MainMenuAccessibilityID.pluginManager)
@@ -171,7 +172,7 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(recorder.workflowLibraryInvocationCount, 1)
     }
 
-    func testWorkflowOperationsMenuItemRoutesThroughToolsMenuActionProtocol() throws {
+    func testInlinedWorkflowMenuItemRoutesThroughToolsMenuActionProtocol() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu(
             experimentalFeaturesEnabled: false,
@@ -181,19 +182,22 @@ final class ImportCenterMenuTests: XCTestCase {
             )
         )
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-        let workflowOperationsItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
-        let selector = NSSelectorFromString("showWorkflowOperations:")
+        let genotypingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Genotyping" })?.submenu)
+        let workflowItem = try XCTUnwrap(genotypingMenu.items.first(where: {
+            $0.title == "\(FASTQOperationToolID.ontGenotyping.title)\u{2026}"
+        }))
+        let selector = NSSelectorFromString("launchWorkflowFromMenu:")
         let protocolMethod = protocol_getMethodDescription(ToolsMenuActions.self, selector, true, true)
         let recorder = WorkflowBuilderMenuActionRecorder()
 
         XCTAssertNotNil(protocolMethod.name)
-        XCTAssertEqual(workflowOperationsItem.action, selector)
-        XCTAssertEqual(workflowOperationsItem.identifier?.rawValue, MainMenuAccessibilityID.workflowOperations)
+        XCTAssertEqual(workflowItem.action, selector)
+        XCTAssertEqual(workflowItem.representedObject as? FASTQOperationToolID, .ontGenotyping)
         XCTAssertTrue(recorder.responds(to: selector))
 
-        recorder.perform(workflowOperationsItem.action, with: workflowOperationsItem)
+        recorder.perform(workflowItem.action, with: workflowItem)
 
-        XCTAssertEqual(recorder.workflowOperationsInvocationCount, 1)
+        XCTAssertEqual(recorder.launchWorkflowInvocationCount, 1)
     }
 
     func testWorkflowFeatureMenuItemsAreHiddenWhenNoOptionalWorkflowUsesThem() throws {
@@ -220,8 +224,9 @@ final class ImportCenterMenuTests: XCTestCase {
         )
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
 
-        XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
+        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
         XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Haplotype Definitions…" }))
+        XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Genotyping" })?.submenu)
     }
 
     func testHaplotypeDefinitionsAppearOnlyWhenEnabledWorkflowUsesThem() throws {
@@ -234,7 +239,7 @@ final class ImportCenterMenuTests: XCTestCase {
         )
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
 
-        XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
+        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
         XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Haplotype Definitions…" }))
     }
 
@@ -279,13 +284,11 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertFalse(toolsMenu.items.contains { $0.identifier?.rawValue == "tools-menu-nf-core-workflows" })
     }
 
-    func testFASTQFASTAOperationsMenuRoutesTransformActionsToFASTQFASTADialog() throws {
+    func testFASTQFASTAToolMenuRoutesTransformActionsToFASTQFASTADialog() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-        let operationsMenu = try XCTUnwrap(
-            toolsMenu.items.first(where: { $0.title == "FASTQ/FASTA Operations" })?.submenu
-        )
+        let operationsMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Read Processing" })?.submenu)
 
         let reverseComplement = try XCTUnwrap(
             operationsMenu.items.first(where: { $0.title == "Reverse Complement\u{2026}" })
@@ -294,54 +297,66 @@ final class ImportCenterMenuTests: XCTestCase {
             operationsMenu.items.first(where: { $0.title == "Translate\u{2026}" })
         )
 
-        XCTAssertEqual(reverseComplement.action, #selector(ToolsMenuActions.showFASTQReverseComplementOperation(_:)))
-        XCTAssertEqual(translate.action, #selector(ToolsMenuActions.showFASTQTranslateOperation(_:)))
+        XCTAssertEqual(reverseComplement.action, #selector(ToolsMenuActions.launchFASTQOperationToolFromMenu(_:)))
+        XCTAssertEqual(translate.action, #selector(ToolsMenuActions.launchFASTQOperationToolFromMenu(_:)))
+        XCTAssertEqual(reverseComplement.representedObject as? FASTQOperationToolID, .reverseComplement)
+        XCTAssertEqual(translate.representedObject as? FASTQOperationToolID, .translate)
     }
 
-    func testFASTQFASTAOperationsMenuKeepsEllipsesOnDialogOpeningLeafCommands() throws {
+    func testFASTQFASTAOperationsMenuEnumeratesToolLeafCommands() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-        let operationsMenu = try XCTUnwrap(
-            toolsMenu.items.first(where: { $0.title == "FASTQ/FASTA Operations" })?.submenu
-        )
 
-        let expectedLeafCommands: [(title: String, action: Selector)] = [
-            ("QC & Reporting\u{2026}", #selector(ToolsMenuActions.showFASTQQCReportingOperations(_:))),
-            ("Demultiplexing\u{2026}", #selector(ToolsMenuActions.showFASTQDemultiplexingOperations(_:))),
-            ("Trimming & Filtering\u{2026}", #selector(ToolsMenuActions.showFASTQTrimmingFilteringOperations(_:))),
-            ("Decontamination\u{2026}", #selector(ToolsMenuActions.showFASTQDecontaminationOperations(_:))),
-            ("Read Processing\u{2026}", #selector(ToolsMenuActions.showFASTQReadProcessingOperations(_:))),
-            ("Search & Subsetting\u{2026}", #selector(ToolsMenuActions.showFASTQSearchSubsettingOperations(_:))),
-            ("Multiple Sequence Alignment\u{2026}", #selector(ToolsMenuActions.showFASTQAlignmentOperations(_:))),
-            ("Mapping\u{2026}", #selector(ToolsMenuActions.showFASTQMappingOperations(_:))),
-            ("Assembly\u{2026}", #selector(ToolsMenuActions.showFASTQAssemblyOperations(_:))),
-            ("Classification\u{2026}", #selector(ToolsMenuActions.showFASTQClassificationOperations(_:))),
-        ]
-        let leafItems = Array(operationsMenu.items.prefix(expectedLeafCommands.count))
-
-        XCTAssertEqual(leafItems.map(\.title), expectedLeafCommands.map(\.title))
-        for (item, expected) in zip(leafItems, expectedLeafCommands) {
-            XCTAssertEqual(item.action, expected.action, item.title)
-            XCTAssertNil(item.submenu, item.title)
-        }
-
-        XCTAssertEqual(operationsMenu.items.dropFirst(expectedLeafCommands.count).map(\.title), [
-            "Reverse Complement\u{2026}",
-            "Translate\u{2026}",
+        let demultiplexingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Demultiplexing" })?.submenu)
+        XCTAssertEqual(demultiplexingMenu.items.map(\.title), [
+            "Demultiplex Barcodes\u{2026}",
+            "ONT Fluidigm Sample Split\u{2026}",
         ])
+        XCTAssertTrue(demultiplexingMenu.items.allSatisfy {
+            $0.action == #selector(ToolsMenuActions.launchFASTQOperationToolFromMenu(_:))
+        })
+
+        let mappingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Mapping" })?.submenu)
+        XCTAssertEqual(mappingMenu.items.map(\.title), [
+            "minimap2\u{2026}",
+            "BWA-MEM2\u{2026}",
+            "Bowtie2\u{2026}",
+            "BBMap\u{2026}",
+            "Viral Recon\u{2026}",
+        ])
+        XCTAssertEqual(mappingMenu.items.compactMap { $0.representedObject as? FASTQOperationToolID }, [
+            .minimap2,
+            .bwaMem2,
+            .bowtie2,
+            .bbmap,
+            .viralRecon,
+        ])
+
+        let readProcessingMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Read Processing" })?.submenu)
+        XCTAssertTrue(readProcessingMenu.items.contains { $0.title == "Merge Overlapping Pairs\u{2026}" })
+        XCTAssertNotNil(readProcessingMenu.items.first {
+            $0.title == "Reverse Complement\u{2026}"
+                && $0.representedObject as? FASTQOperationToolID == .reverseComplement
+        })
+        XCTAssertNotNil(readProcessingMenu.items.first {
+            $0.title == "Translate\u{2026}"
+                && $0.representedObject as? FASTQOperationToolID == .translate
+        })
     }
 
     func testFASTQFASTAOperationsMenuOmitsPluginManagementShortcuts() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-        let operationsMenu = try XCTUnwrap(
-            toolsMenu.items.first(where: { $0.title == "FASTQ/FASTA Operations" })?.submenu
-        )
+        let operationSubmenus = toolsMenu.items.compactMap(\.submenu)
 
-        XCTAssertNil(operationsMenu.items.first(where: { $0.title == "Lineage Demixing" }))
-        XCTAssertNil(operationsMenu.items.first(where: { $0.title == "Install/Configure Freyja…" }))
+        XCTAssertFalse(operationSubmenus.contains { menu in
+            menu.items.contains { $0.title == "Lineage Demixing" }
+        })
+        XCTAssertFalse(operationSubmenus.contains { menu in
+            menu.items.contains { $0.title == "Install/Configure Freyja…" }
+        })
     }
 
     func testImportCenterCatalogUsesExplicitImportCategoriesInsteadOfProjectFiles() throws {
@@ -449,6 +464,7 @@ private final class WorkflowBuilderMenuActionRecorder: NSObject, ToolsMenuAction
     private(set) var workflowBuilderInvocationCount = 0
     private(set) var workflowLibraryInvocationCount = 0
     private(set) var workflowOperationsInvocationCount = 0
+    private(set) var launchWorkflowInvocationCount = 0
 
     @objc func showWorkflowBuilder(_ sender: Any?) {
         workflowBuilderInvocationCount += 1
@@ -462,6 +478,7 @@ private final class WorkflowBuilderMenuActionRecorder: NSObject, ToolsMenuAction
         workflowOperationsInvocationCount += 1
     }
 
+    @objc func launchFASTQOperationToolFromMenu(_ sender: NSMenuItem) {}
     @objc func showHaplotypeDefinitions(_ sender: Any?) {}
 
     @objc func showFASTQQCReportingOperations(_ sender: Any?) {}
@@ -473,9 +490,15 @@ private final class WorkflowBuilderMenuActionRecorder: NSObject, ToolsMenuAction
     @objc func showFASTQAlignmentOperations(_ sender: Any?) {}
     @objc func showFASTQMappingOperations(_ sender: Any?) {}
     @objc func showFASTQAssemblyOperations(_ sender: Any?) {}
+    @objc func showFASTQClusteringOperations(_ sender: Any?) {}
     @objc func showFASTQClassificationOperations(_ sender: Any?) {}
+    @objc func showFASTQGenotypingOperations(_ sender: Any?) {}
     @objc func showFASTQReverseComplementOperation(_ sender: Any?) {}
     @objc func showFASTQTranslateOperation(_ sender: Any?) {}
+    @objc func launchWorkflowFromMenu(_ sender: NSMenuItem) {
+        launchWorkflowInvocationCount += 1
+    }
+    @objc func promptEnableWorkflowFromMenu(_ sender: NSMenuItem) {}
     @objc func showFreyjaDemix(_ sender: Any?) {}
     @objc func showBAMVariantCalling(_ sender: Any?) {}
     @objc func searchNCBI(_ sender: Any?) {}

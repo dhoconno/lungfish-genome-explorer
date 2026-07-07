@@ -162,6 +162,7 @@ final class WorkflowOperationDialogState {
         sidebarInputSelection: WorkflowSidebarInputSelection? = nil,
         projectDiscoveryMode: WorkflowOperationProjectDiscoveryMode = .synchronous,
         aiSpecialistPresetsAvailable: Bool = false,
+        initialToolID requestedInitialToolID: String? = nil,
         enablementStore: WorkflowLibraryEnablementStore = .shared,
         packageStore: WorkflowLibraryImportedPackageStore = .shared
     ) {
@@ -225,7 +226,10 @@ final class WorkflowOperationDialogState {
         self.cachedHaplotypeRegistry = Self.makeHaplotypeRegistry(from: initialDiscovery.haplotypeRecords)
         self.cachedReferenceBundleSummaries = initialDiscovery.referenceBundleSummaries
         self.cachedBundledHaplotypeDefinitions = initialDiscovery.bundledHaplotypeDefinitions
-        let initialToolID = initialTools.first(where: { $0.availability == .available })?.id
+        let initialToolID = requestedInitialToolID.flatMap { requested in
+            initialTools.first { $0.id == requested && $0.availability == .available }?.id
+        }
+            ?? initialTools.first(where: { $0.availability == .available })?.id
             ?? initialTools.first?.id
             ?? Self.ontGenotypingID
         self.selectedToolID = initialToolID

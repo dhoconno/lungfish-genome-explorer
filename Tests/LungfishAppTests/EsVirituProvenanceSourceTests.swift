@@ -20,6 +20,20 @@ final class EsVirituProvenanceSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("MetagenomicsBatchResultStore.saveEsViritu(manifest, to: batchRoot)"))
     }
 
+    func testSingleSampleZeroHitEsVirituCompletionUsesNoHitsDetail() throws {
+        let source = combinedAppDelegateSource()
+
+        XCTAssertTrue(source.contains("capturedResult.detections.isEmpty"))
+        XCTAssertTrue(source.contains(#""No viral hits detected""#))
+        XCTAssertTrue(source.contains("OperationCenter.shared.complete(\n                            id: opID,\n                            detail: completionDetail"))
+    }
+
+    func testBatchEsVirituProgressWritesOperationLogEntries() throws {
+        let source = combinedAppDelegateSource()
+
+        XCTAssertTrue(source.contains(#"OperationCenter.shared.log(id: opID, level: .info, message: "\(samplePrefix): \(message)")"#))
+    }
+
     func testEsVirituPipelineRecordsChecksummedFilesAtFinalOutputPaths() throws {
         let source = try String(contentsOf: pipelineSourceURL, encoding: .utf8)
 

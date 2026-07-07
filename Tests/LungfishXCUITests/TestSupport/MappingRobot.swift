@@ -58,9 +58,9 @@ struct MappingRobot {
         XCTAssertTrue(toolsMenu.waitForExistence(timeout: 5), file: file, line: line)
         toolsMenu.click()
 
-        let fastqOperationsMenu = app.menuItems["FASTQ/FASTA Operations"]
-        XCTAssertTrue(fastqOperationsMenu.waitForExistence(timeout: 5), file: file, line: line)
-        fastqOperationsMenu.click()
+        let mappingCategoryMenu = app.menuItems["Mapping"]
+        XCTAssertTrue(mappingCategoryMenu.waitForExistence(timeout: 5), file: file, line: line)
+        mappingCategoryMenu.click()
 
         let mappingMenuItem = app.menuItems["Mapping…"]
         XCTAssertTrue(mappingMenuItem.waitForExistence(timeout: 5), file: file, line: line)

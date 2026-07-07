@@ -294,7 +294,9 @@ public enum FASTQIngestionService {
                     qualityBinning: result.qualityBinning.rawValue,
                     originalFilenames: result.originalFilenames,
                     ingestionDate: Date(),
-                    originalSizeBytes: result.originalSizeBytes
+                    originalSizeBytes: result.originalSizeBytes,
+                    storageInputSizeBytes: result.originalSizeBytes,
+                    storageOutputSizeBytes: result.finalSizeBytes
                 )
 
                 var metadata = existingMetadata ?? PersistedFASTQMetadata()
@@ -592,6 +594,7 @@ public enum FASTQIngestionService {
             recipeName: resolvedRecipeName(for: importConfig),
             qualityBinning: importConfig.qualityBinning.rawValue,
             optimizeStorage: !importConfig.skipClumpify,
+            clumpingTool: importConfig.clumpingTool,
             compressionLevel: importConfig.compressionLevel?.rawValue ?? "balanced"
         )
     }

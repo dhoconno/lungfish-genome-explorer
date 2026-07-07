@@ -80,9 +80,9 @@ struct AssemblyRobot {
         XCTAssertTrue(toolsMenu.waitForExistence(timeout: 5), file: file, line: line)
         toolsMenu.click()
 
-        let fastqOperationsMenu = app.menuItems["FASTQ/FASTA Operations"]
-        XCTAssertTrue(fastqOperationsMenu.waitForExistence(timeout: 5), file: file, line: line)
-        fastqOperationsMenu.click()
+        let assemblyCategoryMenu = app.menuItems["Assembly"]
+        XCTAssertTrue(assemblyCategoryMenu.waitForExistence(timeout: 5), file: file, line: line)
+        assemblyCategoryMenu.click()
 
         let assemblyMenuItem = app.menuItems["Assembly…"]
         XCTAssertTrue(assemblyMenuItem.waitForExistence(timeout: 5), file: file, line: line)

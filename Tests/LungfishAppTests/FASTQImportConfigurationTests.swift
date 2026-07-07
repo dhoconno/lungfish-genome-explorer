@@ -6,6 +6,7 @@ import Foundation
 import AppKit
 import Testing
 @testable import LungfishApp
+import LungfishWorkflow
 
 @Suite("FASTQ Import Configuration")
 struct FASTQImportConfigurationTests {
@@ -175,6 +176,62 @@ struct FASTQImportConfigurationTests {
     }
 
     @MainActor
+    @Test("FASTQ import sheet defaults storage tool from file size and memory")
+    func importSheetDefaultsStorageToolFromInputSize() throws {
+        let smallURL = try Self.temporaryFASTQ(named: "small.fastq.gz", byteCount: 1_048_576)
+        let largeURL = try Self.temporaryFASTQ(named: "large.fastq.gz", byteCount: 40 * Self.gib)
+        defer {
+            try? FileManager.default.removeItem(at: smallURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: largeURL.deletingLastPathComponent())
+        }
+
+        let smallSheet = FASTQImportConfigSheet(
+            pairs: [FASTQFilePair(r1: smallURL, r2: nil)],
+            detectedPlatform: .illumina
+        )
+        smallSheet.loadViewIfNeeded()
+
+        let largeSheet = FASTQImportConfigSheet(
+            pairs: [FASTQFilePair(r1: largeURL, r2: nil)],
+            detectedPlatform: .illumina
+        )
+        largeSheet.loadViewIfNeeded()
+
+        #expect(smallSheet.view.fastqImportStorageToolPopup()?.selectedClumpingTool == .bbtools)
+        #expect(largeSheet.view.fastqImportStorageToolPopup()?.selectedClumpingTool == .trimGalore)
+        let largeOptimizeCheckbox = largeSheet.view.fastqImportDescendants(of: NSButton.self)
+            .first { $0.title == "Optimize storage (reorder reads for better compression)" }
+        #expect(largeOptimizeCheckbox?.state == .on)
+    }
+
+    @MainActor
+    @Test("FASTQ import sheet submits selected storage tool")
+    func importSheetSubmitsSelectedStorageTool() throws {
+        let sourceURL = try Self.temporaryFASTQ(named: "sample.fastq.gz", byteCount: 1_048_576)
+        defer { try? FileManager.default.removeItem(at: sourceURL.deletingLastPathComponent()) }
+        var capturedConfig: FASTQImportConfiguration?
+        let sheet = FASTQImportConfigSheet(
+            pairs: [FASTQFilePair(r1: sourceURL, r2: nil)],
+            detectedPlatform: .illumina,
+            onImport: { configuration in
+                capturedConfig = configuration
+            }
+        )
+
+        sheet.loadViewIfNeeded()
+
+        let storageToolPopup = try #require(sheet.view.fastqImportStorageToolPopup())
+        storageToolPopup.selectClumpingTool(.trimGalore)
+
+        let importButton = sheet.view.fastqImportDescendants(of: NSButton.self)
+            .first { $0.title == "Import" }
+        importButton?.performClick(nil)
+
+        #expect(capturedConfig?.skipClumpify == false)
+        #expect(capturedConfig?.clumpingTool == .trimGalore)
+    }
+
+    @MainActor
     @Test("ONT demux recipe import captures user folder override")
     func ontDemuxRecipeImportCapturesUserFolderOverride() {
         let sourceURL = URL(fileURLWithPath: "/data/Run42/fastq_pass", isDirectory: true)
@@ -213,6 +270,40 @@ struct FASTQImportConfigurationTests {
     }
 
     @MainActor
+    @Test("ONT barcode recipe sheet exposes compact format help")
+    func ontBarcodeRecipeSheetExposesCompactFormatHelp() throws {
+        let sourceURL = URL(fileURLWithPath: "/data/Run42/fastq_pass", isDirectory: true)
+        let sheet = FASTQImportConfigSheet(
+            pairs: [FASTQFilePair(r1: sourceURL, r2: nil)],
+            detectedPlatform: .oxfordNanopore,
+            recipeOptions: [.ontFluidigmSampleSplit, .ontPacBioBarcodeDemux]
+        )
+
+        sheet.loadViewIfNeeded()
+
+        let recipeCheckbox = sheet.view.fastqImportDescendants(of: NSButton.self)
+            .first { $0.title == "Apply processing recipe after import" }
+        recipeCheckbox?.performClick(nil)
+        sheet.view.layoutSubtreeIfNeeded()
+
+        let helpButton = try #require(sheet.view.fastqImportDescendants(of: NSButton.self)
+            .first { $0.toolTip == "Show barcode sheet format" })
+        #expect(helpButton.toolTip == "Show barcode sheet format")
+        #expect(helpButton.isBordered == false)
+        #expect(helpButton.isHidden == false)
+        #expect(helpButton.frame.width <= 24)
+
+        let fluidigmHelp = FASTQImportConfigSheet.barcodeSheetHelpText(for: .ontFluidigmSampleSplit)
+        #expect(fluidigmHelp.contains("sample, barcode"))
+        #expect(fluidigmHelp.contains("DW472, FLD0001"))
+
+        let pacBioHelp = FASTQImportConfigSheet.barcodeSheetHelpText(for: .ontPacBioBarcodeDemux)
+        #expect(pacBioHelp.contains("sample_id, barcode_1, barcode_2"))
+        #expect(pacBioHelp.contains("LN94, bc1001, bc1021"))
+        #expect(pacBioHelp.contains("Built-in PacBio Sequel 16 v3, Sequel 96 v2, and Sequel 384 v1 barcode IDs"))
+    }
+
+    @MainActor
     @Test("ONT demux working directory uses requested subfolder and unique suffix")
     func ontDemuxWorkingDirectoryUsesRequestedSubfolder() throws {
         let root = FileManager.default.temporaryDirectory
@@ -239,6 +330,20 @@ struct FASTQImportConfigurationTests {
 
         #expect(outputURL.lastPathComponent == "Run 42-2")
     }
+
+    private static let gib: Int64 = 1_073_741_824
+
+    private static func temporaryFASTQ(named name: String, byteCount: Int64) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fastq-import-config-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(name)
+        FileManager.default.createFile(atPath: url.path, contents: Data())
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: UInt64(byteCount))
+        try handle.close()
+        return url
+    }
 }
 
 private extension NSView {
@@ -251,5 +356,28 @@ private extension NSView {
             matches.append(contentsOf: subview.fastqImportDescendants(of: type))
         }
         return matches
+    }
+
+    func fastqImportStorageToolPopup() -> NSPopUpButton? {
+        fastqImportDescendants(of: NSPopUpButton.self)
+            .first { popup in
+                (0..<popup.numberOfItems).contains { index in
+                    popup.item(at: index)?.representedObject as? ClumpingTool == .bbtools
+                }
+            }
+    }
+}
+
+private extension NSPopUpButton {
+    var selectedClumpingTool: ClumpingTool? {
+        selectedItem?.representedObject as? ClumpingTool
+    }
+
+    func selectClumpingTool(_ tool: ClumpingTool) {
+        for index in 0..<numberOfItems {
+            guard item(at: index)?.representedObject as? ClumpingTool == tool else { continue }
+            selectItem(at: index)
+            return
+        }
     }
 }

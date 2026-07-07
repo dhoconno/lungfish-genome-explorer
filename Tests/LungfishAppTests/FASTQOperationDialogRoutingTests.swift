@@ -945,15 +945,15 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
     func testMappingCategoryExposesAllV1Mappers() {
         XCTAssertEqual(
             FASTQOperationDialogState.toolIDs(for: .mapping),
-            [.minimap2, .bwaMem2, .bowtie2, .bbmap, .ontGenotyping, .viralRecon]
+            [.minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon]
         )
     }
 
-    func testMappingDialogShowsBundledONTByDefaultAndHonorsExplicitLibraryDisable() throws {
+    func testGenotypingDialogShowsBundledONTByDefaultAndHonorsExplicitLibraryDisable() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "FASTQOperationDialogRoutingTests-\(UUID().uuidString)"))
         let workflowLibrary = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let defaultState = FASTQOperationDialogState(
-            initialCategory: .mapping,
+            initialCategory: .genotyping,
             selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
             workflowLibrary: workflowLibrary
         )
@@ -962,7 +962,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
 
         workflowLibrary.setWorkflow(.ontGenotyping, enabled: false)
         let disabledState = FASTQOperationDialogState(
-            initialCategory: .mapping,
+            initialCategory: .genotyping,
             selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
             workflowLibrary: workflowLibrary
         )
@@ -971,7 +971,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
 
         workflowLibrary.setWorkflow(.ontGenotyping, enabled: true)
         let enabledState = FASTQOperationDialogState(
-            initialCategory: .mapping,
+            initialCategory: .genotyping,
             selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
             workflowLibrary: workflowLibrary
         )

@@ -399,6 +399,48 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertTrue(json.contains("\"failed\""))
     }
 
+    func testRecipeReadDeltaEventsEmitDeduplicationAndHumanScrubSummaries() throws {
+        let info = RecipeAppliedInfo(
+            recipeID: "vsp2-target-enrichment",
+            recipeName: "Illumina VSP2 Target Enrichment",
+            appliedDate: Date(timeIntervalSince1970: 0),
+            stepResults: [
+                RecipeStepResult(
+                    stepName: "Remove PCR duplicates",
+                    tool: "fastp",
+                    inputReadCount: 1_000,
+                    outputReadCount: 720,
+                    durationSeconds: 1
+                ),
+                RecipeStepResult(
+                    stepName: "Remove human reads",
+                    tool: "deacon",
+                    inputReadCount: 720,
+                    outputReadCount: 700,
+                    durationSeconds: 1
+                ),
+            ]
+        )
+
+        let events = FASTQBatchImporter.recipeReadDeltaEvents(sample: "S1", recipeApplied: info)
+
+        XCTAssertEqual(events.count, 2)
+        guard case let .recipeReadDelta(sample, label, inputReads, outputReads, readsRemoved, percentRemoved) = events[0] else {
+            return XCTFail("Expected first read-delta event")
+        }
+        XCTAssertEqual(sample, "S1")
+        XCTAssertEqual(label, "Deduplication")
+        XCTAssertEqual(inputReads, 1_000)
+        XCTAssertEqual(outputReads, 720)
+        XCTAssertEqual(readsRemoved, 280)
+        XCTAssertEqual(percentRemoved, 28.0, accuracy: 0.001)
+
+        let json = FASTQBatchImporter.encodeLogEvent(events[0])
+        XCTAssertTrue(json.contains("\"recipeReadDelta\""))
+        XCTAssertTrue(json.contains("\"inputReads\":1000"))
+        XCTAssertTrue(json.contains("\"readsRemoved\":280"))
+    }
+
     // MARK: - ImportConfig Construction
 
     func testImportConfigConstruction() {
@@ -828,6 +870,48 @@ final class FASTQBatchImporterTests: XCTestCase {
 
         let step = try XCTUnwrap(steps.first)
         XCTAssertEqual(step.command, ["fastp", "--in1", inputURL.path, "--label", "sample one"])
+    }
+
+    func testRecipeProvenanceIncludesAuxiliaryOutputsWithDurableReplayPaths() throws {
+        let inputURL = URL(fileURLWithPath: "/tmp/input/Sample_R1.fastq")
+        let bundleFASTQURL = URL(fileURLWithPath: "/tmp/project/Imports/Sample.lungfishfastq/Sample.fastq.gz")
+        let temporarySummaryPath = "/tmp/project/.tmp/fastq-import-123/Sample_deacon_summary.json"
+        let finalSummaryURL = URL(
+            fileURLWithPath: "/tmp/project/Imports/Sample.lungfishfastq/metadata/recipe-step-artifacts/1-1-human-read-removal-Sample_deacon_summary.json"
+        )
+        let stepResult = RecipeStepResult(
+            stepName: "Human Read Removal",
+            tool: "deacon",
+            toolVersion: "0.15.0",
+            commandArguments: [
+                "deacon", "filter", "--deplete",
+                "--summary", temporarySummaryPath,
+                "/tmp/db/panhuman.idx", inputURL.path,
+                "-o", "/tmp/project/.tmp/fastq-import-123/Sample_scrubbed_R1.fq.gz",
+            ],
+            durationSeconds: 1.25,
+            auxiliaryOutputPaths: [finalSummaryURL.path],
+            auxiliaryCommandPathRewrites: [temporarySummaryPath: finalSummaryURL.path]
+        )
+
+        let steps = FASTQBatchImporter.recipeProvenanceSteps(
+            recipeStepResults: [stepResult],
+            originalInputURLs: [inputURL],
+            bundleFASTQURL: bundleFASTQURL
+        )
+
+        let step = try XCTUnwrap(steps.first)
+        XCTAssertTrue(step.outputs.contains { $0.path == bundleFASTQURL.path })
+        XCTAssertTrue(step.outputs.contains { $0.path == finalSummaryURL.path })
+        XCTAssertEqual(
+            step.durableReplayArgv,
+            [
+                "deacon", "filter", "--deplete",
+                "--summary", finalSummaryURL.path,
+                "/tmp/db/panhuman.idx", inputURL.path,
+                "-o", "/tmp/project/.tmp/fastq-import-123/Sample_scrubbed_R1.fq.gz",
+            ]
+        )
     }
 
     func testPublishFASTQBundleUsesFoundationReplacementForExistingBundle() throws {

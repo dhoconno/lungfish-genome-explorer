@@ -1099,6 +1099,17 @@ public struct DocumentSection: View {
                     metadataRow(label: "Original Size", value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
                 }
 
+                if let size = ingestion.storageInputSizeBytes,
+                   size != ingestion.originalSizeBytes || ingestion.recipeApplied != nil {
+                    let label = ingestion.isClumpified ? "Before Clumpify" : "Storage Input"
+                    metadataRow(label: label, value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                }
+
+                if let size = ingestion.storageOutputSizeBytes {
+                    let label = ingestion.isClumpified ? "After Clumpify" : "Stored Size"
+                    metadataRow(label: label, value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                }
+
                 if let date = ingestion.ingestionDate {
                     metadataRow(label: "Processed", value: formatDate(date))
                 }
@@ -1135,6 +1146,14 @@ public struct DocumentSection: View {
                     i > 0 ? String(format: " (%.1f%%)", Double(totalRemoved) / Double(i) * 100) : ""
                 } ?? ""
                 metadataRow(label: "Net reads removed", value: "\(formatCount(totalRemoved))\(pct)")
+            }
+
+            if let deduplicationSummary = info.deduplicationSummary {
+                metadataRow(label: "Deduplication", value: readDeltaDisplay(deduplicationSummary))
+            }
+
+            if let humanScrubSummary = info.humanScrubSummary {
+                metadataRow(label: "Human scrub", value: readDeltaDisplay(humanScrubSummary))
             }
 
             if !info.stepResults.isEmpty {
@@ -1224,6 +1243,10 @@ public struct DocumentSection: View {
                 }
             }
         }
+    }
+
+    private func readDeltaDisplay(_ summary: RecipeAppliedInfo.ReadDeltaSummary) -> String {
+        "\(formatCount(summary.readsRemoved)) removed (\(String(format: "%.1f", summary.percentRemoved))%)"
     }
 
     /// Builds a shell script that reproduces the pipeline steps.

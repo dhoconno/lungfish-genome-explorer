@@ -48,6 +48,14 @@ public enum ImportLogEvent: Sendable {
     case sampleStart(sample: String, index: Int, total: Int, r1: String, r2: String?)
     case stepStart(sample: String, step: String, stepIndex: Int, totalSteps: Int)
     case stepComplete(sample: String, step: String, durationSeconds: Double)
+    case recipeReadDelta(
+        sample: String,
+        label: String,
+        inputReads: Int,
+        outputReads: Int,
+        readsRemoved: Int,
+        percentRemoved: Double
+    )
     case sampleComplete(sample: String, bundle: String, durationSeconds: Double, originalBytes: Int64, finalBytes: Int64)
     case sampleSkip(sample: String, reason: String)
     case sampleFailed(sample: String, error: String)
@@ -66,6 +74,7 @@ public enum BatchImportError: Error, LocalizedError {
     case recipeNotApplicable(recipe: String, sample: String, reason: String)
     case outputBundleAlreadyExists(URL)
     case statisticsUnavailable(String)
+    case recipeArtifactMissing(URL)
 
     public var errorDescription: String? {
         switch self {
@@ -85,6 +94,8 @@ public enum BatchImportError: Error, LocalizedError {
             return "Output FASTQ bundle already exists: \(url.path). Use --force to replace it."
         case .statisticsUnavailable(let reason):
             return "FASTQ statistics could not be computed: \(reason)"
+        case .recipeArtifactMissing(let url):
+            return "Recipe step artifact is missing and cannot be retained: \(url.path)"
         }
     }
 }
@@ -113,6 +124,9 @@ public enum FASTQBatchImporter {
         /// Whether to run clumpify for storage optimisation. Defaults to the
         /// platform default; can be overridden explicitly.
         public let optimizeStorage: Bool
+        /// Storage optimization tool selection. `.auto` resolves after recipe
+        /// execution against the actual files that will be bundled.
+        public let clumpingTool: ClumpingTool
         /// Gzip compression level. Defaults to `.balanced`.
         public let compressionLevel: CompressionLevel
         public let threads: Int
@@ -127,6 +141,7 @@ public enum FASTQBatchImporter {
             newRecipe: Recipe? = nil,
             qualityBinning: QualityBinningScheme? = nil,
             optimizeStorage: Bool? = nil,
+            clumpingTool: ClumpingTool? = nil,
             compressionLevel: CompressionLevel? = nil,
             threads: Int = 4,
             logDirectory: URL? = nil,
@@ -138,11 +153,27 @@ public enum FASTQBatchImporter {
             self.newRecipe = newRecipe
             // Default resolution: explicit value > recipe suggestion > platform default
             self.qualityBinning = qualityBinning ?? newRecipe?.qualityBinning ?? platform.defaultQualityBinning
-            self.optimizeStorage = optimizeStorage ?? platform.defaultOptimizeStorage
+            let platformSupportsClumping = Self.platformSupportsClumping(platform)
+            let resolvedOptimizeStorage = platformSupportsClumping && (
+                optimizeStorage
+                    ?? clumpingTool.map(\.isClumpingEnabled)
+                    ?? platform.defaultOptimizeStorage
+            )
+            self.optimizeStorage = resolvedOptimizeStorage
+            self.clumpingTool = resolvedOptimizeStorage ? (clumpingTool ?? .default) : .none
             self.compressionLevel = compressionLevel ?? platform.defaultCompressionLevel
             self.threads = threads
             self.logDirectory = logDirectory
             self.forceReimport = forceReimport
+        }
+
+        private static func platformSupportsClumping(_ platform: LungfishWorkflow.SequencingPlatform) -> Bool {
+            switch platform {
+            case .illumina, .ultima:
+                return true
+            case .ont, .pacbio:
+                return false
+            }
         }
     }
 
@@ -560,6 +591,15 @@ public enum FASTQBatchImporter {
             dict["step"] = step
             dict["durationSeconds"] = durationSeconds
 
+        case .recipeReadDelta(let sample, let label, let inputReads, let outputReads, let readsRemoved, let percentRemoved):
+            dict["event"] = "recipeReadDelta"
+            dict["sample"] = sample
+            dict["label"] = label
+            dict["inputReads"] = inputReads
+            dict["outputReads"] = outputReads
+            dict["readsRemoved"] = readsRemoved
+            dict["percentRemoved"] = percentRemoved
+
         case .sampleComplete(let sample, let bundle, let durationSeconds, let originalBytes, let finalBytes):
             dict["event"] = "sampleComplete"
             dict["sample"] = sample
@@ -601,6 +641,32 @@ public enum FASTQBatchImporter {
         if let data = output.data(using: .utf8) {
             standardError.write(data)
         }
+    }
+
+    static func recipeReadDeltaEvents(sample: String, recipeApplied: RecipeAppliedInfo) -> [ImportLogEvent] {
+        var events: [ImportLogEvent] = []
+        if let summary = recipeApplied.deduplicationSummary {
+            events.append(readDeltaEvent(sample: sample, label: "Deduplication", summary: summary))
+        }
+        if let summary = recipeApplied.humanScrubSummary {
+            events.append(readDeltaEvent(sample: sample, label: "Human scrub", summary: summary))
+        }
+        return events
+    }
+
+    private static func readDeltaEvent(
+        sample: String,
+        label: String,
+        summary: RecipeAppliedInfo.ReadDeltaSummary
+    ) -> ImportLogEvent {
+        .recipeReadDelta(
+            sample: sample,
+            label: label,
+            inputReads: summary.inputReads,
+            outputReads: summary.outputReads,
+            readsRemoved: summary.readsRemoved,
+            percentRemoved: summary.percentRemoved
+        )
     }
 
     // MARK: - Main Entry Point
@@ -816,6 +882,8 @@ public enum FASTQBatchImporter {
             }
 
             // Step 2: Clumpify + compress (on recipe output, or raw input if no recipe)
+            let rawInputURLs = [pair.r1] + (pair.r2.map { [$0] } ?? [])
+            let rawOriginalSizeBytes = totalFileSize(rawInputURLs)
             let clumpifyInput: [URL]
             let clumpifyPairingMode: FASTQIngestionConfig.PairingMode
             let deleteIngestionInputsAfterRun: Bool
@@ -825,7 +893,10 @@ public enum FASTQBatchImporter {
                 deleteIngestionInputsAfterRun = true
             } else {
                 let rawInputs = pair.r2 != nil ? [pair.r1, pair.r2!] : [pair.r1]
-                if config.optimizeStorage {
+                let resolvedRawClumpingTool = config.clumpingTool.resolve(
+                    estimatedInputBytes: FASTQIngestionPipeline.estimatedUncompressedInputBytes(for: rawInputs)
+                ).resolved
+                if config.optimizeStorage && resolvedRawClumpingTool != .none {
                     clumpifyInput = rawInputs
                     deleteIngestionInputsAfterRun = false
                 } else {
@@ -842,7 +913,9 @@ public enum FASTQBatchImporter {
                 threads: config.threads,
                 deleteOriginals: deleteIngestionInputsAfterRun,
                 qualityBinning: config.qualityBinning,
-                skipClumpify: !config.optimizeStorage
+                skipClumpify: config.clumpingTool == .none,
+                compressionLevel: config.compressionLevel,
+                clumpingTool: config.clumpingTool
             )
 
             // Total steps = recipe steps + clumpify + stats
@@ -850,7 +923,7 @@ public enum FASTQBatchImporter {
             let totalSteps = recipeStepCount + 2  // +1 clumpify, +1 stats
             let clumpifyStepIndex = recipeStepCount + 1
             let statsStepIndex = recipeStepCount + 2
-            let clumpifyLabel = config.optimizeStorage ? "Clumpify + Compress" : "Compress"
+            let clumpifyLabel = config.optimizeStorage ? "Optimize storage + Compress" : "Compress"
             log?(.stepStart(sample: pair.sampleName, step: clumpifyLabel, stepIndex: clumpifyStepIndex, totalSteps: totalSteps))
             printProgress("  \u{2192} \(clumpifyLabel)...")
             let clumpifyStart = Date()
@@ -867,7 +940,7 @@ public enum FASTQBatchImporter {
             ))
             recipeStepResults.append(RecipeStepResult(
                 stepName: clumpifyLabel,
-                tool: ingestionResult.processingTool ?? (config.optimizeStorage ? "clumpify.sh" : "compression"),
+                tool: ingestionResult.processingTool ?? (config.optimizeStorage ? ingestionResult.resolvedClumpingTool.rawValue : "compression"),
                 toolVersion: ingestionResult.processingToolVersion,
                 commandLine: ingestionResult.processingCommandLine,
                 inputReadCount: nil,
@@ -903,6 +976,11 @@ public enum FASTQBatchImporter {
                 metadataPairs["sample"] = pair.sampleName
                 try FASTQBundleCSVMetadata.save(FASTQBundleCSVMetadata(keyValuePairs: metadataPairs), to: stagingBundleURL)
             }
+            recipeStepResults = try materializeRecipeAuxiliaryOutputs(
+                recipeStepResults,
+                stagingBundleURL: stagingBundleURL,
+                publishedBundleURL: bundleURL
+            )
 
             // Write ingestion metadata sidecar
             let pairingMeta: IngestionMetadata.PairingMode = pair.r2 != nil ? .interleaved : .singleEnd
@@ -911,9 +989,11 @@ public enum FASTQBatchImporter {
                 isCompressed: true,
                 pairingMode: pairingMeta,
                 qualityBinning: ingestionResult.qualityBinning.rawValue,
-                originalFilenames: [pair.r1.lastPathComponent] + (pair.r2.map { [$0.lastPathComponent] } ?? []),
+                originalFilenames: rawInputURLs.map(\.lastPathComponent),
                 ingestionDate: Date(),
-                originalSizeBytes: ingestionResult.originalSizeBytes
+                originalSizeBytes: rawOriginalSizeBytes,
+                storageInputSizeBytes: ingestionResult.originalSizeBytes,
+                storageOutputSizeBytes: ingestionResult.finalSizeBytes
             )
             var metadata = PersistedFASTQMetadata()
             metadata.ingestion = ingestion
@@ -934,6 +1014,11 @@ public enum FASTQBatchImporter {
                 )
             }
             FASTQMetadataStore.save(metadata, for: stagingBundleFASTQURL)
+            if let recipeApplied = metadata.ingestion?.recipeApplied {
+                for event in recipeReadDeltaEvents(sample: pair.sampleName, recipeApplied: recipeApplied) {
+                    log?(event)
+                }
+            }
 
             // Write per-sample log if logDirectory is set
             if let logDir = config.logDirectory {
@@ -1099,6 +1184,79 @@ public enum FASTQBatchImporter {
         }
     }
 
+    private static func materializeRecipeAuxiliaryOutputs(
+        _ stepResults: [RecipeStepResult],
+        stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) throws -> [RecipeStepResult] {
+        let fm = FileManager.default
+        let stagingDirectory = stagingBundleURL
+            .appendingPathComponent("metadata", isDirectory: true)
+            .appendingPathComponent("recipe-step-artifacts", isDirectory: true)
+        let publishedDirectory = publishedBundleURL
+            .appendingPathComponent("metadata", isDirectory: true)
+            .appendingPathComponent("recipe-step-artifacts", isDirectory: true)
+
+        var materialized: [RecipeStepResult] = []
+        for (stepIndex, result) in stepResults.enumerated() {
+            guard !result.auxiliaryOutputPaths.isEmpty else {
+                materialized.append(result)
+                continue
+            }
+
+            try fm.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+            var finalPaths: [String] = []
+            var rewrites = result.auxiliaryCommandPathRewrites
+            for (artifactIndex, sourcePath) in result.auxiliaryOutputPaths.enumerated() {
+                let sourceURL = URL(fileURLWithPath: sourcePath)
+                guard fm.fileExists(atPath: sourceURL.path) else {
+                    throw BatchImportError.recipeArtifactMissing(sourceURL)
+                }
+
+                let filename = recipeArtifactFilename(
+                    stepIndex: stepIndex,
+                    artifactIndex: artifactIndex,
+                    stepName: result.stepName,
+                    sourceURL: sourceURL
+                )
+                let stagingURL = stagingDirectory.appendingPathComponent(filename)
+                let publishedURL = publishedDirectory.appendingPathComponent(filename)
+                if sourceURL.standardizedFileURL != stagingURL.standardizedFileURL {
+                    try? fm.removeItem(at: stagingURL)
+                    try fm.copyItem(at: sourceURL, to: stagingURL)
+                }
+                finalPaths.append(publishedURL.path)
+                rewrites[sourceURL.path] = publishedURL.path
+            }
+
+            materialized.append(result.replacingAuxiliaryOutputs(
+                paths: finalPaths,
+                commandPathRewrites: rewrites
+            ))
+        }
+        return materialized
+    }
+
+    private static func recipeArtifactFilename(
+        stepIndex: Int,
+        artifactIndex: Int,
+        stepName: String,
+        sourceURL: URL
+    ) -> String {
+        let stem = stepName
+            .lowercased()
+            .unicodeScalars
+            .map { scalar -> String in
+                CharacterSet.alphanumerics.contains(scalar) ? String(scalar) : "-"
+            }
+            .joined()
+        let slug = String(stem)
+            .split(separator: "-")
+            .joined(separator: "-")
+            .prefix(48)
+        return "\(stepIndex + 1)-\(artifactIndex + 1)-\(slug)-\(sourceURL.lastPathComponent)"
+    }
+
     // MARK: - Provenance
 
     private static func writeImportProvenance(
@@ -1127,7 +1285,9 @@ public enum FASTQBatchImporter {
         steps.append(contentsOf: recipeProvenanceSteps(
             recipeStepResults: recipeStepResults,
             originalInputURLs: originalInputURLs,
-            bundleFASTQURL: stagingBundleFASTQURL
+            bundleFASTQURL: stagingBundleFASTQURL,
+            stagingBundleURL: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
         ))
         steps.append(contentsOf: rehydratedIngestionSteps(
             ingestionResult.provenanceSteps,
@@ -1409,7 +1569,9 @@ public enum FASTQBatchImporter {
     static func recipeProvenanceSteps(
         recipeStepResults: [RecipeStepResult],
         originalInputURLs: [URL],
-        bundleFASTQURL: URL
+        bundleFASTQURL: URL,
+        stagingBundleURL: URL? = nil,
+        publishedBundleURL: URL? = nil
     ) -> [StepExecution] {
         recipeStepResults.compactMap { result in
             guard result.stepName != "Compute statistics",
@@ -1418,21 +1580,94 @@ public enum FASTQBatchImporter {
                 return nil
             }
             let command = recipeStepCommandArguments(for: result)
+            let durableReplayArgv = durableRecipeStepArguments(
+                command,
+                pathRewrites: result.auxiliaryCommandPathRewrites
+            )
             let timestamp = Date()
             return StepExecution(
                 toolName: result.tool,
                 toolVersion: result.toolVersion ?? "unknown",
                 command: command,
+                durableReplayArgv: durableReplayArgv == command ? nil : durableReplayArgv,
                 inputs: originalInputURLs.map {
                     ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
                 },
-                outputs: [ProvenanceRecorder.fileRecord(url: bundleFASTQURL, format: .fastq, role: .output)],
+                outputs: [ProvenanceRecorder.fileRecord(url: bundleFASTQURL, format: .fastq, role: .output)]
+                    + result.auxiliaryOutputPaths.map {
+                        recipeAuxiliaryOutputRecord(
+                            finalPath: $0,
+                            stagingBundleURL: stagingBundleURL,
+                            publishedBundleURL: publishedBundleURL
+                        )
+                    },
                 exitCode: 0,
                 wallTime: result.durationSeconds,
                 stderr: nil,
                 startTime: timestamp.addingTimeInterval(-result.durationSeconds),
                 endTime: timestamp
             )
+        }
+    }
+
+    private static func durableRecipeStepArguments(
+        _ command: [String],
+        pathRewrites: [String: String]
+    ) -> [String] {
+        guard !pathRewrites.isEmpty else { return command }
+        return command.map { argument in
+            pathRewrites[argument] ?? argument
+        }
+    }
+
+    private static func recipeAuxiliaryOutputRecord(
+        finalPath: String,
+        stagingBundleURL: URL?,
+        publishedBundleURL: URL?
+    ) -> FileRecord {
+        let finalURL = URL(fileURLWithPath: finalPath)
+        let checksumURL = stagedURLForPublishedBundlePath(
+            finalPath,
+            stagingBundleURL: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
+        ) ?? finalURL
+        let baseRecord = ProvenanceRecorder.fileRecord(
+            url: checksumURL,
+            format: recipeAuxiliaryOutputFormat(for: finalURL),
+            role: .output
+        )
+        return FileRecord(
+            path: finalURL.path,
+            sha256: baseRecord.sha256,
+            sizeBytes: baseRecord.sizeBytes,
+            format: baseRecord.format,
+            role: baseRecord.role
+        )
+    }
+
+    private static func stagedURLForPublishedBundlePath(
+        _ path: String,
+        stagingBundleURL: URL?,
+        publishedBundleURL: URL?
+    ) -> URL? {
+        guard let stagingBundleURL, let publishedBundleURL else { return nil }
+        let publishedPath = publishedBundleURL.standardizedFileURL.path
+        let stagingPath = stagingBundleURL.standardizedFileURL.path
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard standardized == publishedPath || standardized.hasPrefix(publishedPath + "/") else {
+            return nil
+        }
+        return URL(fileURLWithPath: stagingPath + String(standardized.dropFirst(publishedPath.count)))
+    }
+
+    private static func recipeAuxiliaryOutputFormat(for url: URL) -> FileFormat {
+        switch url.pathExtension.lowercased() {
+        case "json":
+            return .json
+        case "txt", "log":
+            return .text
+        default:
+            return .unknown
         }
     }
 
@@ -1626,6 +1861,7 @@ public enum FASTQBatchImporter {
             "recipe": .string(config.newRecipe?.id ?? config.recipe?.name ?? "none"),
             "qualityBinning": .string(config.qualityBinning.rawValue),
             "optimizeStorage": .boolean(config.optimizeStorage),
+            "clumpingTool": .string(config.clumpingTool.rawValue),
             "compressionLevel": .string(config.compressionLevel.rawValue),
             "threads": .integer(config.threads),
             "forceReimport": .boolean(config.forceReimport),
@@ -1640,6 +1876,7 @@ public enum FASTQBatchImporter {
                 (config.newRecipe?.qualityBinning ?? config.platform.defaultQualityBinning).rawValue
             ),
             "optimizeStorage": .boolean(config.platform.defaultOptimizeStorage),
+            "clumpingTool": .string(config.platform.defaultOptimizeStorage ? ClumpingTool.default.rawValue : ClumpingTool.none.rawValue),
             "compressionLevel": .string(config.platform.defaultCompressionLevel.rawValue),
             "threads": .integer(4),
             "forceReimport": .boolean(false),
@@ -1667,13 +1904,29 @@ public enum FASTQBatchImporter {
         parameters["pairedEndInput"] = .boolean(pair.r2 != nil)
         parameters["outputPairingMode"] = .string(ingestionResult.pairingMode.rawValue)
         parameters["wasClumpified"] = .boolean(ingestionResult.wasClumpified)
-        parameters["originalFilenames"] = .array(ingestionResult.originalFilenames.map { .string($0) })
-        parameters["originalSizeBytes"] = .integer(Int(ingestionResult.originalSizeBytes))
+        parameters["requestedClumpingTool"] = .string(ingestionResult.requestedClumpingTool.rawValue)
+        parameters["resolvedClumpingTool"] = .string(ingestionResult.resolvedClumpingTool.rawValue)
+        parameters["clumpingEstimatedInputBytes"] = .integer(Int(ingestionResult.clumpingResolution.estimatedInputBytes))
+        parameters["clumpingPhysicalMemoryBytes"] = .integer(Int(ingestionResult.clumpingResolution.physicalMemoryBytes))
+        parameters["clumpingHeapBytes"] = .integer(Int(ingestionResult.clumpingResolution.clumpifyHeapBytes))
+        parameters["clumpingThresholdBytes"] = .integer(Int(ingestionResult.clumpingResolution.thresholdBytes))
+        parameters["clumpingResolutionReason"] = .string(ingestionResult.clumpingResolution.reason)
+        parameters["originalFilenames"] = .array(([pair.r1] + (pair.r2.map { [$0] } ?? [])).map {
+            .string($0.lastPathComponent)
+        })
+        parameters["originalSizeBytes"] = .integer(Int(totalFileSize([pair.r1] + (pair.r2.map { [$0] } ?? []))))
         parameters["finalSizeBytes"] = .integer(Int(ingestionResult.finalSizeBytes))
         parameters["processingTool"] = ingestionResult.processingTool.map(ParameterValue.string) ?? .null
         parameters["processingToolVersion"] = ingestionResult.processingToolVersion.map(ParameterValue.string) ?? .null
         parameters["processingCommandLine"] = ingestionResult.processingCommandLine.map(ParameterValue.string) ?? .null
         return parameters
+    }
+
+    private static func totalFileSize(_ urls: [URL]) -> Int64 {
+        urls.reduce(Int64(0)) { total, url in
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+            return total + size
+        }
     }
 
     private static func reproducibleImportCommand(pair: SamplePair, config: ImportConfig) -> [String] {
@@ -1685,6 +1938,7 @@ public enum FASTQBatchImporter {
                 "--platform", config.platform.rawValue,
                 "--recipe", config.newRecipe?.id ?? config.recipe?.name ?? "none",
                 "--quality-binning", config.qualityBinning.rawValue,
+                "--clumping-tool", config.clumpingTool.rawValue,
                 "--compression", config.compressionLevel.rawValue,
                 "--threads", String(config.threads),
             ]
@@ -1709,6 +1963,7 @@ public enum FASTQBatchImporter {
             "--platform", config.platform.rawValue,
             "--recipe", config.newRecipe?.id ?? config.recipe?.name ?? "none",
             "--quality-binning", config.qualityBinning.rawValue,
+            "--clumping-tool", config.clumpingTool.rawValue,
             "--compression", config.compressionLevel.rawValue,
             "--threads", String(config.threads),
         ]

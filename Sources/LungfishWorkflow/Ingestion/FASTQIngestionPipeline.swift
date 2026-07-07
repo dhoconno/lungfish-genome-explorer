@@ -54,9 +54,15 @@ public struct FASTQIngestionConfig: Sendable {
     /// Quality binning scheme for compression optimization.
     public let qualityBinning: QualityBinningScheme
 
-    /// Whether to skip the clumpify step (k-mer sorting + quality binning).
-    /// When true, only compression is performed.
-    public let skipClumpify: Bool
+    /// Gzip compression level for tool output when supported.
+    public let compressionLevel: CompressionLevel
+
+    /// Requested storage optimization tool. `.auto` resolves after recipe execution
+    /// against the actual files that will be optimized.
+    public let clumpingTool: ClumpingTool
+
+    /// Whether to skip storage optimization. Preserved for older call sites.
+    public var skipClumpify: Bool { clumpingTool == .none }
 
     public init(
         inputFiles: [URL],
@@ -65,7 +71,9 @@ public struct FASTQIngestionConfig: Sendable {
         threads: Int = 4,
         deleteOriginals: Bool = true,
         qualityBinning: QualityBinningScheme = .illumina4,
-        skipClumpify: Bool = false
+        skipClumpify: Bool = false,
+        compressionLevel: CompressionLevel = .balanced,
+        clumpingTool: ClumpingTool = .default
     ) {
         self.inputFiles = inputFiles
         self.pairingMode = pairingMode
@@ -73,7 +81,8 @@ public struct FASTQIngestionConfig: Sendable {
         self.threads = threads
         self.deleteOriginals = deleteOriginals
         self.qualityBinning = qualityBinning
-        self.skipClumpify = skipClumpify
+        self.compressionLevel = compressionLevel
+        self.clumpingTool = skipClumpify ? .none : clumpingTool
     }
 }
 
@@ -95,6 +104,12 @@ public struct FASTQIngestionResult: Sendable {
     public let finalSizeBytes: Int64
     /// Pairing mode of the output.
     public let pairingMode: FASTQIngestionConfig.PairingMode
+    /// Requested clumping tool before automatic resolution.
+    public let requestedClumpingTool: ClumpingTool
+    /// Resolved clumping tool used for this run.
+    public let resolvedClumpingTool: ClumpingTool
+    /// Automatic clumping decision details.
+    public let clumpingResolution: ClumpingToolResolution
     /// Tool used for the final storage-optimization/compression step.
     public let processingTool: String?
     /// Version of ``processingTool`` captured at execution time.
@@ -112,6 +127,9 @@ public struct FASTQIngestionResult: Sendable {
         originalSizeBytes: Int64,
         finalSizeBytes: Int64,
         pairingMode: FASTQIngestionConfig.PairingMode,
+        requestedClumpingTool: ClumpingTool = .default,
+        resolvedClumpingTool: ClumpingTool? = nil,
+        clumpingResolution: ClumpingToolResolution? = nil,
         processingTool: String? = nil,
         processingToolVersion: String? = nil,
         processingCommandLine: String? = nil,
@@ -124,6 +142,10 @@ public struct FASTQIngestionResult: Sendable {
         self.originalSizeBytes = originalSizeBytes
         self.finalSizeBytes = finalSizeBytes
         self.pairingMode = pairingMode
+        let resolution = clumpingResolution ?? requestedClumpingTool.resolve(estimatedInputBytes: originalSizeBytes)
+        self.requestedClumpingTool = requestedClumpingTool
+        self.resolvedClumpingTool = resolvedClumpingTool ?? resolution.resolved
+        self.clumpingResolution = resolution
         self.processingTool = processingTool
         self.processingToolVersion = processingToolVersion
         self.processingCommandLine = processingCommandLine
@@ -136,7 +158,7 @@ private struct FASTQProcessingRecord: Sendable {
     let tool: String
     let toolVersion: String?
     let commandLine: String
-    let step: StepExecution
+    let steps: [StepExecution]
 }
 
 // MARK: - FASTQIngestionError
@@ -214,6 +236,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
             return total + (attrs?[.size] as? Int64 ?? 0)
         }
+        let estimatedInputBytes = Self.estimatedUncompressedInputBytes(for: config.inputFiles)
+        let clumpingResolution = config.clumpingTool.resolve(estimatedInputBytes: estimatedInputBytes)
 
         let baseName = Self.deriveBaseName(from: config.inputFiles[0])
         var outputFile = config.outputDirectory.appendingPathComponent("\(baseName).fastq.gz")
@@ -232,12 +256,13 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         var processingRecord: FASTQProcessingRecord?
         var provenanceSteps: [StepExecution] = []
 
-        if config.skipClumpify {
+        switch clumpingResolution.resolved {
+        case .none:
             logger.info("Clumpify skipped (disabled in preferences)")
             clumpifiedFile = config.inputFiles[0]
             wasClumpified = false
             progress(0.5, "Clumpify disabled, skipping...")
-        } else {
+        case .bbtools:
             progress(0.0, "Sorting reads by k-mer similarity...")
             do {
                 let record = try await clumpify(
@@ -249,12 +274,31 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                 )
                 clumpifiedFile = record.url
                 processingRecord = record
-                provenanceSteps.append(record.step)
+                provenanceSteps.append(contentsOf: record.steps)
                 wasClumpified = true
             } catch {
                 // Clumpify is mandatory for imported FASTQ workflows.
                 throw FASTQIngestionError.clumpifyFailed(error.localizedDescription)
             }
+        case .trimGalore:
+            progress(0.0, "Optimizing reads with Trim Galore...")
+            do {
+                let record = try await trimGaloreClumpify(
+                    config: config,
+                    outputFile: outputFile,
+                    progress: { fraction, msg in
+                        progress(fraction * 0.5, msg)
+                    }
+                )
+                clumpifiedFile = record.url
+                processingRecord = record
+                provenanceSteps.append(contentsOf: record.steps)
+                wasClumpified = true
+            } catch {
+                throw FASTQIngestionError.clumpifyFailed(error.localizedDescription)
+            }
+        case .auto:
+            preconditionFailure("ClumpingTool.auto must resolve to a concrete tool")
         }
 
         try Task.checkCancellation()
@@ -282,7 +326,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             )
             compressedFile = record.url
             processingRecord = record
-            provenanceSteps.append(record.step)
+            provenanceSteps.append(contentsOf: record.steps)
         }
 
         // Delete originals if requested
@@ -318,6 +362,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             originalSizeBytes: originalSize,
             finalSizeBytes: finalSize,
             pairingMode: outputPairingMode,
+            requestedClumpingTool: clumpingResolution.requested,
+            resolvedClumpingTool: clumpingResolution.resolved,
+            clumpingResolution: clumpingResolution,
             processingTool: processingRecord?.tool,
             processingToolVersion: processingRecord?.toolVersion,
             processingCommandLine: processingRecord?.commandLine,
@@ -455,7 +502,180 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             tool: "clumpify.sh",
             toolVersion: toolVersion,
             commandLine: "clumpify.sh \(args.joined(separator: " "))",
-            step: step
+            steps: [step]
+        )
+    }
+
+    /// Runs Trim Galore's `--clumpify` mode for final-stage FASTQ storage optimization.
+    ///
+    /// Trim Galore writes paired-end data as two files, while Lungfish bundles store
+    /// paired imports as one interleaved FASTQ. For paired inputs, this method uses
+    /// BBTools `reformat.sh` only as a streaming interleaver after Trim Galore.
+    private func trimGaloreClumpify(
+        config: FASTQIngestionConfig,
+        outputFile: URL,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> FASTQProcessingRecord {
+        let fm = FileManager.default
+        let trimGalore = try await runner.toolPath(for: .trimGalore)
+        let trimOutputDirectory = config.outputDirectory.appendingPathComponent(
+            "trim-galore-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fm.createDirectory(at: trimOutputDirectory, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: trimOutputDirectory) }
+
+        let timeoutSeconds = max(900, Double(Self.estimatedUncompressedInputBytes(for: config.inputFiles)) / 2_500_000)
+        let args = Self.trimGaloreClumpifyArguments(
+            inputFiles: config.inputFiles,
+            outputDirectory: trimOutputDirectory,
+            pairingMode: config.pairingMode,
+            threads: config.threads,
+            compressionLevel: config.compressionLevel,
+            memoryBytes: ClumpingTool.clumpifyHeapBytes(
+                physicalMemoryBytes: Int64(clamping: ProcessInfo.processInfo.physicalMemory)
+            )
+        )
+
+        progress(0.05, "Launching Trim Galore --clumpify...")
+        let stepStartedAt = Date()
+        let result = try await runner.runProcess(
+            executableURL: trimGalore,
+            arguments: args,
+            workingDirectory: config.outputDirectory,
+            timeout: timeoutSeconds,
+            toolName: "trim_galore"
+        )
+        let stepCompletedAt = Date()
+
+        guard result.isSuccess else {
+            let stderr = result.stderr.isEmpty ? result.stdout : result.stderr
+            throw FASTQIngestionError.clumpifyFailed(
+                String(stderr.suffix(2_000)).trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+
+        let toolVersion = await runner.getToolVersion(.trimGalore) ?? Self.pinnedManagedToolVersion(named: "trim_galore")
+        let trimStep = StepExecution(
+            toolName: "trim_galore",
+            toolVersion: toolVersion ?? "unknown",
+            command: [trimGalore.path] + args,
+            inputs: config.inputFiles.map {
+                ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
+            },
+            outputs: [ProvenanceRecorder.fileOrDirectoryRecord(url: trimOutputDirectory, format: .unknown, role: .output)],
+            exitCode: result.exitCode,
+            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            stderr: result.stderr.isEmpty ? nil : result.stderr,
+            startTime: stepStartedAt,
+            endTime: stepCompletedAt
+        )
+
+        if config.pairingMode == .pairedEnd {
+            let pairedOutputs = try Self.trimGalorePairedOutputs(in: trimOutputDirectory)
+            let interleaveRecord = try await interleavePairedFASTQ(
+                r1: pairedOutputs.r1,
+                r2: pairedOutputs.r2,
+                outputFile: outputFile,
+                config: config,
+                progress: { fraction, msg in progress(0.75 + fraction * 0.25, msg) }
+            )
+            return FASTQProcessingRecord(
+                url: interleaveRecord.url,
+                tool: "trim_galore",
+                toolVersion: toolVersion,
+                commandLine: "trim_galore \(args.joined(separator: " ")) && \(interleaveRecord.commandLine)",
+                steps: [trimStep] + interleaveRecord.steps
+            )
+        }
+
+        let trimmedOutput = try Self.trimGaloreSingleOutput(in: trimOutputDirectory)
+        try? fm.removeItem(at: outputFile)
+        try fm.moveItem(at: trimmedOutput, to: outputFile)
+
+        guard fm.fileExists(atPath: outputFile.path) else {
+            throw FASTQIngestionError.clumpifyFailed("trim_galore completed without producing output")
+        }
+
+        progress(1.0, "Trim Galore complete")
+        return FASTQProcessingRecord(
+            url: outputFile,
+            tool: "trim_galore",
+            toolVersion: toolVersion,
+            commandLine: "trim_galore \(args.joined(separator: " "))",
+            steps: [trimStep]
+        )
+    }
+
+    private func interleavePairedFASTQ(
+        r1: URL,
+        r2: URL,
+        outputFile: URL,
+        config: FASTQIngestionConfig,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> FASTQProcessingRecord {
+        let reformat = try await runner.toolPath(for: .reformat)
+        let args = [
+            "in1=\(r1.path)",
+            "in2=\(r2.path)",
+            "out=\(outputFile.path)",
+            "ow=t",
+            "pigz=t",
+            "zl=\(config.compressionLevel.zlValue)",
+            "threads=\(max(1, config.threads))",
+            "interleaved=t",
+        ]
+        let timeoutSeconds = max(600, Double(Self.estimatedUncompressedInputBytes(for: [r1, r2])) / 5_000_000)
+        progress(0.1, "Interleaving paired Trim Galore outputs...")
+
+        let stepStartedAt = Date()
+        let result = try await runner.runProcess(
+            executableURL: reformat,
+            arguments: args,
+            workingDirectory: config.outputDirectory,
+            environment: CoreToolLocator.bbToolsEnvironment(
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+                existingPath: ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            ),
+            timeout: timeoutSeconds,
+            toolName: "reformat.sh"
+        )
+        let stepCompletedAt = Date()
+
+        guard result.isSuccess else {
+            throw FASTQIngestionError.clumpifyFailed(
+                String((result.stderr.isEmpty ? result.stdout : result.stderr).suffix(2_000))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        guard FileManager.default.fileExists(atPath: outputFile.path) else {
+            throw FASTQIngestionError.clumpifyFailed("reformat.sh completed without producing interleaved output")
+        }
+
+        let toolVersion = await runner.getToolVersion(.reformat) ?? Self.pinnedManagedToolVersion(named: "bbtools")
+        let step = StepExecution(
+            toolName: "reformat.sh",
+            toolVersion: toolVersion ?? "unknown",
+            command: [reformat.path] + args,
+            inputs: [
+                ProvenanceRecorder.fileRecord(url: r1, format: .fastq, role: .input),
+                ProvenanceRecorder.fileRecord(url: r2, format: .fastq, role: .input),
+            ],
+            outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
+            exitCode: result.exitCode,
+            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            stderr: result.stderr.isEmpty ? nil : result.stderr,
+            startTime: stepStartedAt,
+            endTime: stepCompletedAt
+        )
+
+        progress(1.0, "Interleaving complete")
+        return FASTQProcessingRecord(
+            url: outputFile,
+            tool: "reformat.sh",
+            toolVersion: toolVersion,
+            commandLine: "reformat.sh \(args.joined(separator: " "))",
+            steps: [step]
         )
     }
 
@@ -570,7 +790,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             tool: tool.executableName,
             toolVersion: toolVersion,
             commandLine: "\(tool.executableName) \(args.joined(separator: " ")) > \(outputFile.path)",
-            step: step
+            steps: [step]
         )
     }
 
@@ -582,6 +802,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             return pinnedManagedToolVersion(named: "htslib")
         case .pigz:
             return pinnedManagedToolVersion(named: "pigz")
+        case .trimGalore:
+            return pinnedManagedToolVersion(named: "trim_galore")
         default:
             return nil
         }
@@ -592,6 +814,74 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     }
 
     // MARK: - Helpers
+
+    public static func estimatedUncompressedInputBytes(for urls: [URL]) -> Int64 {
+        urls.reduce(Int64(0)) { total, url in
+            let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let size = attrs?[.size] as? Int64 ?? 0
+            let multiplier: Int64 = isGzipCompressed(url) ? 4 : 1
+            return total + size * multiplier
+        }
+    }
+
+    public static func trimGaloreClumpifyArguments(
+        inputFiles: [URL],
+        outputDirectory: URL,
+        pairingMode: FASTQIngestionConfig.PairingMode,
+        threads: Int,
+        compressionLevel: CompressionLevel,
+        memoryBytes: Int64
+    ) -> [String] {
+        let memoryGB = max(1, memoryBytes / 1_073_741_824)
+        var args = [
+            "--clumpify",
+            "--compression", String(compressionLevel.zlValue),
+            "--cores", String(max(2, threads)),
+            "--memory", "\(memoryGB)G",
+            "--output_dir", outputDirectory.path,
+        ]
+        if pairingMode == .pairedEnd {
+            args.append("--paired")
+        }
+        args.append(contentsOf: inputFiles.map(\.path))
+        return args
+    }
+
+    private static func trimGaloreSingleOutput(in directory: URL) throws -> URL {
+        let outputs = try fastqOutputs(in: directory).filter {
+            $0.lastPathComponent.hasSuffix("_trimmed.fq.gz")
+                || $0.lastPathComponent.hasSuffix("_trimmed.fastq.gz")
+        }
+        guard let output = outputs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else {
+            throw FASTQIngestionError.clumpifyFailed("trim_galore did not produce a single-end clumped FASTQ")
+        }
+        return output
+    }
+
+    private static func trimGalorePairedOutputs(in directory: URL) throws -> (r1: URL, r2: URL) {
+        let outputs = try fastqOutputs(in: directory)
+        guard let r1 = outputs.first(where: { $0.lastPathComponent.hasSuffix("_val_1.fq.gz") }),
+              let r2 = outputs.first(where: { $0.lastPathComponent.hasSuffix("_val_2.fq.gz") }) else {
+            throw FASTQIngestionError.clumpifyFailed("trim_galore did not produce paired clumped FASTQs")
+        }
+        return (r1, r2)
+    }
+
+    private static func fastqOutputs(in directory: URL) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ).filter { url in
+            let name = url.lastPathComponent.lowercased()
+            return name.hasSuffix(".fq.gz") || name.hasSuffix(".fastq.gz")
+        }
+    }
+
+    private static func isGzipCompressed(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        return name.hasSuffix(".gz") || name.hasSuffix(".gzip") || name.hasSuffix(".bgz")
+    }
 
     /// Derives a clean base name from a FASTQ filename.
     ///

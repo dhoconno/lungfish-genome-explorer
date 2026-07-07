@@ -50,6 +50,7 @@ public struct DeaconScrubStep: RecipeStepExecutor {
 
         let outR1 = context.workspace.appendingPathComponent("\(context.sampleName)_scrubbed_R1.fq.gz")
         let outR2 = context.workspace.appendingPathComponent("\(context.sampleName)_scrubbed_R2.fq.gz")
+        let summary = context.workspace.appendingPathComponent("\(context.sampleName)_deacon_summary.json")
 
         let args = [
             "filter",
@@ -58,6 +59,7 @@ public struct DeaconScrubStep: RecipeStepExecutor {
             r2.path,
             "-o", outR1.path,
             "-O", outR2.path,
+            "--summary", summary.path,
             "-t", "\(context.threads)",
         ]
 
@@ -71,6 +73,13 @@ public struct DeaconScrubStep: RecipeStepExecutor {
                 tool: "deacon", step: Self.typeID, stderr: result.stderr)
         }
 
-        return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .deacon, arguments: result.arguments)
+        return StepOutput(
+            r1: outR1,
+            r2: outR2,
+            format: .pairedR1R2,
+            tool: .deacon,
+            arguments: result.arguments,
+            auxiliaryOutputs: [summary]
+        )
     }
 }

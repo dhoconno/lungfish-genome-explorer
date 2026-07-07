@@ -172,21 +172,21 @@ struct WorkflowSidebarInputSelection: Equatable {
             if item.type == .folder || item.type == .project {
                 folderCount += 1
                 folderNames.append(item.title)
-                let directChildren = directFASTQBundleChildren(of: item)
+                let directChildren = directReadChildren(of: item)
                 if directChildren.isEmpty {
                     emptyFolders.append(item.title)
                 }
                 for child in directChildren {
-                    if let url = fastqBundleURL(for: child) {
+                    if let url = readURL(for: child) {
                         appendDirect(url)
                         appendRecursive(url)
                     }
                 }
 
-                let recursiveChildren = recursiveFASTQBundleChildren(of: item)
-                let directPaths = Set(directChildren.compactMap { fastqBundleURL(for: $0)?.standardizedFileURL.path })
+                let recursiveChildren = recursiveReadChildren(of: item)
+                let directPaths = Set(directChildren.compactMap { readURL(for: $0)?.standardizedFileURL.path })
                 for child in recursiveChildren {
-                    guard let url = fastqBundleURL(for: child) else { continue }
+                    guard let url = readURL(for: child) else { continue }
                     if directPaths.contains(url.standardizedFileURL.path) {
                         continue
                     }
@@ -221,6 +221,21 @@ struct WorkflowSidebarInputSelection: Equatable {
         return resolveReadBundleURL(from: url)
     }
 
+    private static func readURL(for item: SidebarItem) -> URL? {
+        if let bundleURL = fastqBundleURL(for: item) {
+            return bundleURL
+        }
+        guard item.type == .sequence, let url = item.url else { return nil }
+        let standardizedURL = url.standardizedFileURL
+        if let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: standardizedURL) {
+            return bundleURL
+        }
+        if SequenceInputResolver.inputSequenceFormat(for: standardizedURL) != nil {
+            return standardizedURL
+        }
+        return nil
+    }
+
     private static func resolveReadBundleURL(from url: URL) -> URL? {
         let standardizedURL = url.standardizedFileURL
         if standardizedURL.pathExtension.lowercased() == FASTQBundle.directoryExtension {
@@ -229,15 +244,15 @@ struct WorkflowSidebarInputSelection: Equatable {
         return SequenceInputResolver.enclosingFASTQBundleURL(for: standardizedURL)
     }
 
-    private static func directFASTQBundleChildren(of item: SidebarItem) -> [SidebarItem] {
-        item.children.filter { $0.type == .fastqBundle }
+    private static func directReadChildren(of item: SidebarItem) -> [SidebarItem] {
+        item.children.filter { readURL(for: $0) != nil }
     }
 
-    private static func recursiveFASTQBundleChildren(of item: SidebarItem) -> [SidebarItem] {
+    private static func recursiveReadChildren(of item: SidebarItem) -> [SidebarItem] {
         var result: [SidebarItem] = []
         func visit(_ current: SidebarItem) {
             for child in current.children {
-                if child.type == .fastqBundle {
+                if readURL(for: child) != nil {
                     result.append(child)
                     continue
                 }

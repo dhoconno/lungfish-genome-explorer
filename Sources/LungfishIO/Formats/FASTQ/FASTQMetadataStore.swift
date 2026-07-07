@@ -422,8 +422,14 @@ public struct IngestionMetadata: Codable, Sendable {
     /// Date the ingestion pipeline completed.
     public var ingestionDate: Date?
 
-    /// Size of the file before clumpification/compression (bytes).
+    /// Size of the original source files before import or recipe processing (bytes).
     public var originalSizeBytes: Int64?
+
+    /// Size of the FASTQ payload handed to the final storage optimization step (bytes).
+    public var storageInputSizeBytes: Int64?
+
+    /// Size of the final stored FASTQ payload after storage optimization/compression (bytes).
+    public var storageOutputSizeBytes: Int64?
 
     /// Post-import recipe applied during ingestion, with per-step stats.
     public var recipeApplied: RecipeAppliedInfo?
@@ -436,6 +442,8 @@ public struct IngestionMetadata: Codable, Sendable {
         originalFilenames: [String] = [],
         ingestionDate: Date? = nil,
         originalSizeBytes: Int64? = nil,
+        storageInputSizeBytes: Int64? = nil,
+        storageOutputSizeBytes: Int64? = nil,
         recipeApplied: RecipeAppliedInfo? = nil
     ) {
         self.isClumpified = isClumpified
@@ -445,6 +453,8 @@ public struct IngestionMetadata: Codable, Sendable {
         self.originalFilenames = originalFilenames
         self.ingestionDate = ingestionDate
         self.originalSizeBytes = originalSizeBytes
+        self.storageInputSizeBytes = storageInputSizeBytes
+        self.storageOutputSizeBytes = storageOutputSizeBytes
         self.recipeApplied = recipeApplied
     }
 }
@@ -469,6 +479,23 @@ public struct RecipeStepResult: Codable, Sendable {
     public let outputReadCount: Int?
     /// Wall-clock seconds this step took.
     public let durationSeconds: Double
+    /// Additional files emitted by the step and retained with the final bundle.
+    public let auxiliaryOutputPaths: [String]
+    /// Rewrites from exact execution-time paths to durable replay paths for auxiliary outputs.
+    public let auxiliaryCommandPathRewrites: [String: String]
+
+    private enum CodingKeys: String, CodingKey {
+        case stepName
+        case tool
+        case toolVersion
+        case commandLine
+        case commandArguments
+        case inputReadCount
+        case outputReadCount
+        case durationSeconds
+        case auxiliaryOutputPaths
+        case auxiliaryCommandPathRewrites
+    }
 
     public init(
         stepName: String,
@@ -478,7 +505,9 @@ public struct RecipeStepResult: Codable, Sendable {
         commandArguments: [String]? = nil,
         inputReadCount: Int? = nil,
         outputReadCount: Int? = nil,
-        durationSeconds: Double
+        durationSeconds: Double,
+        auxiliaryOutputPaths: [String] = [],
+        auxiliaryCommandPathRewrites: [String: String] = [:]
     ) {
         self.stepName = stepName
         self.tool = tool
@@ -488,6 +517,61 @@ public struct RecipeStepResult: Codable, Sendable {
         self.inputReadCount = inputReadCount
         self.outputReadCount = outputReadCount
         self.durationSeconds = durationSeconds
+        self.auxiliaryOutputPaths = auxiliaryOutputPaths
+        self.auxiliaryCommandPathRewrites = auxiliaryCommandPathRewrites
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        stepName = try container.decode(String.self, forKey: .stepName)
+        tool = try container.decode(String.self, forKey: .tool)
+        toolVersion = try container.decodeIfPresent(String.self, forKey: .toolVersion)
+        commandLine = try container.decodeIfPresent(String.self, forKey: .commandLine)
+        commandArguments = try container.decodeIfPresent([String].self, forKey: .commandArguments)
+        inputReadCount = try container.decodeIfPresent(Int.self, forKey: .inputReadCount)
+        outputReadCount = try container.decodeIfPresent(Int.self, forKey: .outputReadCount)
+        durationSeconds = try container.decode(Double.self, forKey: .durationSeconds)
+        auxiliaryOutputPaths = try container.decodeIfPresent([String].self, forKey: .auxiliaryOutputPaths) ?? []
+        auxiliaryCommandPathRewrites = try container.decodeIfPresent(
+            [String: String].self,
+            forKey: .auxiliaryCommandPathRewrites
+        ) ?? [:]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(stepName, forKey: .stepName)
+        try container.encode(tool, forKey: .tool)
+        try container.encodeIfPresent(toolVersion, forKey: .toolVersion)
+        try container.encodeIfPresent(commandLine, forKey: .commandLine)
+        try container.encodeIfPresent(commandArguments, forKey: .commandArguments)
+        try container.encodeIfPresent(inputReadCount, forKey: .inputReadCount)
+        try container.encodeIfPresent(outputReadCount, forKey: .outputReadCount)
+        try container.encode(durationSeconds, forKey: .durationSeconds)
+        if !auxiliaryOutputPaths.isEmpty {
+            try container.encode(auxiliaryOutputPaths, forKey: .auxiliaryOutputPaths)
+        }
+        if !auxiliaryCommandPathRewrites.isEmpty {
+            try container.encode(auxiliaryCommandPathRewrites, forKey: .auxiliaryCommandPathRewrites)
+        }
+    }
+
+    public func replacingAuxiliaryOutputs(
+        paths: [String],
+        commandPathRewrites: [String: String]
+    ) -> RecipeStepResult {
+        RecipeStepResult(
+            stepName: stepName,
+            tool: tool,
+            toolVersion: toolVersion,
+            commandLine: commandLine,
+            commandArguments: commandArguments,
+            inputReadCount: inputReadCount,
+            outputReadCount: outputReadCount,
+            durationSeconds: durationSeconds,
+            auxiliaryOutputPaths: paths,
+            auxiliaryCommandPathRewrites: commandPathRewrites
+        )
     }
 
     /// Reads removed (positive) or added (negative) by this step.
@@ -525,5 +609,56 @@ public struct RecipeAppliedInfo: Codable, Sendable {
         guard let first = stepResults.first?.inputReadCount,
               let last = stepResults.last?.outputReadCount else { return nil }
         return first - last
+    }
+
+    public struct ReadDeltaSummary: Equatable, Sendable {
+        public let inputReads: Int
+        public let outputReads: Int
+
+        public init(inputReads: Int, outputReads: Int) {
+            self.inputReads = inputReads
+            self.outputReads = outputReads
+        }
+
+        public var readsRemoved: Int { inputReads - outputReads }
+
+        public var percentRemoved: Double {
+            inputReads > 0 ? Double(readsRemoved) / Double(inputReads) * 100 : 0
+        }
+    }
+
+    public var deduplicationSummary: ReadDeltaSummary? {
+        readDeltaSummary { step in
+            let name = step.stepName.lowercased()
+            return name.contains("dedup") || name.contains("duplicate")
+        }
+    }
+
+    public var humanScrubSummary: ReadDeltaSummary? {
+        readDeltaSummary { step in
+            let name = step.stepName.lowercased()
+            let tool = step.tool.lowercased()
+            return name.contains("human") || name.contains("scrub") || tool.contains("deacon")
+        }
+    }
+
+    public static func readDeltaLogLine(_ label: String, _ summary: ReadDeltaSummary) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        let input = formatter.string(from: NSNumber(value: summary.inputReads)) ?? "\(summary.inputReads)"
+        let output = formatter.string(from: NSNumber(value: summary.outputReads)) ?? "\(summary.outputReads)"
+        let pct = String(format: "%.1f", summary.percentRemoved)
+        return "\(label) removed \(pct)% of reads (\(input) -> \(output))"
+    }
+
+    private func readDeltaSummary(
+        matching predicate: (RecipeStepResult) -> Bool
+    ) -> ReadDeltaSummary? {
+        guard let step = stepResults.first(where: predicate),
+              let input = step.inputReadCount,
+              let output = step.outputReadCount else {
+            return nil
+        }
+        return ReadDeltaSummary(inputReads: input, outputReads: output)
     }
 }

@@ -213,6 +213,27 @@ final class FASTQMetadataStoreTests: XCTestCase {
         XCTAssertEqual(loaded?.downloadSource, "NCBI SRA")
     }
 
+    func testIngestionStorageSizesRoundTrip() {
+        let fastqURL = tempDir.appendingPathComponent("ingestion_sizes.fastq.gz")
+        createFASTQFixture(at: fastqURL)
+        let ingestion = IngestionMetadata(
+            isClumpified: true,
+            isCompressed: true,
+            pairingMode: .interleaved,
+            originalFilenames: ["reads_R1.fastq.gz", "reads_R2.fastq.gz"],
+            originalSizeBytes: 1_024,
+            storageInputSizeBytes: 900,
+            storageOutputSizeBytes: 512
+        )
+
+        FASTQMetadataStore.save(PersistedFASTQMetadata(ingestion: ingestion), for: fastqURL)
+
+        let loaded = FASTQMetadataStore.load(for: fastqURL)
+        XCTAssertEqual(loaded?.ingestion?.originalSizeBytes, 1_024)
+        XCTAssertEqual(loaded?.ingestion?.storageInputSizeBytes, 900)
+        XCTAssertEqual(loaded?.ingestion?.storageOutputSizeBytes, 512)
+    }
+
     // MARK: - Load Nonexistent File
 
     func testLoadReturnsNilWhenNoSidecar() {

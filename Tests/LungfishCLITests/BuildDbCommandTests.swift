@@ -308,6 +308,8 @@ final class BuildDbCommandTests: XCTestCase {
             XCTAssertEqual(row.confidence, "Unknown")
             XCTAssertNotNil(row.primaryAccession, "Should have accession from gcfmap")
             XCTAssertEqual(row.primaryAccession, "NC_045512.2")
+            XCTAssertEqual(row.bamPath, "minimap2/SRR35517702.SRR35517702.dwnld.references.bam")
+            XCTAssertEqual(row.bamIndexPath, "minimap2/SRR35517702.SRR35517702.dwnld.references.bam.bai")
         }
 
         // Verify BAM path resolution
@@ -366,6 +368,111 @@ final class BuildDbCommandTests: XCTestCase {
         XCTAssertNil(row.bamPath)
         XCTAssertNil(row.uniqueReads)
         XCTAssertEqual(row.isSpecies, true)
+    }
+
+    func testBuildDbTaxTriageResolvesDownsampledMiniBAMNames() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        defer { try? FileManager.default.removeItem(at: managedHome.home) }
+
+        let fixtureDir = findFixtureDir("taxtriage-mini")
+        let resultDir = tmpDir.appendingPathComponent("taxtriage")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        let minimap2Dir = resultDir.appendingPathComponent("minimap2", isDirectory: true)
+        let canonicalBAM = minimap2Dir.appendingPathComponent("SRR35517702.SRR35517702.dwnld.references.bam")
+        let canonicalBAI = minimap2Dir.appendingPathComponent("SRR35517702.SRR35517702.dwnld.references.bam.bai")
+        let downsampledBAM = minimap2Dir.appendingPathComponent("SRR35517702.downsampled.minibam.bam")
+        let downsampledBAI = minimap2Dir.appendingPathComponent("SRR35517702.downsampled.minibam.bam.bai")
+        try FileManager.default.moveItem(at: canonicalBAM, to: downsampledBAM)
+        try FileManager.default.moveItem(at: canonicalBAI, to: downsampledBAI)
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
+
+        let db = try TaxTriageDatabase(at: resultDir.appendingPathComponent("taxtriage.sqlite"))
+        let rows = try db.fetchRows(samples: ["SRR35517702"])
+        let row = try XCTUnwrap(rows.first { $0.primaryAccession == "NC_045512.2" })
+        XCTAssertEqual(row.bamPath, "minimap2/SRR35517702.downsampled.minibam.bam")
+        XCTAssertEqual(row.bamIndexPath, "minimap2/SRR35517702.downsampled.minibam.bam.bai")
+        XCTAssertEqual(row.uniqueReads, 25)
+        XCTAssertEqual(row.readsAligned, 31)
+        if let bamPath = row.bamPath {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: resultDir.appendingPathComponent(bamPath).path))
+        }
+        if let bamIndexPath = row.bamIndexPath {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: resultDir.appendingPathComponent(bamIndexPath).path))
+        }
+    }
+
+    func testBuildDbTaxTriageDoesNotAssignUnmatchedSingleBAMToSample() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let resultDir = tmpDir.appendingPathComponent("taxtriage")
+        try writeTaxTriageTopReport(
+            at: resultDir
+                .appendingPathComponent("top", isDirectory: true)
+                .appendingPathComponent("Alpha.top_report.tsv"),
+            name: "Alpha virus"
+        )
+
+        let minimap2Dir = resultDir.appendingPathComponent("minimap2", isDirectory: true)
+        try FileManager.default.createDirectory(at: minimap2Dir, withIntermediateDirectories: true)
+        try Data("wrong sample bam\n".utf8).write(
+            to: minimap2Dir.appendingPathComponent("Beta.downsampled.minibam.bam")
+        )
+
+        try await withHomeDirectory(home) {
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
+
+        let db = try TaxTriageDatabase(at: resultDir.appendingPathComponent("taxtriage.sqlite"))
+        let row = try XCTUnwrap(try db.fetchRows(samples: ["Alpha"]).first)
+        XCTAssertNil(row.bamPath)
+        XCTAssertNil(row.bamIndexPath)
+    }
+
+    func testBuildDbTaxTriageDoesNotChooseAmbiguousEqualScoreMiniBAMs() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let resultDir = tmpDir.appendingPathComponent("taxtriage")
+        try writeTaxTriageTopReport(
+            at: resultDir
+                .appendingPathComponent("top", isDirectory: true)
+                .appendingPathComponent("Alpha.top_report.tsv"),
+            name: "Alpha virus"
+        )
+
+        let minimap2Dir = resultDir.appendingPathComponent("minimap2", isDirectory: true)
+        try FileManager.default.createDirectory(at: minimap2Dir, withIntermediateDirectories: true)
+        try Data("first bam\n".utf8).write(
+            to: minimap2Dir.appendingPathComponent("Alpha.downsampled.minibam.first.bam")
+        )
+        try Data("second bam\n".utf8).write(
+            to: minimap2Dir.appendingPathComponent("Alpha.downsampled.minibam.second.bam")
+        )
+
+        try await withHomeDirectory(home) {
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
+
+        let db = try TaxTriageDatabase(at: resultDir.appendingPathComponent("taxtriage.sqlite"))
+        let row = try XCTUnwrap(try db.fetchRows(samples: ["Alpha"]).first)
+        XCTAssertNil(row.bamPath)
+        XCTAssertNil(row.bamIndexPath)
     }
 
     func testBuildDbTaxTriageParsesSerialSampleSubdirectories() async throws {

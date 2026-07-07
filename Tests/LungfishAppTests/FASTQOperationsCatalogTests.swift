@@ -48,6 +48,7 @@ final class FASTQOperationsCatalogTests: XCTestCase {
                 "ASSEMBLY",
                 "CLUSTERING",
                 "CLASSIFICATION",
+                "GENOTYPING",
             ]
         )
     }

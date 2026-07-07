@@ -75,6 +75,12 @@ extension TaxTriageCommand {
         )
         var input2: String?
 
+        @Flag(
+            name: .customLong("recursive"),
+            help: "When --input is a directory, include eligible FASTQ files in subfolders"
+        )
+        var recursive: Bool = false
+
         @Option(
             name: .customLong("sample"),
             help: "Sample identifier (required with --input)"
@@ -203,7 +209,17 @@ extension TaxTriageCommand {
                 throw CLIError.validationFailed(errors: ["Cannot use both --input and --samplesheet"])
             }
             if input != nil && sampleId == nil {
-                throw CLIError.validationFailed(errors: ["--sample is required when using --input"])
+                let inputURL = URL(fileURLWithPath: input ?? "")
+                var isDirectory: ObjCBool = false
+                let isFolderInput = FileManager.default.fileExists(atPath: inputURL.path, isDirectory: &isDirectory)
+                    && isDirectory.boolValue
+                    && !FASTQBundle.isBundleURL(inputURL)
+                if !isFolderInput {
+                    throw CLIError.validationFailed(errors: ["--sample is required when using --input"])
+                }
+            }
+            if input2 != nil && sampleId == nil {
+                throw CLIError.validationFailed(errors: ["--sample is required when using --input2"])
             }
             if skipAssembly && noSkipAssembly {
                 throw CLIError.validationFailed(errors: ["Cannot use both --skip-assembly and --no-skip-assembly"])
@@ -243,20 +259,32 @@ extension TaxTriageCommand {
                     )
                 }
             } else {
-                // Build single sample from --input
-                guard let inputPath = input, let sid = sampleId else {
-                    print(formatter.error("--input and --sample are required"))
+                // Build sample(s) from --input. A directory input expands to one sample per file.
+                guard let inputPath = input else {
+                    print(formatter.error("--input is required"))
                     throw CLIExitCode.inputError.exitCode
                 }
 
-                let fastq1 = URL(fileURLWithPath: inputPath)
-                guard FileManager.default.fileExists(atPath: fastq1.path) else {
-                    print(formatter.error("Input file not found: \(inputPath)"))
+                let expandedInputURLs: [URL]
+                do {
+                    expandedInputURLs = try CLIClassificationFolderResolver.expandInputArguments(
+                        [inputPath],
+                        recursive: recursive
+                    )
+                } catch {
+                    print(formatter.error(error.localizedDescription))
+                    throw CLIExitCode.inputError.exitCode
+                }
+                guard !expandedInputURLs.isEmpty else {
+                    print(formatter.error("No eligible FASTQ inputs found in \(inputPath)"))
                     throw CLIExitCode.inputError.exitCode
                 }
 
-                var fastq2: URL?
                 if let input2Path = input2 {
+                    guard expandedInputURLs.count == 1 else {
+                        print(formatter.error("--input2 cannot be combined with a directory containing multiple inputs"))
+                        throw CLIExitCode.inputError.exitCode
+                    }
                     let r2 = URL(fileURLWithPath: input2Path)
                     guard FileManager.default.fileExists(atPath: r2.path) else {
                         print(formatter.error(
@@ -264,15 +292,21 @@ extension TaxTriageCommand {
                         ))
                         throw CLIExitCode.inputError.exitCode
                     }
-                    fastq2 = r2
+                    samples = [TaxTriageSample(
+                        sampleId: sampleId ?? expandedInputURLs[0].deletingPathExtension().deletingPathExtension().lastPathComponent,
+                        fastq1: expandedInputURLs[0],
+                        fastq2: r2,
+                        platform: platform.toPlatform()
+                    )]
+                } else {
+                    samples = expandedInputURLs.map { fastq1 in
+                        TaxTriageSample(
+                            sampleId: Self.sampleID(for: fastq1, explicitSampleID: sampleId, totalSampleCount: expandedInputURLs.count),
+                            fastq1: fastq1,
+                            platform: platform.toPlatform()
+                        )
+                    }
                 }
-
-                samples = [TaxTriageSample(
-                    sampleId: sid,
-                    fastq1: fastq1,
-                    fastq2: fastq2,
-                    platform: platform.toPlatform()
-                )]
             }
 
             // Resolve database path
@@ -419,6 +453,14 @@ extension TaxTriageCommand {
                 revision: revision,
                 extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
             )
+        }
+
+        static func sampleID(for url: URL, explicitSampleID: String?, totalSampleCount: Int) -> String {
+            let base = url.deletingPathExtension().deletingPathExtension().lastPathComponent
+            guard let explicitSampleID, !explicitSampleID.isEmpty else {
+                return base
+            }
+            return totalSampleCount == 1 ? explicitSampleID : "\(explicitSampleID)-\(base)"
         }
     }
 }

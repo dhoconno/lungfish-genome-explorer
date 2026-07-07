@@ -192,6 +192,7 @@ public enum ScientificProvenancePolicy {
         "vsearch": dataWriting("native.vsearch", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "blastn": dataWriting("native.blastn", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "cutadapt": dataWriting("native.cutadapt", writer: "NativeToolRunner/ProvenanceRunBuilder"),
+        "trimGalore": dataWriting("native.trimGalore", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "ribodetector": dataWriting("native.ribodetector", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "clumpify": dataWriting("native.clumpify", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "bbduk": dataWriting("native.bbduk", writer: "NativeToolRunner/ProvenanceRunBuilder"),

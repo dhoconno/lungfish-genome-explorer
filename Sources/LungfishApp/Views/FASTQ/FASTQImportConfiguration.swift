@@ -21,6 +21,8 @@ public struct FASTQImportConfiguration: Sendable {
     public let qualityBinning: QualityBinningScheme
     /// Whether to skip clumpify (k-mer sorting). Useful for low-memory machines.
     public let skipClumpify: Bool
+    /// Storage optimization tool selection.
+    public let clumpingTool: ClumpingTool
     /// Whether to delete original files after successful ingestion.
     public let deleteOriginals: Bool
     /// Optional processing recipe to apply after ingestion (legacy format).
@@ -42,6 +44,7 @@ public struct FASTQImportConfiguration: Sendable {
         pairingMode: FASTQIngestionConfig.PairingMode,
         qualityBinning: QualityBinningScheme,
         skipClumpify: Bool,
+        clumpingTool: ClumpingTool = .default,
         deleteOriginals: Bool,
         postImportRecipe: ProcessingRecipe?,
         resolvedPlaceholders: [String: String],
@@ -55,6 +58,7 @@ public struct FASTQImportConfiguration: Sendable {
         self.pairingMode = pairingMode
         self.qualityBinning = qualityBinning
         self.skipClumpify = skipClumpify
+        self.clumpingTool = skipClumpify ? .none : clumpingTool
         self.deleteOriginals = deleteOriginals
         self.postImportRecipe = postImportRecipe
         self.resolvedPlaceholders = resolvedPlaceholders

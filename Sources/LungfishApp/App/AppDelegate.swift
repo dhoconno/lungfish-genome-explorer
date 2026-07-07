@@ -1257,10 +1257,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return enabled
         }
 
-        if menuItem.action == #selector(showWorkflowOperations(_:)) {
-            let enabled = WorkflowFeatureAvailability.current().hasWorkflowOperations
-            menuItem.isHidden = !enabled
-            return enabled
+        if menuItem.action == #selector(launchWorkflowFromMenu(_:))
+            || menuItem.action == #selector(promptEnableWorkflowFromMenu(_:)) {
+            return true
         }
 
         if menuItem.action == #selector(goToPosition(_:)) {

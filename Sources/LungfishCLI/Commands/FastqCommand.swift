@@ -2924,14 +2924,12 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
         } + [
             ProvenanceRecorder.fileRecord(url: barcodeURL, format: .text, role: .input),
         ]
-        let outputs = [
-            ProvenanceRecorder.fileRecord(url: result.outputDirectory, format: .unknown, role: .output),
-            ProvenanceRecorder.fileRecord(url: result.manifestURL, format: .json, role: .output),
-        ] + result.outputBundleURLs.map {
-            ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output)
-        } + outputPayloads.map {
-            ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
-        }
+        let outputs = Self.provenanceOutputRecords(
+            outputDirectory: result.outputDirectory,
+            manifestURL: result.manifestURL,
+            outputBundleURLs: result.outputBundleURLs,
+            outputPayloads: outputPayloads
+        )
 
         let cutadaptArgv = result.cutadaptRuns
             .map { $0.argv.joined(separator: " ") }
@@ -3008,6 +3006,22 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
         Self.progressEmitLock.lock()
         FileHandle.standardError.write(line)
         Self.progressEmitLock.unlock()
+    }
+
+    static func provenanceOutputRecords(
+        outputDirectory: URL,
+        manifestURL: URL,
+        outputBundleURLs: [URL],
+        outputPayloads: [URL]
+    ) -> [FileRecord] {
+        [
+            ProvenanceRecorder.fileOrDirectoryRecord(url: outputDirectory, format: .unknown, role: .output),
+            ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output),
+        ] + outputBundleURLs.map {
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .unknown, role: .output)
+        } + outputPayloads.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
+        }
     }
 }
 
