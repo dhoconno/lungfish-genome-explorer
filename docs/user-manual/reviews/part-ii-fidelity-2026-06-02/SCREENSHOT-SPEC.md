@@ -436,7 +436,7 @@ captured from scratch; flag to Lead.
 | shot id | caption (corrected) | app state + exact path | fixture/sample | crop/notes | status |
 | --- | --- | --- | --- | --- | --- |
 | taxtriage-wizard-tool-step | The run wizard with TaxTriage selected and a multi-sample batch loaded. | `Classification…` wizard, TaxTriage selected. Fields: Kraken2 Database picker, Sequencing Platform (Illumina/ONT/PacBio), Skip-assembly (default on), Skip-Krona, Advanced (k2 confidence 0.2, top hits 10, max memory 16 GB, CPUs). There is **no profile picker** | a multi-sample FASTQ batch; Kraken2 DB + Nextflow + Docker | window crop | NEW (caption-drift: planned text elsewhere implies profiles; none exist) |
-| taxtriage-confidence-list | The TaxTriage TASS confidence chart, with organisms ranked by score. | After a run, `TaxTriageConfidenceView` is a horizontal bar chart of **TASS** scores (>=0.8 green / 0.4-0.8 yellow / <0.4 red) | classified batch | window crop | NEW |
+| taxtriage-result-table | The TaxTriage result table, with organisms ranked by TASS score and a compact confidence bar. | After a run, the organism table shows **TASS** scores and a confidence bar column using the >=0.8 / 0.4-0.8 / <0.4 tiers. | classified batch | window crop | NEW |
 | taxtriage-batch-overview | The batch overview showing per-sample organism calls across a four-sample run. | `TaxTriageBatchOverviewView` tab | four-sample batch | window crop | NEW |
 | taxtriage-batch-export | The cross-sample organism matrix written by the batch exporter. | The exporter (reached from the viewport action bar, NOT a File-menu item) writes a cross-sample organism-matrix CSV; show the CSV or the export action. No PDF, no templates | exported CSV from a batch | region/text crop | NEW (caption-drift: no PDF/template export) |
 
@@ -447,7 +447,7 @@ Priority 1. Import-only; no run wizard, no time-series viewport.
 | shot id | caption (corrected) | app state + exact path | fixture/sample | crop/notes | status |
 | --- | --- | --- | --- | --- | --- |
 | nao-mgs-import-card | The Import Center card for NAO-MGS Results under Classification Results. | `Import Center…` (Cmd-Shift-I) → **Classification Results** tab → **NAO-MGS Results** card (attributed to SecureBio). The importer needs only a results location containing `virus_hits_final.tsv(.gz)` | a NAO-MGS results folder with that TSV | window or card region crop | exists-verify (`import-center-classification-results.png` shows the card grid) |
-| nao-mgs-result-viewport | The NAO-MGS taxon viewport: detail pane on the left, taxon table on the right. | After import, `NaoMgsResultViewController` is a single-import split (detail pane \| taxon table) with columns Sample, Taxon, Hits, Unique Reads, Refs, plus a per-accession coverage sparkline. NO multi-week chart | imported NAO-MGS results | window crop | NEW (Priority 1) |
+| nao-mgs-result-viewport | The NAO-MGS taxon viewport: detail pane on the left, taxon table on the right. | After import, `NaoMgsResultViewController` is a single-import split (detail pane \| taxon table) with columns Sample, Taxon, Hits, Unique Reads, Refs, plus metrics and miniBAM evidence cards when alignment data is available. NO multi-week chart and no per-accession coverage sparkline in the shipped viewport. | imported NAO-MGS results | window crop | NEW (Priority 1) |
 
 ### 06-classification/06 — BLAST Verification
 

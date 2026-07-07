@@ -599,6 +599,10 @@ def directory_digest(path: Path) -> tuple[str, int, list[dict[str, object]]]:
     total_size = 0
     for item in sorted(p for p in path.rglob("*") if p.is_file()):
         rel = item.relative_to(path).as_posix()
+        # Provenance sidecars describe the payload; including them would make the
+        # bundle checksum self-referential and stale immediately after writing.
+        if rel == ".lungfish-provenance.json" or rel.endswith(".lungfish-provenance.json"):
+            continue
         size = item.stat().st_size
         total_size += size
         files.append({"path": rel, "sha256": sha256_file(item), "sizeBytes": size})

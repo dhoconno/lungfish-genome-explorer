@@ -198,7 +198,7 @@ actor CLIMSAAlignmentRunner {
                     let clamped = max(0, min(1, progress))
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(id: opID, progress: clamped, detail: message)
+                            _ = OperationCenter.shared.update(id: opID, progress: clamped, detail: message)
                         }
                     }
                 case let .warning(message):
@@ -271,7 +271,7 @@ actor CLIMSAAlignmentRunner {
         }
 
         await performCLIOperationCenterUpdate {
-            OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
+            _ = OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
         }
 
         do {
@@ -339,6 +339,6 @@ actor CLIMSAAlignmentRunner {
     @MainActor
     private func failOperation(_ id: UUID, detail: String?) {
         let message = detail ?? "MAFFT alignment failed"
-        OperationCenter.shared.fail(id: id, detail: message, errorMessage: message)
+        _ = OperationCenter.shared.fail(id: id, detail: message, errorMessage: message)
     }
 }

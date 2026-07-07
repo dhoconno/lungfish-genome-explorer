@@ -101,7 +101,7 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
             targetBundleURL: bundleURL
         )
         defer {
-            OperationCenter.shared.fail(id: operationID, detail: "Cancelled for test cleanup")
+            _ = OperationCenter.shared.fail(id: operationID, detail: "Cancelled for test cleanup")
         }
 
         let outcome = InspectorViewController.makeFilteredAlignmentWorkflowStartOutcome(
@@ -129,7 +129,7 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
             outputTrackName: "Exact Matches"
         )
         defer {
-            OperationCenter.shared.fail(id: operationID, detail: "Cancelled for test cleanup")
+            _ = OperationCenter.shared.fail(id: operationID, detail: "Cancelled for test cleanup")
         }
 
         XCTAssertFalse(OperationCenter.shared.canStartOperation(on: bundleURL))
@@ -138,7 +138,7 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
             "Create Filtered Alignment Track"
         )
 
-        OperationCenter.shared.complete(
+        _ = OperationCenter.shared.complete(
             id: operationID,
             detail: "Created filtered alignment track \"Exact Matches\"."
         )

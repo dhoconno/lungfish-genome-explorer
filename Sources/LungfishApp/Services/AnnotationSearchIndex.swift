@@ -252,7 +252,14 @@ public final class AnnotationSearchIndex {
         for vTrackId in bundle.variantTrackIds {
             guard let trackInfo = bundle.variantTrack(id: vTrackId),
                   let dbPath = trackInfo.databasePath else { continue }
-            let dbURL = bundle.url.appendingPathComponent(dbPath)
+            guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                for: dbPath,
+                in: bundle.url,
+                field: "variants[\(vTrackId)].databasePath"
+            ) else {
+                searchLogger.warning("AnnotationSearchIndex: Skipping unsafe variant database path '\(dbPath, privacy: .public)'")
+                continue
+            }
             guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
             do {
                 let db = try VariantDatabase(url: dbURL, readWrite: true)
@@ -290,7 +297,14 @@ public final class AnnotationSearchIndex {
         for trackId in bundle.annotationTrackIds {
             if let trackInfo = bundle.annotationTrack(id: trackId),
                let dbPath = trackInfo.databasePath {
-                let dbURL = bundle.url.appendingPathComponent(dbPath)
+                guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                    for: dbPath,
+                    in: bundle.url,
+                    field: "annotations[\(trackId)].databasePath"
+                ) else {
+                    searchLogger.warning("AnnotationSearchIndex: Skipping unsafe annotation database path '\(dbPath, privacy: .public)'")
+                    continue
+                }
                 guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
                 do {
                     let db = try AnnotationDatabase(url: dbURL)

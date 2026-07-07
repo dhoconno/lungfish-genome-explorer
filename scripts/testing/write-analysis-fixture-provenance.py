@@ -17,7 +17,7 @@ from fixture_provenance import (
     validate_fixture_sidecar,
 )
 
-TOOL_VERSION = "0.5.0-alpha8"
+TOOL_VERSION = "2026-07-06.1"
 ALIGNMENT_PROJECT_PATH = "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish"
 ALIGNMENT_INPUT_FASTA = f"{ALIGNMENT_PROJECT_PATH}/Inputs/sars-cov-2-genomes.fasta"
 ALIGNMENT_MSA_OUTPUT = f"{ALIGNMENT_PROJECT_PATH}/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa"
@@ -84,7 +84,7 @@ def runtime_identity(root):
     return {
         "condaEnvironment": os.environ.get("CONDA_DEFAULT_ENV"),
         "containerImage": os.environ.get("LUNGFISH_CONTAINER_IMAGE"),
-        "executablePath": sys.executable,
+        "executablePath": "python3",
         "operatingSystemVersion": platform.platform(),
         "processIdentifier": os.getpid(),
         "pythonVersion": platform.python_version(),

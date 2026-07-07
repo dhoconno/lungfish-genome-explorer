@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+@testable import LungfishCore
 @testable import LungfishWorkflow
 @testable import LungfishIO
 
@@ -386,6 +387,90 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         XCTAssertFalse(content.contains("@read2"), "Should not contain read2 (S. aureus)")
         XCTAssertFalse(content.contains("@read4"), "Should not contain read4 (unclassified)")
         XCTAssertFalse(content.contains("@read5"), "Should not contain read5 (Escherichia)")
+    }
+
+    func testExtractionProvenanceRecordsActualOutputsWithChecksums() async throws {
+        let tree = makeTestTree()
+        let pipeline = TaxonomyExtractionPipeline()
+
+        let classOutput = try makeClassificationOutput(reads: [
+            (readId: "read1", taxId: 562, classified: true),
+            (readId: "read2", taxId: 1280, classified: true),
+            (readId: "read3", taxId: 561, classified: true),
+        ])
+        let fastqURL = try makeFASTQ(reads: ["read1", "read2", "read3"])
+        let taxonomyReportURL = tempDir.appendingPathComponent("classification.kreport")
+        try """
+          100.00\t3\t0\tR\t1\troot
+          100.00\t3\t0\tD\t2\t  Bacteria
+           66.67\t2\t0\tP\t1224\t    Proteobacteria
+           66.67\t2\t0\tC\t1236\t      Gammaproteobacteria
+           66.67\t2\t1\tG\t561\t        Escherichia
+           33.33\t1\t1\tS\t562\t          Escherichia coli
+        """.write(to: taxonomyReportURL, atomically: true, encoding: .utf8)
+        let requestedOutputURL = tempDir.appendingPathComponent("provenance-extracted.fastq")
+
+        let config = TaxonomyExtractionConfig(
+            taxIds: [561],
+            includeChildren: true,
+            sourceFile: fastqURL,
+            outputFile: requestedOutputURL,
+            classificationOutput: classOutput,
+            taxonomyReport: taxonomyReportURL
+        )
+
+        let outputURLs = try await pipeline.extract(config: config, tree: tree)
+        let run = try XCTUnwrap(ProvenanceRecorder.load(from: tempDir))
+        let step = try XCTUnwrap(run.steps.first { $0.toolName == "TaxonomyExtractionPipeline" })
+
+        XCTAssertEqual(step.toolVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(step.outputs.map(\.path), outputURLs.map(\.path))
+        XCTAssertFalse(step.outputs.contains { $0.path == requestedOutputURL.path })
+        XCTAssertTrue(step.outputs.allSatisfy { $0.format == .fastq && $0.role == .output })
+        XCTAssertTrue(step.outputs.allSatisfy { $0.sha256 != nil && ($0.sizeBytes ?? 0) > 0 })
+        XCTAssertTrue(step.inputs.contains {
+            $0.path == fastqURL.path && $0.format == .fastq && $0.role == .input
+                && $0.sha256 != nil && $0.sizeBytes != nil
+        })
+        XCTAssertTrue(step.inputs.contains {
+            $0.path == classOutput.path && $0.format == .text && $0.role == .input
+                && $0.sha256 != nil && $0.sizeBytes != nil
+        })
+        XCTAssertTrue(step.inputs.contains {
+            $0.path == taxonomyReportURL.path && $0.format == .text && $0.role == .input
+                && $0.sha256 != nil && $0.sizeBytes != nil
+        })
+        XCTAssertEqual(run.parameters["includeChildren"]?.booleanValue, true)
+        XCTAssertEqual(run.parameters["keepReadPairs"]?.booleanValue, true)
+        XCTAssertEqual(run.parameters["taxonomyReport"]?.stringValue, taxonomyReportURL.path)
+        XCTAssertEqual(run.parameters["requestedOutputFiles"]?.arrayValue?.first?.stringValue, requestedOutputURL.path)
+        XCTAssertEqual(run.parameters["actualOutputFiles"]?.arrayValue?.first?.stringValue, outputURLs.first?.path)
+        XCTAssertTrue(step.command.contains(CLICommandIdentity.executableName))
+        XCTAssertTrue(step.command.contains("conda"))
+        XCTAssertTrue(step.command.contains("extract"))
+        XCTAssertTrue(step.command.contains("--kraken-output"))
+        XCTAssertTrue(step.command.contains(classOutput.path))
+        XCTAssertTrue(step.command.contains("--include-children"))
+        XCTAssertTrue(step.command.contains("--kreport"))
+        XCTAssertTrue(step.command.contains(taxonomyReportURL.path))
+        XCTAssertTrue(step.command.contains("--source"))
+        XCTAssertTrue(step.command.contains(fastqURL.path))
+        XCTAssertTrue(step.command.contains("--output"))
+        XCTAssertTrue(step.command.contains(requestedOutputURL.path))
+
+        for outputURL in outputURLs {
+            let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+            let focusedEnvelope = try XCTUnwrap(
+                ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecarURL)
+            )
+            XCTAssertEqual(focusedEnvelope.output?.path, outputURL.path)
+            XCTAssertEqual(focusedEnvelope.outputs.map(\.path), [outputURL.path])
+            XCTAssertTrue(focusedEnvelope.output?.checksumSHA256?.isEmpty == false)
+            XCTAssertFalse(
+                focusedEnvelope.outputs.contains { $0.path == requestedOutputURL.path },
+                "Focused taxonomy extraction sidecars should describe final stored outputs"
+            )
+        }
     }
 
     func testExtractUnclassifiedReadsFromCompressedKrakenOutput() async throws {
@@ -1123,6 +1208,53 @@ final class ClassificationResultPersistenceTests: XCTestCase {
         // Verify the tree was rebuilt from the kreport
         XCTAssertEqual(loaded.tree.totalReads, tree.totalReads)
         XCTAssertEqual(loaded.tree.speciesCount, tree.speciesCount)
+    }
+
+    /// Verifies relative paths persisted in a moved classification result are
+    /// resolved against the result directory before extraction uses them.
+    func testLoadResolvesRelativeConfigPathsAgainstResultDirectory() throws {
+        let kreportURL = try makeMinimalKreport()
+        let krakenURL = try makeKrakenOutput()
+        let sourceURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read1\nACGT\n+\n!!!!\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let sidecar = """
+        {
+          "config": {
+            "confidence": 0.2,
+            "databaseName": "Fixture",
+            "databasePath": "database",
+            "databaseVersion": "fixture",
+            "goal": "classify",
+            "inputFiles": ["reads.fastq"],
+            "isPairedEnd": false,
+            "memoryMapping": false,
+            "minimumHitGroups": 2,
+            "originalInputFiles": ["reads.fastq"],
+            "outputDirectory": ".",
+            "quickMode": false,
+            "sampleDisplayName": "fixture",
+            "threads": 1
+          },
+          "outputPath": "\(krakenURL.lastPathComponent)",
+          "reportPath": "\(kreportURL.lastPathComponent)",
+          "runtime": 1.25,
+          "savedAt": "2026-06-01T00:00:00Z",
+          "toolVersion": "2.17.1"
+        }
+        """
+        try sidecar.write(
+            to: tempDir.appendingPathComponent("classification-result.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loaded = try ClassificationResult.load(from: tempDir)
+
+        XCTAssertEqual(loaded.config.inputFiles, [sourceURL])
+        XCTAssertEqual(loaded.config.originalInputFiles, [sourceURL])
+        XCTAssertEqual(loaded.config.outputDirectory, tempDir)
+        XCTAssertEqual(loaded.config.databasePath, tempDir.appendingPathComponent("database"))
     }
 
     /// Verifies that loading from a kreport correctly rebuilds the tree.

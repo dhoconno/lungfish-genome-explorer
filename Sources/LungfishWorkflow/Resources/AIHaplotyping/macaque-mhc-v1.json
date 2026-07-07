@@ -19517,14 +19517,14 @@
       "citation": "Local historical FASTA used by the original MCM haplotype definitions.",
       "id": "source:fasta:mcm-mhc-miseq-20260601-legacy-names",
       "notes": "Historical short marker names retained as aliases when sequence-identical to the 2026-06-17 trimmed unique reference FASTA.",
-      "path": "/Users/dho/Downloads/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
+      "path": "../MCMHaplotyping/MCM-MHC-miSeq-20260617.lungfishmhcref/sources/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
       "title": "Legacy MCM MHC all mRNA miSeq singles FASTA"
     },
     {
       "citation": "Local curated reference FASTA generated 2026-06-17.",
       "id": "source:fasta:mcm-mhc-miseq-20260617-trimmed-unique",
       "notes": "Detailed stable MCM_MHC_MiSeq reference names with pipe-delimited source_loci, haplotype_groups, haplotypes, alleles, accessions, length, and evidence weight metadata.",
-      "path": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/mcm_mhc_miseq_reference.trimmed.unique.fasta",
+      "path": "../MCMHaplotyping/MCM-MHC-miSeq-20260617.lungfishmhcref/mcm_mhc_miseq_reference.trimmed.unique.fasta",
       "title": "MCM MHC miSeq trimmed unique reference FASTA"
     },
     {

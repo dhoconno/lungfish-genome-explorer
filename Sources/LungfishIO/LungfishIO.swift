@@ -19,7 +19,6 @@ import LungfishCore
 /// - FASTA (.fa, .fasta, .fna)
 /// - FASTQ (.fq, .fastq)
 /// - GenBank (.gb, .gbk)
-/// - 2bit (.2bit)
 ///
 /// ### Alignment Formats
 /// - BAM (.bam) via htslib

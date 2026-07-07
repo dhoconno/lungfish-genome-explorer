@@ -9,8 +9,8 @@ import LungfishIO
 /// Integration coverage that pairs the shipped primer-scheme bundle with the
 /// resolver. Complements `BAMPrimerTrimPipelineTests` (which exercises the full
 /// ivar+samtools happy path against a separate MT192765.1-anchored fixture
-/// that matches the sarscov2 BAM) and the equivalent-accession path covered by
-/// Task 17. Here we verify the canonical bundle's metadata round-trips through
+/// that matches the sarscov2 BAM) and the equivalent-accession resolver path.
+/// Here we verify the canonical bundle's metadata round-trips through
 /// `PrimerSchemeBundle.load` and that `PrimerSchemeResolver` rejects target
 /// references that are neither canonical nor equivalent.
 final class PrimerTrimIntegrationTests: XCTestCase {

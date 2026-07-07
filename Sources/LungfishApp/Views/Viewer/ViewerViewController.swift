@@ -402,8 +402,6 @@ public class ViewerViewController: NSViewController {
     public override func viewDidLayout() {
         super.viewDidLayout()
 
-        // wantsLayer and masksToBounds are set once in loadView(); no need to repeat here.
-
         // Update reference frame width immediately (needed for correct rendering)
         if let frame = referenceFrame, viewerView.bounds.width > 0 {
             frame.pixelWidth = Int(viewerView.bounds.width)
@@ -1374,6 +1372,7 @@ public class ViewerViewController: NSViewController {
         hideAssemblyView()
         hideMappingView()
         hideAlignmentTreeBundleViews()
+        contentMode = .genomics
 
         let controller = FASTACollectionViewController()
         addChild(controller)
@@ -1441,6 +1440,7 @@ public class ViewerViewController: NSViewController {
             guard let self else { return }
             self.hideFASTACollectionView()
             self.clearBundleDisplay()
+            self.contentMode = .genomics
 
             // Set up the viewer directly with the selected sequence
             self.view.layoutSubtreeIfNeeded()
@@ -1575,7 +1575,7 @@ public class ViewerViewController: NSViewController {
                     progress: { fraction, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                                _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
                             }
                         }
                     }
@@ -1583,7 +1583,7 @@ public class ViewerViewController: NSViewController {
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "\(result.verifiedCount)/\(result.readResults.count) verified"
                         )
@@ -1593,7 +1593,7 @@ public class ViewerViewController: NSViewController {
                 let errorText = error.localizedDescription
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(
+                        _ = OperationCenter.shared.fail(
                             id: opID,
                             detail: errorText,
                             errorMessage: errorText
@@ -1616,9 +1616,58 @@ public class ViewerViewController: NSViewController {
             ) else {
                 return
             }
+            let startedAt = Date()
             let normalized = records.joined(separator: "")
-            try? normalized.write(to: destination, atomically: true, encoding: .utf8)
+            let sourceURLs = self.fastaExportSourceURLs()
+            do {
+                try normalized.write(to: destination, atomically: true, encoding: .utf8)
+                try ScientificFileExportProvenance.write(.init(
+                    workflowName: "lungfish app fasta export",
+                    sourceURLs: sourceURLs,
+                    outputURL: destination,
+                    outputFormat: .fasta,
+                    argv: self.fastaExportArgv(sourceURLs: sourceURLs, outputURL: destination),
+                    explicitOptions: [
+                        "sourcePaths": .array(sourceURLs.map { .file($0) }),
+                        "outputPath": .file(destination),
+                        "suggestedName": .string(suggestedName),
+                    ],
+                    resolved: [
+                        "recordCount": .integer(records.count),
+                        "outputByteCount": .integer(normalized.utf8.count),
+                    ],
+                    startedAt: startedAt
+                ))
+            } catch {
+                try? FileManager.default.removeItem(at: destination)
+                logger.error("FASTA export failed for \(destination.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
+    }
+
+    private func fastaExportSourceURLs() -> [URL] {
+        let candidates = [
+            currentDocument?.url,
+            currentBundleURL,
+            currentReferenceBundle?.url,
+            multipleSequenceAlignmentViewController?.bundleURL,
+            phylogeneticTreeViewController?.bundleURL,
+        ]
+        var seen = Set<String>()
+        return candidates.compactMap { candidate in
+            guard let url = candidate?.standardizedFileURL else { return nil }
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return seen.insert(url.path).inserted ? url : nil
+        }
+    }
+
+    private func fastaExportArgv(sourceURLs: [URL], outputURL: URL) -> [String] {
+        var argv = ["Lungfish Genome Explorer", "export-fasta"]
+        for sourceURL in sourceURLs {
+            argv.append(contentsOf: ["--source", sourceURL.path])
+        }
+        argv.append(contentsOf: ["--output", outputURL.path])
+        return argv
     }
 
     func exportMSASelectionViaCLI(_ request: MultipleSequenceAlignmentSelectionExportRequest) {
@@ -1657,9 +1706,7 @@ public class ViewerViewController: NSViewController {
             )
             let runner = CLIMSAActionRunner()
             OperationCenter.shared.setCancelCallback(for: opID) {
-                Task {
-                    await runner.cancel()
-                }
+                runner.cancel()
             }
 
             Task.detached {
@@ -1670,7 +1717,7 @@ public class ViewerViewController: NSViewController {
                 } catch {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            _ = OperationCenter.shared.fail(
                                 id: opID,
                                 detail: error.localizedDescription,
                                 errorMessage: error.localizedDescription
@@ -1747,47 +1794,44 @@ public class ViewerViewController: NSViewController {
         )
         let runner = CLIMSAActionRunner()
         OperationCenter.shared.setCancelCallback(for: opID) {
-            Task {
-                await runner.cancel()
-            }
+            runner.cancel()
         }
 
-        Task.detached { [weak self] in
+        // `runner` is an actor, so `runner.run` executes off the main actor
+        // regardless of the launching context. Use a main-actor `Task` (not
+        // `Task.detached`) so the CLI work still runs off-main while the
+        // follow-up UI work stays natural main-actor code, avoiding the banned
+        // background-to-main-actor Task hop.
+        Task { [weak self] in
             do {
                 _ = try await runner.run(arguments: arguments, operationID: opID)
-                await Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    guard let controller, controller.bundleURL == targetBundleURL else { return }
-                    do {
-                        // `displayBundle` reads the primary alignment FASTA off the
-                        // main actor; re-check that this exact controller is still
-                        // current after the read and before displayBundle mutates
-                        // controller state or notifies selection.
-                        try await controller.displayBundle(at: targetBundleURL) { [weak self, weak controller] in
-                            guard let self, let controller else { return false }
-                            return self.multipleSequenceAlignmentViewController === controller
-                                && controller.bundleURL == targetBundleURL
-                        }
-                    } catch {
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .warning,
-                            message: "Updated annotation store, but the alignment viewport could not be refreshed: \(error.localizedDescription)"
-                        )
+                guard let self else { return }
+                guard let controller, controller.bundleURL == targetBundleURL else { return }
+                do {
+                    // `displayBundle` reads the primary alignment FASTA off the
+                    // main actor; re-check that this exact controller is still
+                    // current after the read and before displayBundle mutates
+                    // controller state or notifies selection.
+                    try await controller.displayBundle(at: targetBundleURL) { [weak self, weak controller] in
+                        guard let self, let controller else { return false }
+                        return self.multipleSequenceAlignmentViewController === controller
+                            && controller.bundleURL == targetBundleURL
                     }
-                }.value
+                } catch {
+                    OperationCenter.shared.log(
+                        id: opID,
+                        level: .warning,
+                        message: "Updated annotation store, but the alignment viewport could not be refreshed: \(error.localizedDescription)"
+                    )
+                }
             } catch is CancellationError {
                 return
             } catch {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(
-                            id: opID,
-                            detail: error.localizedDescription,
-                            errorMessage: error.localizedDescription
-                        )
-                    }
-                }
+                _ = OperationCenter.shared.fail(
+                    id: opID,
+                    detail: error.localizedDescription,
+                    errorMessage: error.localizedDescription
+                )
             }
         }
     }
@@ -1874,9 +1918,7 @@ public class ViewerViewController: NSViewController {
             )
             let runner = CLITreeInferenceRunner()
             OperationCenter.shared.setCancelCallback(for: opID) {
-                Task {
-                    await runner.cancel()
-                }
+                runner.cancel()
             }
 
             Task.detached {
@@ -1887,7 +1929,7 @@ public class ViewerViewController: NSViewController {
                 } catch {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            _ = OperationCenter.shared.fail(
                                 id: opID,
                                 detail: error.localizedDescription,
                                 errorMessage: error.localizedDescription
@@ -1964,9 +2006,7 @@ public class ViewerViewController: NSViewController {
             )
             let runner = CLITreeTransformRunner()
             OperationCenter.shared.setCancelCallback(for: opID) {
-                Task {
-                    await runner.cancel()
-                }
+                runner.cancel()
             }
 
             Task.detached {
@@ -1977,7 +2017,7 @@ public class ViewerViewController: NSViewController {
                 } catch {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            _ = OperationCenter.shared.fail(
                                 id: opID,
                                 detail: error.localizedDescription,
                                 errorMessage: error.localizedDescription
@@ -2083,6 +2123,7 @@ public class ViewerViewController: NSViewController {
         let stem = Self.sanitizedFilesystemStem(suggestedName)
         let sourceURL = tempDirectory.appendingPathComponent("\(stem).fasta")
         let annotationURL = tempDirectory.appendingPathComponent("\(stem).bed")
+        let provenanceStartedAt = Date()
         do {
             try records.joined(separator: "").write(to: sourceURL, atomically: true, encoding: .utf8)
             try Self.writeAnnotationBED(annotationsByRecord, to: annotationURL)
@@ -2114,7 +2155,7 @@ public class ViewerViewController: NSViewController {
                 ) { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: min(0.82, progress * 0.82),
                                 detail: message
@@ -2124,21 +2165,22 @@ public class ViewerViewController: NSViewController {
                 }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(id: opID, progress: 0.88, detail: "Attaching projected annotations...")
+                        _ = OperationCenter.shared.update(id: opID, progress: 0.88, detail: "Attaching projected annotations...")
                     }
                 }
                 let annotationResult = try await ReferenceBundleAnnotationImportService()
                     .attachAnnotationTrack(sourceURL: annotationURL, bundleURL: result.bundleURL)
-                try Self.writeMSAExtractionAnnotationProvenance(
+                try MSAExtractionAnnotationProvenance.write(
                     bundleURL: result.bundleURL,
                     sourceAlignmentBundleURL: sourceAlignmentBundleURL,
                     sourceFASTAURL: sourceURL,
                     sourceAnnotationURL: annotationURL,
-                    annotationResult: annotationResult
+                    annotationResult: annotationResult,
+                    startedAt: provenanceStartedAt
                 )
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(
+                        _ = OperationCenter.shared.complete(
                             id: opID,
                             detail: "Created \(result.bundleURL.lastPathComponent) with \(annotationResult.featureCount) annotation(s)",
                             bundleURLs: [result.bundleURL]
@@ -2148,7 +2190,7 @@ public class ViewerViewController: NSViewController {
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                     }
                 }
                 logger.error("createReferenceBundle: Annotated bundle creation failed - \(error.localizedDescription, privacy: .public)")
@@ -2290,45 +2332,6 @@ public class ViewerViewController: NSViewController {
             }
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
-    }
-
-    nonisolated private static func writeMSAExtractionAnnotationProvenance(
-        bundleURL: URL,
-        sourceAlignmentBundleURL: URL?,
-        sourceFASTAURL: URL,
-        sourceAnnotationURL: URL,
-        annotationResult: ReferenceBundleAnnotationImportResult
-    ) throws {
-        let provenanceURL = bundleURL
-            .appendingPathComponent("annotations", isDirectory: true)
-            .appendingPathComponent("msa-extraction-annotations-provenance.json")
-        var payload: [String: Any] = [
-            "schemaVersion": 1,
-            "workflowName": "msa-selection-reference-bundle-extraction",
-            "toolName": "lungfish-gui msa extract annotated bundle",
-            "toolVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "debug",
-            "argv": [
-                "lungfish-gui",
-                "msa",
-                "extract-annotated-bundle",
-                "--source-fasta", sourceFASTAURL.path,
-                "--source-annotations", sourceAnnotationURL.path,
-                "--output", bundleURL.path,
-            ],
-            "inputPaths": sourceAlignmentBundleURL.map { [$0.path] } ?? [sourceFASTAURL.path, sourceAnnotationURL.path],
-            "stagedInputPaths": [sourceFASTAURL.path, sourceAnnotationURL.path],
-            "outputBundlePath": bundleURL.path,
-            "outputAnnotationTrackID": annotationResult.track.id,
-            "outputAnnotationTrackName": annotationResult.track.name,
-            "featureCount": annotationResult.featureCount,
-            "exitStatus": 0,
-            "createdAt": ISO8601DateFormatter().string(from: Date()),
-        ]
-        if let sourceAlignmentBundleURL {
-            payload["sourceAlignmentBundlePath"] = sourceAlignmentBundleURL.path
-        }
-        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: provenanceURL, options: .atomic)
     }
 
     nonisolated private static func sanitizeBEDField(_ value: String) -> String {
@@ -2824,7 +2827,6 @@ public class ViewerViewController: NSViewController {
         // Log view hierarchy state BEFORE changes
         logger.debug("displayPDFPreview: Parent view bounds: \(NSStringFromRect(self.view.bounds), privacy: .public)")
         logger.debug("displayPDFPreview: Parent view frame: \(NSStringFromRect(self.view.frame), privacy: .public)")
-        logger.debug("displayPDFPreview: Parent wantsLayer: \(self.view.wantsLayer)")
         logger.debug("displayPDFPreview: Subview count before: \(self.view.subviews.count)")
         for (index, subview) in self.view.subviews.enumerated() {
             logger.debug("displayPDFPreview: Subview[\(index)]: \(type(of: subview)) hidden=\(subview.isHidden) frame=\(NSStringFromRect(subview.frame), privacy: .public)")
@@ -2848,7 +2850,6 @@ public class ViewerViewController: NSViewController {
             }
         }
 
-        // Create PDF view - DON'T set wantsLayer, let PDFKit manage its own rendering
         let pdfDisplayView = PDFView()
         pdfDisplayView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -2883,8 +2884,6 @@ public class ViewerViewController: NSViewController {
         // Log bounds AFTER layout
         logger.debug("displayPDFPreview: PDFView bounds after layout: \(NSStringFromRect(pdfDisplayView.bounds), privacy: .public)")
         logger.debug("displayPDFPreview: PDFView frame after layout: \(NSStringFromRect(pdfDisplayView.frame), privacy: .public)")
-        logger.debug("displayPDFPreview: PDFView wantsLayer: \(pdfDisplayView.wantsLayer)")
-        logger.debug("displayPDFPreview: PDFView layer: \(String(describing: pdfDisplayView.layer))")
 
         // Verify document is still attached
         if let doc = pdfDisplayView.document {
@@ -3085,10 +3084,14 @@ public class ViewerViewController: NSViewController {
         // Collect all sequences from all documents
         var allSequences: [Sequence] = []
         var allAnnotations: [SequenceAnnotation] = []
+        var sourceURLsBySequenceID: [UUID: URL] = [:]
         
         for document in documents {
             allSequences.append(contentsOf: document.sequences)
             allAnnotations.append(contentsOf: document.annotations)
+            for sequence in document.sequences {
+                sourceURLsBySequenceID[sequence.id] = document.url.standardizedFileURL
+            }
             logger.debug("displayDocuments: Added \(document.sequences.count) sequences from '\(document.name)'")
         }
         
@@ -3124,7 +3127,7 @@ public class ViewerViewController: NSViewController {
         logger.debug("displayDocuments: Created referenceFrame for max length \(maxLength)")
         
         // Pass all sequences to the viewer using multi-sequence support
-        viewerView.setSequences(allSequences)
+        viewerView.setSequences(allSequences, sourceURLsByID: sourceURLsBySequenceID)
         viewerView.setAnnotations(allAnnotations)
 
         // Update header with stacked sequence info for precise alignment

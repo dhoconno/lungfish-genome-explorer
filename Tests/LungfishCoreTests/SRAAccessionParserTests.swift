@@ -135,6 +135,12 @@ final class SRAAccessionParserTests: XCTestCase {
         XCTAssertEqual(result, ["SRR35517702", "SRR35517703"])
     }
 
+    func testParseCSVUsesListDelimiterSemantics() {
+        let csv = "acc\nSRR35517702, SRR35517703\tSRR35517705\n"
+        let result = SRAAccessionParser.parseCSV(csv)
+        XCTAssertEqual(result, ["SRR35517702", "SRR35517703", "SRR35517705"])
+    }
+
     func testParseCSVFromFileURL() throws {
         let tempDir = FileManager.default.temporaryDirectory
         let csvFile = tempDir.appendingPathComponent("test-accessions.csv")

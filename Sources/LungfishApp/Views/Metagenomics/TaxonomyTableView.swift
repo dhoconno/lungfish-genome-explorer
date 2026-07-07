@@ -1270,9 +1270,8 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     #if DEBUG
-    /// Test-only: the outline view's configured context menu. Exposed so
-    /// Phase 6 I1 invariant tests can inspect the menu without reaching
-    /// into a private subview.
+    /// Test-only: the outline view's configured context menu, exposed so
+    /// menu-wiring tests do not need to reach into a private subview.
     public var testingContextMenu: NSMenu? {
         outlineView.menu
     }
@@ -1281,9 +1280,8 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     /// `outlineView.selectedRowIndexes` can hold a non-empty actionable
     /// selection, then programmatically selects the given indices.
     ///
-    /// Used by the Phase 6 I2 invariant test to exercise
-    /// `validateMenuItem(_:)` when rows are selected, without needing a full
-    /// Kraken2 classification result to back the table.
+    /// Used by menu validation tests to exercise `validateMenuItem(_:)`
+    /// without needing a full Kraken2 classification result to back the table.
     public func setTestingSelection(indices: [Int]) {
         let rowCount = (indices.max() ?? -1) + 1
         let root = TaxonNode(

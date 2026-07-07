@@ -52,6 +52,10 @@ public struct AnalysisManifestEntry: Codable, Sendable, Identifiable, Equatable 
     public let id: UUID
     public let tool: String
     public let timestamp: Date
+    /// Path to the analysis directory relative to `Analyses/`.
+    ///
+    /// Historical manifests stored only the directory basename; readers still
+    /// resolve those entries by basename for compatibility.
     public let analysisDirectoryName: String
     public let displayName: String
     public let parameters: [String: AnalysisParameterValue]
@@ -100,6 +104,17 @@ public struct AnalysisManifest: Codable, Sendable {
     }
 }
 
+public enum AnalysisManifestStoreError: Error, LocalizedError, Sendable {
+    case corruptManifest(path: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .corruptManifest(let path):
+            return "Could not decode existing analysis manifest at '\(path)'"
+        }
+    }
+}
+
 // MARK: - AnalysisManifestStore
 
 /// Reads, writes, and prunes the `analyses-manifest.json` stored inside a bundle directory.
@@ -108,7 +123,7 @@ public enum AnalysisManifestStore {
     // MARK: - Load
 
     /// Loads the manifest from `bundleURL`, pruning entries whose analysis directories
-    /// no longer exist under `projectURL/Analyses/`.
+    /// no longer exist under `projectURL/Analyses/` or grouped descendants.
     ///
     /// Returns an empty manifest when the file is missing or cannot be decoded.
     public static func load(bundleURL: URL, projectURL: URL) -> AnalysisManifest {
@@ -140,9 +155,14 @@ public enum AnalysisManifestStore {
         let manifestURL = bundleURL.appendingPathComponent(AnalysisManifest.filename)
 
         var manifest: AnalysisManifest
-        if let data = try? Data(contentsOf: manifestURL),
-           let existing = try? decoder.decode(AnalysisManifest.self, from: data) {
-            manifest = existing
+        if FileManager.default.fileExists(atPath: manifestURL.path) {
+            let data = try Data(contentsOf: manifestURL)
+            do {
+                manifest = try decoder.decode(AnalysisManifest.self, from: data)
+            } catch {
+                logger.error("Could not decode existing manifest at \(manifestURL.path); refusing to overwrite")
+                throw AnalysisManifestStoreError.corruptManifest(path: manifestURL.path)
+            }
         } else {
             manifest = AnalysisManifest()
         }
@@ -154,18 +174,181 @@ public enum AnalysisManifestStore {
 
     // MARK: - Prune
 
-    /// Removes entries whose `Analyses/{analysisDirectoryName}` directory is absent.
+    /// Resolves a manifest entry to its analysis directory, including user-created
+    /// grouping folders under `Analyses/`.
+    public static func resolveAnalysisDirectory(for entry: AnalysisManifestEntry, projectURL: URL) -> URL? {
+        let analysesBase = projectURL.appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true)
+        let rawName = entry.analysisDirectoryName
+        guard !rawName.isEmpty,
+              !rawName.hasPrefix("/") else {
+            return nil
+        }
+
+        let pathComponents = rawName.split(separator: "/").map(String.init)
+        guard !pathComponents.isEmpty,
+              !pathComponents.contains("..") else {
+            return nil
+        }
+
+        let explicitURL = pathComponents.reduce(analysesBase) { partial, component in
+            partial.appendingPathComponent(component, isDirectory: true)
+        }
+        let fm = FileManager.default
+        if directoryExists(at: explicitURL, fileManager: fm) {
+            return explicitURL
+        }
+
+        guard pathComponents.count == 1,
+              directoryExists(at: analysesBase, fileManager: fm),
+              let enumerator = fm.enumerator(
+                  at: analysesBase,
+                  includingPropertiesForKeys: [.isDirectoryKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            return nil
+        }
+
+        var matches: [URL] = []
+        for case let url as URL in enumerator {
+            guard url.lastPathComponent == rawName,
+                  directoryExists(at: url, fileManager: fm) else {
+                continue
+            }
+            matches.append(url)
+        }
+
+        return matches.sorted { $0.path < $1.path }.first
+    }
+
+    /// Returns the manifest path for an analysis directory relative to `projectURL/Analyses/`.
+    ///
+    /// Direct children produce their basename. Grouped/nested analysis directories preserve
+    /// their group components, for example `Reviewed/minimap2-2026-01-15T10-00-00`.
+    public static func analysisDirectoryPath(for analysisDirectoryURL: URL, projectURL: URL) -> String? {
+        let analysesBase = projectURL
+            .appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let analysisURL = analysisDirectoryURL
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let baseComponents = analysesBase.pathComponents
+        let analysisComponents = analysisURL.pathComponents
+
+        guard analysisComponents.count > baseComponents.count,
+              Array(analysisComponents.prefix(baseComponents.count)) == baseComponents else {
+            return nil
+        }
+
+        let relativeComponents = Array(analysisComponents.dropFirst(baseComponents.count))
+        guard !relativeComponents.isEmpty,
+              !relativeComponents.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
+            return nil
+        }
+        return relativeComponents.joined(separator: "/")
+    }
+
+    /// Rewrites manifest entries after an analysis directory or grouping folder moves under `Analyses/`.
+    ///
+    /// Returns the number of manifest entries whose `analysisDirectoryName` changed.
+    @discardableResult
+    public static func rewriteAnalysisDirectoryReferences(
+        projectURL: URL,
+        oldAnalysisURL: URL,
+        newAnalysisURL: URL
+    ) throws -> Int {
+        guard let oldPath = analysisDirectoryPath(for: oldAnalysisURL, projectURL: projectURL),
+              let newPath = analysisDirectoryPath(for: newAnalysisURL, projectURL: projectURL),
+              oldPath != newPath else {
+            return 0
+        }
+
+        var rewrittenEntries = 0
+        for manifestURL in try analysisManifestURLs(in: projectURL) {
+            let data = try Data(contentsOf: manifestURL)
+            var manifest: AnalysisManifest
+            do {
+                manifest = try decoder.decode(AnalysisManifest.self, from: data)
+            } catch {
+                logger.error("Could not decode existing manifest at \(manifestURL.path); refusing to rewrite analysis paths")
+                throw AnalysisManifestStoreError.corruptManifest(path: manifestURL.path)
+            }
+
+            var manifestChanged = false
+            manifest.analyses = manifest.analyses.map { entry in
+                guard let rewrittenPath = rewrittenAnalysisDirectoryPath(
+                    entry.analysisDirectoryName,
+                    oldPath: oldPath,
+                    newPath: newPath
+                ) else {
+                    return entry
+                }
+                manifestChanged = true
+                rewrittenEntries += 1
+                return AnalysisManifestEntry(
+                    id: entry.id,
+                    tool: entry.tool,
+                    timestamp: entry.timestamp,
+                    analysisDirectoryName: rewrittenPath,
+                    displayName: entry.displayName,
+                    parameters: entry.parameters,
+                    summary: entry.summary,
+                    status: entry.status
+                )
+            }
+
+            if manifestChanged {
+                try save(manifest, to: manifestURL)
+            }
+        }
+        return rewrittenEntries
+    }
+
+    /// Removes manifest entries that point at an analysis directory or grouping folder.
+    ///
+    /// Returns the number of entries removed across project bundle manifests.
+    @discardableResult
+    public static func removeAnalysisDirectoryReferences(
+        projectURL: URL,
+        analysisURL: URL
+    ) throws -> Int {
+        guard let removedPath = analysisDirectoryPath(for: analysisURL, projectURL: projectURL) else {
+            return 0
+        }
+
+        var removedEntries = 0
+        for manifestURL in try analysisManifestURLs(in: projectURL) {
+            let data = try Data(contentsOf: manifestURL)
+            var manifest: AnalysisManifest
+            do {
+                manifest = try decoder.decode(AnalysisManifest.self, from: data)
+            } catch {
+                logger.error("Could not decode existing manifest at \(manifestURL.path); refusing to remove analysis paths")
+                throw AnalysisManifestStoreError.corruptManifest(path: manifestURL.path)
+            }
+
+            let beforeCount = manifest.analyses.count
+            manifest.analyses.removeAll { entry in
+                analysisDirectoryPath(entry.analysisDirectoryName, isAtOrUnder: removedPath)
+            }
+            let removedFromManifest = beforeCount - manifest.analyses.count
+            if removedFromManifest > 0 {
+                removedEntries += removedFromManifest
+                try save(manifest, to: manifestURL)
+            }
+        }
+        return removedEntries
+    }
+
+    /// Removes entries whose analysis directory is absent from `Analyses/`.
     ///
     /// - Returns: The number of entries removed.
     @discardableResult
     public static func pruneStaleEntries(manifest: inout AnalysisManifest, projectURL: URL) -> Int {
-        let analysesBase = projectURL.appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true)
-        let fm = FileManager.default
         let before = manifest.analyses.count
 
         manifest.analyses = manifest.analyses.filter { entry in
-            let dir = analysesBase.appendingPathComponent(entry.analysisDirectoryName, isDirectory: true)
-            let exists = fm.fileExists(atPath: dir.path)
+            let exists = resolveAnalysisDirectory(for: entry, projectURL: projectURL) != nil
             if !exists {
                 logger.info("Pruning stale manifest entry: \(entry.analysisDirectoryName)")
             }
@@ -180,6 +363,51 @@ public enum AnalysisManifestStore {
     private static func save(_ manifest: AnalysisManifest, to url: URL) throws {
         let data = try encoder.encode(manifest)
         try data.write(to: url, options: .atomic)
+    }
+
+    private static func directoryExists(at url: URL, fileManager: FileManager) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private static func rewrittenAnalysisDirectoryPath(
+        _ currentPath: String,
+        oldPath: String,
+        newPath: String
+    ) -> String? {
+        if currentPath == oldPath {
+            return newPath
+        }
+        let oldPrefix = oldPath + "/"
+        guard currentPath.hasPrefix(oldPrefix) else {
+            return nil
+        }
+        let suffix = currentPath.dropFirst(oldPrefix.count)
+        return newPath + "/" + suffix
+    }
+
+    private static func analysisDirectoryPath(_ currentPath: String, isAtOrUnder ancestorPath: String) -> Bool {
+        currentPath == ancestorPath || currentPath.hasPrefix(ancestorPath + "/")
+    }
+
+    private static func analysisManifestURLs(in projectURL: URL) throws -> [URL] {
+        let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: projectURL,
+            includingPropertiesForKeys: Array(resourceKeys),
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var manifestURLs: [URL] = []
+        for case let url as URL in enumerator where url.lastPathComponent == AnalysisManifest.filename {
+            let values = try url.resourceValues(forKeys: resourceKeys)
+            if values.isRegularFile == true {
+                manifestURLs.append(url)
+            }
+        }
+        return manifestURLs.sorted { $0.path < $1.path }
     }
 
     private static let encoder: JSONEncoder = {

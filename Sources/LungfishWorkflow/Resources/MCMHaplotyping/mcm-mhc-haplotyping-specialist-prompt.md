@@ -45,7 +45,7 @@ Color genotype rows and the cells containing mapped-read counts by the haplotype
 ## Primary And Secondary Alleles
 
 - Primary alleles are the minimal informative MiSeq targets listed in the locus-specific target sections below. These are the initial basis for haplotyping.
-- Secondary alleles are additional MiSeq targets from the current reference whose locus and haplotype association come from `/Users/dho/Downloads/MCM_IPD_names_Acc#_Haplotype.xlsx`.
+- Secondary alleles are additional MiSeq targets from the current reference whose locus and haplotype association come from the bundled source workbook `sources/MCM_IPD_names_Acc#_Haplotype.xlsx`.
 - Rely on the workbook-derived locus mapping, not the allele name text, to decide which locus a secondary allele supports. For example, Mafa-K/MHC-K targets can legitimately support MHC-A haplotypes when the workbook maps them to MHC-A.
 - When primary alleles confidently call a haplotype, associate matching secondary genotype rows with that locus's called haplotype for evidence display, color annotation, and rationale.
 - Do not let secondary alleles override strong primary evidence.
@@ -170,7 +170,7 @@ For the MCM MiSeq preset workflow, MHC-E is reportable when MHC-E targets are pr
 
 ## Secondary Allele Map
 
-This map is derived from `/Users/dho/Downloads/MCM_IPD_names_Acc#_Haplotype.xlsx` and matched to the current MiSeq reference target IDs. Use it for secondary evidence annotation and rescue logic as described above. Entries use `target[source]->haplotypes`.
+This map is derived from the bundled source workbook `sources/MCM_IPD_names_Acc#_Haplotype.xlsx` and matched to the current MiSeq reference target IDs. Use it for secondary evidence annotation and rescue logic as described above. Entries use `target[source]->haplotypes`.
 
 ### MHC-A Secondary Alleles
 

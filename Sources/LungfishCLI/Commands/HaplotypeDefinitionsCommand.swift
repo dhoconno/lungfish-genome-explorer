@@ -9,14 +9,16 @@ struct HaplotypeDefinitionsCommand: AsyncParsableCommand {
         abstract: "Manage ONT genotyping haplotype definition sets",
         discussion: """
             Import, export, list, duplicate, and delete project haplotype definition
-            sets before running ONT genotyping workflows. All definitions live in the
-            project scope and are sourced from the project's .lungfishmhcref bundles.
+            sets before running ONT genotyping workflows. Definitions may be stored
+            as project JSON definition files or embedded in project .lungfishmhcref
+            reference bundles.
             """,
         subcommands: [
             HaplotypeDefinitionsListSubcommand.self,
             HaplotypeDefinitionsValidateSubcommand.self,
             HaplotypeDefinitionsImportSubcommand.self,
             HaplotypeDefinitionsSaveSubcommand.self,
+            HaplotypeDefinitionsBundleInstallSubcommand.self,
             HaplotypeDefinitionsBundleCreateSubcommand.self,
             HaplotypeDefinitionsBundleSaveSubcommand.self,
             HaplotypeDefinitionsBundleReplaceReferenceSubcommand.self,
@@ -142,6 +144,28 @@ struct HaplotypeDefinitionsSaveSubcommand: AsyncParsableCommand {
             argv: Array(CommandLine.arguments)
         )
         try emitJSON(HaplotypeDefinitionWritePayload(result: result))
+    }
+}
+
+struct HaplotypeDefinitionsBundleInstallSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "bundle-install",
+        abstract: "Install an existing .lungfishmhcref bundle into a project"
+    )
+
+    @Argument(help: "Source .lungfishmhcref bundle to install")
+    var source: String
+
+    @Option(name: .customLong("project"), help: "Project root that will receive the bundle")
+    var project: String
+
+    func run() async throws {
+        let service = makeService(project: project)
+        let installedURL = try service.installMHCReferenceBundle(
+            from: URL(fileURLWithPath: source, isDirectory: true),
+            argv: Array(CommandLine.arguments)
+        )
+        try emitJSON(HaplotypeDefinitionBundleInstallPayload(bundleURL: installedURL))
     }
 }
 
@@ -417,6 +441,16 @@ private struct HaplotypeDefinitionBundleCreatePayload: Encodable {
     init(result: MHCAmpliconReferenceBundleBuildResult) {
         self.bundlePath = result.bundleURL.path
         self.provenancePath = result.provenanceURL.path
+    }
+}
+
+private struct HaplotypeDefinitionBundleInstallPayload: Encodable {
+    let bundlePath: String
+    let provenancePath: String
+
+    init(bundleURL: URL) {
+        self.bundlePath = bundleURL.path
+        self.provenancePath = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename).path
     }
 }
 

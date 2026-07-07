@@ -211,15 +211,16 @@ Any test target that needs fixtures must:
 
 ## Architecture Standards
 
-### Module Structure (7 modules)
+### Module Structure
 ```
-LungfishCore      — Data models, services, pipeline actors
-LungfishIO        — File format parsing and writing
-LungfishUI        — Reusable UI components, renderers
-LungfishPlugin    — Plugin system, tool execution
-LungfishWorkflow  — Pipeline orchestration, provenance
-LungfishApp       — Main app, view controllers, windows
-LungfishCLI       — Command-line interface (ArgumentParser)
+LungfishCore       — Data models, bundle manifests, project storage
+LungfishIO         — File format parsing, indexes, bundle readers/writers
+LungfishWorkflow   — Pipeline orchestration, native tools, provenance
+LungfishApp        — Main app services, view controllers, windows
+LungfishKit        — Shared app UI controls and utilities
+Feature UI modules — Alignment, Assembly, TwelveS, NVD, NAO-MGS, TaxTriage,
+                     EsViritu, Genotype, and Phylogenetics surfaces
+LungfishCLI        — Command-line interface (ArgumentParser)
 ```
 
 ### Code Standards
@@ -309,11 +310,11 @@ Tests/
     README.md                   — Format inventory and usage guide
   LungfishCoreTests/            — Data model and service tests
   LungfishIOTests/              — Format parsing tests (simulated data)
-  LungfishUITests/              — Renderer and component tests
-  LungfishPluginTests/          — Plugin lifecycle tests
   LungfishWorkflowTests/        — Pipeline and provenance tests
   LungfishAppTests/             — Integration tests
   LungfishCLITests/             — CLI command tests
+  LungfishKitTests/             — Shared UI utility tests
+  Lungfish*UITests/             — Feature UI module tests
   LungfishIntegrationTests/     — Cross-module workflow tests + functional fixture tests
     TestFixtures.swift          — Type-safe fixture accessors
     FunctionalFixtureTests.swift — Format parsing regression tests (10 tests)

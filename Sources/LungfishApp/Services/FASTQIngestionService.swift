@@ -22,29 +22,81 @@ private struct FASTQImportManifest: Codable, Sendable {
     let recipeApplied: RecipeAppliedInfo?
 }
 
-private actor FASTQImportSlotCoordinator {
+actor FASTQImportSlotCoordinator {
     static let shared = FASTQImportSlotCoordinator()
 
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Error>
+    }
+
     private var activeImports = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-    private let maxConcurrentImports = 1
+    private var waiters: [Waiter] = []
+    private let maxConcurrentImports: Int
 
-    private init() {}
+    init(maxConcurrentImports: Int = 1) {
+        self.maxConcurrentImports = maxConcurrentImports
+    }
 
-    func acquire() async {
-        if activeImports >= maxConcurrentImports {
-            await withCheckedContinuation { continuation in
-                waiters.append(continuation)
-            }
+    func testingSnapshot() -> (activeImports: Int, waitingImports: Int) {
+        (activeImports, waiters.count)
+    }
+
+    func acquire() async throws {
+        try Task.checkCancellation()
+        guard activeImports >= maxConcurrentImports else {
+            activeImports += 1
+            return
         }
-        activeImports += 1
+
+        let waiterID = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    waiters.append(Waiter(id: waiterID, continuation: continuation))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: waiterID) }
+        }
+
+        do {
+            try Task.checkCancellation()
+        } catch {
+            release()
+            throw error
+        }
     }
 
     func release() {
-        activeImports = max(0, activeImports - 1)
-        guard activeImports < maxConcurrentImports, !waiters.isEmpty else { return }
+        guard activeImports > 0 else { return }
+        guard !waiters.isEmpty else {
+            activeImports -= 1
+            return
+        }
         let next = waiters.removeFirst()
-        next.resume()
+        next.continuation.resume()
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume(throwing: CancellationError())
+    }
+}
+
+private enum FASTQSampleSheetMetadataProvenanceError: LocalizedError {
+    case missingBundleProvenance(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingBundleProvenance(let path):
+            return "Cannot apply FASTQ sample-sheet metadata because the imported bundle is missing provenance: \(path)"
+        }
     }
 }
 
@@ -175,6 +227,20 @@ public enum FASTQIngestionService {
 
     // MARK: - Pipeline Runners
 
+    nonisolated private static func withImportSlot<Value>(
+        _ body: () async throws -> Value
+    ) async throws -> Value {
+        try await FASTQImportSlotCoordinator.shared.acquire()
+        do {
+            let value = try await body()
+            await FASTQImportSlotCoordinator.shared.release()
+            return value
+        } catch {
+            await FASTQImportSlotCoordinator.shared.release()
+            throw error
+        }
+    }
+
     /// Runs the ingestion pipeline off the main actor.
     ///
     /// Must be `nonisolated` — the cooperative executor does not reliably schedule
@@ -187,86 +253,83 @@ public enum FASTQIngestionService {
     ) async {
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                OperationCenter.shared.updateWithLog(
+                _ = OperationCenter.shared.updateWithLog(
                     id: opID,
                     progress: 0,
                     detail: "Waiting for available import slot\u{2026}"
                 )
             }
         }
-        await FASTQImportSlotCoordinator.shared.acquire()
-        defer {
-            Task { await FASTQImportSlotCoordinator.shared.release() }
-        }
-
         do {
-            let pipeline = FASTQIngestionPipeline()
-            let result = try await pipeline.run(config: config) { fraction, message in
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.updateWithLog(
-                            id: opID,
-                            progress: fraction,
-                            detail: message
-                        )
+            try await withImportSlot {
+                let pipeline = FASTQIngestionPipeline()
+                let result = try await pipeline.run(config: config) { fraction, message in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.updateWithLog(
+                                id: opID,
+                                progress: fraction,
+                                detail: message
+                            )
+                        }
                     }
                 }
-            }
 
-            guard result.wasClumpified else {
-                throw FASTQIngestionError.clumpifyFailed("pipeline completed without clumpifying reads")
-            }
-            // Update metadata sidecar
-            let pairingMode: IngestionMetadata.PairingMode = {
-                switch result.pairingMode {
-                case .singleEnd: return .singleEnd
-                case .pairedEnd: return .interleaved  // paired-end becomes interleaved after clumpify
-                case .interleaved: return .interleaved
+                guard result.wasClumpified else {
+                    throw FASTQIngestionError.clumpifyFailed("pipeline completed without clumpifying reads")
                 }
-            }()
+                // Update metadata sidecar
+                let pairingMode: IngestionMetadata.PairingMode = {
+                    switch result.pairingMode {
+                    case .singleEnd: return .singleEnd
+                    case .pairedEnd: return .interleaved  // paired-end becomes interleaved after clumpify
+                    case .interleaved: return .interleaved
+                    }
+                }()
 
-            let ingestion = IngestionMetadata(
-                isClumpified: result.wasClumpified,
-                isCompressed: true,
-                pairingMode: pairingMode,
-                qualityBinning: result.qualityBinning.rawValue,
-                originalFilenames: result.originalFilenames,
-                ingestionDate: Date(),
-                originalSizeBytes: result.originalSizeBytes
-            )
+                let ingestion = IngestionMetadata(
+                    isClumpified: result.wasClumpified,
+                    isCompressed: true,
+                    pairingMode: pairingMode,
+                    qualityBinning: result.qualityBinning.rawValue,
+                    originalFilenames: result.originalFilenames,
+                    ingestionDate: Date(),
+                    originalSizeBytes: result.originalSizeBytes
+                )
 
-            var metadata = existingMetadata ?? PersistedFASTQMetadata()
-            metadata.ingestion = ingestion
-            FASTQMetadataStore.save(metadata, for: result.outputFile)
-            try saveInPlaceIngestionProvenance(result: result, config: config, ingestion: ingestion)
+                var metadata = existingMetadata ?? PersistedFASTQMetadata()
+                metadata.ingestion = ingestion
+                FASTQMetadataStore.save(metadata, for: result.outputFile)
+                try saveInPlaceIngestionProvenance(result: result, config: config, ingestion: ingestion)
 
-            let savedStr = ByteCountFormatter.string(
-                fromByteCount: result.originalSizeBytes - result.finalSizeBytes,
-                countStyle: .file
-            )
-            let detail = result.wasClumpified
-                ? "Clumpified and compressed (saved \(savedStr))"
-                : "Compressed (saved \(savedStr))"
+                let savedStr = ByteCountFormatter.string(
+                    fromByteCount: result.originalSizeBytes - result.finalSizeBytes,
+                    countStyle: .file
+                )
+                let detail = result.wasClumpified
+                    ? "Clumpified and compressed (saved \(savedStr))"
+                    : "Compressed (saved \(savedStr))"
 
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: [])
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        _ = OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: [])
+                    }
                 }
-            }
 
-            logger.info("Ingestion complete: \(result.outputFile.lastPathComponent)")
+                logger.info("Ingestion complete: \(result.outputFile.lastPathComponent)")
+            }
 
         } catch is CancellationError {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                    _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
                 }
             }
         } catch {
             logger.error("Ingestion failed: \(error)")
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
                 }
             }
         }
@@ -365,28 +428,27 @@ public enum FASTQIngestionService {
     ) async {
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                OperationCenter.shared.updateWithLog(
+                _ = OperationCenter.shared.updateWithLog(
                     id: opID,
                     progress: 0,
                     detail: "Waiting for available import slot\u{2026}"
                 )
             }
         }
-        await FASTQImportSlotCoordinator.shared.acquire()
-
-        // Run the import, then ALWAYS release the slot before returning.
-        // We avoid `defer { Task { await release() } }` because that
-        // fire-and-forget Task is not guaranteed to execute promptly from
-        // a Task.detached context.
-        let result = await _runCLIImport(
-            pair: pair,
-            projectDirectory: projectDirectory,
-            bundleName: bundleName,
-            importConfig: importConfig,
-            operationID: opID
-        )
-
-        await FASTQImportSlotCoordinator.shared.release()
+        let result: Result<URL, Error>
+        do {
+            result = try await withImportSlot {
+                await _runCLIImport(
+                    pair: pair,
+                    projectDirectory: projectDirectory,
+                    bundleName: bundleName,
+                    importConfig: importConfig,
+                    operationID: opID
+                )
+            }
+        } catch {
+            result = .failure(error)
+        }
 
         // Deliver the result on the main actor
         logger.info("runIngestAndBundle: delivering result to main actor")
@@ -395,14 +457,14 @@ public enum FASTQIngestionService {
                 switch result {
                 case .success(let bundleURL):
                     logger.info("runIngestAndBundle: completing operation for \(bundleURL.lastPathComponent)")
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "Imported \(bundleURL.lastPathComponent)",
                         bundleURLs: [bundleURL]
                     )
                     completion(.success(bundleURL))
                 case .failure(let error):
-                    OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                    _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                     completion(.failure(error))
                 }
             }
@@ -460,10 +522,11 @@ public enum FASTQIngestionService {
         // no duplicate computation needed here.
 
         if !pair.metadata.isEmpty {
-            try? FASTQBundleCSVMetadata.save(
-                FASTQBundleCSVMetadata(keyValuePairs: ["sample": pair.sampleName].merging(pair.metadata) { current, _ in current }),
-                to: bundleURL
-            )
+            do {
+                try saveSampleSheetMetadata(pair: pair, bundleURL: bundleURL)
+            } catch {
+                return .failure(error)
+            }
         }
 
         logger.info("ingestAndBundle: Created bundle \(bundleURL.lastPathComponent) via CLIImportRunner — returning success")
@@ -585,6 +648,168 @@ public enum FASTQIngestionService {
         ingestion: IngestionMetadata
     ) async throws {
         try saveInPlaceIngestionProvenance(result: result, config: config, ingestion: ingestion)
+    }
+
+    nonisolated static func testingSaveSampleSheetMetadata(pair: FASTQFilePair, bundleURL: URL) throws {
+        try saveSampleSheetMetadata(pair: pair, bundleURL: bundleURL)
+    }
+
+    nonisolated private static func saveSampleSheetMetadata(pair: FASTQFilePair, bundleURL: URL) throws {
+        guard !pair.metadata.isEmpty else { return }
+        guard try ProvenanceEnvelopeReader.load(from: bundleURL) != nil else {
+            throw FASTQSampleSheetMetadataProvenanceError.missingBundleProvenance(bundleURL.path)
+        }
+
+        let metadata = FASTQBundleCSVMetadata(
+            keyValuePairs: ["sample": pair.sampleName].merging(pair.metadata) { current, _ in current }
+        )
+        let metadataURL = FASTQBundleCSVMetadata.metadataURL(in: bundleURL)
+        let snapshot = try ProvenancePublicationSnapshot(
+            urls: [metadataURL] + ProvenancePublicationArtifacts.bundleRootArtifacts(for: bundleURL),
+            backupNamePrefix: "lungfish-fastq-samplesheet-metadata"
+        )
+        defer { snapshot.discard() }
+
+        do {
+            try FASTQBundleCSVMetadata.save(metadata, to: bundleURL)
+            try appendSampleSheetMetadataProvenance(
+                pair: pair,
+                metadata: metadata,
+                bundleURL: bundleURL,
+                metadataURL: metadataURL
+            )
+        } catch {
+            do {
+                try snapshot.restore()
+            } catch {
+                logger.error("Failed to restore FASTQ sample-sheet metadata snapshot: \(error.localizedDescription, privacy: .public)")
+            }
+            throw error
+        }
+    }
+
+    nonisolated private static func appendSampleSheetMetadataProvenance(
+        pair: FASTQFilePair,
+        metadata: FASTQBundleCSVMetadata,
+        bundleURL: URL,
+        metadataURL: URL
+    ) throws {
+        guard let existingEnvelope = try ProvenanceEnvelopeReader.load(from: bundleURL) else {
+            throw FASTQSampleSheetMetadataProvenanceError.missingBundleProvenance(bundleURL.path)
+        }
+
+        let startedAt = Date()
+        let metadataDescriptor = try ProvenanceFileDescriptor.file(url: metadataURL, format: .text, role: .output)
+        var inputs: [ProvenanceFileDescriptor] = []
+        if let sampleSheetURL = pair.sampleSheetURL {
+            inputs.append(try ProvenanceFileDescriptor.file(url: sampleSheetURL, format: .text, role: .input))
+        }
+        let command = sampleSheetMetadataCommand(
+            pair: pair,
+            metadata: metadata,
+            bundleURL: bundleURL,
+            metadataURL: metadataURL
+        )
+        let completedAt = Date()
+        let metadataStep = ProvenanceStep(
+            toolName: "lungfish-app fastq sample-sheet-metadata",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: command,
+            durableReplayArgv: command,
+            inputs: inputs,
+            outputs: [metadataDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+
+        let outputs = deduplicatedProvenanceFilesPreferringLast(existingEnvelope.outputs + [metadataDescriptor])
+        let files = deduplicatedProvenanceFilesPreferringLast(
+            existingEnvelope.files + inputs + [metadataDescriptor]
+        )
+        let options = sampleSheetMetadataOptions(
+            existing: existingEnvelope.options,
+            pair: pair,
+            metadata: metadata,
+            metadataURL: metadataURL
+        )
+        let output = existingEnvelope.output.map {
+            $0.path == metadataDescriptor.path && $0.role == metadataDescriptor.role ? metadataDescriptor : $0
+        } ?? metadataDescriptor
+
+        let mergedEnvelope = ProvenanceEnvelope(
+            schemaVersion: existingEnvelope.schemaVersion,
+            id: existingEnvelope.id,
+            createdAt: existingEnvelope.createdAt,
+            workflowName: existingEnvelope.workflowName,
+            workflowVersion: existingEnvelope.workflowVersion,
+            toolName: existingEnvelope.toolName,
+            toolVersion: existingEnvelope.toolVersion,
+            githubReleaseVersion: existingEnvelope.githubReleaseVersion,
+            tool: existingEnvelope.tool,
+            argv: existingEnvelope.argv,
+            durableReplayArgv: existingEnvelope.durableReplayArgv,
+            reproducibleCommand: existingEnvelope.reproducibleCommand,
+            options: options,
+            runtimeIdentity: existingEnvelope.runtimeIdentity,
+            files: files,
+            output: output,
+            outputs: outputs,
+            steps: existingEnvelope.steps + [metadataStep],
+            wallTimeSeconds: combinedWallTime(existingEnvelope.wallTimeSeconds, metadataStep.wallTimeSeconds),
+            exitStatus: existingEnvelope.exitStatus ?? 0,
+            stderr: existingEnvelope.stderr,
+            signatures: [],
+            legacyWorkflowRun: nil
+        )
+        try ProvenanceWriter(signingProvider: nil).write(mergedEnvelope, to: bundleURL)
+    }
+
+    nonisolated private static func sampleSheetMetadataCommand(
+        pair: FASTQFilePair,
+        metadata: FASTQBundleCSVMetadata,
+        bundleURL: URL,
+        metadataURL: URL
+    ) -> [String] {
+        var command = [
+            "lungfish-app",
+            "fastq",
+            "sample-sheet-metadata",
+            "--bundle", bundleURL.path,
+            "--metadata-csv", metadataURL.path,
+            "--sample", pair.sampleName,
+        ]
+        if let sampleSheetURL = pair.sampleSheetURL {
+            command += ["--sample-sheet", sampleSheetURL.path]
+        }
+        for (key, value) in metadata.keyValuePairs.sorted(by: { $0.key < $1.key }) {
+            command += ["--set", "\(key)=\(value)"]
+        }
+        return command
+    }
+
+    nonisolated private static func sampleSheetMetadataOptions(
+        existing: ProvenanceOptions,
+        pair: FASTQFilePair,
+        metadata: FASTQBundleCSVMetadata,
+        metadataURL: URL
+    ) -> ProvenanceOptions {
+        let metadataParameters = metadata.keyValuePairs.mapValues { ParameterValue.string($0) }
+        var explicit = existing.explicit
+        explicit["sampleName"] = .string(pair.sampleName)
+        explicit["sampleSheet"] = pair.sampleSheetURL.map(ParameterValue.file) ?? .null
+        explicit["sampleSheetMetadata"] = .dictionary(metadataParameters)
+
+        var resolved = existing.resolvedDefaults
+        resolved["metadataCSV"] = .file(metadataURL)
+        resolved["sampleSheetMetadataApplied"] = .boolean(true)
+
+        return ProvenanceOptions(
+            explicit: explicit,
+            defaults: existing.defaults,
+            resolvedDefaults: resolved
+        )
     }
 
     nonisolated private static func saveInPlaceIngestionProvenance(
@@ -808,6 +1033,19 @@ public enum FASTQIngestionService {
             }
         }
         return result
+    }
+
+    nonisolated private static func deduplicatedProvenanceFilesPreferringLast(
+        _ descriptors: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors.reversed() {
+            let key = "\(descriptor.role.rawValue)\u{0}\(descriptor.path)"
+            guard seen.insert(key).inserted else { continue }
+            result.append(descriptor)
+        }
+        return result.reversed()
     }
 
     nonisolated private static func writeImportManifest(
@@ -1095,7 +1333,7 @@ public enum FASTQIngestionService {
 
     // MARK: - CLI Subprocess Import
 
-    /// Spawns `lungfish import fastq` as a child process for memory-safe batch import.
+    /// Spawns `lungfish-cli import fastq` as a child process for memory-safe batch import.
     ///
     /// Progress is parsed from the CLI's stdout JSON lines. The app stays alive
     /// even if the CLI process is killed by jetsam.
@@ -1108,7 +1346,10 @@ public enum FASTQIngestionService {
         completion: @escaping @MainActor (Result<Int, Error>) -> Void
     ) {
         let title = "FASTQ Batch Import"
-        let cliCmd = "lungfish import fastq \(inputDirectory.path) --project \(projectDirectory.path) --recipe \(recipe)"
+        let cliCmd = OperationCenter.buildCLICommand(
+            subcommand: "import fastq",
+            args: [inputDirectory.path, "--project", projectDirectory.path, "--recipe", recipe]
+        )
         let opID = OperationCenter.shared.start(
             title: title,
             detail: "Starting batch import\u{2026}",
@@ -1139,118 +1380,166 @@ public enum FASTQIngestionService {
         operationID opID: UUID,
         completion: @escaping @MainActor (Result<Int, Error>) -> Void
     ) async {
+        let cancellationHandle = NativeProcessCancellationHandle()
         do {
-            guard let cliURL = CLIImportRunner.cliBinaryPath() else {
-                throw BatchImportError.projectNotFound(Bundle.main.bundleURL)
-            }
+            try await withTaskCancellationHandler {
+                try Task.checkCancellation()
 
-            guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-                throw BatchImportError.projectNotFound(cliURL)
-            }
+                guard let cliURL = CLIImportRunner.cliBinaryPath() else {
+                    throw BatchImportError.projectNotFound(Bundle.main.bundleURL)
+                }
 
-            let process = Process()
-            process.executableURL = cliURL
-            process.arguments = [
-                "import", "fastq",
-                inputDirectory.path,
-                "--project", projectDirectory.path,
-                "--recipe", recipe,
-                "--quality-binning", qualityBinning.rawValue,
-            ]
+                guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+                    throw BatchImportError.projectNotFound(cliURL)
+                }
 
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
+                let process = Process()
+                process.executableURL = cliURL
+                process.arguments = [
+                    "import", "fastq",
+                    inputDirectory.path,
+                    "--project", projectDirectory.path,
+                    "--recipe", recipe,
+                    "--quality-binning", qualityBinning.rawValue,
+                ]
 
-            try process.run()
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
 
-            // Track last known progress so detail-only events can reuse it
-            var lastProgress: Double = 0.0
+                let stderrState = OSAllocatedUnfairLock(initialState: Data())
+                let stderrHandle = stderrPipe.fileHandleForReading
+                stderrHandle.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    guard !data.isEmpty else { return }
+                    stderrState.withLock { $0.append(data) }
+                }
 
-            // Parse JSON lines from stdout for progress updates
-            let handle = stdoutPipe.fileHandleForReading
-            while true {
-                let data = handle.availableData
-                if data.isEmpty { break }
-                guard let text = String(data: data, encoding: .utf8) else { continue }
-
-                for line in text.split(separator: "\n") {
-                    guard let jsonData = line.data(using: .utf8),
-                          let dict = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                          let event = dict["event"] as? String else { continue }
-
-                    let detail: String
-                    var progress: Double? = nil
-
-                    switch event {
-                    case "sampleStart":
-                        let sample = dict["sample"] as? String ?? "?"
-                        let index = dict["index"] as? Int ?? 0
-                        let total = dict["total"] as? Int ?? 1
-                        detail = "[\(index)/\(total)] \(sample)"
-                        progress = Double(index - 1) / Double(max(1, total))
-                    case "stepStart":
-                        let sample = dict["sample"] as? String ?? "?"
-                        let step = dict["step"] as? String ?? "?"
-                        detail = "\(sample): \(step)"
-                    case "sampleComplete":
-                        let sample = dict["sample"] as? String ?? "?"
-                        detail = "\(sample): complete"
-                    case "sampleSkip":
-                        let sample = dict["sample"] as? String ?? "?"
-                        detail = "\(sample): skipped"
-                    case "sampleFailed":
-                        let sample = dict["sample"] as? String ?? "?"
-                        let error = dict["error"] as? String ?? "unknown error"
-                        detail = "\(sample): failed — \(error)"
-                    case "importComplete":
-                        let completed = dict["completed"] as? Int ?? 0
-                        let failed = dict["failed"] as? Int ?? 0
-                        detail = "Complete: \(completed) imported, \(failed) failed"
-                        progress = 1.0
-                    default:
-                        continue
+                do {
+                    try process.run()
+                    cancellationHandle.store(process)
+                    cancellationHandle.terminateIfRequested()
+                } catch {
+                    stderrHandle.readabilityHandler = nil
+                    if cancellationHandle.isTerminationRequested || Task.isCancelled {
+                        throw CancellationError()
                     }
+                    throw error
+                }
+                defer {
+                    stderrHandle.readabilityHandler = nil
+                    cancellationHandle.clear(process)
+                }
 
-                    let resolvedProgress = progress ?? lastProgress
-                    if let p = progress { lastProgress = p }
+                try Task.checkCancellation()
 
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.updateWithLog(id: opID, progress: resolvedProgress, detail: detail)
+                // Track last known progress so detail-only events can reuse it
+                var lastProgress: Double = 0.0
+
+                // Parse JSON lines from stdout for progress updates
+                let handle = stdoutPipe.fileHandleForReading
+                while true {
+                    let data = handle.availableData
+                    if data.isEmpty { break }
+                    guard let text = String(data: data, encoding: .utf8) else { continue }
+
+                    for line in text.split(separator: "\n") {
+                        guard let jsonData = line.data(using: .utf8),
+                              let dict = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                              let event = dict["event"] as? String else { continue }
+
+                        let detail: String
+                        var progress: Double? = nil
+
+                        switch event {
+                        case "sampleStart":
+                            let sample = dict["sample"] as? String ?? "?"
+                            let index = dict["index"] as? Int ?? 0
+                            let total = dict["total"] as? Int ?? 1
+                            detail = "[\(index)/\(total)] \(sample)"
+                            progress = Double(index - 1) / Double(max(1, total))
+                        case "stepStart":
+                            let sample = dict["sample"] as? String ?? "?"
+                            let step = dict["step"] as? String ?? "?"
+                            detail = "\(sample): \(step)"
+                        case "sampleComplete":
+                            let sample = dict["sample"] as? String ?? "?"
+                            detail = "\(sample): complete"
+                        case "sampleSkip":
+                            let sample = dict["sample"] as? String ?? "?"
+                            detail = "\(sample): skipped"
+                        case "sampleFailed":
+                            let sample = dict["sample"] as? String ?? "?"
+                            let error = dict["error"] as? String ?? "unknown error"
+                            detail = "\(sample): failed - \(error)"
+                        case "importComplete":
+                            let completed = dict["completed"] as? Int ?? 0
+                            let failed = dict["failed"] as? Int ?? 0
+                            detail = "Complete: \(completed) imported, \(failed) failed"
+                            progress = 1.0
+                        default:
+                            continue
+                        }
+
+                        let resolvedProgress = progress ?? lastProgress
+                        if let p = progress { lastProgress = p }
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                _ = OperationCenter.shared.updateWithLog(id: opID, progress: resolvedProgress, detail: detail)
+                            }
                         }
                     }
                 }
-            }
 
-            process.waitUntilExit()
+                process.waitUntilExit()
+                if cancellationHandle.isTerminationRequested || Task.isCancelled {
+                    throw CancellationError()
+                }
 
-            let exitCode = process.terminationStatus
-            if exitCode == 0 {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(id: opID, detail: "Batch import complete", bundleURLs: [])
-                        completion(.success(Int(exitCode)))
+                stderrHandle.readabilityHandler = nil
+                let remainingStderr = stderrHandle.readDataToEndOfFile()
+                if !remainingStderr.isEmpty {
+                    stderrState.withLock { $0.append(remainingStderr) }
+                }
+
+                let exitCode = process.terminationStatus
+                if exitCode == 0 {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.complete(id: opID, detail: "Batch import complete", bundleURLs: [])
+                            completion(.success(Int(exitCode)))
+                        }
+                    }
+                } else {
+                    let stderrStr = stderrState.withLock {
+                        String(data: $0, encoding: .utf8) ?? "unknown error"
+                    }
+                    let truncated = String(stderrStr.suffix(500))
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.fail(id: opID, detail: "Exit code \(exitCode): \(truncated)")
+                            completion(.failure(BatchImportError.projectNotFound(projectDirectory)))
+                        }
                     }
                 }
-            } else {
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrStr = String(data: stderrData, encoding: .utf8) ?? "unknown error"
-                let truncated = String(stderrStr.suffix(500))
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: "Exit code \(exitCode): \(truncated)")
-                        completion(.failure(BatchImportError.projectNotFound(projectDirectory)))
-                    }
+            } onCancel: {
+                cancellationHandle.requestProcessTreeTermination()
+            }
+        } catch is CancellationError {
+            logger.info("CLI subprocess import cancelled")
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                    completion(.failure(CancellationError()))
                 }
             }
-
         } catch {
             logger.error("CLI subprocess failed: \(error)")
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
                     completion(.failure(error))
                 }
             }

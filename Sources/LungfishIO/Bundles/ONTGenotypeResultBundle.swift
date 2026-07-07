@@ -1438,21 +1438,6 @@ public enum ONTGenotypeResultBundle {
     }
 }
 
-private struct OrderedSet<Element: Hashable>: Swift.Sequence {
-    private var values: [Element] = []
-    private var seen = Set<Element>()
-
-    init(_ source: [Element]) {
-        for value in source where seen.insert(value).inserted {
-            values.append(value)
-        }
-    }
-
-    func makeIterator() -> IndexingIterator<[Element]> {
-        values.makeIterator()
-    }
-}
-
 // MARK: - Annotation sidecar accessors
 
 public extension ONTGenotypeResultBundleData {

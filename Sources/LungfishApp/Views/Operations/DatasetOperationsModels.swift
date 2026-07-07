@@ -28,15 +28,12 @@ enum DatasetOperationSection: CaseIterable, Sendable {
 
 enum DatasetOperationAvailability: Equatable, Sendable {
     case available
-    case comingSoon
     case disabled(reason: String)
 
     var badgeText: String? {
         switch self {
         case .available:
             return nil
-        case .comingSoon:
-            return "Coming Soon"
         case .disabled(let reason):
             return reason
         }

@@ -1,6 +1,7 @@
 import Foundation
 import LungfishCore
 import LungfishKit
+import LungfishWorkflow
 import os.log
 
 private let treeTransformRunnerLogger = Logger(
@@ -47,7 +48,7 @@ actor CLITreeTransformRunner {
     }
 
     private let cliURLOverride: URL?
-    private var process: Process?
+    private let cancellationHandle = NativeProcessCancellationHandle()
 
     init(cliURLOverride: URL? = nil) {
         self.cliURLOverride = cliURLOverride
@@ -95,7 +96,7 @@ actor CLITreeTransformRunner {
         let stderrPipe = Pipe()
         proc.standardOutput = stdoutPipe
         proc.standardError = stderrPipe
-        process = proc
+        cancellationHandle.store(proc)
 
         final class StreamState: @unchecked Sendable {
             var stdoutBuffer = Data()
@@ -123,13 +124,13 @@ actor CLITreeTransformRunner {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             OperationCenter.shared.log(id: opID, level: .info, message: message)
-                            OperationCenter.shared.update(id: opID, progress: max(0, min(1, progress)), detail: message)
+                            _ = OperationCenter.shared.update(id: opID, progress: max(0, min(1, progress)), detail: message)
                         }
                     }
                 case let .progress(progress, message):
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            _ = OperationCenter.shared.update(
                                 id: opID,
                                 progress: max(0, min(1, progress)),
                                 detail: message
@@ -194,16 +195,17 @@ actor CLITreeTransformRunner {
         }
 
         await performCLIOperationCenterUpdate {
-            OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
+            _ = OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
         }
 
         do {
             try proc.run()
+            cancellationHandle.terminateIfRequested()
         } catch {
             stdoutHandle.readabilityHandler = nil
             stderrHandle.readabilityHandler = nil
             drainStreamHandlers()
-            process = nil
+            cancellationHandle.clear(proc)
             await failOperation(opID, detail: error.localizedDescription)
             throw RunError.launchFailed(error.localizedDescription)
         }
@@ -222,7 +224,7 @@ actor CLITreeTransformRunner {
         }) {
             handleLine(trailing)
         }
-        process = nil
+        cancellationHandle.clear(proc)
 
         let snapshot = state.withLock { current in
             (
@@ -252,7 +254,7 @@ actor CLITreeTransformRunner {
 
         let bundleURL = URL(fileURLWithPath: outputPath, isDirectory: true)
         await performCLIOperationCenterUpdate {
-            OperationCenter.shared.complete(
+            _ = OperationCenter.shared.complete(
                 id: opID,
                 detail: "Tree transform complete",
                 bundleURLs: [bundleURL]
@@ -262,9 +264,8 @@ actor CLITreeTransformRunner {
         return CLITreeTransformResult(bundleURL: bundleURL)
     }
 
-    func cancel() {
-        guard let process, process.isRunning else { return }
-        process.terminate()
+    nonisolated func cancel() {
+        cancellationHandle.terminateProcessTree(gracePeriod: 0)
     }
 
     @MainActor
@@ -278,6 +279,6 @@ actor CLITreeTransformRunner {
         guard OperationCenter.shared.items.first(where: { $0.id == id })?.state != .cancelled else {
             return
         }
-        OperationCenter.shared.fail(id: id, detail: message, errorMessage: message)
+        _ = OperationCenter.shared.fail(id: id, detail: message, errorMessage: message)
     }
 }

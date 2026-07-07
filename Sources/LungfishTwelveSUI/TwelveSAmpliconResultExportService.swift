@@ -1,5 +1,6 @@
 import Foundation
 import LungfishKit
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import UniformTypeIdentifiers
@@ -152,7 +153,7 @@ struct TwelveSAmpliconResultExportService {
 
     private func verifyProvenance(provenanceURL: URL, outputURL: URL) throws {
         guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL),
-              envelope.toolName == "lungfish-cli",
+              envelope.toolName == CLICommandIdentity.executableName,
               envelope.workflowName == "lungfish fastq 12s-export",
               envelope.exitStatus == 0,
               !envelope.argv.isEmpty else {

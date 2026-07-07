@@ -5,7 +5,6 @@
 import XCTest
 @testable import LungfishCore
 
-@MainActor private var appSettingsTestsOriginalManagedStorageStore: ManagedStorageConfigStore?
 @MainActor private var appSettingsTestsManagedStorageHomeDirectory: URL?
 
 final class AppSettingsTests: XCTestCase {
@@ -17,23 +16,23 @@ final class AppSettingsTests: XCTestCase {
             // Reset shared instance to defaults
             AppSettings.shared.resetToDefaults()
 
-            appSettingsTestsOriginalManagedStorageStore = ManagedStorageConfigStore.shared
             let home = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)
             try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
             appSettingsTestsManagedStorageHomeDirectory = home
-            ManagedStorageConfigStore.shared = ManagedStorageConfigStore(homeDirectory: home)
+            ManagedStorageConfigStore.overrideSharedForTesting(
+                ManagedStorageConfigStore(homeDirectory: home)
+            )
         }
     }
 
     override func tearDownWithError() throws {
         MainActor.assumeIsolated {
-            ManagedStorageConfigStore.shared = appSettingsTestsOriginalManagedStorageStore ?? ManagedStorageConfigStore()
+            ManagedStorageConfigStore.overrideSharedForTesting(nil)
             if let managedStorageHomeDirectory = appSettingsTestsManagedStorageHomeDirectory {
                 try? FileManager.default.removeItem(at: managedStorageHomeDirectory)
             }
             appSettingsTestsManagedStorageHomeDirectory = nil
-            appSettingsTestsOriginalManagedStorageStore = nil
         }
         try super.tearDownWithError()
     }
@@ -281,9 +280,8 @@ final class AppSettingsTests: XCTestCase {
         )
         try Data("not-json".utf8).write(to: store.configURL, options: [.atomic])
 
-        let originalStore = ManagedStorageConfigStore.shared
-        ManagedStorageConfigStore.shared = store
-        defer { ManagedStorageConfigStore.shared = originalStore }
+        ManagedStorageConfigStore.overrideSharedForTesting(store)
+        defer { ManagedStorageConfigStore.overrideSharedForTesting(nil) }
 
         let settings = AppSettings.shared
         XCTAssertEqual(settings.managedStorageDisplayState, .malformedBootstrap)

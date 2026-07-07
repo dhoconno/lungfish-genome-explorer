@@ -92,6 +92,30 @@ final class CzIdImportSheetTests: XCTestCase {
         XCTAssertEqual(cancelCount, 11)
     }
 
+    func testNvdActionsOnlyImportReadySelectionAndAlwaysCancelScan() {
+        var importedURLs: [URL] = []
+        var cancelCount = 0
+        let selectedURL = URL(fileURLWithPath: "/tmp/nvd-run", isDirectory: true)
+
+        NvdImportDialogActions.importIfReady(
+            selectedPath: nil,
+            isPrimaryEnabled: false,
+            onImport: { importedURLs.append($0) }
+        )
+        NvdImportDialogActions.importIfReady(
+            selectedPath: selectedURL,
+            isPrimaryEnabled: true,
+            onImport: { importedURLs.append($0) }
+        )
+        NvdImportDialogActions.cancel(
+            cancelScan: { cancelCount += 1 },
+            onCancel: { cancelCount += 10 }
+        )
+
+        XCTAssertEqual(importedURLs, [selectedURL])
+        XCTAssertEqual(cancelCount, 11)
+    }
+
     private static let preview = CzIdImportPreview(
         sourceURL: URL(fileURLWithPath: "/tmp/taxon_report.tsv"),
         sourceKind: .taxonReportFile,

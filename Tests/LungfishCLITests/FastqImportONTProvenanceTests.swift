@@ -36,7 +36,7 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.toolName, "lungfish fastq import-ont")
         XCTAssertEqual(envelope.exitStatus, 0)
         XCTAssertEqual(envelope.argv, [
-            "lungfish", "fastq", "import-ont",
+            CLICommandIdentity.executableName, "fastq", "import-ont",
             sourceURL.path, "--output", outputURL.path, "--concurrency", "1",
         ])
         XCTAssertEqual(envelope.options.defaults["includeUnclassified"], .boolean(false))
@@ -203,7 +203,54 @@ final class FastqImportONTProvenanceTests: XCTestCase {
             .init(filename: "chunks/chunk_1.fastq", originalPath: chunk1.path, sizeBytes: fileSize(chunk1), isSymlink: false),
         ])
         try manifest.save(to: bundleURL)
+        try writeSourceBundleProvenance(
+            bundleURL: bundleURL,
+            outputURLs: [
+                chunk0,
+                chunk1,
+                bundleURL.appendingPathComponent("preview.fastq"),
+                bundleURL.appendingPathComponent(FASTQSourceFileManifest.filename),
+            ]
+        )
         return bundleURL
+    }
+
+    private func writeSourceBundleProvenance(bundleURL: URL, outputURLs: [URL]) throws {
+        let outputs = try outputURLs.map {
+            try ProvenanceFileDescriptor.file(url: $0, format: provenanceFormat(for: $0), role: .output)
+        }
+        let step = ProvenanceStep(
+            toolName: "source-fastq-import",
+            toolVersion: "1.0",
+            argv: ["source-fastq-import", bundleURL.path],
+            outputs: outputs,
+            exitStatus: 0,
+            wallTimeSeconds: 0.1
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "source FASTQ import",
+            workflowVersion: "1.0",
+            toolName: "source-fastq-import",
+            toolVersion: "1.0",
+            argv: ["source-fastq-import", bundleURL.path],
+            files: outputs,
+            output: ProvenanceFileDescriptor(path: bundleURL.path, format: .unknown, role: .output),
+            outputs: outputs,
+            steps: [step],
+            wallTimeSeconds: 0.1,
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+    }
+
+    private func provenanceFormat(for url: URL) -> FileFormat {
+        if FASTQBundle.isFASTQFileURL(url) {
+            return .fastq
+        }
+        if url.pathExtension.lowercased() == "json" {
+            return .json
+        }
+        return .unknown
     }
 
     private func readEnvelope(_ url: URL) throws -> ProvenanceEnvelope {

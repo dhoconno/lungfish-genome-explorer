@@ -1879,12 +1879,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     }
 
     var createsOrModifiesScientificData: Bool {
-        switch self {
-        case .refreshQCSummary:
-            return false
-        default:
-            return true
-        }
+        true
     }
 
     var requiresProvenance: Bool {

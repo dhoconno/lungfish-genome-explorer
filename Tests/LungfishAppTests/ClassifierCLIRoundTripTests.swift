@@ -8,10 +8,10 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
-/// Phase 7 Task 7.3 — End-to-end CLI runs of `lungfish extract reads
-/// --by-classifier` against the shared classifier extraction fixtures.
+/// End-to-end CLI runs of `lungfish extract reads --by-classifier` against
+/// the shared classifier extraction fixtures.
 ///
-/// Phase 6 I7 already covers one CLI round-trip inside the invariant suite.
+/// The invariant suite already covers one CLI round-trip.
 /// This suite adds per-flag coverage: single-sample file output, multi-sample
 /// concatenation, --bundle landing inside the project root (the EsViritu
 /// regression guard), --read-format fasta header conversion, and kraken2 via
@@ -191,7 +191,7 @@ final class ClassifierCLIRoundTripTests: XCTestCase {
             .appendingPathComponent("cli-fa-\(UUID().uuidString).fasta")
         defer { try? FileManager.default.removeItem(at: out) }
 
-        // NOTE: Phase 3 deviation — the classifier uses `--read-format` rather
+        // NOTE: The classifier uses `--read-format` rather
         // than `--format` because GlobalOptions.format already claims `--format`
         // for the report-output format. See ExtractReadsCommand.swift:157–160.
         let argv = [
@@ -224,19 +224,11 @@ final class ClassifierCLIRoundTripTests: XCTestCase {
         )
         defer { try? FileManager.default.removeItem(at: projectRoot) }
 
-        // The kraken2-mini fixture may be incomplete (missing classification.kraken
-        // or source FASTQs referenced by the result metadata). Phase 7 scope is
-        // test coverage only — a self-contained kraken2 fixture is Phase 8
-        // follow-up work. Skip this test with a diagnostic if the load fails.
-        let classResult: ClassificationResult
-        do {
-            classResult = try ClassificationResult.load(from: resultPath)
-        } catch {
-            throw XCTSkip("Kraken2 fixture incomplete: \(error.localizedDescription)")
-        }
-        guard let taxon = classResult.tree.allNodes().first(where: { $0.readsClade > 0 && $0.taxId != 0 }) else {
-            throw XCTSkip("kraken2-mini has no non-zero taxa")
-        }
+        let classResult = try ClassificationResult.load(from: resultPath)
+        let taxon = try XCTUnwrap(
+            classResult.tree.allNodes().first(where: { $0.readsClade > 0 && $0.taxId != 0 }),
+            "kraken2-mini has no non-zero taxa"
+        )
 
         let out = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-kr2-\(UUID().uuidString).fastq")
@@ -251,15 +243,8 @@ final class ClassifierCLIRoundTripTests: XCTestCase {
         ]
         var cmd = try ExtractReadsSubcommand.parse(argv)
         cmd.testingRawArgs = argv
-        do {
-            try cmd.validate()
-            try await cmd.run()
-        } catch {
-            // If the kraken2 fixture is incomplete at the extraction stage
-            // (source FASTQs missing, per-read assignments missing, etc.),
-            // treat it as a skip rather than a failure.
-            throw XCTSkip("Kraken2 extraction failed on incomplete fixture: \(error.localizedDescription)")
-        }
+        try cmd.validate()
+        try await cmd.run()
 
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: out.path),
@@ -332,9 +317,8 @@ final class ClassifierCLIRoundTripTests: XCTestCase {
 
     // MARK: - --tool kraken2 rejects --include-unmapped-mates (S1)
 
-    /// Phase 3 validation: `--tool kraken2` with `--include-unmapped-mates`
-    /// must be rejected. This is a defensive round-trip-level pin on top of
-    /// the parse-level check from Phase 3.
+    /// `--tool kraken2` with `--include-unmapped-mates` must be rejected.
+    /// This is a defensive round-trip-level pin on top of the parse-level check.
     ///
     /// NOTE: ArgumentParser runs `validate()` as part of `parse()` (it surfaces
     /// validation errors as `CommandError.parserError.userValidationError`),

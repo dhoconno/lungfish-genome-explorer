@@ -87,22 +87,27 @@ enum FASTQBundleMergeService {
             )
         }
 
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: false)
+        let stagingBundleURL = stagingBundleURL(for: bundleURL)
+        var publishedFinalBundle = false
 
         do {
+            try FileManager.default.createDirectory(
+                at: stagingBundleURL,
+                withIntermediateDirectories: false
+            )
             let mergeMode = determineMode(for: sourceBundleURLs)
             let nestedSteps: [ProvenanceStep]
             switch mergeMode {
             case .virtualSingleEnd:
                 try await createVirtualBundle(
-                    at: bundleURL,
+                    at: stagingBundleURL,
                     sourceBundleURLs: sourceBundleURLs,
                     bundleName: bundleName
                 )
                 nestedSteps = []
             case .physical:
                 nestedSteps = try await createPhysicalBundle(
-                    at: bundleURL,
+                    at: stagingBundleURL,
                     sourceBundleURLs: sourceBundleURLs,
                     outputDirectory: outputDirectory,
                     bundleName: bundleName
@@ -110,7 +115,7 @@ enum FASTQBundleMergeService {
             }
             try writeMergeProvenance(
                 sourceBundleURLs: sourceBundleURLs,
-                bundleURL: bundleURL,
+                bundleURL: stagingBundleURL,
                 bundleName: bundleName,
                 mergeMode: mergeMode,
                 startedAt: startedAt,
@@ -118,11 +123,52 @@ enum FASTQBundleMergeService {
                 nestedSteps: nestedSteps,
                 provenanceWriter: provenanceWriter
             )
+            try FileManager.default.moveItem(at: stagingBundleURL, to: bundleURL)
+            publishedFinalBundle = true
+            try moveBundleMetadataSidecar(from: stagingBundleURL, to: bundleURL)
+            do {
+                try writeMergeProvenance(
+                    sourceBundleURLs: sourceBundleURLs,
+                    bundleURL: bundleURL,
+                    bundleName: bundleName,
+                    mergeMode: mergeMode,
+                    startedAt: startedAt,
+                    completedAt: Date(),
+                    nestedSteps: nestedSteps,
+                    provenanceWriter: provenanceWriter
+                )
+            } catch {
+                try? FileManager.default.removeItem(at: bundleURL)
+                try? FileManager.default.removeItem(at: FASTQMetadataStore.metadataURL(for: bundleURL))
+                throw error
+            }
             return bundleURL
         } catch {
-            try? FileManager.default.removeItem(at: bundleURL)
+            try? FileManager.default.removeItem(at: stagingBundleURL)
+            try? FileManager.default.removeItem(at: FASTQMetadataStore.metadataURL(for: stagingBundleURL))
+            if publishedFinalBundle {
+                try? FileManager.default.removeItem(at: bundleURL)
+                try? FileManager.default.removeItem(at: FASTQMetadataStore.metadataURL(for: bundleURL))
+            }
             throw error
         }
+    }
+
+    private static func stagingBundleURL(for bundleURL: URL) -> URL {
+        bundleURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(bundleURL.lastPathComponent).staging-\(UUID().uuidString)",
+                isDirectory: true
+            )
+    }
+
+    private static func moveBundleMetadataSidecar(from stagingBundleURL: URL, to bundleURL: URL) throws {
+        let stagingMetadataURL = FASTQMetadataStore.metadataURL(for: stagingBundleURL)
+        guard FileManager.default.fileExists(atPath: stagingMetadataURL.path) else { return }
+        let finalMetadataURL = FASTQMetadataStore.metadataURL(for: bundleURL)
+        try? FileManager.default.removeItem(at: finalMetadataURL)
+        try FileManager.default.moveItem(at: stagingMetadataURL, to: finalMetadataURL)
     }
 
     private static func determineMode(for bundleURLs: [URL]) -> MergeMode {
@@ -721,35 +767,53 @@ enum FASTQBundleMergeService {
     ) -> [URL] {
         switch manifest.payload {
         case .subset(let readIDListFilename):
-            return [bundleURL.appendingPathComponent(readIDListFilename)]
+            return [
+                validatedFASTQBundleMember(readIDListFilename, in: bundleURL, field: "payload.subset.readIDListFilename"),
+            ].compactMap { $0 }
         case .trim(let trimPositionFilename):
-            return [bundleURL.appendingPathComponent(trimPositionFilename)]
+            return [
+                validatedFASTQBundleMember(trimPositionFilename, in: bundleURL, field: "payload.trim.trimPositionFilename"),
+            ].compactMap { $0 }
         case .full(let fastqFilename):
-            return [bundleURL.appendingPathComponent(fastqFilename)]
+            return [
+                validatedFASTQBundleMember(fastqFilename, in: bundleURL, field: "payload.full.fastqFilename"),
+            ].compactMap { $0 }
         case .fullPaired(let r1Filename, let r2Filename):
             return [
-                bundleURL.appendingPathComponent(r1Filename),
-                bundleURL.appendingPathComponent(r2Filename),
-            ]
+                validatedFASTQBundleMember(r1Filename, in: bundleURL, field: "payload.fullPaired.r1Filename"),
+                validatedFASTQBundleMember(r2Filename, in: bundleURL, field: "payload.fullPaired.r2Filename"),
+            ].compactMap { $0 }
         case .fullMixed(let classification):
-            return classification.files.map { bundleURL.appendingPathComponent($0.filename) }
+            return classification.files.compactMap {
+                validatedFASTQBundleMember($0.filename, in: bundleURL, field: "readClassification.files[].filename")
+            }
         case .fullFASTA(let fastaFilename):
-            return [bundleURL.appendingPathComponent(fastaFilename)]
+            return [
+                validatedFASTQBundleMember(fastaFilename, in: bundleURL, field: "payload.fullFASTA.fastaFilename"),
+            ].compactMap { $0 }
         case .demuxedVirtual(_, let readIDListFilename, let previewFilename, let trimPositionsFilename, let orientMapFilename):
             return [
-                bundleURL.appendingPathComponent(readIDListFilename),
-                bundleURL.appendingPathComponent(previewFilename),
-                trimPositionsFilename.map { bundleURL.appendingPathComponent($0) },
-                orientMapFilename.map { bundleURL.appendingPathComponent($0) },
+                validatedFASTQBundleMember(readIDListFilename, in: bundleURL, field: "payload.demuxedVirtual.readIDListFilename"),
+                validatedFASTQBundleMember(previewFilename, in: bundleURL, field: "payload.demuxedVirtual.previewFilename"),
+                trimPositionsFilename.flatMap {
+                    validatedFASTQBundleMember($0, in: bundleURL, field: "payload.demuxedVirtual.trimPositionsFilename")
+                },
+                orientMapFilename.flatMap {
+                    validatedFASTQBundleMember($0, in: bundleURL, field: "payload.demuxedVirtual.orientMapFilename")
+                },
             ].compactMap { $0 }
         case .demuxGroup:
             return []
         case .orientMap(let orientMapFilename, let previewFilename):
             return [
-                bundleURL.appendingPathComponent(orientMapFilename),
-                bundleURL.appendingPathComponent(previewFilename),
-            ]
+                validatedFASTQBundleMember(orientMapFilename, in: bundleURL, field: "payload.orientMap.orientMapFilename"),
+                validatedFASTQBundleMember(previewFilename, in: bundleURL, field: "payload.orientMap.previewFilename"),
+            ].compactMap { $0 }
         }
+    }
+
+    private static func validatedFASTQBundleMember(_ relativePath: String, in bundleURL: URL, field: String) -> URL? {
+        try? FASTQBundle.validatedBundleMemberURL(for: relativePath, in: bundleURL, field: field)
     }
 
     private static func uniqueExistingURLs(_ urls: [URL]) -> [URL] {

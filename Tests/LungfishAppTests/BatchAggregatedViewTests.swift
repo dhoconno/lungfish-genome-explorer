@@ -1347,7 +1347,7 @@ final class TaxTriageViewControllerBatchGroupModeTests: XCTestCase {
 
 // MARK: - BatchGroupRoutingTests
 
-/// Tests for the `.batchGroup` sidebar routing logic added in Task 8.
+/// Tests for the `.batchGroup` sidebar routing logic.
 ///
 /// These tests verify:
 /// 1. `.batchGroup` items are included in displayable items (no longer filtered).
@@ -1360,15 +1360,15 @@ final class BatchGroupRoutingTests: XCTestCase {
 
     /// `.batchGroup` items must NOT be filtered out of the displayable items list.
     ///
-    /// Before Task 8, `.batchGroup` was in the filter alongside `.folder`, `.project`,
-    /// and `.group`. This test verifies the filter was correctly narrowed.
+    /// `.batchGroup` must remain displayable while folder-like containers stay
+    /// filtered out.
     func testBatchGroupItemIsDisplayable() {
         let allTypes: [SidebarItemType] = [
             .folder, .project, .group, .batchGroup,
             .classificationResult, .esvirituResult, .taxTriageResult,
         ]
 
-        // Mirror the filter logic from sidebarDidSelectItems (after Task 8 fix).
+        // Mirror the filter logic from sidebarDidSelectItems.
         let displayable = allTypes.filter { type in
             type != .folder && type != .project && type != .group
         }
@@ -1502,6 +1502,56 @@ final class BatchGroupRoutingTests: XCTestCase {
         XCTAssertEqual(loaded?.samples.first?.sampleId, "s1")
     }
 
+    func testKraken2LazyDatabaseBuildUsesManifestSampleDirectories() throws {
+        let batchURL = makeTempDir(prefix: "kraken2-batch-")
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        let sampleDir = batchURL.appendingPathComponent("s1", isDirectory: true)
+        try FileManager.default.createDirectory(at: sampleDir, withIntermediateDirectories: true)
+        let manifest = ClassificationBatchResultManifest(
+            header: MetagenomicsBatchManifestHeader(schemaVersion: 1, createdAt: Date(), sampleCount: 2),
+            goal: "classify",
+            databaseName: "standard",
+            databaseVersion: "2024-01",
+            summaryTSV: "summary.tsv",
+            samples: [MetagenomicsBatchSampleRecord(
+                sampleId: "s1",
+                resultDirectory: "s1",
+                inputFiles: [],
+                isPairedEnd: false
+            )]
+        )
+        try MetagenomicsBatchResultStore.saveClassification(manifest, to: batchURL)
+
+        let directories = try MainSplitViewController.classifierDatabaseBuildSampleDirectories(
+            tool: "kraken2",
+            resultURL: batchURL
+        )
+
+        XCTAssertEqual(directories, [sampleDir.standardizedFileURL])
+    }
+
+    func testKraken2LazyDatabaseBuildRejectsEmptyManifestSampleSet() throws {
+        let batchURL = makeTempDir(prefix: "kraken2-batch-")
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        let manifest = ClassificationBatchResultManifest(
+            header: MetagenomicsBatchManifestHeader(schemaVersion: 1, createdAt: Date(), sampleCount: 2),
+            goal: "classify",
+            databaseName: "standard",
+            databaseVersion: "2024-01",
+            summaryTSV: "summary.tsv",
+            samples: []
+        )
+        try MetagenomicsBatchResultStore.saveClassification(manifest, to: batchURL)
+
+        XCTAssertThrowsError(
+            try MainSplitViewController.classifierDatabaseBuildSampleDirectories(tool: "kraken2", resultURL: batchURL)
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("no successful sample directories"))
+        }
+    }
+
     /// The routing code uses `MetagenomicsBatchResultStore.loadEsViritu(from:)`.
     /// Verify it returns non-nil for a directory containing the manifest.
     func testLoadEsVirituManifestForRouting() throws {
@@ -1556,7 +1606,7 @@ final class BatchGroupRoutingTests: XCTestCase {
 
 // MARK: - BatchInspectorSectionTests
 
-/// Tests for Task 9: batch operation details and source sample links in the Inspector.
+/// Tests for batch operation details and source sample links in the Inspector.
 ///
 /// Covers:
 /// 1. `DocumentSectionViewModel` batch properties default values.

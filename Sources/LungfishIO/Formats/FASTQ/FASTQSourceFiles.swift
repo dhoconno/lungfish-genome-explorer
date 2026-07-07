@@ -94,6 +94,18 @@ public struct FASTQSourceFileManifest: Codable, Sendable, Equatable {
     /// - Parameter bundleURL: The `.lungfishfastq` bundle URL.
     /// - Returns: Ordered list of resolved file URLs.
     public func resolveFileURLs(relativeTo bundleURL: URL) -> [URL] {
-        files.map { bundleURL.appendingPathComponent($0.filename) }
+        var urls: [URL] = []
+        for entry in files {
+            guard let url = try? FASTQBundle.validatedBundleMemberURL(
+                for: entry.filename,
+                in: bundleURL,
+                field: "source-files[].filename",
+                allowExistingSymlinkEscape: true
+            ) else {
+                return []
+            }
+            urls.append(url)
+        }
+        return urls
     }
 }

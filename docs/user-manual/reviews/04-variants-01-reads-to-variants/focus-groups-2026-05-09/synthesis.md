@@ -55,7 +55,9 @@ These came up from the more expert personas and need to be treated as bugs, not 
 
 - **The Inspector section was wrong in the prior draft.** Already fixed: it's now `Analysis > Variant Calling`.
 
-- **`File > Download from NCBI/SRA` was wrong.** Already fixed: it's now `Tools > Search Online Databases > Search NCBI/SRA…`.
+- **The old combined database-download menu path was wrong.** Already fixed:
+  reference search is `Tools > Search Online Databases > Search NCBI...`, and
+  read search is `Tools > Search Online Databases > Search SRA...`.
 
 ## Things the chapter does well, per focus groups
 

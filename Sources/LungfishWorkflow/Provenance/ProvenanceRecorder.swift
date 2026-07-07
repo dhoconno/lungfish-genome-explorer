@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import CryptoKit
 import os.log
 import LungfishCore
 
@@ -196,12 +197,18 @@ public actor ProvenanceRecorder {
     /// - Parameters:
     ///   - runID: The run to save
     ///   - directory: The output directory to write the sidecar into
-    public func save(runID: UUID, to directory: URL) throws {
+    public func save(runID: UUID, to directory: URL, bundleLayoutRoot: URL? = nil) throws {
         guard let run = runs[runID] else {
             throw ProvenanceError.runNotFound(runID)
         }
         let envelope = run.canonicalEnvelope()
-        let url = try ProvenanceWriter(signingProvider: signingProvider).write(envelope, to: directory)
+        let writer = ProvenanceWriter(signingProvider: signingProvider)
+        let url: URL
+        if let bundleLayoutRoot {
+            url = try writer.write(envelope, to: directory, bundleLayoutRoot: bundleLayoutRoot)
+        } else {
+            url = try writer.write(envelope, to: directory)
+        }
         logger.info("Provenance: saved canonical run \(runID) to \(url.path)")
     }
 
@@ -254,6 +261,9 @@ public actor ProvenanceRecorder {
         let selectedIsDirectory = isDirectory(standardizedURL)
 
         if selectedIsDirectory {
+            if let nestedOperation = singleNestedOperationProvenanceCandidate(for: standardizedURL) {
+                return nestedOperation
+            }
             for candidate in directorySidecarCandidates(for: standardizedURL) {
                 if let envelope = loadEnvelope(fromSidecar: candidate) {
                     return (candidate, envelope)
@@ -309,6 +319,23 @@ public actor ProvenanceRecorder {
         return nil
     }
 
+    private static func singleNestedOperationProvenanceCandidate(
+        for directory: URL
+    ) -> (sidecarURL: URL, envelope: ProvenanceEnvelope)? {
+        guard ProvenanceWriter.isBundleDirectory(directory) else {
+            return nil
+        }
+        let candidates: [(sidecarURL: URL, envelope: ProvenanceEnvelope)] =
+            nestedOperationSidecarCandidates(for: directory).compactMap { sidecarURL in
+                guard let envelope = loadEnvelope(fromSidecar: sidecarURL),
+                      provenanceEnvelopeProducedDescendant(envelope, of: directory) else {
+                    return nil
+                }
+                return (sidecarURL: sidecarURL, envelope: envelope)
+            }
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
     private static func mappingProvenanceCandidate(
         for directory: URL
     ) -> (sidecarURL: URL, envelope: ProvenanceEnvelope)? {
@@ -344,7 +371,7 @@ public actor ProvenanceRecorder {
                 .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
                 .appendingPathComponent(provenanceFilename),
         ]
-        return operationCandidates + canonicalCandidates + workflowNamedRootSidecarCandidates(for: directory)
+        return canonicalCandidates + workflowNamedRootSidecarCandidates(for: directory) + operationCandidates
     }
 
     private static func workflowNamedRootSidecarCandidates(for directory: URL) -> [URL] {
@@ -495,6 +522,20 @@ public actor ProvenanceRecorder {
         }
     }
 
+    private static func provenanceEnvelopeProducedDescendant(
+        _ envelope: ProvenanceEnvelope,
+        of directory: URL
+    ) -> Bool {
+        let directoryPath = directory.standardizedFileURL.path
+        let descriptors = envelope.outputs + envelope.steps.flatMap(\.outputs)
+        return descriptors.contains { descriptor in
+            URL(fileURLWithPath: descriptor.path)
+                .standardizedFileURL
+                .path
+                .hasPrefix(directoryPath + "/")
+        }
+    }
+
     private static func isDirectory(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
@@ -539,6 +580,54 @@ public actor ProvenanceRecorder {
             format: detectedFormat,
             role: role
         )
+    }
+
+    /// Creates a record for a regular file or directory.
+    ///
+    /// Directory records use a stable manifest hash and aggregate byte size so
+    /// collection and bundle outputs do not appear as checksum-less files.
+    public static func fileOrDirectoryRecord(
+        url: URL,
+        format: FileFormat? = nil,
+        role: FileRole = .input
+    ) -> FileRecord {
+        var isDirectory: ObjCBool = false
+        let standardizedURL = url.standardizedFileURL
+        if FileManager.default.fileExists(atPath: standardizedURL.path, isDirectory: &isDirectory),
+           isDirectory.boolValue,
+           let manifest = try? ProvenanceFileHasher.directoryManifest(for: standardizedURL, role: role) {
+            return FileRecord(
+                path: standardizedURL.path,
+                sha256: directoryChecksum(from: manifest),
+                sizeBytes: directorySize(from: manifest),
+                format: format ?? .unknown,
+                role: role
+            )
+        }
+
+        return fileRecord(url: standardizedURL, format: format, role: role)
+    }
+
+    private static func directoryChecksum(from manifest: ProvenanceDirectoryManifest) -> String {
+        let canonical = manifest.files
+            .sorted { $0.path < $1.path }
+            .map { descriptor in
+                [
+                    descriptor.path,
+                    descriptor.checksumSHA256 ?? "",
+                    descriptor.fileSize.map(String.init) ?? "0",
+                ].joined(separator: "\t")
+            }
+            .joined(separator: "\n")
+        return SHA256.hash(data: Data(canonical.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private static func directorySize(from manifest: ProvenanceDirectoryManifest) -> UInt64 {
+        manifest.files.reduce(UInt64(0)) { total, descriptor in
+            total + (descriptor.fileSize ?? 0)
+        }
     }
 
     /// Detects file format from extension.

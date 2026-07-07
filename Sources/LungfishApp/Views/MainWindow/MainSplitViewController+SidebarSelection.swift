@@ -1,4 +1,4 @@
-// MainSplitViewController.swift - Three-panel split view controller
+// MainSplitViewController+SidebarSelection.swift - Sidebar selection handling
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

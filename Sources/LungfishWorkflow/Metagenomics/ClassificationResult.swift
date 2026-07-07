@@ -129,6 +129,9 @@ public struct ClassificationResult: Sendable {
 private let classificationResultFilename = "classification-result.json"
 
 extension ClassificationResult {
+    static var sidecarFilename: String {
+        classificationResultFilename
+    }
 
     /// Saves the classification result metadata to a JSON file in the given directory.
     ///
@@ -186,6 +189,7 @@ extension ClassificationResult {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let sidecar = try decoder.decode(PersistedClassificationResult.self, from: data)
+        let config = Self.resolvingRelativeConfigURLs(sidecar.config, relativeTo: directory)
 
         // Resolve file paths relative to the directory.
         let reportURL = directory.appendingPathComponent(sidecar.reportPath)
@@ -207,7 +211,7 @@ extension ClassificationResult {
         persistLogger.info("Loaded classification result from \(directory.path, privacy: .public)")
 
         return ClassificationResult(
-            config: sidecar.config,
+            config: config,
             tree: tree,
             reportURL: reportURL,
             outputURL: outputURL,
@@ -216,6 +220,46 @@ extension ClassificationResult {
             toolVersion: sidecar.toolVersion,
             provenanceId: sidecar.provenanceId
         )
+    }
+
+    private static func resolvingRelativeConfigURLs(
+        _ config: ClassificationConfig,
+        relativeTo directory: URL
+    ) -> ClassificationConfig {
+        var resolved = ClassificationConfig(
+            goal: config.goal,
+            inputFiles: config.inputFiles.map { resolvePersistedURL($0, relativeTo: directory) },
+            isPairedEnd: config.isPairedEnd,
+            databaseName: config.databaseName,
+            inputFormat: config.inputFormat,
+            databaseVersion: config.databaseVersion,
+            databasePath: resolvePersistedURL(config.databasePath, relativeTo: directory),
+            confidence: config.confidence,
+            minimumHitGroups: config.minimumHitGroups,
+            threads: config.threads,
+            memoryMapping: config.memoryMapping,
+            quickMode: config.quickMode,
+            outputDirectory: resolvePersistedURL(config.outputDirectory, relativeTo: directory),
+            extraArguments: config.extraArguments
+        )
+        resolved.sampleDisplayName = config.sampleDisplayName
+        resolved.originalInputFiles = config.originalInputFiles?.map {
+            resolvePersistedURL($0, relativeTo: directory)
+        }
+        return resolved
+    }
+
+    private static func resolvePersistedURL(_ url: URL, relativeTo directory: URL) -> URL {
+        if url.isFileURL, url.path.hasPrefix("/") {
+            return url
+        }
+        let path = url.relativePath
+        if path == "." {
+            return directory
+        }
+        return directory
+            .appendingPathComponent(path)
+            .standardizedFileURL
     }
 
     /// Whether a saved classification result exists in the given directory.

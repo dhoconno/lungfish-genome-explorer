@@ -2,8 +2,6 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import Foundation
-
 // MARK: - Amino Acid Color Scheme
 
 /// Color schemes for amino acid visualization.

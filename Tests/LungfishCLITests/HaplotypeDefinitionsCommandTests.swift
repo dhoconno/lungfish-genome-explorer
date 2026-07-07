@@ -69,6 +69,16 @@ final class HaplotypeDefinitionsCommandTests: XCTestCase {
         XCTAssertEqual(command.changeNote, "added bundle haplotype")
     }
 
+    func testBundleInstallCommandParsesProjectAndSourceBundle() throws {
+        let command = try HaplotypeDefinitionsBundleInstallSubcommand.parse([
+            "/tmp/MCM-MHC.lungfishmhcref",
+            "--project", "/tmp/project.lungfish",
+        ])
+
+        XCTAssertEqual(command.source, "/tmp/MCM-MHC.lungfishmhcref")
+        XCTAssertEqual(command.project, "/tmp/project.lungfish")
+    }
+
     func testBundleReplaceReferenceCommandParsesReferenceBundleOptions() throws {
         let command = try HaplotypeDefinitionsBundleReplaceReferenceSubcommand.parse([
             "/tmp/MCM_MHC.fa",

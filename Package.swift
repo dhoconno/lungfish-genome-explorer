@@ -104,9 +104,9 @@ let package = Package(
         // Pin transitive plugin providers to releases that are clean under Swift 6.2.
         .package(url: "https://github.com/grpc/grpc-swift.git", exact: "1.27.5"),
         .package(url: "https://github.com/apple/swift-protobuf.git", exact: "1.35.0"),
-        // Apple Containerization for running Linux containers on macOS 26+
-        // TODO: Re-test AppleContainerRuntime against containerization 0.30.x+
-        // and relax this requirement only after the API migration is complete.
+        // Apple Containerization for running Linux containers on macOS 26+.
+        // AppleContainerRuntime is pinned to the 0.24 API surface; newer
+        // containerization releases require a deliberate runtime migration.
         .package(url: "https://github.com/apple/containerization.git", exact: "0.24.5"),
         // App-only updater framework. Keep this out of LungfishApp so lungfish-cli
         // does not inherit the graphical updater dependency.
@@ -331,13 +331,12 @@ let package = Package(
                 "LungfishIO",
                 "LungfishWorkflow",
                 "LungfishKit",
-                "LungfishTwelveSUI",
             ],
             path: "Sources/LungfishGenotypeUI"
         ),
         .testTarget(
             name: "LungfishGenotypeUITests",
-            dependencies: ["LungfishGenotypeUI", "LungfishKit", "LungfishTwelveSUI"],
+            dependencies: ["LungfishGenotypeUI", "LungfishKit"],
             path: "Tests/LungfishGenotypeUITests"
         ),
 
@@ -354,7 +353,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishPhylogeneticsUITests",
-            dependencies: ["LungfishPhylogeneticsUI", "LungfishKit"],
+            dependencies: ["LungfishPhylogeneticsUI", "LungfishKit", "LungfishIO", "LungfishWorkflow"],
             path: "Tests/LungfishPhylogeneticsUITests"
         ),
 

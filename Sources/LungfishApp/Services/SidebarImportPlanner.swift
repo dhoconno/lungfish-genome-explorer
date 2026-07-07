@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 /// Normalized import batch metadata for sidebar drag/drop and similar flows.
 public struct SidebarImportPlan: Sendable, Equatable {
@@ -128,7 +129,13 @@ public enum SidebarImportPlanner {
     }
 
     private static func shouldImportRegularFile(_ url: URL) -> Bool {
-        !url.pathExtension.isEmpty
+        guard !url.pathExtension.isEmpty else { return false }
+        switch ReferenceBundleImportService.classify(url) {
+        case .variantTrack, .alignmentTrack:
+            return false
+        case .standaloneReferenceSequence, .annotationTrack, .unsupported:
+            return true
+        }
     }
 
     private static func childURLSort(_ lhs: URL, _ rhs: URL) -> Bool {

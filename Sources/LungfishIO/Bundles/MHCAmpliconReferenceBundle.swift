@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 public typealias MHCAmpliconReferenceBundleSourceFile = ReferenceBundleSourceFile
 
@@ -55,6 +56,7 @@ public struct MHCAmpliconReferenceBundleManifest: ReferenceBundleManifesting {
 public enum MHCAmpliconReferenceBundle {
     public static let directoryExtension = "lungfishmhcref"
     public static let manifestFilename = MHCAmpliconReferenceBundleManifest.manifestFilename
+    private static let supportedSchemaVersion = 1
 
     /// Consume-side check: requires both the extension and a manifest on disk.
     public static func isBundleURL(_ url: URL) -> Bool {
@@ -93,6 +95,14 @@ public enum MHCAmpliconReferenceBundle {
     /// the expected schema version and kind.
     public static func validate(at bundleURL: URL) throws {
         let manifest = try loadManifest(from: bundleURL)
+        guard manifest.schemaVersion == supportedSchemaVersion else {
+            throw ReferenceBundleValidationError(
+                kind: .schemaMismatch(
+                    expected: supportedSchemaVersion,
+                    found: manifest.schemaVersion
+                )
+            )
+        }
         guard manifest.kind == MHCAmpliconReferenceBundleManifest.kindIdentifier else {
             throw ReferenceBundleValidationError(
                 kind: .kindMismatch(
@@ -101,31 +111,50 @@ public enum MHCAmpliconReferenceBundle {
                 )
             )
         }
-        let referencePath = bundleURL.appendingPathComponent(manifest.referenceFastaPath).path
-        guard FileManager.default.fileExists(atPath: referencePath) else {
-            throw ReferenceBundleValidationError(kind: .missingFile(referencePath))
+        let referenceURL = try validatedBundleMemberURL(
+            manifest.referenceFastaPath,
+            in: bundleURL,
+            field: "referenceFastaPath"
+        )
+        guard FileManager.default.fileExists(atPath: referenceURL.path) else {
+            throw ReferenceBundleValidationError(kind: .missingFile(referenceURL.path))
         }
         for relativePath in manifest.haplotypeDefinitionPaths {
-            let definitionPath = bundleURL.appendingPathComponent(relativePath).path
-            guard FileManager.default.fileExists(atPath: definitionPath) else {
-                throw ReferenceBundleValidationError(kind: .missingFile(definitionPath))
+            let definitionURL = try validatedBundleMemberURL(
+                relativePath,
+                in: bundleURL,
+                field: "haplotypeDefinitionPaths[]"
+            )
+            guard FileManager.default.fileExists(atPath: definitionURL.path) else {
+                throw ReferenceBundleValidationError(kind: .missingFile(definitionURL.path))
             }
+        }
+        if let provenancePath = manifest.provenancePath {
+            _ = try validatedBundleMemberURL(
+                provenancePath,
+                in: bundleURL,
+                field: "provenancePath",
+                allowReservedControlPath: true
+            )
         }
     }
 
     public static func referenceFASTAURL(in bundleURL: URL) -> URL? {
-        guard let manifest = try? loadManifest(from: bundleURL) else { return nil }
-        return bundleURL.appendingPathComponent(manifest.referenceFastaPath).standardizedFileURL
+        guard let manifest = try? loadManifest(from: bundleURL),
+              isSupported(manifest) else { return nil }
+        return try? validatedBundleMemberURL(
+            manifest.referenceFastaPath,
+            in: bundleURL,
+            field: "referenceFastaPath"
+        )
     }
 
     public static func haplotypeDefinitionURLs(in bundleURL: URL) -> [URL] {
-        guard let manifest = try? loadManifest(from: bundleURL) else { return [] }
-        return manifest.haplotypeDefinitionPaths
-            .map { bundleURL.appendingPathComponent($0).standardizedFileURL }
+        (try? validatedHaplotypeDefinitionURLs(in: bundleURL)) ?? []
     }
 
     public static func haplotypeDefinitions(in bundleURL: URL) throws -> [GenotypeHaplotypeDefinitionSet] {
-        try haplotypeDefinitionURLs(in: bundleURL).map { url in
+        try validatedHaplotypeDefinitionURLs(in: bundleURL).map { url in
             let data = try Data(contentsOf: url)
             return try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data)
         }
@@ -156,5 +185,51 @@ public enum MHCAmpliconReferenceBundle {
     public static func provenanceURL(in bundleURL: URL) -> URL? {
         let url = bundleURL.appendingPathComponent(".lungfish-provenance.json")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private static func validatedHaplotypeDefinitionURLs(in bundleURL: URL) throws -> [URL] {
+        let manifest = try loadManifest(from: bundleURL)
+        guard isSupported(manifest) else {
+            throw ReferenceBundleValidationError(
+                kind: .schemaMismatch(
+                    expected: supportedSchemaVersion,
+                    found: manifest.schemaVersion
+                )
+            )
+        }
+        guard manifest.kind == MHCAmpliconReferenceBundleManifest.kindIdentifier else {
+            throw ReferenceBundleValidationError(
+                kind: .kindMismatch(
+                    expected: MHCAmpliconReferenceBundleManifest.kindIdentifier,
+                    found: manifest.kind
+                )
+            )
+        }
+        return try manifest.haplotypeDefinitionPaths.map {
+            try validatedBundleMemberURL($0, in: bundleURL, field: "haplotypeDefinitionPaths[]")
+        }
+    }
+
+    private static func validatedBundleMemberURL(
+        _ relativePath: String,
+        in bundleURL: URL,
+        field: String,
+        allowReservedControlPath: Bool = false
+    ) throws -> URL {
+        do {
+            return try BundleManifest.validatedBundleMemberURL(
+                for: relativePath,
+                in: bundleURL,
+                field: field,
+                allowReservedControlPath: allowReservedControlPath
+            )
+        } catch {
+            throw ReferenceBundleValidationError(kind: .missingFile(relativePath))
+        }
+    }
+
+    private static func isSupported(_ manifest: MHCAmpliconReferenceBundleManifest) -> Bool {
+        manifest.schemaVersion == supportedSchemaVersion
+            && manifest.kind == MHCAmpliconReferenceBundleManifest.kindIdentifier
     }
 }

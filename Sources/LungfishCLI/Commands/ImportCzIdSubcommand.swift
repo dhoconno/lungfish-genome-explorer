@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 extension ImportCommand {
@@ -79,7 +80,7 @@ extension ImportCommand {
             try fileManager.createDirectory(at: classificationsURL, withIntermediateDirectories: true)
 
             var command = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "import",
                 "cz-id",
                 inputURL.path,

@@ -341,9 +341,12 @@ private func buildToolCommand(parts: [String]) -> String {
     parts.map { shellEscape($0) }.joined(separator: " ")
 }
 
-/// Builds a shell-quoted `lungfish <subcommand> <args>` command string.
+/// Builds a shell-quoted `lungfish-cli <subcommand> <args>` command string.
 private func buildLungfishCommand(subcommand: String, args: [String]) -> String {
-    buildToolCommand(parts: ["lungfish", subcommand] + args)
+    let subcommandParts = subcommand
+        .split(whereSeparator: { $0.isWhitespace })
+        .map(String.init)
+    return buildToolCommand(parts: [CLICommandIdentity.executableName] + subcommandParts + args)
 }
 
 extension FASTQDerivativeRequest {

@@ -65,6 +65,18 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
         let manifestJSON = try jsonObject(at: bundleURL.appendingPathComponent("manifest.json"))
         let provenanceJSON = try jsonObject(at: bundleURL.appendingPathComponent(".lungfish-provenance.json"))
         XCTAssertNotNil(manifestJSON["checksums"])
+        XCTAssertEqual(provenanceJSON["schemaVersion"] as? Int, 1)
+        XCTAssertNotNil(provenanceJSON["createdAt"])
+        XCTAssertEqual(provenanceJSON["workflowName"] as? String, "lungfish import tree")
+        XCTAssertEqual(provenanceJSON["durableReplayArgv"] as? [String], [
+            "lungfish", "import", "tree", sourceURL.path, "--project", workspaceURL.path,
+        ])
+        XCTAssertEqual(
+            provenanceJSON["reproducibleCommand"] as? String,
+            "lungfish import tree \(sourceURL.path) --project \(workspaceURL.path)"
+        )
+        XCTAssertNotNil(provenanceJSON["runtimeIdentity"])
+        XCTAssertNotNil(provenanceJSON["files"])
         XCTAssertEqual(provenanceJSON["exitStatus"] as? Int, 0)
         XCTAssertEqual(provenanceJSON["toolName"] as? String, "lungfish import tree")
         XCTAssertEqual(provenanceJSON["toolVersion"] as? String, PhylogeneticTreeBundleImporter.toolVersion)

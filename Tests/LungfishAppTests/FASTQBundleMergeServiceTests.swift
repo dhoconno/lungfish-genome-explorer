@@ -268,6 +268,10 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
                 outputDirectory: root,
                 bundleName: "Failed Merge",
                 provenanceWriter: BundleMergeProvenanceSidecarWriter { _, _ in
+                    XCTAssertFalse(
+                        FileManager.default.fileExists(atPath: expectedOutput.path),
+                        "FASTQ merges must not expose the final bundle before provenance is complete."
+                    )
                     throw FixtureError.provenanceWriteFailed
                 }
             )

@@ -452,9 +452,8 @@ extension VariantDatabase {
         case "highImpact": tableName = "_high_impact"; idColumn = "variant_id"
         default: return nil
         }
-        let joinColumn = idColumn == "id" ? "variants.id" : "variants.id"
         let targetColumn = "\(tableName).\(idColumn)"
-        return "INNER JOIN \(tableName) ON \(joinColumn) = \(targetColumn)"
+        return "INNER JOIN \(tableName) ON variants.id = \(targetColumn)"
     }
 
     /// Detects whether a set of InfoFilters is a sole IMPACT=HIGH filter

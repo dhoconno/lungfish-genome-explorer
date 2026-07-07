@@ -85,6 +85,18 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
                 selectedContigs: selectedContigs,
                 projectRootURL: projectRootURL
             )
+            do {
+                try await recordProvenance(
+                    source: source,
+                    selectedContigs: selectedContigs,
+                    outputURL: nil,
+                    bundleURL: bundleURL,
+                    startedAt: startedAt
+                )
+            } catch {
+                try? FileManager.default.removeItem(at: bundleURL)
+                throw error
+            }
             FileHandle.standardOutput.write(Data("\(bundleURL.path)\n".utf8))
             if !globalOptions.quiet {
                 let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -92,13 +104,6 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
                     Data("\(formatter.success("Created bundle \(bundleURL.lastPathComponent)"))\n".utf8)
                 )
             }
-            try await recordProvenance(
-                source: source,
-                selectedContigs: selectedContigs,
-                outputURL: nil,
-                bundleURL: bundleURL,
-                startedAt: startedAt
-            )
             return
         }
 
@@ -177,15 +182,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
     }
 
     private func referenceBundlePayloadURLs(in bundleURL: URL) -> [URL] {
-        let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
-        let candidates = [
-            genomeURL.appendingPathComponent("sequence.fa.gz"),
-            genomeURL.appendingPathComponent("sequence.fa.gz.fai"),
-            genomeURL.appendingPathComponent("sequence.fa.gz.gzi"),
-            genomeURL.appendingPathComponent("sequence.fa"),
-            genomeURL.appendingPathComponent("sequence.fa.fai")
-        ]
-        return candidates.filter { FileManager.default.fileExists(atPath: $0.path) }
+        CLIProvenanceSupport.bundlePayloadURLs(in: bundleURL)
     }
 
     private func requestedContigs() throws -> [String] {
@@ -336,7 +333,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
                 downloadDate: Date(),
                 notes: "Derived from \(source.sourceName)"
             ),
-            compressFASTA: true,
+            compressFASTA: false,
             metadata: metadata
         )
 
@@ -383,7 +380,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
     }
 
     private func provenanceCommand(outputURL: URL?) -> [String] {
-        var command = ["lungfish", "extract", "contigs"]
+        var command = [CLICommandIdentity.executableName, "extract", "contigs"]
         if let assemblyPath {
             command += ["--assembly", assemblyPath]
         }

@@ -58,6 +58,15 @@ final class FASTQSourceFilesTests: XCTestCase {
         XCTAssertEqual(urls[1].path, "/project/data.lungfishfastq/chunks/f2.fastq.gz")
     }
 
+    func testManifestResolveFileURLsRejectsTraversalPath() throws {
+        let bundleURL = URL(fileURLWithPath: "/project/data.lungfishfastq")
+        let manifest = FASTQSourceFileManifest(files: [
+            .init(filename: "../outside.fastq.gz", originalPath: "/orig/outside.fastq.gz", sizeBytes: 100, isSymlink: false),
+        ])
+
+        XCTAssertTrue(manifest.resolveFileURLs(relativeTo: bundleURL).isEmpty)
+    }
+
     func testManifestExistsReturnsFalseWhenMissing() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -360,7 +360,7 @@ public final class ProjectFile: ObservableObject {
 
         let data = try encoder.encode(metadata)
         let metadataURL = url.appendingPathComponent("metadata.json")
-        try data.write(to: metadataURL)
+        try data.write(to: metadataURL, options: .atomic)
 
         modifiedAt = metadata.modifiedAt
     }
@@ -462,5 +462,3 @@ public enum ProjectFileError: Error, LocalizedError, Sendable {
         }
     }
 }
-
-// Note: Version.computeHash is already defined in Version.swift

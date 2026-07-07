@@ -209,7 +209,7 @@ extension BAMCommand {
             let trimmedOverride = (targetReferenceName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let targetReference = trimmedOverride.isEmpty ? scheme.manifest.canonicalAccession : trimmedOverride
             let workflowCommand = [
-                "lungfish-cli", "bam", "primer-trim",
+                CLICommandIdentity.executableName, "bam", "primer-trim",
                 "--bundle", bundleURL.path,
                 "--alignment-track", alignmentTrackID,
                 "--scheme", schemeURL.path,

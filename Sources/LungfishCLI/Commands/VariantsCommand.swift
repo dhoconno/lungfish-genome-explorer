@@ -1,4 +1,5 @@
 import ArgumentParser
+import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -62,6 +63,39 @@ struct VariantsCommand: AsyncParsableCommand {
                     try await BundleVariantTrackAttachmentService().attach(request: request)
                 }
             )
+        }
+    }
+
+    struct PhaseToolResult {
+        let stdout: String
+        let stderr: String
+        let exitCode: Int32
+    }
+
+    struct PhaseRuntime {
+        typealias RunTool = (PhasedVariantCommand) async throws -> PhaseToolResult
+
+        let runTool: RunTool
+
+        init(_ runTool: @escaping RunTool) {
+            self.runTool = runTool
+        }
+
+        static func live() -> PhaseRuntime {
+            PhaseRuntime { command in
+                let result = try await CondaManager.shared.runTool(
+                    name: command.executable,
+                    arguments: command.arguments,
+                    environment: command.environment,
+                    workingDirectory: nil,
+                    timeout: 24 * 60 * 60
+                )
+                return PhaseToolResult(
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    exitCode: result.exitCode
+                )
+            }
         }
     }
 
@@ -143,6 +177,7 @@ extension VariantsCommand {
         bundleURL: URL,
         databaseURL: URL,
         outputURL: URL,
+        outputRecord: FileRecord? = nil,
         parameters: [String: ParameterValue],
         startedAt: Date,
         completedAt: Date
@@ -156,7 +191,7 @@ extension VariantsCommand {
                 ProvenanceRecorder.fileRecord(url: databaseURL, role: .input),
             ],
             outputs: [
-                ProvenanceRecorder.fileRecord(url: outputURL, format: .vcf, role: .output),
+                outputRecord ?? ProvenanceRecorder.fileRecord(url: outputURL, format: .vcf, role: .output),
             ],
             exitCode: 0,
             wallTime: completedAt.timeIntervalSince(startedAt),
@@ -177,8 +212,99 @@ extension VariantsCommand {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let provenanceURL = outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
         try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+    }
+
+    fileprivate static func provenanceURL(forOutputURL outputURL: URL) -> URL {
+        ProvenanceRecorder.fileSidecarURL(for: outputURL)
+    }
+
+    fileprivate static func stagedOutputURL(for outputURL: URL) -> URL {
+        outputURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(outputURL.lastPathComponent).\(UUID().uuidString).staged")
+    }
+
+    fileprivate static func fileRecord(
+        finalURL: URL,
+        dataURL: URL,
+        format: FileFormat,
+        role: FileRole
+    ) throws -> FileRecord {
+        let data = try Data(contentsOf: dataURL)
+        let checksum = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return FileRecord(
+            path: finalURL.path,
+            sha256: checksum,
+            sizeBytes: UInt64(data.count),
+            format: format,
+            role: role
+        )
+    }
+
+    fileprivate static func publishOutputWithProvenance(
+        outputURL: URL,
+        format: FileFormat,
+        writeOutputToStaging: (URL) throws -> Void,
+        writeProvenanceForOutput: (FileRecord) throws -> Void
+    ) throws {
+        let stagedOutputURL = stagedOutputURL(for: outputURL)
+        let provenanceURL = provenanceURL(forOutputURL: outputURL)
+        let provenanceSnapshot = provenanceSnapshot(at: provenanceURL)
+        var provenanceWasPublished = false
+        do {
+            try writeOutputToStaging(stagedOutputURL)
+            let outputRecord = try fileRecord(
+                finalURL: outputURL,
+                dataURL: stagedOutputURL,
+                format: format,
+                role: .output
+            )
+            try writeProvenanceForOutput(outputRecord)
+            provenanceWasPublished = true
+            try publish(stagedURL: stagedOutputURL, to: outputURL)
+        } catch {
+            try? FileManager.default.removeItem(at: stagedOutputURL)
+            if provenanceWasPublished {
+                restoreProvenance(provenanceSnapshot, at: provenanceURL)
+            }
+            throw error
+        }
+    }
+
+    fileprivate static func publish(stagedURL: URL, to finalURL: URL) throws {
+        if FileManager.default.fileExists(atPath: finalURL.path) {
+            _ = try FileManager.default.replaceItemAt(
+                finalURL,
+                withItemAt: stagedURL,
+                backupItemName: nil,
+                options: []
+            )
+        } else {
+            try FileManager.default.moveItem(at: stagedURL, to: finalURL)
+        }
+    }
+
+    fileprivate static func restoreProvenance(_ snapshot: ProvenanceSidecarSnapshot, at url: URL) {
+        switch snapshot {
+        case .absent:
+            try? FileManager.default.removeItem(at: url)
+        case .data(let data):
+            try? data.write(to: url, options: .atomic)
+        case .nonFile:
+            break
+        }
+    }
+
+    fileprivate static func provenanceSnapshot(at url: URL) -> ProvenanceSidecarSnapshot {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return .absent
+        }
+        guard !isDirectory.boolValue, let data = try? Data(contentsOf: url) else {
+            return .nonFile
+        }
+        return .data(data)
     }
 
     static func writeCommandPlanProvenance(
@@ -192,7 +318,8 @@ extension VariantsCommand {
         startedAt: Date,
         completedAt: Date,
         exitCode: Int32 = 0,
-        stderr: String? = nil
+        stderr: String? = nil,
+        additionalSteps: [StepExecution] = []
     ) throws {
         let step = StepExecution(
             toolName: workflowName,
@@ -213,7 +340,7 @@ extension VariantsCommand {
             status: exitCode == 0 ? .completed : .failed,
             appVersion: workflowVersion,
             hostOS: WorkflowRun.currentHostOS,
-            steps: [step],
+            steps: additionalSteps + [step],
             parameters: parameters
         )
         let encoder = JSONEncoder()
@@ -270,10 +397,13 @@ extension VariantsCommand {
         }
 
         func run() async throws {
-            try await executeForTesting { print($0) }
+            try await executeForTesting(runtime: .live()) { print($0) }
         }
 
-        func executeForTesting(emit: @escaping (String) -> Void) async throws {
+        func executeForTesting(
+            runtime: VariantsCommand.PhaseRuntime = .live(),
+            emit: @escaping (String) -> Void
+        ) async throws {
             let startedAt = Date()
             let outputVCFURL = URL(fileURLWithPath: outputVCF)
             let outputDirURL = URL(fileURLWithPath: outputDirectory ?? outputVCFURL.deletingLastPathComponent().path)
@@ -288,8 +418,9 @@ extension VariantsCommand {
                 emit(command.shellCommand)
             }
 
+            var toolSteps: [VariantCallingProvenanceStep] = []
             if execute && !dryRun {
-                try await runPlan(plan)
+                toolSteps = try await runPlan(plan, runtime: runtime)
                 emit("Phased variant calling complete.")
             } else {
                 emit("Command plan: \(planURL.path)")
@@ -299,9 +430,9 @@ extension VariantsCommand {
             try VariantsCommand.writeCommandPlanProvenance(
                 workflowName: plan.workflowName,
                 workflowVersion: plan.workflowVersion,
-                command: ["lungfish", "variants", "phase"] + originalArguments(outputDirURL: outputDirURL, outputVCFURL: outputVCFURL),
+                command: [CLICommandIdentity.executableName, "variants", "phase"] + originalArguments(outputDirURL: outputDirURL, outputVCFURL: outputVCFURL),
                 inputs: plan.inputs,
-                outputs: [ProvenanceRecorder.fileRecord(url: planURL, format: .json, role: .output)] + plan.outputs,
+                outputs: [ProvenanceRecorder.fileRecord(url: planURL, format: .json, role: .output)] + phaseOutputRecords(for: plan),
                 parameters: [
                     "packIDs": .string(plan.packIDs.joined(separator: ",")),
                     "execute": .string(String(execute && !dryRun)),
@@ -314,7 +445,8 @@ extension VariantsCommand {
                 ],
                 outputDirectory: outputDirURL,
                 startedAt: startedAt,
-                completedAt: completedAt
+                completedAt: completedAt,
+                additionalSteps: toolSteps.map { $0.stepExecution() }
             )
         }
 
@@ -343,19 +475,112 @@ extension VariantsCommand {
             )
         }
 
-        private func runPlan(_ plan: PhasedVariantCallingPlan) async throws {
+        private func runPlan(
+            _ plan: PhasedVariantCallingPlan,
+            runtime: VariantsCommand.PhaseRuntime
+        ) async throws -> [VariantCallingProvenanceStep] {
+            var steps: [VariantCallingProvenanceStep] = []
             for command in plan.commands {
-                let result = try await CondaManager.shared.runTool(
-                    name: command.executable,
-                    arguments: command.arguments,
-                    environment: command.environment,
-                    workingDirectory: nil,
-                    timeout: 24 * 60 * 60
+                let startedAt = Date()
+                let result = try await runtime.runTool(command)
+                let completedAt = Date()
+                steps.append(
+                    phaseToolStep(
+                        for: command,
+                        plan: plan,
+                        result: result,
+                        startedAt: startedAt,
+                        completedAt: completedAt
+                    )
                 )
                 guard result.exitCode == 0 else {
                     throw CLIError.workflowFailed(reason: result.stderr.isEmpty ? result.stdout : result.stderr)
                 }
             }
+            return steps
+        }
+
+        private func phaseOutputRecords(for plan: PhasedVariantCallingPlan) -> [FileRecord] {
+            plan.outputs.map { record in
+                ProvenanceRecorder.fileRecord(
+                    url: URL(fileURLWithPath: record.path),
+                    format: record.format,
+                    role: record.role
+                )
+            }
+        }
+
+        private func phaseToolStep(
+            for command: PhasedVariantCommand,
+            plan: PhasedVariantCallingPlan,
+            result: VariantsCommand.PhaseToolResult,
+            startedAt: Date,
+            completedAt: Date
+        ) -> VariantCallingProvenanceStep {
+            let outputs = phaseToolOutputs(for: command)
+            return VariantCallingProvenanceStep(
+                toolName: command.executable,
+                toolVersion: plan.toolVersions[command.executable] ?? "unknown",
+                command: reproducibleCondaCommand(for: command),
+                inputs: phaseToolInputs(for: command, plan: plan),
+                outputs: outputs,
+                exitCode: result.exitCode,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: provenanceStderr(result.stderr),
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        }
+
+        private func phaseToolInputs(for command: PhasedVariantCommand, plan: PhasedVariantCallingPlan) -> [FileRecord] {
+            guard command.executable == "whatshap",
+                  let unphasedPath = command.arguments.dropLast().last else {
+                return plan.inputs
+            }
+            return plan.inputs + [
+                ProvenanceRecorder.fileRecord(url: URL(fileURLWithPath: unphasedPath), format: .vcf, role: .input),
+            ]
+        }
+
+        private func phaseToolOutputs(for command: PhasedVariantCommand) -> [FileRecord] {
+            let outputFlag: String
+            switch command.executable {
+            case "gatk":
+                outputFlag = "-O"
+            case "whatshap":
+                outputFlag = "-o"
+            default:
+                return []
+            }
+            guard let outputPath = argument(after: outputFlag, in: command.arguments) else {
+                return []
+            }
+            return [
+                ProvenanceRecorder.fileRecord(url: URL(fileURLWithPath: outputPath), format: .vcf, role: .output),
+            ]
+        }
+
+        private func argument(after flag: String, in arguments: [String]) -> String? {
+            guard let index = arguments.firstIndex(of: flag) else {
+                return nil
+            }
+            let nextIndex = arguments.index(after: index)
+            guard arguments.indices.contains(nextIndex) else {
+                return nil
+            }
+            return arguments[nextIndex]
+        }
+
+        private func reproducibleCondaCommand(for command: PhasedVariantCommand) -> [String] {
+            let micromambaPath = CondaManager.shared.rootPrefix
+                .appendingPathComponent("bin/micromamba")
+                .path
+            return [micromambaPath, "run", "-n", command.environment, command.executable] + command.arguments
+        }
+
+        private func provenanceStderr(_ stderr: String) -> String? {
+            let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : stderr
         }
 
         private func originalArguments(outputDirURL: URL, outputVCFURL: URL) -> [String] {
@@ -432,33 +657,42 @@ extension VariantsCommand {
                 throw ValidationError("Sample '\(sampleName)' was not found in \(bundleURL.path).")
             }
             let records = opened.db.queryForTable(sampleNames: [sampleName], limit: Int.max)
-            try opened.db.writeVCF(records: records, sampleNames: [sampleName], to: outputURL)
-            let completedAt = Date()
-            try VariantsCommand.writeProvenance(
-                workflowName: "lungfish variants extract-sample",
-                command: commandArgv(bundlePath: bundlePath, sampleName: sampleName, outputPath: outputPath),
-                bundleURL: bundleURL,
-                databaseURL: opened.databaseURL,
+            try VariantsCommand.publishOutputWithProvenance(
                 outputURL: outputURL,
-                parameters: [
-                    "bundlePath": .string(bundleURL.path),
-                    "variantTrackID": .string(opened.track.id),
-                    "databasePath": .string(opened.databaseURL.path),
-                    "sample": .string(sampleName),
-                    "outputPath": .string(outputURL.path),
-                    "quiet": .boolean(globalOptions.quiet),
-                    "outputFormat": .string(globalOptions.outputFormat.rawValue),
-                    "containerRuntime": .string("none"),
-                    "condaEnvironment": .string("none"),
-                ],
-                startedAt: startedAt,
-                completedAt: completedAt
+                format: .vcf,
+                writeOutputToStaging: { stagedOutputURL in
+                    try opened.db.writeVCF(records: records, sampleNames: [sampleName], to: stagedOutputURL)
+                },
+                writeProvenanceForOutput: { outputRecord in
+                    let completedAt = Date()
+                    try VariantsCommand.writeProvenance(
+                        workflowName: "lungfish variants extract-sample",
+                        command: commandArgv(bundlePath: bundlePath, sampleName: sampleName, outputPath: outputPath),
+                        bundleURL: bundleURL,
+                        databaseURL: opened.databaseURL,
+                        outputURL: outputURL,
+                        outputRecord: outputRecord,
+                        parameters: [
+                            "bundlePath": .string(bundleURL.path),
+                            "variantTrackID": .string(opened.track.id),
+                            "databasePath": .string(opened.databaseURL.path),
+                            "sample": .string(sampleName),
+                            "outputPath": .string(outputURL.path),
+                            "quiet": .boolean(globalOptions.quiet),
+                            "outputFormat": .string(globalOptions.outputFormat.rawValue),
+                            "containerRuntime": .string("none"),
+                            "condaEnvironment": .string("none"),
+                        ],
+                        startedAt: startedAt,
+                        completedAt: completedAt
+                    )
+                }
             )
         }
 
         private func commandArgv(bundlePath: String, sampleName: String, outputPath: String) -> [String] {
             var argv = [
-                "lungfish", "variants", "extract-sample",
+                CLICommandIdentity.executableName, "variants", "extract-sample",
                 bundlePath,
                 "--sample", sampleName,
                 "--output", outputPath,
@@ -516,34 +750,43 @@ extension VariantsCommand {
             )
             let opened = try VariantsCommand.openDefaultVariantDatabase(bundleURL: bundleURL)
             let records = try opened.db.query(smartFilter: filterText, limit: limit)
-            try opened.db.writeVCF(records: records, sampleNames: [], to: outputURL)
-            let completedAt = Date()
-            try VariantsCommand.writeProvenance(
-                workflowName: "lungfish variants query",
-                command: commandArgv(bundlePath: bundlePath, filterText: filterText, outputPath: outputPath),
-                bundleURL: bundleURL,
-                databaseURL: opened.databaseURL,
+            try VariantsCommand.publishOutputWithProvenance(
                 outputURL: outputURL,
-                parameters: [
-                    "bundlePath": .string(bundleURL.path),
-                    "variantTrackID": .string(opened.track.id),
-                    "databasePath": .string(opened.databaseURL.path),
-                    "filter": .string(filterText),
-                    "limit": .integer(limit),
-                    "outputPath": .string(outputURL.path),
-                    "quiet": .boolean(globalOptions.quiet),
-                    "outputFormat": .string(globalOptions.outputFormat.rawValue),
-                    "containerRuntime": .string("none"),
-                    "condaEnvironment": .string("none"),
-                ],
-                startedAt: startedAt,
-                completedAt: completedAt
+                format: .vcf,
+                writeOutputToStaging: { stagedOutputURL in
+                    try opened.db.writeVCF(records: records, sampleNames: [], to: stagedOutputURL)
+                },
+                writeProvenanceForOutput: { outputRecord in
+                    let completedAt = Date()
+                    try VariantsCommand.writeProvenance(
+                        workflowName: "lungfish variants query",
+                        command: commandArgv(bundlePath: bundlePath, filterText: filterText, outputPath: outputPath),
+                        bundleURL: bundleURL,
+                        databaseURL: opened.databaseURL,
+                        outputURL: outputURL,
+                        outputRecord: outputRecord,
+                        parameters: [
+                            "bundlePath": .string(bundleURL.path),
+                            "variantTrackID": .string(opened.track.id),
+                            "databasePath": .string(opened.databaseURL.path),
+                            "filter": .string(filterText),
+                            "limit": .integer(limit),
+                            "outputPath": .string(outputURL.path),
+                            "quiet": .boolean(globalOptions.quiet),
+                            "outputFormat": .string(globalOptions.outputFormat.rawValue),
+                            "containerRuntime": .string("none"),
+                            "condaEnvironment": .string("none"),
+                        ],
+                        startedAt: startedAt,
+                        completedAt: completedAt
+                    )
+                }
             )
         }
 
         private func commandArgv(bundlePath: String, filterText: String, outputPath: String) -> [String] {
             var argv = [
-                "lungfish", "variants", "query",
+                CLICommandIdentity.executableName, "variants", "query",
                 bundlePath,
                 "--filter", filterText,
                 "--output", outputPath,
@@ -891,7 +1134,7 @@ extension VariantsCommand {
 
         private func variantCallCommand(finalTrackName: String) -> [String] {
             var command = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "variants",
                 "call",
                 "--bundle", bundlePath,
@@ -995,4 +1238,10 @@ private final class VariantCallingEventEmitter: @unchecked Sendable {
     init(_ emit: @escaping (VariantsCommand.VariantCallingEvent) -> Void) {
         self.emit = emit
     }
+}
+
+private enum ProvenanceSidecarSnapshot {
+    case absent
+    case data(Data)
+    case nonFile
 }

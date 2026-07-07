@@ -54,6 +54,32 @@ final class SidebarImportPlannerTests: XCTestCase {
         XCTAssertTrue(plan.shouldAutoDisplayImportedContent)
     }
 
+    func testPlanExcludesScientificTrackFilesFromGenericCopy() throws {
+        let filenames = [
+            "reads.bam",
+            "reads.cram",
+            "calls.vcf",
+            "calls.vcf.gz",
+            "calls.bcf",
+        ]
+        for filename in filenames {
+            try "placeholder".write(
+                to: tempDir.appendingPathComponent(filename),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let plan = SidebarImportPlanner.makePlan(
+            for: filenames.map { tempDir.appendingPathComponent($0) }
+        )
+
+        XCTAssertTrue(
+            plan.sourceURLs.isEmpty,
+            "BAM/CRAM/VCF/BCF files must use dedicated import flows so provenance is recorded."
+        )
+    }
+
     func testPlanKeepsExplicitReferenceBundleAtomic() throws {
         let bundleURL = tempDir.appendingPathComponent("Example.lungfishref")
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)

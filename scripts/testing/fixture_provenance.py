@@ -62,6 +62,7 @@ REQUIRED_TOP_LEVEL_FIELDS = [
     "stderr",
 ]
 STALE_SUBSTRING_MARKERS = [
+    "/" + "Users" + "/" + "dho",
     "." + "worktrees",
     "alignment" + "-tree-viewers",
 ]

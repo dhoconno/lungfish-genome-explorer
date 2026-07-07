@@ -34,26 +34,12 @@
 
 ### Component Ownership
 ```
-LungfishCore/
-├── Alignment/
-│   ├── PairwiseAligner.swift          # PRIMARY OWNER
-│   ├── SmithWaterman.swift            # PRIMARY OWNER
-│   ├── NeedlemanWunsch.swift          # PRIMARY OWNER
-│   ├── ScoringMatrix.swift            # PRIMARY OWNER
-│   ├── CIGAR.swift                    # PRIMARY OWNER
-│   ├── ConsensusBuilder.swift         # PRIMARY OWNER
-│   └── AlignmentStatistics.swift      # PRIMARY OWNER
-├── Mapping/
-│   ├── ReadMapper.swift               # PRIMARY OWNER - Protocol
-│   ├── MiniMap2Wrapper.swift          # PRIMARY OWNER
-│   └── BWAWrapper.swift               # PRIMARY OWNER
-LungfishUI/
-├── Tracks/
-│   └── AlignmentTrack.swift           # CO-OWNER with Track Engineer
-├── Views/
-│   └── Alignment/
-│       ├── MSAViewer.swift            # PRIMARY OWNER
-│       └── AlignmentEditor.swift      # PRIMARY OWNER
+Sources/LungfishCore/Models/            # Co-owner for alignment-facing models
+Sources/LungfishIO/Bundles/             # BAM/CRAM/metadata bundle access
+Sources/LungfishWorkflow/Alignment/     # PRIMARY OWNER for alignment workflows
+Sources/LungfishWorkflow/Mapping/       # PRIMARY OWNER for read mapping workflows
+Sources/LungfishAlignmentUI/            # Alignment-specific result UI
+Sources/LungfishApp/Views/Viewer/       # App viewer integration
 ```
 
 ### Interfaces with Other Roles

@@ -30,6 +30,9 @@ public enum BuildStep: String, Sendable, CaseIterable {
         case .convertingVariants: return 0.15
         case .generatingManifest: return 0.05
         case .validatingBundle: return 0.05
+        // The other eight weights sum to 0.95; `.complete` carries the final
+        // 0.05 so all weights sum to 1.0 (asserted by testBuildStepProgressWeights).
+        // `.complete` progress is also set explicitly to 1.0 at the end of build.
         case .complete: return 0.05
         }
     }
@@ -64,7 +67,11 @@ public struct BuildConfiguration: Sendable {
     /// Source metadata.
     public let source: SourceInfo
 
-    /// Whether to compress the FASTA file (default: true).
+    /// Whether to compress the FASTA file with bgzip (default: true).
+    ///
+    /// `ReferenceBundleBuilder` is the Core fallback builder and cannot perform
+    /// bgzip, BCF/CSI, or BigWig conversions itself. Use `NativeBundleBuilder`
+    /// for compressed or converted scientific outputs.
     public let compressFASTA: Bool
 
     /// Optional categorized metadata groups for flexible, source-specific metadata storage.
@@ -75,12 +82,22 @@ public struct BuildConfiguration: Sendable {
     public let metadata: [MetadataGroup]?
 
     /// Human-readable workflow/tool name for bundle-level provenance.
+    ///
+    /// Consumed by `NativeBundleBuilder`. The Core fallback `ReferenceBundleBuilder`
+    /// cannot write provenance because canonical provenance lives in LungfishWorkflow,
+    /// so it rejects configurations that set any provenance field.
     public let provenanceWorkflowName: String?
 
     /// Exact argv to store in bundle-level provenance when the builder is called from a CLI workflow.
+    ///
+    /// Consumed by `NativeBundleBuilder`; Core fallback callers must write provenance
+    /// in their owning CLI/workflow layer.
     public let provenanceCommand: [String]?
 
     /// User-visible input files to record in provenance, replacing temporary staged inputs when needed.
+    ///
+    /// Consumed by `NativeBundleBuilder`; Core fallback callers must write provenance
+    /// in their owning CLI/workflow layer.
     public let provenanceInputFiles: [URL]?
 
     /// Creates a new build configuration.
@@ -238,6 +255,9 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
     /// Failed to create bundle directory structure.
     case directoryCreationFailed(URL, String)
 
+    /// Output bundle already exists.
+    case outputBundleAlreadyExists(URL)
+
     /// FASTA compression failed.
     case compressionFailed(String)
 
@@ -250,11 +270,17 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
     /// Variant conversion failed.
     case variantConversionFailed(String, String)
 
+    /// Signal track conversion failed.
+    case signalConversionFailed(String, String)
+
     /// Manifest generation failed.
     case manifestGenerationFailed(String)
 
     /// Bundle validation failed.
     case validationFailed([String])
+
+    /// Provenance configuration was supplied to a builder that cannot write provenance.
+    case unsupportedProvenanceConfiguration(String)
 
     /// Container runtime not available.
     case containerRuntimeNotAvailable
@@ -275,6 +301,8 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
             return "Invalid FASTA format: \(reason)"
         case .directoryCreationFailed(let url, let reason):
             return "Failed to create directory at \(url.path): \(reason)"
+        case .outputBundleAlreadyExists(let url):
+            return "Output bundle already exists: \(url.path)"
         case .compressionFailed(let reason):
             return "FASTA compression failed: \(reason)"
         case .indexingFailed(let reason):
@@ -283,10 +311,14 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
             return "Annotation conversion failed for '\(file)': \(reason)"
         case .variantConversionFailed(let file, let reason):
             return "Variant conversion failed for '\(file)': \(reason)"
+        case .signalConversionFailed(let file, let reason):
+            return "Signal conversion failed for '\(file)': \(reason)"
         case .manifestGenerationFailed(let reason):
             return "Manifest generation failed: \(reason)"
         case .validationFailed(let errors):
             return "Bundle validation failed:\n" + errors.joined(separator: "\n")
+        case .unsupportedProvenanceConfiguration(let reason):
+            return "Unsupported provenance configuration: \(reason)"
         case .containerRuntimeNotAvailable:
             return "Container runtime is not available. Requires macOS 26+ on Apple Silicon."
         case .missingTools(let tools):
@@ -306,16 +338,22 @@ public enum BundleBuildError: Error, LocalizedError, Sendable {
             return "Ensure the file is a valid FASTA format with proper headers."
         case .directoryCreationFailed:
             return "Check disk space and write permissions for the output directory."
+        case .outputBundleAlreadyExists:
+            return "Choose a different bundle name or remove the existing output bundle before building."
         case .compressionFailed, .indexingFailed:
             return "Ensure the container runtime is working and try again."
         case .annotationConversionFailed:
             return "Verify the annotation file format is correct (GFF3, GTF, or BED)."
         case .variantConversionFailed:
-            return "Verify the VCF file is properly formatted."
+            return "Provide an indexed BCF or use NativeBundleBuilder/CLI bundle creation with bcftools available."
+        case .signalConversionFailed:
+            return "Provide a BigWig file or use NativeBundleBuilder/CLI bundle creation with bedGraph conversion tools available."
         case .manifestGenerationFailed:
             return "This is an internal error. Please report it."
         case .validationFailed:
             return "Review the validation errors and fix any issues."
+        case .unsupportedProvenanceConfiguration:
+            return "Use NativeBundleBuilder or write CLI/workflow provenance around the Core fallback build."
         case .containerRuntimeNotAvailable:
             return "Update to macOS 26 or later on an Apple Silicon Mac."
         case .missingTools:
@@ -347,7 +385,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
         category: "ReferenceBundleBuilder"
     )
 
-    private var isCancelled: Bool = false
+    private var currentBuildTask: Task<URL, Error>?
 
     // MARK: - Initialization
 
@@ -359,12 +397,18 @@ public final class ReferenceBundleBuilder: ObservableObject {
         configuration: BuildConfiguration,
         progressHandler: (@Sendable (BuildStep, Double, String) -> Void)? = nil
     ) async throws -> URL {
+        guard !Task.isCancelled else {
+            throw BundleBuildError.cancelled
+        }
+
         isBuilding = true
-        isCancelled = false
         progress = 0.0
         errors = []
 
-        defer { isBuilding = false }
+        defer {
+            isBuilding = false
+            currentBuildTask = nil
+        }
 
         logger.info("Starting bundle build: \(configuration.name)")
 
@@ -373,17 +417,80 @@ public final class ReferenceBundleBuilder: ObservableObject {
             .replacingOccurrences(of: "/", with: "-")
         let bundleURL = configuration.outputDirectory
             .appendingPathComponent("\(bundleName).lungfishref")
+        let executor = ReferenceBundleBuildExecutor(
+            configuration: configuration,
+            bundleURL: bundleURL
+        )
+        let task = Task.detached(priority: .userInitiated) { [weak self, progressHandler] in
+            try await executor.build { step, progress, message in
+                await MainActor.run {
+                    self?.updateProgress(step, progress, message, progressHandler)
+                }
+            }
+        }
+        currentBuildTask = task
 
         do {
+            let builtBundleURL = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+            logger.info("Bundle build complete: \(builtBundleURL.path)")
+            return builtBundleURL
+        } catch {
+            logger.error("Bundle build failed: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    public func cancel() {
+        currentBuildTask?.cancel()
+        logger.info("Build cancellation requested")
+    }
+
+    // MARK: - Private Methods
+
+    private func updateProgress(
+        _ step: BuildStep,
+        _ progress: Double,
+        _ message: String,
+        _ handler: (@Sendable (BuildStep, Double, String) -> Void)?
+    ) {
+        self.currentStep = step
+        self.progress = progress
+        self.statusMessage = message
+        handler?(step, progress, message)
+    }
+}
+
+private struct ReferenceBundleBuildExecutor: Sendable {
+    typealias ProgressReporter = @Sendable (BuildStep, Double, String) async -> Void
+
+    let configuration: BuildConfiguration
+    let bundleURL: URL
+
+    private let logger = Logger(
+        subsystem: LogSubsystem.core,
+        category: "ReferenceBundleBuildExecutor"
+    )
+
+    func build(progressHandler: @escaping ProgressReporter) async throws -> URL {
+        var didCreateBundle = false
+
+        do {
+            try checkCancellation()
+
             try await executeStep(.validating, progressHandler: progressHandler) {
-                try self.validateInputs(configuration)
+                try validateInputs(configuration)
             }
 
             try checkCancellation()
 
             try await executeStep(.creatingStructure, progressHandler: progressHandler) {
-                try self.createBundleStructure(at: bundleURL)
+                try createBundleStructure(at: bundleURL)
             }
+            didCreateBundle = true
 
             try checkCancellation()
 
@@ -438,58 +545,45 @@ public final class ReferenceBundleBuilder: ObservableObject {
             try checkCancellation()
 
             try await executeStep(.validatingBundle, progressHandler: progressHandler) {
-                try self.validateBundle(at: bundleURL)
+                try validateBundle(at: bundleURL)
             }
 
-            updateProgress(.complete, 1.0, "Bundle created successfully", progressHandler)
-
-            logger.info("Bundle build complete: \(bundleURL.path)")
+            await updateProgress(.complete, 1.0, "Bundle created successfully", progressHandler)
 
             return bundleURL
 
         } catch {
-            if FileManager.default.fileExists(atPath: bundleURL.path) {
+            if didCreateBundle, FileManager.default.fileExists(atPath: bundleURL.path) {
                 try? FileManager.default.removeItem(at: bundleURL)
             }
 
-            logger.error("Bundle build failed: \(error.localizedDescription)")
             throw error
         }
     }
 
-    public func cancel() {
-        isCancelled = true
-        logger.info("Build cancellation requested")
-    }
-
-    // MARK: - Private Methods
-
     private func checkCancellation() throws {
-        if isCancelled {
+        if Task.isCancelled {
             throw BundleBuildError.cancelled
         }
     }
 
     private func executeStep(
         _ step: BuildStep,
-        progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?,
+        progressHandler: ProgressReporter,
         operation: () throws -> Void
     ) async throws {
-        updateProgress(step, calculateProgress(for: step, subProgress: 0.0), step.rawValue, progressHandler)
+        await updateProgress(step, calculateProgress(for: step, subProgress: 0.0), step.rawValue, progressHandler)
         try operation()
-        updateProgress(step, calculateProgress(for: step, subProgress: 1.0), step.rawValue, progressHandler)
+        await updateProgress(step, calculateProgress(for: step, subProgress: 1.0), step.rawValue, progressHandler)
     }
 
     private func updateProgress(
         _ step: BuildStep,
         _ progress: Double,
         _ message: String,
-        _ handler: (@Sendable (BuildStep, Double, String) -> Void)?
-    ) {
-        self.currentStep = step
-        self.progress = progress
-        self.statusMessage = message
-        handler?(step, progress, message)
+        _ handler: ProgressReporter
+    ) async {
+        await handler(step, progress, message)
     }
 
     private func calculateProgress(for step: BuildStep, subProgress: Double) -> Double {
@@ -518,6 +612,20 @@ public final class ReferenceBundleBuilder: ObservableObject {
             throw BundleBuildError.inputFileNotReadable(configuration.fastaURL)
         }
 
+        if configuration.provenanceWorkflowName != nil ||
+            configuration.provenanceCommand != nil ||
+            configuration.provenanceInputFiles != nil {
+            throw BundleBuildError.unsupportedProvenanceConfiguration(
+                "ReferenceBundleBuilder cannot write provenance; use NativeBundleBuilder or wrap the Core build in CLI/workflow provenance."
+            )
+        }
+
+        if configuration.compressFASTA {
+            throw BundleBuildError.compressionFailed(
+                "ReferenceBundleBuilder cannot bgzip-compress FASTA. Use NativeBundleBuilder or CLI bundle creation with bgzip available."
+            )
+        }
+
         for annotation in configuration.annotationFiles {
             guard fileManager.fileExists(atPath: annotation.url.path) else {
                 throw BundleBuildError.inputFileNotFound(annotation.url)
@@ -534,6 +642,19 @@ public final class ReferenceBundleBuilder: ObservableObject {
             guard fileManager.isReadableFile(atPath: variant.url.path) else {
                 throw BundleBuildError.inputFileNotReadable(variant.url)
             }
+            guard VariantConverter.InputFormat.detect(from: variant.url) == .bcf else {
+                throw BundleBuildError.variantConversionFailed(
+                    variant.name,
+                    "ReferenceBundleBuilder cannot convert VCF to BCF. Use NativeBundleBuilder or CLI bundle creation with bcftools available."
+                )
+            }
+            let indexURL = bcfIndexURL(for: variant.url)
+            guard fileManager.fileExists(atPath: indexURL.path) else {
+                throw BundleBuildError.variantConversionFailed(
+                    variant.name,
+                    "Missing CSI index next to BCF input: \(indexURL.lastPathComponent)"
+                )
+            }
         }
 
         for signal in configuration.signalFiles {
@@ -542,6 +663,12 @@ public final class ReferenceBundleBuilder: ObservableObject {
             }
             guard fileManager.isReadableFile(atPath: signal.url.path) else {
                 throw BundleBuildError.inputFileNotReadable(signal.url)
+            }
+            guard isBigWig(signal.url) else {
+                throw BundleBuildError.signalConversionFailed(
+                    signal.name,
+                    "ReferenceBundleBuilder cannot convert \(signal.url.pathExtension) to BigWig. Use NativeBundleBuilder or CLI bundle creation with bedGraph conversion tools available."
+                )
             }
         }
 
@@ -554,7 +681,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
         let fileManager = FileManager.default
 
         if fileManager.fileExists(atPath: bundleURL.path) {
-            try fileManager.removeItem(at: bundleURL)
+            throw BundleBuildError.outputBundleAlreadyExists(bundleURL)
         }
 
         let directories = [
@@ -579,7 +706,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
     private func processFASTA(
         configuration: BuildConfiguration,
         bundleURL: URL,
-        progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?
+        progressHandler: ProgressReporter
     ) async throws -> GenomeInfo {
         logger.info("Processing FASTA file")
 
@@ -588,33 +715,22 @@ public final class ReferenceBundleBuilder: ObservableObject {
         let destinationFASTA: URL
 
         if configuration.compressFASTA {
-            updateProgress(
+            await updateProgress(
                 .compressingFASTA,
                 calculateProgress(for: .compressingFASTA, subProgress: 0.0),
                 "Compressing FASTA with bgzip...",
                 progressHandler
             )
 
-            destinationFASTA = genomeDir.appendingPathComponent("\(fastaFilename).gz")
-
-            try copyAndOptionallyCompress(
-                from: configuration.fastaURL,
-                to: destinationFASTA,
-                compress: true
-            )
-
-            updateProgress(
-                .compressingFASTA,
-                calculateProgress(for: .compressingFASTA, subProgress: 1.0),
-                "FASTA compression complete",
-                progressHandler
+            throw BundleBuildError.compressionFailed(
+                "ReferenceBundleBuilder cannot bgzip-compress FASTA. Use NativeBundleBuilder or CLI bundle creation with bgzip available."
             )
         } else {
             destinationFASTA = genomeDir.appendingPathComponent(fastaFilename)
             try FileManager.default.copyItem(at: configuration.fastaURL, to: destinationFASTA)
         }
 
-        updateProgress(
+        await updateProgress(
             .indexingFASTA,
             calculateProgress(for: .indexingFASTA, subProgress: 0.0),
             "Creating FASTA index...",
@@ -626,7 +742,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
         let indexURL = URL(fileURLWithPath: destinationFASTA.path + ".fai")
         try createFASTAIndex(chromosomes: chromosomes, indexURL: indexURL)
 
-        updateProgress(
+        await updateProgress(
             .indexingFASTA,
             calculateProgress(for: .indexingFASTA, subProgress: 1.0),
             "FASTA indexing complete",
@@ -651,14 +767,13 @@ public final class ReferenceBundleBuilder: ObservableObject {
     private func parseFASTAForChromosomes(_ fastaURL: URL) throws -> [ChromosomeInfo] {
         logger.info("Parsing FASTA for chromosome information")
 
-        let fileURL = fastaURL
         let ext = fastaURL.pathExtension.lowercased()
 
         if ext == "gz" {
             logger.warning("Gzipped FASTA support requires decompression")
         }
 
-        guard let fileHandle = FileHandle(forReadingAtPath: fileURL.path) else {
+        guard let fileHandle = FileHandle(forReadingAtPath: fastaURL.path) else {
             throw BundleBuildError.inputFileNotReadable(fastaURL)
         }
         defer { try? fileHandle.close() }
@@ -666,62 +781,236 @@ public final class ReferenceBundleBuilder: ObservableObject {
         var chromosomes: [ChromosomeInfo] = []
         var currentChromName: String?
         var currentLength: Int64 = 0
-        var lineBasesFirst: Int?
-        var lineWidthFirst: Int?
+        var expectedLineBases: Int?
+        var expectedLineWidth: Int?
         var sequenceStartOffset: Int64 = 0
+        var pendingSequenceLine: FASTASequenceLineMetrics?
+        var sawBlankLineInCurrentRecord = false
 
-        let data = fileHandle.readDataToEndOfFile()
-        guard let content = String(data: data, encoding: .utf8) else {
-            throw BundleBuildError.invalidFASTAFormat("Cannot read file as UTF-8")
+        var lineKind: FASTALineKind = .undecided
+        var headerBytes: [UInt8] = []
+        var sequenceLineBases = 0
+        var lineByteCount = 0
+        var lineStartOffset: Int64 = 0
+        var byteOffset: Int64 = 0
+        var pendingCarriageReturn = false
+
+        func resetLine() {
+            lineKind = .undecided
+            headerBytes.removeAll(keepingCapacity: true)
+            sequenceLineBases = 0
+            lineByteCount = 0
         }
 
-        var byteOffset: Int64 = 0
-        let lines = content.components(separatedBy: .newlines)
-
-        for line in lines {
-            let lineLength = line.utf8.count
-
-            if line.hasPrefix(">") {
-                if let chromName = currentChromName {
-                    let chromInfo = ChromosomeInfo(
-                        name: chromName,
-                        length: currentLength,
-                        offset: sequenceStartOffset,
-                        lineBases: lineBasesFirst ?? 50,
-                        lineWidth: (lineWidthFirst ?? 50) + 1
-                    )
-                    chromosomes.append(chromInfo)
-                }
-
-                let headerLine = String(line.dropFirst())
-                currentChromName = headerLine.split(separator: " ").first.map(String.init) ?? headerLine
-                currentLength = 0
-                lineBasesFirst = nil
-                lineWidthFirst = nil
-                sequenceStartOffset = byteOffset + Int64(lineLength) + 1
-            } else if !line.isEmpty {
-                let basesInLine = line.filter { !$0.isWhitespace }.count
-                currentLength += Int64(basesInLine)
-
-                if lineBasesFirst == nil && basesInLine > 0 {
-                    lineBasesFirst = basesInLine
-                    lineWidthFirst = lineLength
-                }
+        func validateNonTerminalSequenceLine(
+            _ metrics: FASTASequenceLineMetrics,
+            contigName: String
+        ) throws {
+            guard let expectedLineBases, let expectedLineWidth else {
+                return
             }
 
-            byteOffset += Int64(lineLength) + 1
+            if metrics.bases != expectedLineBases || metrics.width != expectedLineWidth {
+                throw BundleBuildError.invalidFASTAFormat(
+                    "Inconsistent sequence line in \(contigName): expected \(expectedLineBases) bases and \(expectedLineWidth) bytes for non-final lines, found \(metrics.bases) bases and \(metrics.width) bytes"
+                )
+            }
         }
 
-        if let chromName = currentChromName {
+        func validateFinalSequenceLine(
+            _ metrics: FASTASequenceLineMetrics,
+            contigName: String
+        ) throws {
+            guard let expectedLineBases, let expectedLineWidth else {
+                return
+            }
+
+            if metrics.bases > expectedLineBases {
+                throw BundleBuildError.invalidFASTAFormat(
+                    "Final sequence line in \(contigName) has \(metrics.bases) bases, exceeding the expected \(expectedLineBases)"
+                )
+            }
+
+            if metrics.width > expectedLineWidth {
+                throw BundleBuildError.invalidFASTAFormat(
+                    "Final sequence line in \(contigName) has \(metrics.width) bytes, exceeding the expected \(expectedLineWidth)"
+                )
+            }
+        }
+
+        func appendCurrentChromosome() throws {
+            guard let chromName = currentChromName else {
+                return
+            }
+
+            guard let lineBases = expectedLineBases,
+                  let lineWidth = expectedLineWidth,
+                  currentLength > 0,
+                  let pendingSequenceLine else {
+                throw BundleBuildError.invalidFASTAFormat("FASTA record \(chromName) contains no sequence")
+            }
+
+            try validateFinalSequenceLine(pendingSequenceLine, contigName: chromName)
+
             let chromInfo = ChromosomeInfo(
                 name: chromName,
                 length: currentLength,
                 offset: sequenceStartOffset,
-                lineBases: lineBasesFirst ?? 50,
-                lineWidth: (lineWidthFirst ?? 50) + 1
+                lineBases: lineBases,
+                lineWidth: lineWidth
             )
             chromosomes.append(chromInfo)
         }
+
+        func processLine(newlineByteCount: Int) throws {
+            defer {
+                resetLine()
+            }
+
+            switch lineKind {
+            case .undecided:
+                if currentChromName != nil {
+                    sawBlankLineInCurrentRecord = true
+                }
+                return
+
+            case .header:
+                try appendCurrentChromosome()
+
+                let headerData = Data(headerBytes)
+                guard let headerLine = String(data: headerData, encoding: .utf8) else {
+                    throw BundleBuildError.invalidFASTAFormat("Cannot read header as UTF-8")
+                }
+
+                let identifier = headerLine
+                    .split(whereSeparator: { $0 == " " || $0 == "\t" })
+                    .first
+                    .map(String.init)
+                guard let identifier, !identifier.isEmpty else {
+                    throw BundleBuildError.invalidFASTAFormat("FASTA header is missing a sequence name")
+                }
+
+                currentChromName = identifier
+                currentLength = 0
+                expectedLineBases = nil
+                expectedLineWidth = nil
+                pendingSequenceLine = nil
+                sawBlankLineInCurrentRecord = false
+                sequenceStartOffset = lineStartOffset + Int64(lineByteCount + newlineByteCount)
+
+            case .sequence:
+                guard sequenceLineBases > 0 else {
+                    if currentChromName != nil {
+                        sawBlankLineInCurrentRecord = true
+                    }
+                    return
+                }
+
+                guard let chromName = currentChromName else {
+                    throw BundleBuildError.invalidFASTAFormat("Sequence data found before the first FASTA header")
+                }
+
+                guard !sawBlankLineInCurrentRecord else {
+                    throw BundleBuildError.invalidFASTAFormat(
+                        "Blank FASTA line in \(chromName) appears before more sequence data"
+                    )
+                }
+
+                let lineWidthForIndex = lineByteCount + max(newlineByteCount, 1)
+                let lineWidthOnDisk = lineByteCount + newlineByteCount
+
+                if let expectedLineBases {
+                    if let pendingSequenceLine {
+                        try validateNonTerminalSequenceLine(
+                            pendingSequenceLine,
+                            contigName: chromName
+                        )
+                    }
+
+                    if sequenceLineBases > expectedLineBases {
+                        throw BundleBuildError.invalidFASTAFormat(
+                            "Sequence line in \(chromName) has \(sequenceLineBases) bases, exceeding the expected \(expectedLineBases)"
+                        )
+                    }
+                } else {
+                    expectedLineBases = sequenceLineBases
+                    expectedLineWidth = lineWidthForIndex
+                }
+
+                currentLength += Int64(sequenceLineBases)
+                pendingSequenceLine = FASTASequenceLineMetrics(
+                    bases: sequenceLineBases,
+                    width: lineWidthOnDisk
+                )
+            }
+        }
+
+        func appendLineByte(_ byte: UInt8) {
+            switch lineKind {
+            case .undecided:
+                lineKind = byte == UInt8(ascii: ">") ? .header : .sequence
+                if lineKind == .sequence && !Self.isFASTASequenceWhitespace(byte) {
+                    sequenceLineBases += 1
+                }
+
+            case .header:
+                headerBytes.append(byte)
+
+            case .sequence:
+                if !Self.isFASTASequenceWhitespace(byte) {
+                    sequenceLineBases += 1
+                }
+            }
+
+            lineByteCount += 1
+        }
+
+        while true {
+            try checkCancellation()
+
+            let data = fileHandle.readData(ofLength: 64 * 1024)
+            if data.isEmpty {
+                break
+            }
+
+            for byte in data {
+                byteOffset += 1
+
+                if pendingCarriageReturn {
+                    if byte == UInt8(ascii: "\n") {
+                        try processLine(newlineByteCount: 2)
+                        lineStartOffset = byteOffset
+                        pendingCarriageReturn = false
+                        continue
+                    }
+
+                    throw BundleBuildError.invalidFASTAFormat(
+                        "CR-only FASTA line endings are not supported; use LF or CRLF"
+                    )
+                }
+
+                if byte == UInt8(ascii: "\r") {
+                    pendingCarriageReturn = true
+                } else if byte == UInt8(ascii: "\n") {
+                    try processLine(newlineByteCount: 1)
+                    lineStartOffset = byteOffset
+                } else {
+                    appendLineByte(byte)
+                }
+            }
+        }
+
+        if pendingCarriageReturn {
+            throw BundleBuildError.invalidFASTAFormat(
+                "CR-only FASTA line endings are not supported; use LF or CRLF"
+            )
+        }
+
+        if lineKind != .undecided {
+            try processLine(newlineByteCount: 0)
+        }
+
+        try appendCurrentChromosome()
 
         if chromosomes.isEmpty {
             throw BundleBuildError.invalidFASTAFormat("No sequences found in FASTA file")
@@ -730,6 +1019,26 @@ public final class ReferenceBundleBuilder: ObservableObject {
         logger.info("Found \(chromosomes.count) sequences in FASTA")
 
         return chromosomes
+    }
+
+    private enum FASTALineKind {
+        case undecided
+        case header
+        case sequence
+    }
+
+    private struct FASTASequenceLineMetrics {
+        let bases: Int
+        let width: Int
+    }
+
+    private static func isFASTASequenceWhitespace(_ byte: UInt8) -> Bool {
+        switch byte {
+        case UInt8(ascii: " "), UInt8(ascii: "\t"), 0x0B, 0x0C:
+            return true
+        default:
+            return false
+        }
     }
 
     private func createFASTAIndex(chromosomes: [ChromosomeInfo], indexURL: URL) throws {
@@ -744,20 +1053,11 @@ public final class ReferenceBundleBuilder: ObservableObject {
         try indexContent.write(to: indexURL, atomically: true, encoding: .utf8)
     }
 
-    private func copyAndOptionallyCompress(from source: URL, to destination: URL, compress: Bool) throws {
-        if compress {
-            try FileManager.default.copyItem(at: source, to: destination)
-            logger.warning("Using simple copy instead of bgzip compression (container not available)")
-        } else {
-            try FileManager.default.copyItem(at: source, to: destination)
-        }
-    }
-
     private func processAnnotations(
         configuration: BuildConfiguration,
         bundleURL: URL,
         chromosomeSizes: [(String, Int64)],
-        progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?
+        progressHandler: ProgressReporter
     ) async throws -> [AnnotationTrackInfo] {
         guard !configuration.annotationFiles.isEmpty else {
             return []
@@ -765,7 +1065,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
 
         logger.info("Processing \(configuration.annotationFiles.count) annotation files")
 
-        updateProgress(
+        await updateProgress(
             .convertingAnnotations,
             calculateProgress(for: .convertingAnnotations, subProgress: 0.0),
             "Converting annotations...",
@@ -777,19 +1077,20 @@ public final class ReferenceBundleBuilder: ObservableObject {
 
         for (index, input) in configuration.annotationFiles.enumerated() {
             let subProgress = Double(index) / Double(configuration.annotationFiles.count)
-            updateProgress(
+            await updateProgress(
                 .convertingAnnotations,
                 calculateProgress(for: .convertingAnnotations, subProgress: subProgress),
                 "Converting \(input.name)...",
                 progressHandler
             )
 
-            let outputPath = "annotations/\(input.id).bb"
-            let outputURL = annotationsDir.appendingPathComponent("\(input.id).bb")
+            let filename = annotationOutputFilename(for: input)
+            let outputPath = "annotations/\(filename)"
+            let outputURL = annotationsDir.appendingPathComponent(filename)
 
             try FileManager.default.copyItem(at: input.url, to: outputURL)
 
-            let featureCount = try countFeaturesInFile(input.url)
+            let featureCount = countFeaturesInFile(input.url)
 
             let trackInfo = AnnotationTrackInfo(
                 id: input.id,
@@ -802,7 +1103,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
             annotationInfos.append(trackInfo)
         }
 
-        updateProgress(
+        await updateProgress(
             .convertingAnnotations,
             calculateProgress(for: .convertingAnnotations, subProgress: 1.0),
             "Annotation conversion complete",
@@ -812,9 +1113,15 @@ public final class ReferenceBundleBuilder: ObservableObject {
         return annotationInfos
     }
 
-    private func countFeaturesInFile(_ url: URL) throws -> Int {
+    private func countFeaturesInFile(_ url: URL) -> Int? {
+        countNonCommentLines(in: url)
+    }
+
+    /// Counts non-empty, non-comment (`#`-prefixed) lines in a text file.
+    /// Returns nil if the file cannot be read as UTF-8, such as a gzipped annotation file.
+    private func countNonCommentLines(in url: URL) -> Int? {
         guard let content = try? String(contentsOf: url, encoding: .utf8) else {
-            return 0
+            return nil
         }
 
         return content.components(separatedBy: .newlines)
@@ -822,9 +1129,13 @@ public final class ReferenceBundleBuilder: ObservableObject {
             .count
     }
 
-    private func annotationDescription(for input: AnnotationInput, featureCount: Int) -> String? {
+    private func annotationDescription(for input: AnnotationInput, featureCount: Int?) -> String? {
         if let description = input.description {
             return description
+        }
+
+        guard let featureCount else {
+            return nil
         }
 
         var detectionURL = input.url
@@ -841,7 +1152,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
     private func processVariants(
         configuration: BuildConfiguration,
         bundleURL: URL,
-        progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?
+        progressHandler: ProgressReporter
     ) async throws -> [VariantTrackInfo] {
         guard !configuration.variantFiles.isEmpty else {
             return []
@@ -849,7 +1160,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
 
         logger.info("Processing \(configuration.variantFiles.count) variant files")
 
-        updateProgress(
+        await updateProgress(
             .convertingVariants,
             calculateProgress(for: .convertingVariants, subProgress: 0.0),
             "Converting variants...",
@@ -861,23 +1172,37 @@ public final class ReferenceBundleBuilder: ObservableObject {
 
         for (index, input) in configuration.variantFiles.enumerated() {
             let subProgress = Double(index) / Double(configuration.variantFiles.count)
-            updateProgress(
+            await updateProgress(
                 .convertingVariants,
                 calculateProgress(for: .convertingVariants, subProgress: subProgress),
                 "Converting \(input.name)...",
                 progressHandler
             )
 
-            let outputPath = "variants/\(input.id).bcf"
-            let indexPath = "variants/\(input.id).bcf.csi"
-            let outputURL = variantsDir.appendingPathComponent("\(input.id).bcf")
-            let indexURL = variantsDir.appendingPathComponent("\(input.id).bcf.csi")
+            guard VariantConverter.InputFormat.detect(from: input.url) == .bcf else {
+                throw BundleBuildError.variantConversionFailed(
+                    input.name,
+                    "ReferenceBundleBuilder cannot convert VCF to BCF. Use NativeBundleBuilder or CLI bundle creation with bcftools available."
+                )
+            }
+
+            let sourceIndexURL = bcfIndexURL(for: input.url)
+            guard FileManager.default.fileExists(atPath: sourceIndexURL.path) else {
+                throw BundleBuildError.variantConversionFailed(
+                    input.name,
+                    "Missing CSI index next to BCF input: \(sourceIndexURL.lastPathComponent)"
+                )
+            }
+
+            let filename = "\(input.id).bcf"
+            let indexFilename = "\(input.id).bcf.csi"
+            let outputPath = "variants/\(filename)"
+            let indexPath = "variants/\(indexFilename)"
+            let outputURL = variantsDir.appendingPathComponent(filename)
+            let indexURL = variantsDir.appendingPathComponent(indexFilename)
 
             try FileManager.default.copyItem(at: input.url, to: outputURL)
-
-            try Data().write(to: indexURL)
-
-            let variantCount = try countVariantsInVCF(input.url)
+            try FileManager.default.copyItem(at: sourceIndexURL, to: indexURL)
 
             let trackInfo = VariantTrackInfo(
                 id: input.id,
@@ -886,12 +1211,12 @@ public final class ReferenceBundleBuilder: ObservableObject {
                 path: outputPath,
                 indexPath: indexPath,
                 variantType: input.variantType,
-                variantCount: variantCount
+                variantCount: nil
             )
             variantInfos.append(trackInfo)
         }
 
-        updateProgress(
+        await updateProgress(
             .convertingVariants,
             calculateProgress(for: .convertingVariants, subProgress: 1.0),
             "Variant conversion complete",
@@ -901,20 +1226,10 @@ public final class ReferenceBundleBuilder: ObservableObject {
         return variantInfos
     }
 
-    private func countVariantsInVCF(_ url: URL) throws -> Int {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
-            return 0
-        }
-
-        return content.components(separatedBy: .newlines)
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-            .count
-    }
-
     private func processSignalTracks(
         configuration: BuildConfiguration,
         bundleURL: URL,
-        progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?
+        progressHandler: ProgressReporter
     ) async throws -> [SignalTrackInfo] {
         guard !configuration.signalFiles.isEmpty else {
             return []
@@ -926,8 +1241,16 @@ public final class ReferenceBundleBuilder: ObservableObject {
         let tracksDir = bundleURL.appendingPathComponent("tracks")
 
         for input in configuration.signalFiles {
-            let outputPath = "tracks/\(input.id).bw"
-            let outputURL = tracksDir.appendingPathComponent("\(input.id).bw")
+            guard isBigWig(input.url) else {
+                throw BundleBuildError.signalConversionFailed(
+                    input.name,
+                    "ReferenceBundleBuilder cannot convert \(input.url.pathExtension) to BigWig. Use NativeBundleBuilder or CLI bundle creation with bedGraph conversion tools available."
+                )
+            }
+
+            let filename = "\(input.id).bw"
+            let outputPath = "tracks/\(filename)"
+            let outputURL = tracksDir.appendingPathComponent(filename)
 
             try FileManager.default.copyItem(at: input.url, to: outputURL)
 
@@ -942,6 +1265,30 @@ public final class ReferenceBundleBuilder: ObservableObject {
         }
 
         return signalInfos
+    }
+
+    private func annotationOutputFilename(for input: AnnotationInput) -> String {
+        let lowercasedName = input.url.lastPathComponent.lowercased()
+        let knownSuffixes = [
+            "gff3.gz", "gff.gz", "gtf.gz", "bed.gz",
+            "gff3", "gff", "gtf", "bed", "gbff", "gbk", "bb"
+        ]
+
+        if let suffix = knownSuffixes.first(where: { lowercasedName.hasSuffix(".\($0)") }) {
+            return "\(input.id).\(suffix)"
+        }
+
+        let ext = input.url.pathExtension
+        return ext.isEmpty ? input.id : "\(input.id).\(ext)"
+    }
+
+    private func bcfIndexURL(for bcfURL: URL) -> URL {
+        URL(fileURLWithPath: bcfURL.path + ".csi")
+    }
+
+    private func isBigWig(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ext == "bw" || ext == "bigwig"
     }
 
     private func validateBundle(at bundleURL: URL) throws {
@@ -967,14 +1314,24 @@ public final class ReferenceBundleBuilder: ObservableObject {
             validationErrors.append(contentsOf: manifestErrors.map { $0.localizedDescription })
 
             if let genome = manifest.genome {
-                let genomePath = bundleURL.appendingPathComponent(genome.path)
-                if !fileManager.fileExists(atPath: genomePath.path) {
-                    validationErrors.append("Genome file not found: \(genome.path)")
+                if let genomePath = try? BundleManifest.validatedBundleMemberURL(
+                    for: genome.path,
+                    in: bundleURL,
+                    field: "genome.path"
+                ) {
+                    if !fileManager.fileExists(atPath: genomePath.path) {
+                        validationErrors.append("Genome file not found: \(genome.path)")
+                    }
                 }
 
-                let indexPath = bundleURL.appendingPathComponent(genome.indexPath)
-                if !fileManager.fileExists(atPath: indexPath.path) {
-                    validationErrors.append("Genome index not found: \(genome.indexPath)")
+                if let indexPath = try? BundleManifest.validatedBundleMemberURL(
+                    for: genome.indexPath,
+                    in: bundleURL,
+                    field: "genome.indexPath"
+                ) {
+                    if !fileManager.fileExists(atPath: indexPath.path) {
+                        validationErrors.append("Genome index not found: \(genome.indexPath)")
+                    }
                 }
             }
 

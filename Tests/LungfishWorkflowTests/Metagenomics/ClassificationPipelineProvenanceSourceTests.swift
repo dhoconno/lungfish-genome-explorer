@@ -3,6 +3,11 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
+    private var pipelineSourceURL: URL {
+        URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift")
+    }
+
     func testKraken2ProvenanceRecordsChecksummedFiles() async throws {
         let fixture = try FakeClassificationCondaFixture()
         defer { fixture.cleanup() }
@@ -31,6 +36,9 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         XCTAssertEqual(provenance.name, "Metagenomics Classification")
         XCTAssertEqual(provenance.status, .completed)
         let krakenStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "kraken2" })
+        let gzipStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "gzip" })
+        let sidecarURL = config.outputDirectory.appendingPathComponent(ClassificationResult.sidecarFilename)
+        let sidecarStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "Lungfish Classification Result Sidecar" })
 
         XCTAssertEqual(krakenStep.exitCode, 0)
         XCTAssertNotNil(krakenStep.wallTime)
@@ -55,12 +63,34 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
                     && $0.sha256 != nil && $0.sizeBytes != nil
             }
         )
+        XCTAssertEqual(gzipStep.command.first, "/bin/sh")
+        XCTAssertEqual(gzipStep.command.dropFirst().first, "-c")
+        let gzipReplayCommand = try XCTUnwrap(gzipStep.command.last)
+        XCTAssertTrue(gzipReplayCommand.contains("/usr/bin/gzip -c \(shellEscape(config.outputURL.path))"))
+        XCTAssertTrue(gzipReplayCommand.contains("> \(shellEscape(compressedOutputURL.path))"))
+        XCTAssertEqual(gzipStep.inputs.map(\.path), [config.outputURL.path])
+        XCTAssertEqual(gzipStep.outputs.map(\.path), [compressedOutputURL.path])
         XCTAssertTrue(
             provenance.steps.flatMap(\.outputs).contains {
                 $0.path == indexURL.path && $0.format == .unknown && $0.role == .index
                     && $0.sha256 != nil && $0.sizeBytes != nil
             }
         )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarURL.path))
+        XCTAssertTrue(
+            sidecarStep.outputs.contains {
+                $0.path == sidecarURL.path && $0.format == .json && $0.role == .output
+                    && $0.sha256 != nil && $0.sizeBytes != nil
+            }
+        )
+    }
+
+    func testClassificationSidecarFailureRecordsFailedWrapperStepInSource() throws {
+        let source = try String(contentsOf: pipelineSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("} catch let sidecarError {\n            await provenanceRecorder.recordStep("))
+        XCTAssertTrue(source.contains(#"toolName: "Lungfish Classification Result Sidecar""#))
+        XCTAssertTrue(source.contains("exitCode: 1,\n                wallTime: Date().timeIntervalSince(sidecarSaveStart),\n                stderr: sidecarError.localizedDescription"))
     }
 
     func testBrackenFailedOutputIsOnlyRecordedWhenProduced() async throws {
@@ -88,6 +118,33 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
                 && $0.sha256 != nil && $0.sizeBytes != nil
         })
         XCTAssertEqual(brackenStep.stderr, "synthetic bracken failure\n")
+    }
+
+    func testClassificationSidecarIsRemovedWhenFinalProvenanceCannotBeSaved() async throws {
+        let fixture = try FakeClassificationCondaFixture()
+        defer { fixture.cleanup() }
+
+        let config = try fixture.makeConfig()
+        try FileManager.default.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: config.outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            withIntermediateDirectories: true
+        )
+
+        let pipeline = ClassificationPipeline(condaManager: fixture.condaManager)
+
+        do {
+            _ = try await pipeline.classify(config: config)
+            XCTFail("Expected classification to fail when final provenance cannot be saved.")
+        } catch {
+            // Expected.
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: config.outputDirectory.appendingPathComponent(ClassificationResult.sidecarFilename).path
+            ),
+            "A successful-looking classification sidecar must not survive if final provenance cannot be saved."
+        )
     }
 }
 

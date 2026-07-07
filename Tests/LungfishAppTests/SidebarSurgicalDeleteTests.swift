@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Task 18 (Phase 3, incremental reloads): the sidebar DELETE path removes only the
-// deleted rows via `NSOutlineView.removeItems(at:inParent:)` instead of tearing the
-// whole tree down with `reloadData()`. These tests pin two things:
+// The sidebar DELETE path removes only the deleted rows via
+// `NSOutlineView.removeItems(at:inParent:)` instead of tearing the whole tree
+// down with `reloadData()`. These tests pin two things:
 //   1. The PURE planner (`surgicalRemovalPlan`) computes the correct (parent, IndexSet)
 //      groups against the PRE-mutation model, and correctly signals a fallback (nil)
 //      when surgical removal cannot be done safely.
@@ -154,7 +154,7 @@ final class SidebarSurgicalDeleteTests: XCTestCase {
         XCTAssertEqual(items["root1"]!.children.count, 2)
     }
 
-    // MARK: - Last-child edge case (Phase 3 gate)
+    // MARK: - Last-child edge case
 
     /// Regression: deleting the ONLY child of a parent must take the surgical path
     /// (not fall back to full-reload), remove the child row, and leave the now-childless

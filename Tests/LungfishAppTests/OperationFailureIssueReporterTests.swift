@@ -16,14 +16,14 @@ final class OperationFailureIssueReporterTests: XCTestCase {
             progress: 0.3,
             state: .failed,
             operationType: .classification,
-            cliCommand: "lungfish classify --input /Users/alice/private reads/R1.fastq.gz"
+            cliCommand: "lungfish-cli conda classify --input /Users/alice/private reads/R1.fastq.gz"
         )
         let failureReport = """
         === Lungfish Operation Failure Report ===
         Operation: Classify Reads
 
         CLI Command:
-          lungfish classify --input /Users/alice/private reads/R1.fastq.gz
+          lungfish-cli conda classify --input /Users/alice/private reads/R1.fastq.gz
 
         Error: Out of memory
         """

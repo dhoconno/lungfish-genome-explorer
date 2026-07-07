@@ -6,9 +6,27 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
+struct BestMappedReadsAnnotationProvenanceContext: Sendable {
+    let request: BestMappedReadsAnnotationRequest
+    let sourceBundleURL: URL
+    let outputBundleURL: URL
+    let mappingResult: MappingResult
+    let outputTrackID: String
+    let outputTrackName: String
+    let relativeDatabasePath: String
+    let databaseURL: URL
+    let viewArguments: [String]
+    let samtoolsExecution: MappedReadsAnnotationProvenanceWriter.SamtoolsExecution
+    let startedAt: Date
+    let completedAt: Date
+}
+
+typealias BestMappedReadsAnnotationProvenancePublisher = @Sendable (BestMappedReadsAnnotationProvenanceContext) throws -> Void
+
 public final class BestMappedReadsAnnotationService: @unchecked Sendable {
     private let samtoolsRunner: any AlignmentSamtoolsRunning
     private let trackIDProvider: @Sendable (String) -> String
+    private let provenancePublisher: BestMappedReadsAnnotationProvenancePublisher
 
     public init(
         samtoolsRunner: any AlignmentSamtoolsRunning = NativeToolSamtoolsRunner.shared
@@ -17,20 +35,24 @@ public final class BestMappedReadsAnnotationService: @unchecked Sendable {
         self.trackIDProvider = { _ in
             "ann_\(String(UUID().uuidString.prefix(8)))"
         }
+        self.provenancePublisher = Self.defaultProvenancePublisher
     }
 
     init(
         samtoolsRunner: any AlignmentSamtoolsRunning = NativeToolSamtoolsRunner.shared,
-        trackIDProvider: @escaping @Sendable (String) -> String
+        trackIDProvider: @escaping @Sendable (String) -> String,
+        provenancePublisher: @escaping BestMappedReadsAnnotationProvenancePublisher = BestMappedReadsAnnotationService.defaultProvenancePublisher
     ) {
         self.samtoolsRunner = samtoolsRunner
         self.trackIDProvider = trackIDProvider
+        self.provenancePublisher = provenancePublisher
     }
 
     public func convertBestMappedReads(
         request: BestMappedReadsAnnotationRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> BestMappedReadsAnnotationResult {
+        let workflowStartedAt = Date()
         let sourceBundleURL = request.sourceBundleURL.standardizedFileURL
         let outputBundleURL = request.outputBundleURL.standardizedFileURL
         guard sourceBundleURL.path != outputBundleURL.path else {
@@ -47,105 +69,167 @@ public final class BestMappedReadsAnnotationService: @unchecked Sendable {
         guard FileManager.default.fileExists(atPath: mappingResult.bamURL.path) else {
             throw BestMappedReadsAnnotationServiceError.missingMappingBAM(mappingResult.bamURL)
         }
-
-        progressHandler?(0.1, "Copying source bundle...")
-        try prepareOutputBundle(sourceBundleURL: sourceBundleURL, outputBundleURL: outputBundleURL, replace: request.replaceExisting)
-
-        progressHandler?(0.25, "Reading mapped alignments...")
-        let samtoolsResult = try await samtoolsRunner.runSamtools(
-            arguments: ["view", "-h", mappingResult.bamURL.path],
-            timeout: samtoolsTimeout(for: mappingResult.bamURL.path)
-        )
-        guard samtoolsResult.isSuccess else {
-            throw BestMappedReadsAnnotationServiceError.samtoolsFailed(
-                samtoolsResult.stderr.isEmpty ? "samtools exited with \(samtoolsResult.exitCode)" : samtoolsResult.stderr
-            )
+        if FileManager.default.fileExists(atPath: outputBundleURL.path), !request.replaceExisting {
+            throw BestMappedReadsAnnotationServiceError.outputBundleExists(outputBundleURL)
         }
 
-        progressHandler?(0.55, "Selecting best reads per interval...")
-        let selection = try selectBestRows(
-            fromSAM: samtoolsResult.stdout,
-            request: request,
-            mappingResult: mappingResult
+        let outputBundleSnapshot = try ProvenancePublicationSnapshot(
+            urls: [outputBundleURL],
+            backupNamePrefix: "lungfish-best-mapped-reads-annotation"
         )
+        defer { outputBundleSnapshot.discard() }
 
-        let outputTrackName = normalizedOutputTrackName(request.outputTrackName)
-        let outputTrackID: String
         do {
-            outputTrackID = try resolveAnnotationOutputTrackID(
-                explicitID: request.outputTrackID,
-                generatedID: trackIDProvider(outputTrackName)
+            progressHandler?(0.1, "Copying source bundle...")
+            try prepareOutputBundle(
+                sourceBundleURL: sourceBundleURL,
+                outputBundleURL: outputBundleURL,
+                replace: request.replaceExisting
             )
-        } catch AnnotationOutputTrackIDResolutionError.invalid(let id) {
-            throw BestMappedReadsAnnotationServiceError.invalidOutputTrackID(id)
-        }
-        let relativeDatabasePath = "annotations/\(outputTrackID).db"
-        let databaseURL = outputBundleURL.appendingPathComponent(relativeDatabasePath)
 
-        var manifest = try BundleManifest.load(from: outputBundleURL)
-        let existingTracks = manifest.annotations.filter {
-            annotationOutputTrackMatches($0, id: outputTrackID, name: outputTrackName)
-        }
-        if !existingTracks.isEmpty && !request.replaceExisting {
-            throw BestMappedReadsAnnotationServiceError.outputTrackExists(outputTrackName)
-        }
-        if existingTracks.isEmpty,
-           !request.replaceExisting,
-           annotationArtifactExistsCaseInsensitive(databaseURL) {
-            throw BestMappedReadsAnnotationServiceError.outputTrackExists(outputTrackName)
-        }
-        if request.replaceExisting {
-            for track in existingTracks {
-                removeAnnotationArtifacts(for: track, bundleURL: outputBundleURL)
-                manifest = manifest.removingAnnotationTrack(id: track.id)
+            progressHandler?(0.25, "Reading mapped alignments...")
+            let viewArguments = ["view", "-h", mappingResult.bamURL.path]
+            let samtoolsStartedAt = Date()
+            let samtoolsResult = try await samtoolsRunner.runSamtools(
+                arguments: viewArguments,
+                timeout: samtoolsTimeout(for: mappingResult.bamURL.path)
+            )
+            let samtoolsCompletedAt = Date()
+            guard samtoolsResult.isSuccess else {
+                throw BestMappedReadsAnnotationServiceError.samtoolsFailed(
+                    samtoolsResult.stderr.isEmpty ? "samtools exited with \(samtoolsResult.exitCode)" : samtoolsResult.stderr
+                )
             }
-        }
+            let samtoolsVersion = await samtoolsRunner.samtoolsVersion()
 
-        progressHandler?(0.75, "Writing annotation database...")
-        let featureCount = try MappedReadsAnnotationDatabaseWriter.write(
-            rows: selection.rows,
-            to: databaseURL,
-            metadata: [
-                "source_bundle_path": sourceBundleURL.path,
-                "mapping_result_path": request.mappingResultURL.standardizedFileURL.path,
-                "source_mapping_bam": mappingResult.bamURL.path,
-                "selection": "best_overlapping_interval_by_nm",
-                "created_by": "best_mapped_reads_annotation_service",
-            ]
-        )
+            progressHandler?(0.55, "Selecting best reads per interval...")
+            let selection = try selectBestRows(
+                fromSAM: samtoolsResult.stdout,
+                request: request,
+                mappingResult: mappingResult
+            )
 
-        let trackInfo = AnnotationTrackInfo(
-            id: outputTrackID,
-            name: outputTrackName,
-            description: "Best mapped MiSeq reads per overlapping genomic interval",
-            path: relativeDatabasePath,
-            databasePath: relativeDatabasePath,
-            annotationType: .custom,
-            featureCount: featureCount,
-            source: request.mappingResultURL.lastPathComponent,
-            version: nil
-        )
+            let outputTrackName = normalizedOutputTrackName(request.outputTrackName)
+            let outputTrackID: String
+            do {
+                outputTrackID = try resolveAnnotationOutputTrackID(
+                    explicitID: request.outputTrackID,
+                    generatedID: trackIDProvider(outputTrackName)
+                )
+            } catch AnnotationOutputTrackIDResolutionError.invalid(let id) {
+                throw BestMappedReadsAnnotationServiceError.invalidOutputTrackID(id)
+            }
+            let relativeDatabasePath = "annotations/\(outputTrackID).db"
+            let databaseURL = outputBundleURL.appendingPathComponent(relativeDatabasePath)
 
-        progressHandler?(0.9, "Updating output bundle manifest...")
-        manifest = manifest.addingAnnotationTrack(trackInfo)
-        do {
-            try manifest.save(to: outputBundleURL)
+            var manifest = try BundleManifest.load(from: outputBundleURL)
+            let existingTracks = manifest.annotations.filter {
+                annotationOutputTrackMatches($0, id: outputTrackID, name: outputTrackName)
+            }
+            if !existingTracks.isEmpty && !request.replaceExisting {
+                throw BestMappedReadsAnnotationServiceError.outputTrackExists(outputTrackName)
+            }
+            if existingTracks.isEmpty,
+               !request.replaceExisting,
+               annotationArtifactExistsCaseInsensitive(databaseURL) {
+                throw BestMappedReadsAnnotationServiceError.outputTrackExists(outputTrackName)
+            }
+            if request.replaceExisting {
+                for track in existingTracks {
+                    removeAnnotationArtifacts(for: track, bundleURL: outputBundleURL)
+                    manifest = manifest.removingAnnotationTrack(id: track.id)
+                }
+            }
+
+            progressHandler?(0.75, "Writing annotation database...")
+            let featureCount = try MappedReadsAnnotationDatabaseWriter.write(
+                rows: selection.rows,
+                to: databaseURL,
+                metadata: [
+                    "source_bundle_path": sourceBundleURL.path,
+                    "mapping_result_path": request.mappingResultURL.standardizedFileURL.path,
+                    "source_mapping_bam": mappingResult.bamURL.path,
+                    "selection": "best_overlapping_interval_by_nm",
+                    "created_by": "best_mapped_reads_annotation_service",
+                ]
+            )
+
+            let trackInfo = AnnotationTrackInfo(
+                id: outputTrackID,
+                name: outputTrackName,
+                description: "Best mapped MiSeq reads per overlapping genomic interval",
+                path: relativeDatabasePath,
+                databasePath: relativeDatabasePath,
+                annotationType: .custom,
+                featureCount: featureCount,
+                source: request.mappingResultURL.lastPathComponent,
+                version: nil
+            )
+
+            progressHandler?(0.9, "Updating output bundle manifest...")
+            manifest = manifest.addingAnnotationTrack(trackInfo)
+            do {
+                try manifest.save(to: outputBundleURL)
+            } catch {
+                throw BestMappedReadsAnnotationServiceError.manifestWriteFailed(error.localizedDescription)
+            }
+            try provenancePublisher(BestMappedReadsAnnotationProvenanceContext(
+                request: request,
+                sourceBundleURL: sourceBundleURL,
+                outputBundleURL: outputBundleURL,
+                mappingResult: mappingResult,
+                outputTrackID: outputTrackID,
+                outputTrackName: outputTrackName,
+                relativeDatabasePath: relativeDatabasePath,
+                databaseURL: databaseURL,
+                viewArguments: viewArguments,
+                samtoolsExecution: MappedReadsAnnotationProvenanceWriter.SamtoolsExecution(
+                    version: samtoolsVersion,
+                    result: samtoolsResult,
+                    startedAt: samtoolsStartedAt,
+                    completedAt: samtoolsCompletedAt
+                ),
+                startedAt: workflowStartedAt,
+                completedAt: Date()
+            ))
+
+            progressHandler?(1.0, "Best mapped-read annotation track created.")
+            return BestMappedReadsAnnotationResult(
+                sourceBundleURL: sourceBundleURL,
+                mappingResultURL: request.mappingResultURL.standardizedFileURL,
+                outputBundleURL: outputBundleURL,
+                annotationTrackInfo: trackInfo,
+                databasePath: relativeDatabasePath,
+                convertedRecordCount: featureCount,
+                candidateRecordCount: selection.candidateRecordCount,
+                selectedRecordCount: selection.rows.count,
+                skippedUnmappedCount: selection.skippedUnmappedCount,
+                skippedSecondarySupplementaryCount: selection.skippedSecondarySupplementaryCount
+            )
         } catch {
-            throw BestMappedReadsAnnotationServiceError.manifestWriteFailed(error.localizedDescription)
+            if error as? BestMappedReadsAnnotationServiceError != .outputBundleExists(outputBundleURL) {
+                try throwAfterProvenancePublicationFailure(error) {
+                    try outputBundleSnapshot.restore()
+                }
+            }
+            throw error
         }
+    }
 
-        progressHandler?(1.0, "Best mapped-read annotation track created.")
-        return BestMappedReadsAnnotationResult(
-            sourceBundleURL: sourceBundleURL,
-            mappingResultURL: request.mappingResultURL.standardizedFileURL,
-            outputBundleURL: outputBundleURL,
-            annotationTrackInfo: trackInfo,
-            databasePath: relativeDatabasePath,
-            convertedRecordCount: featureCount,
-            candidateRecordCount: selection.candidateRecordCount,
-            selectedRecordCount: selection.rows.count,
-            skippedUnmappedCount: selection.skippedUnmappedCount,
-            skippedSecondarySupplementaryCount: selection.skippedSecondarySupplementaryCount
+    private static func defaultProvenancePublisher(_ context: BestMappedReadsAnnotationProvenanceContext) throws {
+        try MappedReadsAnnotationProvenanceWriter.writeBestMappedReads(
+            request: context.request,
+            sourceBundleURL: context.sourceBundleURL,
+            outputBundleURL: context.outputBundleURL,
+            mappingResult: context.mappingResult,
+            outputTrackID: context.outputTrackID,
+            outputTrackName: context.outputTrackName,
+            relativeDatabasePath: context.relativeDatabasePath,
+            databaseURL: context.databaseURL,
+            viewArguments: context.viewArguments,
+            samtoolsExecution: context.samtoolsExecution,
+            startedAt: context.startedAt,
+            completedAt: context.completedAt
         )
     }
 

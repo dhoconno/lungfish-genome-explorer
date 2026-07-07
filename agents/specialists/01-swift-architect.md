@@ -35,14 +35,14 @@
 
 ### Module Ownership
 ```
-LungfishGenomeBrowser/
-├── Package.swift                    # PRIMARY OWNER
-├── LungfishCore/                    # Co-owner with Bioinformatics Architect
-├── LungfishIO/                      # Oversight
-├── LungfishUI/                      # Oversight
-├── LungfishPlugin/                  # Co-owner with Plugin Architect
-├── LungfishWorkflow/                # Oversight
-└── LungfishApp/                     # Co-owner with UI/UX Lead
+Package.swift                       # PRIMARY OWNER
+Sources/LungfishCore/               # Co-owner with Bioinformatics Architect
+Sources/LungfishIO/                 # Oversight
+Sources/LungfishWorkflow/           # Oversight
+Sources/LungfishApp/                # Co-owner with UI/UX Lead
+Sources/LungfishKit/                # Shared UI utilities
+Sources/Lungfish*UI/                # Feature-focused UI modules
+Sources/LungfishCLI/                # Command-line executable
 ```
 
 ### Interfaces with Other Roles

@@ -277,6 +277,24 @@ final class BAMImportServiceTests: XCTestCase {
         }
     }
 
+    func testImportWritesCanonicalProvenanceBeforeManifestUpdate() throws {
+        let source = try String(
+            contentsOf: packageRoot().appendingPathComponent("Sources/LungfishApp/Services/BAMImportService.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("metadataDB.setFileInfo(\"import_provenance_path\""))
+        XCTAssertTrue(source.contains("ProvenanceWriter(signingProvider: nil).write("))
+
+        let provenanceRange = try XCTUnwrap(source.range(of: "try writeImportProvenance("))
+        let manifestRange = try XCTUnwrap(source.range(of: "try updatedManifest.save(to: bundleURL)"))
+        XCTAssertLessThan(
+            provenanceRange.lowerBound,
+            manifestRange.lowerBound,
+            "BAM import must write canonical provenance before publishing the track in the bundle manifest."
+        )
+    }
+
     // MARK: - AlignmentFormat Coverage
 
     func testAlignmentFormatRawValues() {
@@ -355,6 +373,17 @@ final class BAMImportServiceTests: XCTestCase {
         XCTAssertTrue(bamType.extensions.contains("bam"))
         XCTAssertTrue(bamType.extensions.contains("cram"))
         XCTAssertTrue(bamType.extensions.contains("sam"))
+    }
+
+    private func packageRoot() -> URL {
+        var candidate = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while candidate.path != "/" {
+            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("Package.swift").path) {
+                return candidate
+            }
+            candidate.deleteLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
 

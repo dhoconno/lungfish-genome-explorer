@@ -2,15 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 5 simplification-pass addition. This extension declares, per
-// classifier tool, whether the tool's result path is a regular file (that
-// must exist before any resolver can read it) or a sentinel file inside a
-// directory that the resolver scans for sibling artifacts.
-//
-// The enum lives in its own file layered on top of `ClassifierRowSelector.swift`
-// (Phase 1) so Phase 5's declarative contract is clearly separable from the
-// Phase 1 value type. Phase 6/7/8 can consume `expectedResultLayout` in the
-// CLI pre-flight check and the GUI file chooser without touching Phase 1 code.
+// Classifier extraction accepts either a regular result file or a sentinel file
+// inside a result directory, depending on the tool. Keeping that contract
+// declarative here lets CLI pre-flight checks and GUI file choosers share the
+// same result-layout rules.
 
 import Foundation
 

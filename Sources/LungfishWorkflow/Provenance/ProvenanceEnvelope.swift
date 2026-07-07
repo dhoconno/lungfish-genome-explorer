@@ -631,7 +631,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         operatingSystemVersion: String = WorkflowRun.currentHostOS,
         architecture: String = Self.currentArchitecture,
         gitRevision: String? = nil,
-        user: String? = nil,
+        user: String? = WorkflowRun.currentUser,
         condaEnvironment: String? = nil,
         condaPrefix: String? = nil,
         pluginPack: String? = nil,
@@ -644,7 +644,8 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         self.operatingSystemVersion = ProvenanceVersion.required(operatingSystemVersion, fallback: WorkflowRun.currentHostOS)
         self.architecture = ProvenanceVersion.required(architecture, fallback: Self.currentArchitecture)
         self.gitRevision = gitRevision
-        self.user = user
+        let normalizedUser = user?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.user = normalizedUser?.isEmpty == false ? normalizedUser : nil
         self.condaEnvironment = condaEnvironment
         self.condaPrefix = condaPrefix
         self.pluginPack = pluginPack
@@ -837,6 +838,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     public let outputs: [ProvenanceFileDescriptor]
     public let exitStatus: Int?
     public let wallTimeSeconds: TimeInterval?
+    public let peakMemoryBytes: UInt64?
     public let stderr: String?
     public let dependsOn: [UUID]
     public let startedAt: Date?
@@ -857,6 +859,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         case exitCode
         case wallTimeSeconds
         case wallTime
+        case peakMemoryBytes
         case stderr
         case dependsOn
         case startedAt
@@ -877,6 +880,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         outputs: [ProvenanceFileDescriptor] = [],
         exitStatus: Int? = nil,
         wallTimeSeconds: TimeInterval? = nil,
+        peakMemoryBytes: UInt64? = nil,
         stderr: String? = nil,
         dependsOn: [UUID] = [],
         startedAt: Date? = nil,
@@ -893,6 +897,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         self.outputs = outputs
         self.exitStatus = exitStatus
         self.wallTimeSeconds = wallTimeSeconds
+        self.peakMemoryBytes = peakMemoryBytes
         self.stderr = stderr
         self.dependsOn = dependsOn
         self.startedAt = startedAt
@@ -917,6 +922,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
             ?? container.decodeIfPresent(Int.self, forKey: .exitCode)
         wallTimeSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .wallTimeSeconds)
             ?? container.decodeIfPresent(TimeInterval.self, forKey: .wallTime)
+        peakMemoryBytes = try container.decodeIfPresent(UInt64.self, forKey: .peakMemoryBytes)
         stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
         dependsOn = try container.decodeIfPresent([UUID].self, forKey: .dependsOn) ?? []
         startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
@@ -941,6 +947,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(exitStatus, forKey: .exitCode)
         try container.encodeIfPresent(wallTimeSeconds, forKey: .wallTimeSeconds)
         try container.encodeIfPresent(wallTimeSeconds, forKey: .wallTime)
+        try container.encodeIfPresent(peakMemoryBytes, forKey: .peakMemoryBytes)
         try container.encodeIfPresent(stderr, forKey: .stderr)
         try container.encode(dependsOn, forKey: .dependsOn)
         try container.encodeIfPresent(startedAt, forKey: .startedAt)

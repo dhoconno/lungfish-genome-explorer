@@ -28,7 +28,12 @@ PROMPT_VERSION = "generalist_macaque_mhc_haplotyping_v1"
 REPORT_LOCI = ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
 FULL_RESULT_SHEETS = ["Full Sequencing Results 1", "Full Sequencing Results 2"]
 DUPLICATE_SAMPLE_POLICY = "FULL_RESULT_SHEETS are ordered older-to-newer; later duplicate gs_id entries supersede earlier sample, truth, and observations."
-DEFAULT_SNPRC_WORKBOOK = Path("/Users/dho/Downloads/30783_SNPRC22_MHC_Genotype_Report_31Dec24.xlsx")
+DEFAULT_SNPRC_WORKBOOK = Path(
+    os.environ.get(
+        "LUNGFISH_MHC_PROMPT_LAB_WORKBOOK",
+        "inputs/30783_SNPRC22_MHC_Genotype_Report_31Dec24.xlsx",
+    )
+)
 DEFAULT_PROMPT = Path("scripts/analysis/prompts/generalist_macaque_mhc_haplotyping_v1.md")
 DEFAULT_OUTPUT_ROOT = Path("outputs/macaque-mhc-prompt-lab")
 DEFAULT_OPENAI_MODEL = "gpt-5.5"

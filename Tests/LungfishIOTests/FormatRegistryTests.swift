@@ -13,6 +13,20 @@ final class FormatRegistryTests: XCTestCase {
 
     // MARK: - Built-in Format Count
 
+    func testFormatRegistryErrorRemainsPublicAPI() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishIO/Registry/FormatRegistry.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("public enum FormatRegistryError"))
+        XCTAssertTrue(source.contains("case unknownFormat(URL)"))
+        XCTAssertTrue(source.contains("case noImporterAvailable(FormatIdentifier)"))
+        XCTAssertTrue(source.contains("case noExporterAvailable(FormatIdentifier)"))
+    }
+
     /// The registry must ship with a meaningful number of built-in descriptors.
     /// If this drops to zero, format detection is completely broken.
     func testBuiltInFormatsCountIsGreaterThanZero() async {

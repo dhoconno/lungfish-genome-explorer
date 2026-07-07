@@ -68,10 +68,11 @@ public actor BundleVariantTrackAttachmentService {
         let variantsDir = request.bundleURL.appendingPathComponent("variants", isDirectory: true)
         try fileManager.createDirectory(at: variantsDir, withIntermediateDirectories: true)
 
-        let finalVCFRelativePath = "variants/\(request.outputTrackID).vcf.gz"
-        let finalTBIRelativePath = "variants/\(request.outputTrackID).vcf.gz.tbi"
-        let finalDBRelativePath = "variants/\(request.outputTrackID).db"
-        let finalProvenanceRelativePath = "variants/\(request.outputTrackID).lungfish-provenance.json"
+        let artifactBasename = VariantAttachmentPathComponent.sanitizedTrackBasename(request.outputTrackID)
+        let finalVCFRelativePath = "variants/\(artifactBasename).vcf.gz"
+        let finalTBIRelativePath = "variants/\(artifactBasename).vcf.gz.tbi"
+        let finalDBRelativePath = "variants/\(artifactBasename).db"
+        let finalProvenanceRelativePath = "variants/\(artifactBasename).lungfish-provenance.json"
         let finalVCFURL = request.bundleURL.appendingPathComponent(finalVCFRelativePath)
         let finalTBIURL = request.bundleURL.appendingPathComponent(finalTBIRelativePath)
         let finalDBURL = request.bundleURL.appendingPathComponent(finalDBRelativePath)
@@ -247,7 +248,7 @@ public actor BundleVariantTrackAttachmentService {
             workflowName: "lungfish variants call",
             workflowVersion: WorkflowRun.currentAppVersion,
             command: request.variantCallerCommandLine.isEmpty
-                ? ["lungfish", "variants", "call"]
+                ? [CLICommandIdentity.executableName, "variants", "call"]
                 : ["sh", "-lc", request.variantCallerCommandLine],
             startedAt: completedAt,
             completedAt: completedAt,
@@ -259,7 +260,7 @@ public actor BundleVariantTrackAttachmentService {
         let parentStep = steps.last?.id
         let attachmentStartedAt = provenance.completedAt
         let attachmentStep = StepExecution(
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: provenance.workflowVersion,
             command: provenance.command,
             inputs: stagedInputRecords,

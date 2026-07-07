@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -59,15 +60,13 @@ internal extension ISO8601DateFormatter {
     /// Produces e.g. `20260409T144521-k7q2` (20 chars).
     ///
     /// Used by the `.bundle` destination path to disambiguate back-to-back
-    /// extractions when the user left the name at the default value. See
-    /// the Phase 2 review-2 forwarded bundle-clobber defense.
+    /// extractions when the user leaves the name at the default value.
     ///
     /// The 4-char random base36 suffix is required because the timestamp
     /// alone is second-resolution: two back-to-back Create-Bundle clicks
     /// inside the same wall-clock second would otherwise produce identical
     /// suffixes and the second extraction would silently clobber the first
-    /// via `ReadExtractionService.createBundle`'s removeItem + moveItem
-    /// (Phase 4 review-1 critical #1).
+    /// via `ReadExtractionService.createBundle`'s removeItem + moveItem.
     static func shortStamp(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd'T'HHmmss"
@@ -139,8 +138,8 @@ public final class TaxonomyReadExtractionAction {
     /// Task. Errors surface via `NSAlert.beginSheetModal` on `hostWindow`.
     public func present(context: Context, hostWindow: NSWindow) {
         #if DEBUG
-        // Phase 7 Task 7.2: when `testingCaptureOnly` is set, record the
-        // context and return immediately without presenting the real dialog.
+        // When `testingCaptureOnly` is set, record the context and return
+        // immediately without presenting the real dialog.
         // This short-circuit is BEFORE the re-entrancy guard so tests observe
         // the context even if a prior test left a sheet attached (defense
         // against cross-test pollution).
@@ -151,10 +150,9 @@ public final class TaxonomyReadExtractionAction {
         }
         #endif
 
-        // Re-entrancy guard (Phase 4 review-1 significant #4). AppKit only
-        // supports one sheet per window at a time, so if the host already has
-        // a sheet attached, drop this request silently. The user can retry
-        // once the current dialog closes.
+        // AppKit only supports one sheet per window at a time, so if the host
+        // already has a sheet attached, drop this request silently. The user
+        // can retry once the current dialog closes.
         if hostWindow.attachedSheet != nil {
             logger.info("Dropping present() — host window already has an attached sheet")
             return
@@ -180,8 +178,7 @@ public final class TaxonomyReadExtractionAction {
         // extraction task so the Cancel button can tear down whichever is
         // currently running — the estimate issues up to 2N samtools spawns
         // for BAM tools and the extraction itself runs a full samtools
-        // pipeline, neither of which should outlive the dialog (Phase 4
-        // review-1 significant #5 + Phase 4 review-2 critical #1).
+        // pipeline, neither of which should outlive the dialog.
         let taskBox = TaskBox()
 
         let dialog = ClassifierExtractionDialog(
@@ -232,10 +229,9 @@ public final class TaxonomyReadExtractionAction {
     // MARK: - Pre-flight estimation
 
     /// Spawns the detached pre-flight estimate task and returns its handle so
-    /// the caller can cancel it when the dialog is dismissed
-    /// (Phase 4 review-1 significant #5).
+    /// the caller can cancel it when the dialog is dismissed.
     ///
-    /// `Context` is `Sendable` (deviation #7), so the struct is captured
+    /// `Context` is `Sendable`, so the struct is captured
     /// directly by the detached closure without a local copy.
     @discardableResult
     private func runInitialEstimate(
@@ -304,9 +300,8 @@ public final class TaxonomyReadExtractionAction {
         // Resolve the destination before spawning the detached task: we may
         // need to show a save panel first (which is @MainActor). The outer
         // Task is spawned from a @MainActor context (startExtraction is called
-        // from the dialog's primary button on the main actor), so this Task
-        // is safe per MEMORY.md (the rule blocks Task { @MainActor in } only
-        // when spawned from GCD background queues).
+        // from the dialog's primary button on the main actor), so creating a
+        // main-actor task here preserves sheet sequencing.
         // Store the outer task handle so Cancel can abort the destination-
         // resolution phase (including a save panel that hasn't appeared yet).
         taskBox.extractionTask = Task { @MainActor [weak self] in
@@ -324,7 +319,7 @@ public final class TaxonomyReadExtractionAction {
                 )
 
                 // Build extraction options.
-                let options = ExtractionOptions(
+                var options = ExtractionOptions(
                     format: model.format,
                     includeUnmappedMates: model.includeUnmappedMates
                 )
@@ -333,6 +328,11 @@ public final class TaxonomyReadExtractionAction {
                 // reproduces what the GUI did.
                 let cli = Self.buildCLIString(context: context, options: options, destination: destination)
                 destination = Self.destination(destination, recordingProvenanceCommand: cli, context: context)
+                options = Self.optionsByRecordingFileProvenance(
+                    options,
+                    context: context,
+                    destination: destination
+                )
 
                 let opID = OperationCenter.shared.start(
                     title: "Extract Reads — \(context.tool.displayName)",
@@ -343,7 +343,7 @@ public final class TaxonomyReadExtractionAction {
                 )
                 OperationCenter.shared.log(id: opID, level: .info, message: "Extraction started: \(cli)")
 
-                // `Context` is Sendable (deviation #7), so the outer variable
+                // `Context` is Sendable, so the outer variable
                 // is captured directly by the detached closure — no local copy.
                 let task = Task.detached { [weak self] in
                     let resolver = resolverFactory()
@@ -357,7 +357,7 @@ public final class TaxonomyReadExtractionAction {
                             progress: { fraction, message in
                                 DispatchQueue.main.async { [weak model] in
                                     MainActor.assumeIsolated {
-                                        OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                                        _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
                                         OperationCenter.shared.log(id: opID, level: .info, message: message)
                                         model?.progressFraction = fraction
                                         model?.progressMessage = message
@@ -379,7 +379,7 @@ public final class TaxonomyReadExtractionAction {
                     } catch is CancellationError {
                         DispatchQueue.main.async { [weak model, weak hostWindow, weak sheetWindow] in
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.fail(
+                                _ = OperationCenter.shared.fail(
                                     id: opID,
                                     detail: "Cancelled by user",
                                     errorMessage: "Cancelled by user"
@@ -390,8 +390,7 @@ public final class TaxonomyReadExtractionAction {
                                 // task has honored the cancel — the dialog's
                                 // onCancel closure deferred dismissal to this
                                 // branch so the user doesn't see a stale
-                                // bundle appear after clicking Cancel
-                                // (Phase 4 review-2 critical #1).
+                                // bundle appear after clicking Cancel.
                                 if let hostWindow, let sheetWindow,
                                    hostWindow.attachedSheet === sheetWindow {
                                     hostWindow.endSheet(sheetWindow)
@@ -403,11 +402,11 @@ public final class TaxonomyReadExtractionAction {
                         // Schedule the failure handling on the main queue. The
                         // alert presentation needs to await a sheet modal, so
                         // we hand off to a separate @MainActor helper rather
-                        // than spawning a `Task { @MainActor in }` inside an
-                        // `assumeIsolated` block (MEMORY.md anti-pattern).
+                        // than spawning a nested main-actor task while inside
+                        // an `assumeIsolated` block.
                         DispatchQueue.main.async { [weak self, weak model] in
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.fail(
+                                _ = OperationCenter.shared.fail(
                                     id: opID,
                                     detail: errorDesc,
                                     errorMessage: errorDesc
@@ -427,9 +426,8 @@ public final class TaxonomyReadExtractionAction {
                     }
                 }
                 // Store the task handle on the shared box so the dialog's
-                // Cancel button can cancel it (Phase 4 review-2 critical #1),
-                // and register the same cancellation with the Operations
-                // Panel row.
+                // Cancel button can cancel it, and register the same
+                // cancellation with the Operations Panel row.
                 taskBox.extractionTask = task
                 OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
             } catch {
@@ -442,8 +440,8 @@ public final class TaxonomyReadExtractionAction {
     /// Presents an "Extraction failed" alert sheet on `hostWindow`.
     ///
     /// Extracted into its own `@MainActor` helper so the failure path in
-    /// `startExtraction` doesn't need to spawn a `Task { @MainActor in }` from
-    /// inside a `MainActor.assumeIsolated` block (MEMORY.md anti-pattern).
+    /// `startExtraction` doesn't need to spawn a nested main-actor task from
+    /// inside a `MainActor.assumeIsolated` block.
     @MainActor
     private func presentErrorAlert(_ errorDesc: String, on hostWindow: NSWindow) async {
         let alert = NSAlert()
@@ -465,8 +463,7 @@ public final class TaxonomyReadExtractionAction {
         switch model.destination {
         case .bundle:
             let projectRoot = ClassifierReadResolver.resolveProjectRoot(from: context.resultPath)
-            // Bundle-clobber defense (Phase 2 review-2 forwarded item): if the
-            // user left the name at the default `context.suggestedName`, append
+            // If the user left the name at the default `context.suggestedName`, append
             // a UTC timestamp suffix so back-to-back extractions don't silently
             // overwrite the same bundle directory. If the user customized the
             // name, trust them — no suffix.
@@ -533,7 +530,7 @@ public final class TaxonomyReadExtractionAction {
         hostWindow: NSWindow,
         sheetWindow: NSPanel?
     ) {
-        OperationCenter.shared.complete(id: opID, detail: "Extracted \(outcome.readCount) reads")
+        _ = OperationCenter.shared.complete(id: opID, detail: "Extracted \(outcome.readCount) reads")
 
         switch outcome {
         case .file(let url, let n):
@@ -562,7 +559,7 @@ public final class TaxonomyReadExtractionAction {
             // content view when possible, falling back to the host window's
             // content view when the sheet has already been torn down. Logging
             // a warning in the nil-nil case ensures we never silently no-op
-            // the user's Share click (Phase 4 review-1 significant #2).
+            // the user's Share click.
             let anchor: NSView? = sheetWindow?.contentView ?? hostWindow.contentView
             if let anchor {
                 self.sharingServicePresenter.present(items: [url], relativeTo: anchor, preferredEdge: .maxY)
@@ -585,8 +582,8 @@ public final class TaxonomyReadExtractionAction {
     /// command for the given dialog state, so the Operations Panel row is
     /// shell-copy-pasteable.
     ///
-    /// **Note on bundle names** (Phase 4 review-2 significant #3): when the
-    /// user left the bundle name at the default `suggestedName`, the
+    /// **Note on bundle names:** when the user left the bundle name at the
+    /// default `suggestedName`, the
     /// orchestrator appended a collision-safe random suffix
     /// (`-yyyyMMddTHHmmss-XXXX`) via `ISO8601DateFormatter.shortStamp` before
     /// passing the destination here. That suffix is then embedded in the
@@ -623,8 +620,8 @@ public final class TaxonomyReadExtractionAction {
                 args.append(String(taxon))
             }
         }
-        // Phase 3 deviation: classifier uses --read-format (not --format) to
-        // avoid GlobalOptions.format collision (see GlobalOptions.swift:13-17).
+        // Classifier extraction uses --read-format (not --format) to avoid
+        // GlobalOptions.format collisions.
         args.append("--read-format")
         args.append(options.format.rawValue)
         if options.includeUnmappedMates {
@@ -667,6 +664,110 @@ public final class TaxonomyReadExtractionAction {
         return .bundle(projectRoot: projectRoot, displayName: displayName, metadata: updatedMetadata)
     }
 
+    private static func optionsByRecordingFileProvenance(
+        _ options: ExtractionOptions,
+        context: Context,
+        destination: ExtractionDestination
+    ) -> ExtractionOptions {
+        let destinationKind: String
+        var explicitOptions: [String: ParameterValue] = [
+            "tool": .string(context.tool.rawValue),
+            "resultPath": .file(context.resultPath),
+            "format": .string(options.format.rawValue),
+            "includeUnmappedMates": .boolean(options.includeUnmappedMates),
+            "samples": .array(context.selections.compactMap(\.sampleId).map(ParameterValue.string)),
+            "accessions": .array(context.selections.flatMap(\.accessions).map(ParameterValue.string)),
+            "taxIds": .array(context.selections.flatMap { $0.taxIds }.map(ParameterValue.integer)),
+        ]
+
+        switch destination {
+        case .file(let url):
+            destinationKind = "file"
+            explicitOptions["outputPath"] = .file(url)
+        case .share:
+            destinationKind = "share"
+        case .bundle, .clipboard:
+            return options
+        }
+
+        explicitOptions["destination"] = .string(destinationKind)
+        var argv: [String] = [
+            CLICommandIdentity.executableName,
+            "extract",
+            "reads",
+            "--by-classifier",
+            "--tool", context.tool.rawValue,
+            "--result", context.resultPath.path,
+            "--read-format", options.format.rawValue,
+        ]
+        let readNameAllowlist = mergedReadNameAllowlist(from: context.selections)
+        if !readNameAllowlist.isEmpty {
+            let digest = readNameAllowlistSHA256(readNameAllowlist)
+            explicitOptions["readNameAllowlist"] = .array(readNameAllowlist.map(ParameterValue.string))
+            explicitOptions["readNameAllowlistCount"] = .integer(readNameAllowlist.count)
+            explicitOptions["readNameAllowlistSHA256"] = .string(digest)
+            explicitOptions["readNameAllowlistAppliedBy"] = .string("samtools view -N")
+        }
+        for selector in context.selections {
+            if let sampleId = selector.sampleId {
+                argv.append(contentsOf: ["--sample", sampleId])
+            }
+            for accession in selector.accessions {
+                argv.append(contentsOf: ["--accession", accession])
+            }
+            for taxon in selector.taxIds {
+                argv.append(contentsOf: ["--taxon", String(taxon)])
+            }
+        }
+        if options.includeUnmappedMates {
+            argv.append("--include-unmapped-mates")
+        }
+        if case .file(let url) = destination {
+            argv.append(contentsOf: ["--output", url.path])
+        }
+        var resolvedOptions: [String: ParameterValue] = [
+            "toolDisplayName": .string(context.tool.displayName),
+            "selectionCount": .integer(context.selections.count),
+            "sampleCount": .integer(Set(context.selections.compactMap(\.sampleId)).count),
+            "samtoolsExcludeFlags": .integer(options.samtoolsExcludeFlags),
+        ]
+        if !readNameAllowlist.isEmpty {
+            resolvedOptions["readNameAllowlistCount"] = .integer(readNameAllowlist.count)
+            resolvedOptions["readNameAllowlistSHA256"] = .string(readNameAllowlistSHA256(readNameAllowlist))
+        }
+
+        let provenance = ExtractionFileProvenance(
+            workflowName: "lungfish app classifier read extraction",
+            toolName: "Lungfish.app",
+            argv: argv,
+            explicitOptions: explicitOptions,
+            defaults: [
+                "format": .string(CopyFormat.fastq.rawValue),
+                "includeUnmappedMates": .boolean(false),
+                "samtoolsExcludeFlags": .integer(0x404),
+                "kraken2IncludeChildren": .boolean(true),
+            ],
+            resolved: resolvedOptions
+        )
+        return options.recordingFileProvenance(provenance)
+    }
+
+    private static func mergedReadNameAllowlist(from selections: [ClassifierRowSelector]) -> [String] {
+        selections
+            .compactMap(\.readNameAllowlist)
+            .reduce(into: Set<String>()) { merged, readNames in
+                merged.formUnion(readNames)
+            }
+            .sorted()
+    }
+
+    private static func readNameAllowlistSHA256(_ readNames: [String]) -> String {
+        let payload = readNames.joined(separator: "\n")
+        return SHA256.hash(data: Data(payload.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
     private static func destinationLabel(_ destination: ExtractionDestination) -> String {
         switch destination {
         case .file:      return "file"
@@ -679,6 +780,18 @@ public final class TaxonomyReadExtractionAction {
     // MARK: - Test-only seams
 
     #if DEBUG
+    static func optionsByRecordingFileProvenanceForTesting(
+        _ options: ExtractionOptions,
+        context: Context,
+        destination: ExtractionDestination
+    ) -> ExtractionOptions {
+        optionsByRecordingFileProvenance(
+            options,
+            context: context,
+            destination: destination
+        )
+    }
+
     /// Test-only access to `resolveDestination` for exercising the bundle
     /// disambiguator without going through the full dialog lifecycle.
     /// Used by `ClassifierExtractionDialogTests` to pin the
@@ -735,15 +848,10 @@ extension TaxonomyReadExtractionAction {
     /// to the dialog's Cancel closure so either the pre-flight work or the
     /// full extraction can be torn down when the user dismisses the dialog.
     ///
-    /// **Why both?** Phase 4 review-1 significant #5 only caught the estimate
-    /// case and added a single-task holder. Phase 4 review-2 critical #1
-    /// caught the larger problem: the `Task.detached` inside `startExtraction`
-    /// is ALSO detached from the dialog, so the dialog's Cancel during
-    /// `isRunning == true` needs to cancel that task too — otherwise the
-    /// extraction continues in the background and produces an orphaned bundle
-    /// via `handleSuccess`. The spec explicitly requires this at design doc
-    /// line 278: "Cancel stays enabled and routes to the underlying Task's
-    /// cancellation."
+    /// Both handles are needed because the initial estimate and the main
+    /// extraction run in separate detached tasks. Cancel must stop whichever
+    /// task is active; otherwise extraction can continue in the background and
+    /// produce an orphaned bundle via `handleSuccess`.
     ///
     /// **Lifetime**: the box is created in `present()` and captured by value
     /// (reference) by the dialog's `onCancel` closure and the `onPrimary`

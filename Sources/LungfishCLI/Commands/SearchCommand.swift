@@ -413,7 +413,7 @@ struct SearchCommand: AsyncParsableCommand {
     }
 
     private func provenanceCommand(inputURL: URL, outputURL: URL) -> [String] {
-        var command = ["lungfish", "search", inputURL.path, pattern]
+        var command = [CLICommandIdentity.executableName, "search", inputURL.path, pattern]
         if useRegex {
             command.append("--regex")
         }

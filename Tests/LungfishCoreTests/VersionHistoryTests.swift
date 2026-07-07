@@ -202,6 +202,112 @@ final class VersionHistoryTests: XCTestCase {
         XCTAssertEqual(restored.versions.count, 2)
     }
 
+    func testJSONRoundTripRestoresCheckedOutVersionAndNavigationState() throws {
+        let history = VersionHistory(originalSequence: "ATCGATCG", sequenceName: "test_seq")
+        try history.commit(newSequence: "ATCGATCGAAA", message: "version 1")
+        try history.commit(newSequence: "ATCGATCGAAATTT", message: "version 2")
+        _ = try history.checkout(at: 1)
+
+        let json = try history.toJSON()
+        let restored = try VersionHistory.fromJSON(json)
+
+        XCTAssertEqual(restored.currentVersionIndex, 1)
+        XCTAssertEqual(restored.currentSequence, "ATCGATCGAAA")
+        XCTAssertTrue(restored.canGoBack)
+        XCTAssertTrue(restored.canGoForward)
+    }
+
+    func testFromJSONRejectsInvalidCurrentVersionIndex() throws {
+        let history = VersionHistory(originalSequence: "ATCGATCG", sequenceName: "test_seq")
+        try history.commit(newSequence: "ATCGATCGAAA", message: "version 1")
+        let json = try history.toJSON()
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any])
+        payload["currentVersionIndex"] = 99
+        let corruptedJSON = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+
+        XCTAssertThrowsError(try VersionHistory.fromJSON(corruptedJSON)) { error in
+            guard case VersionError.corruptedHistory(let reason) = error else {
+                XCTFail("Expected corruptedHistory, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("currentVersionIndex"))
+        }
+    }
+
+    func testFromJSONRejectsDiffThatCannotReplay() throws {
+        let history = VersionHistory(originalSequence: "ATCGATCG", sequenceName: "test_seq")
+        try history.commit(newSequence: "ATCGATCGAAA", message: "version 1")
+        let json = try history.toJSON()
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any])
+        var versions = try XCTUnwrap(payload["versions"] as? [[String: Any]])
+        var firstVersion = try XCTUnwrap(versions.first)
+        firstVersion["diff"] = [
+            "operations": [
+                [
+                    "delete": [
+                        "position": 0,
+                        "length": 4,
+                        "original": "NNNN",
+                    ],
+                ],
+            ],
+        ]
+        versions[0] = firstVersion
+        payload["versions"] = versions
+        let corruptedJSON = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+
+        XCTAssertThrowsError(try VersionHistory.fromJSON(corruptedJSON)) { error in
+            guard case VersionError.corruptedHistory(let reason) = error else {
+                XCTFail("Expected corruptedHistory, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("version 1"))
+        }
+    }
+
+    func testFromJSONRejectsContentHashMismatch() throws {
+        let history = VersionHistory(originalSequence: "ATCGATCG", sequenceName: "test_seq")
+        try history.commit(newSequence: "ATCGATCGAAA", message: "version 1")
+        let json = try history.toJSON()
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any])
+        var versions = try XCTUnwrap(payload["versions"] as? [[String: Any]])
+        var firstVersion = try XCTUnwrap(versions.first)
+        firstVersion["contentHash"] = String(repeating: "0", count: 64)
+        versions[0] = firstVersion
+        payload["versions"] = versions
+        let corruptedJSON = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+
+        XCTAssertThrowsError(try VersionHistory.fromJSON(corruptedJSON)) { error in
+            guard case VersionError.corruptedHistory(let reason) = error else {
+                XCTFail("Expected corruptedHistory, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("content hash mismatch"))
+        }
+    }
+
+    func testFromJSONRejectsParentHashMismatch() throws {
+        let history = VersionHistory(originalSequence: "ATCGATCG", sequenceName: "test_seq")
+        try history.commit(newSequence: "ATCGATCGAAA", message: "version 1")
+        try history.commit(newSequence: "ATCGATCGAAATTT", message: "version 2")
+        let json = try history.toJSON()
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any])
+        var versions = try XCTUnwrap(payload["versions"] as? [[String: Any]])
+        var secondVersion = versions[1]
+        secondVersion["parentHash"] = String(repeating: "f", count: 64)
+        versions[1] = secondVersion
+        payload["versions"] = versions
+        let corruptedJSON = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+
+        XCTAssertThrowsError(try VersionHistory.fromJSON(corruptedJSON)) { error in
+            guard case VersionError.corruptedHistory(let reason) = error else {
+                XCTFail("Expected corruptedHistory, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("parent hash mismatch"))
+        }
+    }
+
     // MARK: - Version Properties
 
     func testVersionHash() throws {

@@ -11,6 +11,20 @@ import SQLite3
 import os
 import LungfishKit
 
+private final class AppDelegateNotificationObserver: @unchecked Sendable {
+    private let notificationCenter: NotificationCenter
+    private let token: NSObjectProtocol
+
+    init(notificationCenter: NotificationCenter = .default, token: NSObjectProtocol) {
+        self.notificationCenter = notificationCenter
+        self.token = token
+    }
+
+    deinit {
+        notificationCenter.removeObserver(token)
+    }
+}
+
 /// Main application delegate handling app lifecycle and global state.
 @MainActor
 public class AppDelegate: NSObject, NSApplicationDelegate,
@@ -60,8 +74,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Last applied experimental feature visibility.
     private var lastAppliedExperimentalFeaturesEnabled = AppSettings.defaultExperimentalFeaturesEnabled
 
+    private var workflowLibraryEnablementObserver: AppDelegateNotificationObserver?
+
     /// Repeating timer that cleans stale project temp directories (>24 h old) every 4 hours.
     private var projectTempCleanupTimer: Timer?
+#if DEBUG
+    /// Repeating debug-only scan for temp directories that escaped project-local storage.
+    private var debugTempEscapeScanTimer: Timer?
+#endif
     private var isTerminating = false
 
     /// Temporary storage for download URL while sheet is dismissing
@@ -236,6 +256,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     deinit {
+        workflowLibraryEnablementObserver = nil
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -500,6 +521,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Stop periodic project temp cleanup timer.
         projectTempCleanupTimer?.invalidate()
         projectTempCleanupTimer = nil
+#if DEBUG
+        debugTempEscapeScanTimer?.invalidate()
+        debugTempEscapeScanTimer = nil
+#endif
 
         // Clean up any temp files created during this session
         // Note: This is synchronous since we're terminating
@@ -593,12 +618,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             object: nil
         )
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleWorkflowLibraryEnablementChanged(_:)),
-            name: .workflowLibraryEnablementChanged,
-            object: nil
-        )
+        let workflowLibraryToken = NotificationCenter.default.addObserver(
+            forName: .workflowLibraryEnablementChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.handleWorkflowLibraryEnablementChanged()
+            }
+        }
+        workflowLibraryEnablementObserver = AppDelegateNotificationObserver(token: workflowLibraryToken)
 
         // Register for AI assistant show request
         NotificationCenter.default.addObserver(
@@ -710,7 +739,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    @objc private func handleWorkflowLibraryEnablementChanged(_ notification: Notification) {
+    private func handleWorkflowLibraryEnablementChanged() {
         NSApp.mainMenu = MainMenu.createMainMenu(
             experimentalFeaturesEnabled: AppSettings.shared.experimentalFeaturesEnabled,
             workflowFeatureAvailability: .current()
@@ -752,7 +781,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
 #if DEBUG
         // In debug builds, scan for escaped temp dirs every 5 minutes.
-        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        debugTempEscapeScanTimer?.invalidate()
+        debugTempEscapeScanTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self?.debugScanForEscapedTempDirs()
@@ -1233,13 +1263,33 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return enabled
         }
 
-        // Copy visible region requires an active viewer.
-        if menuItem.action == #selector(copySelectionFASTA(_:)) {
-            return activeMainWindowController()?
+        if menuItem.action == #selector(goToPosition(_:)) {
+            let viewerController = activeMainWindowController()?
                 .mainSplitViewController?
                 .viewerController?
                 .activeSequenceViewerController
-                .viewerView != nil
+            return canNavigateToPosition(viewerController: viewerController)
+        }
+
+        if menuItem.action == #selector(goToGene(_:)) {
+            let viewerController = activeMainWindowController()?
+                .mainSplitViewController?
+                .viewerController?
+                .activeSequenceViewerController
+            return canNavigateToGene(viewerController: viewerController)
+        }
+
+        // Visible-region sequence operations require an active viewer.
+        if menuItem.action == #selector(reverseComplement(_:))
+            || menuItem.action == #selector(translate(_:))
+            || menuItem.action == #selector(copySelectionFASTA(_:)) {
+            guard let activeSequenceViewer = activeMainWindowController()?
+                .mainSplitViewController?
+                .viewerController?
+                .activeSequenceViewerController else {
+                return false
+            }
+            return activeSequenceViewer.viewerView.canRunSelectedSequenceFASTAOperation()
         }
 
         // Extract can bootstrap from the currently visible region.
@@ -1254,12 +1304,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // "Cancel All Operations" needs running operations
         if menuItem.action == #selector(cancelAllOperations(_:)) {
-            return OperationCenter.shared.activeCount > 0
+            return OperationCenter.shared.items.contains { $0.isCancellable }
         }
 
         // "Clear Completed" needs finished items
         if menuItem.action == #selector(clearCompletedOperations(_:)) {
-            return OperationCenter.shared.items.contains { $0.state != .running }
+            return OperationCenter.shared.items.contains { !$0.state.isActive }
         }
 
         // "Clear Temporary Files..." requires an open project
@@ -1278,6 +1328,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         return true
+    }
+
+    func canNavigateToPosition(viewerController: ViewerViewController?) -> Bool {
+        viewerController?.referenceFrame != nil
+    }
+
+    func canNavigateToGene(viewerController: ViewerViewController?) -> Bool {
+        canNavigateToPosition(viewerController: viewerController)
+            && viewerController?.annotationSearchIndex != nil
     }
 
     @objc public func showWindowSizeDialog(_ sender: Any?) {

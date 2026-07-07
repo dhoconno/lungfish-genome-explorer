@@ -27,45 +27,46 @@ lead_approved: false
 
 ## What it is
 
-The Workflow Builder turns a chain of Lungfish FASTQ-preprocessing steps into
-a picture you wire together by hand. Every operation you would otherwise launch
-from a recipe or a dialog becomes a draggable node on a canvas: remove
-duplicates, trim adapters, scrub human reads, merge pairs, filter by length.
-You connect the output of one node to the input of the next, set each node's
-parameters, and run the whole graph against a FASTQ bundle in your project.
-What comes back is a workflow asset. It lives in your project, carries
-provenance for every step, and runs again next month against a different bundle
-without a single dialog to re-click.
+The Workflow Builder is a visual node-graph composer for chaining Lungfish
+FASTQ-preprocessing operations into reusable pipelines. Each operation that
+you would otherwise run from a recipe or a dialog (remove duplicates, trim
+adapters, scrub human reads, merge pairs, filter by length) appears as a
+draggable node on a canvas. You wire the output of one node into the input of
+the next, configure parameters per node, and run the whole graph against a
+FASTQ bundle in your project. The result is a workflow asset that lives in
+your project, carries provenance for every step, and can be run again next
+month against a different bundle without re-clicking through dialogs.
 
-A workflow is the bridge between a one-off analysis and a documented procedure.
-You saw in [Provenance and reproducibility](../01-foundations/08-provenance-and-reproducibility.md)
-that every Lungfish operation records its inputs, parameters, tool versions,
-and outputs. A workflow takes that record and makes it run. "Here is what I
-did" becomes "here is how to do it again". For a lab that cleans up reads the
-same way on every run, this is the difference between an SOP written in a
-Google Doc and one that actually executes.
+Workflows are the bridge between a one-off analysis and a documented
+procedure. You learned in [Provenance and reproducibility](../01-foundations/08-provenance-and-reproducibility.md)
+that every Lungfish operation already records its inputs, parameters, tool
+versions, and outputs. A workflow takes that record and makes it executable.
+Instead of "here is what I did", the workflow file says "here is how to do
+it again". For a lab that runs the same read-cleanup procedure on every new
+run, this is the difference between writing a SOP in a Google Doc and writing
+one that actually runs.
 
-A word on scope, because this is where the Builder is easy to over-read. The
-menu item reads **Workflow Builder (Experimental)** for a reason. The graph
-editor is general, but the only operations the native runner executes today are
-the five FASTQ-preprocessing steps listed below. The palette also holds generic
-Analysis placeholder nodes (Alignment, Variant Calling, Quantification,
-Assembly) and a handful of file-input nodes. Those generic nodes do not run
-inside the app. They exist so a graph can be exported as Nextflow text for an
-external engine, and they are covered in
+A note on scope, because this is where the Builder is easy to over-read. The
+menu item is labelled **Workflow Builder (Experimental)** for a reason: the
+graph editor itself is general, but the only operations the native runner
+executes today are the five FASTQ-preprocessing steps listed below. The
+palette also contains generic Analysis export nodes (Alignment, Variant
+Calling, Quantification, Assembly) and a few file-input nodes. Those generic
+nodes do not run inside the app. They exist so that a graph can be exported as
+Nextflow text for an external engine, and they are covered in
 [Exporting as Nextflow or Snakemake](02-exporting-as-nextflow-or-snakemake.md).
-Two other families of operation are missing on purpose. Result-import paths
+Two other families of operation are deliberately absent. Result-import paths
 (NAO-MGS, NVD, CZ-ID) load classification output produced outside Lungfish and
 belong in the Import Center, not the Builder. Result-viewport tools (tree
-re-rooting, taxonomy read extraction, BLAST verification) act on data already
-loaded in a viewport, and they are not workflow steps.
+re-rooting, taxonomy read extraction, BLAST verification) act on already-loaded
+data inside a viewport and are not workflow steps.
 
-If you run the same FASTQ-cleanup steps on more than two bundles, stop running
-them by hand and build the workflow once.
+So what should you do with this? If you run the same FASTQ-cleanup steps on
+more than two bundles, stop running them by hand and build the workflow once.
 
 ## What you will learn
 
-This chapter shows how to open the Workflow Builder,
+By the end of this chapter you will know how to open the Workflow Builder,
 read the palette by its real categories, drag the five FASTQ-preprocessing
 nodes onto the canvas, connect them into a linear chain, configure per-node
 parameters, save the workflow as a project asset, version and diff it, and run
@@ -83,10 +84,11 @@ in the middle, and an inspector on the right. The canvas starts empty except
 for a faint grid and two pinned nodes labelled **Sample input** and **Project
 output**. These two nodes are not draggable.
 
-One point about input settles the rest of the chapter. A native FASTQ graph
-uses an explicit **FASTQ Bundle Input** node that you drag on yourself. The
-pinned **Sample input** anchor is a legacy path that prompts for a sample at run
-time. The worked example uses the explicit node, so that is the path to follow.
+One note settles how input works, so you can ignore the distinction for the
+rest of this chapter: a native FASTQ graph uses an explicit **FASTQ Bundle
+Input** node that you drag on yourself, while the pinned **Sample input** anchor
+is a legacy path that prompts for a sample at run time. The worked example uses
+the explicit node, so that is the path to follow.
 
 <!-- planned: workflow-builder-palette -->
 
@@ -95,7 +97,7 @@ The palette groups operations into seven categories: **Input**,
 Processing**, **Analysis**, and **Output**. Click a category header to expand
 or collapse its contents. Hovering a node shows a one-line description. The
 five runnable FASTQ operations live in Trimming & Filtering, Decontamination,
-and Read Processing; the Analysis category holds the export-only placeholder
+and Read Processing; the Analysis category holds the export-only
 nodes.
 
 ### Drag a node onto the canvas
@@ -130,10 +132,10 @@ path that updates as you move either node. To remove an edge, click it once to
 select and press `Delete`. The builder refuses any connection that would
 create a cycle, so a node can never feed itself, directly or through a loop.
 
-The native FASTQ runner adds one more rule: the chain must be linear, each node
-feeding exactly one node downstream. A branching graph, where one output fans
-out to several inputs, is valid in the editor for export but rejected when you
-run it natively. So build FASTQ-preprocessing workflows as a single straight
+The native FASTQ runner additionally requires a linear chain: each node feeds
+exactly one downstream node. A branching graph (one output fanning out to
+several inputs) is valid in the editor for export purposes but is rejected when
+you run it natively. Build FASTQ-preprocessing workflows as a single straight
 line from the input node to **Project output**.
 
 ### Configure per-node parameters
@@ -150,7 +152,7 @@ operation from a recipe. The parameters that exist depend on the node:
 | Merge overlapping pairs | Minimum overlap (15) |
 | Remove short reads | Minimum length (50), Maximum length (unset) |
 
-The generic Analysis placeholder nodes (Alignment, Variant Calling,
+The generic Analysis export nodes (Alignment, Variant Calling,
 Quantification, Assembly) do not expose scientific parameters such as a
 minimum allele frequency or a minimap2 preset. They carry only two hidden
 metadata fields used when the graph is exported as Nextflow text. If you need
@@ -222,26 +224,6 @@ What the saved workflow does not embed is an absolute path to your data. A
 the same workflow run against a different bundle is a matter of pointing that
 node at a different file.
 
-### Manage saved workflows
-
-Every workflow you save lands in a **Workflows** library at the top of the
-left sidebar, above the operation palette. The list holds each
-`.lungfishflow` bundle in the active project; click an entry to load that graph
-onto the canvas. Three buttons sit in the library header: **New** starts an
-empty workflow and prompts for a name, **Duplicate** copies the selected
-workflow, and **Delete** removes it. Right-clicking an entry offers **Rename**,
-**Duplicate**, and **Delete**, and double-clicking a name edits it in place.
-
-Deleting asks first. A confirmation sheet titled **Delete Workflow?** names the
-bundle it will remove from the project library and offers **Delete** and
-**Cancel**. Nothing is removed until you confirm.
-
-One behaviour is worth stating plainly, because it is what keeps the library
-from losing edits. Whenever you switch to another entry or create, duplicate,
-or rename a workflow, Lungfish first saves the current graph if it has unsaved
-changes. You never have to save by hand before selecting a different workflow:
-the edits you made are written to the current bundle before the next one loads.
-
 ### Version and diff saved workflows
 
 Every saved `.lungfishflow` carries a semver-style workflow version such as
@@ -295,11 +277,7 @@ lungfish-cli workflow builder-run \
 ```
 
 The real flags are `--workflow`, `--project`, `--run-directory`, `--threads`,
-and `--dry-run`. Passing `--dry-run` compiles the connected graph into its
-executable plan and prints that plan as JSON to standard output, then stops: no
-tools run and no output bundle is written. Reach for it to inspect exactly what
-a graph would execute before you commit to a real run. Note that command lines
-recorded inside a provenance file
+and `--dry-run`. Note that command lines recorded inside a provenance file
 (for example, argv beginning `workflow builder-run --graph-id …` or
 `workflow builder-step run …`) are audit records, not user-invocable commands.
 The runnable command is the one above. The runner writes `builder-plan.json`,

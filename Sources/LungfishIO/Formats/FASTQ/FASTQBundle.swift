@@ -19,6 +19,42 @@ public enum FASTQBundle {
     /// Trim positions filename for trim derivative bundles.
     public static let trimPositionFilename = "trim-positions.tsv"
 
+    /// Returns a URL for a manifest path only if it is a safe member of the FASTQ bundle.
+    ///
+    /// This accepts files that do not exist yet so callers can use it before writes.
+    /// Existing symlink escapes are rejected by default, but source-file manifests
+    /// may opt out because they intentionally support in-bundle symlinks to original
+    /// FASTQ chunks while still requiring the manifest path string itself to remain
+    /// inside the bundle.
+    public static func validatedBundleMemberURL(
+        for relativePath: String,
+        in bundleURL: URL,
+        field: String = "path",
+        allowExistingSymlinkEscape: Bool = false
+    ) throws -> URL {
+        guard isSafeBundleMemberPath(relativePath) else {
+            throw FASTQBundlePathError.invalidPath(field: field, path: relativePath)
+        }
+
+        let standardizedBundle = bundleURL.standardizedFileURL
+        let candidate = standardizedBundle
+            .appendingPathComponent(relativePath)
+            .standardizedFileURL
+        guard isDescendant(candidate, of: standardizedBundle) else {
+            throw FASTQBundlePathError.invalidPath(field: field, path: relativePath)
+        }
+
+        if !allowExistingSymlinkEscape, FileManager.default.fileExists(atPath: candidate.path) {
+            let resolvedBundle = standardizedBundle.resolvingSymlinksInPath()
+            let resolvedCandidate = candidate.resolvingSymlinksInPath()
+            guard isDescendant(resolvedCandidate, of: resolvedBundle) else {
+                throw FASTQBundlePathError.invalidPath(field: field, path: relativePath)
+            }
+        }
+
+        return candidate
+    }
+
     /// Returns `true` when the URL is a `.lungfishfastq` directory.
     public static func isBundleURL(_ url: URL) -> Bool {
         guard url.pathExtension.lowercased() == directoryExtension else { return false }
@@ -86,7 +122,13 @@ public enum FASTQBundle {
 
         if let manifest = loadDerivedManifest(in: candidateURL),
            case .fullFASTA(let fastaFilename) = manifest.payload {
-            let fastaURL = candidateURL.appendingPathComponent(fastaFilename)
+            guard let fastaURL = try? validatedBundleMemberURL(
+                for: fastaFilename,
+                in: candidateURL,
+                field: "payload.fullFASTA.fastaFilename"
+            ) else {
+                return nil
+            }
             if FileManager.default.fileExists(atPath: fastaURL.path) {
                 return fastaURL
             }
@@ -167,28 +209,51 @@ public enum FASTQBundle {
     public static func readIDListURL(forDerivedBundle bundleURL: URL) -> URL? {
         guard let manifest = loadDerivedManifest(in: bundleURL),
               case .subset(let filename) = manifest.payload else { return nil }
-        return bundleURL.appendingPathComponent(filename)
+        return try? validatedBundleMemberURL(
+            for: filename,
+            in: bundleURL,
+            field: "payload.subset.readIDListFilename"
+        )
     }
 
     /// Resolves the trim positions URL for a derived bundle (trim derivatives only).
     public static func trimPositionsURL(forDerivedBundle bundleURL: URL) -> URL? {
         guard let manifest = loadDerivedManifest(in: bundleURL),
               case .trim(let filename) = manifest.payload else { return nil }
-        return bundleURL.appendingPathComponent(filename)
+        return try? validatedBundleMemberURL(
+            for: filename,
+            in: bundleURL,
+            field: "payload.trim.trimPositionFilename"
+        )
     }
 
     /// Resolves paired R1/R2 FASTQ URLs for a fullPaired payload derived bundle.
     public static func pairedFASTQURLs(forDerivedBundle bundleURL: URL) -> (r1: URL, r2: URL)? {
         guard let manifest = loadDerivedManifest(in: bundleURL),
               case .fullPaired(let r1, let r2) = manifest.payload else { return nil }
-        return (bundleURL.appendingPathComponent(r1), bundleURL.appendingPathComponent(r2))
+        guard let r1URL = try? validatedBundleMemberURL(
+            for: r1,
+            in: bundleURL,
+            field: "payload.fullPaired.r1Filename"
+        ), let r2URL = try? validatedBundleMemberURL(
+            for: r2,
+            in: bundleURL,
+            field: "payload.fullPaired.r2Filename"
+        ) else {
+            return nil
+        }
+        return (r1URL, r2URL)
     }
 
     /// Resolves the materialized FASTQ URL for a full payload derived bundle.
     public static func fullPayloadFASTQURL(forDerivedBundle bundleURL: URL) -> URL? {
         guard let manifest = loadDerivedManifest(in: bundleURL),
               case .full(let filename) = manifest.payload else { return nil }
-        return bundleURL.appendingPathComponent(filename)
+        return try? validatedBundleMemberURL(
+            for: filename,
+            in: bundleURL,
+            field: "payload.full.fastqFilename"
+        )
     }
 
     /// Resolves role-based FASTQ file URLs for a multi-file bundle.
@@ -212,10 +277,16 @@ public enum FASTQBundle {
     private static func buildRoleMap(
         from classification: ReadClassification,
         in bundleURL: URL
-    ) -> [ReadClassification.FileRole: URL] {
+    ) -> [ReadClassification.FileRole: URL]? {
         var result: [ReadClassification.FileRole: URL] = [:]
         for entry in classification.files {
-            let url = bundleURL.appendingPathComponent(entry.filename)
+            guard let url = try? validatedBundleMemberURL(
+                for: entry.filename,
+                in: bundleURL,
+                field: "readClassification.files[].filename"
+            ) else {
+                return nil
+            }
             if FileManager.default.fileExists(atPath: url.path) {
                 result[entry.role] = url
             }
@@ -229,6 +300,9 @@ public enum FASTQBundle {
         }
 
         let manifestURLs = manifest.resolveFileURLs(relativeTo: bundleURL)
+        guard manifestURLs.count == manifest.fileCount else {
+            return nil
+        }
         let fm = FileManager.default
         if manifestURLs.allSatisfy({ fm.fileExists(atPath: $0.path) }) {
             return manifestURLs
@@ -290,6 +364,37 @@ public enum FASTQBundle {
         return preferred.sorted {
             $0.path.localizedStandardCompare($1.path) == .orderedAscending
         }
+    }
+
+    private static func isSafeBundleMemberPath(_ path: String) -> Bool {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed == path,
+              !path.hasPrefix("/"),
+              !path.hasPrefix("~") else {
+            return false
+        }
+
+        let components = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            return false
+        }
+
+        return !isReservedBundleControlPath(path)
+    }
+
+    private static func isReservedBundleControlPath(_ path: String) -> Bool {
+        path == derivedManifestFilename
+            || path == FASTQSourceFileManifest.filename
+            || path == ReadManifest.filename
+            || path == ".lungfish-provenance.json"
+            || path == "provenance"
+            || path.hasPrefix("provenance/")
+    }
+
+    private static func isDescendant(_ url: URL, of directory: URL) -> Bool {
+        let directoryPath = directory.path.hasSuffix("/") ? directory.path : directory.path + "/"
+        return url.path.hasPrefix(directoryPath)
     }
 
     /// Finds the `.lungfish` project root directory by walking up from a bundle URL.
@@ -354,7 +459,14 @@ public enum FASTQBundle {
         ) else { return nil }
 
         for url in contents where url.pathExtension == directoryExtension {
-            let candidateFASTQ = url.appendingPathComponent(fastqFilename)
+            guard let candidateFASTQ = try? validatedBundleMemberURL(
+                for: fastqFilename,
+                in: url,
+                field: "fastqFilename",
+                allowExistingSymlinkEscape: true
+            ) else {
+                continue
+            }
             if FileManager.default.fileExists(atPath: candidateFASTQ.path) {
                 return url
             }
@@ -455,5 +567,18 @@ public enum FASTQBundle {
                 return (url, manifest)
             }
             .sorted { $0.manifest.createdAt < $1.manifest.createdAt }
+    }
+}
+
+/// Validation errors for FASTQ bundle member paths.
+public enum FASTQBundlePathError: Error, LocalizedError, Sendable, Equatable {
+    /// Manifest path is absolute, escapes the bundle, or targets reserved control metadata.
+    case invalidPath(field: String, path: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidPath(let field, let path):
+            return "Manifest path '\(field)' is not a safe FASTQ bundle-relative path: '\(path)'"
+        }
     }
 }

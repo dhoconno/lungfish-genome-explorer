@@ -1,18 +1,17 @@
-// AlignmentResultViewController.swift - Viewport stub for BAM alignment results
+// AlignmentResultViewController.swift - Summary viewport for BAM alignment results
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Track A3: Alignment Viewer viewport class.
-//
-// Displays BAM alignment output from read-mapping tools (minimap2, BWA-MEM2,
-// Bowtie2). This is a foundation stub — the full viewport will embed a BAM
-// pileup view with coverage track and alignment statistics in a future session.
+// Displays BAM alignment output summaries from read-mapping tools (minimap2,
+// BWA-MEM2, Bowtie2). Detailed pileup and coverage inspection is handled by
+// the project's BAM track viewers; this result viewport remains a lightweight
+// summary surface.
 //
 // ## Viewport class conventions
-// All alignment tools share this single viewport. The ResultType is
-// Minimap2Result because minimap2 is the first tool in this class; future
-// tools (BWA-MEM2, Bowtie2) will contribute the same result type or a common
-// AlignmentResult wrapper once those pipelines are added.
+// Mapping workflows that produce sorted, indexed BAM tracks share this
+// viewport. The concrete result type remains `Minimap2Result` for compatibility
+// with the original mapping workflow while newer toolchains route through the
+// same summary surface.
 
 import AppKit
 import LungfishWorkflow
@@ -27,10 +26,9 @@ import LungfishKit
 /// sorted, indexed BAM files.
 ///
 /// ## Current state
-/// This is a **stub** implementation that stores the result and shows a
-/// placeholder summary bar. The full viewport — BAM pileup rendering,
-/// coverage track, and alignment statistics — will be built on top of
-/// the existing ``ViewerViewController`` BAM display in a later session.
+/// This implementation stores the result and shows a summary bar plus the BAM
+/// payload identity. Detailed pileup/coverage inspection happens in the app's
+/// BAM track display surfaces rather than in this summary viewport.
 ///
 /// ## Usage
 /// ```swift
@@ -129,7 +127,10 @@ public final class AlignmentResultViewController: NSViewController {
             return
         }
         let name = result.bamURL.deletingPathExtension().lastPathComponent
-        placeholderLabel.stringValue = "BAM: \(name)\n(Full pileup viewer coming soon)"
+        placeholderLabel.stringValue = """
+        BAM: \(name)
+        Alignment summary only. Open the BAM track for pileup and coverage inspection.
+        """
     }
 }
 
@@ -157,13 +158,13 @@ extension AlignmentResultViewController: ResultViewportController {
 
     /// Export alignment results.
     ///
-    /// - Note: Not yet implemented. Returns an error until the full export
-    ///   pipeline (BAM statistics CSV, coverage data) is built out.
+    /// - Note: The alignment result viewport is a summary surface; export the
+    ///   BAM/index payloads or derived coverage data from the project track.
     public func exportResults(to url: URL, format: ResultExportFormat) throws {
         throw NSError(
             domain: "Lungfish",
             code: -1,
-            userInfo: [NSLocalizedDescriptionKey: "Alignment export not yet implemented"]
+            userInfo: [NSLocalizedDescriptionKey: "Alignment summary export is not available from this viewport"]
         )
     }
 }

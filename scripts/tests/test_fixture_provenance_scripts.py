@@ -43,6 +43,12 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                 return json.loads(line.split("=", 1)[1].strip())
         self.fail("TOOL_VERSION was not found in the backfill script")
 
+    def test_backfill_tool_version_is_release_independent(self):
+        version = self._backfill_tool_version()
+
+        self.assertRegex(version, r"^\d{4}-\d{2}-\d{2}\.\d+$")
+        self.assertNotRegex(version, r"(?:alpha|beta|rc)\d*$")
+
     def test_audit_fails_when_retained_fixture_lacks_sidecar(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

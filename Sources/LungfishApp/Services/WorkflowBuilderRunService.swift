@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 import LungfishKit
 
@@ -122,7 +123,7 @@ public final class WorkflowBuilderRunService {
         let graphChecksum = try WorkflowBuilderRunStore.graphChecksum(for: graph)
         let argv = [
             "Lungfish",
-            "Tools > Workflow Builder",
+            "Tools > Workflow Builder (Experimental)",
             "run",
             workflowBundleURL.standardizedFileURL.path,
             "--sample",
@@ -173,7 +174,7 @@ public final class WorkflowBuilderRunService {
                 for node in sortedNodes {
                     setNodeStatus(node.id, in: &record, status: .succeeded, completedAt: Date())
                 }
-                operationCenter.update(
+                _ = operationCenter.update(
                     id: parentOperationID,
                     progress: 1,
                     detail: "Executed workflow through local workflow runner"
@@ -193,7 +194,7 @@ public final class WorkflowBuilderRunService {
                 record.provenance.wallTimeSeconds = record.completedAt?.timeIntervalSince(startedAt)
                 record.provenance.stderr = message
                 try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
-                operationCenter.fail(id: parentOperationID, detail: "Workflow failed: \(message)", errorMessage: "Workflow failed", errorDetail: message)
+                _ = operationCenter.fail(id: parentOperationID, detail: "Workflow failed: \(message)", errorMessage: "Workflow failed", errorDetail: message)
                 if let failingNode = sortedNodes.first(where: { $0.id == failingNodeID }) {
                     throw normalizedNodeFailure(error, node: failingNode, message: message)
                 }
@@ -206,7 +207,6 @@ public final class WorkflowBuilderRunService {
                     title: node.label,
                     detail: "Running workflow node",
                     operationType: .workflow,
-                    targetBundleURL: workflowBundleURL,
                     cliCommand: argv.map(shellEscapeForWorkflowBuilder).joined(separator: " "),
                     workflowRunID: runID,
                     routeContext: routeContext
@@ -217,8 +217,8 @@ public final class WorkflowBuilderRunService {
                 do {
                     try await nodeExecutor(node, binding)
                     setNodeStatus(node.id, in: &record, status: .succeeded, completedAt: Date())
-                    operationCenter.complete(id: nodeOperationID, detail: "Completed workflow node")
-                    operationCenter.update(id: parentOperationID, progress: Double(index + 1) / Double(sortedNodes.count), detail: "Completed \(node.label)")
+                    _ = operationCenter.complete(id: nodeOperationID, detail: "Completed workflow node")
+                    _ = operationCenter.update(id: parentOperationID, progress: Double(index + 1) / Double(sortedNodes.count), detail: "Completed \(node.label)")
                     try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
                 } catch {
                     let message = errorMessage(for: error)
@@ -231,8 +231,8 @@ public final class WorkflowBuilderRunService {
                     record.provenance.wallTimeSeconds = record.completedAt?.timeIntervalSince(startedAt)
                     record.provenance.stderr = message
                     try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
-                    operationCenter.fail(id: nodeOperationID, detail: message, errorMessage: "Workflow node failed", errorDetail: message)
-                    operationCenter.fail(id: parentOperationID, detail: "Workflow failed: \(message)", errorMessage: "Workflow failed", errorDetail: message)
+                    _ = operationCenter.fail(id: nodeOperationID, detail: message, errorMessage: "Workflow node failed", errorDetail: message)
+                    _ = operationCenter.fail(id: parentOperationID, detail: "Workflow failed: \(message)", errorMessage: "Workflow failed", errorDetail: message)
                     throw normalizedNodeFailure(error, node: node, message: message)
                 }
             }
@@ -246,7 +246,7 @@ public final class WorkflowBuilderRunService {
         record.provenance.exitStatus = 0
         record.provenance.wallTimeSeconds = record.completedAt?.timeIntervalSince(startedAt)
         try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
-        operationCenter.complete(
+        _ = operationCenter.complete(
             id: parentOperationID,
             detail: "Workflow completed. Run bundle: \(runDirectoryURL.path)",
             outputURLs: [workflowBundleURL]
@@ -321,12 +321,11 @@ public final class WorkflowBuilderRunService {
             "--run-directory",
             runDirectoryURL.standardizedFileURL.path,
         ]
-        let command = (["lungfish-cli"] + arguments).map(shellEscapeForWorkflowBuilder).joined(separator: " ")
+        let command = ([CLICommandIdentity.executableName] + arguments).map(shellEscapeForWorkflowBuilder).joined(separator: " ")
         let operationID = operationCenter.start(
             title: "Workflow Builder Runner",
             detail: "Running native Workflow Builder graph",
             operationType: .workflow,
-            targetBundleURL: workflowBundleURL,
             cliCommand: command,
             workflowRunID: runID,
             routeContext: routeContext
@@ -341,7 +340,7 @@ public final class WorkflowBuilderRunService {
             logNativeBuilderProcessOutput(result, operationID: operationID, operationCenter: operationCenter)
             guard result.exitCode == 0 else {
                 let message = nativeBuilderFailureMessage(result)
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: message,
                     errorMessage: "Workflow Builder runner failed",
@@ -359,7 +358,7 @@ public final class WorkflowBuilderRunService {
                 graph: graph
             )
             try verifyNativeBuilderOutputBundle(outputBundleURL, graph: graph)
-            operationCenter.complete(
+            _ = operationCenter.complete(
                 id: operationID,
                 detail: "Workflow Builder runner completed. Output bundle: \(outputBundleURL.path)",
                 bundleURLs: [outputBundleURL]
@@ -367,7 +366,7 @@ public final class WorkflowBuilderRunService {
             return GraphExecutionResult(bundleURL: outputBundleURL)
         } catch {
             if operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
-                operationCenter.fail(
+                _ = operationCenter.fail(
                     id: operationID,
                     detail: errorMessage(forNativeBuilderError: error),
                     errorMessage: "Workflow Builder runner failed",

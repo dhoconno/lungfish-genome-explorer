@@ -98,7 +98,7 @@ extension BAMCommand {
 
         private func adoptMappingArgv(outputTrackID: String) -> [String] {
             var argv = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "bam",
                 "adopt-mapping",
                 "--bundle", bundlePath,
@@ -168,7 +168,7 @@ extension BAMCommand {
             }
 
             let step = StepExecution(
-                toolName: "lungfish-cli",
+                toolName: CLICommandIdentity.executableName,
                 toolVersion: LungfishCLI.configuration.version,
                 command: commandArgv,
                 inputs: inputRecords,
@@ -223,7 +223,7 @@ extension BAMCommand {
                 )
             }
             metadataDB.addProvenanceRecord(
-                tool: "lungfish-cli",
+                tool: CLICommandIdentity.executableName,
                 subcommand: "bam adopt-mapping",
                 version: LungfishCLI.configuration.version,
                 command: commandArgv.map(shellEscape).joined(separator: " "),

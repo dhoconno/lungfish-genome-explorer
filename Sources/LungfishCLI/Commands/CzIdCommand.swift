@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 /// Import and inspect CZ-ID hosted metagenomics taxon reports.
@@ -52,7 +53,7 @@ struct CzIdCommand: AsyncParsableCommand {
                     ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                         .appendingPathComponent("cz-id-\(sample)", isDirectory: true)
 
-                let command = ["lungfish", "cz-id", "import", inputURL.path, "--output-dir", destination.path]
+                let command = [CLICommandIdentity.executableName, "cz-id", "import", inputURL.path, "--output-dir", destination.path]
                 let sourceInput = resolved.selectedSourceURL.standardizedFileURL == resolved.reportURL.standardizedFileURL
                     ? nil
                     : resolved.selectedSourceURL

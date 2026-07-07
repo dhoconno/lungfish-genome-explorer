@@ -238,6 +238,7 @@ final class AssemblyBundleBuilderTests: XCTestCase {
             .contigsNotFound(URL(fileURLWithPath: "/tmp/contigs.fasta")),
             .bgzipFailed("exit code 1"),
             .indexFailed("file not readable"),
+            .outputBundleAlreadyExists(URL(fileURLWithPath: "/tmp/Existing.lungfishref")),
             .validationFailed("manifest.json missing"),
         ]
 

@@ -251,13 +251,21 @@ public struct ExtractionResult: Sendable {
 
 /// Metadata written into a FASTQ bundle produced by an extraction.
 ///
-/// Serialised as JSON into the bundle's `.lungfish-provenance.json` sidecar.
-/// All properties are optional so partial metadata degrades gracefully.
+/// Serialized as JSON into the bundle's `extraction-metadata.json` file.
+/// Core descriptive fields are required; parameters and provenance source URLs
+/// can be empty when a caller has no additional context.
 ///
 /// ## Thread Safety
 ///
 /// `ExtractionMetadata` is a value type conforming to `Sendable` and `Codable`.
 public struct ExtractionMetadata: Sendable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case sourceDescription
+        case toolName
+        case extractionDate
+        case parameters
+        case sourceURLs
+    }
 
     /// Human-readable description of the data source (e.g. bundle display name).
     public let sourceDescription: String
@@ -271,6 +279,9 @@ public struct ExtractionMetadata: Sendable, Codable {
     /// Arbitrary key–value parameters describing the extraction (e.g. tax IDs, regions).
     public let parameters: [String: String]
 
+    /// Source files/directories that should be recorded as provenance inputs.
+    public let sourceURLs: [URL]
+
     /// Creates extraction metadata.
     ///
     /// - Parameters:
@@ -278,16 +289,55 @@ public struct ExtractionMetadata: Sendable, Codable {
     ///   - toolName: Name of the tool that produced the source data.
     ///   - extractionDate: When the extraction was performed (default: now).
     ///   - parameters: Key–value extraction parameters for provenance.
+    ///   - sourceURLs: Source files/directories to record as provenance inputs.
     public init(
         sourceDescription: String,
         toolName: String,
         extractionDate: Date = Date(),
-        parameters: [String: String] = [:]
+        parameters: [String: String] = [:],
+        sourceURLs: [URL] = []
     ) {
         self.sourceDescription = sourceDescription
         self.toolName = toolName
         self.extractionDate = extractionDate
         self.parameters = parameters
+        self.sourceURLs = sourceURLs.map(\.standardizedFileURL)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sourceDescription = try container.decode(String.self, forKey: .sourceDescription)
+        toolName = try container.decode(String.self, forKey: .toolName)
+        extractionDate = try container.decode(Date.self, forKey: .extractionDate)
+        parameters = try container.decodeIfPresent([String: String].self, forKey: .parameters) ?? [:]
+        sourceURLs = try container.decodeIfPresent([URL].self, forKey: .sourceURLs) ?? []
+    }
+
+    /// Returns metadata with additional parameters, preserving existing values
+    /// unless the added parameter intentionally replaces the same key.
+    public func mergingParameters(_ additionalParameters: [String: String]) -> ExtractionMetadata {
+        var merged = parameters
+        for (key, value) in additionalParameters {
+            merged[key] = value
+        }
+        return ExtractionMetadata(
+            sourceDescription: sourceDescription,
+            toolName: toolName,
+            extractionDate: extractionDate,
+            parameters: merged,
+            sourceURLs: sourceURLs
+        )
+    }
+
+    /// Returns metadata with provenance source URLs replaced by the supplied durable paths.
+    public func recordingSourceURLs(_ urls: [URL]) -> ExtractionMetadata {
+        ExtractionMetadata(
+            sourceDescription: sourceDescription,
+            toolName: toolName,
+            extractionDate: extractionDate,
+            parameters: parameters,
+            sourceURLs: urls.map(\.standardizedFileURL)
+        )
     }
 }
 

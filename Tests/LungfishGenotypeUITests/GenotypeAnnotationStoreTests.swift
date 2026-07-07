@@ -213,7 +213,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
         XCTAssertEqual(envelope.options.explicit["action"], .string("addMatrixComment"))
-        XCTAssertEqual(Array(envelope.argv.prefix(3)), ["lungfish", "genotype", "apply-annotations"])
+        XCTAssertEqual(Array(envelope.argv.prefix(3)), ["lungfish-cli", "genotype", "apply-annotations"])
         XCTAssertTrue(envelope.argv.contains("--bundle"))
         XCTAssertTrue(envelope.argv.contains("--patch"))
         XCTAssertEqual(envelope.options.explicit["targetCount"], .integer(1))
@@ -373,7 +373,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "Genotype annotation sidecar edit")
         XCTAssertEqual(envelope.toolName, "Lungfish Genome Explorer")
         XCTAssertEqual(envelope.argv, [
-            "lungfish",
+            "lungfish-cli",
             "genotype",
             "apply-annotations",
             "--bundle", dir.path,

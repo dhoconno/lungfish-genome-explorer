@@ -690,6 +690,7 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
 
     public func run(_ request: GATKPipelineExecutionRequest) async throws -> GATKPipelineExecutionResult {
         try fileManager.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
+        let preexistingOutputPaths = preexistingOutputPaths(for: request)
         let startedAt = dateProvider()
         var executedCommands: [GATKExecutedCommand] = []
         for command in request.commands {
@@ -697,13 +698,21 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
             executedCommands.append(GATKExecutedCommand(command: command, result: commandResult))
             guard commandResult.isSuccess else {
                 let completedAt = dateProvider()
-                let provenanceURL = try writeProvenance(
-                    request: request,
-                    executedCommands: executedCommands,
-                    startedAt: startedAt,
-                    completedAt: completedAt,
-                    status: .failed
-                )
+                let outputArtifacts = outputArtifactsForProvenance(request)
+                removeNewOutputs(for: request, preexistingOutputPaths: preexistingOutputPaths)
+                let provenanceURL: URL
+                do {
+                    provenanceURL = try writeProvenance(
+                        request: request,
+                        executedCommands: executedCommands,
+                        outputArtifacts: outputArtifacts,
+                        startedAt: startedAt,
+                        completedAt: completedAt,
+                        status: .failed
+                    )
+                } catch {
+                    throw error
+                }
                 throw GATKPipelineExecutionError.commandFailed(
                     exitCode: commandResult.exitCode,
                     provenanceURL: provenanceURL
@@ -711,13 +720,21 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
             }
         }
         let completedAt = dateProvider()
-        let provenanceURL = try writeProvenance(
-            request: request,
-            executedCommands: executedCommands,
-            startedAt: startedAt,
-            completedAt: completedAt,
-            status: .completed
-        )
+        let outputArtifacts = outputArtifactsForProvenance(request)
+        let provenanceURL: URL
+        do {
+            provenanceURL = try writeProvenance(
+                request: request,
+                executedCommands: executedCommands,
+                outputArtifacts: outputArtifacts,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                status: .completed
+            )
+        } catch {
+            removeNewOutputs(for: request, preexistingOutputPaths: preexistingOutputPaths)
+            throw error
+        }
         return GATKPipelineExecutionResult(
             exitCode: executedCommands.last?.result.exitCode ?? 0,
             stdout: executedCommands.map(\.result.stdout).filter { !$0.isEmpty }.joined(separator: "\n"),
@@ -726,9 +743,32 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
         )
     }
 
+    private func preexistingOutputPaths(for request: GATKPipelineExecutionRequest) -> Set<String> {
+        Set(
+            removableOutputArtifacts(for: request)
+                .map { $0.url.standardizedFileURL.path }
+                .filter { fileManager.fileExists(atPath: $0) }
+        )
+    }
+
+    private func removeNewOutputs(
+        for request: GATKPipelineExecutionRequest,
+        preexistingOutputPaths: Set<String>
+    ) {
+        for output in removableOutputArtifacts(for: request) {
+            let path = output.url.standardizedFileURL.path
+            guard !preexistingOutputPaths.contains(path),
+                  fileManager.fileExists(atPath: path) else {
+                continue
+            }
+            try? fileManager.removeItem(at: output.url)
+        }
+    }
+
     private func writeProvenance(
         request: GATKPipelineExecutionRequest,
         executedCommands: [GATKExecutedCommand],
+        outputArtifacts: [GATKFileArtifact],
         startedAt: Date,
         completedAt: Date,
         status: RunStatus
@@ -741,7 +781,7 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
                 containerDigest: request.runtimeIdentity.containerDigest,
                 command: [executed.command.executable] + executed.command.arguments,
                 inputs: request.inputs.map { $0.fileRecord() },
-                outputs: request.outputs.map { $0.fileRecord() },
+                outputs: outputArtifacts.map { $0.fileRecord() },
                 exitCode: executed.result.exitCode,
                 wallTime: executed.result.wallTime,
                 stderr: executed.result.stderr.isEmpty ? nil : executed.result.stderr,
@@ -763,6 +803,44 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
         let provenanceURL = request.outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         try encoder.encode(run).write(to: provenanceURL, options: .atomic)
         return provenanceURL
+    }
+
+    private func outputArtifactsForProvenance(_ request: GATKPipelineExecutionRequest) -> [GATKFileArtifact] {
+        uniquedArtifacts(
+            request.outputs + request.outputs.flatMap { output in
+                vcfIndexArtifacts(for: output).filter { fileManager.fileExists(atPath: $0.url.path) }
+            }
+        )
+    }
+
+    private func removableOutputArtifacts(for request: GATKPipelineExecutionRequest) -> [GATKFileArtifact] {
+        uniquedArtifacts(request.outputs + request.outputs.flatMap(vcfIndexArtifacts))
+    }
+
+    private func vcfIndexArtifacts(for output: GATKFileArtifact) -> [GATKFileArtifact] {
+        guard isVCFOutput(output) else { return [] }
+        let path = output.url.path
+        return [".tbi", ".csi", ".idx"].map { suffix in
+            GATKFileArtifact(
+                url: URL(fileURLWithPath: path + suffix),
+                format: .unknown,
+                role: .index
+            )
+        }
+    }
+
+    private func isVCFOutput(_ output: GATKFileArtifact) -> Bool {
+        guard output.role == .output else { return false }
+        if output.format == .vcf { return true }
+        let name = output.url.lastPathComponent.lowercased()
+        return name.hasSuffix(".vcf") || name.hasSuffix(".vcf.gz")
+    }
+
+    private func uniquedArtifacts(_ artifacts: [GATKFileArtifact]) -> [GATKFileArtifact] {
+        var seen: Set<String> = []
+        return artifacts.filter { artifact in
+            seen.insert(artifact.url.standardizedFileURL.path).inserted
+        }
     }
 
     private func parameters(for request: GATKPipelineExecutionRequest) -> [String: ParameterValue] {

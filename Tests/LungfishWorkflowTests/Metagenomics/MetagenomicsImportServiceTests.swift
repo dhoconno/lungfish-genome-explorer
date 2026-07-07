@@ -38,6 +38,12 @@ struct MetagenomicsImportServiceTests {
         #expect(FileManager.default.fileExists(
             atPath: result.resultDirectory.appendingPathComponent("classification-result.json").path
         ))
+        try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import kraken2",
+            inputURLs: [sourceKreport],
+            outputNames: ["classification.kreport", "classification.kraken", "classification-result.json"]
+        )
         #expect(result.totalReads == 10)
         #expect(result.speciesCount == 1)
     }
@@ -78,11 +84,43 @@ struct MetagenomicsImportServiceTests {
 
         let loaded = try ClassificationResult.load(from: result.resultDirectory)
         #expect(loaded.outputURL.lastPathComponent == "classification.kraken.gz")
+        try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import kraken2",
+            inputURLs: [sourceKreport, sourceOutput],
+            outputNames: [
+                "classification.kreport",
+                "classification.kraken.gz",
+                "classification.kraken.gz.idx.sqlite",
+                "classification-result.json",
+            ]
+        )
 
         let index = try KrakenIndexDatabase(url: indexURL)
         #expect(index.isClassifiedOnly)
         #expect(index.canResolve(taxIds: [12345]))
         #expect(!index.canResolve(taxIds: [0]))
+    }
+
+    @Test
+    func kraken2ImportRemovesPartialResultDirectoryOnParseFailure() throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-kraken2-failure-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceKreport = workspace.appendingPathComponent("invalid.kreport")
+        try "not-a-kreport\n".write(to: sourceKreport, atomically: true, encoding: .utf8)
+        let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
+
+        do {
+            _ = try MetagenomicsImportService.importKraken2(
+                kreportURL: sourceKreport,
+                outputDirectory: outputDirectory
+            )
+            Issue.record("Expected invalid Kraken2 import to throw")
+        } catch {
+            let visibleResults = try visibleResultDirectories(in: outputDirectory)
+            #expect(visibleResults.isEmpty)
+        }
     }
 
     @Test
@@ -105,6 +143,12 @@ struct MetagenomicsImportServiceTests {
         #expect(FileManager.default.fileExists(
             atPath: result.resultDirectory.appendingPathComponent("esviritu-result.json").path
         ))
+        try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import esviritu",
+            inputURLs: [sourceDirectory],
+            outputNames: ["SampleA.detected_virus.info.tsv", "esviritu-result.json"]
+        )
         #expect(result.importedFileCount >= 1)
         #expect(result.virusCount >= 1)
     }
@@ -144,6 +188,12 @@ struct MetagenomicsImportServiceTests {
         #expect(result.reportEntryCount == 2)
         #expect(sidecar.ignoredFailures.count == 1)
         #expect(sidecar.ignoredFailures.first?.sampleID == "SRR35517992")
+        try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import taxtriage",
+            inputURLs: [sourceDirectory],
+            outputNames: ["top_report.tsv", "nextflow.log", "taxtriage-result.json"]
+        )
     }
 
     @Test
@@ -174,8 +224,179 @@ struct MetagenomicsImportServiceTests {
         #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("hits.sqlite").path))
         #expect(result.sampleName == "SAMPLE_A")
         #expect(result.taxonCount == 2)
-        // createdBAM reflects whether samtools was available in the test environment;
-        // both true and false are valid outcomes after the materialization step was added.
+        let provenance = try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import nao-mgs",
+            inputURLs: [sourceFile],
+            outputNames: ["manifest.json", "hits.sqlite"]
+        )
+        if result.createdBAM {
+            let materializationSteps = provenance.steps.filter { $0.toolName == "lungfish nao-mgs materialize-bam" }
+            #expect(!materializationSteps.isEmpty)
+            #expect(materializationSteps.contains { step in
+                step.inputs.contains { descriptor in
+                    descriptor.path == bundle.appendingPathComponent("hits.sqlite").path
+                        && descriptor.path.contains(result.resultDirectory.path)
+                        && !descriptor.path.contains(".naomgs-import-staging")
+                }
+            })
+            #expect(materializationSteps.allSatisfy { step in
+                !step.inputs.contains { descriptor in
+                    descriptor.path == sourceFile.path
+                        || descriptor.path.contains(".naomgs-import-staging")
+                }
+            })
+            #expect(materializationSteps.contains { step in
+                guard let durableReplayArgv = step.durableReplayArgv else { return false }
+                return durableReplayArgv.prefix(3).elementsEqual(["lungfish-cli", "import", "nao-mgs"])
+                    && durableReplayArgv.contains(sourceFile.path)
+                    && !durableReplayArgv.contains { $0.contains(".naomgs-import-staging") }
+            })
+            #expect(materializationSteps.allSatisfy { step in
+                !step.reproducibleCommand.contains(".naomgs-import-staging")
+            })
+            let samtoolsSteps = provenance.steps.filter { $0.toolName == "samtools" }
+            #expect(!samtoolsSteps.isEmpty)
+            #expect(samtoolsSteps.contains { step in
+                step.outputs.contains { descriptor in
+                    descriptor.path.hasSuffix(".bam") && descriptor.originPath != nil
+                }
+            })
+            #expect(samtoolsSteps.contains { step in
+                step.inputs.contains { descriptor in
+                    descriptor.path.hasSuffix(".bam")
+                        && descriptor.path.contains("/bams/")
+                        && !descriptor.path.contains(".naomgs-import-staging")
+                }
+            })
+            #expect(samtoolsSteps.allSatisfy { step in
+                step.durableReplayArgv?.allSatisfy { !$0.contains(".naomgs-import-staging") } == true
+                    && !step.reproducibleCommand.contains(".naomgs-import-staging")
+            })
+            #expect(samtoolsSteps.allSatisfy { $0.exitStatus != nil })
+        }
+    }
+
+    @Test
+    func naoMgsImportRemovesPartialResultDirectoryOnMalformedInput() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-naomgs-failure-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceFile = workspace.appendingPathComponent("virus_hits_final.tsv")
+        try """
+        this\tis\tnot\tthe\texpected\theader
+        bad\trow
+        """.write(to: sourceFile, atomically: true, encoding: .utf8)
+        let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
+
+        do {
+            _ = try await importNaoMgsForTesting(
+                inputURL: sourceFile,
+                outputDirectory: outputDirectory,
+                fetchReferences: false
+            )
+            Issue.record("Expected malformed NAO-MGS import to throw")
+        } catch {
+            let visibleResults = try visibleResultDirectories(in: outputDirectory)
+            #expect(visibleResults.isEmpty)
+        }
+    }
+
+    @Test
+    func nvdImportCreatesDatabaseAssetsAndProvenance() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-nvd-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceDirectory = try makeNvdRunDirectory(in: workspace)
+        let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
+
+        let result = try await MetagenomicsImportService.importNvd(
+            inputURL: sourceDirectory,
+            outputDirectory: outputDirectory,
+            samtoolsPath: nil
+        )
+
+        let bundle = result.resultDirectory
+        #expect(bundle.lastPathComponent == "nvd-EXP001")
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("manifest.json").path))
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("hits.sqlite").path))
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("bam/S1.bam").path))
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("bam/S1.bam.bai").path))
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("fasta/S1.human_virus.fasta").path))
+        #expect(!FileManager.default.fileExists(atPath: bundle.appendingPathComponent(".processing").path))
+        #expect(result.sampleCount == 1)
+        #expect(result.hitCount == 1)
+        #expect(result.copiedBAMCount == 1)
+        #expect(result.copiedFASTACount == 1)
+
+        let database = try NvdDatabase(at: bundle.appendingPathComponent("hits.sqlite"))
+        #expect(try database.totalHitCount() == 1)
+        #expect(try database.bamPath(forSample: "S1") == "bam/S1.bam")
+        #expect(try database.bamIndexPath(forSample: "S1") == "bam/S1.bam.bai")
+        #expect(try database.fastaPath(forSample: "S1") == "fasta/S1.human_virus.fasta")
+
+        try expectImportProvenance(
+            in: bundle,
+            workflowName: "lungfish import nvd",
+            inputURLs: [sourceDirectory],
+            outputNames: [
+                "manifest.json",
+                "hits.sqlite",
+                "S1.bam",
+                "S1.bam.bai",
+                "S1.human_virus.fasta",
+            ]
+        )
+    }
+
+    @Test
+    func nvdImportWithSamtoolsRecordsAuxiliaryProvenanceSteps() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-nvd-samtools-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceDirectory = try makeNvdRunDirectory(in: workspace)
+        let samtoolsURL = try makeFakeSamtools(in: workspace)
+        let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
+
+        let result = try await MetagenomicsImportService.importNvd(
+            inputURL: sourceDirectory,
+            outputDirectory: outputDirectory,
+            samtoolsPath: samtoolsURL.path
+        )
+
+        #expect(result.markdupBAMCount == 1)
+        #expect(result.uniqueReadRowsUpdated == 1)
+
+        let provenance = try expectImportProvenance(
+            in: result.resultDirectory,
+            workflowName: "lungfish import nvd",
+            inputURLs: [sourceDirectory],
+            outputNames: [
+                "manifest.json",
+                "hits.sqlite",
+                "S1.bam",
+                "S1.bam.bai",
+                "S1.human_virus.fasta",
+            ]
+        )
+        let samtoolsSteps = provenance.steps.filter { $0.toolName == "samtools" }
+        #expect(!samtoolsSteps.isEmpty)
+        #expect(samtoolsSteps.allSatisfy { $0.toolVersion == "samtools fake 1.0" })
+        #expect(samtoolsSteps.contains { $0.argv.first == "/bin/sh" && $0.reproducibleCommand.contains("markdup") })
+        #expect(samtoolsSteps.contains { $0.argv.contains("view") && $0.argv.contains("-c") })
+        #expect(samtoolsSteps.flatMap(\.outputs).contains { $0.path.hasSuffix("hits.sqlite") })
+        #expect(samtoolsSteps.flatMap(\.inputs).allSatisfy { descriptor in
+            descriptor.path.contains(result.resultDirectory.path)
+                && !descriptor.path.contains(".lungfish-nvd-import-")
+        })
+        #expect(samtoolsSteps.flatMap(\.outputs).allSatisfy { descriptor in
+            descriptor.path.contains(result.resultDirectory.path)
+                && !descriptor.path.contains(".lungfish-nvd-import-")
+        })
+        #expect(samtoolsSteps.allSatisfy { step in
+            step.durableReplayArgv?.allSatisfy { !$0.contains(".lungfish-nvd-import-") } == true
+                && !step.reproducibleCommand.contains(".lungfish-nvd-import-")
+        })
     }
 
     @Test
@@ -201,6 +422,178 @@ private func makeTemporaryDirectory(prefix: String) -> URL {
         .appendingPathComponent("\(prefix)\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+}
+
+private func visibleResultDirectories(in outputDirectory: URL) throws -> [URL] {
+    guard FileManager.default.fileExists(atPath: outputDirectory.path) else {
+        return []
+    }
+    return try FileManager.default
+        .contentsOfDirectory(at: outputDirectory, includingPropertiesForKeys: [.isDirectoryKey])
+        .filter { url in
+            guard !url.lastPathComponent.hasPrefix(".") else { return false }
+            return (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+}
+
+private func makeNvdRunDirectory(in workspace: URL) throws -> URL {
+    let nvdDir = workspace.appendingPathComponent("nvd-run", isDirectory: true)
+    let labkeyDir = nvdDir.appendingPathComponent("05_labkey_bundling", isDirectory: true)
+    let humanVirusDir = nvdDir
+        .appendingPathComponent("02_human_viruses", isDirectory: true)
+        .appendingPathComponent("03_human_virus_results", isDirectory: true)
+    let mappedReadsDir = humanVirusDir.appendingPathComponent("mapped_reads", isDirectory: true)
+
+    try FileManager.default.createDirectory(at: labkeyDir, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: mappedReadsDir, withIntermediateDirectories: true)
+
+    try nvdCSVFixture.write(
+        to: labkeyDir.appendingPathComponent("sample_blast_concatenated.csv"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "synthetic bam payload\n".write(
+        to: mappedReadsDir.appendingPathComponent("S1.filtered.bam"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "synthetic bai payload\n".write(
+        to: mappedReadsDir.appendingPathComponent("S1.filtered.bam.bai"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try ">contig-1\nACGTACGT\n".write(
+        to: humanVirusDir.appendingPathComponent("S1.human_virus.fasta"),
+        atomically: true,
+        encoding: .utf8
+    )
+    return nvdDir
+}
+
+private func makeFakeSamtools(in workspace: URL) throws -> URL {
+    let samtoolsURL = workspace.appendingPathComponent("fake-samtools")
+    try """
+    #!/bin/sh
+    set -eu
+    command="${1:-}"
+    if [ "$command" = "--version" ]; then
+      echo "samtools fake 1.0"
+      exit 0
+    fi
+    case "$command" in
+      view)
+        if [ "${2:-}" = "-H" ]; then
+          exit 0
+        fi
+        if [ "${2:-}" = "-c" ]; then
+          echo "7"
+          exit 0
+        fi
+        exit 0
+        ;;
+      sort|fixmate)
+        cat >/dev/null || true
+        echo "fake-bam-stream"
+        exit 0
+        ;;
+      markdup)
+        output=""
+        for arg in "$@"; do
+          output="$arg"
+        done
+        cat >/dev/null || true
+        printf "fake markdup bam\\n" > "$output"
+        exit 0
+        ;;
+      index)
+        printf "fake index\\n" > "$2.bai"
+        exit 0
+        ;;
+      *)
+        echo "unsupported fake samtools command: $command" >&2
+        exit 2
+        ;;
+    esac
+    """.write(to: samtoolsURL, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtoolsURL.path)
+    return samtoolsURL
+}
+
+private let nvdCSVFixture = """
+experiment,blast_task,sample_id,qseqid,qlen,sseqid,stitle,tax_rank,length,pident,evalue,bitscore,sscinames,staxids,blast_db_version,snakemake_run_id,mapped_reads,total_reads,stat_db_version,adjusted_taxid,adjustment_method,adjusted_taxid_name,adjusted_taxid_rank
+EXP001,blastn,S1,contig-1,120,gb|NC_001|,Example virus species,S,118,99.2,1e-20,250.5,Example virus,12345,nt-2026,run-001,42,100000,stat-1,12345,unchanged,Example virus,species
+
+"""
+
+@discardableResult
+private func expectImportProvenance(
+    in resultDirectory: URL,
+    workflowName: String,
+    inputURLs: [URL],
+    outputNames: [String],
+    sourceLocation: SourceLocation = #_sourceLocation
+) throws -> ProvenanceEnvelope {
+    let sidecarURL = resultDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+    #expect(FileManager.default.fileExists(atPath: sidecarURL.path), sourceLocation: sourceLocation)
+
+    let envelope = try #require(
+        try ProvenanceEnvelopeReader.load(from: resultDirectory),
+        sourceLocation: sourceLocation
+    )
+    #expect(envelope.workflowName == workflowName, sourceLocation: sourceLocation)
+    #expect(envelope.toolName == "lungfish import", sourceLocation: sourceLocation)
+    #expect(envelope.exitStatus == 0, sourceLocation: sourceLocation)
+    #expect(envelope.wallTimeSeconds != nil, sourceLocation: sourceLocation)
+    #expect(envelope.options.resolvedDefaults["outputDirectory"]?.fileValue?.path == resultDirectory.path, sourceLocation: sourceLocation)
+    #expect(envelope.argv.first == "lungfish-cli", sourceLocation: sourceLocation)
+
+    let inputPaths = Set(envelope.files.filter { $0.role == .input }.map(\.path))
+    for inputURL in inputURLs {
+        var inputPathCandidates = Set([
+            inputURL.path,
+            inputURL.standardizedFileURL.path,
+            inputURL.resolvingSymlinksInPath().path,
+        ])
+        for candidate in inputPathCandidates {
+            if candidate.hasPrefix("/var/") {
+                inputPathCandidates.insert("/private" + candidate)
+            } else if candidate.hasPrefix("/private/var/") {
+                inputPathCandidates.insert(String(candidate.dropFirst("/private".count)))
+            }
+        }
+        #expect(!inputPaths.isDisjoint(with: inputPathCandidates), sourceLocation: sourceLocation)
+        let descriptor = try #require(
+            envelope.files.first { inputPathCandidates.contains($0.path) },
+            sourceLocation: sourceLocation
+        )
+        if isRegularFileForProvenanceTest(inputURL) {
+            #expect(descriptor.checksumSHA256 != nil, sourceLocation: sourceLocation)
+            #expect(descriptor.fileSize != nil, sourceLocation: sourceLocation)
+        } else {
+            let childInputs = envelope.files.filter {
+                let descriptorPath = $0.path
+                return $0.role == .input && inputPathCandidates.contains { candidate in
+                    descriptorPath.hasPrefix(candidate + "/")
+                }
+            }
+            #expect(!childInputs.isEmpty, sourceLocation: sourceLocation)
+            #expect(childInputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil }, sourceLocation: sourceLocation)
+        }
+    }
+
+    let outputBasenames = Set(envelope.outputs.map { URL(fileURLWithPath: $0.path).lastPathComponent })
+    for outputName in outputNames {
+        #expect(outputBasenames.contains(outputName), sourceLocation: sourceLocation)
+    }
+
+    let resultOutput = try #require(envelope.output, sourceLocation: sourceLocation)
+    #expect(resultOutput.path == resultDirectory.path, sourceLocation: sourceLocation)
+    #expect(resultOutput.role == .output, sourceLocation: sourceLocation)
+    return envelope
+}
+
+private func isRegularFileForProvenanceTest(_ url: URL) -> Bool {
+    (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
 }
 
 private func importNaoMgsForTesting(

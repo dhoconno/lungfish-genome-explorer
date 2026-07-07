@@ -20,6 +20,8 @@ final class NCBIBioSampleExporterTests: XCTestCase {
 
         // Check comment lines
         XCTAssertTrue(tsv.contains("# BioSample package: Pathogen.cl.1.0"))
+        XCTAssertTrue(tsv.contains("# Exported from Lungfish Genome Explorer"))
+        XCTAssertFalse(tsv.contains("Lungfish Genome Browser"))
 
         // Check header
         XCTAssertTrue(tsv.contains("sample_name\tsample_title\torganism"))

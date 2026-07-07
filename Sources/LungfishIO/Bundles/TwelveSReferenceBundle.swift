@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 public typealias TwelveSReferenceBundleSourceFile = ReferenceBundleSourceFile
 
@@ -70,6 +71,7 @@ public struct TwelveSReferenceBundleManifest: ReferenceBundleManifesting {
 public enum TwelveSReferenceBundle {
     public static let directoryExtension = "lungfish12sref"
     public static let manifestFilename = TwelveSReferenceBundleManifest.manifestFilename
+    private static let supportedSchemaVersion = 1
 
     public static func manifestURL(in bundleURL: URL) -> URL {
         bundleURL.appendingPathComponent(manifestFilename).standardizedFileURL
@@ -105,21 +107,107 @@ public enum TwelveSReferenceBundle {
         try data.write(to: manifestURL(in: bundleURL), options: .atomic)
     }
 
+    /// Confirms the bundle manifest references files that exist on disk and carries
+    /// the expected schema version and kind.
+    public static func validate(at bundleURL: URL) throws {
+        let manifest = try loadManifest(from: bundleURL)
+        guard manifest.schemaVersion == supportedSchemaVersion else {
+            throw ReferenceBundleValidationError(
+                kind: .schemaMismatch(
+                    expected: supportedSchemaVersion,
+                    found: manifest.schemaVersion
+                )
+            )
+        }
+        guard manifest.kind == TwelveSReferenceBundleManifest.kindIdentifier else {
+            throw ReferenceBundleValidationError(
+                kind: .kindMismatch(
+                    expected: TwelveSReferenceBundleManifest.kindIdentifier,
+                    found: manifest.kind
+                )
+            )
+        }
+        let referenceURL = try validatedBundleMemberURL(
+            manifest.referenceFastaPath,
+            in: bundleURL,
+            field: "referenceFastaPath"
+        )
+        guard FileManager.default.fileExists(atPath: referenceURL.path) else {
+            throw ReferenceBundleValidationError(kind: .missingFile(referenceURL.path))
+        }
+        let metadataURL = try validatedBundleMemberURL(
+            manifest.targetMetadataPath,
+            in: bundleURL,
+            field: "targetMetadataPath"
+        )
+        guard FileManager.default.fileExists(atPath: metadataURL.path) else {
+            throw ReferenceBundleValidationError(kind: .missingFile(metadataURL.path))
+        }
+        let provenanceURL = try validatedBundleMemberURL(
+            manifest.provenancePath,
+            in: bundleURL,
+            field: "provenancePath",
+            allowReservedControlPath: true
+        )
+        guard FileManager.default.fileExists(atPath: provenanceURL.path) else {
+            throw ReferenceBundleValidationError(kind: .missingFile(provenanceURL.path))
+        }
+    }
+
     public static func referenceFASTAURL(in bundleURL: URL) -> URL? {
-        guard let manifest = try? loadManifest(from: bundleURL) else { return nil }
-        let url = bundleURL.appendingPathComponent(manifest.referenceFastaPath).standardizedFileURL
+        guard let manifest = try? loadManifest(from: bundleURL),
+              isSupported(manifest),
+              let url = try? validatedBundleMemberURL(
+                manifest.referenceFastaPath,
+                in: bundleURL,
+                field: "referenceFastaPath"
+              ) else { return nil }
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     public static func targetMetadataURL(in bundleURL: URL) -> URL? {
-        guard let manifest = try? loadManifest(from: bundleURL) else { return nil }
-        let url = bundleURL.appendingPathComponent(manifest.targetMetadataPath).standardizedFileURL
+        guard let manifest = try? loadManifest(from: bundleURL),
+              isSupported(manifest),
+              let url = try? validatedBundleMemberURL(
+                manifest.targetMetadataPath,
+                in: bundleURL,
+                field: "targetMetadataPath"
+              ) else { return nil }
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     public static func provenanceURL(in bundleURL: URL) -> URL? {
-        guard let manifest = try? loadManifest(from: bundleURL) else { return nil }
-        let url = bundleURL.appendingPathComponent(manifest.provenancePath).standardizedFileURL
+        guard let manifest = try? loadManifest(from: bundleURL),
+              isSupported(manifest),
+              let url = try? validatedBundleMemberURL(
+                manifest.provenancePath,
+                in: bundleURL,
+                field: "provenancePath",
+                allowReservedControlPath: true
+              ) else { return nil }
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private static func validatedBundleMemberURL(
+        _ relativePath: String,
+        in bundleURL: URL,
+        field: String,
+        allowReservedControlPath: Bool = false
+    ) throws -> URL {
+        do {
+            return try BundleManifest.validatedBundleMemberURL(
+                for: relativePath,
+                in: bundleURL,
+                field: field,
+                allowReservedControlPath: allowReservedControlPath
+            )
+        } catch {
+            throw ReferenceBundleValidationError(kind: .missingFile(relativePath))
+        }
+    }
+
+    private static func isSupported(_ manifest: TwelveSReferenceBundleManifest) -> Bool {
+        manifest.schemaVersion == supportedSchemaVersion
+            && manifest.kind == TwelveSReferenceBundleManifest.kindIdentifier
     }
 }

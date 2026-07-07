@@ -40,7 +40,7 @@ final class CzIdCommandTests: XCTestCase {
             atPath: outputDir.appendingPathComponent("classification.czid.tsv").path
         ))
         let recordedCommand = try firstProvenanceCommand(in: outputDir)
-        XCTAssertEqual(recordedCommand, ["lungfish", "cz-id", "import", exportDir.path, "--output-dir", outputDir.path])
+        XCTAssertEqual(recordedCommand, ["lungfish-cli", "cz-id", "import", exportDir.path, "--output-dir", outputDir.path])
     }
 
     func testImportAcceptsZipArchiveAndRecordsReplayableCommand() async throws {
@@ -70,7 +70,7 @@ final class CzIdCommandTests: XCTestCase {
             atPath: outputDir.appendingPathComponent("classification.czid.tsv").path
         ))
         let recordedCommand = try firstProvenanceCommand(in: outputDir)
-        XCTAssertEqual(recordedCommand, ["lungfish", "cz-id", "import", archiveURL.path, "--output-dir", outputDir.path])
+        XCTAssertEqual(recordedCommand, ["lungfish-cli", "cz-id", "import", archiveURL.path, "--output-dir", outputDir.path])
     }
 
     private static let czIdReportText = """
@@ -98,12 +98,7 @@ final class CzIdCommandTests: XCTestCase {
     }
 
     private func firstProvenanceCommand(in outputDir: URL) throws -> [String] {
-        let provenanceURL = outputDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let object = try XCTUnwrap(JSONSerialization.jsonObject(
-            with: try Data(contentsOf: provenanceURL)
-        ) as? [String: Any])
-        let steps = try XCTUnwrap(object["steps"] as? [[String: Any]])
-        let firstStep = try XCTUnwrap(steps.first)
-        return try XCTUnwrap(firstStep["command"] as? [String])
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: outputDir))
+        return try XCTUnwrap(provenance.steps.first?.argv)
     }
 }

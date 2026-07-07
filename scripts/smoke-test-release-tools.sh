@@ -12,8 +12,8 @@ usage() {
 Usage: smoke-test-release-tools.sh <Lungfish.app> [--portability-only]
 
 Verifies that only micromamba remains bundled, scans the packaged app for
-leaked build/Homebrew paths, and optionally runs a tiny smoke test against the
-bootstrap binary.
+leaked build/Homebrew paths, and optionally runs tiny smoke tests against the
+bootstrap binary and embedded CLI.
 EOF
 }
 
@@ -48,6 +48,7 @@ TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/Tools"
 LEGACY_TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/Contents/Resources/Tools"
 INFO_PLIST="$APP_PATH/Contents/Info.plist"
 APP_ICON_PATH="$APP_PATH/Contents/Resources/AppIcon.icns"
+CLI_BIN="$APP_PATH/Contents/MacOS/lungfish-cli"
 RG_BIN="$(command -v rg || true)"
 
 if [ ! -d "$TOOLS_DIR" ] && [ -d "$LEGACY_TOOLS_DIR" ]; then
@@ -212,7 +213,14 @@ run_test() {
 
 run_portability_scan() {
     local leak_patterns=(
+        "/Users/"
         "/Users/dho"
+        "/private/tmp"
+        "/var/folders"
+        "/tmp/lungfish"
+        "DerivedData"
+        ".worktrees/"
+        "/.tmp/"
         ".build/xcode-cli-release"
         "/opt/homebrew"
         "/opt/homebrew/Cellar"
@@ -238,4 +246,42 @@ if [ "$PORTABILITY_ONLY" -eq 1 ]; then
     exit 0
 fi
 
+if [ ! -x "$CLI_BIN" ]; then
+    echo "embedded CLI should be bundled and executable: $CLI_BIN" >&2
+    exit 66
+fi
+
 run_test micromamba "$TOOLS_DIR/micromamba" --version
+run_test lungfish-cli-version "$CLI_BIN" --version
+run_test lungfish-cli-tools "$CLI_BIN" version --tools
+
+FASTQ_INPUT="$TMP_DIR/smoke.fastq"
+QC_OUTPUT="$TMP_DIR/qc-summary.json"
+cat >"$FASTQ_INPUT" <<'EOF'
+@smoke-read
+ACGT
++
+!!!!
+EOF
+
+run_test lungfish-cli-qc-summary "$CLI_BIN" fastq qc-summary "$FASTQ_INPUT" --output "$QC_OUTPUT"
+
+if [ ! -s "$QC_OUTPUT" ]; then
+    echo "CLI QC smoke output missing or empty: $QC_OUTPUT" >&2
+    exit 66
+fi
+
+if [ ! -s "$QC_OUTPUT.lungfish-provenance.json" ]; then
+    echo "CLI QC smoke file provenance missing or empty: $QC_OUTPUT.lungfish-provenance.json" >&2
+    exit 66
+fi
+
+if [ ! -s "$TMP_DIR/.lungfish-provenance.json" ]; then
+    echo "CLI QC smoke directory provenance missing or empty: $TMP_DIR/.lungfish-provenance.json" >&2
+    exit 66
+fi
+
+if ! "$RG_BIN" -F -q "lungfish fastq qc-summary" "$QC_OUTPUT.lungfish-provenance.json"; then
+    echo "CLI QC smoke provenance does not identify qc-summary workflow" >&2
+    exit 66
+fi

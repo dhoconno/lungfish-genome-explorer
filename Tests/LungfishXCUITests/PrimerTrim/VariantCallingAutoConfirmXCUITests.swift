@@ -8,9 +8,9 @@ import XCTest
 /// (disabled, pre-checked) toggle plus the "Primer-trimmed by Lungfish"
 /// caption when the selected BAM carries a primer-trim provenance sidecar.
 ///
-/// Skipped pending a primer-trimmed bundle fixture. See the companion note in
-/// ``PrimerTrimXCUITests``. The state-level behavior is covered end-to-end by
-/// `PrimerTrimThenIVarTests` and `BAMVariantCallingAutoConfirmTests`.
+/// The state-level behavior is covered by `PrimerTrimThenIVarTests` and
+/// `BAMVariantCallingAutoConfirmTests`; this UI test remains as the dialog
+/// rendering check.
 final class VariantCallingAutoConfirmXCUITests: XCTestCase {
     @MainActor
     func testVariantCallingDialogAutoConfirmsTrimForLungfishTrimmedBAM() throws {

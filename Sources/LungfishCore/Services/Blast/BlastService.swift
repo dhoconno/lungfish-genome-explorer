@@ -111,22 +111,6 @@ public actor BlastService {
 
     // MARK: - Request Building
 
-    /// Builds a BLAST verification request by subsampling reads from classification output.
-    ///
-    /// This is a convenience method that handles:
-    /// 1. Scanning the Kraken2 per-read output for matching read IDs
-    /// 2. Extracting sequences from the source FASTQ
-    /// 3. Subsampling to the requested count
-    /// 4. Building the BlastVerificationRequest
-    ///
-    /// - Parameters:
-    ///   - taxonName: Display name of the taxon
-    ///   - taxId: NCBI taxonomy ID
-    ///   - targetTaxIds: All tax IDs to match (including descendants)
-    ///   - classificationOutputURL: Path to Kraken2 per-read output
-    ///   - sourceURL: Path to source FASTQ file
-    ///   - readCount: Number of reads to subsample (default 20)
-    /// - Returns: A ready-to-submit BlastVerificationRequest
     /// Builds a BLAST verification request using pre-fetched read IDs.
     ///
     /// Use this overload when read IDs have already been looked up via
@@ -164,6 +148,22 @@ public actor BlastService {
         )
     }
 
+    /// Builds a BLAST verification request by subsampling reads from classification output.
+    ///
+    /// This is a convenience method that handles:
+    /// 1. Scanning the Kraken2 per-read output for matching read IDs
+    /// 2. Extracting sequences from the source FASTQ
+    /// 3. Subsampling to the requested count
+    /// 4. Building the BlastVerificationRequest
+    ///
+    /// - Parameters:
+    ///   - taxonName: Display name of the taxon
+    ///   - taxId: NCBI taxonomy ID
+    ///   - targetTaxIds: All tax IDs to match (including descendants)
+    ///   - classificationOutputURL: Path to Kraken2 per-read output
+    ///   - sourceURL: Path to source FASTQ file
+    ///   - readCount: Number of reads to subsample (default 20)
+    /// - Returns: A ready-to-submit BlastVerificationRequest
     public func buildVerificationRequest(
         taxonName: String,
         taxId: Int,
@@ -188,7 +188,7 @@ public actor BlastService {
             )
             matchingReadIds = scanResult.matchingReadIds
             logger.info("buildVerificationRequest: scanned \(scanResult.totalClassified, privacy: .public) classified reads, \(matchingReadIds.count, privacy: .public) match target taxIds")
-        } else if !classificationExists {
+        } else {
             logger.error("buildVerificationRequest: classification output file not found at \(classificationOutputURL.path, privacy: .public)")
         }
 
@@ -206,6 +206,29 @@ public actor BlastService {
         )
     }
 
+    private func launchGzipDecompression(for url: URL) throws -> (
+        handle: FileHandle,
+        process: Process,
+        stderr: Pipe
+    ) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-dc", url.path]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+
+        return (
+            handle: stdout.fileHandleForReading,
+            process: process,
+            stderr: stderr
+        )
+    }
+
     private func scanKrakenClassificationOutput(
         _ classificationOutputURL: URL,
         targetTaxIds: Set<Int>
@@ -213,23 +236,20 @@ public actor BlastService {
         let isGzip = classificationOutputURL.pathExtension.lowercased() == "gz"
         let fileHandle: FileHandle
         let gzipProcess: Process?
+        let gzipStderr: Pipe?
 
         if isGzip {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-            process.arguments = ["-dc", classificationOutputURL.path]
-            let stdout = Pipe()
-            process.standardOutput = stdout
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            fileHandle = stdout.fileHandleForReading
-            gzipProcess = process
+            let stream = try launchGzipDecompression(for: classificationOutputURL)
+            fileHandle = stream.handle
+            gzipProcess = stream.process
+            gzipStderr = stream.stderr
         } else {
             guard let handle = FileHandle(forReadingAtPath: classificationOutputURL.path) else {
                 throw BlastServiceError.noSequences
             }
             fileHandle = handle
             gzipProcess = nil
+            gzipStderr = nil
         }
 
         var matchingReadIds = Set<String>()
@@ -277,7 +297,11 @@ public actor BlastService {
         if let gzipProcess {
             gzipProcess.waitUntilExit()
             guard gzipProcess.terminationStatus == 0 else {
-                throw BlastServiceError.noSequences
+                throw Self.gzipFailure(
+                    path: classificationOutputURL.path,
+                    status: gzipProcess.terminationStatus,
+                    stderr: gzipStderr
+                )
             }
         }
 
@@ -322,7 +346,7 @@ public actor BlastService {
         // Extract sequences from FASTQ, with retry for gzip subprocess failures.
         // The gzip subprocess can be killed by macOS XPC interruptions, so we
         // retry once before giving up.
-        let allSequences = try extractMatchingSequences(
+        let allSequences = try await extractMatchingSequences(
             from: sourceURL,
             matchingReadIds: matchingReadIds,
             isGzip: isGzip
@@ -457,15 +481,25 @@ public actor BlastService {
         from sourceURL: URL,
         matchingReadIds: Set<String>,
         isGzip: Bool
-    ) throws -> [(id: String, sequence: String)] {
+    ) async throws -> [(id: String, sequence: String)] {
         let maxAttempts = isGzip ? 2 : 1  // Retry only for gzip (subprocess can fail)
 
         for attempt in 1...maxAttempts {
-            let sequences = try extractMatchingSequencesOnce(
-                from: sourceURL,
-                matchingReadIds: matchingReadIds,
-                isGzip: isGzip
-            )
+            let sequences: [(id: String, sequence: String)]
+            do {
+                sequences = try extractMatchingSequencesOnce(
+                    from: sourceURL,
+                    matchingReadIds: matchingReadIds,
+                    isGzip: isGzip
+                )
+            } catch {
+                if isGzip, attempt < maxAttempts {
+                    logger.warning("extractMatchingSequences: gzip attempt \(attempt, privacy: .public) failed: \(error.localizedDescription, privacy: .public); retrying...")
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                    continue
+                }
+                throw error
+            }
 
             if !sequences.isEmpty || !isGzip {
                 return sequences
@@ -475,7 +509,7 @@ public actor BlastService {
             // Retry once after a brief delay.
             if attempt < maxAttempts {
                 logger.warning("extractMatchingSequences: gzip returned 0 sequences on attempt \(attempt, privacy: .public), retrying...")
-                Thread.sleep(forTimeInterval: 0.5)
+                try await Task.sleep(nanoseconds: 500_000_000)
             }
         }
 
@@ -491,25 +525,22 @@ public actor BlastService {
         var allSequences: [(id: String, sequence: String)] = []
         let handle: FileHandle?
         var gzipProcess: Process?
+        var gzipStderr: Pipe?
 
         if isGzip {
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-            proc.arguments = ["-dc", sourceURL.path]
-            let pipe = Pipe()
-            proc.standardOutput = pipe
-            proc.standardError = FileHandle.nullDevice
             do {
-                try proc.run()
+                let stream = try launchGzipDecompression(for: sourceURL)
+                handle = stream.handle
+                gzipProcess = stream.process
+                gzipStderr = stream.stderr
             } catch {
                 logger.error("extractMatchingSequences: failed to launch gzip: \(error.localizedDescription, privacy: .public)")
                 throw BlastServiceError.noSequences
             }
-            handle = pipe.fileHandleForReading
-            gzipProcess = proc
         } else {
             handle = FileHandle(forReadingAtPath: sourceURL.path)
             gzipProcess = nil
+            gzipStderr = nil
         }
 
         if let handle {
@@ -566,6 +597,13 @@ public actor BlastService {
                 proc.waitUntilExit()
                 let status = proc.terminationStatus
                 logger.info("extractMatchingSequences: gzip exited with status \(status, privacy: .public), read \(chunksRead, privacy: .public) chunks (\(totalBytesRead, privacy: .public) bytes), \(totalRecords, privacy: .public) FASTQ records, \(utf8Failures, privacy: .public) UTF8 failures, \(allSequences.count, privacy: .public) matched")
+                guard status == 0 else {
+                    throw Self.gzipFailure(
+                        path: sourceURL.path,
+                        status: status,
+                        stderr: gzipStderr
+                    )
+                }
             } else {
                 logger.info("extractMatchingSequences: read \(chunksRead, privacy: .public) chunks (\(totalBytesRead, privacy: .public) bytes), \(totalRecords, privacy: .public) FASTQ records, \(allSequences.count, privacy: .public) matched")
             }
@@ -651,19 +689,12 @@ public actor BlastService {
 
         let (data, _) = try await requestWithTransportRetry(operation: "submit BLAST job") {
             let (data, response) = try await httpClient.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw BlastServiceError.submissionFailed(message: "Non-HTTP response")
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                let body = String(data: data, encoding: .utf8) ?? "(non-UTF8)"
-                if Self.retryableHTTPStatusCodes.contains(httpResponse.statusCode) {
-                    throw RetryableHTTPError(statusCode: httpResponse.statusCode, body: body)
-                }
-                throw BlastServiceError.httpError(statusCode: httpResponse.statusCode, body: body)
-            }
-
+            let httpResponse = try Self.validateHTTPResponse(
+                data,
+                response,
+                nonHTTPMessage: "Non-HTTP response",
+                failureBodyFallback: "(non-UTF8)"
+            )
             return (data, httpResponse)
         }
 
@@ -696,19 +727,12 @@ public actor BlastService {
 
         let (data, _) = try await requestWithTransportRetry(operation: "poll BLAST status (\(rid))") {
             let (data, response) = try await httpClient.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw BlastServiceError.submissionFailed(message: "Status check returned non-HTTP response")
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                let body = String(data: data, encoding: .utf8) ?? "Status check failed"
-                if Self.retryableHTTPStatusCodes.contains(httpResponse.statusCode) {
-                    throw RetryableHTTPError(statusCode: httpResponse.statusCode, body: body)
-                }
-                throw BlastServiceError.httpError(statusCode: httpResponse.statusCode, body: body)
-            }
-
+            let httpResponse = try Self.validateHTTPResponse(
+                data,
+                response,
+                nonHTTPMessage: "Status check returned non-HTTP response",
+                failureBodyFallback: "Status check failed"
+            )
             return (data, httpResponse)
         }
 
@@ -737,32 +761,17 @@ public actor BlastService {
 
         let (data, httpResponse) = try await requestWithTransportRetry(operation: "fetch BLAST results (\(rid))") {
             let (data, response) = try await httpClient.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw BlastServiceError.submissionFailed(message: "Result fetch returned non-HTTP response")
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                let body = String(data: data, encoding: .utf8) ?? ""
-                if Self.retryableHTTPStatusCodes.contains(httpResponse.statusCode) {
-                    throw RetryableHTTPError(statusCode: httpResponse.statusCode, body: body)
-                }
-                throw BlastServiceError.httpError(statusCode: httpResponse.statusCode, body: body)
-            }
-
+            let httpResponse = try Self.validateHTTPResponse(
+                data,
+                response,
+                nonHTTPMessage: "Result fetch returned non-HTTP response",
+                failureBodyFallback: ""
+            )
             return (data, httpResponse)
         }
 
         let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
         logger.info("getResults: received \(data.count, privacy: .public) bytes, Content-Type=\(contentType, privacy: .public)")
-
-        // Save raw BLAST response for debugging. Written to the same temp
-        // directory the OS cleans up automatically.
-        let debugDir = FileManager.default.temporaryDirectory.appendingPathComponent("lungfish-blast-debug")
-        try? FileManager.default.createDirectory(at: debugDir, withIntermediateDirectories: true)
-        let rawFile = debugDir.appendingPathComponent("\(rid)-raw-response")
-        try? data.write(to: rawFile)
-        logger.info("getResults: saved raw response to \(rawFile.path, privacy: .public)")
 
         // NCBI sometimes returns BLAST JSON2 results as a ZIP archive.
         // Detect ZIP magic bytes (PK\x03\x04) and decompress before parsing.
@@ -773,11 +782,6 @@ public actor BlastService {
         } else {
             resultData = data
         }
-
-        // Save extracted/decompressed content for debugging
-        let jsonFile = debugDir.appendingPathComponent("\(rid)-extracted.json")
-        try? resultData.write(to: jsonFile)
-        logger.info("getResults: saved extracted content to \(jsonFile.path, privacy: .public)")
 
         return try parseJSON2Results(resultData)
     }
@@ -1099,122 +1103,6 @@ public actor BlastService {
         }
     }
 
-    /// Parses BLAST JSON2 results into search result models.
-    ///
-    /// The JSON2 format has this structure:
-    /// ```json
-    /// {
-    ///   "BlastOutput2": [
-    ///     {
-    ///       "report": {
-    ///         "results": {
-    ///           "search": {
-    ///             "query_title": "read1",
-    ///             "query_len": 150,
-    ///             "hits": [...]
-    ///           }
-    ///         }
-    ///       }
-    ///     }
-    ///   ]
-    /// }
-    /// ```
-    ///
-    /// - Parameter data: Raw JSON data
-    /// - Returns: Array of parsed search results
-    /// - Throws: ``BlastServiceError/resultParsingFailed`` on parse failure
-    nonisolated func parseJSON2Results(_ data: Data) throws -> [BlastSearchResult] {
-        // The BLAST API sometimes wraps JSON inside HTML. Try to extract
-        // the JSON portion if the data starts with HTML.
-        let jsonData = try extractJSONFromResponse(data)
-
-        // Try parsing directly first, then log the specific error
-        let jsonObject: Any
-        do {
-            jsonObject = try JSONSerialization.jsonObject(with: jsonData)
-        } catch {
-            let preview = String(data: jsonData.prefix(300), encoding: .utf8) ?? "(non-UTF8)"
-            logger.error("parseJSON2Results: JSONSerialization failed: \(error.localizedDescription, privacy: .public)")
-            logger.error("parseJSON2Results: first 300 chars: \(preview, privacy: .public)")
-            throw BlastServiceError.resultParsingFailed(message: "\(error.localizedDescription)")
-        }
-
-        guard let json = jsonObject as? [String: Any] else {
-            throw BlastServiceError.resultParsingFailed(message: "Response is not a JSON object")
-        }
-
-        guard let blastOutput2 = json["BlastOutput2"] as? [[String: Any]] else {
-            // Log available keys for debugging
-            let keys = json.keys.sorted().joined(separator: ", ")
-            logger.error("parseJSON2Results: Missing BlastOutput2 array. Available keys: \(keys, privacy: .public)")
-            throw BlastServiceError.resultParsingFailed(message: "Missing BlastOutput2 array (keys: \(keys))")
-        }
-
-        return try blastOutput2.compactMap { entry in
-            try parseBlastOutput2Entry(entry)
-        }
-    }
-
-    /// Parses a single BlastOutput2 entry.
-    private nonisolated func parseBlastOutput2Entry(_ entry: [String: Any]) throws -> BlastSearchResult? {
-        guard let report = entry["report"] as? [String: Any],
-              let results = report["results"] as? [String: Any],
-              let search = results["search"] as? [String: Any] else {
-            return nil
-        }
-
-        let queryTitle = search["query_title"] as? String ?? "unknown"
-        let queryLen = search["query_len"] as? Int ?? 0
-        let hitsArray = search["hits"] as? [[String: Any]] ?? []
-
-        let hits: [BlastHit] = hitsArray.compactMap { hitDict in
-            parseHit(hitDict)
-        }
-
-        return BlastSearchResult(queryId: queryTitle, queryLength: queryLen, hits: hits)
-    }
-
-    /// Parses a single hit from the JSON2 hits array.
-    private nonisolated func parseHit(_ hitDict: [String: Any]) -> BlastHit? {
-        let descriptions = hitDict["description"] as? [[String: Any]] ?? []
-        guard let firstDesc = descriptions.first else { return nil }
-
-        let accession = firstDesc["accession"] as? String ?? ""
-        let title = firstDesc["title"] as? String ?? ""
-        let organism = firstDesc["sciname"] as? String
-        let taxId = firstDesc["taxid"] as? Int
-
-        let hspsArray = hitDict["hsps"] as? [[String: Any]] ?? []
-        let hsps: [BlastHSP] = hspsArray.compactMap { hspDict in
-            parseHSP(hspDict)
-        }
-
-        guard !hsps.isEmpty else { return nil }
-
-        return BlastHit(accession: accession, title: title, organism: organism, taxId: taxId, hsps: hsps)
-    }
-
-    /// Parses a single HSP from the JSON2 hsps array.
-    private nonisolated func parseHSP(_ hspDict: [String: Any]) -> BlastHSP? {
-        guard let bitScore = hspDict["bit_score"] as? Double,
-              let evalue = hspDict["evalue"] as? Double,
-              let identity = hspDict["identity"] as? Int,
-              let alignLen = hspDict["align_len"] as? Int,
-              let queryFrom = hspDict["query_from"] as? Int,
-              let queryTo = hspDict["query_to"] as? Int else {
-            return nil
-        }
-
-        return BlastHSP(
-            bitScore: bitScore,
-            evalue: evalue,
-            identity: identity,
-            alignLength: alignLen,
-            queryFrom: queryFrom,
-            queryTo: queryTo
-        )
-    }
-
     // MARK: - ZIP Decompression
 
     /// Decompresses a ZIP archive response from NCBI BLAST.
@@ -1376,7 +1264,41 @@ public actor BlastService {
         }
     }
 
-    private func isRetryableTransportError(_ error: Error) -> Bool {
+    /// Validates an HTTP response from a BLAST network call.
+    ///
+    /// Casts the response to ``HTTPURLResponse`` and branches on the status
+    /// code: 200 succeeds, retryable status codes surface a
+    /// ``RetryableHTTPError``, and all other codes throw
+    /// ``BlastServiceError/httpError(statusCode:body:)``.
+    ///
+    /// - Parameters:
+    ///   - data: The response body used to build error messages.
+    ///   - response: The raw ``URLResponse`` to validate.
+    ///   - nonHTTPMessage: Message used when the response is not an HTTP response.
+    ///   - failureBodyFallback: Fallback string used when the body is not valid UTF-8.
+    /// - Returns: The validated ``HTTPURLResponse`` on a 200 status.
+    private nonisolated static func validateHTTPResponse(
+        _ data: Data,
+        _ response: URLResponse,
+        nonHTTPMessage: String,
+        failureBodyFallback: String
+    ) throws -> HTTPURLResponse {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BlastServiceError.submissionFailed(message: nonHTTPMessage)
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? failureBodyFallback
+            if retryableHTTPStatusCodes.contains(httpResponse.statusCode) {
+                throw RetryableHTTPError(statusCode: httpResponse.statusCode, body: body)
+            }
+            throw BlastServiceError.httpError(statusCode: httpResponse.statusCode, body: body)
+        }
+
+        return httpResponse
+    }
+
+    private nonisolated func isRetryableTransportError(_ error: Error) -> Bool {
         if error is RetryableHTTPError {
             return true
         }
@@ -1458,104 +1380,19 @@ public actor BlastService {
         return body[valueRange].trimmingCharacters(in: .whitespaces)
     }
 
-    /// Extracts JSON from a response that may be wrapped in HTML.
-    ///
-    /// The BLAST API sometimes returns JSON inside an HTML wrapper.
-    /// This method tries direct JSON parsing first, then falls back to
-    /// extracting JSON content from HTML.
-    ///
-    /// - Parameter data: Raw response data
-    /// - Returns: JSON data suitable for parsing
-    private nonisolated func extractJSONFromResponse(_ data: Data) throws -> Data {
-        // NCBI responses sometimes contain Latin-1 characters (accented organism
-        // names, non-ASCII descriptions). Try UTF-8 first, fall back to Latin-1.
-        guard var body = String(data: data, encoding: .utf8)
-                ?? String(data: data, encoding: .isoLatin1) else {
-            throw BlastServiceError.resultParsingFailed(message: "Non-UTF8 response (\(data.count) bytes)")
+    private nonisolated static func gzipFailure(
+        path: String,
+        status: Int32,
+        stderr: Pipe?
+    ) -> BlastServiceError {
+        let stderrText = stderr
+            .flatMap { String(data: $0.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var message = "gzip decompression failed for \(path) with exit status \(status)"
+        if let stderrText, !stderrText.isEmpty {
+            message += ": \(stderrText)"
         }
-
-        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // If it starts with '{' or '[', it's already JSON
-        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
-            if let result = trimmed.data(using: .utf8) {
-                return result
-            }
-        }
-
-        // NCBI sometimes returns HTML with JSON inside <PRE> tags.
-        // Extract content between <PRE>...</PRE> (case-insensitive).
-        if let preRange = body.range(of: "<PRE>", options: .caseInsensitive),
-           let preEndRange = body.range(of: "</PRE>", options: .caseInsensitive, range: preRange.upperBound..<body.endIndex) {
-            let preContent = String(body[preRange.upperBound..<preEndRange.lowerBound])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if preContent.hasPrefix("{"), let result = preContent.data(using: .utf8) {
-                // Recurse to handle any additional unwrapping
-                return try extractJSONFromResponse(result)
-            }
-        }
-
-        // NCBI sometimes HTML-entity-encodes quotes in the response.
-        // Decode common entities before searching for JSON markers.
-        if body.contains("&quot;") || body.contains("&amp;") {
-            body = body
-                .replacingOccurrences(of: "&quot;", with: "\"")
-                .replacingOccurrences(of: "&amp;", with: "&")
-                .replacingOccurrences(of: "&lt;", with: "<")
-                .replacingOccurrences(of: "&gt;", with: ">")
-        }
-
-        // Look for "BlastOutput2" and walk backwards to find the opening brace.
-        // This handles both compact ({"BlastOutput2") and pretty-printed
-        // ({\n  "BlastOutput2") JSON embedded in HTML.
-        if let jsonData = extractBalancedJSON(from: body, marker: "\"BlastOutput2\"") {
-            return jsonData
-        }
-
-        // Last resort: try to find any top-level JSON object with "report" key
-        // (some NCBI responses use a slightly different wrapper)
-        if let jsonData = extractBalancedJSON(from: body, marker: "\"report\"") {
-            return jsonData
-        }
-
-        throw BlastServiceError.resultParsingFailed(
-            message: "Could not find JSON in response (\(data.count) bytes, first 200: \(String(trimmed.prefix(200))))"
-        )
-    }
-
-    /// Extracts a balanced JSON object from a string, searching backwards from a marker.
-    private nonisolated func extractBalancedJSON(from body: String, marker: String) -> Data? {
-        guard let markerRange = body.range(of: marker) else { return nil }
-
-        // Walk backwards from the marker to find the opening '{'
-        var openBraceIndex = markerRange.lowerBound
-        var found = false
-        while openBraceIndex > body.startIndex {
-            openBraceIndex = body.index(before: openBraceIndex)
-            if body[openBraceIndex] == "{" {
-                found = true
-                break
-            }
-        }
-        guard found else { return nil }
-
-        // Walk forward from the opening brace to find the balanced closing brace
-        let substring = body[openBraceIndex...]
-        var depth = 0
-        var endIndex = substring.startIndex
-        for idx in substring.indices {
-            let ch = substring[idx]
-            if ch == "{" { depth += 1 }
-            else if ch == "}" {
-                depth -= 1
-                if depth == 0 {
-                    endIndex = substring.index(after: idx)
-                    break
-                }
-            }
-        }
-        let jsonString = String(substring[substring.startIndex..<endIndex])
-        return jsonString.data(using: .utf8)
+        return .inputReadFailed(message: message)
     }
 
     /// Form-encodes a list of key-value pairs.
@@ -1564,11 +1401,21 @@ public actor BlastService {
     /// - Returns: A URL-encoded form string
     private nonisolated func formEncode(_ params: [(String, String)]) -> String {
         params.map { key, value in
-            let escapedKey = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
-            let escapedValue = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+            let escapedKey = Self.formEscape(key)
+            let escapedValue = Self.formEscape(value)
             return "\(escapedKey)=\(escapedValue)"
         }.joined(separator: "&")
     }
+
+    private nonisolated static func formEscape(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: formAllowedCharacters) ?? value
+    }
+
+    private nonisolated static let formAllowedCharacters: CharacterSet = {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._*")
+        return allowed
+    }()
 
     /// Enforces the minimum interval between BLAST submissions.
     ///
@@ -1610,126 +1457,5 @@ public actor BlastService {
             try await Task.sleep(for: .seconds(rateLimits.submissionSlotPollInterval))
         }
         activeSubmissionCount += 1
-    }
-}
-
-// MARK: - Subsampling
-
-extension BlastService {
-
-    /// Subsamples reads for BLAST verification.
-    ///
-    /// Given a set of read IDs and their sequences, selects a representative
-    /// subset according to the specified strategy:
-    ///
-    /// - `.longestFirst(count:)`: Selects the N longest reads
-    /// - `.random(count:)`: Selects N reads at random
-    /// - `.mixed(longest:random:)`: Selects the top N longest, then fills
-    ///   remaining slots with random reads from the rest
-    ///
-    /// When fewer reads are available than requested, all reads are returned.
-    ///
-    /// - Parameters:
-    ///   - reads: All available reads as (id, sequence) pairs
-    ///   - strategy: The subsampling strategy to use
-    ///   - seed: Random seed for reproducibility (defaults to 0)
-    /// - Returns: The subsampled reads as (id, sequence) pairs
-    public nonisolated func subsampleReads(
-        from reads: [(id: String, sequence: String)],
-        strategy: SubsampleStrategy,
-        seed: UInt64 = 0
-    ) -> [(id: String, sequence: String)] {
-        guard !reads.isEmpty else { return [] }
-
-        let totalRequested = strategy.totalCount
-        guard reads.count > totalRequested else {
-            // Fewer reads than requested -- return all
-            return reads
-        }
-
-        switch strategy {
-        case .longestFirst(let count):
-            return selectLongest(from: reads, count: count)
-
-        case .random(let count):
-            return selectRandom(from: reads, count: count, seed: seed)
-
-        case .mixed(let longest, let random):
-            return selectMixed(from: reads, longest: longest, random: random, seed: seed)
-        }
-    }
-
-    /// Selects the N longest reads.
-    private nonisolated func selectLongest(
-        from reads: [(id: String, sequence: String)],
-        count: Int
-    ) -> [(id: String, sequence: String)] {
-        let sorted = reads.sorted { $0.sequence.count > $1.sequence.count }
-        return Array(sorted.prefix(count))
-    }
-
-    /// Selects N reads at random using a seeded generator.
-    private nonisolated func selectRandom(
-        from reads: [(id: String, sequence: String)],
-        count: Int,
-        seed: UInt64
-    ) -> [(id: String, sequence: String)] {
-        var rng = SeededRandomNumberGenerator(seed: seed)
-        let shuffled = reads.shuffled(using: &rng)
-        return Array(shuffled.prefix(count))
-    }
-
-    /// Selects top-N longest + random from the rest.
-    private nonisolated func selectMixed(
-        from reads: [(id: String, sequence: String)],
-        longest: Int,
-        random: Int,
-        seed: UInt64
-    ) -> [(id: String, sequence: String)] {
-        let sorted = reads.sorted { $0.sequence.count > $1.sequence.count }
-        let longestReads = Array(sorted.prefix(longest))
-        let longestIds = Set(longestReads.map(\.id))
-
-        // Remaining reads (excluding the longest-selected ones)
-        let remaining = reads.filter { !longestIds.contains($0.id) }
-
-        let randomReads: [(id: String, sequence: String)]
-        if remaining.count <= random {
-            randomReads = remaining
-        } else {
-            var rng = SeededRandomNumberGenerator(seed: seed)
-            let shuffled = remaining.shuffled(using: &rng)
-            randomReads = Array(shuffled.prefix(random))
-        }
-
-        return longestReads + randomReads
-    }
-}
-
-// MARK: - Seeded Random Number Generator
-
-/// A deterministic random number generator for reproducible subsampling.
-///
-/// Uses a simple xorshift64 algorithm seeded with a fixed value.
-/// This ensures that the same reads are selected for the same taxon
-/// across repeated runs.
-struct SeededRandomNumberGenerator: RandomNumberGenerator {
-    private var state: UInt64
-
-    /// Creates a seeded RNG.
-    ///
-    /// - Parameter seed: The seed value. A seed of 0 is remapped to 1
-    ///   to avoid the degenerate xorshift state.
-    init(seed: UInt64) {
-        // xorshift64 requires non-zero state
-        self.state = seed == 0 ? 1 : seed
-    }
-
-    mutating func next() -> UInt64 {
-        // xorshift64 algorithm
-        state ^= state << 13
-        state ^= state >> 7
-        state ^= state << 17
-        return state
     }
 }

@@ -14,8 +14,7 @@ final class DatasetOperationsDialogTests: XCTestCase {
         ])
     }
 
-    func testToolAvailabilityStatePreservesComingSoonAndDisabledReason() {
-        XCTAssertEqual(DatasetOperationAvailability.comingSoon.badgeText, "Coming Soon")
+    func testToolAvailabilityStatePreservesDisabledReason() {
         XCTAssertEqual(
             DatasetOperationAvailability.disabled(reason: "Requires Alignment Pack").badgeText,
             "Requires Alignment Pack"

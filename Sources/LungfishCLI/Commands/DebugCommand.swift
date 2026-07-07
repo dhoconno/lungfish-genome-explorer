@@ -373,12 +373,20 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
         }
 
         let pipeline = FASTQIngestionPipeline()
+        let startedAt = Date()
         let result = try await pipeline.run(config: config) { fraction, message in
             if !globalOptions.quiet {
                 let pct = Int((fraction * 100).rounded())
                 print("[\(pct)%] \(message)")
             }
         }
+        try await recordProvenance(
+            inputs: inputs,
+            output: result.outputFile,
+            config: config,
+            result: result,
+            startedAt: startedAt
+        )
 
         if globalOptions.outputFormat == .json {
             let payload = FastqIngestResultPayload(
@@ -433,6 +441,93 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
                 print(String(format: "GC %%: %.2f", summary.gcContent * 100.0))
             }
         }
+    }
+
+    private func recordProvenance(
+        inputs: [URL],
+        output: URL,
+        config: FASTQIngestionConfig,
+        result: FASTQIngestionResult,
+        startedAt: Date
+    ) async throws {
+        let argv = replayArgv()
+        let parameters: [String: ParameterValue] = [
+            "input": .file(inputs[0]),
+            "pair": inputs.dropFirst().first.map(ParameterValue.file) ?? .null,
+            "outputDirectory": .file(config.outputDirectory),
+            "pairingMode": .string(config.pairingMode.rawValue),
+            "outputPairingMode": .string(result.pairingMode.rawValue),
+            "binning": .string(config.qualityBinning.rawValue),
+            "skipClumpify": .boolean(config.skipClumpify),
+            "deleteOriginals": .boolean(config.deleteOriginals),
+            "stats": .boolean(stats),
+            "sampleLimit": .integer(max(0, sampleLimit)),
+            "threads": .integer(config.threads),
+            "quiet": .boolean(globalOptions.quiet),
+        ]
+        let defaults: [String: ParameterValue] = [
+            "outputDirectory": .file(URL(fileURLWithPath: ".")),
+            "pair": .null,
+            "pairingMode": .string(FASTQIngestionConfig.PairingMode.singleEnd.rawValue),
+            "binning": .string(QualityBinningScheme.illumina4.rawValue),
+            "skipClumpify": .boolean(false),
+            "deleteOriginals": .boolean(false),
+            "stats": .boolean(false),
+            "sampleLimit": .integer(10_000),
+            "threads": .integer(max(1, ProcessInfo.processInfo.activeProcessorCount)),
+            "quiet": .boolean(false),
+        ]
+        let completedAt = Date()
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish debug fastq-ingest",
+            parameters: parameters,
+            defaults: defaults,
+            toolName: "FASTQIngestionPipeline",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: argv,
+            stepCommand: argv,
+            extraSteps: result.provenanceSteps.map(ProvenanceStep.init(stepExecution:)),
+            inputs: inputs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
+            outputs: [ProvenanceRecorder.fileRecord(url: output, format: .fastq, role: .output)],
+            exitCode: 0,
+            wallTime: completedAt.timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: output.deletingLastPathComponent()
+        )
+    }
+
+    private func replayArgv() -> [String] {
+        var argv = [CLICommandIdentity.executableName, "debug", "fastq-ingest", input]
+        if let pair {
+            argv += ["--pair", pair]
+        }
+        argv += ["--output-dir", outputDir]
+        if binning != QualityBinningScheme.illumina4.rawValue {
+            argv += ["--binning", binning]
+        }
+        if skipClumpify {
+            argv.append("--skip-clumpify")
+        }
+        if deleteOriginals {
+            argv.append("--delete-originals")
+        }
+        if stats {
+            argv.append("--stats")
+        }
+        if sampleLimit != 10_000 {
+            argv += ["--sample-limit", String(sampleLimit)]
+        }
+        if let threads = globalOptions.threads {
+            argv += ["--threads", String(threads)]
+        }
+        if globalOptions.quiet {
+            argv.append("--quiet")
+        }
+        if globalOptions.outputFormat == .json {
+            argv += ["--format", "json"]
+        }
+        return argv
     }
 }
 

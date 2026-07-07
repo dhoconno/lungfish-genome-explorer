@@ -67,7 +67,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
             "report"
         ]
         let fallback = [
-            "lungfish",
+            "lungfish-cli",
             "provenance",
             "export",
             "input.bundle",
@@ -129,7 +129,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
         XCTAssertEqual(exportEnvelope.workflowName, "provenance.export.shell")
         XCTAssertEqual(exportEnvelope.toolName, "lungfish provenance export")
         XCTAssertEqual(exportEnvelope.argv, [
-            "lungfish", "provenance", "export",
+            "lungfish-cli", "provenance", "export",
             sidecarURL.path,
             "--export-format", "shell",
             "--output", outputDirectory.path
@@ -187,7 +187,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
             from: try Data(contentsOf: exportSidecarURL)
         )
         XCTAssertEqual(exportEnvelope.argv, [
-            "lungfish", "provenance", "export",
+            "lungfish-cli", "provenance", "export",
             dataURL.path,
             "--export-format", "shell",
             "--output", outputDirectory.path
@@ -223,7 +223,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
             from: try Data(contentsOf: exportSidecarURL)
         )
         XCTAssertEqual(exportEnvelope.argv, [
-            "lungfish", "provenance", "export",
+            "lungfish-cli", "provenance", "export",
             directory.path,
             "--export-format", "shell",
             "--output", outputDirectory.path
@@ -244,7 +244,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
           "workflowName": "multiple-sequence-alignment-mafft",
           "toolName": "lungfish align mafft",
           "toolVersion": "0.5.0-alpha6",
-          "argv": ["lungfish", "align", "mafft", "input.fasta", "--output", "\(bundleURL.path)"],
+          "argv": ["lungfish-cli", "align", "mafft", "input.fasta", "--output", "\(bundleURL.path)"],
           "reproducibleCommand": "lungfish align mafft input.fasta --output '\(bundleURL.path)'",
           "runtimeIdentity": {
             "executablePath": "/Applications/Lungfish.app/Contents/MacOS/lungfish-cli",
@@ -320,7 +320,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
           "workflowName": "phylogenetic-tree-infer-iqtree",
           "toolName": "lungfish tree infer iqtree",
           "toolVersion": "0.5.0-alpha6",
-          "argv": ["lungfish", "tree", "infer", "iqtree", "Aligned.lungfishmsa", "--output", "\(bundleURL.path)"],
+          "argv": ["lungfish-cli", "tree", "infer", "iqtree", "Aligned.lungfishmsa", "--output", "\(bundleURL.path)"],
           "command": "lungfish tree infer iqtree Aligned.lungfishmsa --output '\(bundleURL.path)'",
           "runtimeIdentity": {
             "executablePath": "/Applications/Lungfish.app/Contents/MacOS/lungfish-cli",
@@ -898,7 +898,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
             sourceSidecarURL: sourceSidecarURL,
             sourceRootURL: directory,
             exportArgv: [
-                "lungfish", "provenance", "export",
+                "lungfish-cli", "provenance", "export",
                 directory.path,
                 "--export-format", "shell",
                 "--output", outputDirectory.path
@@ -936,7 +936,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
             sourceSidecarURL: sourceSidecarURL,
             sourceRootURL: directory,
             exportArgv: [
-                "lungfish", "provenance", "export",
+                "lungfish-cli", "provenance", "export",
                 directory.path,
                 "--export-format", "methods",
                 "--output", outputDirectory.path

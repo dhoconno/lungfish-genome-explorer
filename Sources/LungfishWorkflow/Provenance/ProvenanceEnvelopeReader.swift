@@ -10,6 +10,11 @@ public enum ProvenanceEnvelopeReader {
         return try load(fromSidecar: url)
     }
 
+    public static func loadCanonical(from directory: URL) throws -> ProvenanceEnvelope? {
+        let url = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        return try loadCanonical(fromSidecar: url)
+    }
+
     public static func load(fromSidecar url: URL) throws -> ProvenanceEnvelope? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data = try Data(contentsOf: url)
@@ -18,8 +23,17 @@ public enum ProvenanceEnvelopeReader {
         return try decode(data, sourceURL: url, fallbackCreatedAt: modificationDate)
     }
 
+    public static func loadCanonical(fromSidecar url: URL) throws -> ProvenanceEnvelope? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try decodeCanonical(try Data(contentsOf: url))
+    }
+
     public static func decode(_ data: Data) throws -> ProvenanceEnvelope {
         try decode(data, sourceURL: nil, fallbackCreatedAt: nil)
+    }
+
+    public static func decodeCanonical(_ data: Data) throws -> ProvenanceEnvelope {
+        try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)
     }
 
     private static func decode(_ data: Data, sourceURL: URL?, fallbackCreatedAt: Date?) throws -> ProvenanceEnvelope {

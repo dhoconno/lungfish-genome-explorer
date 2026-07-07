@@ -33,6 +33,22 @@ final class DownloadCancellationSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("return state.cancelled"))
     }
 
+    func testManagedDatabaseDownloadsUseCancellationBox() throws {
+        let paths = [
+            "Databases/DatabaseRegistry.swift",
+            "Metagenomics/MetagenomicsDatabaseRegistry.swift",
+        ]
+
+        for path in paths {
+            let source = try workflowSource(path)
+            XCTAssertTrue(source.contains("withTaskCancellationHandler"), path)
+            XCTAssertTrue(source.contains("let taskBox = DownloadTaskCancellationBox()"), path)
+            XCTAssertTrue(source.contains("taskBox.store(task)"), path)
+            XCTAssertTrue(source.contains("taskBox.cancel()"), path)
+            XCTAssertFalse(source.contains("nonisolated(unsafe) var downloadTask"), path)
+        }
+    }
+
     private func workflowSource(_ relativePath: String) throws -> String {
         try String(
             contentsOf: repositoryRoot()

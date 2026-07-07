@@ -32,6 +32,25 @@ struct ImportPathValidationGate<Output> {
     }
 }
 
+enum NvdImportDialogActions {
+    static func importIfReady(
+        selectedPath: URL?,
+        isPrimaryEnabled: Bool,
+        onImport: ((URL) -> Void)?
+    ) {
+        guard isPrimaryEnabled, let selectedPath else { return }
+        onImport?(selectedPath)
+    }
+
+    static func cancel(
+        cancelScan: () -> Void,
+        onCancel: (() -> Void)?
+    ) {
+        cancelScan()
+        onCancel?()
+    }
+}
+
 // MARK: - NvdImportSheet
 
 /// A SwiftUI sheet for importing results from the NVD (Novel Virus Diagnostics) pipeline.
@@ -85,6 +104,7 @@ struct NvdImportSheet: View {
     @State private var isScanning: Bool = false
     @State private var linesScanned: Int = 0
     @State private var scanError: String? = nil
+    @State private var scanTask: Task<Void, Never>? = nil
     @State private var scanValidationGate = ImportPathValidationGate<NvdScanResult>()
 
     // Preview data from scanning
@@ -121,7 +141,7 @@ struct NvdImportSheet: View {
             size: ImportSheetSize(width: 500, height: 450),
             statusText: selectedPath == nil ? "No directory selected" : nil,
             isPrimaryEnabled: canRun,
-            onCancel: { onCancel?() },
+            onCancel: cancelImport,
             onPrimary: performImport,
             icon: {
                 Image(nsImage: TextBadgeIcon.image(text: "NVD", size: NSSize(width: 24, height: 24)))
@@ -267,6 +287,7 @@ struct NvdImportSheet: View {
 
     /// Scans the selected NVD directory for results and populates preview data.
     private func scanDirectory(at url: URL) {
+        scanTask?.cancel()
         let scanToken = scanValidationGate.begin(path: url)
         isScanning = true
         scanError = nil
@@ -277,11 +298,11 @@ struct NvdImportSheet: View {
         totalBAMSize = nil
         linesScanned = 0
 
-        Task {
+        scanTask = Task {
             do {
                 let result = try await nvdScanDirectory(url) { count in
                     Task { @MainActor in
-                        guard scanValidationGate.shouldAccept(scanToken) else { return }
+                        guard scanValidationGate.shouldAccept(scanToken), isScanning else { return }
                         self.linesScanned = count
                     }
                 }
@@ -294,21 +315,46 @@ struct NvdImportSheet: View {
                     hitCount = result.hitCount
                     totalBAMSize = result.totalBAMSize
                     isScanning = false
+                    scanTask = nil
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    guard scanValidationGate.shouldAccept(scanToken) else { return }
+                    isScanning = false
+                    scanTask = nil
                 }
             } catch {
                 await MainActor.run {
                     guard scanValidationGate.shouldAccept(scanToken) else { return }
                     scanError = error.localizedDescription
                     isScanning = false
+                    scanTask = nil
                 }
             }
         }
     }
 
+    private func cancelImport() {
+        NvdImportDialogActions.cancel(
+            cancelScan: cancelCurrentScan,
+            onCancel: onCancel
+        )
+    }
+
+    private func cancelCurrentScan() {
+        scanValidationGate.cancel()
+        scanTask?.cancel()
+        scanTask = nil
+        isScanning = false
+    }
+
     /// Triggers the import callback with the current configuration.
     private func performImport() {
-        guard let url = selectedPath else { return }
-        onImport?(url)
+        NvdImportDialogActions.importIfReady(
+            selectedPath: selectedPath,
+            isPrimaryEnabled: canRun,
+            onImport: onImport
+        )
     }
 
     // MARK: - Formatting
@@ -364,6 +410,7 @@ private func nvdScanDirectory(
     // Fast-scan the CSV for counts (no full parse)
     var lines: [String] = []
     for try await line in csvURL.linesAutoDecompressing() {
+        try Task.checkCancellation()
         lines.append(line)
     }
     // Remove trailing empty lines
@@ -401,6 +448,7 @@ private func nvdScanDirectory(
     var dataLineCount = 0
 
     for (idx, line) in lines.dropFirst().enumerated() {
+        try Task.checkCancellation()
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { continue }
 

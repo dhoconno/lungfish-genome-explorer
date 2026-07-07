@@ -489,9 +489,142 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
         let manifest = try BundleManifest.load(from: bundleURL)
         XCTAssertEqual(manifest.name, "Managed Bundle")
         XCTAssertEqual(manifest.source.database, "MEGAHIT 1.2.9")
+        let genomePath = try XCTUnwrap(manifest.genome?.path)
+        let finalPayloadURL = bundleURL.appendingPathComponent(genomePath)
+
+        let rootProvenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let rollupProvenanceURL = bundleURL
+            .appendingPathComponent("provenance", isDirectory: true)
+            .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rootProvenanceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rollupProvenanceURL.path))
+
+        let rootEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        XCTAssertEqual(rootEnvelope.workflowName, "Assembly Bundle Wrapping")
+        XCTAssertEqual(rootEnvelope.toolName, "MEGAHIT")
+        XCTAssertEqual(rootEnvelope.exitStatus, 0)
+        let rootOutputPaths = Set(rootEnvelope.outputs.map(resolvedPath))
+        XCTAssertTrue(rootOutputPaths.contains(resolvedPath(finalPayloadURL)))
+        XCTAssertTrue(rootOutputPaths.contains(resolvedPath(bundleURL.appendingPathComponent(BundleManifest.filename))))
+        XCTAssertTrue(rootOutputPaths.contains(resolvedPath(bundleURL.appendingPathComponent("assembly/provenance.json"))))
+
+        let rollupEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: rollupProvenanceURL))
+        XCTAssertEqual(rollupEnvelope.id, rootEnvelope.id)
+        XCTAssertTrue(Set(rollupEnvelope.outputs.map(resolvedPath)).contains(resolvedPath(finalPayloadURL)))
 
         let bundle = try await ReferenceBundle(url: bundleURL)
         XCTAssertEqual(bundle.chromosomeNames, ["megahit_ctg_1", "megahit_ctg_2"])
+    }
+
+    func testManagedBundleBuilderRejectsExistingPublishedBundleWithoutDeletingIt() async throws {
+        let tempDir = try makeTempDirectory(prefix: "managed-assembly-existing-bundle")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let existingBundleURL = tempDir.appendingPathComponent("Managed_Bundle.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: existingBundleURL, withIntermediateDirectories: true)
+        let sentinelURL = existingBundleURL.appendingPathComponent("sentinel.txt")
+        try "preserve me\n".write(to: sentinelURL, atomically: true, encoding: .utf8)
+
+        let outputDir = tempDir.appendingPathComponent("megahit-output", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        let contigsURL = outputDir.appendingPathComponent("final.contigs.fa")
+        try writeFASTA([("megahit_ctg_1", "ACGTACGT")], to: contigsURL)
+
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [URL(fileURLWithPath: "/tmp/R1.fastq.gz")],
+            projectName: "megahit-demo",
+            outputDirectory: outputDir,
+            threads: 8
+        )
+        let result = try AssemblyOutputNormalizer.normalize(
+            request: request,
+            primaryOutputDirectory: outputDir,
+            commandLine: "megahit -r R1.fastq.gz -o megahit-output",
+            wallTimeSeconds: 18,
+            assemblerVersion: "1.2.9"
+        )
+        let provenance = ProvenanceBuilder.build(
+            request: request,
+            result: result,
+            inputRecords: []
+        )
+
+        let builder = AssemblyBundleBuilder()
+        do {
+            _ = try await builder.build(
+                result: result,
+                request: request,
+                provenance: provenance,
+                outputDirectory: tempDir,
+                bundleName: "Managed Bundle"
+            ) { _, _ in }
+            XCTFail("Expected existing output bundle to be rejected")
+        } catch AssemblyBundleBuildError.outputBundleAlreadyExists(let url) {
+            XCTAssertEqual(url.standardizedFileURL.path, existingBundleURL.standardizedFileURL.path)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(try String(contentsOf: sentinelURL, encoding: .utf8), "preserve me\n")
+        let entries = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
+        XCTAssertFalse(entries.contains { $0.hasPrefix(".Managed_Bundle.building-") })
+    }
+
+    func testManagedBundleBuilderCleansStagingDirectoryAfterBuildFailure() async throws {
+        let tempDir = try makeTempDirectory(prefix: "managed-assembly-staging-cleanup")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let outputDir = tempDir.appendingPathComponent("megahit-output", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        let missingContigsURL = outputDir.appendingPathComponent("missing-final.contigs.fa")
+
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [URL(fileURLWithPath: "/tmp/R1.fastq.gz")],
+            projectName: "megahit-demo",
+            outputDirectory: outputDir,
+            threads: 8
+        )
+        let result = AssemblyResult(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            contigsPath: missingContigsURL,
+            graphPath: nil,
+            logPath: nil,
+            assemblerVersion: "1.2.9",
+            commandLine: "megahit -r R1.fastq.gz -o megahit-output",
+            outputDirectory: outputDir,
+            statistics: AssemblyStatisticsCalculator.computeFromLengths([]),
+            wallTimeSeconds: 18
+        )
+        let provenance = ProvenanceBuilder.build(
+            request: request,
+            result: result,
+            inputRecords: []
+        )
+
+        let builder = AssemblyBundleBuilder()
+        do {
+            _ = try await builder.build(
+                result: result,
+                request: request,
+                provenance: provenance,
+                outputDirectory: tempDir,
+                bundleName: "Managed Bundle"
+            ) { _, _ in }
+            XCTFail("Expected missing contigs to fail after staging creation")
+        } catch AssemblyBundleBuildError.outputBundleAlreadyExists(let url) {
+            XCTFail("Unexpected output-exists failure for \(url.path)")
+        } catch {
+        }
+
+        let publishedBundleURL = tempDir.appendingPathComponent("Managed_Bundle.lungfishref", isDirectory: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: publishedBundleURL.path))
+        let entries = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
+        XCTAssertFalse(entries.contains { $0.hasPrefix(".Managed_Bundle.building-") })
     }
 
     private func makeTempDirectory(prefix: String) throws -> URL {
@@ -506,5 +639,13 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
             ">\(name)\n\(sequence)\n"
         }.joined()
         try body.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func resolvedPath(_ descriptor: ProvenanceFileDescriptor) -> String {
+        URL(fileURLWithPath: descriptor.path).resolvingSymlinksInPath().path
+    }
+
+    private func resolvedPath(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().path
     }
 }

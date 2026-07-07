@@ -61,8 +61,8 @@ public enum ReferenceBundleEnvelope {
 }
 
 /// Actionable validation failure for a reference bundle.
-public struct ReferenceBundleValidationError: Error, LocalizedError, Equatable {
-    public enum Kind: Equatable {
+public struct ReferenceBundleValidationError: Error, LocalizedError, Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
         case missingFile(String)
         case schemaMismatch(expected: Int, found: Int)
         case kindMismatch(expected: String, found: String)

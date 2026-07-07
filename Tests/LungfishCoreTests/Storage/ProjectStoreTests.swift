@@ -60,6 +60,62 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(retrieved?.metadata?["strain"], "K-12")
     }
 
+    func testLegacyDatabaseMigrationMovesSQLiteCompanionFiles() throws {
+        let legacyDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LungfishLegacyProject-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: legacyDirectory) }
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+
+        let legacyDBURL = legacyDirectory.appendingPathComponent("project.db")
+        try createLegacyProjectDatabase(at: legacyDBURL)
+        let legacyWALURL = sqliteCompanionURL(for: legacyDBURL, suffix: "wal")
+        let legacySHMURL = sqliteCompanionURL(for: legacyDBURL, suffix: "shm")
+        try Data("stale wal".utf8).write(to: legacyWALURL)
+        try Data("stale shm".utf8).write(to: legacySHMURL)
+
+        let migratedStore = try ProjectStore(at: legacyDirectory)
+        defer { _ = migratedStore }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyDBURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyWALURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacySHMURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyDirectory.appendingPathComponent(".project.db").path))
+        XCTAssertEqual(try migratedStore.getMetadata(key: "legacy"), "metadata")
+    }
+
+    func testStoreSequenceRollsBackWhenCurrentStateInsertFails() throws {
+        try withRawDatabase { db in
+            XCTAssertEqual(
+                sqlite3_exec(
+                    db,
+                    """
+                    CREATE TRIGGER fail_current_state_insert
+                    BEFORE INSERT ON current_state
+                    BEGIN
+                        SELECT RAISE(ABORT, 'forced current_state insert failure');
+                    END;
+                    """,
+                    nil,
+                    nil,
+                    nil
+                ),
+                SQLITE_OK
+            )
+        }
+
+        XCTAssertThrowsError(
+            try store.storeSequence(name: "partial_sequence", content: "ATCG")
+        )
+
+        XCTAssertEqual(
+            try rawScalarInt(
+                "SELECT COUNT(*) FROM sequences WHERE name = ?",
+                parameters: ["partial_sequence"]
+            ),
+            0
+        )
+    }
+
     func testListSequences() throws {
         try store.storeSequence(name: "seq1", content: "ATCG")
         try store.storeSequence(name: "seq2", content: "GCTA")
@@ -70,6 +126,26 @@ final class ProjectStoreTests: XCTestCase {
 
         let names = sequences.map(\.name).sorted()
         XCTAssertEqual(names, ["seq1", "seq2", "seq3"])
+    }
+
+    func testListSequencesThrowsQueryErrorForCorruptSequenceID() throws {
+        let sequenceId = try store.storeSequence(name: "corrupt_id", content: "ATCG")
+        try executeRawSQL("UPDATE sequences SET id = 'not-a-uuid' WHERE id = '\(sequenceId.uuidString)'")
+
+        assertThrowsProjectStoreQueryError(
+            try store.listSequences(),
+            contains: "sequences.id"
+        )
+    }
+
+    func testGetSequenceThrowsQueryErrorForNonUTF8OriginalContent() throws {
+        let sequenceId = try store.storeSequence(name: "corrupt_content", content: "ATCG")
+        try executeRawSQL("UPDATE sequences SET original_content = X'80' WHERE id = '\(sequenceId.uuidString)'")
+
+        assertThrowsProjectStoreQueryError(
+            try store.getSequence(id: sequenceId),
+            contains: "sequences.original_content"
+        )
     }
 
     // MARK: - Version Tests
@@ -98,6 +174,68 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(history.count, 1)
         XCTAssertEqual(history[0].message, "Added GGG insertion")
         XCTAssertEqual(history[0].author, "Test")
+    }
+
+    func testVersionHistoryThrowsQueryErrorForCorruptVersionID() throws {
+        let sequenceId = try store.storeSequence(
+            name: "versioned_corrupt_id",
+            content: "ATCG"
+        )
+        try store.recordVersion(
+            sequenceId: sequenceId,
+            diff: SequenceDiff.compute(from: "ATCG", to: "ATGG"),
+            newContentHash: "hash1"
+        )
+        try executeRawSQL("UPDATE versions SET id = 'not-a-uuid' WHERE sequence_id = '\(sequenceId.uuidString)'")
+
+        assertThrowsProjectStoreQueryError(
+            try store.getVersionHistory(for: sequenceId),
+            contains: "versions.id"
+        )
+    }
+
+    func testRecordVersionRollsBackWhenCurrentStateUpdateFails() throws {
+        let sequenceId = try store.storeSequence(
+            name: "versioned_rollback",
+            content: "ATCG"
+        )
+
+        try withRawDatabase { db in
+            XCTAssertEqual(
+                sqlite3_exec(
+                    db,
+                    """
+                    CREATE TRIGGER fail_current_state_update
+                    BEFORE UPDATE ON current_state
+                    BEGIN
+                        SELECT RAISE(ABORT, 'forced current_state update failure');
+                    END;
+                    """,
+                    nil,
+                    nil,
+                    nil
+                ),
+                SQLITE_OK
+            )
+        }
+
+        let diff = SequenceDiff.compute(from: "ATCG", to: "ATGG")
+        XCTAssertThrowsError(
+            try store.recordVersion(
+                sequenceId: sequenceId,
+                diff: diff,
+                newContentHash: "rolled-back"
+            )
+        )
+
+        XCTAssertEqual(
+            try rawScalarInt(
+                "SELECT COUNT(*) FROM versions WHERE sequence_id = ?",
+                parameters: [sequenceId.uuidString]
+            ),
+            0
+        )
+        XCTAssertEqual(try store.getCurrentVersionIndex(for: sequenceId), 0)
     }
 
     func testMultipleVersions() throws {
@@ -163,6 +301,54 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(v2, "AABBCC")
     }
 
+    func testReconstructSequenceRejectsNegativeVersionIndex() throws {
+        let sequenceId = try store.storeSequence(
+            name: "negative_reconstruct",
+            content: "AAAA"
+        )
+
+        XCTAssertThrowsError(try store.reconstructSequence(id: sequenceId, atVersion: -1)) { error in
+            guard case ProjectStoreError.invalidVersionIndex(let index) = error else {
+                XCTFail("Expected invalidVersionIndex, got \(error)")
+                return
+            }
+            XCTAssertEqual(index, -1)
+        }
+    }
+
+    func testReconstructSequenceRejectsVersionIndexPastHistory() throws {
+        let sequenceId = try store.storeSequence(
+            name: "high_reconstruct",
+            content: "AAAA"
+        )
+        let diff = SequenceDiff.compute(from: "AAAA", to: "AABB")
+        try store.recordVersion(
+            sequenceId: sequenceId,
+            diff: diff,
+            newContentHash: "hash1"
+        )
+
+        XCTAssertThrowsError(try store.reconstructSequence(id: sequenceId, atVersion: 2)) { error in
+            guard case ProjectStoreError.invalidVersionIndex(let index) = error else {
+                XCTFail("Expected invalidVersionIndex, got \(error)")
+                return
+            }
+            XCTAssertEqual(index, 2)
+        }
+    }
+
+    func testReconstructSequenceReportsMissingSequenceBeforeHighVersionIndex() throws {
+        let missingID = UUID()
+
+        XCTAssertThrowsError(try store.reconstructSequence(id: missingID, atVersion: 99)) { error in
+            guard case ProjectStoreError.sequenceNotFound(let id) = error else {
+                XCTFail("Expected sequenceNotFound, got \(error)")
+                return
+            }
+            XCTAssertEqual(id, missingID)
+        }
+    }
+
     func testCheckoutVersion() throws {
         let sequenceId = try store.storeSequence(
             name: "checkout_test",
@@ -189,6 +375,40 @@ final class ProjectStoreTests: XCTestCase {
         try store.checkoutVersion(sequenceId: sequenceId, versionIndex: 1)
         currentIndex = try store.getCurrentVersionIndex(for: sequenceId)
         XCTAssertEqual(currentIndex, 1)
+    }
+
+    func testCheckoutVersionRejectsNegativeVersionIndex() throws {
+        let sequenceId = try store.storeSequence(
+            name: "negative_checkout",
+            content: "AAAA"
+        )
+
+        XCTAssertThrowsError(try store.checkoutVersion(sequenceId: sequenceId, versionIndex: -1)) { error in
+            guard case ProjectStoreError.invalidVersionIndex(let index) = error else {
+                XCTFail("Expected invalidVersionIndex, got \(error)")
+                return
+            }
+            XCTAssertEqual(index, -1)
+        }
+    }
+
+    func testCheckoutVersionReportsMissingSequenceAtVersionZero() throws {
+        let missingID = UUID()
+
+        XCTAssertThrowsError(try store.checkoutVersion(sequenceId: missingID, versionIndex: 0)) { error in
+            guard case ProjectStoreError.sequenceNotFound(let id) = error else {
+                XCTFail("Expected sequenceNotFound, got \(error)")
+                return
+            }
+            XCTAssertEqual(id, missingID)
+        }
+    }
+
+    func testQueryHelperRequiresTerminalSQLiteDoneResult() throws {
+        let source = try String(contentsOf: projectStoreSourceURL(), encoding: .utf8)
+
+        XCTAssertTrue(source.contains("guard stepResult == SQLITE_DONE"))
+        XCTAssertTrue(source.contains("Query failed:"))
     }
 
     // MARK: - Edit Log Tests
@@ -273,6 +493,26 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(annotations[0].strand, "+")
         XCTAssertEqual(annotations[0].qualifiers?["product"], "Test protein")
         XCTAssertEqual(annotations[0].color, "#FF0000")
+    }
+
+    func testGetAnnotationsThrowsQueryErrorForCorruptAnnotationID() throws {
+        let sequenceId = try store.storeSequence(
+            name: "annotation_corrupt_id",
+            content: String(repeating: "ATCG", count: 100)
+        )
+        try store.storeAnnotation(
+            sequenceId: sequenceId,
+            type: "gene",
+            name: "geneA",
+            startPosition: 10,
+            endPosition: 100
+        )
+        try executeRawSQL("UPDATE annotations SET id = 'not-a-uuid' WHERE sequence_id = '\(sequenceId.uuidString)'")
+
+        assertThrowsProjectStoreQueryError(
+            try store.getAnnotations(sequenceId: sequenceId),
+            contains: "annotations.id"
+        )
     }
 
     func testGetAnnotationsInRange() throws {
@@ -399,6 +639,104 @@ final class ProjectStoreTests: XCTestCase {
 
         defer { sqlite3_close_v2(db) }
         try body(db)
+    }
+
+    private func executeRawSQL(_ sql: String) throws {
+        try withRawDatabase { db in
+            XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK)
+        }
+    }
+
+    private func createLegacyProjectDatabase(at dbURL: URL) throws {
+        var db: OpaquePointer?
+        let result = sqlite3_open_v2(
+            dbURL.path,
+            &db,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+
+        guard result == SQLITE_OK, let db else {
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "Unknown SQLite error"
+            throw NSError(domain: "ProjectStoreTests", code: Int(result), userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+        defer { sqlite3_close_v2(db) }
+
+        XCTAssertEqual(
+            sqlite3_exec(
+                db,
+                """
+                CREATE TABLE project_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                INSERT INTO project_metadata (key, value) VALUES ('legacy', 'metadata');
+                PRAGMA user_version = 1;
+                """,
+                nil,
+                nil,
+                nil
+            ),
+            SQLITE_OK
+        )
+    }
+
+    private func sqliteCompanionURL(for dbURL: URL, suffix: String) -> URL {
+        URL(fileURLWithPath: "\(dbURL.path)-\(suffix)")
+    }
+
+    private func rawScalarInt(_ sql: String, parameters: [String] = []) throws -> Int {
+        var result = 0
+        try withRawDatabase { db in
+            var stmt: OpaquePointer?
+            XCTAssertEqual(sqlite3_prepare_v2(db, sql, -1, &stmt, nil), SQLITE_OK)
+            defer { sqlite3_finalize(stmt) }
+
+            for (index, parameter) in parameters.enumerated() {
+                sqlite3_bind_text(
+                    stmt,
+                    Int32(index + 1),
+                    parameter,
+                    -1,
+                    unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+                )
+            }
+
+            XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW)
+            result = Int(sqlite3_column_int(stmt, 0))
+        }
+        return result
+    }
+
+    private func assertThrowsProjectStoreQueryError<T>(
+        _ expression: @autoclosure () throws -> T,
+        contains expectedMessage: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertThrowsError(try expression(), file: file, line: line) { error in
+            guard case ProjectStoreError.queryError(let message) = error else {
+                XCTFail("Expected ProjectStoreError.queryError, got \(error)", file: file, line: line)
+                return
+            }
+            XCTAssertTrue(
+                message.contains(expectedMessage),
+                "Expected query error to mention \(expectedMessage), got: \(message)",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func projectStoreSourceURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishCore/Storage/ProjectStore.swift")
     }
 
     private func sqliteDate(_ string: String) -> Date {

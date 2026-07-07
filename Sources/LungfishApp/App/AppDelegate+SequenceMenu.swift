@@ -573,7 +573,7 @@ extension AppDelegate {
                 annotation,
                 toBundleAt: bundleURL
             )
-            OperationCenter.shared.complete(
+            _ = OperationCenter.shared.complete(
                 id: opID,
                 detail: "Added annotation to \(result.track.name)"
             )
@@ -592,7 +592,7 @@ extension AppDelegate {
                 try targetViewerController.displayBundle(at: bundleURL)
             }
         } catch {
-            OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+            _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
             showAlert(title: "Add Annotation Failed", message: error.localizedDescription)
         }
     }
@@ -768,7 +768,7 @@ extension AppDelegate {
                     if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
                     }
-                    OperationCenter.shared.complete(
+                    _ = OperationCenter.shared.complete(
                         id: opID,
                         detail: "Created annotation track in \(request.bundleURL.lastPathComponent)"
                     )
@@ -779,7 +779,7 @@ extension AppDelegate {
                     )
                 }}
             } catch LungfishCLIRunner.RunError.cancelled {
-                // OperationCenter.cancel has already transitioned the row to Cancelled.
+                // OperationCenter owns the final Cancelled transition after teardown returns.
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     OperationCenter.shared.log(id: opID, level: .info, message: "\(request.operation.displayName) cancelled")
                 }}
@@ -789,7 +789,7 @@ extension AppDelegate {
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(
+                    _ = OperationCenter.shared.fail(
                         id: opID,
                         detail: "\(request.operation.displayName) failed",
                         errorMessage: error.localizedDescription

@@ -34,23 +34,12 @@
 
 ### Component Ownership
 ```
-LungfishCore/
-├── Primers/
-│   ├── Primer3Wrapper.swift           # PRIMARY OWNER
-│   ├── PrimerOptions.swift            # PRIMARY OWNER
-│   ├── PrimerResult.swift             # PRIMARY OWNER
-│   ├── TmCalculator.swift             # PRIMARY OWNER
-│   ├── SecondaryStructure.swift       # PRIMARY OWNER
-│   └── DimerChecker.swift             # PRIMARY OWNER
-LungfishApp/
-├── Views/
-│   ├── Primers/
-│   │   ├── PrimerDesignView.swift     # PRIMARY OWNER
-│   │   ├── PrimerOptionsPanel.swift   # PRIMARY OWNER
-│   │   └── PrimerResultsTable.swift   # PRIMARY OWNER
-LungfishUI/
-├── Annotations/
-│   └── PrimerAnnotation.swift         # PRIMARY OWNER
+Sources/LungfishCore/Models/            # Co-owner for primer-related models
+Sources/LungfishWorkflow/Primers/       # PRIMARY OWNER for primer workflows
+Sources/LungfishApp/Views/BAM/          # Primer trim dialog and picker surfaces
+Sources/LungfishApp/Views/ImportCenter/ # Primer scheme import surfaces
+Sources/LungfishApp/Views/Sidebar/      # Primer scheme inspector surface
+Sources/LungfishApp/Views/Viewer/       # Primer annotation visualization in viewer
 ```
 
 ### Interfaces with Other Roles

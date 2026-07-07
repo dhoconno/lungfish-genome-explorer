@@ -55,6 +55,10 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         XCTAssertEqual(provenance.options.explicit["bundleName"]?.stringValue, "Merged Reference")
         XCTAssertEqual(provenance.options.explicit["requestedBundleName"]?.stringValue, "Merged Reference")
         XCTAssertEqual(provenance.options.explicit["resolvedBundleName"]?.stringValue, "Merged Reference")
+        XCTAssertEqual(provenance.options.explicit["mergeMode"]?.stringValue, "sequence-only")
+        XCTAssertEqual(provenance.options.resolvedDefaults["annotationMerge"]?.stringValue, "unsupported")
+        XCTAssertEqual(provenance.options.resolvedDefaults["variantMerge"]?.stringValue, "unsupported")
+        XCTAssertEqual(provenance.options.resolvedDefaults["trackMerge"]?.stringValue, "unsupported")
         XCTAssertEqual(provenance.options.explicit["outputBundle"]?.fileValue?.path, mergedURL.path)
 
         let genome = try XCTUnwrap(manifest.genome)

@@ -34,23 +34,10 @@
 
 ### Component Ownership
 ```
-LungfishCore/
-├── Assembly/
-│   ├── Assembler.swift                # PRIMARY OWNER - Protocol
-│   ├── SPAdesAssembler.swift          # PRIMARY OWNER
-│   ├── MEGAHITAssembler.swift         # PRIMARY OWNER
-│   ├── AssemblyOptions.swift          # PRIMARY OWNER
-│   ├── AssemblyResult.swift           # PRIMARY OWNER
-│   └── AssemblyMetrics.swift          # PRIMARY OWNER
-LungfishApp/
-├── Views/
-│   ├── Assembly/
-│   │   ├── AssemblyOptionsView.swift  # PRIMARY OWNER
-│   │   ├── AssemblyProgressView.swift # PRIMARY OWNER
-│   │   └── ContigStatsView.swift      # PRIMARY OWNER
-LungfishPlugin/
-├── Protocols/
-│   └── AssemblerPlugin.swift          # PRIMARY OWNER
+Sources/LungfishWorkflow/Assembly/      # PRIMARY OWNER for assembly pipelines
+Sources/LungfishAssemblyUI/             # PRIMARY OWNER for assembly result UI
+Sources/LungfishIO/Assembly/            # Co-owner for assembly data readers/models
+Sources/LungfishApp/Views/Assembly/     # App launch/configuration surfaces
 ```
 
 ### Interfaces with Other Roles
@@ -58,7 +45,7 @@ LungfishPlugin/
 |------|-----------------|
 | Bioinformatics Architect | Contig data models |
 | Workflow Integration Lead | Container execution |
-| Plugin Architect | Assembler plugin protocol |
+| Plugin Architect | Future extension points for assembler/tool packs |
 | UI/UX Lead | Parameter UI design |
 
 ---

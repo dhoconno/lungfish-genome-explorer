@@ -67,7 +67,11 @@ public final class FASTQCLIMaterializer: Sendable {
 
         switch manifest.payload {
         case .full(let fastqFilename):
-            let fullFASTQURL = bundleURL.appendingPathComponent(fastqFilename)
+            let fullFASTQURL = try payloadMemberURL(
+                fastqFilename,
+                in: bundleURL,
+                field: "payload.full.fastqFilename"
+            )
             guard FileManager.default.fileExists(atPath: fullFASTQURL.path) else {
                 throw FASTQCLIMaterializerError.sourceFASTQMissing
             }
@@ -80,7 +84,11 @@ public final class FASTQCLIMaterializer: Sendable {
             return outputURL
 
         case .fullFASTA(let fastaFilename):
-            let fullFASTAURL = bundleURL.appendingPathComponent(fastaFilename)
+            let fullFASTAURL = try payloadMemberURL(
+                fastaFilename,
+                in: bundleURL,
+                field: "payload.fullFASTA.fastaFilename"
+            )
             guard FileManager.default.fileExists(atPath: fullFASTAURL.path) else {
                 throw FASTQCLIMaterializerError.sourceFASTQMissing
             }
@@ -93,8 +101,16 @@ public final class FASTQCLIMaterializer: Sendable {
             return outputURL
 
         case .fullPaired(let r1Filename, let r2Filename):
-            let r1URL = bundleURL.appendingPathComponent(r1Filename)
-            let r2URL = bundleURL.appendingPathComponent(r2Filename)
+            let r1URL = try payloadMemberURL(
+                r1Filename,
+                in: bundleURL,
+                field: "payload.fullPaired.r1Filename"
+            )
+            let r2URL = try payloadMemberURL(
+                r2Filename,
+                in: bundleURL,
+                field: "payload.fullPaired.r2Filename"
+            )
             guard FileManager.default.fileExists(atPath: r1URL.path),
                   FileManager.default.fileExists(atPath: r2URL.path) else {
                 throw FASTQCLIMaterializerError.sourceFASTQMissing
@@ -156,7 +172,11 @@ public final class FASTQCLIMaterializer: Sendable {
             throw FASTQCLIMaterializerError.rootBundleMissing(manifest.rootBundleRelativePath)
         }
 
-        let rootFASTQURL = rootBundleURL.appendingPathComponent(manifest.rootFASTQFilename)
+        let rootFASTQURL = try rootPayloadMemberURL(
+            manifest.rootFASTQFilename,
+            in: rootBundleURL,
+            field: "rootFASTQFilename"
+        )
         guard FileManager.default.fileExists(atPath: rootFASTQURL.path) else {
             throw FASTQCLIMaterializerError.rootFASTQMissing
         }
@@ -166,7 +186,11 @@ public final class FASTQCLIMaterializer: Sendable {
             throw FASTQCLIMaterializerError.sourceFASTQMissing
 
         case .subset(let readIDFilename):
-            let readIDListURL = bundleURL.appendingPathComponent(readIDFilename)
+            let readIDListURL = try payloadMemberURL(
+                readIDFilename,
+                in: bundleURL,
+                field: "payload.subset.readIDListFilename"
+            )
             let trimURL = bundleTrimPositionsURL(bundleURL)
             let orientURL = bundleOrientMapURL(bundleURL)
             if manifest.sequenceFormat == .fasta {
@@ -188,7 +212,11 @@ public final class FASTQCLIMaterializer: Sendable {
             }
 
         case .trim(let trimFilename):
-            let trimURL = bundleURL.appendingPathComponent(trimFilename)
+            let trimURL = try payloadMemberURL(
+                trimFilename,
+                in: bundleURL,
+                field: "payload.trim.trimPositionFilename"
+            )
             guard isAbsoluteTrimPositionsFile(trimURL) else {
                 throw FASTQCLIMaterializerError.unsupportedTrimFormat(
                     "Legacy relative trim format not supported by CLI materializer"
@@ -210,9 +238,21 @@ public final class FASTQCLIMaterializer: Sendable {
             }
 
         case .demuxedVirtual(_, let readIDFilename, _, let trimPositionsFilename, let orientMapFilename):
-            let readIDListURL = bundleURL.appendingPathComponent(readIDFilename)
-            let trimURL = trimPositionsFilename.map { bundleURL.appendingPathComponent($0) }
-            let orientURL = orientMapFilename.map { bundleURL.appendingPathComponent($0) }
+            let readIDListURL = try payloadMemberURL(
+                readIDFilename,
+                in: bundleURL,
+                field: "payload.demuxedVirtual.readIDListFilename"
+            )
+            let trimURL = try optionalPayloadMemberURL(
+                trimPositionsFilename,
+                in: bundleURL,
+                field: "payload.demuxedVirtual.trimPositionsFilename"
+            )
+            let orientURL = try optionalPayloadMemberURL(
+                orientMapFilename,
+                in: bundleURL,
+                field: "payload.demuxedVirtual.orientMapFilename"
+            )
             if manifest.sequenceFormat == .fasta {
                 try await materializeFASTASubset(
                     rootFASTAURL: rootFASTQURL,
@@ -232,7 +272,11 @@ public final class FASTQCLIMaterializer: Sendable {
             }
 
         case .orientMap(let orientMapFilename, _):
-            let mapURL = bundleURL.appendingPathComponent(orientMapFilename)
+            let mapURL = try payloadMemberURL(
+                orientMapFilename,
+                in: bundleURL,
+                field: "payload.orientMap.orientMapFilename"
+            )
             let fwdReadIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: mapURL)
             let rcReadIDs = try FASTQOrientMapFile.loadRCReadIDs(from: mapURL)
             if manifest.sequenceFormat == .fasta {
@@ -642,8 +686,16 @@ public final class FASTQCLIMaterializer: Sendable {
         var tempInterleavedURL: URL?
 
         if let r1 = pairedR1, let r2 = pairedR2 {
-            let r1URL = bundleURL.appendingPathComponent(r1.filename)
-            let r2URL = bundleURL.appendingPathComponent(r2.filename)
+            let r1URL = try payloadMemberURL(
+                r1.filename,
+                in: bundleURL,
+                field: "readClassification.files[].filename"
+            )
+            let r2URL = try payloadMemberURL(
+                r2.filename,
+                in: bundleURL,
+                field: "readClassification.files[].filename"
+            )
             let interleavedURL = tempDirectory
                 .appendingPathComponent("interleaved-\(UUID().uuidString).fastq")
             try await interleaveWithReformat(r1URL: r1URL, r2URL: r2URL, outputURL: interleavedURL)
@@ -657,7 +709,11 @@ public final class FASTQCLIMaterializer: Sendable {
         let otherRoles: [ReadClassification.FileRole] = [.merged, .unpaired]
         for role in otherRoles {
             if let fileRecord = classification.files.first(where: { $0.role == role }) {
-                let url = bundleURL.appendingPathComponent(fileRecord.filename)
+                let url = try payloadMemberURL(
+                    fileRecord.filename,
+                    in: bundleURL,
+                    field: "readClassification.files[].filename"
+                )
                 if fm.fileExists(atPath: url.path) {
                     fileURLsToConcat.append(url)
                 }
@@ -676,6 +732,36 @@ public final class FASTQCLIMaterializer: Sendable {
     }
 
     // MARK: - Utilities
+
+    private func payloadMemberURL(_ relativePath: String, in bundleURL: URL, field: String) throws -> URL {
+        do {
+            return try FASTQBundle.validatedBundleMemberURL(
+                for: relativePath,
+                in: bundleURL,
+                field: field
+            )
+        } catch {
+            throw FASTQCLIMaterializerError.sourceFASTQMissing
+        }
+    }
+
+    private func optionalPayloadMemberURL(_ relativePath: String?, in bundleURL: URL, field: String) throws -> URL? {
+        guard let relativePath else { return nil }
+        return try payloadMemberURL(relativePath, in: bundleURL, field: field)
+    }
+
+    private func rootPayloadMemberURL(_ relativePath: String, in bundleURL: URL, field: String) throws -> URL {
+        do {
+            return try FASTQBundle.validatedBundleMemberURL(
+                for: relativePath,
+                in: bundleURL,
+                field: field,
+                allowExistingSymlinkEscape: true
+            )
+        } catch {
+            throw FASTQCLIMaterializerError.rootFASTQMissing
+        }
+    }
 
     private func bundleTrimPositionsURL(_ bundleURL: URL) -> URL? {
         let url = bundleURL.appendingPathComponent(FASTQBundle.trimPositionFilename)

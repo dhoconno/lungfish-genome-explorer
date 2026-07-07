@@ -80,7 +80,7 @@ extension ImportCommand {
 
         @Option(
             name: .customLong("recipe"),
-            help: "Processing recipe: vsp2, wgs, amplicon, hifi, none (default: none)"
+            help: "Processing recipe: vsp2, wgs, hifi, none (default: none)"
         )
         var recipe: String = "none"
 
@@ -264,19 +264,13 @@ extension ImportCommand {
             var newRecipe: Recipe? = nil
             var oldRecipe: ProcessingRecipe? = nil
             if recipe.lowercased() != "none" {
-                // Search RecipeRegistryV2 by exact ID first, then by substring
-                if let r = RecipeRegistryV2.allRecipes().first(where: {
-                    $0.id == recipe || $0.id.contains(recipe.lowercased())
-                }) {
-                    newRecipe = r
-                } else {
-                    // Fall back to legacy recipe system (wgs, amplicon, hifi, etc.)
-                    do {
-                        oldRecipe = try FASTQBatchImporter.resolveRecipe(named: recipe)
-                    } catch let batchError as BatchImportError {
-                        print(formatter.error(batchError.errorDescription ?? batchError.localizedDescription))
-                        throw CLIExitCode.inputError.exitCode
-                    }
+                do {
+                    let resolvedRecipe = try Self.resolveImportRecipe(named: recipe)
+                    newRecipe = resolvedRecipe.newRecipe
+                    oldRecipe = resolvedRecipe.legacyRecipe
+                } catch let batchError as BatchImportError {
+                    print(formatter.error(batchError.errorDescription ?? batchError.localizedDescription))
+                    throw CLIExitCode.inputError.exitCode
                 }
             }
 
@@ -398,6 +392,27 @@ extension ImportCommand {
 
             return ids.sorted()
         }
+
+        static func resolveImportRecipe(
+            named name: String,
+            recipes: [Recipe] = RecipeRegistryV2.allRecipes()
+        ) throws -> (newRecipe: Recipe?, legacyRecipe: ProcessingRecipe?) {
+            let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard normalized != "none" else {
+                return (nil, nil)
+            }
+
+            let recipeID = v2RecipeAliases[normalized] ?? normalized
+            if let recipe = recipes.first(where: { $0.id.lowercased() == recipeID }) {
+                return (recipe, nil)
+            }
+
+            return (nil, try FASTQBatchImporter.resolveRecipe(named: name))
+        }
+
+        private static let v2RecipeAliases: [String: String] = [
+            "vsp2": "vsp2-target-enrichment",
+        ]
 
         static func canonicalHumanReadRemovalDatabaseID(for requestedID: String) -> String {
             let canonical = DatabaseRegistry.canonicalDatabaseID(for: requestedID)

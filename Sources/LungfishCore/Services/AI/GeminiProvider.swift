@@ -3,9 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import os
-
-private let logger = Logger(subsystem: LogSubsystem.core, category: "GeminiProvider")
 
 /// AI provider implementation for the Google Gemini API.
 ///
@@ -111,6 +108,20 @@ public actor GeminiProvider: AIProvider {
         return body
     }
 
+    /// Builds the `functionResponse` parts for a set of tool results.
+    private func functionResponseParts(_ results: [AIToolResult]) -> [[String: Any]] {
+        results.map { toolResult in
+            [
+                "functionResponse": [
+                    "name": extractToolName(from: toolResult.toolCallId),
+                    "response": [
+                        "content": toolResult.content
+                    ],
+                ]
+            ]
+        }
+    }
+
     private func buildContents(_ messages: [AIMessage]) -> [[String: Any]] {
         var result: [[String: Any]] = []
 
@@ -118,16 +129,7 @@ public actor GeminiProvider: AIProvider {
             switch message.role {
             case .user:
                 if !message.toolResults.isEmpty {
-                    let parts: [[String: Any]] = message.toolResults.map { toolResult in
-                        [
-                            "functionResponse": [
-                                "name": extractToolName(from: toolResult.toolCallId),
-                                "response": [
-                                    "content": toolResult.content
-                                ],
-                            ]
-                        ]
-                    }
+                    let parts = functionResponseParts(message.toolResults)
                     result.append(["role": "user", "parts": parts])
                 } else {
                     result.append(["role": "user", "parts": [["text": message.content]]])
@@ -151,16 +153,7 @@ public actor GeminiProvider: AIProvider {
                 }
 
             case .tool:
-                let parts: [[String: Any]] = message.toolResults.map { toolResult in
-                    [
-                        "functionResponse": [
-                            "name": extractToolName(from: toolResult.toolCallId),
-                            "response": [
-                                "content": toolResult.content
-                            ],
-                        ]
-                    ]
-                }
+                let parts = functionResponseParts(message.toolResults)
                 if !parts.isEmpty {
                     result.append(["role": "user", "parts": parts])
                 }

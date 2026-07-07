@@ -165,8 +165,10 @@ chart, no series, and no per-week abundance line" (line 119). Verified:
   nao-mgs` (line 107) is a real registered subcommand. `lungfish nao-mgs summary
   <path> --top 20` (line 113) matches `nao-mgs summary --help`.
 - **Viewport columns** (line 125): **Sample, Taxon, Hits, Unique Reads, Refs** --
-  matches `NaoMgsResultViewController.swift:1360-1399,1425` exactly. Coverage
-  **sparkline** (line 134) matches `CoveragePlotView` (`NaoMgsChartViews.swift:13`).
+  matches `NaoMgsResultViewController.swift:1360-1399,1425` exactly. The old
+  coverage-sparkline note is superseded by 2026-07-05 hardening: the unused
+  SwiftUI chart subtree was removed, and the shipped NAO-MGS detail pane shows
+  metrics plus miniBAM evidence cards instead.
 - **BLAST Verify from the viewport** (lines 141-144): real --
   `onBlastVerification` + `actionBar.onBlastVerify` + coverage-stratified read
   selection (`NaoMgsResultViewController.swift:232,1527`). This resolves the

@@ -272,7 +272,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         startedAt: Date
     ) async throws {
         var command = [
-            "lungfish-cli", "genotype", "export",
+            CLICommandIdentity.executableName, "genotype", "export",
             "--bundle", bundleURL.path,
             "--export-format", format.rawValue,
             "--output", outputURL.path,
@@ -312,7 +312,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
 
         try await GenotypeExportProvenanceSupport.record(
             workflowName: "lungfish genotype export",
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             command: command,
             bundleURL: bundleURL,
             outputURLs: [outputURL],

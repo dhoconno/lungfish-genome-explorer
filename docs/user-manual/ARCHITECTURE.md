@@ -5,46 +5,6 @@
 This file holds the final TOC, audience mapping, prerequisite graph, and the
 rationale behind every chapter placement.
 
-## Status (2026-07-04)
-
-A Code Cartographer refresh grew `features.yaml` from 7 to 71 features and
-revealed that the app added two whole user-facing areas after the last docs
-work, neither with any chapter. This revision architects the fix and refreshes
-this file, which had drifted badly since 2026-05-09.
-
-The first new area is amplicon MHC genotyping (immunogenetics), delivered as
-`LungfishGenotypeUI`. It is distinct from the GATK human-germline work in the
-`06-human-germline-variants` part: it genotypes short and long amplicons
-against an MHC allele library, presents a genotype comparison matrix, and calls
-named haplotypes. It gets a new top-level Part, `chapters/09-genotyping/`, with
-four stubbed chapters. The running example domain is Mauritian cynomolgus
-macaque (MCM) MHC, with M1 through M7 family haplotypes across MHC-A, MHC-E,
-MHC-B, MHC-DR, MHC-DQ, and MHC-DP. Note that the genotype comparison viewport
-(`viewport.genotype-matrix`) is a dashboard, not one of the five genomic
-viewport classes, so it does not follow the shared viewport conventions.
-
-The second new area is 12S amplicon metabarcoding (`classify.twelve-s`,
-`LungfishTwelveSUI`). It gets one new chapter under Classification,
-`06-classification/09-twelve-s-metabarcoding.md`, numbered 09 to avoid the
-existing 07 filename collision. Several moderate gaps fold into existing
-chapters as Educator TODOs, recorded below. The AI Assistant decision from
-2026-05-09 is reversed: it now gets a short Reference appendix,
-`appendices/ai-assistant.md`, because the manual is meant to match full
-functionality.
-
-### Moderate gaps folded into existing chapters (Educator TODOs)
-
-These do not get new chapters. The Bioinformatics Educator folds each into the
-named existing chapter:
-
-- `sequence.translate` and `sequence.annotate` into
-  `02-sequences/01-importing-and-viewing`.
-- `fastq.demultiplex` into `03-reads/07-ont-runs` (barcode demux there;
-  cross-link from `03-reads/01-importing-fastq`).
-- `fetch.ena` into `03-reads/02-downloading-from-sra` (the ENA-first path).
-- `database.pathoplexus` into `02-sequences/02-downloading-from-ncbi`.
-- `import.sample-metadata` into `03-reads/01-importing-fastq`.
-
 ## Status (2026-05-09)
 
 Sub-project 1 delivered one pilot chapter (`04-variants/01-reads-to-variants`).
@@ -306,10 +266,6 @@ foundation prereqs in frontmatter.
   refers back to.
   Prereqs: A01, A02. Audience: analyst.
 
-- **04-alignments/05-viral-recon-wizard**. The guided reference-based viral
-  reconstruction wizard from reads to consensus. Prereqs: A01, A03. Audience:
-  bench-scientist. (Shipped; TOC was stale.)
-
 #### 05 Variants
 
 - **05-variants/01-calling-variants-from-amplicons** — pilot chapter
@@ -374,39 +330,6 @@ foundation prereqs in frontmatter.
   demixing with Freyja command plans and provenance.
   Prereqs: C01, V01. Audience: analyst.
 
-- **06-classification/07-importing-cz-id-results**. Imports a hosted CZ-ID
-  taxon report as a first-class taxonomy dataset.
-  Prereqs: C01. Audience: bench-scientist. (Shipped; TOC was stale.)
-
-- **06-classification/08-novel-virus-detection**. Imports NVD Nextflow
-  output as a taxonomy dataset with reads, BLAST hits, and reports.
-  Prereqs: C01. Audience: analyst. (Shipped; TOC was stale.)
-
-- **06-classification/09-twelve-s-metabarcoding**. 12S amplicon matching:
-  exact match to a deduplicated reference FASTA, cross-species ambiguity
-  resolution, unresolved-cluster review with BLAST, and export.
-  Prereqs: C01, R01. Audience: bench-scientist. (Stub, 2026-07-04.)
-
-#### 06b Human Germline Variants (preview)
-
-Shipped as `chapters/06-human-germline-variants/` and previously omitted from
-this TOC. Power-user preview: each `lungfish gatk` command prints its GATK
-invocation by default and runs only with `--execute`.
-
-- **06-human-germline-variants/01-haplotype-caller**. GATK4 HaplotypeCaller
-  dry runs and execution. Prereqs: F05, F07. Audience: power-user.
-
-- **06-human-germline-variants/02-joint-genotyping**. GVCF combine and joint
-  genotyping across samples. Prereqs: HGV01. Audience: power-user.
-
-- **06-human-germline-variants/03-filtering-selecting-and-metrics**. Variant
-  filtration, selection, and collected metrics. Prereqs: HGV02. Audience:
-  power-user.
-
-- **06-human-germline-variants/04-reference-packs**. The reference packs
-  germline calling needs and how to install them. Prereqs: HGV01. Audience:
-  power-user.
-
 #### 07 Assembly
 
 - **07-assembly/01-when-to-assemble** — the assembly question; reference-based
@@ -437,29 +360,6 @@ invocation by default and runs only with `--execute`.
   export; methods-section text; sharing pipelines.
   Prereqs: F08, W01. Audience: analyst.
 
-#### 09 Genotyping
-
-New top-level Part for amplicon MHC genotyping (immunogenetics), stubbed
-2026-07-04. Distinct from the GATK human-germline part. The running example is
-Mauritian cynomolgus macaque (MCM) MHC. The genotype comparison viewport is a
-dashboard, not one of the five genomic viewport classes.
-
-- **09-genotyping/01-what-is-mhc-genotyping**. Concepts: what amplicon MHC
-  genotyping is, alleles versus haplotypes, when to use it, what Lungfish does
-  and does not do. Prereqs: F02, F03, F06. Audience: bench-scientist.
-
-- **09-genotyping/02-running-genotyping**. Launching miSeq amplicon, ONT
-  barcode-demux and sample-bundle, and full-length ONT clustering genotyping
-  from the Workflow Library. Prereqs: G01, R01, R07. Audience: bench-scientist.
-
-- **09-genotyping/03-reading-the-genotype-comparison**. The comparison matrix,
-  haplotype tape, cohort summary, per-sample call evidence, manual haplotyping,
-  and annotation overrides. Prereqs: G02. Audience: bench-scientist.
-
-- **09-genotyping/04-haplotype-definitions-and-export**. Defining and editing
-  named haplotypes, AI-assisted haplotype discovery and refinement, and export
-  to XLSX, CSV, TSV, and LabKey. Prereqs: G03. Audience: analyst.
-
 ### Part III: Reference
 
 - **appendices/cli-reference** — every `lungfish` subcommand, grouped by
@@ -475,9 +375,6 @@ dashboard, not one of the five genomic viewport classes.
 - **appendices/power-user-notes** — the deeper-dive content stripped out of
   bench-scientist chapters: exact mpileup flags, indelqual handling, env
   pinning, sidecar schema, deterministic-execution caveats.
-- **appendices/ai-assistant**. The AI Assistant panel: opening it, connecting
-  a bring-your-own-key provider, asking questions about the active dataset,
-  and what it can and cannot do. Stubbed 2026-07-04. Audience: bench-scientist.
 
 ## Prerequisite graph
 
@@ -514,30 +411,20 @@ depth) so the chapter survives without the foundations layer.
 
 ## Status of each chapter
 
-Refreshed 2026-07-04 against the chapters directory. "Written" means a chapter
-body has shipped; it does not assert gate-2 approval. "Stub (2026-07-04)" marks
-the chapters this revision created as frontmatter and headings only.
-
 | Chapter | Status |
 |---|---|
-| F01-F08 (foundations) | written |
-| S01-S04 (sequences) | written |
-| R01-R07 (reads) | written |
-| A01-A05 (alignments, incl. viral-recon wizard) | written |
-| V01-V06 (variants) | written |
-| C01-C08 (classification, incl. Freyja, CZ-ID, NVD) | written |
-| C09 (12S metabarcoding) | stub (2026-07-04) |
-| HGV01-HGV04 (human germline variants) | written |
-| AS01-AS04 (assembly) | written |
-| W01-W02 (workflows) | written |
-| G01-G04 (genotyping) | stub (2026-07-04) |
-| Appendices (CLI, formats, shortcuts, etc.) | written |
-| appendices/ai-assistant | stub (2026-07-04) |
+| Foundations | Published under `chapters/01-foundations/` |
+| Projects and bundles | Published under `chapters/02-projects-bundles/` |
+| Reads and FASTQ workflows | Published under `chapters/03-reads/` |
+| Alignments | Published under `chapters/04-alignments/` |
+| Assembly | Published under `chapters/07-assembly/` |
+| Classification | Published under `chapters/06-classification/` |
+| Human germline variants | Published under `chapters/06-human-germline-variants/` |
+| Appendices | Published under `chapters/appendices/` |
 
-Next: the Bioinformatics Educator writes the six new stubbed chapters and the
-five moderate-gap folds, each following its gate-1 review. The genotyping part
-needs an MCM MHC fixture before its worked walkthroughs are real; until it
-ships, the genotyping chapters carry no `fixtures_refs`.
+This architecture note is historical design context. The active public navigation
+is `build/mkdocs.yml`, and the chapter files under `chapters/` are the current
+manual inventory.
 
 ## Resolved planning decisions (2026-05-09)
 
@@ -555,11 +442,8 @@ ships, the genotyping chapters carry no `fixtures_refs`.
 - **Tool-choice tables are markdown tables.** Three columns: "If your
   data is" / "Use" / "Why". Linter-safe; renders cleanly in both web
   and PDF.
-- **AI Assistant documented (revised 2026-07-04).** The 2026-05-09 decision
-  deferred the AI Assistant until its surface stabilised. That is reversed: the
-  panel now answers questions about any active dataset with a bring-your-own-key
-  provider, and the manual is meant to match full functionality. It gets a short
-  Reference appendix, `appendices/ai-assistant.md`, kept deliberately small so
-  it survives further change.
+- **AI Assistant deferred.** Functionality is currently scoped to VCF
+  workflows and will broaden. Defer documenting until the surface is
+  stable.
 - **V03 (cross-caller comparison) ordering deferred** to the next
   planning round.

@@ -530,7 +530,6 @@ public final class GenotypeAnnotationStore {
     }
 
     private struct ProvenanceEditContext {
-        var argv: [String]
         var explicitOptions: [String: ParameterValue]
     }
 
@@ -562,7 +561,7 @@ public final class GenotypeAnnotationStore {
     ) throws {
         let output = try ProvenanceFileDescriptor.file(url: annotationURL, format: .json, role: .output)
         let argv = [
-            "lungfish",
+            CLICommandIdentity.executableName,
             "genotype",
             "apply-annotations",
             "--bundle", bundleURL.path,
@@ -636,7 +635,6 @@ public final class GenotypeAnnotationStore {
         edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, style: GenotypeAnnotationSidecar.MatrixStyle?)]
     ) -> ProvenanceEditContext {
         ProvenanceEditContext(
-            argv: [],
             explicitOptions: [
                 "targetCount": .integer(edits.count),
                 "targets": .array(edits.map { matrixTargetParameterValue($0.target) }),
@@ -649,7 +647,6 @@ public final class GenotypeAnnotationStore {
         edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, body: String)]
     ) -> ProvenanceEditContext {
         ProvenanceEditContext(
-            argv: [],
             explicitOptions: [
                 "targetCount": .integer(edits.count),
                 "targets": .array(edits.map { matrixTargetParameterValue($0.target) }),

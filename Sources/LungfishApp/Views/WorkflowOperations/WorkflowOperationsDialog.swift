@@ -52,8 +52,6 @@ struct WorkflowOperationsDialog: View {
 private struct WorkflowOperationsDetailPane: View {
     @Bindable var state: WorkflowOperationDialogState
     let onCreateTwelveSReferenceBundle: (TwelveSReferenceBundleBuildConfiguration) -> Void
-    @State private var showingReferencePanel = false
-    @State private var showingOutputPanel = false
     @State private var showingTwelveSReferenceBuilder = false
     @State private var twelveSReferenceDraft = TwelveSReferenceBundleDraft()
 

@@ -4,6 +4,7 @@
 //
 // Owner: Storage & Indexing Lead (Role 18)
 
+import CommonCrypto
 import Foundation
 import SQLite3
 import os.log
@@ -121,10 +122,13 @@ public final class ProjectStore {
         let legacyDBPath = url.appendingPathComponent("project.db")
         let hiddenDBPath = url.appendingPathComponent(".project.db")
         
-        if FileManager.default.fileExists(atPath: legacyDBPath.path) &&
+        if FileManager.default.fileExists(atPath: legacyDBPath.path),
            !FileManager.default.fileExists(atPath: hiddenDBPath.path) {
             do {
-                try FileManager.default.moveItem(at: legacyDBPath, to: hiddenDBPath)
+                try Self.migrateLegacyDatabaseWithCompanions(
+                    legacyDBURL: legacyDBPath,
+                    hiddenDBURL: hiddenDBPath
+                )
                 Self.logger.info("ProjectStore: Migrated project.db to .project.db")
             } catch {
                 Self.logger.warning("ProjectStore: Failed to migrate database: \(error.localizedDescription, privacy: .public)")
@@ -168,6 +172,50 @@ public final class ProjectStore {
         try initializeSchema()
 
         Self.logger.info("Opened project store at \(url.path, privacy: .public)")
+    }
+
+    private static func migrateLegacyDatabaseWithCompanions(
+        legacyDBURL: URL,
+        hiddenDBURL: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        var movedPairs: [(source: URL, destination: URL)] = []
+        do {
+            let pairs = sqliteDatabaseMigrationPairs(legacyDBURL: legacyDBURL, hiddenDBURL: hiddenDBURL)
+            for pair in pairs where fileManager.fileExists(atPath: pair.source.path) {
+                if fileManager.fileExists(atPath: pair.destination.path) {
+                    try fileManager.removeItem(at: pair.destination)
+                }
+                try fileManager.moveItem(at: pair.source, to: pair.destination)
+                movedPairs.append(pair)
+            }
+        } catch {
+            for pair in movedPairs.reversed() where fileManager.fileExists(atPath: pair.destination.path) {
+                if fileManager.fileExists(atPath: pair.source.path) {
+                    try? fileManager.removeItem(at: pair.destination)
+                } else {
+                    try? fileManager.moveItem(at: pair.destination, to: pair.source)
+                }
+            }
+            throw error
+        }
+    }
+
+    private static func sqliteDatabaseMigrationPairs(
+        legacyDBURL: URL,
+        hiddenDBURL: URL
+    ) -> [(source: URL, destination: URL)] {
+        [(legacyDBURL, hiddenDBURL)]
+            + ["wal", "shm"].map { suffix in
+                (
+                    sqliteCompanionURL(for: legacyDBURL, suffix: suffix),
+                    sqliteCompanionURL(for: hiddenDBURL, suffix: suffix)
+                )
+            }
+    }
+
+    private static func sqliteCompanionURL(for dbURL: URL, suffix: String) -> URL {
+        URL(fileURLWithPath: "\(dbURL.path)-\(suffix)")
     }
 
     deinit {
@@ -331,24 +379,26 @@ public final class ProjectStore {
         let contentHash = computeHash(content)
         let metadataJSON = try metadata.map { try JSONEncoder().encode($0) }
 
-        try execute("""
-            INSERT INTO sequences (id, name, original_content, content_hash, alphabet, length, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, parameters: [
-            id.uuidString,
-            name,
-            content.data(using: .utf8)!,
-            contentHash,
-            alphabet,
-            content.count,
-            metadataJSON as Any
-        ])
+        try withTransaction {
+            try execute("""
+                INSERT INTO sequences (id, name, original_content, content_hash, alphabet, length, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, parameters: [
+                id.uuidString,
+                name,
+                content.data(using: .utf8)!,
+                contentHash,
+                alphabet,
+                content.count,
+                metadataJSON as Any
+            ])
 
-        // Initialize current state
-        try execute("""
-            INSERT INTO current_state (sequence_id, version_hash, version_index)
-            VALUES (?, NULL, 0)
-        """, parameters: [id.uuidString])
+            // Initialize current state
+            try execute("""
+                INSERT INTO current_state (sequence_id, version_hash, version_index)
+                VALUES (?, NULL, 0)
+            """, parameters: [id.uuidString])
+        }
 
         Self.logger.info("Stored sequence '\(name, privacy: .public)' with ID \(id.uuidString)")
         return id
@@ -374,6 +424,14 @@ public final class ProjectStore {
         return result
     }
 
+    private func sequenceExists(id: UUID) throws -> Bool {
+        var exists = false
+        try query("SELECT 1 FROM sequences WHERE id = ? LIMIT 1", parameters: [id.uuidString]) { _ in
+            exists = true
+        }
+        return exists
+    }
+
     /// Lists all sequences in the project.
     public func listSequences() throws -> [SequenceSummary] {
         var results: [SequenceSummary] = []
@@ -385,12 +443,12 @@ public final class ProjectStore {
             ORDER BY s.name
         """) { stmt in
             let summary = SequenceSummary(
-                id: UUID(uuidString: String(cString: sqlite3_column_text(stmt, 0)))!,
-                name: String(cString: sqlite3_column_text(stmt, 1)),
-                alphabet: String(cString: sqlite3_column_text(stmt, 2)),
+                id: try requiredUUIDColumn(stmt, 0, name: "sequences.id"),
+                name: try requiredTextColumn(stmt, 1, name: "sequences.name"),
+                alphabet: try requiredTextColumn(stmt, 2, name: "sequences.alphabet"),
                 length: Int(sqlite3_column_int64(stmt, 3)),
-                createdAt: parseDate(String(cString: sqlite3_column_text(stmt, 4))),
-                modifiedAt: parseDate(String(cString: sqlite3_column_text(stmt, 5))),
+                createdAt: parseDate(try requiredTextColumn(stmt, 4, name: "sequences.created_at")),
+                modifiedAt: parseDate(try requiredTextColumn(stmt, 5, name: "sequences.modified_at")),
                 versionCount: Int(sqlite3_column_int(stmt, 6))
             )
             results.append(summary)
@@ -418,55 +476,57 @@ public final class ProjectStore {
         message: String? = nil,
         author: String? = nil
     ) throws -> UUID {
-        // Get current version hash and count
-        var parentHash: String?
-        var currentVersionCount: Int = 0
-        try query("""
-            SELECT version_hash, version_index FROM current_state WHERE sequence_id = ?
-        """, parameters: [sequenceId.uuidString]) { stmt in
-            if sqlite3_column_type(stmt, 0) != SQLITE_NULL {
-                parentHash = String(cString: sqlite3_column_text(stmt, 0))
-            }
-            currentVersionCount = Int(sqlite3_column_int(stmt, 1))
-        }
-
-        // The new version number is currentVersionCount + 1 (0 is original, 1 is first edit, etc.)
-        let newVersionNumber = currentVersionCount + 1
-
         // Encode diff
         let diffData = try JSONEncoder().encode(diff)
 
-        // Insert version
-        let versionId = UUID()
-        try execute("""
-            INSERT INTO versions (id, sequence_id, version_number, parent_hash, content_hash, diff_data, message, author)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, parameters: [
-            versionId.uuidString,
-            sequenceId.uuidString,
-            newVersionNumber,
-            parentHash as Any,
-            newContentHash,
-            diffData,
-            message as Any,
-            author as Any
-        ])
+        return try withTransaction {
+            // Get current version hash and count
+            var parentHash: String?
+            var currentVersionCount: Int = 0
+            try query("""
+                SELECT version_hash, version_index FROM current_state WHERE sequence_id = ?
+            """, parameters: [sequenceId.uuidString]) { stmt in
+                if sqlite3_column_type(stmt, 0) != SQLITE_NULL {
+                    parentHash = String(cString: sqlite3_column_text(stmt, 0))
+                }
+                currentVersionCount = Int(sqlite3_column_int(stmt, 1))
+            }
 
-        // Update current state
-        let versionIndex = newVersionNumber
-        try execute("""
-            UPDATE current_state
-            SET version_hash = ?, version_index = ?
-            WHERE sequence_id = ?
-        """, parameters: [newContentHash, versionIndex, sequenceId.uuidString])
+            // The new version number is currentVersionCount + 1 (0 is original, 1 is first edit, etc.)
+            let newVersionNumber = currentVersionCount + 1
 
-        // Update sequence modified timestamp
-        try execute("""
-            UPDATE sequences SET modified_at = datetime('now') WHERE id = ?
-        """, parameters: [sequenceId.uuidString])
+            // Insert version
+            let versionId = UUID()
+            try execute("""
+                INSERT INTO versions (id, sequence_id, version_number, parent_hash, content_hash, diff_data, message, author)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, parameters: [
+                versionId.uuidString,
+                sequenceId.uuidString,
+                newVersionNumber,
+                parentHash as Any,
+                newContentHash,
+                diffData,
+                message as Any,
+                author as Any
+            ])
 
-        Self.logger.info("Recorded version \(versionIndex) for sequence \(sequenceId.uuidString)")
-        return versionId
+            // Update current state
+            let versionIndex = newVersionNumber
+            try execute("""
+                UPDATE current_state
+                SET version_hash = ?, version_index = ?
+                WHERE sequence_id = ?
+            """, parameters: [newContentHash, versionIndex, sequenceId.uuidString])
+
+            // Update sequence modified timestamp
+            try execute("""
+                UPDATE sequences SET modified_at = datetime('now') WHERE id = ?
+            """, parameters: [sequenceId.uuidString])
+
+            Self.logger.info("Recorded version \(versionIndex) for sequence \(sequenceId.uuidString)")
+            return versionId
+        }
     }
 
     /// Gets the version history for a sequence.
@@ -499,6 +559,10 @@ public final class ProjectStore {
 
     /// Reconstructs the sequence content at a specific version.
     public func reconstructSequence(id: UUID, atVersion versionIndex: Int) throws -> String {
+        guard versionIndex >= 0 else {
+            throw ProjectStoreError.invalidVersionIndex(index: versionIndex)
+        }
+
         // Get original content
         guard let stored = try getSequence(id: id) else {
             throw ProjectStoreError.sequenceNotFound(id: id)
@@ -508,9 +572,11 @@ public final class ProjectStore {
 
         // Apply diffs up to the specified version
         let versions = try getVersionHistory(for: id)
-        let versionsToApply = min(versionIndex, versions.count)
+        guard versionIndex <= versions.count else {
+            throw ProjectStoreError.invalidVersionIndex(index: versionIndex)
+        }
 
-        for i in 0..<versionsToApply {
+        for i in 0..<versionIndex {
             content = try versions[i].diff.apply(to: content)
         }
 
@@ -519,6 +585,13 @@ public final class ProjectStore {
 
     /// Checks out a specific version of a sequence.
     public func checkoutVersion(sequenceId: UUID, versionIndex: Int) throws {
+        guard versionIndex >= 0 else {
+            throw ProjectStoreError.invalidVersionIndex(index: versionIndex)
+        }
+        guard try sequenceExists(id: sequenceId) else {
+            throw ProjectStoreError.sequenceNotFound(id: sequenceId)
+        }
+
         let versions = try getVersionHistory(for: sequenceId)
         let versionHash: String?
 
@@ -655,14 +728,14 @@ public final class ProjectStore {
     // MARK: - Project Metadata
 
     /// Sets a project metadata value.
-    public func setMetadata(key: String, value: String) throws {
+    func setMetadata(key: String, value: String) throws {
         try execute("""
             INSERT OR REPLACE INTO project_metadata (key, value) VALUES (?, ?)
         """, parameters: [key, value])
     }
 
     /// Gets a project metadata value.
-    public func getMetadata(key: String) throws -> String? {
+    func getMetadata(key: String) throws -> String? {
         var value: String?
         try query("""
             SELECT value FROM project_metadata WHERE key = ?
@@ -673,16 +746,6 @@ public final class ProjectStore {
     }
 
     // MARK: - Helper Methods
-
-    private func getVersionCount(for sequenceId: UUID) throws -> Int {
-        var count: Int = 0
-        try query("""
-            SELECT COUNT(*) FROM versions WHERE sequence_id = ?
-        """, parameters: [sequenceId.uuidString]) { stmt in
-            count = Int(sqlite3_column_int(stmt, 0))
-        }
-        return count
-    }
 
     private func computeHash(_ content: String) -> String {
         let data = Data(content.utf8)
@@ -714,28 +777,27 @@ public final class ProjectStore {
             throw ProjectStoreError.queryError(message: "Invalid statement")
         }
 
-        let contentBlob = sqlite3_column_blob(stmt, 2)
-        let contentLength = sqlite3_column_bytes(stmt, 2)
-        let contentData = Data(bytes: contentBlob!, count: Int(contentLength))
-        let content = String(data: contentData, encoding: .utf8) ?? ""
+        let contentData = try requiredBlobColumn(stmt, 2, name: "sequences.original_content")
+        guard let content = String(data: contentData, encoding: .utf8) else {
+            throw ProjectStoreError.queryError(
+                message: "Invalid UTF-8 in required column sequences.original_content"
+            )
+        }
 
         var metadata: [String: String]?
-        if sqlite3_column_type(stmt, 6) != SQLITE_NULL {
-            let metadataBlob = sqlite3_column_blob(stmt, 6)
-            let metadataLength = sqlite3_column_bytes(stmt, 6)
-            let metadataData = Data(bytes: metadataBlob!, count: Int(metadataLength))
+        if let metadataData = try optionalBlobColumn(stmt, 6, name: "sequences.metadata") {
             metadata = try? JSONDecoder().decode([String: String].self, from: metadataData)
         }
 
         return StoredSequence(
-            id: UUID(uuidString: String(cString: sqlite3_column_text(stmt, 0)))!,
-            name: String(cString: sqlite3_column_text(stmt, 1)),
+            id: try requiredUUIDColumn(stmt, 0, name: "sequences.id"),
+            name: try requiredTextColumn(stmt, 1, name: "sequences.name"),
             originalContent: content,
-            contentHash: String(cString: sqlite3_column_text(stmt, 3)),
-            alphabet: String(cString: sqlite3_column_text(stmt, 4)),
+            contentHash: try requiredTextColumn(stmt, 3, name: "sequences.content_hash"),
+            alphabet: try requiredTextColumn(stmt, 4, name: "sequences.alphabet"),
             length: Int(sqlite3_column_int64(stmt, 5)),
             metadata: metadata,
-            currentVersionHash: sqlite3_column_type(stmt, 7) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 7)) : nil,
+            currentVersionHash: try optionalTextColumn(stmt, 7, name: "current_state.version_hash"),
             currentVersionIndex: Int(sqlite3_column_int(stmt, 8))
         )
     }
@@ -745,19 +807,17 @@ public final class ProjectStore {
             throw ProjectStoreError.queryError(message: "Invalid statement")
         }
 
-        let diffBlob = sqlite3_column_blob(stmt, 3)
-        let diffLength = sqlite3_column_bytes(stmt, 3)
-        let diffData = Data(bytes: diffBlob!, count: Int(diffLength))
+        let diffData = try requiredBlobColumn(stmt, 3, name: "versions.diff_data")
         let diff = try JSONDecoder().decode(SequenceDiff.self, from: diffData)
 
         return StoredVersion(
-            id: UUID(uuidString: String(cString: sqlite3_column_text(stmt, 0)))!,
-            parentHash: sqlite3_column_type(stmt, 1) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 1)) : nil,
-            contentHash: String(cString: sqlite3_column_text(stmt, 2)),
+            id: try requiredUUIDColumn(stmt, 0, name: "versions.id"),
+            parentHash: try optionalTextColumn(stmt, 1, name: "versions.parent_hash"),
+            contentHash: try requiredTextColumn(stmt, 2, name: "versions.content_hash"),
             diff: diff,
-            message: sqlite3_column_type(stmt, 4) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 4)) : nil,
-            author: sqlite3_column_type(stmt, 5) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 5)) : nil,
-            createdAt: parseDate(String(cString: sqlite3_column_text(stmt, 6)))
+            message: try optionalTextColumn(stmt, 4, name: "versions.message"),
+            author: try optionalTextColumn(stmt, 5, name: "versions.author"),
+            createdAt: parseDate(try requiredTextColumn(stmt, 6, name: "versions.created_at"))
         )
     }
 
@@ -767,23 +827,79 @@ public final class ProjectStore {
         }
 
         var qualifiers: [String: String]?
-        if sqlite3_column_type(stmt, 6) != SQLITE_NULL {
-            let qualBlob = sqlite3_column_blob(stmt, 6)
-            let qualLength = sqlite3_column_bytes(stmt, 6)
-            let qualData = Data(bytes: qualBlob!, count: Int(qualLength))
+        if let qualData = try optionalBlobColumn(stmt, 6, name: "annotations.qualifiers") {
             qualifiers = try? JSONDecoder().decode([String: String].self, from: qualData)
         }
 
         return StoredAnnotation(
-            id: UUID(uuidString: String(cString: sqlite3_column_text(stmt, 0)))!,
-            type: String(cString: sqlite3_column_text(stmt, 1)),
-            name: String(cString: sqlite3_column_text(stmt, 2)),
+            id: try requiredUUIDColumn(stmt, 0, name: "annotations.id"),
+            type: try requiredTextColumn(stmt, 1, name: "annotations.type"),
+            name: try requiredTextColumn(stmt, 2, name: "annotations.name"),
             startPosition: Int(sqlite3_column_int(stmt, 3)),
             endPosition: Int(sqlite3_column_int(stmt, 4)),
-            strand: String(cString: sqlite3_column_text(stmt, 5)),
+            strand: try requiredTextColumn(stmt, 5, name: "annotations.strand"),
             qualifiers: qualifiers,
-            color: sqlite3_column_type(stmt, 7) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 7)) : nil
+            color: try optionalTextColumn(stmt, 7, name: "annotations.color")
         )
+    }
+
+    private func requiredUUIDColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> UUID {
+        let value = try requiredTextColumn(stmt, index, name: name)
+        guard let uuid = UUID(uuidString: value) else {
+            throw ProjectStoreError.queryError(message: "Invalid UUID in \(name): \(value)")
+        }
+        return uuid
+    }
+
+    private func requiredTextColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> String {
+        guard let stmt else {
+            throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
+        }
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL,
+              let text = sqlite3_column_text(stmt, index) else {
+            throw ProjectStoreError.queryError(message: "Missing required text column \(name)")
+        }
+        return String(cString: text)
+    }
+
+    private func optionalTextColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> String? {
+        guard let stmt else {
+            throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
+        }
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL else {
+            return nil
+        }
+        guard let text = sqlite3_column_text(stmt, index) else {
+            throw ProjectStoreError.queryError(message: "Invalid text column \(name)")
+        }
+        return String(cString: text)
+    }
+
+    private func requiredBlobColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> Data {
+        guard let stmt else {
+            throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
+        }
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL else {
+            throw ProjectStoreError.queryError(message: "Missing required blob column \(name)")
+        }
+        let byteCount = sqlite3_column_bytes(stmt, index)
+        guard byteCount > 0 else {
+            return Data()
+        }
+        guard let blob = sqlite3_column_blob(stmt, index) else {
+            throw ProjectStoreError.queryError(message: "Invalid blob column \(name)")
+        }
+        return Data(bytes: blob, count: Int(byteCount))
+    }
+
+    private func optionalBlobColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> Data? {
+        guard let stmt else {
+            throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
+        }
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL else {
+            return nil
+        }
+        return try requiredBlobColumn(stmt, index, name: name)
     }
 
     // MARK: - WAL Checkpointing
@@ -797,7 +913,7 @@ public final class ProjectStore {
     ///
     /// - Parameter mode: The checkpoint mode. Defaults to `.truncate` which
     ///   checkpoints all frames and truncates the WAL file to zero bytes.
-    public func checkpoint(mode: CheckpointMode = .truncate) {
+    func checkpoint(mode: CheckpointMode = .truncate) {
         guard let db = db else { return }
 
         let modeValue: Int32
@@ -834,7 +950,7 @@ public final class ProjectStore {
     }
 
     /// WAL checkpoint modes.
-    public enum CheckpointMode {
+    enum CheckpointMode {
         /// Checkpoint as many frames as possible without waiting.
         case passive
         /// Checkpoint all frames, waiting for readers to finish.
@@ -890,17 +1006,43 @@ public final class ProjectStore {
             try bindParameter(stmt, at: bindIndex, value: param)
         }
 
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        var stepResult = sqlite3_step(stmt)
+        while stepResult == SQLITE_ROW {
             try handler(stmt)
+            stepResult = sqlite3_step(stmt)
+        }
+
+        guard stepResult == SQLITE_DONE else {
+            let message = String(cString: sqlite3_errmsg(db))
+            throw ProjectStoreError.queryError(message: "Query failed: \(message)")
         }
     }
+
+    private func withTransaction<T>(_ body: () throws -> T) throws -> T {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let result = try body()
+            try execute("COMMIT")
+            return result
+        } catch {
+            do {
+                try execute("ROLLBACK")
+            } catch {
+                Self.logger.warning("Rollback failed after transaction error: \(error.localizedDescription, privacy: .public)")
+            }
+            throw error
+        }
+    }
+
+    /// The SQLite transient-destructor sentinel: tells SQLite to copy the bound bytes immediately.
+    private static let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     private func bindParameter(_ stmt: OpaquePointer?, at index: Int32, value: Any) throws {
         switch value {
         case is NSNull:
             sqlite3_bind_null(stmt, index)
         case let string as String:
-            sqlite3_bind_text(stmt, index, string, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, index, string, -1, Self.SQLITE_TRANSIENT)
         case let int as Int:
             sqlite3_bind_int64(stmt, index, Int64(int))
         case let int64 as Int64:
@@ -909,7 +1051,7 @@ public final class ProjectStore {
             sqlite3_bind_double(stmt, index, double)
         case let data as Data:
             _ = data.withUnsafeBytes { bytes in
-                sqlite3_bind_blob(stmt, index, bytes.baseAddress, Int32(data.count), unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                sqlite3_bind_blob(stmt, index, bytes.baseAddress, Int32(data.count), Self.SQLITE_TRANSIENT)
             }
         case let optional as Optional<Any>:
             if case .none = optional {
@@ -918,14 +1060,12 @@ public final class ProjectStore {
                 try bindParameter(stmt, at: index, value: unwrapped)
             }
         default:
-            sqlite3_bind_null(stmt, index)
+            throw ProjectStoreError.serializationError(
+                message: "Unsupported SQLite bind parameter type: \(type(of: value))"
+            )
         }
     }
 }
-
-// MARK: - CommonCrypto Import
-
-import CommonCrypto
 
 // MARK: - Supporting Types
 

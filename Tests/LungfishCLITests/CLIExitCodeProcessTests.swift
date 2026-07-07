@@ -3,28 +3,17 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishTestSupport
 import XCTest
 @testable import LungfishCLI
 
 final class CLIExitCodeProcessTests: XCTestCase {
     private var cliBinaryURL: URL? {
-        let thisFile = URL(fileURLWithPath: #filePath)
-        let repoRoot = thisFile
-            .deletingLastPathComponent() // LungfishCLITests/
-            .deletingLastPathComponent() // Tests/
-            .deletingLastPathComponent() // repo root
         let buildProductsDirectory = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
-
-        let environmentBinary = ProcessInfo.processInfo.environment["LUNGFISH_CLI_BINARY"]
-            .map { URL(fileURLWithPath: $0) }
-        let candidates = [
-            environmentBinary,
-            buildProductsDirectory.appendingPathComponent("lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
-        ].compactMap { $0 }
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        return CLITestBinaryResolver.cliBinaryURL(
+            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath),
+            buildProductsDirectory: buildProductsDirectory
+        )
     }
 
     func testConvertMissingInputExitsWithInputError() throws {

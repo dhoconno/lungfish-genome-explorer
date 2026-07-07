@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import os
 @testable import LungfishIO
 @testable import LungfishCore
 
@@ -86,6 +87,55 @@ final class ReferenceBundleTests: XCTestCase {
             } else {
                 XCTFail("Expected manifestLoadFailed error, got \(error)")
             }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func testOpenRejectsGenomeSymlinkEscapingBundle() async throws {
+        let bundleURL = tempDirectory.appendingPathComponent("symlink-escape.lungfishref", isDirectory: true)
+        let genomeDirectory = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+
+        let outsideFASTA = tempDirectory.appendingPathComponent("outside.fa")
+        try ">chr1\nACGT\n".write(to: outsideFASTA, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            at: genomeDirectory.appendingPathComponent("sequence.fa"),
+            withDestinationURL: outsideFASTA
+        )
+        try "chr1\t4\t6\t4\t5\n".write(
+            to: genomeDirectory.appendingPathComponent("sequence.fa.fai"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Symlink Escape",
+            identifier: "test.symlink-escape",
+            source: SourceInfo(organism: "Test organism", assembly: "TestAssembly"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 4,
+                chromosomes: [
+                    ChromosomeInfo(name: "chr1", length: 4, offset: 6, lineBases: 4, lineWidth: 5)
+                ]
+            )
+        )
+        try manifest.save(to: bundleURL)
+
+        do {
+            _ = try await ReferenceBundle(url: bundleURL)
+            XCTFail("Expected symlink-escaping genome path to be rejected")
+        } catch let error as ReferenceBundleError {
+            guard case .validationFailed(let errors) = error else {
+                return XCTFail("Expected validationFailed error, got \(error)")
+            }
+            XCTAssertTrue(errors.contains { validationError in
+                guard case .invalidPath(let field, let path) = validationError else { return false }
+                return field == "genome.path" && path == "genome/sequence.fa"
+            })
         } catch {
             XCTFail("Unexpected error type: \(error)")
         }
@@ -181,6 +231,136 @@ final class ReferenceBundleTests: XCTestCase {
         XCTAssertEqual(trackIds, ["variants"])
     }
 
+    func testGetVariantsThrowsUnsupportedFormatForBCFOnlyTrack() async throws {
+        let bundleURL = try createBCFOnlyVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariants(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.unsupportedTrackFormat(let trackId, let format, let reason) = error else {
+                XCTFail("Expected unsupportedTrackFormat, got \(error)")
+                return
+            }
+            XCTAssertEqual(trackId, "variants")
+            XCTAssertEqual(format, "BCF")
+            XCTAssertTrue(reason.contains("SQLite"))
+        }
+    }
+
+    func testGetVariantAnnotationsThrowsUnsupportedFormatForBCFOnlyTrack() async throws {
+        let bundleURL = try createBCFOnlyVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariantAnnotations(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.unsupportedTrackFormat(let trackId, let format, _) = error else {
+                XCTFail("Expected unsupportedTrackFormat, got \(error)")
+                return
+            }
+            XCTAssertEqual(trackId, "variants")
+            XCTAssertEqual(format, "BCF")
+        }
+    }
+
+    func testGetVariantsUsesReadableSQLiteSidecar() async throws {
+        let bundleURL = try createSQLiteVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        let variants = try bundle.getVariants(trackId: "variants", region: region)
+
+        XCTAssertEqual(variants.count, 1)
+        XCTAssertEqual(variants.first?.variantId, "rs1")
+        XCTAssertEqual(variants.first?.ref, "A")
+        XCTAssertEqual(variants.first?.alt, ["G"])
+    }
+
+    func testGetVariantAnnotationsUsesReadableSQLiteSidecar() async throws {
+        let bundleURL = try createSQLiteVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        let annotations = try bundle.getVariantAnnotations(trackId: "variants", region: region)
+
+        XCTAssertEqual(annotations.count, 1)
+        XCTAssertEqual(annotations.first?.name, "rs1")
+        XCTAssertEqual(annotations.first?.qualifiers["variant_track_id"]?.firstValue, "variants")
+    }
+
+    func testGetVariantsThrowsVariantReadFailedForInvalidSQLiteSidecar() async throws {
+        let bundleURL = try createInvalidSQLiteVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariants(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.variantReadFailed(let reason) = error else {
+                XCTFail("Expected variantReadFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("SQLite sidecar"))
+            XCTAssertTrue(reason.contains("variants.db"))
+        }
+    }
+
+    func testGetVariantAnnotationsThrowsVariantReadFailedForInvalidSQLiteSidecar() async throws {
+        let bundleURL = try createInvalidSQLiteVariantBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariantAnnotations(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.variantReadFailed(let reason) = error else {
+                XCTFail("Expected variantReadFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("SQLite sidecar"))
+            XCTAssertTrue(reason.contains("variants.db"))
+        }
+    }
+
+    func testGetVariantsThrowsVariantReadFailedForMissingSQLiteSidecar() async throws {
+        let bundleURL = try createSQLiteVariantBundle(writeDatabase: false)
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariants(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.variantReadFailed(let reason) = error else {
+                XCTFail("Expected variantReadFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("is missing"))
+            XCTAssertTrue(reason.contains("variants.db"))
+        }
+    }
+
+    func testGetVariantAnnotationsThrowsVariantReadFailedForMissingSQLiteSidecar() async throws {
+        let bundleURL = try createSQLiteVariantBundle(writeDatabase: false)
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariantAnnotations(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.variantReadFailed(let reason) = error else {
+                XCTFail("Expected variantReadFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(reason.contains("is missing"))
+            XCTAssertTrue(reason.contains("variants.db"))
+        }
+    }
+
+    func testGetVariantsThrowsMissingFileWhenBCFPayloadIsAbsent() async throws {
+        let bundleURL = try createBCFOnlyVariantBundle(writePayload: false)
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        XCTAssertThrowsError(try bundle.getVariants(trackId: "variants", region: region)) { error in
+            guard case ReferenceBundleError.missingFile(let path) = error else {
+                XCTFail("Expected missingFile, got \(error)")
+                return
+            }
+            XCTAssertEqual(path, "variants/test.bcf")
+        }
+    }
+
     func testSignalTrackIds() async throws {
         let bundleURL = try createValidTestBundle()
         let bundle = try await ReferenceBundle(url: bundleURL)
@@ -212,6 +392,54 @@ final class ReferenceBundleTests: XCTestCase {
         XCTAssertEqual(try bundle.resolveAlignmentIndexPath(track), indexURL.path)
     }
 
+    func testBookmarkedAlignmentPathsKeepSecurityScopedAccessAlive() async throws {
+        let bundleURL = try createValidTestBundle()
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let externalDir = tempDirectory.appendingPathComponent("external-alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: externalDir, withIntermediateDirectories: true)
+
+        let alignmentURL = externalDir.appendingPathComponent("sample.sorted.bam")
+        let indexURL = externalDir.appendingPathComponent("sample.sorted.bam.bai")
+        try Data([0x42, 0x41, 0x4D]).write(to: alignmentURL)
+        try Data([0x42, 0x41, 0x49]).write(to: indexURL)
+
+        let sourceBookmark = Data([0x01, 0x02, 0x03])
+        let indexBookmark = Data([0x04, 0x05, 0x06])
+        let probe = ReferenceBundleBookmarkAccessProbe(
+            resolutions: [
+                sourceBookmark: alignmentURL,
+                indexBookmark: indexURL,
+            ]
+        )
+        var bundle: ReferenceBundle? = ReferenceBundle(
+            url: bundleURL,
+            manifest: manifest,
+            bookmarkAccess: ReferenceBundleBookmarkAccess(
+                resolve: probe.resolve,
+                startAccessing: probe.startAccessing,
+                stopAccessing: probe.stopAccessing
+            )
+        )
+        let track = AlignmentTrackInfo(
+            id: "external",
+            name: "sample.sorted.bam",
+            format: .bam,
+            sourcePath: "/missing/sample.sorted.bam",
+            sourceBookmark: sourceBookmark.base64EncodedString(),
+            indexPath: "/missing/sample.sorted.bam.bai",
+            indexBookmark: indexBookmark.base64EncodedString()
+        )
+
+        XCTAssertEqual(try bundle?.resolveAlignmentPath(track), alignmentURL.standardizedFileURL.path)
+        XCTAssertEqual(try bundle?.resolveAlignmentIndexPath(track), indexURL.standardizedFileURL.path)
+        XCTAssertEqual(probe.startedURLs(), [alignmentURL.standardizedFileURL, indexURL.standardizedFileURL])
+        XCTAssertTrue(probe.stoppedURLs().isEmpty)
+
+        bundle = nil
+
+        XCTAssertEqual(Set(probe.stoppedURLs()), Set([alignmentURL.standardizedFileURL, indexURL.standardizedFileURL]))
+    }
+
     // MARK: - Error Description Tests
 
     func testReferenceBundleErrorDescriptions() {
@@ -227,6 +455,14 @@ final class ReferenceBundleTests: XCTestCase {
 
         let trackNotFoundError = ReferenceBundleError.trackNotFound("missing_track")
         XCTAssertTrue(trackNotFoundError.localizedDescription.contains("missing_track"))
+
+        let unsupportedTrackError = ReferenceBundleError.unsupportedTrackFormat(
+            trackId: "variants",
+            format: "BCF",
+            reason: "SQLite sidecar required"
+        )
+        XCTAssertTrue(unsupportedTrackError.localizedDescription.contains("variants"))
+        XCTAssertTrue(unsupportedTrackError.localizedDescription.contains("BCF"))
     }
 
     func testReferenceBundleErrorRecoverySuggestions() {
@@ -494,5 +730,159 @@ final class ReferenceBundleTests: XCTestCase {
         try manifest.save(to: bundleURL)
 
         return bundleURL
+    }
+
+    private func createBCFOnlyVariantBundle(writePayload: Bool = true) throws -> URL {
+        let bundleURL = tempDirectory.appendingPathComponent("bcf-only.lungfishref")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let variantsDir = bundleURL.appendingPathComponent("variants")
+        try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
+        if writePayload {
+            try Data([0x42, 0x43, 0x46]).write(to: variantsDir.appendingPathComponent("test.bcf"))
+            try Data([0x43, 0x53, 0x49]).write(to: variantsDir.appendingPathComponent("test.bcf.csi"))
+        }
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "BCF Only",
+            identifier: "test.bcf-only",
+            source: SourceInfo(
+                organism: "Test organism",
+                assembly: "TestAssembly",
+                database: "Test"
+            ),
+            variants: [
+                VariantTrackInfo(
+                    id: "variants",
+                    name: "BCF Variants",
+                    path: "variants/test.bcf",
+                    indexPath: "variants/test.bcf.csi",
+                    variantCount: 1
+                )
+            ]
+        )
+
+        try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+
+    private func createSQLiteVariantBundle(writeDatabase: Bool = true) throws -> URL {
+        let bundleURL = tempDirectory.appendingPathComponent("sqlite-variants-\(UUID().uuidString).lungfishref")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let variantsDir = bundleURL.appendingPathComponent("variants")
+        try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
+        try Data([0x42, 0x43, 0x46]).write(to: variantsDir.appendingPathComponent("test.bcf"))
+        try Data([0x43, 0x53, 0x49]).write(to: variantsDir.appendingPathComponent("test.bcf.csi"))
+
+        if writeDatabase {
+            let vcfURL = tempDirectory.appendingPathComponent("sqlite-variants-\(UUID().uuidString).vcf")
+            let vcf = """
+            ##fileformat=VCFv4.3
+            #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+            chr1\t10\trs1\tA\tG\t50\tPASS\t.
+            """
+            try vcf.write(to: vcfURL, atomically: true, encoding: .utf8)
+            let dbURL = variantsDir.appendingPathComponent("variants.db")
+            try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
+        }
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "SQLite Variants",
+            identifier: "test.sqlite-variants",
+            source: SourceInfo(
+                organism: "Test organism",
+                assembly: "TestAssembly",
+                database: "Test"
+            ),
+            variants: [
+                VariantTrackInfo(
+                    id: "variants",
+                    name: "SQLite Variants",
+                    path: "variants/test.bcf",
+                    indexPath: "variants/test.bcf.csi",
+                    databasePath: "variants/variants.db",
+                    variantCount: 1
+                )
+            ]
+        )
+
+        try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+
+    private func createInvalidSQLiteVariantBundle() throws -> URL {
+        let bundleURL = tempDirectory.appendingPathComponent("invalid-sqlite-variants.lungfishref")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let variantsDir = bundleURL.appendingPathComponent("variants")
+        try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
+        try Data([0x42, 0x43, 0x46]).write(to: variantsDir.appendingPathComponent("test.bcf"))
+        try Data([0x43, 0x53, 0x49]).write(to: variantsDir.appendingPathComponent("test.bcf.csi"))
+        try Data("not a sqlite database".utf8).write(to: variantsDir.appendingPathComponent("variants.db"))
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Invalid SQLite Variants",
+            identifier: "test.invalid-sqlite-variants",
+            source: SourceInfo(
+                organism: "Test organism",
+                assembly: "TestAssembly",
+                database: "Test"
+            ),
+            variants: [
+                VariantTrackInfo(
+                    id: "variants",
+                    name: "Invalid SQLite Variants",
+                    path: "variants/test.bcf",
+                    indexPath: "variants/test.bcf.csi",
+                    databasePath: "variants/variants.db",
+                    variantCount: 1
+                )
+            ]
+        )
+
+        try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+}
+
+private final class ReferenceBundleBookmarkAccessProbe: @unchecked Sendable {
+    private struct State {
+        var startedURLs: [URL] = []
+        var stoppedURLs: [URL] = []
+    }
+
+    private let resolutions: [Data: URL]
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    init(resolutions: [Data: URL]) {
+        self.resolutions = resolutions
+    }
+
+    func resolve(_ data: Data) throws -> ReferenceBundleBookmarkResolution {
+        guard let url = resolutions[data] else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        return ReferenceBundleBookmarkResolution(url: url, isStale: false)
+    }
+
+    func startAccessing(_ url: URL) -> Bool {
+        state.withLock { $0.startedURLs.append(url) }
+        return true
+    }
+
+    func stopAccessing(_ url: URL) {
+        state.withLock { $0.stoppedURLs.append(url) }
+    }
+
+    func startedURLs() -> [URL] {
+        state.withLock { $0.startedURLs }
+    }
+
+    func stoppedURLs() -> [URL] {
+        state.withLock { $0.stoppedURLs }
     }
 }

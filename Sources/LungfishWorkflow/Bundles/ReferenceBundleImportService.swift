@@ -129,6 +129,9 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
         sourceURL: URL,
         outputDirectory: URL,
         preferredBundleName: String? = nil,
+        provenanceWorkflowName: String? = "lungfish reference import",
+        provenanceCommand: [String]? = nil,
+        provenanceInputFiles: [URL]? = nil,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ReferenceBundleImportResult {
         guard FileManager.default.fileExists(atPath: sourceURL.path) else {
@@ -165,7 +168,15 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
             annotationFiles: prepared.annotationInputs,
             outputDirectory: outputDirectory,
             source: prepared.sourceInfo,
-            compressFASTA: true
+            compressFASTA: true,
+            provenanceWorkflowName: provenanceWorkflowName,
+            provenanceCommand: provenanceCommand ?? defaultProvenanceCommand(
+                sourceURL: sourceURL,
+                outputDirectory: outputDirectory,
+                bundleName: bundleName,
+                isEnabled: provenanceWorkflowName != nil
+            ),
+            provenanceInputFiles: provenanceInputFiles ?? (provenanceWorkflowName == nil ? nil : [sourceURL])
         )
 
         let builder = await NativeBundleBuilder()
@@ -342,6 +353,24 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
         return trimmed
             .replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ":", with: "-")
+    }
+
+    private func defaultProvenanceCommand(
+        sourceURL: URL,
+        outputDirectory: URL,
+        bundleName: String,
+        isEnabled: Bool
+    ) -> [String]? {
+        guard isEnabled else { return nil }
+        return [
+            "lungfish-app",
+            "reference-bundle-import",
+            sourceURL.standardizedFileURL.path,
+            "--output-directory",
+            outputDirectory.standardizedFileURL.path,
+            "--name",
+            bundleName,
+        ]
     }
 
     private func decompressInput(sourceURL: URL, outputURL: URL) throws {

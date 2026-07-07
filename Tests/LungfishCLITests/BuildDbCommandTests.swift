@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import ArgumentParser
 @testable import LungfishCLI
 @testable import LungfishIO
 @testable import LungfishWorkflow
@@ -88,7 +89,36 @@ final class BuildDbCommandTests: XCTestCase {
             fi
             ;;
           fixmate)
-            cat
+            input="-"
+            output="-"
+            while [ $# -gt 0 ]; do
+              case "$1" in
+                -m)
+                  shift
+                  ;;
+                *)
+                  if [ "$input" = "-" ]; then
+                    input="$1"
+                  else
+                    output="$1"
+                  fi
+                  shift
+                  ;;
+              esac
+            done
+            if [ "$output" = "-" ]; then
+              if [ "$input" = "-" ]; then
+                cat
+              else
+                cat "$input"
+              fi
+            else
+              if [ "$input" = "-" ]; then
+                cat > "$output"
+              else
+                cat "$input" > "$output"
+              fi
+            fi
             ;;
           markdup)
             input="${1:--}"
@@ -711,6 +741,98 @@ final class BuildDbCommandTests: XCTestCase {
         XCTAssertNotNil(meta["created_at"])
     }
 
+    func testBuildDbKraken2ExplicitSampleDirsExcludeSiblingKreports() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fixtureDir = findFixtureDir("kraken2-mini")
+        let resultDir = tmpDir.appendingPathComponent("kraken2")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        let includedSampleDir = resultDir.appendingPathComponent("SRR35517702")
+        let excludedSampleDir = resultDir.appendingPathComponent("SRR35517703")
+        let excludedKreport = resultDir
+            .appendingPathComponent(excludedSampleDir.lastPathComponent)
+            .appendingPathComponent("classification.kreport")
+        let excludedRawOutput = excludedSampleDir.appendingPathComponent("classification.kraken")
+        let excludedRawIndex = excludedSampleDir.appendingPathComponent("classification.kraken.idx.sqlite")
+        let fm = FileManager.default
+        fm.createFile(
+            atPath: excludedRawOutput.path,
+            contents: Data("""
+            C\tread-1\t12345\t150\t12345:150
+            U\tread-2\t0\t150\t0:150
+            """.utf8)
+        )
+        fm.createFile(atPath: excludedRawIndex.path, contents: Data("excluded index".utf8))
+
+        let cmd = try BuildDbCommand.Kraken2Subcommand.parse([
+            resultDir.path,
+            "--sample-dir", includedSampleDir.path,
+            "-q",
+        ])
+        try await cmd.run()
+
+        let dbURL = resultDir.appendingPathComponent("kraken2.sqlite")
+        let db = try Kraken2Database(at: dbURL)
+        let samples = try db.fetchSamples()
+        XCTAssertEqual(samples.map(\.sample), ["SRR35517702"])
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        XCTAssertTrue(provenance.argv.contains("--sample-dir"))
+        XCTAssertTrue(provenance.argv.contains(includedSampleDir.standardizedFileURL.path))
+
+        let explicitSampleDirs = provenance.options.explicit["sampleDirs"]?.arrayValue?
+            .compactMap(\.fileValue)
+            .map { $0.standardizedFileURL.path }
+        XCTAssertEqual(explicitSampleDirs, [includedSampleDir.standardizedFileURL.path])
+
+        let provenancePaths = Set(provenance.files.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        XCTAssertFalse(provenancePaths.contains(excludedKreport.standardizedFileURL.path))
+
+        XCTAssertTrue(fm.fileExists(atPath: excludedRawOutput.path))
+        XCTAssertTrue(fm.fileExists(atPath: excludedRawIndex.path))
+        let provenanceOutputPaths = Set(provenance.outputs.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        XCTAssertFalse(provenanceOutputPaths.contains(excludedRawOutput.standardizedFileURL.path))
+        XCTAssertFalse(provenanceOutputPaths.contains(excludedRawIndex.standardizedFileURL.path))
+        XCTAssertFalse(fm.fileExists(atPath: excludedRawOutput.appendingPathExtension("gz").path))
+    }
+
+    func testBuildDbKraken2ExplicitSampleDirsRejectDuplicateSampleIds() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fixtureDir = findFixtureDir("kraken2-mini")
+        let resultDir = tmpDir.appendingPathComponent("kraken2")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        let firstParent = tmpDir.appendingPathComponent("first")
+        let secondParent = tmpDir.appendingPathComponent("second")
+        let firstSample = firstParent.appendingPathComponent("duplicate")
+        let secondSample = secondParent.appendingPathComponent("duplicate")
+        try FileManager.default.createDirectory(at: firstSample, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondSample, withIntermediateDirectories: true)
+
+        let cmd = try BuildDbCommand.Kraken2Subcommand.parse([
+            resultDir.path,
+            "--sample-dir", firstSample.path,
+            "--sample-dir", secondSample.path,
+            "-q",
+        ])
+
+        do {
+            try await cmd.run()
+            XCTFail("Expected duplicate sample directory basenames to be rejected")
+        } catch let error as ValidationError {
+            XCTAssertTrue(
+                String(describing: error).contains("Duplicate --sample-dir sample identifier"),
+                "Unexpected error: \(error)"
+            )
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
     /// Verifies that Kraken2 cleanup compacts per-read output, writes the
     /// classified-read index sidecar, and keeps the report and result metadata.
     func testKraken2CleanupCompactsPerReadOutputAndRemovesRawIndex() async throws {
@@ -770,6 +892,37 @@ final class BuildDbCommandTests: XCTestCase {
                       "classification-result.json should be preserved")
         XCTAssertTrue(fm.fileExists(atPath: resultDir.appendingPathComponent("kraken2.sqlite").path),
                       "kraken2.sqlite should be preserved")
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        let provenanceOutputPaths = Set(provenance.outputs.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        XCTAssertTrue(provenanceOutputPaths.contains(compressedOutput.standardizedFileURL.path))
+        XCTAssertTrue(provenanceOutputPaths.contains(retainedIndex.standardizedFileURL.path))
+    }
+
+    func testKraken2CleanupFallbackRecordsRetainedRawOutputProvenance() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fixtureDir = findFixtureDir("kraken2-mini")
+        let resultDir = tmpDir.appendingPathComponent("kraken2")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        let sampleDir = resultDir.appendingPathComponent("SRR35517702")
+        let rawOutput = sampleDir.appendingPathComponent("classification.kraken")
+        try "not a kraken per-read record\n".write(to: rawOutput, atomically: true, encoding: .utf8)
+
+        let cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
+        try await cmd.run()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rawOutput.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rawOutput.appendingPathExtension("gz").path))
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        let provenanceOutputPaths = Set(provenance.outputs.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        XCTAssertTrue(provenanceOutputPaths.contains(rawOutput.standardizedFileURL.path))
+
+        let rawSidecar = ProvenanceRecorder.fileSidecarURL(for: rawOutput.standardizedFileURL)
+        XCTAssertNotNil(ProvenanceRecorder.loadEnvelope(fromSidecar: rawSidecar))
     }
 
     /// Verifies that --no-cleanup preserves all intermediate directories.
@@ -804,6 +957,151 @@ final class BuildDbCommandTests: XCTestCase {
                       "filterkraken/ should be preserved with --no-cleanup")
     }
 
+    func testBuildDbTaxTriageProvenanceRecordsSamtoolsSubsteps() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        defer { try? FileManager.default.removeItem(at: managedHome.home) }
+
+        let fixtureDir = findFixtureDir("taxtriage-mini")
+        let resultDir = tmpDir.appendingPathComponent("taxtriage")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        assertBuildDbProvenanceRecordsSamtoolsSubsteps(
+            provenance,
+            databaseURL: resultDir.appendingPathComponent("taxtriage.sqlite")
+        )
+        XCTAssertTrue(
+            provenance.steps.contains { $0.toolName == "samtools" && $0.argv.dropFirst().contains("idxstats") },
+            "TaxTriage build-db provenance must include the samtools idxstats accession-length pass"
+        )
+    }
+
+    func testBuildDbEsVirituProvenanceRecordsSamtoolsSubsteps() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        defer { try? FileManager.default.removeItem(at: managedHome.home) }
+
+        let fixtureDir = findFixtureDir("esviritu-mini")
+        let resultDir = tmpDir.appendingPathComponent("esviritu")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try BuildDbCommand.EsVirituSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        assertBuildDbProvenanceRecordsSamtoolsSubsteps(
+            provenance,
+            databaseURL: resultDir.appendingPathComponent("esviritu.sqlite")
+        )
+    }
+
+    private func assertBuildDbProvenanceRecordsSamtoolsSubsteps(
+        _ provenance: ProvenanceEnvelope,
+        databaseURL: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(provenance.exitStatus, 0, file: file, line: line)
+        XCTAssertTrue(
+            provenance.outputs.contains(where: {
+                URL(fileURLWithPath: $0.path).standardizedFileURL.path == databaseURL.standardizedFileURL.path
+                    && $0.checksumSHA256 != nil
+                    && ($0.fileSize ?? 0) > 0
+            }),
+            "build-db provenance must include the final SQLite database with checksum and size",
+            file: file,
+            line: line
+        )
+
+        let samtoolsSteps = provenance.steps.filter { $0.toolName == "samtools" }
+        XCTAssertTrue(
+            samtoolsSteps.contains { $0.argv.dropFirst().contains("markdup") },
+            "build-db provenance must include the samtools markdup mutation step",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            samtoolsSteps.contains { $0.argv.dropFirst().contains("index") },
+            "build-db provenance must include the samtools index mutation step",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            samtoolsSteps.contains {
+                $0.argv.dropFirst().contains("view")
+                    && $0.argv.contains("-c")
+                    && $0.argv.contains("-F")
+            },
+            "build-db provenance must include samtools view count steps used to update unique_reads",
+            file: file,
+            line: line
+        )
+
+        for step in samtoolsSteps {
+            XCTAssertEqual(step.exitStatus, 0, file: file, line: line)
+            XCTAssertNotNil(step.wallTimeSeconds, file: file, line: line)
+            XCTAssertFalse(step.reproducibleCommand.isEmpty, file: file, line: line)
+        }
+
+        XCTAssertTrue(
+            samtoolsSteps.contains(where: { step in
+                step.outputs.contains(where: { output in
+                    output.path.hasSuffix(".bam")
+                        && output.checksumSHA256 != nil
+                        && (output.fileSize ?? 0) > 0
+                })
+            }),
+            "samtools markdup step must record the mutated BAM output with checksum and size",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            samtoolsSteps.contains(where: { step in
+                step.outputs.contains(where: { output in
+                    output.path.hasSuffix(".bam.bai")
+                        && output.checksumSHA256 != nil
+                        && output.fileSize != nil
+                })
+            }),
+            "samtools index step must record the BAM index output with checksum and size",
+            file: file,
+            line: line
+        )
+
+        if let bamOutput = provenance.outputs.first(where: { $0.path.hasSuffix(".bam") }) {
+            let bamSidecar = ProvenanceRecorder.fileSidecarURL(
+                for: URL(fileURLWithPath: bamOutput.path).standardizedFileURL
+            )
+            XCTAssertNotNil(
+                ProvenanceRecorder.loadEnvelope(fromSidecar: bamSidecar),
+                "mutated BAM outputs must receive focused build-db provenance sidecars",
+                file: file,
+                line: line
+            )
+        }
+        if let indexOutput = provenance.outputs.first(where: { $0.path.hasSuffix(".bam.bai") }) {
+            let indexSidecar = ProvenanceRecorder.fileSidecarURL(
+                for: URL(fileURLWithPath: indexOutput.path).standardizedFileURL
+            )
+            XCTAssertNotNil(
+                ProvenanceRecorder.loadEnvelope(fromSidecar: indexSidecar),
+                "mutated BAM index outputs must receive focused build-db provenance sidecars",
+                file: file,
+                line: line
+            )
+        }
+    }
+
     func testBuildDbTaxTriageFailsWithoutManagedSamtools() async throws {
         let tmpDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
@@ -827,5 +1125,19 @@ final class BuildDbCommandTests: XCTestCase {
                 "Unexpected error: \(error.localizedDescription)"
             )
         }
+
+        let dbURL = resultDir.appendingPathComponent("taxtriage.sqlite")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dbURL.path))
+
+        let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        XCTAssertEqual(provenance.exitStatus, 1)
+        XCTAssertTrue(provenance.stderr?.contains("Managed samtools is required") == true)
+        XCTAssertEqual(provenance.options.resolvedDefaults["samtoolsAvailable"]?.booleanValue, false)
+        XCTAssertFalse(provenance.outputs.contains {
+            URL(fileURLWithPath: $0.path).standardizedFileURL.path == dbURL.standardizedFileURL.path
+        })
+        XCTAssertNil(
+            ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: dbURL.standardizedFileURL))
+        )
     }
 }

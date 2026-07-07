@@ -15,7 +15,6 @@ import LungfishIO
 /// - `bgzip` - FASTA compression (from htslib)
 /// - `samtools faidx` - FASTA indexing
 /// - `bcftools` - VCF to BCF conversion
-/// - `bedGraphToBigWig` - bedGraph to BigWig conversion (UCSC)
 ///
 /// Only the micromamba bootstrap remains bundled; the actual build tools are
 /// resolved from app bundle search paths or managed environments.
@@ -59,11 +58,30 @@ public final class NativeBundleBuilder: ObservableObject {
     )
 
     private var isCancelled: Bool = false
-    private let toolRunner = NativeToolRunner.shared
+    private let toolRunner: NativeToolRunner
+
+    private struct FASTAProcessingResult {
+        let genomeInfo: GenomeInfo
+        let provenanceSteps: [NativeBuildToolProvenanceStep]
+    }
+
+    private struct NativeBuildToolProvenanceStep {
+        let toolName: String
+        let toolVersion: String
+        let command: [String]
+        let inputURLs: [URL]
+        let outputURLs: [URL]
+        let exitCode: Int32
+        let wallTime: TimeInterval
+        let stderr: String?
+        let dependsOnPrevious: Bool
+    }
 
     // MARK: - Initialization
 
-    public init() {}
+    public init(toolRunner: NativeToolRunner = .shared) {
+        self.toolRunner = toolRunner
+    }
 
     // MARK: - Tool Checking
 
@@ -114,15 +132,20 @@ public final class NativeBundleBuilder: ObservableObject {
         let bundleName = configuration.name
             .replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "/", with: "-")
-        let bundleURL = configuration.outputDirectory
+        let publishedBundleURL = configuration.outputDirectory
             .appendingPathComponent("\(bundleName).lungfishref")
+        let stagingBundleURL = try makeStagingBundleURL(for: publishedBundleURL)
+        var didCreateStagingBundle = false
+        var didPublishBundle = false
         let buildStart = Date()
         let provenanceRunID = await ProvenanceRecorder.shared.beginRun(
             name: provenanceWorkflowName(for: configuration),
-            parameters: provenanceParameters(for: configuration, bundleURL: bundleURL)
+            parameters: provenanceParameters(for: configuration, bundleURL: publishedBundleURL)
         )
 
         do {
+            try prepareOutputDestination(for: publishedBundleURL)
+
             // Step 1: Validate inputs
             try await executeStep(.validating, progressHandler: progressHandler) {
                 try self.validateInputs(configuration)
@@ -142,24 +165,26 @@ public final class NativeBundleBuilder: ObservableObject {
 
             // Step 3: Create bundle structure
             try await executeStep(.creatingStructure, progressHandler: progressHandler) {
-                try self.createBundleStructure(at: bundleURL)
+                try self.createBundleStructure(at: stagingBundleURL)
             }
+            didCreateStagingBundle = true
 
             try checkCancellation()
 
             // Step 4: Process FASTA with native tools
-            let genomeInfo = try await processFASTAWithNativeTools(
+            let fastaProcessingResult = try await processFASTAWithNativeTools(
                 configuration: configuration,
-                bundleURL: bundleURL,
+                bundleURL: stagingBundleURL,
                 progressHandler: progressHandler
             )
+            let genomeInfo = fastaProcessingResult.genomeInfo
 
             try checkCancellation()
 
             // Step 5: Convert annotations
             let annotationInfos = try await processAnnotationsWithNativeTools(
                 configuration: configuration,
-                bundleURL: bundleURL,
+                bundleURL: stagingBundleURL,
                 chromosomeSizes: genomeInfo.chromosomes.map { ($0.name, $0.length) },
                 progressHandler: progressHandler
             )
@@ -169,7 +194,7 @@ public final class NativeBundleBuilder: ObservableObject {
             // Step 6: Convert variants
             let variantInfos = try await processVariantsWithNativeTools(
                 configuration: configuration,
-                bundleURL: bundleURL,
+                bundleURL: stagingBundleURL,
                 progressHandler: progressHandler
             )
 
@@ -178,7 +203,7 @@ public final class NativeBundleBuilder: ObservableObject {
             // Step 7: Process signal tracks
             let signalInfos = try await processSignalTracks(
                 configuration: configuration,
-                bundleURL: bundleURL,
+                bundleURL: stagingBundleURL,
                 progressHandler: progressHandler
             )
 
@@ -197,33 +222,38 @@ public final class NativeBundleBuilder: ObservableObject {
                     metadata: configuration.metadata
                 )
 
-                try manifest.save(to: bundleURL)
+                try manifest.save(to: stagingBundleURL)
             }
 
             try checkCancellation()
 
             // Step 9: Validate bundle
             try await executeStep(.validatingBundle, progressHandler: progressHandler) {
-                try self.validateBundle(at: bundleURL)
+                try self.validateBundle(at: stagingBundleURL)
             }
 
             try await writeBundleProvenance(
                 configuration: configuration,
-                bundleURL: bundleURL,
+                stagingBundleURL: stagingBundleURL,
+                publishedBundleURL: publishedBundleURL,
                 runID: provenanceRunID,
-                wallTime: Date().timeIntervalSince(buildStart)
+                wallTime: Date().timeIntervalSince(buildStart),
+                nativeToolSteps: fastaProcessingResult.provenanceSteps
             )
+
+            try publishBundle(from: stagingBundleURL, to: publishedBundleURL)
+            didPublishBundle = true
 
             updateProgress(.complete, 1.0, "Bundle created successfully", progressHandler)
 
-            logger.info("Native bundle build complete: \(bundleURL.path)")
+            logger.info("Native bundle build complete: \(publishedBundleURL.path)")
 
-            return bundleURL
+            return publishedBundleURL
 
         } catch {
             await ProvenanceRecorder.shared.completeRun(provenanceRunID, status: isCancelled ? .cancelled : .failed)
-            if FileManager.default.fileExists(atPath: bundleURL.path) {
-                try? FileManager.default.removeItem(at: bundleURL)
+            if didCreateStagingBundle, !didPublishBundle, FileManager.default.fileExists(atPath: stagingBundleURL.path) {
+                try? FileManager.default.removeItem(at: stagingBundleURL)
             }
 
             logger.error("Native bundle build failed: \(error.localizedDescription)")
@@ -254,17 +284,6 @@ public final class NativeBundleBuilder: ObservableObject {
 
         if !configuration.variantFiles.isEmpty {
             tools.insert(.bcftools)
-        }
-
-        if !configuration.signalFiles.isEmpty {
-            // Check if any need conversion
-            for signal in configuration.signalFiles {
-                let ext = signal.url.pathExtension.lowercased()
-                if ext == "bedgraph" || ext == "bg" {
-                    tools.insert(.bedGraphToBigWig)
-                    break
-                }
-            }
         }
 
         return tools
@@ -307,18 +326,23 @@ public final class NativeBundleBuilder: ObservableObject {
 
     private func writeBundleProvenance(
         configuration: BuildConfiguration,
-        bundleURL: URL,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL,
         runID: UUID,
-        wallTime: TimeInterval
+        wallTime: TimeInterval,
+        nativeToolSteps: [NativeBuildToolProvenanceStep]
     ) async throws {
         let workflowName = provenanceWorkflowName(for: configuration)
         let inputRecords = provenanceInputURLs(for: configuration).map {
             ProvenanceRecorder.fileRecord(url: $0, role: .input)
         }
-        let outputRecords = try bundleOutputFileRecords(at: bundleURL)
+        let outputRecords = try bundleOutputFileRecords(
+            at: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
+        )
         let command = configuration.provenanceCommand ?? fallbackProvenanceCommand(
             for: configuration,
-            bundleURL: bundleURL
+            bundleURL: publishedBundleURL
         )
 
         await ProvenanceRecorder.shared.recordStep(
@@ -332,8 +356,93 @@ public final class NativeBundleBuilder: ObservableObject {
             wallTime: wallTime,
             stderr: nil
         )
+        var previousNativeStepID: UUID?
+        for step in nativeToolSteps {
+            let inputs = provenanceInputURLs(for: step, configuration: configuration).map {
+                provenanceFileRecord(
+                    for: $0,
+                    stagingBundleURL: stagingBundleURL,
+                    publishedBundleURL: publishedBundleURL,
+                    role: .input
+                )
+            }
+            let outputs = step.outputURLs.map {
+                provenanceFileRecord(
+                    for: $0,
+                    stagingBundleURL: stagingBundleURL,
+                    publishedBundleURL: publishedBundleURL,
+                    role: .output
+                )
+            }
+            previousNativeStepID = await ProvenanceRecorder.shared.recordStep(
+                runID: runID,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                command: step.command,
+                inputs: inputs,
+                outputs: outputs,
+                exitCode: step.exitCode,
+                wallTime: step.wallTime,
+                stderr: step.stderr,
+                dependsOn: step.dependsOnPrevious ? previousNativeStepID.map { [$0] } ?? [] : []
+            ) ?? previousNativeStepID
+        }
         await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
-        try await ProvenanceRecorder.shared.save(runID: runID, to: bundleURL)
+        try await ProvenanceRecorder.shared.save(
+            runID: runID,
+            to: stagingBundleURL,
+            bundleLayoutRoot: publishedBundleURL
+        )
+    }
+
+    private func provenanceFileRecord(
+        for url: URL,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL,
+        role: FileRole
+    ) -> FileRecord {
+        let standardizedURL = url.standardizedFileURL
+        let stagingPath = stagingBundleURL.standardizedFileURL.path
+        if standardizedURL.path.hasPrefix(stagingPath + "/") {
+            return publishedFileRecord(
+                forStagedURL: standardizedURL,
+                stagingBundleURL: stagingBundleURL,
+                publishedBundleURL: publishedBundleURL,
+                role: role
+            )
+        }
+        return ProvenanceRecorder.fileRecord(url: standardizedURL, role: role)
+    }
+
+    private func provenanceInputURLs(
+        for step: NativeBuildToolProvenanceStep,
+        configuration: BuildConfiguration
+    ) -> [URL] {
+        guard configuration.provenanceInputFiles != nil else {
+            return step.inputURLs
+        }
+
+        let durableInputs = provenanceInputURLs(for: configuration)
+        guard !durableInputs.isEmpty else {
+            return step.inputURLs
+        }
+
+        let transientInputPaths = Set(
+            ([configuration.fastaURL]
+                + configuration.annotationFiles.map(\.url)
+                + configuration.variantFiles.map(\.url)
+                + configuration.signalFiles.map(\.url))
+                .map { $0.standardizedFileURL.path }
+        )
+        var resolved: [URL] = []
+        for inputURL in step.inputURLs {
+            if transientInputPaths.contains(inputURL.standardizedFileURL.path) {
+                resolved.append(contentsOf: durableInputs)
+            } else {
+                resolved.append(inputURL)
+            }
+        }
+        return uniqueExistingFileURLs(resolved)
     }
 
     private func provenanceInputURLs(for configuration: BuildConfiguration) -> [URL] {
@@ -360,10 +469,13 @@ public final class NativeBundleBuilder: ObservableObject {
         return unique
     }
 
-    private func bundleOutputFileRecords(at bundleURL: URL) throws -> [FileRecord] {
+    private func bundleOutputFileRecords(
+        at stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) throws -> [FileRecord] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
-            at: bundleURL,
+            at: stagingBundleURL,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [],
             errorHandler: nil
@@ -371,7 +483,7 @@ public final class NativeBundleBuilder: ObservableObject {
             return []
         }
 
-        let provenanceURL = bundleURL
+        let provenanceURL = stagingBundleURL
             .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
             .standardizedFileURL
         var outputURLs: [URL] = []
@@ -389,7 +501,49 @@ public final class NativeBundleBuilder: ObservableObject {
 
         return outputURLs
             .sorted { $0.path < $1.path }
-            .map { ProvenanceRecorder.fileRecord(url: $0, role: .output) }
+            .map {
+                publishedFileRecord(
+                    forStagedURL: $0,
+                    stagingBundleURL: stagingBundleURL,
+                    publishedBundleURL: publishedBundleURL,
+                    role: .output
+                )
+            }
+    }
+
+    private func publishedFileRecord(
+        forStagedURL stagedURL: URL,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL,
+        role: FileRole
+    ) -> FileRecord {
+        let stagedRecord = ProvenanceRecorder.fileRecord(url: stagedURL, role: role)
+        let publishedURL = publishedOutputURL(
+            forStagedURL: stagedURL,
+            stagingBundleURL: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
+        )
+        return FileRecord(
+            path: publishedURL.path,
+            sha256: stagedRecord.sha256,
+            sizeBytes: stagedRecord.sizeBytes,
+            format: stagedRecord.format,
+            role: stagedRecord.role
+        )
+    }
+
+    private func publishedOutputURL(
+        forStagedURL stagedURL: URL,
+        stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) -> URL {
+        let stagingPath = stagingBundleURL.standardizedFileURL.path
+        let stagedPath = stagedURL.standardizedFileURL.path
+        guard stagedPath.hasPrefix(stagingPath + "/") else {
+            return publishedBundleURL.appendingPathComponent(stagedURL.lastPathComponent)
+        }
+        let relativePath = String(stagedPath.dropFirst(stagingPath.count + 1))
+        return publishedBundleURL.appendingPathComponent(relativePath)
     }
 
     private func fallbackProvenanceCommand(
@@ -488,7 +642,7 @@ public final class NativeBundleBuilder: ObservableObject {
         let fileManager = FileManager.default
 
         if fileManager.fileExists(atPath: bundleURL.path) {
-            try fileManager.removeItem(at: bundleURL)
+            throw BundleBuildError.outputBundleAlreadyExists(bundleURL)
         }
 
         let directories = [
@@ -506,14 +660,41 @@ public final class NativeBundleBuilder: ObservableObject {
         logger.info("Bundle structure created")
     }
 
+    private func prepareOutputDestination(for publishedBundleURL: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: publishedBundleURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if fileManager.fileExists(atPath: publishedBundleURL.path) {
+            throw BundleBuildError.outputBundleAlreadyExists(publishedBundleURL)
+        }
+    }
+
+    private func makeStagingBundleURL(for publishedBundleURL: URL) throws -> URL {
+        let parentURL = publishedBundleURL.deletingLastPathComponent()
+        let baseName = publishedBundleURL.deletingPathExtension().lastPathComponent
+        let stagingName = ".\(baseName).building-\(UUID().uuidString)"
+        return parentURL.appendingPathComponent(stagingName, isDirectory: true)
+    }
+
+    private func publishBundle(from stagingBundleURL: URL, to publishedBundleURL: URL) throws {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: publishedBundleURL.path) {
+            throw BundleBuildError.outputBundleAlreadyExists(publishedBundleURL)
+        }
+        try fileManager.moveItem(at: stagingBundleURL, to: publishedBundleURL)
+    }
+
     // MARK: - FASTA Processing with Native Tools
 
     private func processFASTAWithNativeTools(
         configuration: BuildConfiguration,
         bundleURL: URL,
         progressHandler: (@Sendable (BuildStep, Double, String) -> Void)?
-    ) async throws -> GenomeInfo {
+    ) async throws -> FASTAProcessingResult {
         logger.info("Processing FASTA with native tools")
+        var provenanceSteps: [NativeBuildToolProvenanceStep] = []
 
         let genomeDir = bundleURL.appendingPathComponent("genome")
         let fastaFilename = "sequence.fa"
@@ -536,14 +717,29 @@ public final class NativeBundleBuilder: ObservableObject {
             )
 
             // Use bgzip to compress
+            let bgzipStartedAt = Date()
             let result = try await toolRunner.bgzipCompress(
                 inputPath: destinationFASTA,
                 keepOriginal: false
             )
+            let bgzipWallTime = Date().timeIntervalSince(bgzipStartedAt)
 
             if result.isSuccess {
                 finalFASTAPath = URL(fileURLWithPath: destinationFASTA.path + ".gz")
                 logger.info("FASTA compressed successfully")
+                provenanceSteps.append(
+                    NativeBuildToolProvenanceStep(
+                        toolName: NativeTool.bgzip.rawValue,
+                        toolVersion: await toolRunner.getToolVersion(.bgzip) ?? "unknown",
+                        command: result.arguments,
+                        inputURLs: [configuration.fastaURL],
+                        outputURLs: [finalFASTAPath],
+                        exitCode: result.exitCode,
+                        wallTime: bgzipWallTime,
+                        stderr: result.stderr,
+                        dependsOnPrevious: false
+                    )
+                )
                 // Remove uncompressed original if bgzip didn't (belt and suspenders)
                 if FileManager.default.fileExists(atPath: destinationFASTA.path) {
                     try? FileManager.default.removeItem(at: destinationFASTA)
@@ -555,6 +751,19 @@ public final class NativeBundleBuilder: ObservableObject {
                 if FileManager.default.fileExists(atPath: partialGz.path) {
                     try? FileManager.default.removeItem(at: partialGz)
                 }
+                provenanceSteps.append(
+                    NativeBuildToolProvenanceStep(
+                        toolName: NativeTool.bgzip.rawValue,
+                        toolVersion: await toolRunner.getToolVersion(.bgzip) ?? "unknown",
+                        command: result.arguments,
+                        inputURLs: [configuration.fastaURL],
+                        outputURLs: [],
+                        exitCode: result.exitCode,
+                        wallTime: bgzipWallTime,
+                        stderr: result.stderr,
+                        dependsOnPrevious: false
+                    )
+                )
                 // Fall back to uncompressed
             }
 
@@ -574,13 +783,64 @@ public final class NativeBundleBuilder: ObservableObject {
             progressHandler
         )
 
+        let indexStartedAt = Date()
         let indexResult = try await toolRunner.indexFASTA(fastaPath: finalFASTAPath)
+        let indexWallTime = Date().timeIntervalSince(indexStartedAt)
+        let indexURL = URL(fileURLWithPath: finalFASTAPath.path + ".fai")
+        let gzipIndexURL = URL(fileURLWithPath: finalFASTAPath.path + ".gzi")
 
         if !indexResult.isSuccess {
             logger.warning("samtools faidx failed: \(indexResult.stderr)")
+            provenanceSteps.append(
+                NativeBuildToolProvenanceStep(
+                    toolName: NativeTool.samtools.rawValue,
+                    toolVersion: await toolRunner.getToolVersion(.samtools) ?? "unknown",
+                    command: indexResult.arguments,
+                    inputURLs: [finalFASTAPath],
+                    outputURLs: [],
+                    exitCode: indexResult.exitCode,
+                    wallTime: indexWallTime,
+                    stderr: indexResult.stderr,
+                    dependsOnPrevious: configuration.compressFASTA
+                )
+            )
             // Fall back to manual index creation
-            let indexURL = URL(fileURLWithPath: finalFASTAPath.path + ".fai")
             try createFASTAIndex(chromosomes: chromosomes, indexURL: indexURL)
+            provenanceSteps.append(
+                NativeBuildToolProvenanceStep(
+                    toolName: "NativeBundleBuilder.createFASTAIndex",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    command: [
+                        "NativeBundleBuilder.createFASTAIndex",
+                        "--input", finalFASTAPath.path,
+                        "--output", indexURL.path,
+                    ],
+                    inputURLs: [finalFASTAPath],
+                    outputURLs: [indexURL],
+                    exitCode: 0,
+                    wallTime: 0,
+                    stderr: nil,
+                    dependsOnPrevious: true
+                )
+            )
+        } else {
+            var indexOutputs = [indexURL]
+            if FileManager.default.fileExists(atPath: gzipIndexURL.path) {
+                indexOutputs.append(gzipIndexURL)
+            }
+            provenanceSteps.append(
+                NativeBuildToolProvenanceStep(
+                    toolName: NativeTool.samtools.rawValue,
+                    toolVersion: await toolRunner.getToolVersion(.samtools) ?? "unknown",
+                    command: indexResult.arguments,
+                    inputURLs: [finalFASTAPath],
+                    outputURLs: indexOutputs,
+                    exitCode: indexResult.exitCode,
+                    wallTime: indexWallTime,
+                    stderr: indexResult.stderr,
+                    dependsOnPrevious: configuration.compressFASTA
+                )
+            )
         }
 
         updateProgress(
@@ -597,12 +857,15 @@ public final class NativeBundleBuilder: ObservableObject {
         let indexPath = "\(relativePath).fai"
         let gzipIndexPath = isCompressed ? "\(relativePath).gzi" : nil
 
-        return GenomeInfo(
-            path: relativePath,
-            indexPath: indexPath,
-            gzipIndexPath: gzipIndexPath,
-            totalLength: totalLength,
-            chromosomes: chromosomes
+        return FASTAProcessingResult(
+            genomeInfo: GenomeInfo(
+                path: relativePath,
+                indexPath: indexPath,
+                gzipIndexPath: gzipIndexPath,
+                totalLength: totalLength,
+                chromosomes: chromosomes
+            ),
+            provenanceSteps: provenanceSteps
         )
     }
 
@@ -805,15 +1068,16 @@ public final class NativeBundleBuilder: ObservableObject {
 
                 if !result.isSuccess {
                     logger.warning("bcftools conversion failed for \(input.name): \(result.stderr)")
-                    // Copy VCF as fallback
-                    try FileManager.default.copyItem(at: input.url, to: outputURL)
-                    try Data().write(to: variantsDir.appendingPathComponent("\(input.id).bcf.csi"))
+                    throw BundleBuildError.variantConversionFailed(
+                        input.name,
+                        "bcftools failed to create a real BCF/CSI pair: \(result.stderr)"
+                    )
                 }
             } else {
-                // No bcftools available, copy VCF
-                logger.info("bcftools not available, copying VCF for \(input.name)")
-                try FileManager.default.copyItem(at: input.url, to: outputURL)
-                try Data().write(to: variantsDir.appendingPathComponent("\(input.id).bcf.csi"))
+                throw BundleBuildError.variantConversionFailed(
+                    input.name,
+                    "bcftools is required to create a real BCF/CSI pair"
+                )
             }
 
             let variantCount = try countVariantsInVCF(input.url)
@@ -867,20 +1131,18 @@ public final class NativeBundleBuilder: ObservableObject {
         let tracksDir = bundleURL.appendingPathComponent("tracks")
 
         for input in configuration.signalFiles {
+            let ext = input.url.pathExtension.lowercased()
+            guard ext == "bw" || ext == "bigwig" else {
+                throw BundleBuildError.signalConversionFailed(
+                    input.name,
+                    "NativeBundleBuilder requires an existing BigWig signal track. \(input.url.lastPathComponent) is not converted to .bw because bedGraph-to-BigWig conversion is not provenance-recorded in this builder."
+                )
+            }
+
             let outputPath = "tracks/\(input.id).bw"
             let outputURL = tracksDir.appendingPathComponent("\(input.id).bw")
 
-            // Check if input is already BigWig
-            let ext = input.url.pathExtension.lowercased()
-            if ext == "bw" || ext == "bigwig" {
-                try FileManager.default.copyItem(at: input.url, to: outputURL)
-            } else if ext == "bedgraph" || ext == "bg" {
-                // Try to convert using native tool
-                // Note: Would need chrom.sizes file, skip for now
-                try FileManager.default.copyItem(at: input.url, to: outputURL)
-            } else {
-                try FileManager.default.copyItem(at: input.url, to: outputURL)
-            }
+            try FileManager.default.copyItem(at: input.url, to: outputURL)
 
             let trackInfo = SignalTrackInfo(
                 id: input.id,
@@ -1269,28 +1531,6 @@ public final class NativeBundleBuilder: ObservableObject {
         try clippedContent.write(to: bedURL, atomically: true, encoding: .utf8)
     }
 
-    /// Strips extra columns beyond `keepColumns` from a BED file in-place.
-    /// SQLite annotation import only needs the retained BED columns.
-    private func stripExtraBEDColumns(bedURL: URL, keepColumns: Int) throws {
-        guard let content = try? String(contentsOf: bedURL, encoding: .utf8) else { return }
-
-        var strippedLines: [String] = []
-        for line in content.components(separatedBy: .newlines) {
-            if line.isEmpty || line.hasPrefix("#") {
-                strippedLines.append(line)
-                continue
-            }
-            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-            if fields.count > keepColumns {
-                strippedLines.append(fields.prefix(keepColumns).joined(separator: "\t"))
-            } else {
-                strippedLines.append(line)
-            }
-        }
-
-        try strippedLines.joined(separator: "\n").write(to: bedURL, atomically: true, encoding: .utf8)
-    }
-
     private func countVariantsInVCF(_ url: URL) throws -> Int {
         guard let content = try? String(contentsOf: url, encoding: .utf8) else {
             return 0
@@ -1324,14 +1564,24 @@ public final class NativeBundleBuilder: ObservableObject {
             validationErrors.append(contentsOf: manifestErrors.map { $0.localizedDescription })
 
             if let genome = manifest.genome {
-                let genomePath = bundleURL.appendingPathComponent(genome.path)
-                if !fileManager.fileExists(atPath: genomePath.path) {
-                    validationErrors.append("Genome file not found: \(genome.path)")
+                if let genomePath = try? BundleManifest.validatedBundleMemberURL(
+                    for: genome.path,
+                    in: bundleURL,
+                    field: "genome.path"
+                ) {
+                    if !fileManager.fileExists(atPath: genomePath.path) {
+                        validationErrors.append("Genome file not found: \(genome.path)")
+                    }
                 }
 
-                let indexPath = bundleURL.appendingPathComponent(genome.indexPath)
-                if !fileManager.fileExists(atPath: indexPath.path) {
-                    validationErrors.append("Genome index not found: \(genome.indexPath)")
+                if let indexPath = try? BundleManifest.validatedBundleMemberURL(
+                    for: genome.indexPath,
+                    in: bundleURL,
+                    field: "genome.indexPath"
+                ) {
+                    if !fileManager.fileExists(atPath: indexPath.path) {
+                        validationErrors.append("Genome index not found: \(genome.indexPath)")
+                    }
                 }
             }
 

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.io", category: "FASTQBundleCSVMetadata")
@@ -176,41 +177,65 @@ extension FASTQBundleCSVMetadata {
 
     /// Parses a CSV string into metadata.
     static func parse(csv: String) -> FASTQBundleCSVMetadata? {
-        let lines = csv.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        let records = parseCSVRecords(csv)
 
-        guard let headerLine = lines.first else { return nil }
-        let headers = parseCSVLine(headerLine)
+        guard let headerRecord = records.first else { return nil }
+        let headers = DelimitedLineParser.fields(in: headerRecord, delimiter: ",")
         guard !headers.isEmpty else { return nil }
 
         var rows: [[String]] = []
-        for line in lines.dropFirst() {
-            let fields = parseCSVLine(line)
-            rows.append(fields)
+        for record in records.dropFirst() {
+            rows.append(DelimitedLineParser.fields(in: record, delimiter: ","))
         }
 
         return FASTQBundleCSVMetadata(headers: headers, rows: rows)
     }
 
-    /// Parses a single CSV line, handling quoted fields.
-    private static func parseCSVLine(_ line: String) -> [String] {
-        var fields: [String] = []
+    /// Splits CSV text into logical records without breaking quoted newline fields.
+    private static func parseCSVRecords(_ csv: String) -> [String] {
+        var records: [String] = []
         var current = ""
         var inQuotes = false
 
-        for char in line {
+        var index = csv.startIndex
+        while index < csv.endIndex {
+            let char = csv[index]
             if char == "\"" {
-                inQuotes.toggle()
-            } else if char == "," && !inQuotes {
-                fields.append(current)
+                current.append(char)
+                if inQuotes {
+                    let next = csv.index(after: index)
+                    if next < csv.endIndex, csv[next] == "\"" {
+                        current.append(csv[next])
+                        index = next
+                    } else {
+                        inQuotes = false
+                    }
+                } else {
+                    inQuotes = true
+                }
+            } else if (char == "\n" || char == "\r") && !inQuotes {
+                appendCSVRecord(current, to: &records)
                 current = ""
+                if char == "\r" {
+                    let next = csv.index(after: index)
+                    if next < csv.endIndex, csv[next] == "\n" {
+                        index = next
+                    }
+                }
             } else {
                 current.append(char)
             }
+            index = csv.index(after: index)
         }
-        fields.append(current)
-        return fields
+
+        appendCSVRecord(current, to: &records)
+        return records
+    }
+
+    private static func appendCSVRecord(_ record: String, to records: inout [String]) {
+        if !record.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            records.append(record)
+        }
     }
 
     // MARK: - CSV Serialization

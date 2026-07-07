@@ -29,14 +29,11 @@ final class CzIdImportWorkflowTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("classification.czid.tsv").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("classification-result.json").path))
 
-        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
         let step = try XCTUnwrap(provenance.steps.first)
         XCTAssertEqual(step.toolName, "lungfish import cz-id")
-        XCTAssertEqual(step.command, [
-            "lungfish",
+        XCTAssertEqual(step.argv, [
+            "lungfish-cli",
             "import",
             "cz-id",
             sourceURL.path,
@@ -45,10 +42,10 @@ final class CzIdImportWorkflowTests: XCTestCase {
             "--sample-name",
             "GUI Sample 01",
         ])
-        XCTAssertFalse(step.command.joined(separator: " ").contains("cz-id import"))
-        XCTAssertFalse(step.command.contains("--output-dir"))
-        XCTAssertEqual(provenance.parameters["outputBundle"]?.fileValue?.standardizedFileURL, bundleURL.standardizedFileURL)
-        XCTAssertEqual(provenance.parameters["reportPayload"]?.fileValue?.standardizedFileURL, bundleURL.appendingPathComponent("classification.czid.tsv").standardizedFileURL)
+        XCTAssertFalse(step.argv.joined(separator: " ").contains("cz-id import"))
+        XCTAssertFalse(step.argv.contains("--output-dir"))
+        XCTAssertEqual(provenance.options.resolvedDefaults["outputBundle"]?.fileValue?.standardizedFileURL, bundleURL.standardizedFileURL)
+        XCTAssertEqual(provenance.options.resolvedDefaults["reportPayload"]?.fileValue?.standardizedFileURL, bundleURL.appendingPathComponent("classification.czid.tsv").standardizedFileURL)
     }
 
     func testProjectImportWorkflowUsesPreviewSampleNameWhenNotProvided() async throws {
@@ -125,24 +122,20 @@ final class CzIdImportWorkflowTests: XCTestCase {
         let converted = try CzIdDataConverter.convertTaxonReport(
             at: reportURL,
             outputDirectory: outputDirectory,
-            command: ["lungfish", "cz-id", "import", archiveURL.path, "--output-dir", outputDirectory.path],
+            command: ["lungfish-cli", "cz-id", "import", archiveURL.path, "--output-dir", outputDirectory.path],
             sourceInputURL: archiveURL
         )
 
         let finalPayloadURL = outputDirectory.appendingPathComponent("classification.czid.tsv")
         XCTAssertEqual(converted.manifest?.sourceFiles.map(\.standardizedFileURL), [finalPayloadURL.standardizedFileURL])
 
-        let provenanceURL = outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let provenance = try XCTUnwrap(jsonObject(at: provenanceURL))
-        let steps = try XCTUnwrap(provenance["steps"] as? [[String: Any]])
-        let firstStep = try XCTUnwrap(steps.first)
-        let inputs = try XCTUnwrap(firstStep["inputs"] as? [[String: Any]])
-        let archiveRecord = try XCTUnwrap(inputs.first { ($0["path"] as? String) == archiveURL.path })
-        XCTAssertEqual(archiveRecord["sizeBytes"] as? Int, 13)
-        XCTAssertFalse((archiveRecord["sha256"] as? String ?? "").isEmpty)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: outputDirectory))
+        let firstStep = try XCTUnwrap(provenance.steps.first)
+        let archiveRecord = try XCTUnwrap(firstStep.inputs.first { $0.path == archiveURL.path })
+        XCTAssertEqual(archiveRecord.fileSize, 13)
+        XCTAssertFalse(archiveRecord.checksumSHA256?.isEmpty ?? true)
 
-        let outputs = try XCTUnwrap(firstStep["outputs"] as? [[String: Any]])
-        XCTAssertTrue(outputs.contains { ($0["path"] as? String) == finalPayloadURL.path })
+        XCTAssertTrue(firstStep.outputs.contains { $0.path == finalPayloadURL.path })
     }
 
     func testZipConversionProvenanceParametersDoNotRecordTemporaryExtractionPath() throws {
@@ -162,23 +155,20 @@ final class CzIdImportWorkflowTests: XCTestCase {
         _ = try CzIdDataConverter.convertTaxonReport(
             at: reportURL,
             outputDirectory: outputDirectory,
-            command: ["lungfish", "import", "cz-id", archiveURL.path, "--project", tempDir.path, "--sample-name", "Zip Sample"],
+            command: ["lungfish-cli", "import", "cz-id", archiveURL.path, "--project", tempDir.path, "--sample-name", "Zip Sample"],
             sourceInputURL: archiveURL,
             sampleNameOverride: "Zip Sample",
             provenanceToolName: "lungfish import cz-id"
         )
 
-        let provenanceURL = outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
-        let parameterPaths = provenance.parameters.values.compactMap(\.fileValue).map(\.path)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: outputDirectory))
+        let parameterPaths = provenance.options.resolvedDefaults.values.compactMap(\.fileValue).map(\.path)
         XCTAssertFalse(parameterPaths.contains { $0.contains("/czid-preview-") }, parameterPaths.joined(separator: "\n"))
         XCTAssertEqual(
-            provenance.parameters["reportPayload"]?.fileValue?.standardizedFileURL,
+            provenance.options.resolvedDefaults["reportPayload"]?.fileValue?.standardizedFileURL,
             outputDirectory.appendingPathComponent("classification.czid.tsv").standardizedFileURL
         )
-        XCTAssertEqual(provenance.parameters["sourcePath"]?.fileValue?.standardizedFileURL, archiveURL.standardizedFileURL)
+        XCTAssertEqual(provenance.options.resolvedDefaults["sourcePath"]?.fileValue?.standardizedFileURL, archiveURL.standardizedFileURL)
     }
 
     @MainActor
@@ -232,8 +222,4 @@ final class CzIdImportWorkflowTests: XCTestCase {
         XCTAssertEqual(process.terminationStatus, 0)
     }
 
-    private func jsonObject(at url: URL) throws -> [String: Any]? {
-        let data = try Data(contentsOf: url)
-        return try JSONSerialization.jsonObject(with: data) as? [String: Any]
-    }
 }

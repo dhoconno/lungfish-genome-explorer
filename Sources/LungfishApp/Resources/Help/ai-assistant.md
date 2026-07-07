@@ -74,7 +74,7 @@ The assistant opens as a floating panel that stays visible while you work.
 
 ## Available Tools
 
-The assistant has 9 specialized tools:
+The assistant uses specialized tools for genome navigation, annotation and variant queries, table context, and literature search:
 
 | Tool | What It Does |
 |------|-------------|
@@ -82,6 +82,8 @@ The assistant has 9 specialized tools:
 | **search_variants** | Find variants by region, type, or gene proximity |
 | **get_variant_statistics** | Get aggregate variant counts and distributions |
 | **get_gene_details** | Retrieve detailed gene information (exons, CDS) |
+| **get_variant_table_context** | Get visible or selected rows from the Variants table |
+| **get_sample_table_context** | Get visible or selected rows from the Samples table |
 | **get_current_view** | Get the currently visible genomic region |
 | **navigate_to_gene** | Jump to a gene's location |
 | **navigate_to_region** | Navigate to specific coordinates |

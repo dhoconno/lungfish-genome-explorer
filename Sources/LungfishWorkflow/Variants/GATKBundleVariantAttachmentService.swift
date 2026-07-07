@@ -124,13 +124,19 @@ public actor GATKBundleVariantAttachmentService {
         let variantsDir = request.bundleURL.appendingPathComponent("variants/gatk", isDirectory: true)
         try fileManager.createDirectory(at: variantsDir, withIntermediateDirectories: true)
 
-        let databaseRelativePath = "variants/gatk/\(request.outputTrackID).db"
-        let provenanceRelativePath = "variants/gatk/\(request.outputTrackID).lungfish-provenance.json"
+        let artifactBasename = VariantAttachmentPathComponent.sanitizedTrackBasename(request.outputTrackID)
+        let databaseRelativePath = "variants/gatk/\(artifactBasename).db"
+        let provenanceRelativePath = "variants/gatk/\(artifactBasename).lungfish-provenance.json"
         let databaseURL = request.bundleURL.appendingPathComponent(databaseRelativePath)
         let provenanceURL = request.bundleURL.appendingPathComponent(provenanceRelativePath)
         let manifestURL = request.bundleURL.appendingPathComponent(BundleManifest.filename)
         let originalManifestData = try Data(contentsOf: manifestURL)
         var createdURLs: [URL] = []
+        let ownedOutputURLs = ownedGATKOutputURLs(
+            request: request,
+            indexURL: indexURL,
+            artifactBasename: artifactBasename
+        )
 
         let importStartedAt = dateProvider()
         do {
@@ -203,7 +209,7 @@ public actor GATKBundleVariantAttachmentService {
                 variantCount: trackInfo.variantCount ?? importResult.variantCount
             )
         } catch {
-            for url in createdURLs {
+            for url in createdURLs + ownedOutputURLs {
                 try? fileManager.removeItem(at: url)
             }
             try? originalManifestData.write(to: manifestURL, options: .atomic)
@@ -221,23 +227,50 @@ public actor GATKBundleVariantAttachmentService {
 
         let candidates = [
             request.outputVCFURL.appendingPathExtension("tbi"),
+            request.outputVCFURL.appendingPathExtension("csi"),
             request.outputVCFURL.appendingPathExtension("idx"),
             request.outputVCFURL.deletingPathExtension().appendingPathExtension("idx"),
         ]
         if let indexURL = candidates.first(where: { fileManager.fileExists(atPath: $0.path) }) {
             return indexURL
         }
-        throw GATKBundleVariantAttachmentError.missingOutputIndex(candidates[0].path)
+        throw GATKBundleVariantAttachmentError.missingOutputIndex(candidates.map(\.path).joined(separator: ", "))
     }
 
     private func bundleRelativePath(for url: URL, in bundleURL: URL) throws -> String {
-        let bundlePath = bundleURL.standardizedFileURL.path
-        let filePath = url.standardizedFileURL.path
-        let prefix = bundlePath.hasSuffix("/") ? bundlePath : "\(bundlePath)/"
-        guard filePath.hasPrefix(prefix) else {
-            throw GATKBundleVariantAttachmentError.outputOutsideBundle(filePath)
+        let lexicalBundlePath = bundleURL.standardizedFileURL.path
+        let lexicalFilePath = url.standardizedFileURL.path
+        let lexicalPrefix = lexicalBundlePath.hasSuffix("/") ? lexicalBundlePath : "\(lexicalBundlePath)/"
+        guard lexicalFilePath.hasPrefix(lexicalPrefix) else {
+            throw GATKBundleVariantAttachmentError.outputOutsideBundle(lexicalFilePath)
         }
-        return String(filePath.dropFirst(prefix.count))
+
+        let resolvedBundlePath = bundleURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let resolvedFilePath = url.resolvingSymlinksInPath().standardizedFileURL.path
+        let resolvedPrefix = resolvedBundlePath.hasSuffix("/") ? resolvedBundlePath : "\(resolvedBundlePath)/"
+        guard resolvedFilePath.hasPrefix(resolvedPrefix) else {
+            throw GATKBundleVariantAttachmentError.outputOutsideBundle(resolvedFilePath)
+        }
+        return String(lexicalFilePath.dropFirst(lexicalPrefix.count))
+    }
+
+    private func ownedGATKOutputURLs(
+        request: GATKBundleVariantAttachmentRequest,
+        indexURL: URL,
+        artifactBasename: String
+    ) -> [URL] {
+        guard let outputRelativePath = try? bundleRelativePath(for: request.outputVCFURL, in: request.bundleURL) else {
+            return []
+        }
+        let ownedOutputPaths = Set([
+            "variants/gatk/\(artifactBasename).vcf",
+            "variants/gatk/\(artifactBasename).vcf.gz",
+        ])
+        guard ownedOutputPaths.contains(outputRelativePath),
+              (try? bundleRelativePath(for: indexURL, in: request.bundleURL)) != nil else {
+            return []
+        }
+        return [request.outputVCFURL, indexURL]
     }
 
     private func metadata(

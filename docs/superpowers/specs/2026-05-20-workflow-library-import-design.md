@@ -6,13 +6,13 @@ Lungfish needs a Workflow Library that looks and behaves like the Plugin Manager
 
 ## User Experience
 
-The Workflow Library window uses the same visual structure as the Plugin Manager:
+The beta1 Workflow Library window uses a single Library pane with Plugin-Manager-style cards. It intentionally does not expose separate `Installed` or `Runs` tabs until those surfaces have real inspect, update, removal, and run-history behavior.
 
-- A segmented header with `Library`, `Installed`, and `Runs`.
 - Plugin-Manager-style cards with title, category badge, description, dependency status rows, compact primary actions, progress state, and stable accessibility identifiers.
 - Built-in Core workflow groups at the top. These are enabled by default and cannot be disabled.
 - Optional workflow groups below Core, grouped by logical category. The first Specialized workflow is ONT Genotyping.
-- Imported user workflows appear under a `User Workflows` group and can be enabled, disabled, inspected, updated, or removed.
+- Imported user workflows appear under a `User Workflows` group with runner type, input/output contract, runtime, execution status, dependency status, and stable accessibility identifiers.
+- Imported Nextflow and Snakemake packages can be enabled or disabled when they declare the beta1 Workflow Operations contract and their dependencies are ready. Imported `command` packages and packages with unsupported contracts are catalog-only in beta1 and must be labeled as such instead of presented as runnable workflows.
 - An `Add Workflow...` action imports a workflow package and validates it before making it available.
 
 ## Workflow Package Contract
@@ -43,7 +43,9 @@ The manifest declares:
 
 `snakemake` packages run through the existing Snakemake runner surface. The package declares the Snakefile, config mapping, cores/threads behavior, and optional container or conda settings.
 
-`command` packages support manually defined workflows like ONT Genotyping. The manifest declares a command template that invokes either Lungfish CLI subcommands or package-local scripts. Variables are restricted to validated inputs, output directories, user parameters, threads, and provenance paths.
+`command` packages describe manually defined workflows like ONT Genotyping. The manifest declares a command template that invokes either Lungfish CLI subcommands or package-local scripts. Variables are restricted to validated inputs, output directories, user parameters, threads, and provenance paths.
+
+Beta1 validates and catalogs `command` packages but does not execute them from Workflow Operations. The Library must also treat Nextflow and Snakemake packages as catalog-only unless they declare at least one required `.lungfishref` input, at least one required `.lungfishfastq` input, and at least one output. Enablement remains blocked until a dedicated command-runner execution path or broader package-contract execution path exists.
 
 All runner types share the same input/output bundle validation and provenance policy.
 
@@ -95,7 +97,7 @@ The first implementation should:
 - Add checked-in three-step Hello World workflow packages for both Nextflow and Snakemake. Each package should accept one `.lungfishref` and one `.lungfishfastq` input bundle, write a valid `.lungfishref` output bundle, and be readable enough to serve as a template for lab-authored workflows.
 - Add UI affordances for `Add Workflow...`, imported workflow grouping, dependency status, and enablement.
 
-Execution of arbitrary imported workflows can be phased in after package import, validation, and display are stable. ONT Genotyping remains the first executable Specialized workflow.
+Execution of arbitrary imported command workflows can be phased in after package import, validation, and display are stable. ONT Genotyping remains the first executable Specialized workflow.
 
 ## Open Decisions
 

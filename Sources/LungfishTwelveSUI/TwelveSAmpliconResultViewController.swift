@@ -396,16 +396,6 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         menu.popUp(positioning: nil, at: point, in: sender)
     }
 
-    @objc private func toggleReadsColumns(_ sender: NSMenuItem) {
-        showReadsColumnsOverride = !(shouldShowReadsColumns)
-        rebuildSampleColumns()
-    }
-
-    @objc private func togglePercentColumns(_ sender: NSMenuItem) {
-        showPercentColumnsOverride = !(shouldShowPercentColumns)
-        rebuildSampleColumns()
-    }
-
     @objc private func toggleMetadataField(_ sender: NSMenuItem) {
         guard let field = sender.representedObject as? String else { return }
         if let idx = visibleMetadataFields.firstIndex(of: field) {

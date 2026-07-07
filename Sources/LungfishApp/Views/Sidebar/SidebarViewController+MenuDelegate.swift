@@ -311,7 +311,7 @@ extension SidebarViewController: NSMenuDelegate {
 
         let alert = NSAlert()
         alert.messageText = "Merge into New Bundle"
-        alert.informativeText = "Enter a name for the merged bundle:"
+        alert.informativeText = Self.mergeDialogInformativeText(for: mergeKind)
         alert.addButton(withTitle: "Merge")
         alert.addButton(withTitle: "Cancel")
 
@@ -586,18 +586,50 @@ extension SidebarViewController: NSMenuDelegate {
                 }
             }
 
+            func validatedBundleMemberURL(_ relativePath: String, field: String, critical: Bool) -> URL? {
+                do {
+                    return try BundleManifest.validatedBundleMemberURL(
+                        for: relativePath,
+                        in: bundleURL,
+                        field: field
+                    )
+                } catch {
+                    let msg = "Refusing to delete unsafe bundle path \(relativePath): \(error.localizedDescription)"
+                    if critical {
+                        errors.append(msg)
+                    } else {
+                        warnings.append(msg)
+                    }
+                    return nil
+                }
+            }
+
             for track in tracks {
                 // Delete BCF file
-                let bcfURL = bundleURL.appendingPathComponent(track.path)
-                removeFile(bcfURL, label: track.path, critical: true)
+                if let bcfURL = validatedBundleMemberURL(
+                    track.path,
+                    field: "variants[\(track.id)].path",
+                    critical: true
+                ) {
+                    removeFile(bcfURL, label: track.path, critical: true)
+                }
 
                 // Delete CSI index file
-                let csiURL = bundleURL.appendingPathComponent(track.indexPath)
-                removeFile(csiURL, label: track.indexPath, critical: true)
+                if let csiURL = validatedBundleMemberURL(
+                    track.indexPath,
+                    field: "variants[\(track.id)].indexPath",
+                    critical: true
+                ) {
+                    removeFile(csiURL, label: track.indexPath, critical: true)
+                }
 
                 // Delete SQLite variant database
-                if let dbPath = track.databasePath {
-                    let dbURL = bundleURL.appendingPathComponent(dbPath)
+                if let dbPath = track.databasePath,
+                   let dbURL = validatedBundleMemberURL(
+                       dbPath,
+                       field: "variants[\(track.id)].databasePath",
+                       critical: true
+                   ) {
                     removeFile(dbURL, label: dbPath, critical: true)
                     // WAL/SHM are transient journal files — warn but don't block
                     let walURL = dbURL.appendingPathExtension("wal")
@@ -924,6 +956,7 @@ extension SidebarViewController: NSMenuDelegate {
         do {
             try FileManager.default.moveItem(at: url, to: newURL)
             rehydrateScientificProvenance(from: url, to: newURL)
+            rewriteAnalysisManifestReferencesIfNeeded(from: url, to: newURL)
             sidebarLogger.info("performRename: Renamed to '\(newFilename, privacy: .public)'")
             // Immediately refresh sidebar for instant feedback
             requestReloadFromFilesystem()
@@ -1201,6 +1234,7 @@ extension SidebarViewController: NSMenuDelegate {
                 }
                 try FileManager.default.moveItem(at: sourceURL, to: finalURL)
                 rehydrateScientificProvenance(from: sourceURL, to: finalURL)
+                rewriteAnalysisManifestReferencesIfNeeded(from: sourceURL, to: finalURL)
                 sidebarLogger.info("contextMenuMoveToFolder: Moved '\(item.title, privacy: .public)' to '\(finalURL.lastPathComponent, privacy: .public)'")
             } catch {
                 sidebarLogger.error("contextMenuMoveToFolder: Failed to move '\(item.title, privacy: .public)' - \(error.localizedDescription, privacy: .public)")

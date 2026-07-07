@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public struct ManagedMSACommand: Sendable, Equatable {
@@ -511,7 +512,7 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
         outputBundleURL: URL
     ) -> [String] {
         var argv = [
-            "lungfish", "align", "mafft",
+            CLICommandIdentity.executableName, "align", "mafft",
         ] + request.inputSequenceURLs.map(\.path) + [
             "--project", request.projectURL.path,
             "--output", outputBundleURL.path,

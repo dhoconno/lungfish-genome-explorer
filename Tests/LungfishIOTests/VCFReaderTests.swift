@@ -234,6 +234,26 @@ final class VCFReaderTests: XCTestCase {
         XCTAssertTrue(gt2.isHomAlt)
     }
 
+    func testGenotypeParsingPreservesEmptySampleFields() async throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE1
+        chr1\t100\t.\tA\tG\t30\tPASS\t.\tGT:AD:DP\t0/1::30
+        """
+
+        let url = try createTempVCF(content: vcf)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = VCFReader()
+        let variants = try await reader.readAll(from: url)
+
+        let gt = try XCTUnwrap(variants.first?.genotypes["SAMPLE1"])
+        XCTAssertEqual(gt.rawGenotype, "0/1")
+        XCTAssertEqual(gt.fields["AD"], "")
+        XCTAssertEqual(gt.fields["DP"], "30")
+        XCTAssertEqual(gt.depth, 30)
+    }
+
     func testPhasedGenotype() async throws {
         let vcf = """
         ##fileformat=VCFv4.3
@@ -339,6 +359,29 @@ final class VCFReaderTests: XCTestCase {
                 VCFError.unsupportedVCFVersion(version: version).errorDescription,
                 "VCFv3 is not supported. Convert to VCF 4.x with bcftools convert or vcf-convert (vcftools) before importing. See https://samtools.github.io/bcftools/bcftools.html#convert and https://vcftools.github.io/perl_module.html"
             )
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testInvalidQualityThrows() async throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\t.\tA\tG\tbadqual\tPASS\t.
+        """
+
+        let url = try createTempVCF(content: vcf)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = VCFReader()
+
+        do {
+            _ = try await reader.readAll(from: url)
+            XCTFail("Expected invalid quality error")
+        } catch VCFError.invalidQuality(let line, let value) {
+            XCTAssertEqual(line, 3)
+            XCTAssertEqual(value, "badqual")
         } catch {
             XCTFail("Unexpected error: \(error)")
         }

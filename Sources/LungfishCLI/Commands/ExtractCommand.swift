@@ -338,7 +338,7 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
     }
 
     private func provenanceCommand(inputURL: URL, outputURL: URL) -> [String] {
-        var command = ["lungfish", "extract", "sequence", inputURL.path, region]
+        var command = [CLICommandIdentity.executableName, "extract", "sequence", inputURL.path, region]
         if reverseComplement {
             command.append("--reverse-complement")
         }

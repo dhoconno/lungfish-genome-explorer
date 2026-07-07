@@ -289,8 +289,21 @@ public extension PluginPack {
         builtIn.first { $0.id == packID }
     }
 
-    static let requiredSetupPack: PluginPack = {
-        let lock = try! ManagedToolLock.loadFromBundle()
+    static let requiredSetupPack: PluginPack = makeRequiredSetupPack {
+        try ManagedToolLock.loadFromBundle()
+    }
+
+    internal static func makeRequiredSetupPack(
+        lockLoader: () throws -> ManagedToolLock
+    ) -> PluginPack {
+        do {
+            return requiredSetupPack(from: try lockLoader())
+        } catch {
+            return fallbackRequiredSetupPack(loadError: error)
+        }
+    }
+
+    private static func requiredSetupPack(from lock: ManagedToolLock) -> PluginPack {
         return PluginPack(
             id: lock.packID,
             name: lock.displayName,
@@ -303,7 +316,30 @@ public extension PluginPack {
             requirements: PackToolRequirement.from(lock: lock),
             estimatedSizeMB: 2700
         )
-    }()
+    }
+
+    private static func fallbackRequiredSetupPack(loadError: Error) -> PluginPack {
+        PluginPack(
+            id: "lungfish-tools",
+            name: "Third-Party Tools",
+            description: "Needed before you can create or open a project. The managed tool lock manifest could not be loaded: \(loadError.localizedDescription)",
+            sfSymbol: "exclamationmark.triangle",
+            packages: ["managed-tool-lock-manifest"],
+            category: "Required Setup",
+            kind: .requiredSetup,
+            isActive: true,
+            requirements: [
+                PackToolRequirement(
+                    id: "managed-tool-lock-manifest",
+                    displayName: "Managed tool lock manifest",
+                    environment: "lungfish-tools-lock",
+                    installPackages: ["managed-tool-lock-manifest"],
+                    executables: ["third-party-tools-lock.json"]
+                ),
+            ],
+            estimatedSizeMB: 2700
+        )
+    }
 
     static let builtIn: [PluginPack] = [
         requiredSetupPack,

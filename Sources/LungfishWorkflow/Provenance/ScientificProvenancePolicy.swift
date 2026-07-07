@@ -67,6 +67,22 @@ public enum ScientificProvenancePolicy {
         return cliCommandPolicies[key]
     }
 
+    public static func cliCommand(path commandPath: [String]) -> ProvenancePolicyEntry? {
+        let key = canonicalCommandPath(commandPath)
+        guard !key.isEmpty else { return nil }
+        if let exact = cliCommandPathPolicies[key] {
+            return exact
+        }
+        return commandPath.last.flatMap(cliCommand)
+    }
+
+    private static func canonicalCommandPath(_ commandPath: [String]) -> String {
+        commandPath
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
     public static let canonicalCLICommandNames: [String] = [
         "convert",
         "analyze",
@@ -157,6 +173,11 @@ public enum ScientificProvenancePolicy {
         "mhc-reference-bundle": dataWriting("cli.fastq.mhc-reference-bundle", writer: "MHCAmpliconReferenceBundleBuilder"),
         "12s-export": dataWriting("cli.fastq.12s-export", writer: "TwelveSResultExportWorkflow"),
         "12s-export-unresolved": dataWriting("cli.fastq.12s-export-unresolved", writer: "TwelveSUnresolvedFastaExportWorkflow")
+    ]
+
+    public static let cliCommandPathPolicies: [String: ProvenancePolicyEntry] = [
+        "debug fastq-ingest": dataWriting("cli.debug.fastq-ingest", writer: "FASTQIngestSubcommand"),
+        "fastq pbaa-cluster": dataWriting("cli.fastq.pbaa-cluster", writer: "PBAAClusteringPipeline")
     ]
 
     public static let nativeToolPolicies: [String: ProvenancePolicyEntry] = [

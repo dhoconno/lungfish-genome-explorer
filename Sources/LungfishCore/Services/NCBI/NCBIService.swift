@@ -374,6 +374,20 @@ public actor NCBIService: DatabaseService {
         return (content: content, accession: resolvedAccession)
     }
 
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        if let urlError = error as? URLError {
+            return urlError.code == .cancelled
+        }
+        if let databaseError = error as? DatabaseServiceError,
+           case .cancelled = databaseError {
+            return true
+        }
+        return false
+    }
+
     private func fetchGenBankDataByAccessionOrSearch(accession: String) async throws -> (data: Data, resolvedIdentifier: String) {
         do {
             let data = try await efetch(
@@ -388,6 +402,9 @@ public actor NCBIService: DatabaseService {
                 "NCBI direct GenBank efetch for \(accession, privacy: .public) returned non-GenBank content; falling back to esearch"
             )
         } catch {
+            if isCancellation(error) {
+                throw error
+            }
             logger.warning(
                 "NCBI direct GenBank efetch for \(accession, privacy: .public) failed; falling back to esearch: \(String(describing: error), privacy: .public)"
             )
@@ -416,21 +433,27 @@ public actor NCBIService: DatabaseService {
         return content.hasPrefix("LOCUS") || content.contains("\nLOCUS")
     }
 
+    /// Returns the first whitespace-delimited token after a GenBank keyword
+    /// on a line such as `ACCESSION   NC_002549` or `VERSION   NC_002549.1`,
+    /// i.e. the second non-empty component, or nil when absent.
+    private nonisolated func firstTokenAfterKeyword(_ line: String) -> String? {
+        let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        return parts.count > 1 ? parts[1] : nil
+    }
+
     /// Extracts the accession number from GenBank file content.
     private func extractAccession(from content: String) -> String? {
         let lines = content.components(separatedBy: "\n")
         for line in lines {
             if line.hasPrefix("ACCESSION") {
-                let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-                if parts.count > 1 {
-                    return parts[1]
+                if let token = firstTokenAfterKeyword(line) {
+                    return token
                 }
             }
             if line.hasPrefix("VERSION") {
-                let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-                if parts.count > 1 {
+                if let token = firstTokenAfterKeyword(line) {
                     // VERSION line contains accession.version (e.g., NC_002549.1)
-                    return parts[1]
+                    return token
                 }
             }
         }
@@ -633,10 +656,10 @@ public actor NCBIService: DatabaseService {
         )
     }
 
-    /// Searches the genome/assembly database.
+    /// Searches the NCBI Assembly database for genome assemblies (RefSeq/GenBank).
     ///
-    /// Note: The NCBI Genome database doesn't support direct efetch.
-    /// Results should be linked to nuccore for sequence retrieval.
+    /// Note: assembly records don't support direct efetch of sequence data;
+    /// results should be linked to nuccore for sequence retrieval.
     ///
     /// - Parameters:
     ///   - term: The search term
@@ -701,6 +724,44 @@ public actor NCBIService: DatabaseService {
         public let assemblyAccession: String
     }
 
+    private enum HeadFileInfoResult {
+        case found(GenomeFileInfo)
+        case unavailable(statusCode: Int)
+        case badResponse
+    }
+
+    private func headFileInfo(
+        fileURL: URL,
+        filename: String,
+        assemblyAccession: String,
+        timeout: TimeInterval
+    ) async throws -> HeadFileInfoResult {
+        var request = URLRequest(url: fileURL)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = timeout
+
+        let (_, response) = try await httpClient.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            return .badResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            return .unavailable(statusCode: httpResponse.statusCode)
+        }
+
+        let fileSize = httpResponse.expectedContentLength > 0
+            ? httpResponse.expectedContentLength
+            : nil
+
+        return .found(GenomeFileInfo(
+            url: fileURL,
+            filename: filename,
+            estimatedSize: fileSize,
+            assemblyAccession: assemblyAccession
+        ))
+    }
+
     /// Gets information about the genomic FASTA file for an assembly.
     ///
     /// This method queries the FTP server (via HTTP) to find the genomic FASTA file
@@ -732,32 +793,23 @@ public actor NCBIService: DatabaseService {
             throw DatabaseServiceError.parseError(message: "Invalid genome file URL")
         }
 
-        // Get file size using HEAD request
-        var request = URLRequest(url: fileURL)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 30
-
         logger.info("getGenomeFileInfo: HEAD \(fileURL.absoluteString, privacy: .public)")
-        let (_, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DatabaseServiceError.networkError(underlying: "Bad server response")
-        }
-
-        // Check if file exists
-        guard httpResponse.statusCode == 200 else {
-            throw DatabaseServiceError.notFound(accession: summary.assemblyAccession ?? summary.uid)
-        }
-
-        // Get file size from Content-Length header
-        let fileSize = httpResponse.expectedContentLength > 0 ? httpResponse.expectedContentLength : nil
-
-        return GenomeFileInfo(
-            url: fileURL,
+        let assemblyAccession = summary.assemblyAccession ?? summary.uid
+        let result = try await headFileInfo(
+            fileURL: fileURL,
             filename: genomicFilename,
-            estimatedSize: fileSize,
-            assemblyAccession: summary.assemblyAccession ?? summary.uid
+            assemblyAccession: assemblyAccession,
+            timeout: 30
         )
+
+        switch result {
+        case .found(let info):
+            return info
+        case .badResponse:
+            throw DatabaseServiceError.networkError(underlying: "Bad server response")
+        case .unavailable:
+            throw DatabaseServiceError.notFound(accession: assemblyAccession)
+        }
     }
 
     /// Gets information about the GFF3 annotation file for an assembly.
@@ -792,36 +844,28 @@ public actor NCBIService: DatabaseService {
             return nil
         }
 
-        // Check if the GFF3 file exists using HEAD request
-        var request = URLRequest(url: fileURL)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 15
+        let assemblyAccession = summary.assemblyAccession ?? summary.uid
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return nil
-            }
-
-            // Return nil if file does not exist (404 or other non-200 status)
-            guard httpResponse.statusCode == 200 else {
-                logger.info("getAnnotationFileInfo: GFF3 not available for \(summary.assemblyAccession ?? summary.uid, privacy: .public) (HTTP \(httpResponse.statusCode))")
-                return nil
-            }
-
-            // Get file size from Content-Length header
-            let fileSize = httpResponse.expectedContentLength > 0 ? httpResponse.expectedContentLength : nil
-
-            logger.info("getAnnotationFileInfo: Found GFF3 for \(summary.assemblyAccession ?? summary.uid, privacy: .public), size=\(fileSize ?? -1)")
-
-            return GenomeFileInfo(
-                url: fileURL,
+            switch try await headFileInfo(
+                fileURL: fileURL,
                 filename: gffFilename,
-                estimatedSize: fileSize,
-                assemblyAccession: summary.assemblyAccession ?? summary.uid
-            )
+                assemblyAccession: assemblyAccession,
+                timeout: 15
+            ) {
+            case .found(let info):
+                logger.info("getAnnotationFileInfo: Found GFF3 for \(assemblyAccession, privacy: .public), size=\(info.estimatedSize ?? -1)")
+                return info
+            case .badResponse:
+                return nil
+            case .unavailable(let statusCode):
+                logger.info("getAnnotationFileInfo: GFF3 not available for \(assemblyAccession, privacy: .public) (HTTP \(statusCode))")
+                return nil
+            }
         } catch {
+            if isCancellation(error) {
+                throw error
+            }
             // Network errors are non-fatal for annotation lookup
             logger.warning("getAnnotationFileInfo: Failed to check GFF3 availability: \(error.localizedDescription)")
             return nil
@@ -856,33 +900,28 @@ public actor NCBIService: DatabaseService {
             return nil
         }
 
-        var request = URLRequest(url: fileURL)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 15
+        let assemblyAccession = summary.assemblyAccession ?? summary.uid
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return nil
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                logger.info("getAssemblyReportInfo: Assembly report not available for \(summary.assemblyAccession ?? summary.uid, privacy: .public) (HTTP \(httpResponse.statusCode))")
-                return nil
-            }
-
-            let fileSize = httpResponse.expectedContentLength > 0 ? httpResponse.expectedContentLength : nil
-
-            logger.info("getAssemblyReportInfo: Found assembly report for \(summary.assemblyAccession ?? summary.uid, privacy: .public), size=\(fileSize ?? -1)")
-
-            return GenomeFileInfo(
-                url: fileURL,
+            switch try await headFileInfo(
+                fileURL: fileURL,
                 filename: reportFilename,
-                estimatedSize: fileSize,
-                assemblyAccession: summary.assemblyAccession ?? summary.uid
-            )
+                assemblyAccession: assemblyAccession,
+                timeout: 15
+            ) {
+            case .found(let info):
+                logger.info("getAssemblyReportInfo: Found assembly report for \(assemblyAccession, privacy: .public), size=\(info.estimatedSize ?? -1)")
+                return info
+            case .badResponse:
+                return nil
+            case .unavailable(let statusCode):
+                logger.info("getAssemblyReportInfo: Assembly report not available for \(assemblyAccession, privacy: .public) (HTTP \(statusCode))")
+                return nil
+            }
         } catch {
+            if isCancellation(error) {
+                throw error
+            }
             logger.warning("getAssemblyReportInfo: Failed to check assembly report availability: \(error.localizedDescription)")
             return nil
         }
@@ -1043,9 +1082,10 @@ public actor NCBIService: DatabaseService {
 
     public nonisolated func fetchBatch(accessions: [String]) async throws -> AsyncThrowingStream<DatabaseRecord, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     for accession in accessions {
+                        try Task.checkCancellation()
                         let record = try await self.fetch(accession: accession)
                         continuation.yield(record)
                     }
@@ -1054,6 +1094,7 @@ public actor NCBIService: DatabaseService {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 
@@ -1226,27 +1267,8 @@ public actor NCBIService: DatabaseService {
 
     /// Fetches SRR run accessions from SRA UIDs via EFetch runinfo CSV.
     public func sraEFetchRunAccessions(uids: [String]) async throws -> [String] {
-        guard !uids.isEmpty else { return [] }
-
         var allAccessions: [String] = []
-        let chunkSize = 200
-        for chunkStart in stride(from: 0, to: uids.count, by: chunkSize) {
-            let chunkEnd = min(chunkStart + chunkSize, uids.count)
-            let chunk = Array(uids[chunkStart..<chunkEnd])
-
-            var components = URLComponents(url: baseURL.appendingPathComponent("efetch.fcgi"), resolvingAgainstBaseURL: false)!
-            components.queryItems = [
-                URLQueryItem(name: "db", value: "sra"),
-                URLQueryItem(name: "id", value: chunk.joined(separator: ",")),
-                URLQueryItem(name: "rettype", value: "runinfo"),
-                URLQueryItem(name: "retmode", value: "csv")
-            ]
-            if let apiKey = apiKey {
-                components.queryItems?.append(URLQueryItem(name: "api_key", value: apiKey))
-            }
-
-            let data = try await makeRequest(url: components.url!)
-            let csvText = String(data: data, encoding: .utf8) ?? ""
+        for csvText in try await sraRunInfoCSVChunks(ids: uids) {
             allAccessions.append(contentsOf: Self.parseRunInfoCSV(csvText))
         }
         return allAccessions
@@ -1257,10 +1279,22 @@ public actor NCBIService: DatabaseService {
     /// The `id` parameter accepted by NCBI EFetch works with either SRA UIDs
     /// returned by ESearch or run accessions such as `SRR12345678`.
     public func sraEFetchRunInfo(ids: [String]) async throws -> [SRARunInfo] {
+        var allRuns: [SRARunInfo] = []
+        for csvText in try await sraRunInfoCSVChunks(ids: ids) {
+            allRuns.append(contentsOf: Self.parseRunInfoRows(csvText))
+        }
+        return allRuns
+    }
+
+    /// Fetches raw SRA EFetch runinfo CSV text, one entry per request chunk.
+    ///
+    /// Shared scaffolding for ``sraEFetchRunAccessions(uids:)`` and
+    /// ``sraEFetchRunInfo(ids:)``: identical chunking, request construction, and
+    /// CSV decoding; only the per-chunk parser differs at the call site.
+    private func sraRunInfoCSVChunks(ids: [String], chunkSize: Int = 200) async throws -> [String] {
         guard !ids.isEmpty else { return [] }
 
-        var allRuns: [SRARunInfo] = []
-        let chunkSize = 200
+        var chunks: [String] = []
         for chunkStart in stride(from: 0, to: ids.count, by: chunkSize) {
             let chunkEnd = min(chunkStart + chunkSize, ids.count)
             let chunk = Array(ids[chunkStart..<chunkEnd])
@@ -1277,110 +1311,20 @@ public actor NCBIService: DatabaseService {
             }
 
             let data = try await makeRequest(url: components.url!)
-            let csvText = String(data: data, encoding: .utf8) ?? ""
-            allRuns.append(contentsOf: Self.parseRunInfoRows(csvText))
+            chunks.append(String(data: data, encoding: .utf8) ?? "")
         }
-        return allRuns
+        return chunks
     }
 
     /// Parses NCBI SRA EFetch runinfo CSV to extract run accessions.
     ///
     /// Only returns values that match SRA run accession patterns (SRR/ERR/DRR + digits).
     public static func parseRunInfoCSV(_ csv: String) -> [String] {
-        let runPattern = /^[SED]RR\d+$/
-        let lines = csv.components(separatedBy: .newlines)
-        guard lines.count > 1 else { return [] }
-        return lines.dropFirst().compactMap { line -> String? in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { return nil }
-            let run = trimmed.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? ""
-            guard !run.isEmpty, run.wholeMatch(of: runPattern) != nil else { return nil }
-            return run
-        }
+        SRARunInfoCSVParser.parseRunAccessions(csv)
     }
 
     static func parseRunInfoRows(_ csv: String) -> [SRARunInfo] {
-        let lines = csv.components(separatedBy: "\n")
-        guard !lines.isEmpty else { return [] }
-
-        let firstLine = lines[0]
-        let hasHeader = firstLine.hasPrefix("Run,")
-
-        let runIdx = 0
-        let releaseDateIdx = 1
-        let spotsIdx = 3
-        let basesIdx = 4
-        let avgLengthIdx = 6
-        let sizeMBIdx = 7
-        let experimentIdx = 10
-        let libraryStrategyIdx = 12
-        let librarySourceIdx = 14
-        let libraryLayoutIdx = 15
-        let platformIdx = 18
-        let studyIdx = 20
-        let bioprojectIdx = 21
-        let sampleIdx = 24
-        let biosampleIdx = 25
-        let scientificNameIdx = 28
-
-        let dataLines = hasHeader ? Array(lines.dropFirst()) : lines
-
-        return dataLines.compactMap { line -> SRARunInfo? in
-            guard !line.isEmpty else { return nil }
-            let fields = Self.parseRunInfoLine(line)
-            guard fields.count > runIdx, !fields[runIdx].isEmpty else { return nil }
-            let field: (Int) -> String? = { index in
-                guard index >= 0 && index < fields.count else { return nil }
-                return fields[index]
-            }
-
-            let run = SRARunInfo(
-                accession: field(runIdx) ?? "",
-                experiment: field(experimentIdx),
-                sample: field(sampleIdx),
-                study: field(studyIdx),
-                bioproject: field(bioprojectIdx),
-                biosample: field(biosampleIdx),
-                organism: field(scientificNameIdx),
-                platform: field(platformIdx),
-                libraryStrategy: field(libraryStrategyIdx),
-                librarySource: field(librarySourceIdx),
-                libraryLayout: field(libraryLayoutIdx),
-                spots: Int(field(spotsIdx) ?? ""),
-                bases: Int(field(basesIdx) ?? ""),
-                avgLength: Int(field(avgLengthIdx) ?? ""),
-                size: Int(field(sizeMBIdx) ?? ""),
-                releaseDate: Self.parseRunInfoDate(field(releaseDateIdx))
-            )
-
-            return run.accession.isEmpty ? nil : run
-        }
-    }
-
-    private static func parseRunInfoLine(_ line: String) -> [String] {
-        var fields: [String] = []
-        var current = ""
-        var inQuotes = false
-
-        for char in line {
-            if char == "\"" {
-                inQuotes.toggle()
-            } else if char == "," && !inQuotes {
-                fields.append(current)
-                current = ""
-            } else {
-                current.append(char)
-            }
-        }
-        fields.append(current)
-        return fields
-    }
-
-    private static func parseRunInfoDate(_ dateStr: String?) -> Date? {
-        guard let str = dateStr, !str.isEmpty else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter.date(from: str)
+        SRARunInfoCSVParser.parseRows(csv)
     }
 
     /// Retrieves document summaries for UIDs.
@@ -1576,14 +1520,12 @@ public actor NCBIService: DatabaseService {
                     metadata["molecule_type"] = parts[3]
                 }
             } else if line.hasPrefix("ACCESSION") {
-                let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-                if parts.count > 1 {
-                    accession = parts[1]
+                if let token = firstTokenAfterKeyword(line) {
+                    accession = token
                 }
             } else if line.hasPrefix("VERSION") {
-                let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-                if parts.count > 1 {
-                    version = parts[1]
+                if let token = firstTokenAfterKeyword(line) {
+                    version = token
                 }
             } else if line.hasPrefix("DEFINITION") {
                 title = String(line.dropFirst(12)).trimmingCharacters(in: .whitespaces)
@@ -1910,334 +1852,6 @@ public enum NCBIFormat: String, Sendable, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Response Types
-
-struct ESearchResponse: Codable {
-    let esearchresult: ESearchResult?
-}
-
-struct ESearchResult: Codable {
-    let count: String?
-    let retmax: String?
-    let retstart: String?
-    let idlist: [String]?
-    let errorlist: ESearchErrorList?
-    let error: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case count
-        case retmax
-        case retstart
-        case idlist
-        case errorlist
-        case error = "ERROR"
-    }
-}
-
-struct ESearchErrorList: Codable {
-    let phrasesnotfound: [String]?
-}
-
-struct ESummaryResponse: Codable {
-    let result: [String: NCBIDocumentSummary]?
-
-    private enum CodingKeys: String, CodingKey {
-        case result
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-
-        // The result is nested inside the "result" key
-        let resultContainer = try container.nestedContainer(keyedBy: DynamicCodingKey.self, forKey: .result)
-        var result: [String: NCBIDocumentSummary] = [:]
-
-        for key in resultContainer.allKeys {
-            // Skip the "uids" array
-            if key.stringValue == "uids" { continue }
-            if let summary = try? resultContainer.decode(NCBIDocumentSummary.self, forKey: key) {
-                result[key.stringValue] = summary
-            }
-        }
-
-        self.result = result.isEmpty ? nil : result
-    }
-}
-
-struct DynamicCodingKey: CodingKey {
-    var stringValue: String
-    var intValue: Int?
-
-    init?(stringValue: String) {
-        self.stringValue = stringValue
-        self.intValue = nil
-    }
-
-    init?(intValue: Int) {
-        self.stringValue = String(intValue)
-        self.intValue = intValue
-    }
-}
-
-/// Document summary from NCBI ESummary.
-public struct NCBIDocumentSummary: Codable, Sendable {
-    public let uid: String
-    public let caption: String?
-    public let title: String?
-    public let accessionVersion: String?
-    public let organism: String?
-    public let taxid: Int?
-    public let slen: Int?
-    public let createDate: Date?
-
-    /// Scientific name from taxonomy esummary responses.
-    /// Only populated when querying the taxonomy database.
-    public let scientificName: String?
-
-    public var length: Int? { slen }
-
-    enum CodingKeys: String, CodingKey {
-        case uid
-        case caption
-        case title
-        case accessionVersion = "accessionversion"
-        case organism
-        case taxid
-        case slen
-        case createDate = "createdate"
-        case scientificName = "ScientificName"
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        uid = try container.decode(String.self, forKey: .uid)
-        caption = try container.decodeIfPresent(String.self, forKey: .caption)
-        title = try container.decodeIfPresent(String.self, forKey: .title)
-        accessionVersion = try container.decodeIfPresent(String.self, forKey: .accessionVersion)
-        organism = try container.decodeIfPresent(String.self, forKey: .organism)
-        taxid = try container.decodeIfPresent(Int.self, forKey: .taxid)
-        slen = try container.decodeIfPresent(Int.self, forKey: .slen)
-        scientificName = try container.decodeIfPresent(String.self, forKey: .scientificName)
-
-        // Parse date string
-        if let dateStr = try container.decodeIfPresent(String.self, forKey: .createDate) {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy/MM/dd"
-            createDate = formatter.date(from: dateStr)
-        } else {
-            createDate = nil
-        }
-    }
-}
-
-// MARK: - Assembly Summary Response
-
-struct AssemblyESummaryResponse: Codable {
-    let result: [String: NCBIAssemblySummary]?
-
-    private enum CodingKeys: String, CodingKey {
-        case result
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-
-        // The result is nested inside the "result" key
-        let resultContainer = try container.nestedContainer(keyedBy: DynamicCodingKey.self, forKey: .result)
-        var result: [String: NCBIAssemblySummary] = [:]
-
-        for key in resultContainer.allKeys {
-            // Skip the "uids" array
-            if key.stringValue == "uids" { continue }
-            if let summary = try? resultContainer.decode(NCBIAssemblySummary.self, forKey: key) {
-                result[key.stringValue] = summary
-            }
-        }
-
-        self.result = result.isEmpty ? nil : result
-    }
-}
-
-/// Assembly summary from NCBI ESummary for assembly database.
-///
-/// Contains core assembly metadata plus enriched fields for metadata export.
-/// All new fields use `decodeIfPresent` for backward compatibility with older API responses.
-public struct NCBIAssemblySummary: Codable, Sendable {
-    public let uid: String
-    public let assemblyAccession: String?
-    public let assemblyName: String?
-    public let organism: String?
-    public let taxid: Int?
-    public let speciesName: String?
-    public let ftpPathRefSeq: String?
-    public let ftpPathGenBank: String?
-    public let submitter: String?
-    public let coverage: String?
-    public let contigN50: Int?
-    public let scaffoldN50: Int?
-
-    // Enriched metadata fields from NCBI ESummary
-    /// Assembly status (e.g., "Complete Genome", "Scaffold").
-    public let assemblyStatus: String?
-    /// Assembly level (e.g., "Chromosome", "Scaffold", "Contig").
-    public let assemblyLevel: String?
-    /// RefSeq category (e.g., "representative genome", "reference genome").
-    public let refseqCategory: String?
-    /// BioSample accession (e.g., "SAMN02436634").
-    public let biosampleAccession: String?
-    /// BioProject accession (e.g., "PRJNA168").
-    public let bioprojectAccession: String?
-    /// Total ungapped sequence length in base pairs.
-    public let totalSequenceLength: String?
-    /// Number of chromosomes in the assembly.
-    public let chromosomeCount: String?
-    /// Release type ("Major" or "Patch").
-    public let releaseType: String?
-    /// Organization that submitted the assembly.
-    public let submitterOrganization: String?
-
-    enum CodingKeys: String, CodingKey {
-        case uid
-        case assemblyAccession = "assemblyaccession"
-        case assemblyName = "assemblyname"
-        case organism
-        case taxid
-        case speciesName = "speciesname"
-        case ftpPathRefSeq = "ftppath_refseq"
-        case ftpPathGenBank = "ftppath_genbank"
-        case submitter
-        case coverage
-        case contigN50 = "contig_n50"
-        case scaffoldN50 = "scaffold_n50"
-        case assemblyStatus = "assemblystatus"
-        case assemblyLevel = "assemblylevel"
-        case refseqCategory = "refseq_category"
-        case biosampleAccession = "biosampleaccn"
-        case bioprojectAccession = "bioprojectaccn"
-        case totalSequenceLength = "total_length"
-        case chromosomeCount = "chromosome_count"
-        case releaseType = "releasetype"
-        case submitterOrganization = "submitterorganization"
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        uid = try container.decode(String.self, forKey: .uid)
-        assemblyAccession = try container.decodeIfPresent(String.self, forKey: .assemblyAccession)
-        assemblyName = try container.decodeIfPresent(String.self, forKey: .assemblyName)
-        organism = try container.decodeIfPresent(String.self, forKey: .organism)
-        speciesName = try container.decodeIfPresent(String.self, forKey: .speciesName)
-        ftpPathRefSeq = try container.decodeIfPresent(String.self, forKey: .ftpPathRefSeq).flatMap { $0.isEmpty ? nil : $0 }
-        ftpPathGenBank = try container.decodeIfPresent(String.self, forKey: .ftpPathGenBank).flatMap { $0.isEmpty ? nil : $0 }
-        submitter = try container.decodeIfPresent(String.self, forKey: .submitter)
-        coverage = try container.decodeIfPresent(String.self, forKey: .coverage)
-
-        // Handle taxid as either Int or String
-        if let taxidInt = try? container.decodeIfPresent(Int.self, forKey: .taxid) {
-            taxid = taxidInt
-        } else if let taxidStr = try? container.decodeIfPresent(String.self, forKey: .taxid) {
-            taxid = Int(taxidStr)
-        } else {
-            taxid = nil
-        }
-
-        // Handle contig_n50 as either Int or String
-        if let n50Int = try? container.decodeIfPresent(Int.self, forKey: .contigN50) {
-            contigN50 = n50Int
-        } else if let n50Str = try? container.decodeIfPresent(String.self, forKey: .contigN50) {
-            contigN50 = Int(n50Str)
-        } else {
-            contigN50 = nil
-        }
-
-        // Handle scaffold_n50 as either Int or String
-        if let scaffoldInt = try? container.decodeIfPresent(Int.self, forKey: .scaffoldN50) {
-            scaffoldN50 = scaffoldInt
-        } else if let scaffoldStr = try? container.decodeIfPresent(String.self, forKey: .scaffoldN50) {
-            scaffoldN50 = Int(scaffoldStr)
-        } else {
-            scaffoldN50 = nil
-        }
-
-        // Enriched metadata fields (all optional strings)
-        assemblyStatus = try container.decodeIfPresent(String.self, forKey: .assemblyStatus)
-        assemblyLevel = try container.decodeIfPresent(String.self, forKey: .assemblyLevel)
-        refseqCategory = try container.decodeIfPresent(String.self, forKey: .refseqCategory)
-        biosampleAccession = try container.decodeIfPresent(String.self, forKey: .biosampleAccession)
-        bioprojectAccession = try container.decodeIfPresent(String.self, forKey: .bioprojectAccession)
-        totalSequenceLength = try container.decodeIfPresent(String.self, forKey: .totalSequenceLength)
-        chromosomeCount = try container.decodeIfPresent(String.self, forKey: .chromosomeCount)
-        releaseType = try container.decodeIfPresent(String.self, forKey: .releaseType)
-        submitterOrganization = try container.decodeIfPresent(String.self, forKey: .submitterOrganization)
-    }
-}
-
-// MARK: - NCBIAssemblySummary Metadata Conversion
-
-/// Formats a base pair count into a human-readable string (e.g., "56.4 Mb").
-///
-/// Module-level free function to avoid `@MainActor` isolation issues when called
-/// from `@Sendable` contexts.
-private func formatAssemblyBp(_ value: Int) -> String {
-    if value >= 1_000_000_000 {
-        return String(format: "%.1f Gb", Double(value) / 1_000_000_000)
-    }
-    if value >= 1_000_000 {
-        return String(format: "%.1f Mb", Double(value) / 1_000_000)
-    }
-    if value >= 1_000 {
-        return String(format: "%.1f Kb", Double(value) / 1_000)
-    }
-    return "\(value) bp"
-}
-
-extension NCBIAssemblySummary {
-
-    /// Converts the assembly summary into categorized metadata groups for bundle storage.
-    ///
-    /// Groups:
-    /// - **Assembly**: Name, accession, status, level, coverage, N50 statistics, length, chromosome count
-    /// - **Taxonomy**: Organism, species, taxonomy ID
-    /// - **Source**: Submitter, organization, BioSample, BioProject
-    ///
-    /// - Returns: Array of metadata groups with non-nil fields populated.
-    public func toMetadataGroups() -> [MetadataGroup] {
-        var groups: [MetadataGroup] = []
-
-        // Assembly group
-        var assemblyItems: [MetadataItem] = []
-        if let v = assemblyName { assemblyItems.append(MetadataItem(label: "Assembly Name", value: v)) }
-        if let v = assemblyAccession { assemblyItems.append(MetadataItem(label: "Accession", value: v)) }
-        if let v = assemblyStatus { assemblyItems.append(MetadataItem(label: "Status", value: v)) }
-        if let v = assemblyLevel { assemblyItems.append(MetadataItem(label: "Level", value: v)) }
-        if let v = refseqCategory { assemblyItems.append(MetadataItem(label: "RefSeq Category", value: v)) }
-        if let v = releaseType { assemblyItems.append(MetadataItem(label: "Release Type", value: v)) }
-        if let v = coverage { assemblyItems.append(MetadataItem(label: "Coverage", value: "\(v)x")) }
-        if let v = contigN50 { assemblyItems.append(MetadataItem(label: "Contig N50", value: formatAssemblyBp(v))) }
-        if let v = scaffoldN50 { assemblyItems.append(MetadataItem(label: "Scaffold N50", value: formatAssemblyBp(v))) }
-        if let v = totalSequenceLength { assemblyItems.append(MetadataItem(label: "Total Length", value: "\(v) bp")) }
-        if let v = chromosomeCount { assemblyItems.append(MetadataItem(label: "Chromosomes", value: v)) }
-        if !assemblyItems.isEmpty { groups.append(MetadataGroup(name: "Assembly", items: assemblyItems)) }
-
-        // Taxonomy group
-        var taxItems: [MetadataItem] = []
-        if let v = organism { taxItems.append(MetadataItem(label: "Organism", value: v)) }
-        if let v = speciesName, v != organism { taxItems.append(MetadataItem(label: "Species", value: v)) }
-        if let v = taxid { taxItems.append(MetadataItem(label: "Taxonomy ID", value: String(v))) }
-        if !taxItems.isEmpty { groups.append(MetadataGroup(name: "Taxonomy", items: taxItems)) }
-
-        // Source group
-        var sourceItems: [MetadataItem] = []
-        if let v = submitter { sourceItems.append(MetadataItem(label: "Submitter", value: v)) }
-        if let v = submitterOrganization { sourceItems.append(MetadataItem(label: "Organization", value: v)) }
-        if let v = biosampleAccession { sourceItems.append(MetadataItem(label: "BioSample", value: v)) }
-        if let v = bioprojectAccession { sourceItems.append(MetadataItem(label: "BioProject", value: v)) }
-        if !sourceItems.isEmpty { groups.append(MetadataGroup(name: "Source", items: sourceItems)) }
-
-        return groups
-    }
-}
-
 // MARK: - NCBI Search Type
 
 /// The type of NCBI search to perform.
@@ -2269,278 +1883,6 @@ public enum NCBISearchType: String, CaseIterable, Identifiable, Sendable {
             return "Search complete genome assemblies from RefSeq and GenBank"
         case .virus:
             return "Search viral sequences from NCBI Virus database"
-        }
-    }
-}
-
-// MARK: - Datasets v2 Virus Response Models
-
-/// Top-level response from the NCBI Datasets v2 virus dataset report endpoint.
-public struct VirusDatasetReport: Codable, Sendable {
-    public let reports: [VirusReport]
-    public let totalCount: Int?
-    public let nextPageToken: String?
-    /// API error message (returned instead of reports when the request fails server-side).
-    public let error: String?
-
-    enum CodingKeys: String, CodingKey {
-        case reports
-        case totalCount = "total_count"
-        case nextPageToken = "next_page_token"
-        case error
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.reports = (try? container.decode([VirusReport].self, forKey: .reports)) ?? []
-        self.totalCount = try? container.decode(Int.self, forKey: .totalCount)
-        self.nextPageToken = try? container.decode(String.self, forKey: .nextPageToken)
-        self.error = try? container.decode(String.self, forKey: .error)
-    }
-
-    /// Fallback date formatter for dates without timezone info.
-    static let looseDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f
-    }()
-}
-
-/// A single virus report from the Datasets v2 API.
-public struct VirusReport: Codable, Sendable {
-    public let accession: String?
-    public let isAnnotated: Bool?
-    public let isolate: VirusIsolate?
-    public let sourceDatabase: String?
-    public let proteinCount: Int?
-    public let host: VirusHost?
-    public let virus: VirusInfo?
-    public let location: VirusLocation?
-    public let completeness: String?
-    public let length: Int?
-    public let releaseDate: String?
-    public let updateDate: String?
-    public let biosample: String?
-    public let bioprojects: [String]?
-    public let purposeOfSampling: String?
-
-    enum CodingKeys: String, CodingKey {
-        case accession
-        case isAnnotated = "is_annotated"
-        case isolate
-        case sourceDatabase = "source_database"
-        case proteinCount = "protein_count"
-        case host, virus, location, completeness, length
-        case releaseDate = "release_date"
-        case updateDate = "update_date"
-        case biosample, bioprojects
-        case purposeOfSampling = "purpose_of_sampling"
-    }
-}
-
-// MARK: - VirusReport Metadata Conversion
-
-extension VirusReport {
-
-    /// Converts the virus report into categorized metadata groups for bundle storage.
-    ///
-    /// Groups:
-    /// - **Virus**: Organism name, pangolin classification, taxonomy ID
-    /// - **Host**: Host organism, host taxonomy ID
-    /// - **Collection**: Isolate name, collection date, geographic location, region, purpose of sampling
-    /// - **Record**: Accession, source database, completeness, sequence length, protein count, release/update dates
-    /// - **Links**: BioSample, BioProject accessions
-    ///
-    /// - Returns: Array of metadata groups with non-nil fields populated.
-    public func toMetadataGroups() -> [MetadataGroup] {
-        var groups: [MetadataGroup] = []
-
-        // Virus group
-        var virusItems: [MetadataItem] = []
-        if let v = virus?.organismName { virusItems.append(MetadataItem(label: "Organism", value: v)) }
-        if let v = virus?.pangolinClassification { virusItems.append(MetadataItem(label: "Pangolin Classification", value: v)) }
-        if let v = virus?.taxId { virusItems.append(MetadataItem(label: "Taxonomy ID", value: String(v))) }
-        if !virusItems.isEmpty { groups.append(MetadataGroup(name: "Virus", items: virusItems)) }
-
-        // Host group
-        var hostItems: [MetadataItem] = []
-        if let v = host?.organismName { hostItems.append(MetadataItem(label: "Host Organism", value: v)) }
-        if let v = host?.taxId { hostItems.append(MetadataItem(label: "Host Taxonomy ID", value: String(v))) }
-        if !hostItems.isEmpty { groups.append(MetadataGroup(name: "Host", items: hostItems)) }
-
-        // Collection group
-        var collectionItems: [MetadataItem] = []
-        if let v = isolate?.name { collectionItems.append(MetadataItem(label: "Isolate", value: v)) }
-        if let v = isolate?.collectionDate { collectionItems.append(MetadataItem(label: "Collection Date", value: v)) }
-        if let v = location?.geographicLocation { collectionItems.append(MetadataItem(label: "Location", value: v)) }
-        if let v = location?.geographicRegion { collectionItems.append(MetadataItem(label: "Geographic Region", value: v)) }
-        if let v = purposeOfSampling { collectionItems.append(MetadataItem(label: "Purpose of Sampling", value: v)) }
-        if !collectionItems.isEmpty { groups.append(MetadataGroup(name: "Collection", items: collectionItems)) }
-
-        // Record group
-        var recordItems: [MetadataItem] = []
-        if let v = accession { recordItems.append(MetadataItem(label: "Accession", value: v)) }
-        if let v = sourceDatabase { recordItems.append(MetadataItem(label: "Source Database", value: v)) }
-        if let v = completeness { recordItems.append(MetadataItem(label: "Completeness", value: v)) }
-        if let v = length { recordItems.append(MetadataItem(label: "Length", value: "\(v) bp")) }
-        if let v = proteinCount { recordItems.append(MetadataItem(label: "Protein Count", value: String(v))) }
-        if let v = releaseDate { recordItems.append(MetadataItem(label: "Release Date", value: v)) }
-        if let v = updateDate { recordItems.append(MetadataItem(label: "Update Date", value: v)) }
-        if !recordItems.isEmpty { groups.append(MetadataGroup(name: "Record", items: recordItems)) }
-
-        // Links group
-        var linkItems: [MetadataItem] = []
-        if let v = biosample { linkItems.append(MetadataItem(label: "BioSample", value: v)) }
-        if let bioprojects, !bioprojects.isEmpty {
-            linkItems.append(MetadataItem(label: "BioProject", value: bioprojects.joined(separator: ", ")))
-        }
-        if !linkItems.isEmpty { groups.append(MetadataGroup(name: "Links", items: linkItems)) }
-
-        return groups
-    }
-}
-
-/// Virus isolate information.
-public struct VirusIsolate: Codable, Sendable {
-    public let name: String?
-    public let source: String?
-    public let collectionDate: String?
-
-    enum CodingKeys: String, CodingKey {
-        case name, source
-        case collectionDate = "collection_date"
-    }
-}
-
-/// Virus host information.
-public struct VirusHost: Codable, Sendable {
-    public let taxId: Int?
-    public let organismName: String?
-
-    enum CodingKeys: String, CodingKey {
-        case taxId = "tax_id"
-        case organismName = "organism_name"
-    }
-}
-
-/// Virus taxonomic information.
-public struct VirusInfo: Codable, Sendable {
-    public let taxId: Int?
-    public let organismName: String?
-    public let pangolinClassification: String?
-
-    enum CodingKeys: String, CodingKey {
-        case taxId = "tax_id"
-        case organismName = "organism_name"
-        case pangolinClassification = "pangolin_classification"
-    }
-}
-
-/// Geographic location information.
-public struct VirusLocation: Codable, Sendable {
-    public let geographicLocation: String?
-    public let geographicRegion: String?
-    public let usaState: String?
-
-    enum CodingKeys: String, CodingKey {
-        case geographicLocation = "geographic_location"
-        case geographicRegion = "geographic_region"
-        case usaState = "usa_state"
-    }
-}
-
-// MARK: - Download Progress Delegate
-
-/// A URLSession delegate that tracks download progress.
-/// URLSession download delegate that bridges to async/await via a continuation.
-///
-/// Using `downloadTask(with:)` + continuation instead of the async `session.download(for:delegate:)`
-/// API because the async API doesn't reliably forward `didWriteData` progress callbacks.
-final class ContinuationDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    private let totalBytes: Int64?
-    private let progressHandler: @Sendable (Int64, Int64?) -> Void
-    private let continuationLock = OSAllocatedUnfairLock<CheckedContinuation<URL, Error>?>(initialState: nil)
-    private let resumeLock = OSAllocatedUnfairLock(initialState: false)
-
-    init(totalBytes: Int64?, progressHandler: @escaping @Sendable (Int64, Int64?) -> Void) {
-        self.totalBytes = totalBytes
-        self.progressHandler = progressHandler
-    }
-
-    func setContinuation(_ continuation: CheckedContinuation<URL, Error>) {
-        continuationLock.withLock { $0 = continuation }
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didWriteData bytesWritten: Int64,
-        totalBytesWritten: Int64,
-        totalBytesExpectedToWrite: Int64
-    ) {
-        let expectedTotal = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : totalBytes
-        progressHandler(totalBytesWritten, expectedTotal)
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didFinishDownloadingTo location: URL
-    ) {
-        // Copy to a temp location that survives after the delegate callback returns,
-        // since URLSession deletes the file at `location` after this method returns.
-        let tempCopy = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + "-" + location.lastPathComponent)
-        do {
-            try FileManager.default.copyItem(at: location, to: tempCopy)
-        } catch {
-            resumeOnce(.failure(error))
-            return
-        }
-
-        guard let response = downloadTask.response as? HTTPURLResponse,
-              response.statusCode == 200 else {
-            resumeOnce(.failure(DatabaseServiceError.networkError(
-                underlying: "Bad server response: \((downloadTask.response as? HTTPURLResponse)?.statusCode ?? -1)"
-            )))
-            return
-        }
-
-        resumeOnce(.success(tempCopy))
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        didCompleteWithError error: (any Error)?
-    ) {
-        if let error {
-            if (error as? URLError)?.code == .cancelled {
-                resumeOnce(.failure(DatabaseServiceError.cancelled))
-            } else {
-                resumeOnce(.failure(error))
-            }
-        }
-    }
-
-    private func resumeOnce(_ result: Result<URL, Error>) {
-        let shouldResume = resumeLock.withLock { resumed in
-            if resumed { return false }
-            resumed = true
-            return true
-        }
-        guard shouldResume else { return }
-        guard let continuation = continuationLock.withLock({ continuation -> CheckedContinuation<URL, Error>? in
-            defer { continuation = nil }
-            return continuation
-        }) else { return }
-
-        switch result {
-        case .success(let url):
-            continuation.resume(returning: url)
-        case .failure(let error):
-            continuation.resume(throwing: error)
         }
     }
 }

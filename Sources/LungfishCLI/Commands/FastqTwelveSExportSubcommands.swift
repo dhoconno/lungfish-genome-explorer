@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 extension TwelveSResultExportFormat: ExpressibleByArgument {}
@@ -72,7 +73,7 @@ struct FastqTwelveSExportSubcommand: AsyncParsableCommand {
 
     private func replayArgv() -> [String] {
         var argv = [
-            "lungfish-cli", "fastq", "12s-export",
+            CLICommandIdentity.executableName, "fastq", "12s-export",
             "--bundle", bundle,
             "--export-format", format.rawValue,
             "--output", output,
@@ -155,7 +156,7 @@ struct FastqTwelveSExportUnresolvedSubcommand: AsyncParsableCommand {
 
     private func replayArgv() -> [String] {
         var argv = [
-            "lungfish-cli", "fastq", "12s-export-unresolved",
+            CLICommandIdentity.executableName, "fastq", "12s-export-unresolved",
             "--bundle", bundle,
             "--min-reads", String(minimumReads),
             "--output", output,

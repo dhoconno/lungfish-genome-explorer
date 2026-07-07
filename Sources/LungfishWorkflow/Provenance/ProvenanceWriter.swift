@@ -43,11 +43,20 @@ public struct ProvenanceWriter: Sendable {
 
     @discardableResult
     public func write(_ envelope: ProvenanceEnvelope, to directory: URL) throws -> URL {
+        try write(envelope, to: directory, bundleLayoutRoot: directory)
+    }
+
+    @discardableResult
+    public func write(_ envelope: ProvenanceEnvelope, to directory: URL, bundleLayoutRoot: URL) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let provenanceURL = directory.appendingPathComponent(Self.provenanceFilename)
         let writtenURL = try write(envelope, toSidecar: provenanceURL)
-        if Self.isBundleDirectory(directory) {
-            _ = try writeBundleProvenanceLayout(envelope, toBundleRoot: directory)
+        if Self.isBundleDirectory(bundleLayoutRoot) {
+            _ = try writeBundleProvenanceLayout(
+                envelope,
+                toBundleRoot: directory,
+                descriptorBundleRoot: bundleLayoutRoot
+            )
         }
         return writtenURL
     }
@@ -60,6 +69,9 @@ public struct ProvenanceWriter: Sendable {
         try writeUnsigned(envelope, toSidecar: provenanceURL)
 
         guard let signingProvider else {
+            if envelope.signatures.isEmpty {
+                try removeSigningArtifacts(for: provenanceURL)
+            }
             return provenanceURL
         }
 
@@ -110,18 +122,45 @@ public struct ProvenanceWriter: Sendable {
         _ envelope: ProvenanceEnvelope,
         toBundleRoot bundleURL: URL
     ) throws -> [URL] {
+        try writeBundleProvenanceLayout(
+            envelope,
+            toBundleRoot: bundleURL,
+            descriptorBundleRoot: bundleURL
+        )
+    }
+
+    @discardableResult
+    public func writeBundleProvenanceLayout(
+        _ envelope: ProvenanceEnvelope,
+        toBundleRoot bundleURL: URL,
+        descriptorBundleRoot: URL
+    ) throws -> [URL] {
         let provenanceDirectory = bundleURL.appendingPathComponent(
             Self.bundleProvenanceDirectoryName,
             isDirectory: true
         )
         try FileManager.default.createDirectory(at: provenanceDirectory, withIntermediateDirectories: true)
 
-        let outputEntries = bundleOutputEntries(from: envelope, relativeTo: bundleURL)
+        let outputEntries = bundleOutputEntries(from: envelope, relativeTo: descriptorBundleRoot)
         let rollupEnvelope = outputEntries.isEmpty
             ? envelope.replacingSignatures([])
             : envelope.projectedToBundleOutputs(outputEntries.map(\.descriptor))
         let rollupURL = provenanceDirectory.appendingPathComponent(Self.bundleRollupFilename)
         var writtenURLs = [try write(rollupEnvelope, toSidecar: rollupURL)]
+
+        let expectedFocusedSidecars: Set<URL> = outputEntries.count <= Self.maximumBundleOutputSidecars
+            ? Set(outputEntries.map { entry in
+                Self.bundleOutputSidecarURL(
+                    forRelativeOutputPath: entry.relativePath,
+                    inProvenanceDirectory: provenanceDirectory
+                ).standardizedFileURL
+            })
+            : []
+        try pruneStaleBundleOutputSidecars(
+            in: provenanceDirectory,
+            descriptorBundleRoot: descriptorBundleRoot,
+            keeping: expectedFocusedSidecars
+        )
 
         if outputEntries.count <= Self.maximumBundleOutputSidecars {
             for entry in outputEntries {
@@ -137,6 +176,69 @@ public struct ProvenanceWriter: Sendable {
         }
 
         return writtenURLs
+    }
+
+    private func pruneStaleBundleOutputSidecars(
+        in provenanceDirectory: URL,
+        descriptorBundleRoot: URL,
+        keeping expectedSidecars: Set<URL>
+    ) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: provenanceDirectory.path) else { return }
+        guard let enumerator = fileManager.enumerator(
+            at: provenanceDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let expectedPaths = Set(expectedSidecars.map { $0.standardizedFileURL.path })
+        for case let candidateURL as URL in enumerator {
+            let standardizedCandidate = candidateURL.standardizedFileURL
+            guard !expectedPaths.contains(standardizedCandidate.path),
+                  isWriterManagedBundleOutputSidecar(
+                    standardizedCandidate,
+                    provenanceDirectory: provenanceDirectory,
+                    descriptorBundleRoot: descriptorBundleRoot
+                  ) else {
+                continue
+            }
+            try removeSigningArtifacts(for: standardizedCandidate)
+            try fileManager.removeItem(at: standardizedCandidate)
+        }
+    }
+
+    private func isWriterManagedBundleOutputSidecar(
+        _ sidecarURL: URL,
+        provenanceDirectory: URL,
+        descriptorBundleRoot: URL
+    ) -> Bool {
+        guard sidecarURL.lastPathComponent != Self.bundleRollupFilename,
+              sidecarURL.lastPathComponent.hasSuffix(".lungfish-provenance.json") else {
+            return false
+        }
+        guard let relativeSidecarPath = Self.bundleRelativePath(
+            for: sidecarURL.path,
+            relativeTo: provenanceDirectory
+        ) else {
+            return false
+        }
+        guard let expectedOutputRelativePath = outputRelativePath(forBundleOutputSidecarRelativePath: relativeSidecarPath) else {
+            return false
+        }
+        guard let envelope = try? ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL),
+              envelope.outputs.count == 1,
+              let output = envelope.outputs.first,
+              Self.bundleRelativePath(for: output.path, relativeTo: descriptorBundleRoot) == expectedOutputRelativePath else {
+            return false
+        }
+        return true
+    }
+
+    private func outputRelativePath(forBundleOutputSidecarRelativePath sidecarRelativePath: String) -> String? {
+        let suffix = ".lungfish-provenance.json"
+        guard sidecarRelativePath.hasSuffix(suffix) else { return nil }
+        let outputRelativePath = String(sidecarRelativePath.dropLast(suffix.count))
+        return outputRelativePath.isEmpty ? nil : outputRelativePath
     }
 
     public static func isBundleDirectory(_ url: URL) -> Bool {
@@ -161,6 +263,16 @@ public struct ProvenanceWriter: Sendable {
     private func writeUnsigned(_ envelope: ProvenanceEnvelope, toSidecar provenanceURL: URL) throws {
         let data = try ProvenanceJSON.encoder.encode(envelope)
         try data.write(to: provenanceURL, options: .atomic)
+    }
+
+    private func removeSigningArtifacts(for provenanceURL: URL) throws {
+        let fileManager = FileManager.default
+        for artifactURL in [
+            ProvenanceSigningConfiguration.signatureURL(for: provenanceURL),
+            ProvenanceSigningConfiguration.publicKeyURL(for: provenanceURL),
+        ] where fileManager.fileExists(atPath: artifactURL.path) {
+            try fileManager.removeItem(at: artifactURL)
+        }
     }
 
     private func validateStableArtifact(
@@ -318,6 +430,7 @@ extension ProvenanceEnvelope {
             toolVersion: toolVersion,
             tool: tool,
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             reproducibleCommand: reproducibleCommand,
             options: options,
             runtimeIdentity: runtimeIdentity,
@@ -358,6 +471,7 @@ extension ProvenanceEnvelope {
                 toolName: step.toolName,
                 toolVersion: step.toolVersion,
                 argv: step.argv,
+                durableReplayArgv: step.durableReplayArgv,
                 reproducibleCommand: step.reproducibleCommand,
                 inputs: step.inputs,
                 outputs: step.outputs.compactMap { retainedOutputByPath[$0.path] },
@@ -381,6 +495,7 @@ extension ProvenanceEnvelope {
             toolVersion: toolVersion,
             tool: tool,
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             reproducibleCommand: reproducibleCommand,
             options: options,
             runtimeIdentity: runtimeIdentity,
@@ -412,6 +527,7 @@ extension ProvenanceEnvelope {
             toolVersion: toolVersion,
             tool: tool,
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             reproducibleCommand: reproducibleCommand,
             options: options,
             runtimeIdentity: runtimeIdentity,
@@ -435,29 +551,13 @@ private extension ProvenanceStep {
             toolName: toolName,
             toolVersion: toolVersion,
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             reproducibleCommand: reproducibleCommand,
             inputs: inputs,
             outputs: outputs,
             exitStatus: exitStatus,
             wallTimeSeconds: wallTimeSeconds,
-            stderr: stderr,
-            dependsOn: dependsOn,
-            startedAt: startedAt,
-            completedAt: completedAt
-        )
-    }
-
-    func replacingOutputDescriptors(_ replacementsByPath: [String: ProvenanceFileDescriptor]) -> ProvenanceStep {
-        ProvenanceStep(
-            id: id,
-            toolName: toolName,
-            toolVersion: toolVersion,
-            argv: argv,
-            reproducibleCommand: reproducibleCommand,
-            inputs: inputs,
-            outputs: outputs.map { replacementsByPath[$0.path] ?? $0 },
-            exitStatus: exitStatus,
-            wallTimeSeconds: wallTimeSeconds,
+            peakMemoryBytes: peakMemoryBytes,
             stderr: stderr,
             dependsOn: dependsOn,
             startedAt: startedAt,

@@ -6,6 +6,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 import LungfishKit
 
@@ -1334,6 +1335,25 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         ) ?? true
     }
 
+    private func variantDatabaseBundleURL(from searchIndex: AnnotationSearchIndex) -> URL? {
+        searchIndex.variantDatabaseHandles
+            .compactMap { Self.enclosingLungfishBundleURL(for: $0.db.databaseURL) }
+            .first
+    }
+
+    private nonisolated static func enclosingLungfishBundleURL(for url: URL) -> URL? {
+        var candidate = url.standardizedFileURL.deletingLastPathComponent()
+        while candidate.path != "/" {
+            if ProvenanceWriter.isBundleDirectory(candidate) {
+                return candidate
+            }
+            let parent = candidate.deletingLastPathComponent()
+            guard parent != candidate else { break }
+            candidate = parent
+        }
+        return nil
+    }
+
     // MARK: - Variant Selection Sync
 
     /// Handles `.variantSelected` notification from the viewer to sync the drawer's selection.
@@ -1467,7 +1487,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             || baseline.end != newRegion.end
     }
 
-    /// Saved user query presets (not persisted across sessions yet — Phase 3 adds BundleViewState support).
+    /// Saved user query presets for the current drawer session. Bundle-level
+    /// persistence should be added here before callers treat presets as durable.
     var savedQueryPresets: [QueryPreset] = []
 
     // MARK: - Public API
@@ -2891,21 +2912,29 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         guard let searchIndex else { return }
         guard !idsByTrack.isEmpty else { return }
         guard canWriteVariantDatabaseOutputs(workflowName: "Variant deletion") else { return }
+        guard let bundleURL = variantDatabaseBundleURL(from: searchIndex) else {
+            annotationDrawerLogger.error("performVariantDeletion: Could not resolve enclosing variant bundle for provenance")
+            return
+        }
 
-        let handlesByTrack = Dictionary(uniqueKeysWithValues: searchIndex.variantDatabaseHandles.map { ($0.trackId, $0.db) })
-        var deletedCount = 0
-
-        for (trackId, ids) in idsByTrack {
-            guard let db = handlesByTrack[trackId] else {
-                annotationDrawerLogger.warning("performVariantDeletion: No variant database handle for track '\(trackId, privacy: .public)'")
-                continue
-            }
-            do {
-                let rwDB = try VariantDatabase(url: db.databaseURL, readWrite: true)
-                deletedCount += try rwDB.deleteVariants(ids: ids)
-            } catch {
-                annotationDrawerLogger.error("performVariantDeletion[\(trackId, privacy: .public)]: \(error.localizedDescription)")
-            }
+        let targets = searchIndex.variantDatabaseHandles.map {
+            VariantDeletionMutationTarget(
+                trackId: $0.trackId,
+                databaseURL: $0.db.databaseURL,
+                trackName: searchIndex.variantTrackName(for: $0.trackId)
+            )
+        }
+        let deletedCount: Int
+        do {
+            let result = try VariantDeletionMutationService().deleteVariants(
+                idsByTrack: idsByTrack,
+                bundleURL: bundleURL,
+                targets: targets
+            )
+            deletedCount = result.totalDeleted
+        } catch {
+            annotationDrawerLogger.error("performVariantDeletion: \(error.localizedDescription)")
+            return
         }
 
         if deletedCount > 0 {
@@ -2919,15 +2948,28 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     private func performDeleteAllVariants() {
         guard let searchIndex else { return }
         guard canWriteVariantDatabaseOutputs(workflowName: "Variant deletion") else { return }
+        guard let bundleURL = variantDatabaseBundleURL(from: searchIndex) else {
+            annotationDrawerLogger.error("performDeleteAllVariants: Could not resolve enclosing variant bundle for provenance")
+            return
+        }
 
-        var deletedCount = 0
-        for (_, db) in searchIndex.variantDatabaseHandles {
-            do {
-                let rwDB = try VariantDatabase(url: db.databaseURL, readWrite: true)
-                deletedCount += try rwDB.deleteAllVariants()
-            } catch {
-                annotationDrawerLogger.error("performDeleteAllVariants: \(error.localizedDescription)")
-            }
+        let targets = searchIndex.variantDatabaseHandles.map {
+            VariantDeletionMutationTarget(
+                trackId: $0.trackId,
+                databaseURL: $0.db.databaseURL,
+                trackName: searchIndex.variantTrackName(for: $0.trackId)
+            )
+        }
+        let deletedCount: Int
+        do {
+            let result = try VariantDeletionMutationService().deleteAllVariants(
+                bundleURL: bundleURL,
+                targets: targets
+            )
+            deletedCount = result.totalDeleted
+        } catch {
+            annotationDrawerLogger.error("performDeleteAllVariants: \(error.localizedDescription)")
+            return
         }
 
         if deletedCount > 0 {
@@ -4111,28 +4153,28 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 guard let sampleName = self.sampleNameByRowKey[rowKey] else { return nil }
                 return (sampleName, self.sampleSourceFiles[rowKey] ?? "", self.sampleMetadata[rowKey] ?? [:])
             }
-            let dbURLs = searchIndex.variantDatabaseHandles.map(\.db.databaseURL)
+            guard let bundleURL = self.variantDatabaseBundleURL(from: searchIndex) else {
+                annotationDrawerLogger.warning("deleteSampleMetadataFieldAction: Could not resolve enclosing bundle for variant databases")
+                return
+            }
+            let targets = searchIndex.variantDatabaseHandles.map {
+                VariantSampleMetadataImportTarget(databaseURL: $0.db.databaseURL, trackName: $0.trackId)
+            }
+            let mutationRows = sampleRows.map {
+                VariantSampleMetadataMutationRow(name: $0.name, sourceFile: $0.sourceFile, metadata: $0.metadata)
+            }
 
             DispatchQueue.global(qos: .userInitiated).async {
                 var firstError: Error?
-                for dbURL in dbURLs {
-                    do {
-                        let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
-                        let dbSourceBySample = rwDB.allSourceFiles()
-                        for sample in sampleRows {
-                            guard let dbSource = dbSourceBySample[sample.name] else {
-                                continue
-                            }
-                            if !Self.sourceFileMatches(dbSource, sample.sourceFile) {
-                                continue
-                            }
-                            var updated = sample.metadata
-                            updated.removeValue(forKey: fieldToRemove)
-                            try rwDB.updateSampleMetadata(name: sample.name, metadata: updated)
-                        }
-                    } catch {
-                        if firstError == nil { firstError = error }
-                    }
+                do {
+                    _ = try VariantSampleMetadataMutationService().deleteMetadataField(
+                        fieldName: fieldToRemove,
+                        sampleRows: mutationRows,
+                        bundleURL: bundleURL,
+                        targets: targets
+                    )
+                } catch {
+                    firstError = error
                 }
 
                 DispatchQueue.main.async {
@@ -4240,21 +4282,28 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             let ext = fileURL.pathExtension.lowercased()
             let format: MetadataFormat = ext == "csv" ? .csv : .tsv
 
-            var totalUpdated = 0
-            for handle in searchIndex.variantDatabaseHandles {
-                do {
-                    let rwDB = try VariantDatabase(url: handle.db.databaseURL, readWrite: true)
-                    let count = try rwDB.importSampleMetadata(from: fileURL, format: format)
-                    totalUpdated += count
-                } catch {
-                    annotationDrawerLogger.warning("importSampleMetadata: \(error.localizedDescription)")
-                }
+            guard let bundleURL = self.variantDatabaseBundleURL(from: searchIndex) else {
+                annotationDrawerLogger.warning("importSampleMetadata: Could not resolve enclosing bundle for variant databases")
+                return
             }
+            do {
+                let targets = searchIndex.variantDatabaseHandles.map {
+                    VariantSampleMetadataImportTarget(databaseURL: $0.db.databaseURL, trackName: $0.trackId)
+                }
+                let result = try VariantSampleMetadataImportService().importMetadata(
+                    from: fileURL,
+                    format: format,
+                    bundleURL: bundleURL,
+                    targets: targets
+                )
 
-            annotationDrawerLogger.info("importSampleMetadata: Updated \(totalUpdated) samples from \(fileURL.lastPathComponent)")
-            self.populateSampleData(from: searchIndex)
-            self.configureColumnsForTab(.samples)
-            self.updateDisplayedSamples()
+                annotationDrawerLogger.info("importSampleMetadata: Updated \(result.totalUpdated) samples from \(fileURL.lastPathComponent)")
+                self.populateSampleData(from: searchIndex)
+                self.configureColumnsForTab(.samples)
+                self.updateDisplayedSamples()
+            } catch {
+                annotationDrawerLogger.warning("importSampleMetadata: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -4403,16 +4452,23 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         guard let searchIndex else { return }
         let fullMetadata = displayedSamples[row].metadata
 
-        for handle in searchIndex.variantDatabaseHandles {
-            do {
-                let rwDB = try VariantDatabase(url: handle.db.databaseURL, readWrite: true)
-                let dbSourceBySample = rwDB.allSourceFiles()
-                guard let dbSource = dbSourceBySample[sampleName],
-                      Self.sourceFileMatches(dbSource, sampleSourceFile) else { continue }
-                try rwDB.updateSampleMetadata(name: sampleName, metadata: fullMetadata)
-            } catch {
-                annotationDrawerLogger.warning("Inline metadata edit failed: \(error.localizedDescription)")
+        guard let bundleURL = variantDatabaseBundleURL(from: searchIndex) else {
+            annotationDrawerLogger.warning("Inline metadata edit failed: could not resolve enclosing bundle")
+            return
+        }
+        do {
+            let targets = searchIndex.variantDatabaseHandles.map {
+                VariantSampleMetadataImportTarget(databaseURL: $0.db.databaseURL, trackName: $0.trackId)
             }
+            _ = try VariantSampleMetadataMutationService().updateSampleMetadata(
+                sampleName: sampleName,
+                sourceFile: sampleSourceFile,
+                metadata: fullMetadata,
+                bundleURL: bundleURL,
+                targets: targets
+            )
+        } catch {
+            annotationDrawerLogger.warning("Inline metadata edit failed: \(error.localizedDescription)")
         }
     }
 

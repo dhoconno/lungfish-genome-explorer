@@ -75,6 +75,13 @@ public struct TaxonomyExtractionConfig: Sendable, Equatable {
     /// determine which reads to extract.
     public let classificationOutput: URL
 
+    /// Optional taxonomy report used to construct the tree for descendant lookup.
+    ///
+    /// When ``includeChildren`` is `true`, callers that parsed an external
+    /// report such as a Kraken2 kreport should provide its URL so provenance can
+    /// capture the file that determined descendant expansion.
+    public let taxonomyReport: URL?
+
     /// Whether to extract both mates of a read pair when either is classified.
     ///
     /// When `true` (the default), paired-end suffixes (`/1`, `/2`) are stripped
@@ -98,6 +105,7 @@ public struct TaxonomyExtractionConfig: Sendable, Equatable {
         sourceFiles: [URL],
         outputFiles: [URL],
         classificationOutput: URL,
+        taxonomyReport: URL? = nil,
         keepReadPairs: Bool = true
     ) {
         self.taxIds = taxIds
@@ -105,6 +113,7 @@ public struct TaxonomyExtractionConfig: Sendable, Equatable {
         self.sourceFiles = sourceFiles
         self.outputFiles = outputFiles
         self.classificationOutput = classificationOutput
+        self.taxonomyReport = taxonomyReport
         self.keepReadPairs = keepReadPairs
     }
 
@@ -126,6 +135,7 @@ public struct TaxonomyExtractionConfig: Sendable, Equatable {
         sourceFile: URL,
         outputFile: URL,
         classificationOutput: URL,
+        taxonomyReport: URL? = nil,
         keepReadPairs: Bool = true
     ) {
         self.taxIds = taxIds
@@ -133,6 +143,7 @@ public struct TaxonomyExtractionConfig: Sendable, Equatable {
         self.sourceFiles = [sourceFile]
         self.outputFiles = [outputFile]
         self.classificationOutput = classificationOutput
+        self.taxonomyReport = taxonomyReport
         self.keepReadPairs = keepReadPairs
     }
 

@@ -398,11 +398,14 @@ public actor TaxTriagePipeline {
                 stderr: spawnMessage
             )
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
-            do {
-                try await ProvenanceRecorder.shared.save(runID: runID, to: profileAdjustedConfig.outputDirectory)
-            } catch {
-                logger.warning("Failed to save TaxTriage failure provenance: \(error.localizedDescription)")
-            }
+            try await saveTaxTriageProvenanceOrThrow(
+                runID: runID,
+                outputDirectory: profileAdjustedConfig.outputDirectory,
+                description: "failure",
+                exitCode: -1,
+                stderr: spawnMessage,
+                logFile: logFile
+            )
             throw TaxTriagePipelineError.pipelineFailed(
                 exitCode: -1,
                 stderr: spawnMessage,
@@ -471,11 +474,14 @@ public actor TaxTriagePipeline {
                 stderr: stderrText
             )
             await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
-            do {
-                try await ProvenanceRecorder.shared.save(runID: runID, to: profileAdjustedConfig.outputDirectory)
-            } catch {
-                logger.warning("Failed to save TaxTriage failure provenance: \(error.localizedDescription)")
-            }
+            try await saveTaxTriageProvenanceOrThrow(
+                runID: runID,
+                outputDirectory: profileAdjustedConfig.outputDirectory,
+                description: "failure",
+                exitCode: exitCode,
+                stderr: stderrText,
+                logFile: logFile
+            )
             throw TaxTriagePipelineError.pipelineFailed(
                 exitCode: exitCode,
                 stderr: stderrText,
@@ -517,7 +523,11 @@ public actor TaxTriagePipeline {
         do {
             try result.save()
         } catch {
-            logger.warning("Failed to save TaxTriage result: \(error.localizedDescription)")
+            throw taxTriagePersistenceFailure(
+                artifactDescription: "result metadata",
+                error: error,
+                logFile: logFile
+            )
         }
         await recordTaxTriageProvenanceStep(
             runID: runID,
@@ -533,11 +543,14 @@ public actor TaxTriagePipeline {
             stderr: ""
         )
         await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
-        do {
-            try await ProvenanceRecorder.shared.save(runID: runID, to: profileAdjustedConfig.outputDirectory)
-        } catch {
-            logger.warning("Failed to save TaxTriage provenance: \(error.localizedDescription)")
-        }
+        try await saveTaxTriageProvenanceOrThrow(
+            runID: runID,
+            outputDirectory: profileAdjustedConfig.outputDirectory,
+            description: "completed run",
+            exitCode: -1,
+            stderr: "",
+            logFile: logFile
+        )
 
         progress?(1.0, "TaxTriage pipeline complete")
 
@@ -632,6 +645,41 @@ public actor TaxTriagePipeline {
     }
 
     // MARK: - Provenance
+
+    private func saveTaxTriageProvenanceOrThrow(
+        runID: UUID,
+        outputDirectory: URL,
+        description: String,
+        exitCode: Int32,
+        stderr: String,
+        logFile: URL?
+    ) async throws {
+        do {
+            try await ProvenanceRecorder.shared.save(runID: runID, to: outputDirectory)
+        } catch {
+            let message = "Failed to save TaxTriage \(description) provenance: \(error.localizedDescription)"
+            let combinedStderr = [stderr, message]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            throw TaxTriagePipelineError.pipelineFailed(
+                exitCode: exitCode,
+                stderr: combinedStderr,
+                logFile: logFile
+            )
+        }
+    }
+
+    private func taxTriagePersistenceFailure(
+        artifactDescription: String,
+        error: Error,
+        logFile: URL?
+    ) -> TaxTriagePipelineError {
+        TaxTriagePipelineError.pipelineFailed(
+            exitCode: -1,
+            stderr: "Failed to save TaxTriage \(artifactDescription): \(error.localizedDescription)",
+            logFile: logFile
+        )
+    }
 
     private func provenanceParameters(for config: TaxTriageConfig) -> [String: ParameterValue] {
         var parameters: [String: ParameterValue] = [

@@ -17,6 +17,27 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         super.tearDown()
     }
 
+    func testMainSplitExtensionHeadersNameTheirSplitFiles() throws {
+        let sourceDirectory = mainSplitViewControllerSourceDirectory()
+        for fileName in mainSplitViewControllerSplitExtensionSourceFiles() {
+            let source = try String(
+                contentsOf: sourceDirectory.appendingPathComponent(fileName),
+                encoding: .utf8
+            )
+            let firstLine = source.split(
+                separator: "\n",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            ).first.map(String.init)
+
+            XCTAssertTrue(firstLine?.contains(fileName) == true, "Stale header in \(fileName)")
+            XCTAssertFalse(
+                firstLine == "// MainSplitViewController.swift - Three-panel split view controller",
+                "Split extension should not keep the monolithic MainSplitViewController header"
+            )
+        }
+    }
+
     func testCoordinatorDoesNotRequestDividerMoveFromResizeCallback() {
         let coordinator = WorkspaceShellLayoutCoordinator(
             sidebarMinWidth: 180,

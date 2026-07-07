@@ -228,6 +228,27 @@ final class OperationRoutingTests: XCTestCase {
         )
     }
 
+    func testVCFImportWritesCanonicalProvenanceBeforeManifestUpdate() throws {
+        let source = combinedAppDelegateSource()
+        let body = try sourceFunctionBody(
+            named: "internal func performVCFImport",
+            endingBefore: "private func selectedVCFImportProfile",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("try rwDB.setMetadataValues("))
+        XCTAssertTrue(body.contains("\"workflow_provenance_path\": provenanceRelativePath"))
+        XCTAssertTrue(source.contains("ProvenanceWriter(signingProvider: nil).write("))
+
+        let provenanceRange = try XCTUnwrap(body.range(of: "try Self.writeVCFImportProvenance("))
+        let manifestRange = try XCTUnwrap(body.range(of: "try updatedManifest.save(to: bundleURL)"))
+        XCTAssertLessThan(
+            provenanceRange.lowerBound,
+            manifestRange.lowerBound,
+            "VCF import must write canonical provenance before publishing the track in the bundle manifest."
+        )
+    }
+
     func testProjectSampleMetadataImportUsesOriginWindowScope() throws {
         let projectURL = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
         let scope = WindowStateScope()
@@ -348,12 +369,14 @@ final class OperationRoutingTests: XCTestCase {
 
         let nvdImport = try sourceFunctionBody(
             named: "func importNvdResultFromURL",
-            endingBefore: "/// Locates the samtools binary",
+            endingBefore: "@objc func launchOrientReads",
             in: source
         )
         XCTAssertTrue(nvdImport.contains("targetMainWindowController(routeContext: routeContext)"))
         XCTAssertTrue(nvdImport.contains("routeContext: routeContext"))
         XCTAssertTrue(nvdImport.contains("canWriteProjectOutputs"))
+        XCTAssertTrue(nvdImport.contains("MetagenomicsImportHelperClient.importViaCLI"))
+        XCTAssertTrue(nvdImport.contains("kind: .nvd"))
         XCTAssertFalse(nvdImport.contains("mainWindowController?.mainSplitViewController"))
 
         let czIdImport = try sourceFunctionBody(
@@ -453,6 +476,7 @@ final class OperationRoutingTests: XCTestCase {
             in: source
         )
         XCTAssertTrue(deleteBody.contains("canWriteVariantDatabaseOutputs(workflowName: \"Variant deletion\")"))
+        XCTAssertTrue(deleteBody.contains("VariantDeletionMutationService().deleteVariants"))
 
         let deleteAllBody = try sourceFunctionBody(
             named: "private func performDeleteAllVariants",
@@ -460,6 +484,7 @@ final class OperationRoutingTests: XCTestCase {
             in: source
         )
         XCTAssertTrue(deleteAllBody.contains("canWriteVariantDatabaseOutputs(workflowName: \"Variant deletion\")"))
+        XCTAssertTrue(deleteAllBody.contains("VariantDeletionMutationService().deleteAllVariants"))
 
         let importBody = try sourceFunctionBody(
             named: "@objc private func importMetadataAction",
@@ -504,6 +529,127 @@ final class OperationRoutingTests: XCTestCase {
             body.contains("ProvenanceRecorder.shared.beginRun"),
             "CLI import already writes full provenance; the app must not replace it with an empty GUI run"
         )
+    }
+
+    func testMetagenomicsHelperCancellationTerminatesSubprocessTree() throws {
+        let serviceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Services/MetagenomicsImportHelperClient.swift")
+        let source = try String(contentsOf: serviceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("NativeProcessCancellationHandle"))
+        XCTAssertTrue(source.contains("withTaskCancellationHandler"))
+        XCTAssertTrue(source.contains("requestProcessTreeTermination"))
+        XCTAssertTrue(source.contains("cancellationHandle.store(process)"))
+        XCTAssertTrue(source.contains("cancellationHandle.clear(process)"))
+        XCTAssertTrue(source.contains("throw CancellationError()"))
+    }
+
+    func testFASTQBatchSubprocessCancellationTerminatesTreeAndDrainsStderr() throws {
+        let serviceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Services/FASTQIngestionService.swift")
+        let source = try String(contentsOf: serviceURL, encoding: .utf8)
+        let body = try sourceFunctionBody(
+            named: "nonisolated private static func runCLISubprocess",
+            endingBefore: "    }\n}",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("NativeProcessCancellationHandle"))
+        XCTAssertTrue(body.contains("withTaskCancellationHandler"))
+        XCTAssertTrue(body.contains("requestProcessTreeTermination"))
+        XCTAssertTrue(body.contains("cancellationHandle.store(process)"))
+        XCTAssertTrue(body.contains("cancellationHandle.clear(process)"))
+        XCTAssertTrue(body.contains("stderrHandle.readabilityHandler"))
+        XCTAssertTrue(body.contains("throw CancellationError()"))
+    }
+
+    func testTwelveSBlastPreparationCancelsCLISubprocessTree() throws {
+        let viewerURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift")
+        let source = try String(contentsOf: viewerURL, encoding: .utf8)
+        let body = try sourceFunctionBody(
+            named: "controller.onUnresolvedBlastRequested",
+            endingBefore: "        annotationDrawerView?.isHidden",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("LungfishCLIRunner.CancellationHandle()"))
+        XCTAssertTrue(body.contains("LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)"))
+        XCTAssertTrue(body.contains("catch LungfishCLIRunner.RunError.cancelled"))
+        XCTAssertTrue(body.contains("cliCancellation.cancel()"))
+    }
+
+    func testAnnotationDeletionOperationsCancelCLISubprocessTree() throws {
+        let viewerURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift")
+        let source = try String(contentsOf: viewerURL, encoding: .utf8)
+
+        let rowDeleteBody = try sourceFunctionBody(
+            named: "private func runAnnotationRowDeletion",
+            endingBefore: "    func annotationDrawer(",
+            in: source
+        )
+        let trackDeleteBody = try sourceFunctionBody(
+            named: "private func runAnnotationTrackDeletion",
+            endingBefore: "    private func presentAnnotationTrackDeletionFailure",
+            in: source
+        )
+
+        for body in [rowDeleteBody, trackDeleteBody] {
+            XCTAssertTrue(body.contains("LungfishCLIRunner.CancellationHandle()"))
+            XCTAssertTrue(body.contains("cancellation: cliCancellation"))
+            XCTAssertTrue(body.contains("catch LungfishCLIRunner.RunError.cancelled"))
+            XCTAssertTrue(body.contains("OperationCenter.shared.setCancelCallback"))
+            XCTAssertTrue(body.contains("cliCancellation.cancel()"))
+        }
+    }
+
+    func testFASTQOperationLaunchersRegisterOperationCenterCancelCallbacks() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let genomicsSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift"),
+            encoding: .utf8
+        )
+        let fastqImportSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift"),
+            encoding: .utf8
+        )
+
+        let generalLauncher = try sourceFunctionBody(
+            named: "func runFASTQOperationLaunchRequestValidated",
+            endingBefore: "    func outputDirectoryWritesIntoCurrentProject",
+            in: genomicsSource
+        )
+        let fluidigmLauncher = try sourceFunctionBody(
+            named: "func performONTFluidigmSampleSplit",
+            endingBefore: "    func performONTPacBioBarcodeDemux",
+            in: fastqImportSource
+        )
+        let pacBioLauncher = try sourceFunctionBody(
+            named: "func performONTPacBioBarcodeDemux",
+            endingBefore: "    /// Performs the actual ONT directory import",
+            in: fastqImportSource
+        )
+
+        for body in [generalLauncher, fluidigmLauncher, pacBioLauncher] {
+            XCTAssertTrue(body.contains("let task = Task.detached"))
+            XCTAssertTrue(body.contains("OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }"))
+        }
     }
 
     private func sourceFunctionBody(named startNeedle: String, endingBefore endNeedle: String, in source: String) throws -> String {

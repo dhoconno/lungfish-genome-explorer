@@ -895,7 +895,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         var builder = ProvenanceRunBuilder(
             workflowName: "lungfish fastq 12s-match",
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: WorkflowRun.currentAppVersion
         )
         .argv(argv)
@@ -956,7 +956,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             try Self.directoryDescriptor(url: bundleURL, format: .unknown, role: .output)
         ] + payloadDescriptors
         let matchingStep = ProvenanceStep(
-            toolName: "lungfish-cli",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
             durableReplayArgv: argv,
@@ -1027,7 +1027,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
     private func replayArgv(for config: TwelveSAmpliconMatchingConfiguration) -> [String] {
         let referenceURL = config.referenceBundleURL ?? config.referenceFASTA
         var argv = [
-            "lungfish-cli", "fastq", "12s-match",
+            CLICommandIdentity.executableName, "fastq", "12s-match",
         ] + config.inputFASTQs.map(\.path) + [
             "--reference", referenceURL.path,
         ]

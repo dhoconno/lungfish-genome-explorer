@@ -508,7 +508,14 @@ public final class VCFReader: Sendable {
         let id = fields[2] == "." ? "\(chromosome)_\(position)" : fields[2]
         let ref = fields[3]
         let alt = fields[4].split(separator: ",").map(String.init)
-        let quality = fields[5] == "." ? nil : Double(fields[5])
+        let quality: Double?
+        if fields[5] == "." {
+            quality = nil
+        } else if let parsedQuality = Double(fields[5]) {
+            quality = parsedQuality
+        } else {
+            throw VCFError.invalidQuality(line: lineNumber, value: fields[5])
+        }
         let filter = fields[6] == "." ? nil : fields[6]
         let info = parseInfoField(fields[7])
 
@@ -518,11 +525,11 @@ public final class VCFReader: Sendable {
 
         if parseGenotypes && fields.count > 9 {
             format = fields[8]
-            let formatFields = fields[8].split(separator: ":").map(String.init)
+            let formatFields = fields[8].split(separator: ":", omittingEmptySubsequences: false).map(String.init)
 
             for (index, sampleName) in sampleNames.enumerated() {
                 if fields.count > 9 + index {
-                    let genotypeFields = fields[9 + index].split(separator: ":").map(String.init)
+                    let genotypeFields = fields[9 + index].split(separator: ":", omittingEmptySubsequences: false).map(String.init)
                     var fieldDict: [String: String] = [:]
                     for (i, name) in formatFields.enumerated() {
                         if i < genotypeFields.count {

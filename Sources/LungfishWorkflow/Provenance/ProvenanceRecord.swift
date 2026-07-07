@@ -348,6 +348,7 @@ public enum FileFormat: String, Codable, Sendable {
     case genBank
     case html
     case json
+    case sqlite
     case text
     case unknown
 }
@@ -495,6 +496,7 @@ extension ProvenanceEnvelope {
                     outputs: step.outputs.map(FileRecord.init(provenanceFile:)),
                     exitCode: step.exitStatus.map(Int32.init),
                     wallTime: step.wallTimeSeconds,
+                    peakMemoryBytes: step.peakMemoryBytes,
                     stderr: step.stderr,
                     dependsOn: step.dependsOn,
                     startTime: step.startedAt ?? createdAt,
@@ -608,6 +610,7 @@ extension ProvenanceStep {
             outputs: stepExecution.outputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
             exitStatus: stepExecution.exitCode.map(Int.init),
             wallTimeSeconds: stepExecution.wallTime,
+            peakMemoryBytes: stepExecution.peakMemoryBytes,
             stderr: stepExecution.stderr,
             dependsOn: stepExecution.dependsOn,
             startedAt: stepExecution.startTime,

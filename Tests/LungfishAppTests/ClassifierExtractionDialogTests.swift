@@ -123,7 +123,7 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertFalse(m.destination.showsNameField)
     }
 
-    // MARK: - Bundle clobber defense (Phase 2 review-2 forwarded item)
+    // MARK: - Bundle clobber defense
 
     /// Verifies the `ISO8601DateFormatter.shortStamp` helper used by
     /// `resolveDestination`'s bundle disambiguation suffix produces a stable,
@@ -184,8 +184,8 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         )
     }
 
-    /// Same-second collision defense (Phase 4 review-1 critical #1): two
-    /// calls inside the same wall-clock second MUST produce different suffixes
+    /// Same-second collision defense: two calls inside the same wall-clock
+    /// second MUST produce different suffixes
     /// so back-to-back Create-Bundle clicks don't silently overwrite each
     /// other in `ReadExtractionService.createBundle` (which removes-then-moves
     /// the target directory unconditionally).
@@ -307,8 +307,7 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertTrue(cli.contains("--taxon 9606"), "missing --taxon 9606 in: \(cli)")
         XCTAssertTrue(cli.contains("--taxon 562"), "missing --taxon 562 in: \(cli)")
         XCTAssertFalse(cli.contains("--include-unmapped-mates"), "unexpected --include-unmapped-mates in: \(cli)")
-        // With sampleId: nil, the builder must NOT emit a --sample flag
-        // (Phase 4 review-1 test gap).
+        // With sampleId: nil, the builder must NOT emit a --sample flag.
         XCTAssertFalse(cli.contains(" --sample "), "unexpected --sample when sampleId is nil, in: \(cli)")
     }
 
@@ -335,8 +334,8 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertTrue(cli.contains("--taxon 9606"), "missing --taxon 9606 in: \(cli)")
     }
 
-    /// Phase 3 deviation: classifier extraction emits --read-format (not
-    /// --format) so the flag doesn't collide with GlobalOptions.format.
+    /// Classifier extraction emits --read-format (not --format) so the flag
+    /// doesn't collide with GlobalOptions.format.
     func testBuildCLIString_formatFasta_flaggedAsReadFormat() {
         let ctx = TaxonomyReadExtractionAction.Context(
             tool: .nvd,
@@ -382,7 +381,97 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertTrue(cli.contains("GUI only"), "expected GUI-only annotation in: \(cli)")
     }
 
-    // MARK: - TaskBox cancel contract (Phase 4 review-2 critical #1)
+    func testFileProvenanceOptions_useReplayableClassifierCLIArgv() {
+        let outputURL = URL(fileURLWithPath: "/tmp/out.fastq")
+        let ctx = TaxonomyReadExtractionAction.Context(
+            tool: .nvd,
+            resultPath: URL(fileURLWithPath: "/tmp/nvd-results/fake.sqlite"),
+            selections: [
+                ClassifierRowSelector(sampleId: "S1", accessions: ["NC_001"], taxIds: [])
+            ],
+            suggestedName: "nvd-extract"
+        )
+        let options = ExtractionOptions(format: .fastq, includeUnmappedMates: true)
+        let recorded = TaxonomyReadExtractionAction.optionsByRecordingFileProvenanceForTesting(
+            options,
+            context: ctx,
+            destination: .file(outputURL)
+        )
+
+        let provenance = recorded.fileProvenance
+        let argv = provenance?.argv ?? []
+        XCTAssertEqual(Array(argv.prefix(4)), ["lungfish-cli", "extract", "reads", "--by-classifier"])
+        XCTAssertTrue(argv.contains("--tool"))
+        XCTAssertTrue(argv.contains("nvd"))
+        XCTAssertTrue(argv.contains("--output"))
+        XCTAssertTrue(argv.contains(outputURL.path))
+        XCTAssertFalse(argv.contains("Lungfish.app"))
+        XCTAssertFalse(argv.contains("--destination"))
+        XCTAssertEqual(provenance?.explicitOptions["destination"]?.stringValue, "file")
+        XCTAssertEqual(provenance?.explicitOptions["outputPath"]?.fileValue?.path, outputURL.path)
+        XCTAssertEqual(provenance?.resolved["samtoolsExcludeFlags"]?.integerValue, 0x400)
+    }
+
+    func testFileProvenanceOptions_recordsNaoMgsReadNameAllowlist() {
+        let ctx = TaxonomyReadExtractionAction.Context(
+            tool: .naomgs,
+            resultPath: URL(fileURLWithPath: "/tmp/naomgs/hits.sqlite"),
+            selections: [
+                ClassifierRowSelector(
+                    sampleId: "S1",
+                    accessions: ["ACC_1"],
+                    taxIds: [123],
+                    readNameAllowlist: ["read-B", "read-A"]
+                )
+            ],
+            suggestedName: "naomgs-extract"
+        )
+        let recorded = TaxonomyReadExtractionAction.optionsByRecordingFileProvenanceForTesting(
+            ExtractionOptions(),
+            context: ctx,
+            destination: .file(URL(fileURLWithPath: "/tmp/naomgs.fastq"))
+        )
+
+        let explicit = recorded.fileProvenance?.explicitOptions
+        let allowlist = explicit?["readNameAllowlist"]?.arrayValue?.compactMap(\.stringValue)
+        XCTAssertEqual(allowlist, ["read-A", "read-B"])
+        XCTAssertEqual(explicit?["readNameAllowlistCount"]?.integerValue, 2)
+        XCTAssertEqual(explicit?["readNameAllowlistAppliedBy"]?.stringValue, "samtools view -N")
+        XCTAssertEqual(explicit?["readNameAllowlistSHA256"]?.stringValue?.count, 64)
+        XCTAssertEqual(
+            recorded.fileProvenance?.resolved["readNameAllowlistSHA256"]?.stringValue,
+            explicit?["readNameAllowlistSHA256"]?.stringValue
+        )
+    }
+
+    func testFileProvenanceOptions_leavesBundleAndClipboardUnchanged() {
+        let ctx = TaxonomyReadExtractionAction.Context(
+            tool: .esviritu,
+            resultPath: URL(fileURLWithPath: "/tmp/fake.sqlite"),
+            selections: [ClassifierRowSelector(sampleId: "S1", accessions: ["NC_y"], taxIds: [])],
+            suggestedName: "c"
+        )
+        let options = ExtractionOptions(format: .fastq, includeUnmappedMates: false)
+        let bundle = TaxonomyReadExtractionAction.optionsByRecordingFileProvenanceForTesting(
+            options,
+            context: ctx,
+            destination: .bundle(
+                projectRoot: URL(fileURLWithPath: "/tmp/project"),
+                displayName: "extract",
+                metadata: ExtractionMetadata(sourceDescription: "x", toolName: "EsViritu")
+            )
+        )
+        let clipboard = TaxonomyReadExtractionAction.optionsByRecordingFileProvenanceForTesting(
+            options,
+            context: ctx,
+            destination: .clipboard(format: .fastq, cap: 10_000)
+        )
+
+        XCTAssertNil(bundle.fileProvenance)
+        XCTAssertNil(clipboard.fileProvenance)
+    }
+
+    // MARK: - TaskBox cancel contract
 
     /// Pins the two-task-cancel contract that underpins the dialog's Cancel
     /// button. The `TaskBox` must be able to hold both the pre-flight estimate
@@ -391,10 +480,10 @@ final class ClassifierExtractionDialogTests: XCTestCase {
     /// cancellation so the dialog's `onCancel` closure can tear down whichever
     /// is currently running (estimate before Create Bundle, extraction after).
     ///
-    /// This test exercises the building block the critical #1 fix depends on;
-    /// the full integration path through `present()` + `startExtraction()` is
-    /// gated on a real `NSWindow` and `ClassifierReadResolver` so is not
-    /// directly unit-testable today. See review-2 disposition.
+    /// This test exercises the building block behind dialog cancellation; the
+    /// full integration path through `present()` + `startExtraction()` is gated
+    /// on a real `NSWindow` and `ClassifierReadResolver` so is not directly
+    /// unit-testable today.
     func testTaskBox_cancelBothTasks_cancelsSeparately() async {
         let box = TaxonomyReadExtractionAction.TaskBox()
 

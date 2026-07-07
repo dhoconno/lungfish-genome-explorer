@@ -47,8 +47,8 @@ public enum MetagenomicsPanelLayout: String, CaseIterable, Sendable {
         notificationCenter: NotificationCenter = .default
     ) {
         defaults.set(rawValue, forKey: Self.defaultsKey)
-        // Temporary compatibility for Task 3: controllers still read the legacy
-        // bool, so keep it mirrored while the enum remains the source of truth.
+        // Controllers still read the legacy bool, so keep it mirrored while the
+        // enum remains the source of truth.
         defaults.set(self == .listLeading, forKey: Self.legacyTableOnLeftKey)
         notificationCenter.post(name: .metagenomicsLayoutSwapRequested, object: nil)
     }

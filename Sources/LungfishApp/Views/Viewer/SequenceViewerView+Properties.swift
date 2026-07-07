@@ -75,7 +75,7 @@ extension SequenceViewerView {
     /// Sets multiple sequences for stacked display.
     ///
     /// - Parameter sequences: Array of sequences to display
-    public func setSequences(_ sequences: [Sequence]) {
+    public func setSequences(_ sequences: [Sequence], sourceURLsByID: [UUID: URL] = [:]) {
         propLogger.info("setSequences: Setting \(sequences.count) sequences")
 
         if sequences.count <= 1 {
@@ -90,7 +90,7 @@ extension SequenceViewerView {
             // Use multi-sequence mode
             isMultiSequenceMode = true
             initializeMultiSequenceState()
-            multiSequenceState?.setSequences(sequences)
+            multiSequenceState?.setSequences(sequences, sourceURLsByID: sourceURLsByID)
 
             // Also set the primary sequence for backward compatibility
             if let refSeq = multiSequenceState?.referenceSequence {

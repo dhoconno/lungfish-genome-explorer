@@ -1002,7 +1002,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             : ["/bin/sh", "-lc", materializationCommands.map { $0.map(shellEscape).joined(separator: " ") }.joined(separator: " && ")]
         return [
             StepExecution(
-                toolName: "lungfish fastq materialize",
+                toolName: CLISequenceInputMaterialization.materializationToolName,
                 toolVersion: WorkflowRun.currentAppVersion,
                 command: command,
                 durableReplayArgv: command,
@@ -1073,9 +1073,9 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     private func copyAlignmentStep(inputURL: URL, outputURL: URL) -> StepExecution {
         let timestamp = Date()
         return StepExecution(
-            toolName: "lungfish",
+            toolName: CLICommandIdentity.executableName,
             toolVersion: WorkflowRun.currentAppVersion,
-            command: ["lungfish", "map", "normalize-copy", inputURL.path, outputURL.path],
+            command: [CLICommandIdentity.executableName, "map", "normalize-copy", inputURL.path, outputURL.path],
             inputs: [ProvenanceRecorder.fileRecord(url: inputURL, format: fileFormat(for: inputURL), role: .input)],
             outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .bam, role: .output)],
             exitCode: 0,

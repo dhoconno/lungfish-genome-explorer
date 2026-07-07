@@ -35,17 +35,19 @@ final class LocalWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertEqual(manifest.params["sample"], "S1")
         XCTAssertEqual(manifest.params["input"], readsURL.standardizedFileURL.path)
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let provenance = try decoder.decode(
-            WorkflowRun.self,
-            from: Data(contentsOf: result.bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: result.bundleURL))
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.toolName, "lungfish-cli workflow run")
+        XCTAssertTrue(provenance.argv.contains("--prepare-only"))
+        XCTAssertTrue(provenance.outputs.contains { $0.path == result.bundleURL.standardizedFileURL.path })
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: result.bundleURL
+                    .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                    .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+                    .path
+            )
         )
-        XCTAssertEqual(provenance.status, .completed)
-        XCTAssertEqual(provenance.steps.first?.toolName, "lungfish-cli workflow run")
-        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
-        XCTAssertTrue(provenance.steps.first?.command.contains("--prepare-only") == true)
-        XCTAssertTrue(provenance.steps.first?.outputs.contains { $0.path == result.bundleURL.path } == true)
 
         let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
         XCTAssertEqual(item.operationType, .workflow)
@@ -105,9 +107,42 @@ final class LocalWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertTrue(item.logEntries.map(\.message).contains { $0.contains("completed") })
         XCTAssertEqual(item.bundleURLs, [result.bundleURL])
     }
+
+    func testRunRejectsLegacyOnlyRootWorkflowRunProvenance() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-workflow-run-legacy-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        let workflowURL = temp.appendingPathComponent("main.nf")
+        try "nextflow.enable.dsl=2\nworkflow { }\n".write(to: workflowURL, atomically: true, encoding: .utf8)
+        let outputURL = temp.appendingPathComponent("results", isDirectory: true)
+        let request = LocalWorkflowRunRequest(
+            workflowURL: workflowURL,
+            outputDirectory: outputURL,
+            params: ["sample": "S1"]
+        )
+        let operationCenter = OperationCenter()
+        let runner = StubLocalWorkflowCLIProcessRunner(
+            result: .init(exitCode: 0, standardOutput: "workflow complete\n", standardError: ""),
+            provenanceMode: .legacyWorkflowRun
+        )
+        let service = LocalWorkflowExecutionService(operationCenter: operationCenter, processRunner: runner)
+
+        do {
+            _ = try await service.run(request, bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true))
+            XCTFail("Expected legacy-only root WorkflowRun provenance to be rejected.")
+        } catch LocalWorkflowExecutionError.invalidProvenance(let path) {
+            XCTAssertTrue(path.hasSuffix(ProvenanceRecorder.provenanceFilename))
+        }
+    }
 }
 
 private final class StubLocalWorkflowCLIProcessRunner: LocalWorkflowCLIProcessRunning {
+    enum ProvenanceMode {
+        case canonicalEnvelope
+        case legacyWorkflowRun
+    }
+
     struct Invocation: Equatable {
         let arguments: [String]
         let workingDirectory: URL
@@ -115,9 +150,11 @@ private final class StubLocalWorkflowCLIProcessRunner: LocalWorkflowCLIProcessRu
 
     private(set) var invocations: [Invocation] = []
     let result: LocalWorkflowCLIProcessResult
+    let provenanceMode: ProvenanceMode
 
-    init(result: LocalWorkflowCLIProcessResult) {
+    init(result: LocalWorkflowCLIProcessResult, provenanceMode: ProvenanceMode = .canonicalEnvelope) {
         self.result = result
+        self.provenanceMode = provenanceMode
     }
 
     func runLungfishCLI(
@@ -179,10 +216,36 @@ private final class StubLocalWorkflowCLIProcessRunner: LocalWorkflowCLIProcessRu
             steps: [step],
             parameters: request.effectiveParams.mapValues { .string($0) }
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run).write(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
+        switch provenanceMode {
+        case .canonicalEnvelope:
+            let stepEnvelope = ProvenanceStep(stepExecution: step)
+            let envelope = ProvenanceEnvelope(
+                workflowName: run.name,
+                workflowVersion: WorkflowRun.currentAppVersion,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                tool: ProvenanceToolIdentity(name: step.toolName, version: step.toolVersion, kind: "cli"),
+                argv: step.command,
+                options: ProvenanceOptions(explicit: run.parameters),
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                files: stepEnvelope.inputs + stepEnvelope.outputs,
+                output: stepEnvelope.outputs.first,
+                outputs: stepEnvelope.outputs,
+                steps: [stepEnvelope],
+                wallTimeSeconds: step.wallTime,
+                exitStatus: Int(step.exitCode ?? 0),
+                stderr: step.stderr
+            )
+            try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        case .legacyWorkflowRun:
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(run).write(
+                to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+                options: .atomic
+            )
+        }
     }
 
     private func value(after flag: String, in arguments: [String]) throws -> String {

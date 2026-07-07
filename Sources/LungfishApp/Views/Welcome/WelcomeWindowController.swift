@@ -141,6 +141,20 @@ public struct RecentProject: Codable, Identifiable, Equatable {
 
 // MARK: - Welcome View Model
 
+private final class WelcomeNotificationObserver: @unchecked Sendable {
+    private let notificationCenter: NotificationCenter
+    private let token: NSObjectProtocol
+
+    init(notificationCenter: NotificationCenter, token: NSObjectProtocol) {
+        self.notificationCenter = notificationCenter
+        self.token = token
+    }
+
+    deinit {
+        notificationCenter.removeObserver(token)
+    }
+}
+
 @MainActor
 final class WelcomeViewModel: ObservableObject {
     @Published var selectedAction: WelcomeAction?
@@ -172,7 +186,9 @@ final class WelcomeViewModel: ObservableObject {
     private let notificationCenter: NotificationCenter
     private var setupRefreshTask: Task<Void, Never>?
     private var scheduledSetupRefreshTask: Task<Void, Never>?
+    private var managedResourcesObserver: WelcomeNotificationObserver?
     private var scheduledSetupRefreshGeneration = 0
+    private var requiredSetupInstallGeneration = 0
     private var pendingSetupInvalidation = false
 
     var onCreateProject: ((URL) -> Void)?
@@ -193,22 +209,27 @@ final class WelcomeViewModel: ObservableObject {
         self.storageConfigStore = resolvedStorageConfigStore
         self.storageCoordinator = storageCoordinator ?? ManagedStorageCoordinator(configStore: resolvedStorageConfigStore)
         self.notificationCenter = notificationCenter
-        notificationCenter.addObserver(
-            self,
-            selector: #selector(handleManagedResourcesDidChange(_:)),
-            name: .managedResourcesDidChange,
-            object: nil
-        )
+        let token = notificationCenter.addObserver(
+            forName: .managedResourcesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let sourceObjectIdentifier = (notification.object as AnyObject?).map(ObjectIdentifier.init)
+            MainActor.assumeIsolated {
+                self?.handleManagedResourcesDidChange(sourceObjectIdentifier: sourceObjectIdentifier)
+            }
+        }
+        managedResourcesObserver = WelcomeNotificationObserver(notificationCenter: notificationCenter, token: token)
     }
 
     deinit {
         setupRefreshTask?.cancel()
         scheduledSetupRefreshTask?.cancel()
-        notificationCenter.removeObserver(self)
+        managedResourcesObserver = nil
     }
 
-    @objc private func handleManagedResourcesDidChange(_ notification: Notification) {
-        if let source = notification.object as AnyObject?, source === self {
+    private func handleManagedResourcesDidChange(sourceObjectIdentifier: ObjectIdentifier?) {
+        if sourceObjectIdentifier == ObjectIdentifier(self) {
             return
         }
         scheduleSetupRefresh(requiresFreshRead: true)
@@ -379,7 +400,11 @@ final class WelcomeViewModel: ObservableObject {
     }
 
     func installRequiredSetup() {
-        guard let pack = requiredSetupStatus?.pack else { return }
+        guard let requiredSetupStatus, !isInstallingRequiredSetup else { return }
+        let pack = requiredSetupStatus.pack
+        let shouldReinstall = requiredSetupStatus.shouldReinstall
+        requiredSetupInstallGeneration += 1
+        let installGeneration = requiredSetupInstallGeneration
         isInstallingRequiredSetup = true
         setupErrorMessage = nil
         requiredSetupProgress = 0
@@ -390,30 +415,39 @@ final class WelcomeViewModel: ObservableObject {
 
         Task {
             defer {
-                isInstallingRequiredSetup = false
-                requiredSetupActiveItemID = nil
+                if requiredSetupInstallGeneration == installGeneration {
+                    isInstallingRequiredSetup = false
+                    requiredSetupActiveItemID = nil
+                }
             }
             do {
                 try await statusProvider.install(
                     pack: pack,
-                    reinstall: requiredSetupStatus?.shouldReinstall == true,
+                    reinstall: shouldReinstall,
                     progress: { [weak self] event in
-                        Task { @MainActor in
-                            self?.requiredSetupProgress = min(max(event.overallFraction, 0), 1)
-                            self?.requiredSetupProgressMessage = event.message
-                            self?.requiredSetupActiveItemID = event.requirementID
+                        Task { @MainActor [weak self] in
+                            guard let self,
+                                  self.requiredSetupInstallGeneration == installGeneration,
+                                  self.isInstallingRequiredSetup else {
+                                return
+                            }
+                            self.requiredSetupProgress = min(max(event.overallFraction, 0), 1)
+                            self.requiredSetupProgressMessage = event.message
+                            self.requiredSetupActiveItemID = event.requirementID
                             if let requirementID = event.requirementID {
-                                self?.requiredSetupItemProgress[requirementID] = min(max(event.itemFraction, 0), 1)
+                                self.requiredSetupItemProgress[requirementID] = min(max(event.itemFraction, 0), 1)
                             }
                         }
                     }
                 )
                 await refreshRequiredSetupStatus()
+                guard requiredSetupInstallGeneration == installGeneration else { return }
                 requiredSetupItemProgress = [:]
                 requiredSetupProgress = nil
                 requiredSetupProgressMessage = nil
                 notificationCenter.post(name: .managedResourcesDidChange, object: self)
             } catch {
+                guard requiredSetupInstallGeneration == installGeneration else { return }
                 setupErrorMessage = error.localizedDescription
             }
         }
@@ -896,7 +930,7 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Divider()
                     .overlay(Color.lungfishWelcomeStroke)
-                Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.5.0-alpha35")")
+                Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? LungfishAppVersion.short)")
                     .font(.caption)
                     .foregroundStyle(Color.lungfishWelcomeSecondaryText)
             }

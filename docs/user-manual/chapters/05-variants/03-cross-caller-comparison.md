@@ -137,7 +137,7 @@ Both representations describe identical biology: a paired R203K and G204R substi
 
 ## Taking a programmatic intersection or union
 
-Reading the table by eye is enough to characterise the overlap, but a methods section often wants the intersection (the conservative consensus) and the union (the inclusive set) as actual files. Lungfish does not compute these; the honest path is external `bcftools isec`. Export each track's VCF (the staged `.vcf.gz` lives in the bundle's variants area, and `lungfish variants query --output` will also write one), then run `bcftools isec` over the two files.
+Reading the table by eye is enough to characterise the overlap, but a methods section often wants the intersection (the conservative consensus) and the union (the inclusive set) as actual files. Lungfish does not compute these; the honest path is external `bcftools isec`. Export each track's VCF (the staged `.vcf.gz` lives in the bundle's variants area, and `lungfish variants query --output` will also write a sidecar-provenance-gated VCF), then run `bcftools isec` over the two files.
 
 There is one real trap, and it is the codon-merge case above. A naive position-by-position intersection at 28881 will not match: the iVar row spans 28881-28882, while LoFreq's rows sit at 28881 and 28882 separately. `bcftools isec` compares records by coordinate and allele, so it flags a spurious disagreement at every codon-merged iVar row. Decompose the iVar VCF into single-base records first:
 

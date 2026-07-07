@@ -103,11 +103,11 @@ extension ViewerViewController {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            guard OperationCenter.shared.update(
                                 id: opID,
                                 progress: 0.1,
                                 detail: "Extracting reads for selected accessions…"
-                            )
+                            ) else { return }
                             blastController?.showBlastLoading(phase: .submitting, requestId: nil)
                         }
                     }
@@ -151,11 +151,11 @@ extension ViewerViewController {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            guard OperationCenter.shared.update(
                                 id: opID,
                                 progress: 0.2,
                                 detail: "Submitting \(request.sequences.count) reads to NCBI BLAST…"
-                            )
+                            ) else { return }
                             blastController?.showBlastLoading(phase: .submitting, requestId: nil)
                         }
                     }
@@ -165,11 +165,11 @@ extension ViewerViewController {
                         progress: { fraction, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    OperationCenter.shared.update(
+                                    guard OperationCenter.shared.update(
                                         id: opID,
                                         progress: fraction,
                                         detail: message
-                                    )
+                                    ) else { return }
                                     let lower = message.lowercased()
                                     if lower.contains("waiting") {
                                         blastController?.showBlastLoading(phase: .waiting, requestId: nil)
@@ -185,10 +185,10 @@ extension ViewerViewController {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.complete(
+                            guard OperationCenter.shared.complete(
                                 id: opID,
                                 detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
-                            )
+                            ) else { return }
                             blastController?.showBlastResults(blastResult)
                         }
                     }
@@ -196,7 +196,7 @@ extension ViewerViewController {
                     let errorDesc = error.localizedDescription
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                            guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
                             blastController?.showBlastFailure(errorDesc)
                         }
                     }

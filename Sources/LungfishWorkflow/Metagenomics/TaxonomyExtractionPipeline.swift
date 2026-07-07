@@ -171,7 +171,13 @@ public actor TaxonomyExtractionPipeline {
         progress?(0.95, "Recording provenance...")
 
         let runtime = Date().timeIntervalSince(startTime)
-        await recordProvenance(config: config, extractedCount: totalExtracted, runtime: runtime)
+        try await recordProvenance(
+            config: config,
+            resolvedTaxIds: targetTaxIds,
+            outputURLs: outputURLs,
+            extractedCount: totalExtracted,
+            runtime: runtime
+        )
 
         progress?(1.0, "Extraction complete: \(totalExtracted) reads")
         return outputURLs
@@ -263,7 +269,8 @@ public actor TaxonomyExtractionPipeline {
                 includeChildren: target.includeChildren,
                 sourceFile: sourceFile,
                 outputFile: outputFile,
-                classificationOutput: classificationResult.outputURL
+                classificationOutput: classificationResult.outputURL,
+                taxonomyReport: target.includeChildren ? classificationResult.reportURL : nil
             )
 
             do {
@@ -477,298 +484,44 @@ public actor TaxonomyExtractionPipeline {
         }
     }
 
-    // MARK: - FASTQ Filtering
-
-    /// Filters a FASTQ file, writing only reads whose IDs are in the match set.
-    ///
-    /// Handles both plain text and gzip-compressed FASTQ files. FASTQ records
-    /// are 4-line units: header, sequence, separator (+), quality.
-    ///
-    /// - Parameters:
-    ///   - source: Input FASTQ file (plain or .gz).
-    ///   - output: Output FASTQ file.
-    ///   - readIds: Set of read IDs to extract.
-    ///   - progress: Optional progress callback (0.0 to 1.0 within this file).
-    /// - Returns: The number of reads extracted.
-    /// - Throws: ``TaxonomyExtractionError`` on I/O failure.
-    private func filterFASTQ(
-        source: URL,
-        output: URL,
-        readIds: Set<String>,
-        progress: (@Sendable (Double, String) -> Void)?
-    ) throws -> Int {
-        // Determine if input is gzip-compressed
-        let isGzipped = source.pathExtension.lowercased() == "gz"
-
-        // Create output directory if needed
-        let outputDir = output.deletingLastPathComponent()
-        if !FileManager.default.fileExists(atPath: outputDir.path) {
-            try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-        }
-
-        // Get file size for progress
-        let fileSize = (try? FileManager.default.attributesOfItem(
-            atPath: source.path
-        )[.size] as? Int64) ?? 0
-
-        // For gzip files, use Process with zcat/gzcat. For plain, use FileHandle.
-        if isGzipped {
-            return try filterGzippedFASTQ(
-                source: source,
-                output: output,
-                readIds: readIds,
-                progress: progress
-            )
-        }
-
-        guard let inputHandle = FileHandle(forReadingAtPath: source.path) else {
-            throw TaxonomyExtractionError.sourceFileNotFound(source)
-        }
-        defer { inputHandle.closeFile() }
-
-        // Create output file
-        FileManager.default.createFile(atPath: output.path, contents: nil)
-        guard let outputHandle = FileHandle(forWritingAtPath: output.path) else {
-            throw TaxonomyExtractionError.outputWriteFailed(output, "Cannot open for writing")
-        }
-        defer { outputHandle.closeFile() }
-
-        var extractedCount = 0
-        var bytesRead: Int64 = 0
-        var residual = ""
-        let bufferSize = 4_194_304 // 4 MB
-        var lineBuffer: [String] = []
-        // Batch writes for performance — accumulate matched records then write at once
-        var outputBuffer = Data()
-        let flushThreshold = 1_048_576 // Flush every ~1 MB of output
-
-        while true {
-            try Task.checkCancellation()
-
-            let chunk = inputHandle.readData(ofLength: bufferSize)
-            if chunk.isEmpty { break }
-            bytesRead += Int64(chunk.count)
-
-            guard let text = String(data: chunk, encoding: .utf8) else { continue }
-
-            let combined = residual + text
-            residual = ""
-
-            // Split into lines, keeping partial last line as residual
-            var lines = combined.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-            if !combined.hasSuffix("\n") && !lines.isEmpty {
-                residual = lines.removeLast()
-            }
-
-            for line in lines {
-                lineBuffer.append(line)
-
-                // FASTQ records are 4 lines
-                if lineBuffer.count == 4 {
-                    let header = lineBuffer[0]
-                    // Extract read ID from FASTQ header: @readId [optional description]
-                    if header.hasPrefix("@") {
-                        let readId = extractReadId(from: header)
-                        if readIds.contains(readId) {
-                            let record = lineBuffer.joined(separator: "\n") + "\n"
-                            outputBuffer.append(Data(record.utf8))
-                            extractedCount += 1
-                        }
-                    }
-                    lineBuffer.removeAll(keepingCapacity: true)
-                }
-            }
-
-            // Flush output buffer periodically for memory efficiency
-            if outputBuffer.count >= flushThreshold {
-                outputHandle.write(outputBuffer)
-                outputBuffer.removeAll(keepingCapacity: true)
-            }
-
-            // Report progress (normalized to 0.0 -- 1.0 for this file)
-            if fileSize > 0 {
-                let fraction = Double(bytesRead) / Double(fileSize)
-                progress?(min(fraction, 1.0), "Extracting: \(extractedCount) reads...")
-            }
-        }
-
-        // Process remaining residual
-        if !residual.isEmpty {
-            lineBuffer.append(residual)
-        }
-        if lineBuffer.count == 4 {
-            let header = lineBuffer[0]
-            if header.hasPrefix("@") {
-                let readId = extractReadId(from: header)
-                if readIds.contains(readId) {
-                    let record = lineBuffer.joined(separator: "\n") + "\n"
-                    outputBuffer.append(Data(record.utf8))
-                    extractedCount += 1
-                }
-            }
-        }
-
-        // Final flush
-        if !outputBuffer.isEmpty {
-            outputHandle.write(outputBuffer)
-        }
-
-        return extractedCount
-    }
-
-    /// Filters a gzip-compressed FASTQ using a pipe through `gzcat`.
-    ///
-    /// - Parameters:
-    ///   - source: Input .fastq.gz file.
-    ///   - output: Output FASTQ file.
-    ///   - readIds: Set of read IDs to extract.
-    ///   - progress: Optional progress callback.
-    /// - Returns: The number of reads extracted.
-    private func filterGzippedFASTQ(
-        source: URL,
-        output: URL,
-        readIds: Set<String>,
-        progress: (@Sendable (Double, String) -> Void)?
-    ) throws -> Int {
-        // Create output file
-        FileManager.default.createFile(atPath: output.path, contents: nil)
-        guard let outputHandle = FileHandle(forWritingAtPath: output.path) else {
-            throw TaxonomyExtractionError.outputWriteFailed(output, "Cannot open for writing")
-        }
-        defer { outputHandle.closeFile() }
-
-        // Use gzcat to decompress on the fly
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzcat")
-        process.arguments = [source.path]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        try process.run()
-
-        let readHandle = pipe.fileHandleForReading
-        var extractedCount = 0
-        var lineBuffer: [String] = []
-        var residual = ""
-        let bufferSize = 4_194_304 // 4 MB
-
-        while true {
-            let chunk = readHandle.readData(ofLength: bufferSize)
-            if chunk.isEmpty { break }
-
-            guard let text = String(data: chunk, encoding: .utf8) else { continue }
-
-            let combined = residual + text
-            residual = ""
-
-            var lines = combined.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-            if !combined.hasSuffix("\n") && !lines.isEmpty {
-                residual = lines.removeLast()
-            }
-
-            for line in lines {
-                lineBuffer.append(line)
-
-                if lineBuffer.count == 4 {
-                    let header = lineBuffer[0]
-                    if header.hasPrefix("@") {
-                        let readId = extractReadId(from: header)
-                        if readIds.contains(readId) {
-                            let record = lineBuffer.joined(separator: "\n") + "\n"
-                            outputHandle.write(Data(record.utf8))
-                            extractedCount += 1
-                        }
-                    }
-                    lineBuffer.removeAll(keepingCapacity: true)
-                }
-            }
-
-            progress?(0.5, "Extracting: \(extractedCount) reads...")
-        }
-
-        // Process remaining residual
-        if !residual.isEmpty {
-            lineBuffer.append(residual)
-        }
-        if lineBuffer.count == 4 {
-            let header = lineBuffer[0]
-            if header.hasPrefix("@") {
-                let readId = extractReadId(from: header)
-                if readIds.contains(readId) {
-                    let record = lineBuffer.joined(separator: "\n") + "\n"
-                    outputHandle.write(Data(record.utf8))
-                    extractedCount += 1
-                }
-            }
-        }
-
-        process.waitUntilExit()
-        return extractedCount
-    }
-
-    // MARK: - Helpers
-
-    /// Extracts the read ID from a FASTQ header line.
-    ///
-    /// FASTQ headers have the format `@readId [optional description]`.
-    /// The read ID is everything after `@` up to the first whitespace.
-    /// For paired-end reads, strips the `/1` or `/2` suffix to produce
-    /// a canonical ID that matches both mates.
-    ///
-    /// - Parameter header: The FASTQ header line.
-    /// - Returns: The read ID string (without paired-end suffix).
-    private func extractReadId(from header: String) -> String {
-        var id = header
-        if id.hasPrefix("@") {
-            id = String(id.dropFirst())
-        }
-        // Read ID ends at first whitespace
-        if let spaceIndex = id.firstIndex(where: { $0.isWhitespace }) {
-            id = String(id[id.startIndex..<spaceIndex])
-        }
-        // Strip paired-end suffix for canonical matching
-        if id.hasSuffix("/1") || id.hasSuffix("/2") {
-            id = String(id.dropLast(2))
-        }
-        return id
-    }
-
     // MARK: - Provenance
 
     /// Records provenance for the extraction operation.
     private func recordProvenance(
         config: TaxonomyExtractionConfig,
+        resolvedTaxIds: Set<Int>,
+        outputURLs: [URL],
         extractedCount: Int,
         runtime: TimeInterval
-    ) async {
+    ) async throws {
         let recorder = ProvenanceRecorder.shared
         let runID = await recorder.beginRun(
             name: "Taxonomy Read Extraction",
-            parameters: [
-                "taxIds": .string(config.taxIds.sorted().map(String.init).joined(separator: ",")),
-                "includeChildren": .boolean(config.includeChildren),
-                "extractedReads": .integer(extractedCount),
-                "pairedEnd": .boolean(config.isPairedEnd),
-            ]
+            parameters: extractionProvenanceParameters(
+                config: config,
+                resolvedTaxIds: resolvedTaxIds,
+                outputURLs: outputURLs,
+                extractedCount: extractedCount
+            )
         )
 
-        let inputs = config.sourceFiles.map { url in
-            FileRecord(path: url.path, format: .fastq, role: .input)
+        var inputs = config.sourceFiles.map { url in
+            ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
         } + [
-            FileRecord(path: config.classificationOutput.path, format: .text, role: .input),
+            ProvenanceRecorder.fileRecord(url: config.classificationOutput, format: .text, role: .input),
         ]
-        let outputs = config.outputFiles.map { url in
-            FileRecord(path: url.path, format: .fastq, role: .output)
+        if let taxonomyReport = config.taxonomyReport {
+            inputs.append(ProvenanceRecorder.fileRecord(url: taxonomyReport, format: .text, role: .input))
+        }
+        let outputs = outputURLs.map { url in
+            ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .output)
         }
 
         await recorder.recordStep(
             runID: runID,
-            toolName: "lungfish-extract",
-            toolVersion: "1.0",
-            command: ["lungfish", "extract", "--source", config.sourceFile.path,
-                      "--output", config.outputFile.path],
+            toolName: "TaxonomyExtractionPipeline",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: extractionReplayCommand(config: config, resolvedTaxIds: resolvedTaxIds),
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
@@ -777,11 +530,97 @@ public actor TaxonomyExtractionPipeline {
 
         await recorder.completeRun(runID, status: .completed)
 
-        do {
-            let outputDir = config.outputFile.deletingLastPathComponent()
-            try await recorder.save(runID: runID, to: outputDir)
-        } catch {
-            logger.warning("Failed to save extraction provenance: \(error.localizedDescription, privacy: .public)")
+        let outputDir = outputURLs.first?.deletingLastPathComponent()
+            ?? config.outputFile.deletingLastPathComponent()
+        try await recorder.save(runID: runID, to: outputDir)
+        try await writeFocusedOutputSidecars(
+            recorder: recorder,
+            runID: runID,
+            outputs: outputs
+        )
+    }
+
+    private func writeFocusedOutputSidecars(
+        recorder: ProvenanceRecorder,
+        runID: UUID,
+        outputs: [FileRecord]
+    ) async throws {
+        guard let run = await recorder.getRun(runID) else {
+            throw ProvenanceError.runNotFound(runID)
         }
+
+        let envelope = run.canonicalEnvelope()
+        let writer = ProvenanceWriter()
+        for output in outputs {
+            let outputURL = URL(fileURLWithPath: output.path)
+            let focusedEnvelope = envelope.focusedOnOutput(ProvenanceFileDescriptor(fileRecord: output))
+            try writer.write(
+                focusedEnvelope,
+                toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)
+            )
+        }
+    }
+
+    private func extractionProvenanceParameters(
+        config: TaxonomyExtractionConfig,
+        resolvedTaxIds: Set<Int>,
+        outputURLs: [URL],
+        extractedCount: Int
+    ) -> [String: ParameterValue] {
+        var parameters: [String: ParameterValue] = [
+            "taxIds": .array(config.taxIds.sorted().map { .integer($0) }),
+            "resolvedTaxIds": .array(resolvedTaxIds.sorted().map { .integer($0) }),
+            "includeChildren": .boolean(config.includeChildren),
+            "keepReadPairs": .boolean(config.keepReadPairs),
+            "extractedReads": .integer(extractedCount),
+            "pairedEnd": .boolean(config.isPairedEnd),
+            "sourceFiles": .array(config.sourceFiles.map { .string($0.path) }),
+            "requestedOutputFiles": .array(config.outputFiles.map { .string($0.path) }),
+            "actualOutputFiles": .array(outputURLs.map { .string($0.path) }),
+            "classificationOutput": .string(config.classificationOutput.path),
+        ]
+        if let taxonomyReport = config.taxonomyReport {
+            parameters["taxonomyReport"] = .string(taxonomyReport.path)
+        }
+        return parameters
+    }
+
+    private func extractionReplayCommand(
+        config: TaxonomyExtractionConfig,
+        resolvedTaxIds: Set<Int>
+    ) -> [String] {
+        // Legacy CLI replay for taxonomy-ID extraction. The supported
+        // `extract reads --by-id` path needs a materialized read-ID file; until
+        // this workflow writes one, provenance identifies the actor above.
+        let replayTaxIds = config.includeChildren && config.taxonomyReport == nil
+            ? resolvedTaxIds
+            : config.taxIds
+        var command = [
+            CLICommandIdentity.executableName,
+            "conda",
+            "extract",
+            "--kraken-output",
+            config.classificationOutput.path,
+        ]
+        for sourceFile in config.sourceFiles {
+            command.append(contentsOf: ["--source", sourceFile.path])
+        }
+        command.append(contentsOf: [
+            "--taxid",
+            replayTaxIds.sorted().map(String.init).joined(separator: ","),
+        ])
+        for outputFile in config.outputFiles {
+            command.append(contentsOf: ["--output", outputFile.path])
+        }
+        if config.includeChildren {
+            command.append("--include-children")
+            if let taxonomyReport = config.taxonomyReport {
+                command.append(contentsOf: ["--kreport", taxonomyReport.path])
+            }
+        }
+        if !config.keepReadPairs {
+            command.append("--no-read-pairs")
+        }
+        return command
     }
 }

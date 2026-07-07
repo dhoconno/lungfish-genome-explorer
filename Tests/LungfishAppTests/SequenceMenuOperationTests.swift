@@ -42,6 +42,46 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(fastqTitles.contains("Translate\u{2026}"))
     }
 
+    func testFindPreviousKeepsStandardShortcutAndGoToGeneUsesNonconflictingShortcut() throws {
+        _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let editMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Edit" }?.submenu)
+        let findMenu = try XCTUnwrap(editMenu.items.first { $0.title == "Find" }?.submenu)
+        let sequenceMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Sequence" }?.submenu)
+
+        let findPrevious = try XCTUnwrap(findMenu.items.first { $0.title == "Find Previous" })
+        XCTAssertEqual(findPrevious.keyEquivalent, "g")
+        XCTAssertEqual(findPrevious.keyEquivalentModifierMask.intersection([.command, .shift, .option, .control]), [.command, .shift])
+        XCTAssertEqual(findPrevious.tag, NSTextFinder.Action.previousMatch.rawValue)
+
+        let goToGene = try XCTUnwrap(sequenceMenu.items.first { $0.title == "Go to Gene\u{2026}" })
+        XCTAssertEqual(goToGene.keyEquivalent, "g")
+        XCTAssertEqual(goToGene.keyEquivalentModifierMask.intersection([.command, .shift, .option, .control]), [.command, .option])
+    }
+
+    func testSequenceNavigationMenuValidationMatchesNavigationPrerequisites() {
+        let appDelegate = AppDelegate()
+        XCTAssertFalse(appDelegate.canNavigateToPosition(viewerController: nil))
+        XCTAssertFalse(appDelegate.canNavigateToGene(viewerController: nil))
+
+        let viewerController = ViewerViewController()
+        XCTAssertFalse(appDelegate.canNavigateToPosition(viewerController: viewerController))
+        XCTAssertFalse(appDelegate.canNavigateToGene(viewerController: viewerController))
+
+        viewerController.referenceFrame = ReferenceFrame(
+            chromosome: "chr1",
+            start: 0,
+            end: 10,
+            pixelWidth: 800,
+            sequenceLength: 100
+        )
+        XCTAssertTrue(appDelegate.canNavigateToPosition(viewerController: viewerController))
+        XCTAssertFalse(appDelegate.canNavigateToGene(viewerController: viewerController))
+
+        viewerController.annotationSearchIndex = AnnotationSearchIndex()
+        XCTAssertTrue(appDelegate.canNavigateToGene(viewerController: viewerController))
+    }
+
     func testORFAnnotationCommandArgumentsUseCLIBackedSequenceWorkflow() {
         let bundleURL = URL(fileURLWithPath: "/Project/Reference Sequences/example.lungfishref", isDirectory: true)
         let request = SequenceAnnotationOperationRequest(
@@ -224,6 +264,48 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertEqual(input.records, [">MN908947_4_9\nCCCGGG\n"])
     }
 
+    func testVisibleRegionFASTAOperationAvailabilityRequiresVisibleGenomicsMode() throws {
+        let viewerController = ViewerViewController()
+        viewerController.loadView()
+        viewerController.viewerView.setSequence(try Sequence(name: "seq1", alphabet: .dna, bases: "AACCGGTT"))
+
+        viewerController.contentMode = .genomics
+        viewerController.viewerView.isHidden = false
+        XCTAssertTrue(viewerController.viewerView.canRunSelectedSequenceFASTAOperation())
+
+        viewerController.contentMode = .fastq
+        viewerController.viewerView.isHidden = true
+        XCTAssertFalse(viewerController.viewerView.canRunSelectedSequenceFASTAOperation())
+
+        viewerController.contentMode = .genomics
+        viewerController.viewerView.isHidden = true
+        XCTAssertFalse(viewerController.viewerView.canRunSelectedSequenceFASTAOperation())
+    }
+
+    func testFASTACollectionDrillInRestoresVisibleSequenceOperationAvailability() throws {
+        let sequence = try Sequence(name: "seq1", alphabet: .dna, bases: "AACCGGTT")
+        let viewerController = ViewerViewController()
+        viewerController.loadView()
+        viewerController.contentMode = .fastq
+
+        viewerController.displayFASTACollection(
+            sequences: [sequence],
+            annotations: [],
+            sourceNames: [:]
+        )
+        XCTAssertEqual(viewerController.contentMode, .genomics)
+        XCTAssertFalse(viewerController.viewerView.canRunSelectedSequenceFASTAOperation())
+
+        let collectionController = try XCTUnwrap(
+            viewerController.children.compactMap { $0 as? FASTACollectionViewController }.first
+        )
+        collectionController.onOpenSequence?(sequence, [])
+
+        XCTAssertEqual(viewerController.contentMode, .genomics)
+        XCTAssertFalse(viewerController.viewerView.isHidden)
+        XCTAssertTrue(viewerController.viewerView.canRunSelectedSequenceFASTAOperation())
+    }
+
     func testGoToGenePrefersExactGeneNameOverSubstringMatches() {
         let appDelegate = AppDelegate()
         let results = [
@@ -310,12 +392,25 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertEqual(sequenceName, "MN908947")
     }
 
-    func testSequenceTransformMenuItemsReuseFASTQFASTAOperationsDialog() throws {
+    func testSequenceTransformMenuItemsSeparateVisibleRegionAndDatasetOperations() throws {
         let appDelegateSource = combinedAppDelegateSource()
+        let mainMenuSource = try String(
+            contentsOf: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("Sources/LungfishApp/App/MainMenu.swift"),
+            encoding: .utf8
+        )
         let sequenceViewerSource = combinedSequenceViewerSource()
 
         XCTAssertTrue(appDelegateSource.contains("viewerView.runSelectedSequenceFASTAOperation(toolID: .reverseComplement)"))
         XCTAssertTrue(appDelegateSource.contains("viewerView.runSelectedSequenceFASTAOperation(toolID: .translate)"))
+        XCTAssertTrue(appDelegateSource.contains("menuItem.action == #selector(reverseComplement(_:))"))
+        XCTAssertTrue(appDelegateSource.contains("menuItem.action == #selector(translate(_:))"))
+        XCTAssertTrue(sequenceViewerSource.contains("func canRunSelectedSequenceFASTAOperation() -> Bool"))
+        XCTAssertTrue(sequenceViewerSource.contains("viewController?.contentMode == .genomics, !isHidden"))
+        XCTAssertTrue(appDelegateSource.contains("showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .reverseComplement)"))
+        XCTAssertTrue(appDelegateSource.contains("showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .translate)"))
+        XCTAssertTrue(mainMenuSource.contains("#selector(ToolsMenuActions.showFASTQReverseComplementOperation(_:))"))
+        XCTAssertTrue(mainMenuSource.contains("#selector(ToolsMenuActions.showFASTQTranslateOperation(_:))"))
         XCTAssertTrue(sequenceViewerSource.contains("presentFASTAOperationDialog("))
     }
 

@@ -3,10 +3,41 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import SQLite3
 import Testing
 import LungfishIO
 
 struct NvdDatabaseTests {
+    private let transientDestructor = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+    private final class PermissionFlip: @unchecked Sendable {
+        private let directory: URL
+        private let lock = NSLock()
+        private var flipped = false
+
+        init(directory: URL) {
+            self.directory = directory
+        }
+
+        func flipIfFinalizing(message: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard message == "Finalizing...", !flipped else { return }
+            try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+            flipped = true
+        }
+
+        func restoreIfNeeded() {
+            lock.lock()
+            let shouldRestore = flipped
+            flipped = false
+            lock.unlock()
+
+            if shouldRestore {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+            }
+        }
+    }
 
     // MARK: - Test Data
 
@@ -214,6 +245,50 @@ struct NvdDatabaseTests {
             .appendingPathComponent("nvd_test_\(UUID().uuidString).sqlite")
     }
 
+    private func buildStateValue(at url: URL) throws -> String? {
+        var db: OpaquePointer?
+        #expect(sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT value FROM lungfish_database_state WHERE key = ?",
+            -1,
+            &stmt,
+            nil
+        ) == SQLITE_OK else {
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+        _ = "build_state".withCString { keyPointer in
+            sqlite3_bind_text(stmt, 1, keyPointer, -1, transientDestructor)
+        }
+        guard sqlite3_step(stmt) == SQLITE_ROW, let value = sqlite3_column_text(stmt, 0) else {
+            return nil
+        }
+        return String(cString: value)
+    }
+
+    private func database(at url: URL, hasColumn column: String, in table: String) throws -> Bool {
+        var db: OpaquePointer?
+        #expect(sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        let sql = "PRAGMA table_info(\(table))"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let name = sqlite3_column_text(stmt, 1) else { continue }
+            if String(cString: name) == column { return true }
+        }
+        return false
+    }
+
     // MARK: - Tests
 
     @Test
@@ -227,6 +302,135 @@ struct NvdDatabaseTests {
         let db = try NvdDatabase.create(at: url, hits: hits, samples: makeSyntheticSamples())
         let count = try db.totalHitCount()
         #expect(count == 6, "All 6 hits should be in the database")
+        #expect(try buildStateValue(at: url) == "complete")
+    }
+
+    @Test
+    func openRejectsIncompleteBuildState() throws {
+        let url = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var db: OpaquePointer?
+        #expect(sqlite3_open(url.path, &db) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+        #expect(sqlite3_exec(db, """
+            CREATE TABLE lungfish_database_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO lungfish_database_state VALUES ('build_state', 'building');
+            """, nil, nil, nil) == SQLITE_OK)
+
+        do {
+            _ = try NvdDatabase(at: url)
+            Issue.record("Expected incomplete build_state to be rejected")
+        } catch NvdDatabaseError.openFailed(let message) {
+            #expect(message.contains("build_state"))
+            #expect(message.contains("building"))
+        } catch {
+            Issue.record("Expected NvdDatabaseError.openFailed, got \(error)")
+        }
+    }
+
+    @Test
+    func failedCreatePreservesExistingDatabase() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nvd-preserve-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let url = dir.appendingPathComponent("test.sqlite")
+        let originalHit = NvdBlastHit(
+            experiment: "100",
+            blastTask: "megablast",
+            sampleId: "original",
+            qseqid: "NODE_original",
+            qlen: 100,
+            sseqid: "NC_ORIGINAL",
+            stitle: "Original",
+            taxRank: "species:Original",
+            length: 100,
+            pident: 99,
+            evalue: 0,
+            bitscore: 100,
+            sscinames: "Original",
+            staxids: "1",
+            blastDbVersion: "v1",
+            snakemakeRunId: "run",
+            mappedReads: 10,
+            totalReads: 100,
+            statDbVersion: "stat",
+            adjustedTaxid: "1",
+            adjustmentMethod: "dominant",
+            adjustedTaxidName: "Original",
+            adjustedTaxidRank: "species",
+            hitRank: 1,
+            readsPerBillion: 100_000_000
+        )
+        _ = try NvdDatabase.create(
+            at: url,
+            hits: [originalHit],
+            samples: [NvdSampleMetadata(
+                sampleId: "original",
+                bamPath: "original.bam",
+                fastaPath: "original.fasta",
+                totalReads: 100,
+                contigCount: 1,
+                hitCount: 1
+            )]
+        )
+
+        let permissionFlip = PermissionFlip(directory: dir)
+        defer { permissionFlip.restoreIfNeeded() }
+        let replacementHit = NvdBlastHit(
+            experiment: "200",
+            blastTask: "megablast",
+            sampleId: "replacement",
+            qseqid: "NODE_replacement",
+            qlen: 100,
+            sseqid: "NC_REPLACEMENT",
+            stitle: "Replacement",
+            taxRank: "species:Replacement",
+            length: 100,
+            pident: 99,
+            evalue: 0,
+            bitscore: 100,
+            sscinames: "Replacement",
+            staxids: "2",
+            blastDbVersion: "v1",
+            snakemakeRunId: "run",
+            mappedReads: 10,
+            totalReads: 100,
+            statDbVersion: "stat",
+            adjustedTaxid: "2",
+            adjustmentMethod: "dominant",
+            adjustedTaxidName: "Replacement",
+            adjustedTaxidRank: "species",
+            hitRank: 1,
+            readsPerBillion: 100_000_000
+        )
+
+        #expect(throws: Error.self) {
+            _ = try NvdDatabase.create(
+                at: url,
+                hits: [replacementHit],
+                samples: [NvdSampleMetadata(
+                    sampleId: "replacement",
+                    bamPath: "replacement.bam",
+                    fastaPath: "replacement.fasta",
+                    totalReads: 100,
+                    contigCount: 1,
+                    hitCount: 1
+                )]
+            ) { _, message in
+                permissionFlip.flipIfFinalizing(message: message)
+            }
+        }
+
+        permissionFlip.restoreIfNeeded()
+
+        let reopened = try NvdDatabase(at: url)
+        let samples = try reopened.allSamples()
+        #expect(samples.map(\.sampleId) == ["original"])
+        #expect(try reopened.totalHitCount(samples: ["original"]) == 1)
+        #expect(try reopened.totalHitCount(samples: ["replacement"]) == 0)
     }
 
     @Test
@@ -526,6 +730,46 @@ struct NvdDatabaseTests {
     }
 
     @Test
+    func openingLegacyDatabaseWithoutReadinessMetadataFailsWithoutMutating() throws {
+        let url = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try createLegacyDatabaseWithoutPostReleaseColumns(at: url)
+
+        #expect(try buildStateValue(at: url) == nil)
+        #expect(try !database(at: url, hasColumn: "unique_reads", in: "blast_hits"))
+        #expect(try !database(at: url, hasColumn: "bam_index_path", in: "samples"))
+
+        do {
+            _ = try NvdDatabase(at: url)
+            Issue.record("Expected legacy NVD open to fail without mutating")
+        } catch NvdDatabaseError.openFailed(let message) {
+            #expect(message.contains("lungfish_database_state") || message.contains("build_state"))
+        } catch {
+            Issue.record("Expected NvdDatabaseError.openFailed, got \(error)")
+        }
+
+        #expect(try buildStateValue(at: url) == nil)
+        #expect(try !database(at: url, hasColumn: "unique_reads", in: "blast_hits"))
+        #expect(try !database(at: url, hasColumn: "bam_index_path", in: "samples"))
+    }
+
+    @Test
+    func openingMalformedLegacyDatabaseFailsWithoutAttemptingMigration() throws {
+        let url = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try createDatabaseMissingSamplesTable(at: url)
+
+        do {
+            _ = try NvdDatabase(at: url)
+            Issue.record("Expected malformed legacy NVD open to fail")
+        } catch NvdDatabaseError.openFailed(let message) {
+            #expect(message.contains("lungfish_database_state") || message.contains("build_state"))
+        } catch {
+            Issue.record("Expected NvdDatabaseError.openFailed, got \(error)")
+        }
+    }
+
+    @Test
     func reopensDatabaseReadOnly() throws {
         let url = temporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -548,5 +792,119 @@ struct NvdDatabaseTests {
 
         let best = try readDb.bestHits(forSamples: ["sample_A", "sample_B"])
         #expect(best.count == 3)
+    }
+
+    private func createLegacyDatabaseWithoutPostReleaseColumns(at url: URL) throws {
+        var db: OpaquePointer?
+        let rc = sqlite3_open_v2(
+            url.path,
+            &db,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+        guard rc == SQLITE_OK, let db else {
+            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
+            sqlite3_close(db)
+            throw TestSQLiteError(message: msg)
+        }
+        defer { sqlite3_close(db) }
+
+        try execute(db, """
+        CREATE TABLE blast_hits (
+            rowid INTEGER PRIMARY KEY,
+            experiment TEXT NOT NULL,
+            blast_task TEXT NOT NULL,
+            sample_id TEXT NOT NULL,
+            qseqid TEXT NOT NULL,
+            qlen INTEGER NOT NULL,
+            sseqid TEXT NOT NULL,
+            stitle TEXT NOT NULL,
+            tax_rank TEXT NOT NULL,
+            length INTEGER NOT NULL,
+            pident REAL NOT NULL,
+            evalue REAL NOT NULL,
+            bitscore REAL NOT NULL,
+            sscinames TEXT NOT NULL,
+            staxids TEXT NOT NULL,
+            blast_db_version TEXT NOT NULL,
+            snakemake_run_id TEXT NOT NULL,
+            mapped_reads INTEGER NOT NULL,
+            total_reads INTEGER NOT NULL,
+            stat_db_version TEXT NOT NULL,
+            adjusted_taxid INTEGER NOT NULL,
+            adjustment_method TEXT NOT NULL,
+            adjusted_taxid_name TEXT NOT NULL,
+            adjusted_taxid_rank TEXT NOT NULL,
+            hit_rank INTEGER NOT NULL,
+            reads_per_billion REAL NOT NULL
+        );
+
+        CREATE TABLE samples (
+            sample_id TEXT PRIMARY KEY,
+            bam_path TEXT NOT NULL,
+            fasta_path TEXT NOT NULL,
+            total_reads INTEGER NOT NULL,
+            contig_count INTEGER NOT NULL,
+            hit_count INTEGER NOT NULL
+        );
+
+        INSERT INTO samples (
+            sample_id, bam_path, fasta_path, total_reads, contig_count, hit_count
+        ) VALUES (
+            'sample_A', 'samples/sample_A/sample_A.sorted.bam',
+            'samples/sample_A/sample_A_contigs.fasta', 100000, 1, 1
+        );
+
+        INSERT INTO blast_hits (
+            experiment, blast_task, sample_id, qseqid, qlen,
+            sseqid, stitle, tax_rank, length, pident, evalue, bitscore,
+            sscinames, staxids, blast_db_version, snakemake_run_id,
+            mapped_reads, total_reads, stat_db_version,
+            adjusted_taxid, adjustment_method, adjusted_taxid_name,
+            adjusted_taxid_rank, hit_rank, reads_per_billion
+        ) VALUES (
+            '100', 'megablast', 'sample_A', 'NODE_1_length_500_cov_10.0', 500,
+            'NC_045512.2', 'Severe acute respiratory syndrome coronavirus 2 isolate Wuhan-Hu-1',
+            'species:SARS-CoV-2', 480, 99.6, 0.0, 850.0,
+            'Severe acute respiratory syndrome coronavirus 2', '2697049', 'v5.0', 'run_001',
+            1000, 100000, 'stat_v1',
+            2697049, 'dominant', 'SARS-CoV-2', 'species', 1, 10000000.0
+        );
+        """)
+    }
+
+    private func createDatabaseMissingSamplesTable(at url: URL) throws {
+        var db: OpaquePointer?
+        let rc = sqlite3_open_v2(
+            url.path,
+            &db,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+        guard rc == SQLITE_OK, let db else {
+            let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
+            sqlite3_close(db)
+            throw TestSQLiteError(message: msg)
+        }
+        defer { sqlite3_close(db) }
+
+        try execute(db, """
+        CREATE TABLE blast_hits (
+            unique_reads INTEGER
+        );
+        """)
+    }
+
+    private func execute(_ db: OpaquePointer, _ sql: String) throws {
+        var errMsg: UnsafeMutablePointer<CChar>?
+        guard sqlite3_exec(db, sql, nil, nil, &errMsg) == SQLITE_OK else {
+            let msg = errMsg.map { String(cString: $0) } ?? String(cString: sqlite3_errmsg(db))
+            sqlite3_free(errMsg)
+            throw TestSQLiteError(message: msg)
+        }
+    }
+
+    private struct TestSQLiteError: Error {
+        let message: String
     }
 }

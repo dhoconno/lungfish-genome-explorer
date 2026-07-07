@@ -10,7 +10,7 @@
 //
 // ### NaoMgsResultViewController
 //   - ResultType = NaoMgsResult
-//   - configure(result:) already exists — satisfied automatically
+//   - configure(result:) adapts parser output into cached viewport rows
 //   - summaryBarView returns the NaoMgsSummaryBar subview
 //   - exportResults(to:format:) supports .tsv only; other formats throw
 
@@ -24,14 +24,11 @@ import LungfishKit
 
 private enum NaoMgsExportError: LocalizedError {
     case unsupportedFormat(ResultExportFormat)
-    case noData
 
     var errorDescription: String? {
         switch self {
         case .unsupportedFormat(let fmt):
             return "Export format '\(fmt.rawValue)' is not supported for this result type."
-        case .noData:
-            return "No result data is loaded; cannot export."
         }
     }
 }
@@ -40,9 +37,9 @@ private enum NaoMgsExportError: LocalizedError {
 
 /// Adds `ResultViewportController` conformance to ``NaoMgsResultViewController``.
 ///
-/// `NaoMgsResultViewController` already implements `configure(result:NaoMgsResult)`,
-/// so only the three remaining protocol requirements are synthesised here:
-/// `summaryBarView`, `exportResults(to:format:)`, and `resultTypeName`.
+/// Parser-backed ``NaoMgsResult`` values are displayed from cached rows. Imported
+/// bundles should still use `configure(database:manifest:bundleURL:)` so detail
+/// panes can query the SQLite database.
 extension NaoMgsResultViewController: ResultViewportController {
 
     public typealias ResultType = NaoMgsResult
@@ -66,7 +63,7 @@ extension NaoMgsResultViewController: ResultViewportController {
     /// Exports NAO-MGS results to `url` in the requested format.
     ///
     /// Only `.tsv` is supported; all other formats throw an unsupported-format error.
-    /// Uses the internal `exportResults()` method which writes from `displayedRows`.
+    /// Writes directly to the supplied URL from the currently displayed rows.
     ///
     /// - Parameters:
     ///   - url: Destination file URL. Written atomically.
@@ -76,8 +73,7 @@ extension NaoMgsResultViewController: ResultViewportController {
     public func exportResults(to url: URL, format: ResultExportFormat) throws {
         switch format {
         case .tsv:
-            // Delegate to the VC's own export which uses displayedRows from the database.
-            exportResults()
+            try writeSummaryTSV(to: url)
 
         case .csv, .json, .fasta:
             throw NaoMgsExportError.unsupportedFormat(format)

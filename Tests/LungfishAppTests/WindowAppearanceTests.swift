@@ -80,6 +80,7 @@ final class WindowAppearanceTests: XCTestCase {
             "Sources/LungfishApp/Views/Viewer/AnnotationPopoverView.swift",
             "Sources/LungfishApp/Views/Viewer/FASTAAnnotationMapCell.swift",
             "Sources/LungfishApp/Views/Viewer/FASTQChartViews.swift",
+            // Data-color encodings: nucleotide residue colors and demultiplex barcode swatches.
             "Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift",
             "Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift",
             "Sources/LungfishApp/Views/Viewer/ReadTrackRenderer.swift",

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import SQLite3
 @testable import LungfishIO
 
 final class EsVirituDatabaseTests: XCTestCase {
@@ -11,6 +12,29 @@ final class EsVirituDatabaseTests: XCTestCase {
             .appendingPathComponent("EsVirituDatabaseTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+
+    private func buildStateValue(at url: URL) throws -> String? {
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil), SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT value FROM lungfish_database_state WHERE key = 'build_state'",
+            -1,
+            &stmt,
+            nil
+        ) == SQLITE_OK else {
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW, let value = sqlite3_column_text(stmt, 0) else {
+            return nil
+        }
+        return String(cString: value)
     }
 
     func testCreateAndOpen() throws {
@@ -22,6 +46,99 @@ final class EsVirituDatabaseTests: XCTestCase {
                                 assembly: "GCF_009858895.2", readCount: 1000)]
         let db = try EsVirituDatabase.create(at: dbURL, rows: rows, metadata: ["tool": "test"])
         XCTAssertEqual(try db.fetchRows(samples: ["s1"]).count, 1)
+        XCTAssertEqual(try db.fetchMetadata()["tool"], "test")
+        XCTAssertNil(try db.fetchMetadata()["build_state"])
+        XCTAssertEqual(try buildStateValue(at: dbURL), "complete")
+    }
+
+    func testOpenRejectsIncompleteBuildState() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("building.sqlite")
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(dbURL.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(sqlite3_exec(db, """
+            CREATE TABLE lungfish_database_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO lungfish_database_state VALUES ('build_state', 'building');
+            """, nil, nil, nil), SQLITE_OK)
+
+        XCTAssertThrowsError(try EsVirituDatabase(at: dbURL)) { error in
+            XCTAssertTrue(String(describing: error).contains("build_state"))
+            XCTAssertTrue(String(describing: error).contains("building"))
+        }
+    }
+
+    func testOpenAcceptsLegacyCompleteDatabaseWithoutBuildState() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("legacy.sqlite")
+
+        _ = try EsVirituDatabase.create(
+            at: dbURL,
+            rows: [makeTestRow(
+                sample: "legacy",
+                virusName: "Legacy",
+                accession: "ACC_LEGACY",
+                assembly: "ASM_LEGACY",
+                readCount: 10
+            )],
+            metadata: ["source": "legacy"]
+        )
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(sqlite3_exec(db, "DROP TABLE lungfish_database_state", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+        db = nil
+
+        let reopened = try EsVirituDatabase(at: dbURL)
+        let rows = try reopened.fetchRows(samples: ["legacy"])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.virusName, "Legacy")
+        XCTAssertNil(try buildStateValue(at: dbURL))
+    }
+
+    func testFailedCreatePreservesExistingDatabase() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+
+        _ = try EsVirituDatabase.create(
+            at: dbURL,
+            rows: [makeTestRow(
+                sample: "original",
+                virusName: "Original",
+                accession: "ACC_ORIG",
+                assembly: "ASM_ORIG",
+                readCount: 10
+            )],
+            metadata: [:]
+        )
+
+        let duplicates = [
+            makeTestRow(
+                sample: "replacement",
+                virusName: "Virus A",
+                accession: "ACC_DUP",
+                assembly: "ASM_DUP",
+                readCount: 10
+            ),
+            makeTestRow(
+                sample: "replacement",
+                virusName: "Virus B",
+                accession: "ACC_DUP",
+                assembly: "ASM_DUP",
+                readCount: 20
+            ),
+        ]
+        XCTAssertThrowsError(try EsVirituDatabase.create(at: dbURL, rows: duplicates, metadata: [:]))
+
+        let reopened = try EsVirituDatabase(at: dbURL)
+        let rows = try reopened.fetchRows(samples: ["original"])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.virusName, "Original")
     }
 
     func testFetchRowsFiltersBySample() throws {

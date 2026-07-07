@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.io, category: "ReferenceSequenceFolder")
@@ -120,7 +121,8 @@ public enum ReferenceSequenceFolder {
             guard let data = try? Data(contentsOf: manifestURL),
                   let manifest = try? JSONDecoder.iso8601Decoder.decode(
                       ReferenceSequenceManifest.self, from: data
-                  ) else { continue }
+                  ),
+                  fastaURL(in: url) != nil else { continue }
             results.append((url, manifest))
         }
         return results.sorted { $0.manifest.name < $1.manifest.name }
@@ -132,8 +134,8 @@ public enum ReferenceSequenceFolder {
         guard let data = try? Data(contentsOf: manifestURL),
               let manifest = try? JSONDecoder.iso8601Decoder.decode(
                   ReferenceSequenceManifest.self, from: data
-              ) else { return nil }
-        let fastaURL = bundleURL.appendingPathComponent(manifest.fastaFilename)
+              ),
+              let fastaURL = manifest.resolvedFastaURL(in: bundleURL) else { return nil }
         return FileManager.default.fileExists(atPath: fastaURL.path) ? fastaURL : nil
     }
 
@@ -151,6 +153,8 @@ public enum ReferenceSequenceFolder {
 /// This is simpler than the full `BundleManifest` used by genome reference bundles,
 /// since these are just FASTA files for orientation/mapping (not full genome bundles).
 public struct ReferenceSequenceManifest: Codable, Sendable {
+    private static let fallbackFastaFilename = "sequence.fasta"
+
     public let name: String
     public let createdAt: Date
     public let sourceFilename: String
@@ -161,6 +165,22 @@ public struct ReferenceSequenceManifest: Codable, Sendable {
         self.createdAt = createdAt
         self.sourceFilename = sourceFilename
         self.fastaFilename = fastaFilename
+    }
+
+    /// Resolves the FASTA member path without allowing absolute paths,
+    /// traversal, reserved metadata targets, or symlink escapes.
+    public func resolvedFastaURL(in bundleURL: URL) -> URL? {
+        try? BundleManifest.validatedBundleMemberURL(
+            for: fastaFilename,
+            in: bundleURL,
+            field: "fastaFilename"
+        )
+    }
+
+    /// A safe in-bundle fallback for legacy non-optional APIs when the manifest
+    /// carries an invalid FASTA path.
+    public func safeFallbackFastaURL(in bundleURL: URL) -> URL {
+        bundleURL.appendingPathComponent(Self.fallbackFastaFilename).standardizedFileURL
     }
 }
 

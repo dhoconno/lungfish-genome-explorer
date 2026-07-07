@@ -24,9 +24,8 @@ struct AssemblyRobot {
         )
         options.backendMode = backendMode
         options.eventLogPath = eventLogURL
-        let workspaceCLI = LungfishFixtureCatalog.repoRoot.appendingPathComponent(".build/debug/lungfish-cli")
-        if FileManager.default.isExecutableFile(atPath: workspaceCLI.path) {
-            options.cliPath = workspaceCLI
+        if let cliBinaryURL = LungfishFixtureCatalog.cliBinaryURL {
+            options.cliPath = cliBinaryURL
         }
         options.apply(to: app)
         app.launchEnvironment["LUNGFISH_DEBUG_BYPASS_REQUIRED_SETUP"] = "1"

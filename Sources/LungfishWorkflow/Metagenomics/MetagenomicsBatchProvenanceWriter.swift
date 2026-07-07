@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public enum MetagenomicsBatchProvenanceWriter {
     @discardableResult
-    public static func ensureEsVirituBatchProvenanceIfPossible(batchRoot: URL) -> URL? {
+    public static func ensureEsVirituBatchProvenanceIfPossible(batchRoot: URL) throws -> URL? {
         let root = batchRoot.standardizedFileURL
         guard isDirectory(root),
               root.lastPathComponent.hasPrefix("esviritu") else {
@@ -29,20 +30,20 @@ public enum MetagenomicsBatchProvenanceWriter {
                 return nil
             }
             manifest = inferred
-            try? MetagenomicsBatchResultStore.saveEsViritu(inferred, to: root)
+            try MetagenomicsBatchResultStore.saveEsViritu(inferred, to: root)
         }
 
-        return try? writeEsVirituBatchProvenance(
+        return try writeEsVirituBatchProvenance(
             batchRoot: root,
             manifest: manifest,
             summaryURL: summaryURL,
             sqliteURL: root.appendingPathComponent("esviritu.sqlite"),
-            command: ["lungfish", "esviritu", "detect"]
+            command: [CLICommandIdentity.executableName, "esviritu", "detect"]
         )
     }
 
     @discardableResult
-    public static func ensureTaxTriageProvenanceIfPossible(resultDirectory: URL) -> URL? {
+    public static func ensureTaxTriageProvenanceIfPossible(resultDirectory: URL) throws -> URL? {
         let root = resultDirectory.standardizedFileURL
         guard isDirectory(root),
               let result = try? TaxTriageResult.load(from: root) else {
@@ -64,14 +65,14 @@ public enum MetagenomicsBatchProvenanceWriter {
             if !missingOutput && !sqliteNeedsIndexStep {
                 return sidecarURL
             }
-            return try? writeAugmentedTaxTriageProvenance(
+            return try writeAugmentedTaxTriageProvenance(
                 existing: existing,
                 result: result,
                 sqliteURL: sqliteURL
             )
         }
 
-        return try? writeTaxTriageProvenance(
+        return try writeTaxTriageProvenance(
             result: result,
             sqliteURL: sqliteURL,
             command: taxTriageCommand(for: result.config)

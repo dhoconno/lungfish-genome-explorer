@@ -5,6 +5,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "VCFAutoIngestor")
@@ -60,6 +61,7 @@ public enum VCFAutoIngestor {
             throw CocoaError(.fileNoSuchFile)
         }
 
+        let startedAt = Date()
         logger.info("ingest: Starting auto-ingestion of \(vcfURLs.count) VCF file(s)")
 
         // Phase 1: Probe files to gather reference hints and skip unusable empties.
@@ -233,12 +235,15 @@ public enum VCFAutoIngestor {
             ? "Imported from \(firstImportURL.lastPathComponent)"
             : "Merged from \(fileCount) VCF files"
 
+        // `databasePath` is authoritative for auto-ingested VCF bundles. The
+        // BCF fields are legacy manifest compatibility sentinels and must not be
+        // interpreted as generated BCF/CSI artifacts.
         let variantTrack = VariantTrackInfo(
             id: "vcf-\(firstImportURL.deletingPathExtension().lastPathComponent)",
             name: trackName,
             description: trackDescription,
-            path: "variants/variants.bcf",  // placeholder — SQLite-only track
-            indexPath: "variants/variants.bcf.csi",  // placeholder
+            path: "variants/variants.bcf",
+            indexPath: "variants/variants.bcf.csi",
             databasePath: "variants/\(dbFilename)",
             variantType: .mixed,
             variantCount: totalVariantCount,
@@ -275,6 +280,31 @@ public enum VCFAutoIngestor {
 
         try manifest.save(to: bundleURL)
         logger.info("ingest: Manifest written to \(bundleURL.lastPathComponent, privacy: .public)")
+
+        if shouldCancel?() == true {
+            throw CancellationError()
+        }
+
+        progressHandler?(0.96, "Writing provenance\u{2026}")
+        try writeIngestProvenance(
+            selectedVCFURLs: vcfURLs,
+            importedVCFURLs: importURLs,
+            ignoredEmptyNoReferenceCount: ignoredEmptyNoReference.count,
+            outputDirectory: outputDirectory,
+            bundleURL: bundleURL,
+            bundleName: bundleName,
+            manifest: manifest,
+            databaseURL: dbURL,
+            manifestURL: bundleURL.appendingPathComponent(BundleManifest.filename),
+            defaultPloidy: defaultPloidy,
+            replaceExistingBundle: replaceExistingBundle,
+            preferredBundleName: preferredBundleName,
+            inferredReference: inferredRef,
+            ncbiAccessions: accessions,
+            variantCount: totalVariantCount,
+            startedAt: startedAt,
+            completedAt: Date()
+        )
 
         progressHandler?(1.0, "Complete")
         bundleComplete = true
@@ -383,5 +413,147 @@ public enum VCFAutoIngestor {
             .replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ":", with: "-")
         return cleaned.isEmpty ? "VCF Variants" : cleaned
+    }
+
+    private static func writeIngestProvenance(
+        selectedVCFURLs: [URL],
+        importedVCFURLs: [URL],
+        ignoredEmptyNoReferenceCount: Int,
+        outputDirectory: URL,
+        bundleURL: URL,
+        bundleName: String,
+        manifest: BundleManifest,
+        databaseURL: URL,
+        manifestURL: URL,
+        defaultPloidy: String,
+        replaceExistingBundle: Bool,
+        preferredBundleName: String?,
+        inferredReference: ReferenceInference.Result,
+        ncbiAccessions: [String],
+        variantCount: Int,
+        startedAt: Date,
+        completedAt: Date
+    ) throws {
+        let appVersion = WorkflowRun.currentAppVersion
+        let argv = ingestProvenanceArgv(
+            vcfURLs: selectedVCFURLs,
+            outputDirectory: outputDirectory,
+            bundleName: bundleName,
+            replaceExistingBundle: replaceExistingBundle
+        )
+        let inputDescriptors = try selectedVCFURLs.map { url in
+            try ProvenanceFileDescriptor.file(
+                url: url,
+                format: variantFileFormat(for: url),
+                role: .input
+            )
+        }
+        let databaseOutput = try ProvenanceFileDescriptor.file(
+            url: databaseURL,
+            format: .unknown,
+            role: .output
+        )
+        let manifestOutput = try ProvenanceFileDescriptor.file(
+            url: manifestURL,
+            format: .json,
+            role: .output
+        )
+        let outputs = [databaseOutput, manifestOutput]
+        let step = ProvenanceStep(
+            toolName: "Lungfish.app",
+            toolVersion: appVersion,
+            argv: argv,
+            durableReplayArgv: argv,
+            inputs: inputDescriptors,
+            outputs: outputs,
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: nil,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        let envelope = ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: "lungfish app vcf auto-ingest",
+            workflowVersion: appVersion,
+            toolName: "Lungfish.app",
+            toolVersion: appVersion,
+            tool: ProvenanceToolIdentity(name: "Lungfish.app", version: appVersion, kind: "gui"),
+            argv: argv,
+            durableReplayArgv: argv,
+            options: ProvenanceOptions(
+                explicit: [
+                    "vcfPaths": .array(selectedVCFURLs.map { .file($0) }),
+                    "outputDirectory": .file(outputDirectory),
+                    "preferredBundleName": preferredBundleName.map(ParameterValue.string) ?? .null,
+                    "replaceExistingBundle": .boolean(replaceExistingBundle),
+                ],
+                defaults: [
+                    "parseGenotypes": .boolean(true),
+                    "importProfile": .string(VCFImportProfile.auto.rawValue),
+                    "defaultPloidy": .string(defaultPloidy),
+                ],
+                resolvedDefaults: [
+                    "referenceBundlePath": .file(bundleURL),
+                    "referenceBundleName": .string(bundleName),
+                    "referenceBundleIdentifier": .string(manifest.identifier),
+                    "variantDatabasePath": .file(databaseURL),
+                    "manifestPath": .file(manifestURL),
+                    "selectedVCFFileCount": .integer(selectedVCFURLs.count),
+                    "importedVCFFileCount": .integer(importedVCFURLs.count),
+                    "ignoredEmptyVCFFileCount": .integer(ignoredEmptyNoReferenceCount),
+                    "variantCount": .integer(variantCount),
+                    "inferredAssembly": inferredReference.assembly.map(ParameterValue.string) ?? .null,
+                    "inferredOrganism": inferredReference.organism.map(ParameterValue.string) ?? .null,
+                    "inferredAccession": inferredReference.accession.map(ParameterValue.string) ?? .null,
+                    "inferredReferenceConfidence": .string(String(describing: inferredReference.confidence)),
+                    "ncbiAccessions": .array(ncbiAccessions.map { .string($0) }),
+                    "legacyBCFManifestFieldsAreSentinels": .boolean(true),
+                ]
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            files: inputDescriptors + outputs,
+            output: databaseOutput,
+            outputs: outputs,
+            steps: [step],
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: 0,
+            stderr: nil
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+    }
+
+    private static func ingestProvenanceArgv(
+        vcfURLs: [URL],
+        outputDirectory: URL,
+        bundleName: String,
+        replaceExistingBundle: Bool
+    ) -> [String] {
+        let executableName = URL(fileURLWithPath: ProvenanceRuntimeIdentity.currentExecutablePath).lastPathComponent
+        var argv = [
+            executableName,
+            "--vcf-auto-ingest",
+        ]
+        for url in vcfURLs {
+            argv.append(contentsOf: ["--vcf-path", url.path])
+        }
+        argv.append(contentsOf: [
+            "--output-directory",
+            outputDirectory.path,
+            "--bundle-name",
+            bundleName,
+        ])
+        if replaceExistingBundle {
+            argv.append("--replace-existing-bundle")
+        }
+        return argv
+    }
+
+    private static func variantFileFormat(for url: URL) -> FileFormat {
+        let lowercasedPath = url.path.lowercased()
+        if lowercasedPath.hasSuffix(".bcf") || lowercasedPath.hasSuffix(".bcf.gz") {
+            return .bcf
+        }
+        return .vcf
     }
 }

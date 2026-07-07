@@ -14,6 +14,7 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 /// Functional tests exercising CLI commands against real SARS-CoV-2 fixture files.
 ///
@@ -404,14 +405,14 @@ final class CLIFunctionalTests: XCTestCase {
         try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
 
         let command = try ImportCommand.VCFSubcommand.parse([
-            TestFixtures.sarscov2.vcf.path,
+            TestFixtures.sarscov2.vcfGz.path,
             "-o", projectDir.path,
             "-q",
         ])
         try await command.run()
 
         // Verify the VCF file was copied
-        let destURL = projectDir.appendingPathComponent("test.vcf")
+        let destURL = projectDir.appendingPathComponent("test.vcf.gz")
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: destURL.path),
             "VCF file should be copied to output directory"
@@ -420,6 +421,55 @@ final class CLIFunctionalTests: XCTestCase {
         // Verify the copy is non-empty
         let copiedData = try Data(contentsOf: destURL)
         XCTAssertGreaterThan(copiedData.count, 0, "Copied VCF should be non-empty")
+
+        let provenance = try assertImportProvenance(
+            projectDir: projectDir,
+            outputURL: destURL,
+            expectedWorkflowName: "lungfish import vcf",
+            expectedFormat: .vcf
+        )
+        XCTAssertEqual(provenance.options.explicit["inputFile"]?.stringValue, TestFixtures.sarscov2.vcfGz.path)
+        XCTAssertEqual(provenance.options.resolvedDefaults["outputFile"]?.stringValue, destURL.path)
+
+        let destTBI = projectDir.appendingPathComponent("test.vcf.gz.tbi")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: destTBI.path),
+            "VCF companion index should be copied to output directory"
+        )
+        XCTAssertTrue(
+            provenance.outputs.contains { $0.path == destTBI.path && $0.role == .index },
+            "VCF import provenance should include the copied companion index"
+        )
+        XCTAssertNotNil(
+            ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: destTBI)),
+            "VCF index should have focused provenance sidecar"
+        )
+    }
+
+    func testImportVCFRejectsMismatchedExistingDestination() async throws {
+        let projectDir = tempDirectory.appendingPathComponent("vcf-conflict-project")
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let staleDestination = projectDir.appendingPathComponent("test.vcf.gz")
+        try Data("not the fixture vcf".utf8).write(to: staleDestination)
+
+        let command = try ImportCommand.VCFSubcommand.parse([
+            TestFixtures.sarscov2.vcfGz.path,
+            "-o", projectDir.path,
+            "-q",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Importing over a mismatched existing VCF should throw")
+        } catch {
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath: projectDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+                ),
+                "Rejected VCF import should not write provenance for the stale destination"
+            )
+        }
     }
 
     // MARK: - Import BAM (file copy, samtools optional)
@@ -451,6 +501,61 @@ final class CLIFunctionalTests: XCTestCase {
         // BAM should start with gzip magic bytes
         XCTAssertEqual(copiedData[0], 0x1f, "Copied BAM should start with gzip magic byte 1")
         XCTAssertEqual(copiedData[1], 0x8b, "Copied BAM should start with gzip magic byte 2")
+
+        let destBAI = projectDir.appendingPathComponent("test.paired_end.sorted.bam.bai")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: destBAI.path),
+            "BAM companion index should be copied to output directory"
+        )
+
+        let provenance = try assertImportProvenance(
+            projectDir: projectDir,
+            outputURL: destBAM,
+            expectedWorkflowName: "lungfish import bam",
+            expectedFormat: .bam
+        )
+        XCTAssertEqual(provenance.options.explicit["inputFile"]?.stringValue, TestFixtures.sarscov2.sortedBam.path)
+        XCTAssertEqual(provenance.options.resolvedDefaults["outputFile"]?.stringValue, destBAM.path)
+        XCTAssertTrue(
+            provenance.outputs.contains { $0.path == destBAI.path && $0.role == .index },
+            "BAM import provenance should include the copied companion index"
+        )
+        if provenance.options.resolvedDefaults["statsCollected"]?.booleanValue == true {
+            XCTAssertTrue(
+                provenance.steps.contains { $0.toolName == "samtools" && $0.argv.contains("idxstats") },
+                "BAM import provenance should include the successful samtools idxstats step"
+            )
+        }
+        XCTAssertNotNil(
+            ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: destBAI)),
+            "BAM index should have focused provenance sidecar"
+        )
+    }
+
+    func testImportBAMRejectsMismatchedExistingDestination() async throws {
+        let projectDir = tempDirectory.appendingPathComponent("bam-conflict-project")
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let staleDestination = projectDir.appendingPathComponent("test.paired_end.sorted.bam")
+        try Data([0x42, 0x41, 0x4d]).write(to: staleDestination)
+
+        let command = try ImportCommand.BAMSubcommand.parse([
+            TestFixtures.sarscov2.sortedBam.path,
+            "-o", projectDir.path,
+            "-q",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Importing over a mismatched existing BAM should throw")
+        } catch {
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath: projectDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+                ),
+                "Rejected BAM import should not write provenance for the stale destination"
+            )
+        }
     }
 
     // MARK: - Extract: Error Handling
@@ -547,5 +652,57 @@ final class CLIFunctionalTests: XCTestCase {
         } catch {
             // Expected: CLIError.inputFileNotFound
         }
+    }
+
+    @discardableResult
+    private func assertImportProvenance(
+        projectDir: URL,
+        outputURL: URL,
+        expectedWorkflowName: String,
+        expectedFormat: FileFormat,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ProvenanceEnvelope {
+        let rootProvenanceURL = projectDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: rootProvenanceURL.path),
+            "Import should write root provenance at \(rootProvenanceURL.path)",
+            file: file,
+            line: line
+        )
+
+        let rootEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: rootProvenanceURL),
+            "Root provenance should decode",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(rootEnvelope.workflowName, expectedWorkflowName, file: file, line: line)
+        XCTAssertEqual(rootEnvelope.toolName, expectedWorkflowName, file: file, line: line)
+        XCTAssertEqual(rootEnvelope.output?.path, outputURL.path, file: file, line: line)
+        XCTAssertEqual(rootEnvelope.output?.format, expectedFormat, file: file, line: line)
+        XCTAssertNotNil(rootEnvelope.output?.checksumSHA256, file: file, line: line)
+        XCTAssertEqual(rootEnvelope.exitStatus, 0, file: file, line: line)
+        XCTAssertTrue(rootEnvelope.argv.contains("import"), file: file, line: line)
+        XCTAssertTrue(rootEnvelope.outputs.contains { $0.path == outputURL.path }, file: file, line: line)
+        XCTAssertTrue(rootEnvelope.files.contains { $0.path == outputURL.path }, file: file, line: line)
+
+        let fileProvenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: fileProvenanceURL.path),
+            "Import should write focused provenance at \(fileProvenanceURL.path)",
+            file: file,
+            line: line
+        )
+        let fileEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: fileProvenanceURL),
+            "Focused provenance should decode",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(fileEnvelope.output?.path, outputURL.path, file: file, line: line)
+        XCTAssertEqual(fileEnvelope.output?.format, expectedFormat, file: file, line: line)
+
+        return rootEnvelope
     }
 }

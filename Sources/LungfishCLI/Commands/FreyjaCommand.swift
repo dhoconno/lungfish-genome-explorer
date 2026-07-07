@@ -82,7 +82,7 @@ struct FreyjaCommand: AsyncParsableCommand {
             try VariantsCommand.writeCommandPlanProvenance(
                 workflowName: plan.workflowName,
                 workflowVersion: plan.workflowVersion,
-                command: ["lungfish", "freyja", "demix"] + originalArguments(),
+                command: [CLICommandIdentity.executableName, "freyja", "demix"] + originalArguments(),
                 inputs: plan.inputs,
                 outputs: [ProvenanceRecorder.fileRecord(url: planURL, format: .json, role: .output)] + plan.outputs,
                 parameters: [

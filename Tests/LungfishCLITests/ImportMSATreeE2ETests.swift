@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishTestSupport
 import XCTest
 
 final class ImportMSATreeE2ETests: XCTestCase {
@@ -105,12 +106,7 @@ final class ImportMSATreeE2ETests: XCTestCase {
     }
 
     private var cliBinaryPath: URL? {
-        let candidates = [
-            repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
-        ]
-        return candidates.first { fileManager.fileExists(atPath: $0.path) }
+        CLITestBinaryResolver.cliBinaryURL(repoRoot: repoRoot)
     }
 
     private func makeWorkspace() throws -> URL {

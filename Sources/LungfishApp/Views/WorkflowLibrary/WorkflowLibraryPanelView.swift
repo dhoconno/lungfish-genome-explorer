@@ -5,7 +5,6 @@ import SwiftUI
 enum WorkflowLibraryAccessibilityID {
     static let window = "workflow-library-window"
     static let root = "workflow-library-root"
-    static let toolbarSegmentedControl = "workflow-library-segmented-control"
     static let addWorkflowButton = "workflow-library-add-workflow-button"
 
     static func workflowCard(_ id: String) -> String {
@@ -40,22 +39,7 @@ struct WorkflowLibraryPanelView: View {
     @Bindable var viewModel: WorkflowLibraryViewModel
 
     var body: some View {
-        Group {
-            switch viewModel.selectedTab {
-            case .library:
-                libraryView
-            case .installed:
-                placeholderView(
-                    title: "Installed Workflows",
-                    message: "Imported and enabled workflow packages will be listed here."
-                )
-            case .runs:
-                placeholderView(
-                    title: "Workflow Runs",
-                    message: "Workflow run history will appear here as imported workflow execution is enabled."
-                )
-            }
-        }
+        libraryView
         .background(Color.lungfishCanvasBackground)
         .tint(.lungfishCreamsicleFallback)
         .accessibilityIdentifier(WorkflowLibraryAccessibilityID.root)
@@ -106,20 +90,6 @@ struct WorkflowLibraryPanelView: View {
                 .padding(10)
             }
         }
-    }
-
-    private func placeholderView(title: String, message: String) -> some View {
-        VStack(spacing: 10) {
-            Text(title)
-                .font(.title2)
-                .fontWeight(.medium)
-            Text(message)
-                .font(.body)
-                .foregroundStyle(Color.lungfishSecondaryText)
-                .multilineTextAlignment(.center)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func builtInSection(_ section: WorkflowLibrarySection) -> some View {
@@ -183,7 +153,13 @@ struct WorkflowLibraryPanelView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("No User Workflows")
                 .font(.headline)
-            Text("Import a .lungfishflowpkg package to add Nextflow, Snakemake, or command-based workflows.")
+            Text(
+                """
+                Import a .lungfishflowpkg package to catalog Nextflow, Snakemake, \
+                or command-based workflows. In beta1, only Nextflow and Snakemake \
+                packages with a reference-plus-FASTQ contract can be enabled.
+                """
+            )
                 .font(.callout)
                 .foregroundStyle(Color.lungfishSecondaryText)
         }
@@ -398,6 +374,11 @@ private struct UserWorkflowPackageCard: View {
                     label: "Runtime",
                     value: manifest.runtime.kind.rawValue
                 )
+                dependencySummaryRows
+                contractRow(
+                    label: "Execution",
+                    value: package.supportsWorkflowLibraryExecution ? "Runnable" : "Catalog only"
+                )
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -412,7 +393,12 @@ private struct UserWorkflowPackageCard: View {
 
     @ViewBuilder
     private var actionView: some View {
-        if isInstalling {
+        if let unavailableReason = package.workflowLibraryExecutionUnavailableReason {
+            Text("Catalog Only")
+                .font(.subheadline)
+                .foregroundStyle(Color.lungfishSecondaryText)
+                .help(unavailableReason)
+        } else if isInstalling {
             ProgressView()
                 .controlSize(.small)
         } else if !missingPluginPackIDs.isEmpty {
@@ -437,10 +423,17 @@ private struct UserWorkflowPackageCard: View {
         }
     }
 
-    private func contractRow(label: String, value: String) -> some View {
+    @ViewBuilder
+    private var dependencySummaryRows: some View {
+        ForEach(viewModel.dependencyStatusRows(for: package)) { row in
+            contractRow(label: row.label, value: row.value, ready: row.isReady)
+        }
+    }
+
+    private func contractRow(label: String, value: String, ready: Bool = true) -> some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(Color.lungfishSageFallback)
+                .fill(ready ? Color.lungfishSageFallback : Color.lungfishCreamsicleFallback)
                 .frame(width: 8, height: 8)
             Text(label)
                 .font(.caption)

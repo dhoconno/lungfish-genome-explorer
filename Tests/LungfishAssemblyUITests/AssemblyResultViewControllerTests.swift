@@ -39,6 +39,73 @@ final class AssemblyResultViewControllerTests: XCTestCase {
         XCTAssertEqual(pasteboard.lastString, "AACCGGTT")
     }
 
+    func testSingleSelectionPopulatesDetailPane() async throws {
+        let vc = AssemblyResultViewController()
+        _ = vc.view
+        try await vc.configureForTesting(result: makeAssemblyResult())
+
+        try await vc.testSelectContig(named: "contig_7")
+        await waitUntil {
+            !vc.testDetailContainer.isHidden &&
+                vc.testDetailPane.currentHeaderText == "contig_7 annotated header"
+        }
+
+        XCTAssertEqual(vc.testDetailPane.currentSequenceText, ">contig_7 annotated header\nAACCGGTT\n")
+    }
+
+    func testMultiSelectionPopulatesDetailPaneSummary() async throws {
+        let records = [
+            AssemblyContigRecord(
+                rank: 1,
+                name: "contig_a",
+                header: "contig_a first",
+                lengthBP: 8,
+                gcPercent: 50,
+                shareOfAssemblyPercent: 60,
+                previewSequence: "AACCGGTT"
+            ),
+            AssemblyContigRecord(
+                rank: 2,
+                name: "contig_b",
+                header: "contig_b second",
+                lengthBP: 6,
+                gcPercent: 33.3,
+                shareOfAssemblyPercent: 40,
+                previewSequence: "ATATAT"
+            ),
+        ]
+        let summary = AssemblyContigSelectionSummary(
+            selectedContigCount: 2,
+            totalSelectedBP: 14,
+            longestContigBP: 8,
+            shortestContigBP: 6,
+            lengthWeightedGCPercent: 42.9
+        )
+
+        let vc = AssemblyResultViewController()
+        _ = vc.view
+        vc.catalogLoader = { _ in
+            FakeAssemblyContigCatalog(
+                records: records,
+                sequenceByName: [
+                    "contig_a": ">contig_a first\nAACCGGTT\n",
+                    "contig_b": ">contig_b second\nATATAT\n",
+                ],
+                summaryByNames: [Set(["contig_a", "contig_b"]): summary]
+            )
+        }
+        try await vc.configureForTesting(result: makeAssemblyResult())
+
+        try await vc.testSelectContigs(named: ["contig_a", "contig_b"])
+        await waitUntil {
+            !vc.testDetailContainer.isHidden &&
+                vc.testDetailPane.currentSummaryTitle == "2 contigs selected"
+        }
+
+        XCTAssertTrue(vc.testDetailPane.currentSequenceText.contains(">contig_a first"))
+        XCTAssertTrue(vc.testDetailPane.currentSequenceText.contains(">contig_b second"))
+    }
+
     func testSummaryStripShowsAssemblyMetricsAndSupportsQuickCopy() async throws {
         let pasteboard = RecordingPasteboard()
         let vc = AssemblyResultViewController()
@@ -265,6 +332,22 @@ final class AssemblyResultViewControllerTests: XCTestCase {
 
         vc.testCopyVisibleTableValue(row: 0, columnID: "preview")
         XCTAssertEqual(pasteboard.lastString, "AACCGGTT")
+    }
+
+    func testCommandCopyUsesVisibleDetailValues() async throws {
+        let pasteboard = RecordingPasteboard()
+        let vc = AssemblyResultViewController()
+        _ = vc.view
+        try await vc.configureForTesting(result: makeAssemblyResult(), scalarPasteboard: pasteboard)
+
+        try await vc.testSelectContig(named: "contig_7")
+        await waitUntil {
+            !vc.testDetailContainer.isHidden &&
+                vc.testDetailPane.currentHeaderText == "contig_7 annotated header"
+        }
+
+        vc.testCopyVisibleDetailValue(identifier: "assembly-result-detail-length")
+        XCTAssertEqual(pasteboard.lastString, "8 bp")
     }
 
     func testCommandClickOnVisibleTableCellCopiesScalarValue() async throws {

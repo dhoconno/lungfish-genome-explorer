@@ -4,10 +4,10 @@ import LungfishCore
 import LungfishIO
 @testable import LungfishGenotypeUI
 
-/// Phase 4 (Task 21): the genotype outline list must virtualize rows so a large
-/// cohort does not eagerly build one full view-tree per sample. These tests pin
-/// the virtualization contract: a big cohort builds only visible cells, while
-/// every sample stays reachable and a small cohort renders exactly as before.
+/// The genotype outline list must virtualize rows so a large cohort does not
+/// eagerly build one full view-tree per sample. These tests pin the
+/// virtualization contract: a big cohort builds only visible cells, while every
+/// sample stays reachable and a small cohort renders exactly as before.
 @MainActor
 final class GenotypeOutlineVirtualizationTests: XCTestCase {
 

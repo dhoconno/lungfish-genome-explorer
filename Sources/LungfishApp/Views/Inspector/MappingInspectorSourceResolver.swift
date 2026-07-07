@@ -82,30 +82,7 @@ enum MappingInspectorSourceResolver {
     }
 
     private static func resolveAnalysisRowURL(for url: URL, projectURL: URL) -> URL? {
-        let resolvedProjectURL = projectURL.standardizedFileURL.resolvingSymlinksInPath()
-        let resolvedURL = url.standardizedFileURL.resolvingSymlinksInPath()
-        let projectComponents = resolvedProjectURL.pathComponents
-        let urlComponents = resolvedURL.pathComponents
-
-        guard urlComponents.count >= projectComponents.count + 2,
-              urlComponents.starts(with: projectComponents),
-              urlComponents[projectComponents.count] == AnalysesFolder.directoryName else {
-            return nil
-        }
-
-        let analysisName = urlComponents[projectComponents.count + 1]
-        let analysisURL = resolvedProjectURL
-            .appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true)
-            .appendingPathComponent(analysisName, isDirectory: true)
-            .standardizedFileURL
-
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: analysisURL.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            return nil
-        }
-
-        return analysisURL
+        AnalysesFolder.enclosingAnalysisDirectory(for: url, projectURL: projectURL)
     }
 
     private static func isURL(_ url: URL, inside directory: URL) -> Bool {

@@ -496,7 +496,7 @@ enum LungfishProjectFixtureBuilder {
                 domain: "LungfishProjectFixtureBuilder",
                 code: 1,
                 userInfo: [
-                    NSLocalizedDescriptionKey: "lungfish-cli is not built in .build/debug or platform-specific debug output."
+                    NSLocalizedDescriptionKey: "lungfish-cli is not available from SwiftPM's active binary path."
                 ]
             )
         }
@@ -526,12 +526,7 @@ enum LungfishProjectFixtureBuilder {
     }
 
     private static var cliBinaryURL: URL? {
-        let candidates = [
-            LungfishFixtureCatalog.repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
-            LungfishFixtureCatalog.repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
-            LungfishFixtureCatalog.repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
-        ]
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        LungfishFixtureCatalog.cliBinaryURL
     }
 
     private static func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {

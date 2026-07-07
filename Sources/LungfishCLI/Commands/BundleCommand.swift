@@ -63,7 +63,7 @@ struct BundleDeduplicateAlignmentsSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         let resolvedOptions = try globalOptions.resolved(with: ProcessInfo.processInfo.arguments)
-        var command = ["lungfish", "bundle", "deduplicate-alignments", bundlePath]
+        var command = [CLICommandIdentity.executableName, "bundle", "deduplicate-alignments", bundlePath]
         if let output {
             command += ["--output", output]
         }
@@ -458,13 +458,18 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
             }
         }
 
-        try await writeCreateProvenance(
-            configuration: config,
-            bundleURL: bundleURL,
-            bundleIdentifier: bundleIdentifier,
-            startedAt: runStartedAt,
-            compress: compress
-        )
+        do {
+            try await writeCreateProvenance(
+                configuration: config,
+                bundleURL: bundleURL,
+                bundleIdentifier: bundleIdentifier,
+                startedAt: runStartedAt,
+                compress: compress
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: bundleURL)
+            throw error
+        }
 
         if globalOptions.outputFormat == .text {
             print() // Newline after progress
@@ -490,6 +495,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
             bundleIdentifier: bundleIdentifier,
             compress: compress
         )
+        let nativeToolSteps = Self.nativeBuilderToolSteps(in: bundleURL)
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish bundle create",
             parameters: parameters,
@@ -500,6 +506,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
                 bundleIdentifier: bundleIdentifier,
                 compress: compress
             ),
+            extraSteps: nativeToolSteps,
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
@@ -508,6 +515,13 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
             status: .completed,
             outputDirectory: bundleURL
         )
+    }
+
+    private static func nativeBuilderToolSteps(in bundleURL: URL) -> [ProvenanceStep] {
+        guard let builderEnvelope = try? ProvenanceEnvelopeReader.load(from: bundleURL) else {
+            return []
+        }
+        return builderEnvelope.steps.filter { $0.toolName != "NativeBundleBuilder.build" }
     }
 
     private static func inputFileRecords(for configuration: BuildConfiguration) -> [FileRecord] {
@@ -527,20 +541,9 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
     }
 
     private static func outputFileRecords(in bundleURL: URL) -> [FileRecord] {
-        guard let enumerator = FileManager.default.enumerator(
-            at: bundleURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-
-        var records: [FileRecord] = []
-        for case let url as URL in enumerator {
-            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
-                continue
-            }
-            records.append(ProvenanceRecorder.fileRecord(url: url, format: fileFormat(for: url), role: .output))
+        CLIProvenanceSupport.bundlePayloadURLs(in: bundleURL).map {
+            ProvenanceRecorder.fileRecord(url: $0, format: fileFormat(for: $0), role: .output)
         }
-        return records.sorted { $0.path < $1.path }
     }
 
     private static func provenanceParameters(
@@ -569,7 +572,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
         compress: Bool
     ) -> [String] {
         var command = [
-            "lungfish", "bundle", "create",
+            CLICommandIdentity.executableName, "bundle", "create",
             "--fasta", configuration.fastaURL.path,
             "--name", configuration.name,
             "--output-dir", configuration.outputDirectory.path,
@@ -706,7 +709,14 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
             annotationFiles: [],
             outputDirectory: outputDirectory,
             source: sourceInfo,
-            compressFASTA: true
+            compressFASTA: true,
+            provenanceWorkflowName: "lungfish bundle extract-annotations",
+            provenanceCommand: provenanceCommand(),
+            provenanceInputFiles: provenanceInputURLs(
+                sourceBundleURL: sourceBundleURL,
+                manifest: manifest,
+                track: track
+            )
         )
         let createdURL = try await NativeBundleBuilder().build(configuration: configuration)
 
@@ -719,6 +729,49 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
             ("Extracted features", String(records.count)),
             ("Output bundle", createdURL.path),
         ]))
+    }
+
+    private func provenanceCommand() -> [String] {
+        var command = [
+            CLICommandIdentity.executableName,
+            "bundle",
+            "extract-annotations",
+            "--bundle", bundlePath,
+            "--track", trackID,
+            "--output-bundle", outputBundlePath,
+            "--feature-type", featureType,
+        ]
+        if let namePrefix {
+            command.append(contentsOf: ["--name-prefix", namePrefix])
+        }
+        if replace {
+            command.append("--replace")
+        }
+        return command
+    }
+
+    private func provenanceInputURLs(
+        sourceBundleURL: URL,
+        manifest: BundleManifest,
+        track: AnnotationTrackInfo
+    ) -> [URL] {
+        var urls = [sourceBundleURL.appendingPathComponent("manifest.json")]
+
+        if let genome = manifest.genome {
+            urls.append(sourceBundleURL.appendingPathComponent(genome.path))
+            urls.append(sourceBundleURL.appendingPathComponent(genome.indexPath))
+            if let gzipIndexPath = genome.gzipIndexPath {
+                urls.append(sourceBundleURL.appendingPathComponent(gzipIndexPath))
+            }
+        }
+
+        let databasePath = track.databasePath ?? track.path
+        urls.append(sourceBundleURL.appendingPathComponent(databasePath))
+        if track.path != databasePath {
+            urls.append(sourceBundleURL.appendingPathComponent(track.path))
+        }
+
+        return urls
     }
 
     private func writeAnnotationFASTA(records: [AnnotationDatabaseRecord], bundle: ReferenceBundle, to url: URL) async throws {

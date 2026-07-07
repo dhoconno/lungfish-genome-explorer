@@ -287,6 +287,36 @@ final class MappingDocumentStateBuilderTests: XCTestCase {
         )
     }
 
+    func testSourceResolverTargetsGroupedAnalysisRowsForReferenceBundlesInsideAnalyses() throws {
+        let projectURL = tempRoot.appendingPathComponent("project", isDirectory: true)
+        let analysisDirectory = projectURL.appendingPathComponent(
+            "Analyses/Reviewed/spades-2026-01-15T13-00-00",
+            isDirectory: true
+        )
+        let referenceBundle = analysisDirectory.appendingPathComponent("NC_045512.lungfishref", isDirectory: true)
+        let referenceFASTA = referenceBundle.appendingPathComponent("genome/sequence.fa")
+
+        try FileManager.default.createDirectory(at: referenceFASTA.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try ">chr1\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            MappingInspectorSourceResolver.resolve(
+                name: "Source Reference Bundle",
+                path: referenceBundle.path,
+                projectURL: projectURL
+            ),
+            .projectLink(name: "Source Reference Bundle", targetURL: analysisDirectory.standardizedFileURL)
+        )
+        XCTAssertEqual(
+            MappingInspectorSourceResolver.resolve(
+                name: "Reference FASTA",
+                path: referenceFASTA.path,
+                projectURL: projectURL
+            ),
+            .projectLink(name: "Reference FASTA", targetURL: analysisDirectory.standardizedFileURL)
+        )
+    }
+
     func testSourceResolverUsesCopiedBundleOriginPathForCanonicalReferenceNavigation() throws {
         let projectURL = tempRoot.appendingPathComponent("project", isDirectory: true)
         let sourceBundle = projectURL.appendingPathComponent("Downloads/NC_045512.lungfishref", isDirectory: true)
@@ -315,6 +345,61 @@ final class MappingDocumentStateBuilderTests: XCTestCase {
                 projectURL: projectURL
             ),
             .projectLink(name: "Source Reference Bundle", targetURL: sourceBundle.standardizedFileURL)
+        )
+        XCTAssertEqual(
+            MappingInspectorSourceResolver.resolve(
+                name: "Reference FASTA",
+                path: copiedFASTA.path,
+                projectURL: projectURL
+            ),
+            .projectLink(name: "Reference FASTA", targetURL: sourceBundle.standardizedFileURL)
+        )
+    }
+
+    func testSourceResolverRecoversCanonicalReferenceFromGroupedMappingSidecars() throws {
+        let projectURL = tempRoot.appendingPathComponent("project", isDirectory: true)
+        let sourceBundle = projectURL.appendingPathComponent("Downloads/TestGenome.lungfishref", isDirectory: true)
+        let groupedAnalysis = projectURL.appendingPathComponent(
+            "Analyses/Reviewed/minimap2-2026-01-15T13-00-00",
+            isDirectory: true
+        )
+        let copiedBundle = groupedAnalysis.appendingPathComponent("TestGenome.lungfishref", isDirectory: true)
+        let copiedFASTA = copiedBundle.appendingPathComponent("genome/sequence.fa.gz")
+
+        try createReferenceBundle(
+            at: sourceBundle,
+            identifier: "com.example.testgenome",
+            originBundlePath: nil
+        )
+        try createReferenceBundle(
+            at: copiedBundle,
+            identifier: "com.example.testgenome",
+            originBundlePath: nil
+        )
+
+        let mappingResult = MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            sourceReferenceBundleURL: sourceBundle,
+            viewerBundleURL: copiedBundle,
+            bamURL: groupedAnalysis.appendingPathComponent("test.sorted.bam"),
+            baiURL: groupedAnalysis.appendingPathComponent("test.sorted.bam.bai"),
+            totalReads: 10,
+            mappedReads: 9,
+            unmappedReads: 1,
+            wallClockSeconds: 1.0,
+            contigs: []
+        )
+        try Data().write(to: mappingResult.bamURL)
+        try Data().write(to: mappingResult.baiURL)
+        try mappingResult.save(to: groupedAnalysis)
+
+        XCTAssertEqual(
+            ReferenceBundleSourceResolver.canonicalSourceBundleURL(
+                for: copiedFASTA,
+                projectURL: projectURL
+            ),
+            sourceBundle.standardizedFileURL
         )
         XCTAssertEqual(
             MappingInspectorSourceResolver.resolve(

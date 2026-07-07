@@ -1066,7 +1066,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
-        let cell = NSTableCellView()
+        let cell = GenotypeMatrixStyledCellView()
         cell.identifier = identifier
         let field = NSTextField(labelWithString: "")
         field.translatesAutoresizingMaskIntoConstraints = false
@@ -1821,34 +1821,21 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         cell.alphaValue = 1.0
         cell.textField?.textColor = renderedStyle.textColor.map(Self.color(from:)) ?? .labelColor
         cell.textField?.font = font(for: renderedStyle)
-        guard backgroundColor != nil || borderColor != nil || selected || showsPreviewBorder || renderedStyle.textColor != nil || renderedStyle.isBold || renderedStyle.isItalic else {
-            if cell.wantsLayer {
-                cell.layer?.backgroundColor = nil
-                cell.layer?.borderWidth = 0
-                cell.layer?.borderColor = nil
-                cell.wantsLayer = false
-            }
-            return
-        }
-
-        cell.wantsLayer = true
-        cell.layer?.cornerRadius = 3
-        cell.layer?.masksToBounds = true
-        cell.layer?.borderWidth = 0
-        cell.layer?.borderColor = nil
-        cell.layer?.backgroundColor = backgroundColor?.cgColor
-        if let borderColor {
-            cell.layer?.borderColor = borderColor.cgColor
-            cell.layer?.borderWidth = 1.5
-        }
+        var finalBorderColor = borderColor
+        var finalBorderWidth: CGFloat = borderColor == nil ? 0 : 1.5
         if showsPreviewBorder {
-            cell.layer?.borderColor = NSColor.systemOrange.cgColor
-            cell.layer?.borderWidth = 2
+            finalBorderColor = .systemOrange
+            finalBorderWidth = 2
         }
         if selected {
-            cell.layer?.borderColor = NSColor.keyboardFocusIndicatorColor.cgColor
-            cell.layer?.borderWidth = 2
+            finalBorderColor = .keyboardFocusIndicatorColor
+            finalBorderWidth = 2
         }
+        (cell as? GenotypeMatrixStyledCellView)?.configureChrome(
+            backgroundColor: backgroundColor,
+            borderColor: finalBorderColor,
+            borderWidth: finalBorderWidth
+        )
     }
 
     private func drawsMatrixCellSelectionFocus(
@@ -2110,8 +2097,41 @@ private final class GenotypeMatrixTableView: NSTableView {
     }
 }
 
+private final class GenotypeMatrixStyledCellView: NSTableCellView {
+    private var chromeBackgroundColor: NSColor?
+    private var chromeBorderColor: NSColor?
+    private var chromeBorderWidth: CGFloat = 0
+
+    func configureChrome(backgroundColor: NSColor?, borderColor: NSColor?, borderWidth: CGFloat) {
+        chromeBackgroundColor = backgroundColor
+        chromeBorderColor = borderColor
+        chromeBorderWidth = borderWidth
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard chromeBackgroundColor != nil || chromeBorderColor != nil else { return }
+
+        let inset = max(chromeBorderWidth / 2, 0.5)
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        guard rect.width > 0, rect.height > 0 else { return }
+
+        let path = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
+        if let chromeBackgroundColor {
+            chromeBackgroundColor.setFill()
+            path.fill()
+        }
+        if let chromeBorderColor, chromeBorderWidth > 0 {
+            chromeBorderColor.setStroke()
+            path.lineWidth = chromeBorderWidth
+            path.stroke()
+        }
+    }
+}
+
 private final class GenotypeMatrixRowSelectorCellView: NSTableCellView {
-    private let chiclet = NSView()
+    private let chiclet = GenotypeMatrixRowSelectorChicletView()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -2124,21 +2144,11 @@ private final class GenotypeMatrixRowSelectorCellView: NSTableCellView {
     }
 
     func configure(isSelected: Bool) {
-        chiclet.layer?.backgroundColor = isSelected
-            ? NSColor.controlAccentColor.withAlphaComponent(0.24).cgColor
-            : NSColor.clear.cgColor
-        chiclet.layer?.borderColor = isSelected
-            ? NSColor.controlAccentColor.cgColor
-            : NSColor.tertiaryLabelColor.cgColor
-        chiclet.layer?.borderWidth = isSelected ? 1.5 : 1
+        chiclet.configure(isSelected: isSelected)
     }
 
     private func buildView() {
-        wantsLayer = true
         chiclet.translatesAutoresizingMaskIntoConstraints = false
-        chiclet.wantsLayer = true
-        chiclet.layer?.cornerRadius = 5
-        chiclet.layer?.masksToBounds = true
         addSubview(chiclet)
         NSLayoutConstraint.activate([
             chiclet.widthAnchor.constraint(equalToConstant: 12),
@@ -2146,6 +2156,33 @@ private final class GenotypeMatrixRowSelectorCellView: NSTableCellView {
             chiclet.centerXAnchor.constraint(equalTo: centerXAnchor),
             chiclet.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+    }
+}
+
+private final class GenotypeMatrixRowSelectorChicletView: NSView {
+    private var fillColor = NSColor.clear
+    private var strokeColor = NSColor.tertiaryLabelColor
+    private var strokeWidth: CGFloat = 1
+
+    func configure(isSelected: Bool) {
+        fillColor = isSelected ? NSColor.controlAccentColor.withAlphaComponent(0.24) : .clear
+        strokeColor = isSelected ? .controlAccentColor : .tertiaryLabelColor
+        strokeWidth = isSelected ? 1.5 : 1
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let inset = max(strokeWidth / 2, 0.5)
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        guard rect.width > 0, rect.height > 0 else { return }
+
+        let path = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
+        fillColor.setFill()
+        path.fill()
+        strokeColor.setStroke()
+        path.lineWidth = strokeWidth
+        path.stroke()
     }
 }
 

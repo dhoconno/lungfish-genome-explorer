@@ -450,6 +450,111 @@ final class FASTQDerivativeServiceProvenanceTests: XCTestCase {
     }
 }
 
+final class MaterializationPipelineProvenanceTests: XCTestCase {
+    func testPersistentMaterializationWritesCanonicalProvenanceAndFullSHA256() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [.seqkit])
+        defer { fixture.cleanup() }
+
+        let source = try fixture.makeBundle(named: "materialize-source")
+        try fixture.writeFASTQ(
+            [
+                ("keep-1", "ACGTACGT"),
+                ("drop-1", "AA"),
+            ],
+            to: source.fastqURL
+        )
+        let service = FASTQDerivativeService(runner: fixture.runner)
+        let outputBundle = try await service.createDerivative(
+            from: source.bundleURL,
+            request: .lengthFilter(min: 4, max: nil)
+        )
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: outputBundle))
+        let descriptor = VirtualFASTQDescriptor(bundleURL: outputBundle, manifest: manifest)
+        let pipeline = MaterializationPipeline(derivativeService: service, maxConcurrency: 1)
+
+        let jobID = try await pipeline.materialize(descriptor)
+        let result = try await pipeline.awaitJob(jobID)
+
+        let materializedURL = outputBundle.appendingPathComponent("materialized.fastq")
+        let manifestURL = FASTQBundle.derivedManifestURL(in: outputBundle)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: materializedURL.path))
+        XCTAssertEqual(result.checksum, try ProvenanceFileHasher.sha256(of: materializedURL))
+        XCTAssertEqual(result.checksum.count, 64)
+
+        let updatedManifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: outputBundle))
+        XCTAssertEqual(updatedManifest.materializationState, .materialized(checksum: result.checksum))
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: outputBundle))
+        XCTAssertEqual(envelope.workflowName, "lungfish fastq persistent materialization")
+        XCTAssertEqual(envelope.toolName, "Lungfish App")
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(envelope.runtimeIdentity.executablePath, "Lungfish.app")
+        XCTAssertEqual(envelope.options.explicit["materializedFilename"]?.stringValue, "materialized.fastq")
+        XCTAssertEqual(envelope.options.explicit["persistentBundleOutput"]?.booleanValue, true)
+        XCTAssertTrue(envelope.argv.contains(outputBundle.path))
+        XCTAssertTrue(envelope.durableReplayArgv?.contains("materialize") == true)
+        XCTAssertTrue(envelope.durableReplayArgv?.contains(materializedURL.path) == true)
+        assertInput(source.fastqURL, isRecordedIn: envelope)
+        try assertOutput(materializedURL, isRecordedIn: envelope)
+        try assertOutput(manifestURL, isRecordedIn: envelope)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: outputBundle
+                    .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                    .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+                    .path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: try XCTUnwrap(
+                    ProvenanceWriter.bundleOutputSidecarURL(for: materializedURL, inBundle: outputBundle)
+                ).path
+            )
+        )
+    }
+
+    func testPersistentMaterializationRemovesPayloadWhenProvenanceWriteFails() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [.seqkit])
+        defer { fixture.cleanup() }
+
+        let source = try fixture.makeBundle(named: "materialize-cleanup-source")
+        try fixture.writeFASTQ([("read-1", "ACGTACGT")], to: source.fastqURL)
+        let service = FASTQDerivativeService(runner: fixture.runner)
+        let outputBundle = try await service.createDerivative(
+            from: source.bundleURL,
+            request: .lengthFilter(min: 4, max: nil)
+        )
+        let originalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: outputBundle))
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: outputBundle))
+        let descriptor = VirtualFASTQDescriptor(bundleURL: outputBundle, manifest: manifest)
+        let pipeline = MaterializationPipeline(
+            derivativeService: service,
+            maxConcurrency: 1,
+            provenanceWriter: { _, _ in
+                throw NSError(
+                    domain: "MaterializationPipelineProvenanceTests",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "forced provenance failure"]
+                )
+            }
+        )
+
+        let jobID = try await pipeline.materialize(descriptor)
+        await XCTAssertThrowsErrorAsync(try await pipeline.awaitJob(jobID))
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputBundle.appendingPathComponent("materialized.fastq").path)
+        )
+        let restoredEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: outputBundle))
+        XCTAssertEqual(restoredEnvelope.workflowName, originalEnvelope.workflowName)
+        XCTAssertNotEqual(restoredEnvelope.workflowName, "lungfish fastq persistent materialization")
+        let updatedManifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: outputBundle))
+        XCTAssertFalse(updatedManifest.isMaterialized)
+        XCTAssertEqual(updatedManifest.resolvedState, .virtual)
+    }
+}
+
 private struct FailingDerivativeProvenanceWriter: FASTQDerivativeProvenanceWriting {
     func write(_ envelope: ProvenanceEnvelope, to directory: URL) throws -> URL {
         throw NSError(

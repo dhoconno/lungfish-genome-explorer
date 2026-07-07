@@ -136,6 +136,121 @@ final class ENAServiceTests: XCTestCase {
         XCTAssertNotNil(record.sequence)
     }
 
+    func testFetchBatchCancelsProducerWhenIterationIsCancelled() async throws {
+        await mockClient.setResponseDelayNanoseconds(100_000_000)
+        await mockClient.registerENAFasta(fasta: ">AB123456 Test\nATGCATGC")
+
+        let stream = try await service.fetchBatch(accessions: ["AB123456", "AB789012"])
+        let consumer = Task<DatabaseRecord?, Error> {
+            var iterator = stream.makeAsyncIterator()
+            return try await iterator.next()
+        }
+
+        try await waitForRecordedRequestCount(1)
+        consumer.cancel()
+        do {
+            _ = try await consumer.value
+        } catch is CancellationError {
+            // Expected: cancelling iteration terminates the stream and producer.
+        }
+
+        try await Task.sleep(nanoseconds: 250_000_000)
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+    }
+
+    // MARK: - Batch Lookup Tests
+
+    func testSearchReadsBatchPropagatesCancellation() async throws {
+        await mockClient.register(pattern: "filereport", response: .cancelled)
+
+        do {
+            _ = try await service.searchReadsBatch(
+                accessions: ["SRR_CANCELLED"],
+                concurrency: 1,
+                progress: { _, _ in }
+            )
+            XCTFail("Expected cancellation to propagate")
+        } catch let error as URLError where error.code == .cancelled {
+            // Expected
+        } catch {
+            XCTFail("Expected URLError.cancelled, got \(error)")
+        }
+    }
+
+    func testSearchReadsBatchSkipsIndividualNonCancellationFailures() async throws {
+        let successfulResponse: [[String: Any]] = [
+            [
+                "run_accession": "ERR_OK",
+                "library_layout": "SINGLE"
+            ]
+        ]
+        await mockClient.registerSequence(
+            pattern: "filereport",
+            responses: [
+                .error(statusCode: 500, message: "temporary ENA error"),
+                .json(successfulResponse)
+            ]
+        )
+
+        let progressRecorder = ProgressRecorder()
+        let records = try await service.searchReadsBatch(
+            accessions: ["ERR_FAILS", "ERR_OK"],
+            concurrency: 1,
+            progress: { completed, total in
+                progressRecorder.append(completed: completed, total: total)
+            }
+        )
+
+        let progressEvents = progressRecorder.events
+        XCTAssertEqual(records.map(\.runAccession), ["ERR_OK"])
+        XCTAssertEqual(progressEvents.map(\.0), [1, 2])
+        XCTAssertTrue(progressEvents.allSatisfy { $0.1 == 2 })
+    }
+
+    func testENADateFormattersUsePOSIXLocale() throws {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let packageRoot = testFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/LungfishCore/Services/ENA/ENAService.swift"),
+            encoding: .utf8
+        )
+
+        let posixLocaleCount = source.components(separatedBy: #"Locale(identifier: "en_US_POSIX")"#).count - 1
+
+        XCTAssertGreaterThanOrEqual(posixLocaleCount, 2)
+    }
+
+    func testENASearchRecordDecodesFirstPublicDate() throws {
+        let data = """
+        {
+          "accession": "AB123456",
+          "first_public": "2020-03-18"
+        }
+        """.data(using: .utf8)!
+
+        let record = try JSONDecoder().decode(ENASearchRecord.self, from: data)
+
+        XCTAssertNotNil(record.firstPublic)
+    }
+
+    func testENAReadRecordDecodesFirstPublicDate() throws {
+        let data = """
+        {
+          "run_accession": "ERR_OK",
+          "first_public": "2020-03-18"
+        }
+        """.data(using: .utf8)!
+
+        let record = try JSONDecoder().decode(ENAReadRecord.self, from: data)
+
+        XCTAssertNotNil(record.firstPublic)
+    }
+
     // MARK: - Error Handling Tests
 
     func testHandles404Error() async throws {
@@ -176,5 +291,37 @@ final class ENAServiceTests: XCTestCase {
 
     func testServiceBaseURL() async {
         XCTAssertTrue(service.baseURL.absoluteString.contains("ebi.ac.uk"))
+    }
+
+    private func waitForRecordedRequestCount(
+        _ expectedCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<50 {
+            if await mockClient.requests.count >= expectedCount {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let actualCount = await mockClient.requests.count
+        XCTFail("Timed out waiting for \(expectedCount) recorded request(s); saw \(actualCount)", file: file, line: line)
+    }
+}
+
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedEvents: [(Int, Int)] = []
+
+    var events: [(Int, Int)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedEvents
+    }
+
+    func append(completed: Int, total: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        storedEvents.append((completed, total))
     }
 }

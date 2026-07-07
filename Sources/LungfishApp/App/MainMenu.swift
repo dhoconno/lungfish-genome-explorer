@@ -400,12 +400,12 @@ public final class MainMenu {
             keyEquivalent: "g"
         ).tag = NSTextFinder.Action.nextMatch.rawValue
 
-        // Find Previous (no shortcut -- Cmd-Shift-G is used by Go to Gene in Sequence menu)
         let findPrevItem = findMenu.addItem(
             withTitle: "Find Previous",
             action: #selector(NSTextView.performFindPanelAction(_:)),
-            keyEquivalent: ""
+            keyEquivalent: "g"
         )
+        findPrevItem.keyEquivalentModifierMask = [.command, .shift]
         findPrevItem.tag = NSTextFinder.Action.previousMatch.rawValue
 
         findItem.submenu = findMenu
@@ -586,13 +586,13 @@ public final class MainMenu {
             keyEquivalent: "l"
         )
 
-        // Go to Gene (Cmd-Shift-G) - search annotations by gene name
+        // Go to Gene uses Command-Option-G so Command-Shift-G remains Find Previous.
         let goToGeneItem = seqMenu.addItem(
             withTitle: "Go to Gene\u{2026}",
             action: #selector(SequenceMenuActions.goToGene(_:)),
             keyEquivalent: "g"
         )
-        goToGeneItem.keyEquivalentModifierMask = [.command, .shift]
+        goToGeneItem.keyEquivalentModifierMask = [.command, .option]
 
         seqMenu.addItem(.separator())
 
@@ -694,12 +694,12 @@ public final class MainMenu {
         )
         fastqOperationsMenu.addItem(
             withTitle: "Reverse Complement\u{2026}",
-            action: #selector(SequenceMenuActions.reverseComplement(_:)),
+            action: #selector(ToolsMenuActions.showFASTQReverseComplementOperation(_:)),
             keyEquivalent: ""
         )
         fastqOperationsMenu.addItem(
             withTitle: "Translate\u{2026}",
-            action: #selector(SequenceMenuActions.translate(_:)),
+            action: #selector(ToolsMenuActions.showFASTQTranslateOperation(_:)),
             keyEquivalent: ""
         )
         fastqOperationsItem.submenu = fastqOperationsMenu
@@ -830,11 +830,12 @@ public final class MainMenu {
         )
 
         // Cancel All Operations
-        opsMenu.addItem(
+        let cancelAllItem = opsMenu.addItem(
             withTitle: "Cancel All Operations",
             action: #selector(OperationsMenuActions.cancelAllOperations(_:)),
             keyEquivalent: ""
         )
+        cancelAllItem.isEnabled = false
 
         opsMenuItem.submenu = opsMenu
         return opsMenuItem
@@ -1108,6 +1109,8 @@ enum ProvenanceExportMenuModel {
     func showFASTQMappingOperations(_ sender: Any?)
     func showFASTQAssemblyOperations(_ sender: Any?)
     func showFASTQClassificationOperations(_ sender: Any?)
+    func showFASTQReverseComplementOperation(_ sender: Any?)
+    func showFASTQTranslateOperation(_ sender: Any?)
     func showFreyjaDemix(_ sender: Any?)
     func showBAMVariantCalling(_ sender: Any?)
     func searchNCBI(_ sender: Any?)
@@ -1148,6 +1151,7 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         rebuildDynamicItems(in: menu)
+        updateStaticActions(in: menu)
     }
 
     private func rebuildDynamicItems(in menu: NSMenu) {
@@ -1179,6 +1183,10 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
                 statusSymbol = "play.circle"
                 statusAccessibility = "Running"
                 progressText = " (\(Int(op.progress * 100))%)"
+            case .cancelling:
+                statusSymbol = "stop.circle"
+                statusAccessibility = "Cancelling"
+                progressText = ""
             case .completed:
                 statusSymbol = "checkmark.circle"
                 statusAccessibility = "Completed"
@@ -1193,7 +1201,7 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
                 progressText = ""
             }
 
-            let canCancel = op.state == .running && op.isCancellable
+            let canCancel = op.isCancellable
             let title = canCancel ? "Cancel \(op.title)\u{2026}\(progressText)" : "\(op.title)\(progressText)"
             let menuItem = NSMenuItem(
                 title: title,
@@ -1207,6 +1215,15 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
             menuItem.toolTip = op.detail
             menu.insertItem(menuItem, at: index)
         }
+    }
+
+    private func updateStaticActions(in menu: NSMenu) {
+        let hasCancellableRunningOperation = OperationCenter.shared.items.contains {
+            $0.isCancellable
+        }
+        menu.items
+            .first { $0.action == #selector(OperationsMenuActions.cancelAllOperations(_:)) }?
+            .isEnabled = hasCancellableRunningOperation
     }
 }
 

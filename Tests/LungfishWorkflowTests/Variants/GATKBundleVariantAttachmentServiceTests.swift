@@ -87,7 +87,117 @@ final class GATKBundleVariantAttachmentServiceTests: XCTestCase {
         )
     }
 
+    func testAttachesGATKOutputWithCSIIndex() async throws {
+        let bundleURL = tempDir.appendingPathComponent("sample-csi.lungfishref", isDirectory: true)
+        let vcfURL = try makeBundleWithGATKOutput(at: bundleURL, trackID: "gatk-csi")
+        try FileManager.default.removeItem(at: vcfURL.appendingPathExtension("idx"))
+        let csiURL = vcfURL.appendingPathExtension("csi")
+        try Data("csi".utf8).write(to: csiURL)
+
+        let service = GATKBundleVariantAttachmentService()
+        let result = try await service.attach(
+            request: GATKBundleVariantAttachmentRequest(
+                bundleURL: bundleURL,
+                alignmentTrackID: "aln-1",
+                outputTrackID: "gatk-csi",
+                outputTrackName: "Sample GATK CSI",
+                outputVCFURL: vcfURL,
+                executionRequest: makeExecutionRequest(bundleURL: bundleURL, outputVCFURL: vcfURL)
+            )
+        )
+
+        XCTAssertEqual(result.indexURL, csiURL)
+        XCTAssertEqual(result.trackInfo.indexPath, "variants/gatk/gatk-csi.vcf.csi")
+    }
+
+    func testRejectsSymlinkedGATKOutputThatResolvesOutsideBundle() async throws {
+        let bundleURL = tempDir.appendingPathComponent("sample-symlink.lungfishref", isDirectory: true)
+        let vcfURL = try makeBundleWithGATKOutput(at: bundleURL, trackID: "gatk-symlink")
+        let externalVCFURL = tempDir.appendingPathComponent("external-gatk-output.vcf")
+        let originalVCFData = try Data(contentsOf: vcfURL)
+        try FileManager.default.removeItem(at: vcfURL)
+        try originalVCFData.write(to: externalVCFURL)
+        try FileManager.default.createSymbolicLink(at: vcfURL, withDestinationURL: externalVCFURL)
+
+        let service = GATKBundleVariantAttachmentService()
+        do {
+            _ = try await service.attach(
+                request: GATKBundleVariantAttachmentRequest(
+                    bundleURL: bundleURL,
+                    alignmentTrackID: "aln-1",
+                    outputTrackID: "gatk-symlink",
+                    outputTrackName: "Sample GATK Symlink",
+                    outputVCFURL: vcfURL,
+                    executionRequest: makeExecutionRequest(bundleURL: bundleURL, outputVCFURL: vcfURL)
+                )
+            )
+            XCTFail("Expected symlinked output escaping the bundle to be rejected")
+        } catch let error as GATKBundleVariantAttachmentError {
+            guard case .outputOutsideBundle(let path) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(path, externalVCFURL.standardizedFileURL.path)
+        }
+    }
+
+    func testGATKAttachRollsBackOwnedArtifactsWhenProvenanceWriteFails() async throws {
+        let bundleURL = tempDir.appendingPathComponent("sample-rollback.lungfishref", isDirectory: true)
+        let vcfURL = try makeBundleWithGATKOutput(at: bundleURL, trackID: "gatk-rollback")
+        let indexURL = vcfURL.appendingPathExtension("idx")
+        let provenanceURL = bundleURL
+            .appendingPathComponent("variants/gatk", isDirectory: true)
+            .appendingPathComponent("gatk-rollback.lungfish-provenance.json", isDirectory: true)
+        try FileManager.default.createDirectory(at: provenanceURL, withIntermediateDirectories: true)
+
+        let service = GATKBundleVariantAttachmentService()
+        await XCTAssertThrowsErrorAsync(
+            try await service.attach(
+                request: GATKBundleVariantAttachmentRequest(
+                    bundleURL: bundleURL,
+                    alignmentTrackID: "aln-1",
+                    outputTrackID: "gatk-rollback",
+                    outputTrackName: "Sample GATK Rollback",
+                    outputVCFURL: vcfURL,
+                    executionRequest: makeExecutionRequest(bundleURL: bundleURL, outputVCFURL: vcfURL)
+                )
+            )
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: vcfURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: indexURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("variants/gatk/gatk-rollback.db").path))
+        let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertFalse(manifest.variants.contains(where: { $0.id == "gatk-rollback" }))
+    }
+
+    func testGATKAttachmentSanitizesTrackIDForGeneratedSidecars() async throws {
+        let bundleURL = tempDir.appendingPathComponent("sample-sanitized.lungfishref", isDirectory: true)
+        let vcfURL = try makeBundleWithGATKOutput(at: bundleURL, trackID: "gatk-output")
+
+        let service = GATKBundleVariantAttachmentService()
+        let result = try await service.attach(
+            request: GATKBundleVariantAttachmentRequest(
+                bundleURL: bundleURL,
+                alignmentTrackID: "aln-1",
+                outputTrackID: "../gatk-track",
+                outputTrackName: "Sample GATK Sanitized",
+                outputVCFURL: vcfURL,
+                executionRequest: makeExecutionRequest(bundleURL: bundleURL, outputVCFURL: vcfURL)
+            )
+        )
+
+        XCTAssertEqual(result.trackInfo.id, "../gatk-track")
+        XCTAssertEqual(result.trackInfo.databasePath, "variants/gatk/gatk-track.db")
+        XCTAssertEqual(result.provenanceURL, bundleURL.appendingPathComponent("variants/gatk/gatk-track.lungfish-provenance.json"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("variants/gatk/gatk-track.db").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("variants/gatk/../gatk-track.db").path))
+    }
+
     private func makeBundleWithGATKOutput(at bundleURL: URL) throws -> URL {
+        try makeBundleWithGATKOutput(at: bundleURL, trackID: "gatk-track")
+    }
+
+    private func makeBundleWithGATKOutput(at bundleURL: URL, trackID: String) throws -> URL {
         let genomeDir = bundleURL.appendingPathComponent("genome", isDirectory: true)
         let alignmentsDir = bundleURL.appendingPathComponent("alignments", isDirectory: true)
         let variantsDir = bundleURL.appendingPathComponent("variants/gatk", isDirectory: true)
@@ -102,7 +212,7 @@ final class GATKBundleVariantAttachmentServiceTests: XCTestCase {
         try Data().write(to: alignmentsDir.appendingPathComponent("sample.bam"))
         try Data().write(to: alignmentsDir.appendingPathComponent("sample.bam.bai"))
 
-        let vcfURL = variantsDir.appendingPathComponent("gatk-track.vcf")
+        let vcfURL = variantsDir.appendingPathComponent("\(trackID).vcf")
         try Data(
             """
             ##fileformat=VCFv4.2
@@ -111,7 +221,7 @@ final class GATKBundleVariantAttachmentServiceTests: XCTestCase {
             chr1\t4\t.\tT\tG\t60\tPASS\tDP=18\tGT:DP\t0/1:18
             """.utf8
         ).write(to: vcfURL)
-        try Data().write(to: variantsDir.appendingPathComponent("gatk-track.vcf.idx"))
+        try Data().write(to: vcfURL.appendingPathExtension("idx"))
 
         let manifest = BundleManifest(
             name: "Sample",
@@ -142,6 +252,31 @@ final class GATKBundleVariantAttachmentServiceTests: XCTestCase {
         )
         try manifest.save(to: bundleURL)
         return vcfURL
+    }
+
+    private func makeExecutionRequest(bundleURL: URL, outputVCFURL: URL) -> GATKPipelineExecutionRequest {
+        GATKPipelineExecutionRequest.haplotypeCaller(
+            configuration: GATKHaplotypeCallerConfiguration(
+                referenceFASTAURL: bundleURL.appendingPathComponent("genome/reference.fa"),
+                inputBAMURL: bundleURL.appendingPathComponent("alignments/sample.bam"),
+                outputVCFURL: outputVCFURL,
+                emitReferenceConfidence: .none
+            ),
+            toolVersion: "4.5.0.0",
+            runtimeIdentity: GATKRuntimeIdentity(condaEnvironment: "/opt/lungfish/envs/gatk-core")
+        )
+    }
+}
+
+private func XCTAssertThrowsErrorAsync(
+    _ expression: @autoclosure () async throws -> some Any,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    do {
+        _ = try await expression()
+        XCTFail("Expected error to be thrown", file: file, line: line)
+    } catch {
     }
 }
 

@@ -265,6 +265,30 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertTrue(command.dryRun)
     }
 
+    func testResolveImportRecipeMapsVSP2AliasToDeclarativeRecipe() throws {
+        let resolved = try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "vsp2")
+
+        XCTAssertEqual(resolved.newRecipe?.id, "vsp2-target-enrichment")
+        XCTAssertNil(resolved.legacyRecipe)
+    }
+
+    func testResolveImportRecipeRejectsBareAmpliconAlias() throws {
+        XCTAssertThrowsError(try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "amplicon")) { error in
+            guard case BatchImportError.unsupportedRecipe(let name, let reason) = error else {
+                return XCTFail("Expected BatchImportError.unsupportedRecipe, got \(error)")
+            }
+            XCTAssertEqual(name, "amplicon")
+            XCTAssertTrue(reason.contains("primer removal"), reason)
+        }
+    }
+
+    func testResolveImportRecipeAcceptsExactIlluminaAmpliconMergeID() throws {
+        let resolved = try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "illumina-amplicon-merge")
+
+        XCTAssertEqual(resolved.newRecipe?.id, "illumina-amplicon-merge")
+        XCTAssertNil(resolved.legacyRecipe)
+    }
+
     func testRequiredManagedDatabaseIDsCanonicalizesLegacyHumanScrubberAliasToDeacon() throws {
         let recipe = ProcessingRecipe(
             name: "Human scrub",

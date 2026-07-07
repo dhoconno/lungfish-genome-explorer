@@ -43,16 +43,18 @@ Issues are grouped by domain so related work can be batched.
 
 **Where focus groups raised it:** Lab manager persona (Chris Okafor) flagged this hard. Clinical-microbiology technologist (Diana Reyes) flagged that the provenance sidecar records `host machine identity` but not which user account ran each step. The wastewater-surveillance scientist (Sam Okafor) flagged that running 32 samples/month across 8 sites needs at minimum a provenance trail that distinguishes operators.
 
-**The user-facing behavior:** A project is a folder. Two users on the same shared filesystem may open the same project; Lungfish does not lock the project, does not warn about concurrent edits, and does not record which user account performed each operation in the provenance sidecar.
+**Status 2026-07-05:** Resolved for newly written beta1 provenance. The CLI now has `lungfish project lock` / `unlock`, the GUI reads corrupted/active lock metadata on project open and presents read-only warnings, the Shared Projects appendix documents the supported coordination model, and newly constructed canonical runtime identities default to the current OS user. Historical sidecars that were written before user attribution existed still decode without fabricating a user.
+
+**Original user-facing behavior:** A project is a folder. Two users on the same shared filesystem may open the same project; Lungfish does not lock the project, does not warn about concurrent edits, and does not record which user account performed each operation in the provenance sidecar.
 
 **What the docs need:** A multi-user-projects chapter, plus per-user attribution in every provenance sidecar so an audit trail can answer "who did this." The current chapter on provenance acknowledges the gap implicitly.
 
 **Acceptance criteria:**
 
-- [ ] Provenance sidecars include a `runtime.user` field (in addition to the existing `runtime.host`) recording the OS user account
-- [ ] Opening a project that is currently open in another Lungfish process surfaces a clear warning and offers a read-only mode
-- [ ] A new shell command `lungfish project lock` and `lungfish project unlock` provide explicit locking for advanced workflows
-- [ ] A new chapter `01-foundations/09-shared-projects` (or an appendix) documents the supported multi-user patterns
+- [x] Newly written provenance sidecars include a runtime user field recording the OS user account; historical sidecars without user metadata remain readable but are not backfilled
+- [x] Opening a project that is currently open in another Lungfish process surfaces a clear warning and offers a read-only mode
+- [x] A new shell command `lungfish project lock` and `lungfish project unlock` provide explicit locking for advanced workflows
+- [x] A new chapter `01-foundations/09-shared-projects` (or an appendix) documents the supported multi-user patterns
 
 **Out of scope:** Real-time multi-user editing (Google-Docs-style co-presence). Read/write attribution is enough.
 
@@ -64,14 +66,16 @@ Issues are grouped by domain so related work can be batched.
 
 **Where the manual says it:** `appendices/troubleshooting.md` "Migrating from older Lungfish versions" section: "If you need to migrate an old project: open the project in the latest Lungfish, run `Project > Migrate Bundles to Current Version` from the menu (when available), or re-create the bundles from their source FASTAs by re-importing."
 
-**The user-facing behavior:** Bundle formats are versioned. Older projects open in current Lungfish but cannot be written to. The "when available" parenthetical in the troubleshooting prose is a placeholder for a feature that does not exist yet.
+**Status 2026-07-05:** CLI migration is implemented and documented. `lungfish project migrate` scans manifest-backed bundles, reports unsupported schemas without rewriting them, and performs the current reference-manifest browser-summary maintenance migration with a manifest backup plus durable migration provenance. The GUI menu item remains unimplemented and is no longer advertised in the manual.
+
+**Original user-facing behavior:** Bundle formats are versioned. Older projects open in current Lungfish but cannot be written to. The "when available" parenthetical in the troubleshooting prose is a placeholder for a feature that does not exist yet.
 
 **Acceptance criteria:**
 
 - [ ] `Project > Migrate Bundles to Current Version` menu item exists and migrates every bundle in a project to the current schema version
-- [ ] CLI equivalent: `lungfish project migrate <path>`
-- [ ] Migration is non-destructive (originals are renamed `<bundle>.lungfishref.v<old>` rather than deleted)
-- [ ] Provenance is preserved through migration
+- [x] CLI equivalent: `lungfish project migrate <path>`
+- [x] Current schema-maintenance migration is non-destructive: it backs up the original manifest under `.lungfish/migrations/`, rewrites only supported manifests, and leaves unsupported bundles unchanged
+- [x] Provenance is preserved through migration; supported rewrites add a new migration provenance record before publishing the changed manifest
 
 **Out of scope:** Migrating across major bundle-format incompatibilities that require re-running tools. That stays a manual re-import.
 
@@ -646,18 +650,23 @@ The Workflow Builder and Export chapters need updates to match the actual implem
 
 ---
 
-### #docs-022: Headless / batch CI mode for the GUI
+### #docs-022: Headless / batch CI mode for the GUI (headless entry resolved)
 
 **Severity:** P2
 
 **Where focus groups raised it:** Tool developer (David Okafor): "No mention of headless / batch mode for the GUI — can the app be invoked from CI?"
 
+Headless entry resolved: `lungfish run-headless <workflow> ...` is a display-free, quiet alias for
+`lungfish workflow run --quiet <workflow> ...` and forwards workflow-run flags, including
+the `--expected-output` paths required for executed scientific runs. The CI appendix includes
+worked GitHub Actions and CircleCI examples.
+
 **Acceptance criteria:**
 
-- [ ] `lungfish` CLI is sufficient for every operation the GUI exposes (true today for most operations)
+- [ ] Full CLI parity for every GUI operation remains tracked by specific command/workflow issues
 - [ ] If a GUI-only operation exists, document the gap explicitly
-- [ ] `lungfish run-headless <workflow.yaml>` confirms the app does not need a display server
-- [ ] Documentation chapter or appendix on running Lungfish in CI
+- [x] `lungfish run-headless <workflow> ...` confirms the app does not need a display server
+- [x] Documentation chapter or appendix on running Lungfish in CI
 
 ---
 
@@ -879,16 +888,18 @@ This is a subset of #docs-002 (multi-user shared projects) but can ship independ
 
 ## Format-specific gaps
 
-### #docs-035: GFF3 with no annotations should still write a manifest entry
+### #docs-035: Superseded — empty GFF3 imports now fail closed
 
-**Severity:** P3
+**Severity:** Superseded by beta1 provenance hardening
 
 **Where the manual says it:** `02-sequences/02-downloading-from-ncbi.md` troubleshooting: "If you asked for GFF3 and got an XML error document, the upstream record probably does not have annotations in GFF3 form. Fall back to GenBank."
 
-**Acceptance criteria:**
+**Resolution note (2026-07-05):** Direct annotation-track import now rejects empty or malformed
+annotation inputs with `noImportableAnnotations` and removes any generated SQLite artifacts before
+returning. A zero-feature annotation database is not considered a valid scientific output because it
+can make malformed input look like an intentionally empty track.
 
-- [ ] `lungfish fetch ncbi --fetch-format gff3` returns an empty-but-valid GFF3 (just `##gff-version 3` header) when the upstream record has no annotations, and warns rather than errors
-- [ ] The bundle creation step accepts an empty GFF3 and notes "no annotations" in the manifest
+**Acceptance criteria:** closed as not planned under beta1 policy.
 
 ---
 

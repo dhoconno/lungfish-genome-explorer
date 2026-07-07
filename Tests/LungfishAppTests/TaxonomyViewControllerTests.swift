@@ -249,6 +249,65 @@ final class TaxonomyViewControllerTests: XCTestCase {
         XCTAssertTrue(vc.testBreadcrumbBar.isAtRoot)
     }
 
+    func testExportResultsWritesScientificProvenanceSidecar() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        let result = makeTestResult()
+        let resultDirectory = result.config.outputDirectory
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: result.config.databasePath, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\n!!!!\n".write(to: result.config.inputFiles[0], atomically: true, encoding: .utf8)
+        try "100.00\t10000\t0\tR\t1\troot\n".write(to: result.reportURL, atomically: true, encoding: .utf8)
+        try "C\tread1\t1\t100\t1:100\n".write(to: result.outputURL, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: resultDirectory)
+        }
+
+        vc.configure(result: result)
+        let outputURL = resultDirectory.appendingPathComponent("taxonomy-export.tsv")
+        try vc.exportResults(to: outputURL, format: .tsv)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish app taxonomy result export")
+        XCTAssertEqual(envelope.output?.path, outputURL.path)
+        XCTAssertEqual(envelope.output?.format, .text)
+        XCTAssertNotNil(envelope.output?.checksumSHA256)
+        XCTAssertEqual(envelope.options.explicit["outputFormat"]?.stringValue, "tsv")
+        XCTAssertEqual(envelope.options.resolvedDefaults["rowCount"]?.integerValue, result.tree.allNodes().count)
+
+        let inputPaths = Set(envelope.files.filter { $0.role == .input }.map(\.path))
+        XCTAssertTrue(inputPaths.contains(result.reportURL.path))
+        XCTAssertTrue(inputPaths.contains(result.outputURL.path))
+        XCTAssertTrue(inputPaths.contains(result.config.inputFiles[0].path))
+        XCTAssertTrue(inputPaths.contains(result.config.databasePath.path))
+        for path in inputPaths {
+            let descriptor = try XCTUnwrap(envelope.files.first { $0.path == path && $0.role == .input })
+            XCTAssertNotNil(descriptor.checksumSHA256, path)
+            XCTAssertNotNil(descriptor.fileSize, path)
+        }
+    }
+
+    func testExportResultsFailsWhenRequiredResultSourcesAreMissing() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        let result = makeTestResult()
+        let resultDirectory = result.config.outputDirectory
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: resultDirectory)
+        }
+
+        vc.configure(result: result)
+        let outputURL = resultDirectory.appendingPathComponent("taxonomy-export.tsv")
+        XCTAssertThrowsError(try vc.exportResults(to: outputURL, format: .tsv))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: outputURL).path))
+    }
+
     // MARK: - Summary Bar
 
     func testSummaryBarCards() throws {

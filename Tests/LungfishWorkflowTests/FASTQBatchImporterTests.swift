@@ -211,9 +211,15 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(recipe.steps.count, 3)
     }
 
-    func testRecipeResolutionAmplicon() throws {
-        let recipe = try FASTQBatchImporter.resolveRecipe(named: "amplicon")
-        XCTAssertEqual(recipe.name, ProcessingRecipe.targetedAmplicon.name)
+    func testRecipeResolutionAmpliconIsRejectedUntilPrimerRemovalIsExecutable() {
+        XCTAssertThrowsError(try FASTQBatchImporter.resolveRecipe(named: "amplicon")) { error in
+            guard case BatchImportError.unsupportedRecipe(let name, let reason) = error else {
+                XCTFail("Expected unsupportedRecipe, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "amplicon")
+            XCTAssertTrue(reason.contains("primer removal"), reason)
+        }
     }
 
     func testRecipeResolutionHiFi() throws {
@@ -241,13 +247,71 @@ final class FASTQBatchImporterTests: XCTestCase {
     func testSkipExistingBundles() throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQBatchImporterTests-skip-\(UUID().uuidString)")
-        let importsDir = tmpDir.appendingPathComponent("Imports")
-        let bundleURL = importsDir.appendingPathComponent("SampleX.lungfishfastq")
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
+        try makeCompleteImportedFASTQBundle(projectURL: tmpDir, sampleName: "SampleX")
 
         let pair = SamplePair(sampleName: "SampleX", r1: URL(fileURLWithPath: "/tmp/x_R1.fastq.gz"), r2: nil)
         XCTAssertTrue(FASTQBatchImporter.bundleExists(for: pair, in: tmpDir), "Should detect existing bundle")
+    }
+
+    func testIncompleteBundleDoesNotBlockRetry() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-incomplete-\(UUID().uuidString)")
+        let bundleURL = tmpDir
+            .appendingPathComponent("Imports", isDirectory: true)
+            .appendingPathComponent("SampleX.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try Data("@r\nACGT\n+\nIIII\n".utf8).write(to: bundleURL.appendingPathComponent("SampleX.fastq.gz"))
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let pair = SamplePair(sampleName: "SampleX", r1: URL(fileURLWithPath: "/tmp/x_R1.fastq.gz"), r2: nil)
+        XCTAssertFalse(FASTQBatchImporter.bundleExists(for: pair, in: tmpDir))
+    }
+
+    func testBundleWithRootOnlyProvenanceDoesNotBlockRetry() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-root-only-provenance-\(UUID().uuidString)")
+        let bundleURL = tmpDir
+            .appendingPathComponent("Imports", isDirectory: true)
+            .appendingPathComponent("SampleX.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fastqURL = bundleURL.appendingPathComponent("SampleX.fastq.gz")
+        try Data("@r\nACGT\n+\nIIII\n".utf8).write(to: fastqURL)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: .singleEnd)),
+            for: fastqURL
+        )
+
+        let rootOnlyEnvelope = ProvenanceEnvelope.fixture(
+            workflowName: "lungfish import fastq",
+            toolName: "lungfish import fastq",
+            outputPath: fastqURL.path
+        )
+        try ProvenanceJSON.encoder.encode(rootOnlyEnvelope)
+            .write(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+
+        let pair = SamplePair(sampleName: "SampleX", r1: URL(fileURLWithPath: "/tmp/x_R1.fastq.gz"), r2: nil)
+        XCTAssertFalse(FASTQBatchImporter.bundleExists(for: pair, in: tmpDir))
+    }
+
+    func testBundleWithStaleFocusedProvenanceDoesNotBlockRetry() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-stale-provenance-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let bundleURL = try makeCompleteImportedFASTQBundle(projectURL: tmpDir, sampleName: "SampleX")
+        try Data("@r\nTTTT\n+\nIIII\n".utf8).write(to: bundleURL.appendingPathComponent("SampleX.fastq.gz"))
+
+        let pair = SamplePair(sampleName: "SampleX", r1: URL(fileURLWithPath: "/tmp/x_R1.fastq.gz"), r2: nil)
+        XCTAssertFalse(FASTQBatchImporter.bundleExists(for: pair, in: tmpDir))
+    }
+
+    func testRequiredSeqkitStatsRejectsIncompleteOutput() {
+        XCTAssertThrowsError(
+            try FASTQBatchImporter.parseRequiredSeqkitStats(stdout: "file\tformat\nsample.fastq\tFASTQ\n")
+        )
     }
 
     func testBundleDoesNotExist() throws {
@@ -390,14 +454,12 @@ final class FASTQBatchImporterTests: XCTestCase {
     func testRunBatchImportSkipsAllExistingBundles() async throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQBatchImporterTests-run-\(UUID().uuidString)")
-        let importsDir = tmpDir.appendingPathComponent("Imports")
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         // Pre-create bundles for all samples so they should all be skipped
         let sampleNames = ["Alpha", "Beta", "Gamma"]
         for name in sampleNames {
-            let bundleURL = importsDir.appendingPathComponent("\(name).lungfishfastq")
-            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+            try makeCompleteImportedFASTQBundle(projectURL: tmpDir, sampleName: name)
         }
 
         let pairs = sampleNames.map { name in
@@ -441,6 +503,117 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(result.skipped, 0)
         XCTAssertEqual(result.failed, 0)
         XCTAssertTrue(result.errors.isEmpty)
+    }
+
+    func testRunBatchImportNoOptimizePreservesPairedSourceFiles() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-source-preserve-\(UUID().uuidString)")
+        let sourceDir = tmpDir.appendingPathComponent("source", isDirectory: true)
+        let projectURL = tmpDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let r1 = sourceDir.appendingPathComponent("Sample_R1.fastq.gz")
+        let r2 = sourceDir.appendingPathComponent("Sample_R2.fastq.gz")
+        let r1Contents = "@read1/1\nACGT\n+\nIIII\n"
+        let r2Contents = "@read1/2\nTGCA\n+\nIIII\n"
+        try r1Contents.write(to: r1, atomically: true, encoding: .utf8)
+        try r2Contents.write(to: r2, atomically: true, encoding: .utf8)
+
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: projectURL,
+            recipe: nil,
+            qualityBinning: QualityBinningScheme.none,
+            optimizeStorage: false,
+            threads: 1
+        )
+        let pair = SamplePair(sampleName: "Sample", r1: r1, r2: r2)
+
+        let result = await FASTQBatchImporter.runBatchImport(pairs: [pair], config: config, log: nil)
+
+        XCTAssertEqual(result.completed, 1, "Import should succeed. Errors: \(result.errors)")
+        XCTAssertEqual(try String(contentsOf: r1, encoding: .utf8), r1Contents)
+        XCTAssertEqual(try String(contentsOf: r2, encoding: .utf8), r2Contents)
+        let bundleURL = projectURL
+            .appendingPathComponent("Imports", isDirectory: true)
+            .appendingPathComponent("Sample.lungfishfastq", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+            )
+        )
+        let bundleFASTQURL = bundleURL.appendingPathComponent("Sample.fastq.gz")
+        let provenanceData = try Data(
+            contentsOf: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: provenanceData)
+        let legacyRun = try ProvenanceJSON.decoder.decode(WorkflowRun.self, from: provenanceData)
+        XCTAssertEqual(legacyRun.name, "lungfish import fastq")
+        XCTAssertEqual(legacyRun.status, .completed)
+        XCTAssertEqual(envelope.workflowName, "lungfish import fastq")
+        XCTAssertEqual(envelope.toolName, "lungfish import fastq")
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(
+            envelope.options.defaults["platform"],
+            .string(LungfishWorkflow.SequencingPlatform.illumina.rawValue)
+        )
+        XCTAssertEqual(envelope.options.defaults["threads"], .integer(4))
+        XCTAssertEqual(envelope.options.defaults["optimizeStorage"], .boolean(true))
+        XCTAssertEqual(envelope.options.resolvedDefaults["threads"], .integer(1))
+        XCTAssertEqual(envelope.options.resolvedDefaults["qualityBinning"], .string(QualityBinningScheme.none.rawValue))
+        XCTAssertEqual(envelope.options.resolvedDefaults["optimizeStorage"], .boolean(false))
+        XCTAssertEqual(envelope.options.resolvedDefaults["primaryFASTQ"], .file(bundleFASTQURL))
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "lungfish import fastq" })
+        XCTAssertTrue(envelope.outputs.contains {
+            $0.path == bundleFASTQURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        let descriptorPaths = envelope.files.map(\.path)
+            + envelope.outputs.map(\.path)
+            + envelope.steps.flatMap { $0.inputs.map(\.path) + $0.outputs.map(\.path) }
+        XCTAssertFalse(
+            descriptorPaths.contains { $0.contains("/.tmp/") || $0.contains(".building-") },
+            "Final provenance descriptors should point at bundle payloads, not temp or hidden staging files"
+        )
+        let replayFields = (envelope.durableReplayArgv ?? [])
+            + [envelope.reproducibleCommand]
+            + envelope.steps.flatMap { step in
+                (step.durableReplayArgv ?? []) + [step.reproducibleCommand]
+            }
+        XCTAssertFalse(
+            replayFields.contains { $0.contains("/.tmp/") || $0.contains(".building-") },
+            "Replay provenance should point at final bundle payloads, not temp or hidden staging files"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: bundleURL
+                    .appendingPathComponent("provenance", isDirectory: true)
+                    .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+                    .path
+            )
+        )
+        let focusedSidecarURL = try XCTUnwrap(
+            ProvenanceWriter.bundleOutputSidecarURL(for: bundleFASTQURL, inBundle: bundleURL)
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: focusedSidecarURL.path))
+        let focusedEnvelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: focusedSidecarURL)
+        )
+        XCTAssertEqual(focusedEnvelope.output?.path, bundleFASTQURL.path)
+        XCTAssertFalse(
+            focusedEnvelope.outputs.map(\.path).contains { $0.contains(".building-") || $0.contains("/.tmp/") }
+        )
+        let focusedReplayFields = (focusedEnvelope.durableReplayArgv ?? [])
+            + [focusedEnvelope.reproducibleCommand]
+            + focusedEnvelope.steps.flatMap { step in
+                (step.durableReplayArgv ?? []) + [step.reproducibleCommand]
+            }
+        XCTAssertFalse(
+            focusedReplayFields.contains { $0.contains("/.tmp/") || $0.contains(".building-") },
+            "Focused replay provenance should point at final bundle payloads, not temp or hidden staging files"
+        )
     }
 
     func testRunBatchImportFailsPairedOnlyRecipeBeforeStartingStepsForSingleEndSample() async throws {
@@ -553,7 +726,202 @@ final class FASTQBatchImporterTests: XCTestCase {
         )
     }
 
+    func testRunBatchImportFailsLegacyRecipeWithUnsupportedStepBeforeStartingSteps() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-legacy-unsupported-step-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let r1 = tmpDir.appendingPathComponent("Amplicon_R1.fastq")
+        let r2 = tmpDir.appendingPathComponent("Amplicon_R2.fastq")
+        try """
+        @read1/1
+        ACGTACGT
+        +
+        IIIIIIII
+        """.appending("\n").write(to: r1, atomically: true, encoding: .utf8)
+        try """
+        @read1/2
+        TGCATGCA
+        +
+        IIIIIIII
+        """.appending("\n").write(to: r2, atomically: true, encoding: .utf8)
+
+        let recipe = ProcessingRecipe(
+            name: "Primer Then Quality",
+            steps: [
+                FASTQDerivativeOperation(kind: .primerRemoval, createdAt: .distantPast),
+                FASTQDerivativeOperation(kind: .qualityTrim, createdAt: .distantPast),
+            ]
+        )
+        let projectURL = tmpDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: projectURL,
+            recipe: recipe,
+            qualityBinning: QualityBinningScheme.none,
+            optimizeStorage: false,
+            threads: 1
+        )
+        let pair = SamplePair(sampleName: "Amplicon", r1: r1, r2: r2)
+        let collector = FASTQBatchImporterEventCollector()
+
+        let result = await FASTQBatchImporter.runBatchImport(
+            pairs: [pair],
+            config: config,
+            log: { collector.append($0) }
+        )
+
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.failed, 1)
+        XCTAssertEqual(result.errors.first?.sample, "Amplicon")
+        XCTAssertTrue(
+            result.errors.first?.error.contains("unsupported step 'primerRemoval'") == true,
+            "Expected unsupported-step preflight error, got \(String(describing: result.errors.first?.error))"
+        )
+        XCTAssertFalse(
+            collector.events.contains {
+                if case .stepStart = $0 { return true }
+                return false
+            },
+            "Unsupported legacy recipes should fail during preflight before starting recipe or ingestion steps"
+        )
+    }
+
+    func testRecipeProvenancePrefersStructuredArgumentsOverQuotedCommandLine() throws {
+        let inputURL = URL(fileURLWithPath: "/tmp/input with spaces/Sample_R1.fastq")
+        let outputURL = URL(fileURLWithPath: "/tmp/project/Imports/Sample.lungfishfastq/Sample.fastq.gz")
+        let stepResult = RecipeStepResult(
+            stepName: "Adapter trim",
+            tool: "fastp",
+            toolVersion: "1.0",
+            commandLine: "fastp --in1 '/tmp/input with spaces/Sample_R1.fastq'",
+            commandArguments: ["fastp", "--in1", inputURL.path],
+            durationSeconds: 1.25
+        )
+
+        let steps = FASTQBatchImporter.recipeProvenanceSteps(
+            recipeStepResults: [stepResult],
+            originalInputURLs: [inputURL],
+            bundleFASTQURL: outputURL
+        )
+
+        let step = try XCTUnwrap(steps.first)
+        XCTAssertEqual(step.command, ["fastp", "--in1", inputURL.path])
+    }
+
+    func testRecipeProvenanceParsesQuotedCommandLineWhenStructuredArgumentsAreMissing() throws {
+        let inputURL = URL(fileURLWithPath: "/tmp/input with spaces/Sample_R1.fastq")
+        let outputURL = URL(fileURLWithPath: "/tmp/project/Imports/Sample.lungfishfastq/Sample.fastq.gz")
+        let stepResult = RecipeStepResult(
+            stepName: "Adapter trim",
+            tool: "fastp",
+            toolVersion: "1.0",
+            commandLine: "fastp --in1 '\(inputURL.path)' --label \"sample one\"",
+            durationSeconds: 1.25
+        )
+
+        let steps = FASTQBatchImporter.recipeProvenanceSteps(
+            recipeStepResults: [stepResult],
+            originalInputURLs: [inputURL],
+            bundleFASTQURL: outputURL
+        )
+
+        let step = try XCTUnwrap(steps.first)
+        XCTAssertEqual(step.command, ["fastp", "--in1", inputURL.path, "--label", "sample one"])
+    }
+
+    func testPublishFASTQBundleUsesFoundationReplacementForExistingBundle() throws {
+        let source = try String(contentsOf: fastqBatchImporterSourceURL(), encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "static func publishFASTQBundle"))
+        let end = try XCTUnwrap(source.range(of: "\n    // MARK: - Structured Logging", range: start.upperBound..<source.endIndex))
+        let method = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertTrue(method.contains("replaceItemAt"))
+        XCTAssertFalse(method.contains("moveItem(at: publishedBundleURL, to:"))
+    }
+
     // MARK: - Helpers
+
+    private func fastqBatchImporterSourceURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift")
+    }
+
+    @discardableResult
+    private func makeCompleteImportedFASTQBundle(projectURL: URL, sampleName: String) throws -> URL {
+        let bundleURL = projectURL
+            .appendingPathComponent("Imports", isDirectory: true)
+            .appendingPathComponent("\(sampleName).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let fastqURL = bundleURL.appendingPathComponent("\(sampleName).fastq.gz")
+        try Data("@read1\nACGT\n+\nIIII\n".utf8).write(to: fastqURL)
+
+        FASTQMetadataStore.save(
+            completeFASTQMetadata(),
+            for: fastqURL
+        )
+
+        try ProvenanceWriter(signingProvider: nil).write(
+            realFASTQImportEnvelope(outputURL: fastqURL),
+            to: bundleURL
+        )
+
+        return bundleURL
+    }
+
+    private func completeFASTQMetadata() -> PersistedFASTQMetadata {
+        let stats = FASTQDatasetStatistics(
+            readCount: 1,
+            baseCount: 4,
+            meanReadLength: 4,
+            minReadLength: 4,
+            maxReadLength: 4,
+            medianReadLength: 4,
+            n50ReadLength: 4,
+            meanQuality: 40,
+            q20Percentage: 100,
+            q30Percentage: 100,
+            gcContent: 0.5,
+            readLengthHistogram: [4: 1],
+            qualityScoreHistogram: [40: 4],
+            perPositionQuality: []
+        )
+        let seqkitStats = SeqkitStatsMetadata(
+            numSeqs: 1,
+            sumLen: 4,
+            minLen: 4,
+            avgLen: 4,
+            maxLen: 4,
+            q20Percentage: 100,
+            q30Percentage: 100,
+            averageQuality: 40,
+            gcPercentage: 50
+        )
+        return PersistedFASTQMetadata(
+            computedStatistics: stats,
+            ingestion: IngestionMetadata(pairingMode: .singleEnd),
+            seqkitStats: seqkitStats
+        )
+    }
+
+    private func realFASTQImportEnvelope(outputURL: URL) throws -> ProvenanceEnvelope {
+        let startedAt = Date(timeIntervalSince1970: 0)
+        return try ProvenanceRunBuilder(
+            workflowName: "lungfish import fastq",
+            workflowVersion: "test",
+            toolName: "lungfish import fastq",
+            toolVersion: "test"
+        )
+        .argv(["lungfish", "import", "fastq"])
+        .durableReplayArgv(["lungfish", "import", "fastq"])
+        .runtime(ProvenanceRuntimeIdentity())
+        .output(outputURL, format: .fastq)
+        .complete(exitStatus: 0, startedAt: startedAt, endedAt: startedAt.addingTimeInterval(1))
+    }
 
     private func makeURLs(_ names: [String]) -> [URL] {
         names.map { URL(fileURLWithPath: "/fake/path/\($0)") }

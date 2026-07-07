@@ -15,7 +15,7 @@ bioinformatics experience), and a plain-language tone critic.
 - `09-genotyping/02-running-genotyping`
 - `09-genotyping/03-reading-the-genotype-comparison`
 - `09-genotyping/04-haplotype-definitions-and-export`
-- `06-classification/09-twelve-s-metabarcoding`
+- `06-classification/10-twelve-s-metabarcoding`
 - `appendices/ai-assistant`
 
 ## Headline finding

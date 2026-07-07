@@ -78,4 +78,21 @@ final class NFCoreRunRequestTests: XCTestCase {
         XCTAssertTrue(preview.contains("--param 'primer=/tmp/O'\\''Hara.bed'"))
         XCTAssertFalse(preview.contains("--input /tmp/samples&ids.csv"))
     }
+
+    func testCLIArgumentsIncludeExpectedOutputs() throws {
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
+        let expectedOutput = URL(fileURLWithPath: "/tmp/results/consensus.lungfishref")
+        let request = NFCoreRunRequest(
+            workflow: workflow,
+            version: "3.0.1",
+            executor: .local,
+            inputURLs: [URL(fileURLWithPath: "/tmp/samplesheet.csv")],
+            outputDirectory: URL(fileURLWithPath: "/tmp/results"),
+            expectedOutputURLs: [expectedOutput]
+        )
+
+        let args = request.cliArguments(bundlePath: URL(fileURLWithPath: "/tmp/run.lungfishrun"))
+        XCTAssertTrue(args.contains("--expected-output"))
+        XCTAssertTrue(args.contains(expectedOutput.path))
+    }
 }

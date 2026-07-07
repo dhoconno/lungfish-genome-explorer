@@ -71,20 +71,21 @@ final class FASTQBatchImportTests: XCTestCase {
         XCTAssertFalse(FASTQBatchImporter.bundleExists(for: pair, in: tempDir))
     }
 
-    func testBundleExistsAfterCreatingDirectory() throws {
+    func testEmptyBundleDirectoryDoesNotCountAsExistingImport() throws {
         let pair = SamplePair(
             sampleName: "test",
             r1: TestFixtures.sarscov2.fastqR1,
             r2: TestFixtures.sarscov2.fastqR2
         )
 
-        // Create the expected bundle directory at Imports/<sampleName>.lungfishfastq
+        // Create the expected bundle directory at Imports/<sampleName>.lungfishfastq,
+        // but leave out payload metadata and provenance.
         let bundleDir = tempDir
             .appendingPathComponent("Imports")
             .appendingPathComponent("test.\(FASTQBundle.directoryExtension)")
         try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
 
-        XCTAssertTrue(FASTQBatchImporter.bundleExists(for: pair, in: tempDir))
+        XCTAssertFalse(FASTQBatchImporter.bundleExists(for: pair, in: tempDir))
     }
 
     func testBundleExistsWrongNameReturnsFalse() throws {
@@ -172,11 +173,7 @@ final class FASTQBatchImportTests: XCTestCase {
     func testBatchImportSkipsAllExisting() async throws {
         let projectDir = tempDir!
 
-        // Create the expected bundle directory so the importer will skip this sample
-        let bundleDir = projectDir
-            .appendingPathComponent("Imports")
-            .appendingPathComponent("test.\(FASTQBundle.directoryExtension)")
-        try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+        try makeCompleteImportedFASTQBundle(projectURL: projectDir, sampleName: "test")
 
         let pairs = [SamplePair(
             sampleName: "test",
@@ -218,6 +215,45 @@ final class FASTQBatchImportTests: XCTestCase {
             events.contains(where: { $0.contains("importComplete") }),
             "Should emit importComplete event"
         )
+    }
+
+    func testBatchImportDoesNotReplaceIncompleteBundleWithoutForce() async throws {
+        let projectDir = tempDir!
+        let pair = SamplePair(
+            sampleName: "test",
+            r1: TestFixtures.sarscov2.fastqR1,
+            r2: TestFixtures.sarscov2.fastqR2
+        )
+        let existingBundleURL = FASTQBatchImporter.bundleOutputURL(for: pair, in: projectDir)
+        try FileManager.default.createDirectory(at: existingBundleURL, withIntermediateDirectories: true)
+        let sentinelURL = existingBundleURL.appendingPathComponent("do-not-delete.txt")
+        try "existing user data".write(to: sentinelURL, atomically: true, encoding: .utf8)
+
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: projectDir,
+            recipe: nil,
+            qualityBinning: .illumina4,
+            threads: 4,
+            logDirectory: nil
+        )
+
+        let collector = EventCollector()
+        let result = await FASTQBatchImporter.runBatchImport(
+            pairs: [pair],
+            config: config,
+            log: { event in
+                collector.append(FASTQBatchImporter.encodeLogEvent(event))
+            }
+        )
+
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.skipped, 0)
+        XCTAssertEqual(result.failed, 1)
+        XCTAssertEqual(result.errors.first?.sample, "test")
+        XCTAssertTrue(result.errors.first?.error.contains("--force") == true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sentinelURL.path))
+        XCTAssertEqual(try String(contentsOf: sentinelURL, encoding: .utf8), "existing user data")
+        XCTAssertTrue(collector.events.contains { $0.contains("sampleFailed") && $0.contains("--force") })
     }
 
     func testBatchImportEmitsImportStartAndComplete() async throws {
@@ -277,7 +313,7 @@ final class FASTQBatchImportTests: XCTestCase {
     // MARK: - Recipe Resolution
 
     func testResolveKnownRecipes() throws {
-        let recipes = ["vsp2", "wgs", "amplicon", "hifi"]
+        let recipes = ["vsp2", "wgs", "hifi"]
         for name in recipes {
             XCTAssertNoThrow(
                 try FASTQBatchImporter.resolveRecipe(named: name),
@@ -288,7 +324,17 @@ final class FASTQBatchImportTests: XCTestCase {
 
     func testResolveRecipeCaseInsensitive() throws {
         XCTAssertNoThrow(try FASTQBatchImporter.resolveRecipe(named: "WGS"))
-        XCTAssertNoThrow(try FASTQBatchImporter.resolveRecipe(named: "Amplicon"))
+        XCTAssertNoThrow(try FASTQBatchImporter.resolveRecipe(named: "HiFi"))
+    }
+
+    func testResolveAmpliconRecipeThrowsUnsupportedUntilPrimerRemovalIsExecutable() throws {
+        XCTAssertThrowsError(try FASTQBatchImporter.resolveRecipe(named: "Amplicon")) { error in
+            guard case BatchImportError.unsupportedRecipe(let name, let reason) = error else {
+                return XCTFail("Expected BatchImportError.unsupportedRecipe, got \(error)")
+            }
+            XCTAssertEqual(name, "Amplicon")
+            XCTAssertTrue(reason.contains("primer removal"), reason)
+        }
     }
 
     func testResolveUnknownRecipeThrows() throws {
@@ -298,5 +344,75 @@ final class FASTQBatchImportTests: XCTestCase {
             }
             XCTAssertEqual(name, "unknown")
         }
+    }
+
+    @discardableResult
+    private func makeCompleteImportedFASTQBundle(projectURL: URL, sampleName: String) throws -> URL {
+        let bundleURL = projectURL
+            .appendingPathComponent("Imports", isDirectory: true)
+            .appendingPathComponent("\(sampleName).\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let fastqURL = bundleURL.appendingPathComponent("\(sampleName).fastq.gz")
+        try Data("@read1\nACGT\n+\nIIII\n".utf8).write(to: fastqURL)
+        FASTQMetadataStore.save(
+            completeFASTQMetadata(),
+            for: fastqURL
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            realFASTQImportEnvelope(outputURL: fastqURL),
+            to: bundleURL
+        )
+        return bundleURL
+    }
+
+    private func completeFASTQMetadata() -> PersistedFASTQMetadata {
+        let stats = FASTQDatasetStatistics(
+            readCount: 1,
+            baseCount: 4,
+            meanReadLength: 4,
+            minReadLength: 4,
+            maxReadLength: 4,
+            medianReadLength: 4,
+            n50ReadLength: 4,
+            meanQuality: 40,
+            q20Percentage: 100,
+            q30Percentage: 100,
+            gcContent: 0.5,
+            readLengthHistogram: [4: 1],
+            qualityScoreHistogram: [40: 4],
+            perPositionQuality: []
+        )
+        let seqkitStats = SeqkitStatsMetadata(
+            numSeqs: 1,
+            sumLen: 4,
+            minLen: 4,
+            avgLen: 4,
+            maxLen: 4,
+            q20Percentage: 100,
+            q30Percentage: 100,
+            averageQuality: 40,
+            gcPercentage: 50
+        )
+        return PersistedFASTQMetadata(
+            computedStatistics: stats,
+            ingestion: IngestionMetadata(pairingMode: .singleEnd),
+            seqkitStats: seqkitStats
+        )
+    }
+
+    private func realFASTQImportEnvelope(outputURL: URL) throws -> ProvenanceEnvelope {
+        let startedAt = Date(timeIntervalSince1970: 0)
+        return try ProvenanceRunBuilder(
+            workflowName: "lungfish import fastq",
+            workflowVersion: "test",
+            toolName: "lungfish import fastq",
+            toolVersion: "test"
+        )
+        .argv(["lungfish", "import", "fastq"])
+        .durableReplayArgv(["lungfish", "import", "fastq"])
+        .runtime(ProvenanceRuntimeIdentity())
+        .output(outputURL, format: .fastq)
+        .complete(exitStatus: 0, startedAt: startedAt, endedAt: startedAt.addingTimeInterval(1))
     }
 }

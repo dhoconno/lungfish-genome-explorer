@@ -72,9 +72,25 @@ public struct VariantColorTheme: Sendable, Codable, Equatable {
     public var frameshiftHomAlt: ThemeColor
 
     public init(name: String) {
-        self = Self.modern
-        // Override the name from the preset while keeping colors.
-        // (Swift structs are value types, so self = modern copies everything)
+        let base = Self.modern
+        self.init(
+            name: name,
+            homRef: base.homRef,
+            het: base.het,
+            homAlt: base.homAlt,
+            noCall: base.noCall,
+            snp: base.snp,
+            ins: base.ins,
+            del: base.del,
+            mnp: base.mnp,
+            complex: base.complex,
+            missenseHet: base.missenseHet,
+            missenseHomAlt: base.missenseHomAlt,
+            nonsenseHet: base.nonsenseHet,
+            nonsenseHomAlt: base.nonsenseHomAlt,
+            frameshiftHet: base.frameshiftHet,
+            frameshiftHomAlt: base.frameshiftHomAlt
+        )
     }
 
     // Memberwise init

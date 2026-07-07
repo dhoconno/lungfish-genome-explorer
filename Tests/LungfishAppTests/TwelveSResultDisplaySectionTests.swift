@@ -4,6 +4,19 @@ import XCTest
 
 @MainActor
 final class TwelveSResultDisplaySectionTests: XCTestCase {
+    func testTwelveSBlastPreparationCleanupRemovesStagingDirectory() throws {
+        let stagingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-12s-blast-\(UUID().uuidString)", isDirectory: true)
+        let exportURL = stagingDirectory.appendingPathComponent("unresolved-min5.fasta")
+        try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        try Data(">seq\nACGT\n".utf8).write(to: exportURL)
+        try Data("{}".utf8).write(to: exportURL.appendingPathExtension("lungfish-provenance.json"))
+
+        try ViewerViewController.removeTwelveSBlastPreparationArtifacts(for: exportURL)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagingDirectory.path))
+    }
+
     func testViewModelPublishesFilterChangesAndClampsMinimumReads() {
         let viewModel = TwelveSResultDisplaySectionViewModel()
         var deliveredStates: [TwelveSResultDisplayState] = []

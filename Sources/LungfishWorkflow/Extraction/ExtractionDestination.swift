@@ -14,6 +14,63 @@ public enum CopyFormat: String, Sendable, CaseIterable, Hashable, Codable {
     case fasta
 }
 
+extension CopyFormat {
+    var fileFormat: FileFormat {
+        switch self {
+        case .fastq: return .fastq
+        case .fasta: return .fasta
+        }
+    }
+}
+
+// MARK: - ExtractionFileProvenance
+
+/// Reproducibility context for standalone FASTQ/FASTA file exports.
+///
+/// Bundle destinations carry their provenance through ``ExtractionMetadata``.
+/// Direct file/share destinations need the same context explicitly because
+/// they do not have a bundle metadata file to hydrate from.
+public struct ExtractionFileProvenance: Sendable, Hashable {
+
+    public let workflowName: String
+    public let toolName: String
+    public let argv: [String]
+    public let explicitOptions: [String: ParameterValue]
+    public let defaults: [String: ParameterValue]
+    public let resolved: [String: ParameterValue]
+
+    public init(
+        workflowName: String,
+        toolName: String = "Lungfish.app",
+        argv: [String],
+        explicitOptions: [String: ParameterValue] = [:],
+        defaults: [String: ParameterValue] = [:],
+        resolved: [String: ParameterValue] = [:]
+    ) {
+        self.workflowName = workflowName
+        self.toolName = toolName
+        self.argv = argv
+        self.explicitOptions = explicitOptions
+        self.defaults = defaults
+        self.resolved = resolved
+    }
+
+    public func mergingResolved(_ additionalValues: [String: ParameterValue]) -> ExtractionFileProvenance {
+        var merged = resolved
+        for (key, value) in additionalValues {
+            merged[key] = value
+        }
+        return ExtractionFileProvenance(
+            workflowName: workflowName,
+            toolName: toolName,
+            argv: argv,
+            explicitOptions: explicitOptions,
+            defaults: defaults,
+            resolved: merged
+        )
+    }
+}
+
 // MARK: - ExtractionDestination
 
 /// Where the extracted reads should go.
@@ -92,14 +149,36 @@ public struct ExtractionOptions: Sendable, Hashable {
     /// unmapped mates at this layer).
     public let includeUnmappedMates: Bool
 
+    /// Optional provenance context for standalone file/share destinations.
+    ///
+    /// CLI extraction records provenance at the command layer, so this is nil
+    /// by default. GUI file/share exports set it to request a focused sidecar
+    /// next to the materialized FASTQ/FASTA.
+    public let fileProvenance: ExtractionFileProvenance?
+
     /// Creates extraction options.
     ///
     /// - Parameters:
     ///   - format: Output format (default: `.fastq`).
     ///   - includeUnmappedMates: Keep unmapped mates of mapped pairs (default: `false`).
-    public init(format: CopyFormat = .fastq, includeUnmappedMates: Bool = false) {
+    ///   - fileProvenance: Optional standalone file/share export provenance context.
+    public init(
+        format: CopyFormat = .fastq,
+        includeUnmappedMates: Bool = false,
+        fileProvenance: ExtractionFileProvenance? = nil
+    ) {
         self.format = format
         self.includeUnmappedMates = includeUnmappedMates
+        self.fileProvenance = fileProvenance
+    }
+
+    /// Returns a copy that requests standalone file/share provenance sidecars.
+    public func recordingFileProvenance(_ provenance: ExtractionFileProvenance) -> ExtractionOptions {
+        ExtractionOptions(
+            format: format,
+            includeUnmappedMates: includeUnmappedMates,
+            fileProvenance: provenance
+        )
     }
 
     /// The samtools `-F` exclude-flag mask.

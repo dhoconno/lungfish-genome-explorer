@@ -54,7 +54,7 @@ features:
   fetch.ncbi:
     title: Download a reference sequence from NCBI
     entry_points:
-      - "Tools > Search Online Databases > Search NCBI/SRA..."
+      - "Tools > Search Online Databases > Search NCBI..."
       - "CLI: lungfish fetch ncbi"
     inputs: [ncbi-accession]
     outputs: [fasta, genbank, provenance-sidecar]
@@ -73,7 +73,7 @@ features:
   fetch.sra:
     title: Download FASTQ reads from SRA
     entry_points:
-      - "Tools > Search Online Databases > Search NCBI/SRA..."
+      - "Tools > Search Online Databases > Search SRA..."
       - "CLI: lungfish fetch sra download"
     inputs: [sra-run-accession]
     outputs: [fastq, fastq.gz, provenance-sidecar]
@@ -92,7 +92,7 @@ features:
   map:
     title: Map reads to a reference
     entry_points:
-      - "Tools > Map Reads..."
+      - "Tools > FASTQ/FASTA Operations > Mapping…"
       - "CLI: lungfish map"
       - "CLI: lungfish bam adopt-mapping"
     inputs: [fastq, fasta, reference-bundle]

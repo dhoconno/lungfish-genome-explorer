@@ -111,7 +111,7 @@ struct WorkflowBuilderRunSubcommand: AsyncParsableCommand {
         dryRun: Bool
     ) -> [String] {
         var argv = [
-            "lungfish-cli",
+            CLICommandIdentity.executableName,
             "workflow",
             "builder-run",
             "--workflow",
@@ -197,7 +197,7 @@ struct RunHeadlessSubcommand: AsyncParsableCommand {
         commandName: "run-headless",
         abstract: "Run a workflow quietly without the GUI",
         discussion: """
-            Thin alias for `lungfish workflow run --quiet <workflow>`.
+            Thin alias for `lungfish workflow run --quiet <workflow> ...`.
             Use `lungfish workflow run --help` for the full workflow run option set.
             """
     )
@@ -205,8 +205,21 @@ struct RunHeadlessSubcommand: AsyncParsableCommand {
     @Argument(help: "Workflow file (*.nf, Snakefile) or supported nf-core workflow to pass to workflow run")
     var workflow: String
 
+    @Argument(
+        parsing: .captureForPassthrough,
+        help: "Additional workflow run options passed through after the workflow argument"
+    )
+    var workflowRunArguments: [String] = []
+
+    var forwardedWorkflowRunArguments: [String] {
+        let forwardedArguments = workflowRunArguments.first == "--"
+            ? Array(workflowRunArguments.dropFirst())
+            : workflowRunArguments
+        return [workflow] + forwardedArguments + ["--quiet"]
+    }
+
     func run() async throws {
-        let command = try RunSubcommand.parse([workflow, "--quiet"])
+        let command = try RunSubcommand.parse(forwardedWorkflowRunArguments)
         try await command.run()
     }
 }
@@ -232,6 +245,7 @@ struct RunSubcommand: AsyncParsableCommand {
     )
 
     nonisolated(unsafe) static var localWorkflowProcessRunner: LocalWorkflowProcessRunning = ProcessLocalWorkflowProcessRunner()
+    nonisolated(unsafe) static var nfCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning = ProcessNFCoreWorkflowProcessRunner()
 
     @Argument(help: "Workflow file (*.nf, Snakefile) or supported nf-core workflow: nf-core/viralrecon")
     var workflow: String
@@ -258,7 +272,7 @@ struct RunSubcommand: AsyncParsableCommand {
     @Option(
         name: .customLong("expected-output"),
         parsing: .singleValue,
-        help: "Expected output bundle or file path; repeat for every scientific output that should receive provenance"
+        help: "Final output bundle or file path; required for executed runs and repeatable for every scientific output that must receive provenance"
     )
     var expectedOutput: [String] = []
 
@@ -442,6 +456,7 @@ struct RunSubcommand: AsyncParsableCommand {
         for inputURL in inputURLs where !FileManager.default.fileExists(atPath: inputURL.path) {
             throw CLIError.inputFileNotFound(path: inputURL.path)
         }
+        try requireExpectedOutputsForExecution()
         let expectedOutputURLs = expectedOutput.map { URL(fileURLWithPath: $0).standardizedFileURL }
 
         let request = LocalWorkflowRunRequest(
@@ -554,13 +569,16 @@ struct RunSubcommand: AsyncParsableCommand {
             throw CLIError.inputFileNotFound(path: inputURL.path)
         }
 
+        try requireExpectedOutputsForExecution()
         let outputURL = URL(fileURLWithPath: resultsDir).standardizedFileURL
+        let expectedOutputURLs = expectedOutput.map { URL(fileURLWithPath: $0).standardizedFileURL }
         let request = NFCoreRunRequest(
             workflow: supportedWorkflow,
             version: version,
             executor: executor,
             inputURLs: inputURLs,
             outputDirectory: outputURL,
+            expectedOutputURLs: expectedOutputURLs,
             params: workflowParams,
             resume: resume,
             workDirectory: workDir.map { URL(fileURLWithPath: $0) }
@@ -599,7 +617,7 @@ struct RunSubcommand: AsyncParsableCommand {
             ),
             to: runBundleURL
         )
-        let processResult = try await runNextflow(
+        let processResult = try await Self.nfCoreWorkflowProcessRunner.runNextflow(
             arguments: request.nextflowArguments,
             workingDirectory: runBundleURL.appendingPathComponent("outputs", isDirectory: true)
         )
@@ -631,6 +649,13 @@ struct RunSubcommand: AsyncParsableCommand {
             throw CLIError.workflowFailed(reason: "Nextflow exited with status \(processResult.exitCode). See \(runBundleURL.appendingPathComponent("logs/stderr.log").path)")
         }
         print(runBundleURL.path)
+    }
+
+    private func requireExpectedOutputsForExecution() throws {
+        guard !prepareOnly, expectedOutput.isEmpty else { return }
+        throw CLIError.workflowFailed(
+            reason: "workflow run executions require at least one --expected-output so every final scientific output receives focused provenance. Use --prepare-only or --dry-run for planning-only runs."
+        )
     }
 
     func validateViralReconWorkflowName() throws -> String {
@@ -667,7 +692,202 @@ struct RunSubcommand: AsyncParsableCommand {
         throw CLIError.outputWriteFailed(path: base.path, reason: "Could not allocate a unique run bundle path")
     }
 
-    private func runNextflow(arguments: [String], workingDirectory: URL) async throws -> NFCoreWorkflowProcessResult {
+    private func writeProcessLogs(_ result: NFCoreWorkflowProcessResult, to logsURL: URL) throws {
+        try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
+        try result.standardOutput.write(to: logsURL.appendingPathComponent("stdout.log"), atomically: true, encoding: .utf8)
+        try result.standardError.write(to: logsURL.appendingPathComponent("stderr.log"), atomically: true, encoding: .utf8)
+    }
+
+    private func writeLocalProcessLogs(_ result: LocalWorkflowProcessResult, to logsURL: URL) throws {
+        try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
+        try result.standardOutput.write(to: logsURL.appendingPathComponent("stdout.log"), atomically: true, encoding: .utf8)
+        try result.standardError.write(to: logsURL.appendingPathComponent("stderr.log"), atomically: true, encoding: .utf8)
+    }
+
+    private func writeRunBundleProvenance(
+        request: NFCoreRunRequest,
+        bundleURL: URL,
+        prepareOnly: Bool,
+        status: RunStatus,
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) throws {
+        let command = [CLICommandIdentity.executableName] + request.cliArguments(
+            bundlePath: bundleURL,
+            prepareOnly: prepareOnly
+        ) + (globalOptions.quiet ? ["--quiet"] : [])
+        let inputs = request.inputURLs.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .input)
+        }
+        let outputs = [
+            ProvenanceRecorder.fileOrDirectoryRecord(url: bundleURL, role: .output),
+            ProvenanceRecorder.fileOrDirectoryRecord(url: request.outputDirectory, role: .output),
+            ProvenanceRecorder.fileRecord(
+                url: bundleURL.appendingPathComponent("manifest.json"),
+                format: .json,
+                role: .output
+            )
+        ] + expectedOutputRecords(for: request.expectedOutputURLs)
+        var parameters = request.effectiveParams.mapValues { ParameterValue.string($0) }
+        parameters["executor"] = .string(request.executor.rawValue)
+        parameters["github_release_version"] = .string(request.version)
+        parameters["resume"] = .boolean(request.resume)
+        parameters["prepareOnly"] = .boolean(prepareOnly)
+        if !request.expectedOutputURLs.isEmpty {
+            parameters["expectedOutputs"] = .array(request.expectedOutputURLs.map { .file($0) })
+        }
+        if let workDirectory = request.workDirectory {
+            parameters["workDirectory"] = .file(workDirectory)
+        }
+
+        let step = StepExecution(
+            toolName: "\(CLICommandIdentity.executableName) workflow run",
+            toolVersion: LungfishCLI.configuration.version,
+            githubReleaseVersion: request.version,
+            command: command,
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr,
+            endTime: Date()
+        )
+        let run = WorkflowRun(
+            name: request.displayTitle,
+            endTime: Date(),
+            status: status,
+            steps: [step],
+            parameters: parameters
+        )
+        try ProvenanceWriter().write(run.canonicalEnvelope(), to: bundleURL)
+        if !prepareOnly, status == .completed {
+            try writeExpectedOutputProvenance(run, to: request.expectedOutputURLs)
+        }
+    }
+
+    private func writeLocalRunBundleProvenance(
+        request: LocalWorkflowRunRequest,
+        bundleURL: URL,
+        prepareOnly: Bool,
+        status: RunStatus,
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) throws {
+        let command = [CLICommandIdentity.executableName] + request.cliArguments(
+            bundlePath: bundleURL,
+            prepareOnly: prepareOnly
+        ) + (globalOptions.quiet ? ["--quiet"] : [])
+        let inputs = [ProvenanceRecorder.fileRecord(url: request.workflowURL, format: .text, role: .input)]
+            + request.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) }
+        let outputs = [
+            ProvenanceRecorder.fileOrDirectoryRecord(url: bundleURL, role: .output),
+            ProvenanceRecorder.fileOrDirectoryRecord(url: request.outputDirectory, role: .output),
+            ProvenanceRecorder.fileRecord(
+                url: bundleURL.appendingPathComponent("manifest.json"),
+                format: .json,
+                role: .output
+            ),
+        ] + expectedOutputRecords(for: request.expectedOutputURLs)
+        var parameters = request.effectiveParams.mapValues { ParameterValue.string($0) }
+        parameters["engine"] = .string(request.engine.rawValue)
+        parameters["workflowPath"] = .file(request.workflowURL)
+        parameters["resume"] = .boolean(request.resume)
+        parameters["prepareOnly"] = .boolean(prepareOnly)
+        if let workDirectory = request.workDirectory {
+            parameters["workDirectory"] = .file(workDirectory)
+        }
+        if let cpus = request.cpus {
+            parameters["cpus"] = .integer(cpus)
+        }
+        if let memory = request.memory {
+            parameters["memory"] = .string(memory)
+        }
+
+        let step = StepExecution(
+            toolName: "\(CLICommandIdentity.executableName) workflow run",
+            toolVersion: LungfishCLI.configuration.version,
+            command: command,
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr,
+            endTime: Date()
+        )
+        let run = WorkflowRun(
+            name: "Run \(request.workflowDisplayName)",
+            endTime: Date(),
+            status: status,
+            steps: [step],
+            parameters: parameters
+        )
+        try ProvenanceWriter().write(run.canonicalEnvelope(), to: bundleURL)
+        if !prepareOnly, status == .completed {
+            try writeExpectedOutputProvenance(run, to: request.expectedOutputURLs)
+        }
+    }
+
+    private func expectedOutputRecords(for outputURLs: [URL]) -> [FileRecord] {
+        outputURLs.map { outputURL in
+            ProvenanceRecorder.fileOrDirectoryRecord(url: outputURL, role: .output)
+        }
+    }
+
+    private func writeExpectedOutputProvenance(
+        _ run: WorkflowRun,
+        to outputURLs: [URL]
+    ) throws {
+        guard !outputURLs.isEmpty else { return }
+        let writer = ProvenanceWriter(signingProvider: nil)
+        let envelope = run.canonicalEnvelope()
+        for outputURL in outputURLs {
+            guard FileManager.default.fileExists(atPath: outputURL.path) else {
+                throw CLIError.outputWriteFailed(
+                    path: outputURL.path,
+                    reason: "Expected workflow output was not created"
+                )
+            }
+
+            var isDirectory: ObjCBool = false
+            FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory)
+            let outputPath = outputURL.standardizedFileURL.path
+            guard let outputDescriptor = envelope.outputs.first(where: { $0.path == outputPath }) else {
+                throw CLIError.outputWriteFailed(
+                    path: outputURL.path,
+                    reason: "Expected workflow output was not recorded in run provenance"
+                )
+            }
+            let focusedEnvelope = envelope.focusedOnOutput(outputDescriptor)
+            if isDirectory.boolValue {
+                try writer.write(focusedEnvelope, to: outputURL)
+            } else {
+                try writer.write(
+                    focusedEnvelope,
+                    toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)
+                )
+            }
+        }
+    }
+
+}
+
+struct NFCoreWorkflowProcessResult: Sendable, Equatable {
+    let exitCode: Int32
+    let standardOutput: String
+    let standardError: String
+}
+
+protocol NFCoreWorkflowProcessRunning: Sendable {
+    func runNextflow(
+        arguments: [String],
+        workingDirectory: URL
+    ) async throws -> NFCoreWorkflowProcessResult
+}
+
+struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
+    func runNextflow(arguments: [String], workingDirectory: URL) async throws -> NFCoreWorkflowProcessResult {
         try await withCheckedThrowingContinuation { continuation in
             do {
                 try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
@@ -703,194 +923,6 @@ struct RunSubcommand: AsyncParsableCommand {
             }
         }
     }
-
-    private func writeProcessLogs(_ result: NFCoreWorkflowProcessResult, to logsURL: URL) throws {
-        try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
-        try result.standardOutput.write(to: logsURL.appendingPathComponent("stdout.log"), atomically: true, encoding: .utf8)
-        try result.standardError.write(to: logsURL.appendingPathComponent("stderr.log"), atomically: true, encoding: .utf8)
-    }
-
-    private func writeLocalProcessLogs(_ result: LocalWorkflowProcessResult, to logsURL: URL) throws {
-        try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
-        try result.standardOutput.write(to: logsURL.appendingPathComponent("stdout.log"), atomically: true, encoding: .utf8)
-        try result.standardError.write(to: logsURL.appendingPathComponent("stderr.log"), atomically: true, encoding: .utf8)
-    }
-
-    private func writeRunBundleProvenance(
-        request: NFCoreRunRequest,
-        bundleURL: URL,
-        prepareOnly: Bool,
-        status: RunStatus,
-        exitCode: Int32,
-        wallTime: TimeInterval,
-        stderr: String?
-    ) throws {
-        let command = ["lungfish-cli"] + request.cliArguments(
-            bundlePath: bundleURL,
-            prepareOnly: prepareOnly
-        ) + (globalOptions.quiet ? ["--quiet"] : [])
-        let inputs = request.inputURLs.map {
-            ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .input)
-        }
-        let outputs = [
-            FileRecord(path: bundleURL.path, format: .unknown, role: .output),
-            FileRecord(path: request.outputDirectory.path, format: .unknown, role: .output),
-            ProvenanceRecorder.fileRecord(
-                url: bundleURL.appendingPathComponent("manifest.json"),
-                format: .json,
-                role: .output
-            )
-        ]
-        var parameters = request.effectiveParams.mapValues { ParameterValue.string($0) }
-        parameters["executor"] = .string(request.executor.rawValue)
-        parameters["github_release_version"] = .string(request.version)
-        parameters["resume"] = .boolean(request.resume)
-        parameters["prepareOnly"] = .boolean(prepareOnly)
-        if let workDirectory = request.workDirectory {
-            parameters["workDirectory"] = .file(workDirectory)
-        }
-
-        let step = StepExecution(
-            toolName: "lungfish-cli workflow run",
-            toolVersion: LungfishCLI.configuration.version,
-            githubReleaseVersion: request.version,
-            command: command,
-            inputs: inputs,
-            outputs: outputs,
-            exitCode: exitCode,
-            wallTime: wallTime,
-            stderr: stderr,
-            endTime: Date()
-        )
-        let run = WorkflowRun(
-            name: request.displayTitle,
-            endTime: Date(),
-            status: status,
-            steps: [step],
-            parameters: parameters
-        )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(run)
-        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        try data.write(to: provenanceURL, options: .atomic)
-        try signProvenanceIfConfigured(at: provenanceURL)
-    }
-
-    private func writeLocalRunBundleProvenance(
-        request: LocalWorkflowRunRequest,
-        bundleURL: URL,
-        prepareOnly: Bool,
-        status: RunStatus,
-        exitCode: Int32,
-        wallTime: TimeInterval,
-        stderr: String?
-    ) throws {
-        let command = ["lungfish-cli"] + request.cliArguments(
-            bundlePath: bundleURL,
-            prepareOnly: prepareOnly
-        ) + (globalOptions.quiet ? ["--quiet"] : [])
-        let inputs = [ProvenanceRecorder.fileRecord(url: request.workflowURL, format: .text, role: .input)]
-            + request.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) }
-        let outputs = [
-            FileRecord(path: bundleURL.path, format: .unknown, role: .output),
-            FileRecord(path: request.outputDirectory.path, format: .unknown, role: .output),
-            ProvenanceRecorder.fileRecord(
-                url: bundleURL.appendingPathComponent("manifest.json"),
-                format: .json,
-                role: .output
-            ),
-        ] + expectedOutputRecords(for: request.expectedOutputURLs)
-        var parameters = request.effectiveParams.mapValues { ParameterValue.string($0) }
-        parameters["engine"] = .string(request.engine.rawValue)
-        parameters["workflowPath"] = .file(request.workflowURL)
-        parameters["resume"] = .boolean(request.resume)
-        parameters["prepareOnly"] = .boolean(prepareOnly)
-        if let workDirectory = request.workDirectory {
-            parameters["workDirectory"] = .file(workDirectory)
-        }
-        if let cpus = request.cpus {
-            parameters["cpus"] = .integer(cpus)
-        }
-        if let memory = request.memory {
-            parameters["memory"] = .string(memory)
-        }
-
-        let step = StepExecution(
-            toolName: "lungfish-cli workflow run",
-            toolVersion: LungfishCLI.configuration.version,
-            command: command,
-            inputs: inputs,
-            outputs: outputs,
-            exitCode: exitCode,
-            wallTime: wallTime,
-            stderr: stderr,
-            endTime: Date()
-        )
-        let run = WorkflowRun(
-            name: "Run \(request.workflowDisplayName)",
-            endTime: Date(),
-            status: status,
-            steps: [step],
-            parameters: parameters
-        )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(run)
-        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        try data.write(to: provenanceURL, options: .atomic)
-        try signProvenanceIfConfigured(at: provenanceURL)
-        if !prepareOnly, status == .completed {
-            try writeExpectedOutputProvenance(run, to: request.expectedOutputURLs)
-        }
-    }
-
-    private func expectedOutputRecords(for outputURLs: [URL]) -> [FileRecord] {
-        outputURLs.map { outputURL in
-            ProvenanceRecorder.fileRecord(url: outputURL, role: .output)
-        }
-    }
-
-    private func writeExpectedOutputProvenance(
-        _ run: WorkflowRun,
-        to outputURLs: [URL]
-    ) throws {
-        guard !outputURLs.isEmpty else { return }
-        let writer = ProvenanceWriter(signingProvider: nil)
-        let envelope = run.canonicalEnvelope()
-        for outputURL in outputURLs {
-            guard FileManager.default.fileExists(atPath: outputURL.path) else {
-                throw CLIError.outputWriteFailed(
-                    path: outputURL.path,
-                    reason: "Expected workflow output was not created"
-                )
-            }
-
-            var isDirectory: ObjCBool = false
-            FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory)
-            if isDirectory.boolValue {
-                try writer.write(envelope, to: outputURL)
-            } else {
-                try writer.write(
-                    envelope,
-                    toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)
-                )
-            }
-        }
-    }
-
-    private func signProvenanceIfConfigured(at provenanceURL: URL) throws {
-        guard let provider = ProvenanceSigningConfiguration.defaultProvider() else { return }
-        _ = try provider.sign(provenanceURL: provenanceURL)
-    }
-}
-
-private struct NFCoreWorkflowProcessResult {
-    let exitCode: Int32
-    let standardOutput: String
-    let standardError: String
 }
 
 struct LocalWorkflowProcessResult: Sendable, Equatable {

@@ -147,27 +147,16 @@ item 1 flagged this; it was fixed in the body but persists in cli-reference.)
 
 - **`03-reads/02-downloading-from-sra.md`** (owns SRA) and **`05-variants/01:126`**
   and **`05-variants/04`** all use `Tools > Search Online Databases > Search SRA`.
-- **`07-assembly/02-running-spades.md:75`**: "Download the run via `File > Import
-  > From SRA`."
+Resolved 2026-07-04: `07-assembly/02-running-spades.md` now points to
+`Tools > Search Online Databases > Search SRA...`, matching the current menu.
 
-Correct per ground truth (`ground-truth/03-reads.md`, ch02 item 1): the SRA
-entry point is `Tools > Search Online Databases > Search SRA…`. There is no
-`File > Import > From SRA` menu. `07-assembly/02:75` should use the
-`Tools > Search Online Databases > Search SRA` path (or cross-reference
-`03-reads/02`) like every other chapter.
-
-### 8. "Map Reads" menu path drift: `Tools > Map Reads` / `... > Map Reads` vs `... > Mapping…`
+### 8. Mapping menu path drift, resolved 2026-07-04
 
 The canonical mapping entry point is `Tools > FASTQ/FASTA Operations >
 Mapping…` (used throughout `04-alignments/01`, `04-alignments/05`,
-`05-variants/01`, `05-variants/04`). Two chapters drift:
-
-- **`03-reads/05-decontamination.md:109`**: "Pass the kept-read bundle to `Tools
-  > Map Reads` against the SARS-CoV-2 reference." (`Tools > Map Reads` is not a
-  real menu item.)
-- **`07-assembly/04-extracting-contigs.md:174`**: "Open the Map Reads wizard from
-  `Tools > FASTQ/FASTA Operations > Map Reads`." (the leaf is `Mapping…`, then a
-  mapper tool row, not a `Map Reads` item).
+`05-variants/01`, `05-variants/04`). Resolved 2026-07-04:
+`03-reads/05-decontamination.md` and `07-assembly/04-extracting-contigs.md`
+now use that path.
 
 Correct per ground truth (`ground-truth/04-alignments.md`, Section-wide item 4:
 "the real path is `Tools > FASTQ/FASTA Operations > Mapping…`"): both should use

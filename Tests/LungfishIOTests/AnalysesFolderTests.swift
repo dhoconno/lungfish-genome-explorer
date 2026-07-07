@@ -43,6 +43,18 @@ final class AnalysesFolderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
     }
 
+    func testCreateAnalysisDirectoryUsesUniqueSuffixForTimestampCollision() throws {
+        let date = Date(timeIntervalSince1970: 1775398200)
+        let first = try AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: tempDir, date: date)
+        let second = try AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: tempDir, date: date)
+
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(second.lastPathComponent, "\(first.lastPathComponent)-2")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: second.path))
+        XCTAssertEqual(AnalysesFolder.readAnalysisMetadata(from: second)?.tool, "kraken2")
+    }
+
     func testCreateAnalysisDirectoryWritesMetadata() throws {
         let date = Date(timeIntervalSince1970: 1775398200)
         let url = try AnalysesFolder.createAnalysisDirectory(

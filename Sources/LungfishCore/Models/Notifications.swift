@@ -232,11 +232,11 @@ extension Notification.Name {
     /// - `"annotation"`: The `SequenceAnnotation` to materialize as FASTA input.
     public static let runFASTAOperationOnAnnotationRequested = Notification.Name("runFASTAOperationOnAnnotationRequested")
 
-    /// Posted when an operation starts, completes, fails, or is cancelled.
+    /// Posted when an operation starts, begins cancelling, completes, fails, or is cancelled.
     ///
     /// The `userInfo` dictionary contains:
     /// - `"operationID"`: The `UUID` of the affected operation.
-    /// - `"operationState"`: The state as a raw `String` ("running", "completed", "failed").
+    /// - `"operationState"`: The state as a raw `String` ("running", "cancelling", "completed", "failed", "cancelled").
     public static let operationStateChanged = Notification.Name("operationStateChanged")
 
     /// Posted when a FASTQ dataset has been loaded and its statistics dashboard is displayed.

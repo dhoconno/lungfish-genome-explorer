@@ -17,8 +17,8 @@ private let taxonomyLogger = Logger(subsystem: LogSubsystem.app, category: "View
 
 /// Schedules a block on the main run loop using `CFRunLoopPerformBlock`.
 ///
-/// This avoids the cooperative executor scheduling issues described in MEMORY.md
-/// and matches the pattern in `ViewerViewController+Extraction.swift`.
+/// This avoids cooperative executor scheduling stalls while preserving the
+/// run-loop handoff pattern used by `ViewerViewController+Extraction.swift`.
 private func scheduleTaxonomyOnMainRunLoop(_ block: @escaping @Sendable () -> Void) {
     CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
         block()
@@ -37,8 +37,8 @@ extension ViewerViewController {
     /// view controller filling the content area.
     ///
     /// Follows the exact same child-VC pattern as ``displayFASTACollection(sequences:annotations:)``.
-    /// Read extraction is now driven by ``TaxonomyReadExtractionAction.shared.present(...)``
-    /// which the VC fires from its action bar / context menu (Phase 5).
+    /// Read extraction is driven by ``TaxonomyReadExtractionAction.shared.present(...)``,
+    /// which the VC fires from its action bar or context menu.
     ///
     /// - Parameter result: The classification result to display.
     public func displayTaxonomyResult(_ result: ClassificationResult) {
@@ -88,7 +88,7 @@ extension ViewerViewController {
                 projectURL: ProjectTempDirectory.findProjectRoot(classResult.outputURL),
                 windowStateScope: self.windowStateScope
             )
-            let batchExtractCliCmd = "# Batch extraction for collection '\(collection.name)' \u{2014} run individual 'lungfish conda extract' commands per taxon"
+            let batchExtractCliCmd = "# Taxonomy Read Extraction workflow for collection '\(collection.name)' (batch pipeline; see output provenance for replay details)"
             let opID = OperationCenter.shared.start(
                 title: "Extract \(collection.name)",
                 detail: "Preparing batch extraction\u{2026}",
@@ -112,7 +112,7 @@ extension ViewerViewController {
                         progress: { fraction, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    OperationCenter.shared.update(
+                                    _ = OperationCenter.shared.update(
                                         id: opID,
                                         progress: fraction,
                                         detail: message
@@ -126,7 +126,7 @@ extension ViewerViewController {
                     scheduleTaxonomyOnMainRunLoop {
                         MainActor.assumeIsolated {
                             let count = capturedURLs.count
-                            OperationCenter.shared.complete(
+                            _ = OperationCenter.shared.complete(
                                 id: opID,
                                 detail: "Extracted \(count) taxa from \(collection.name)",
                                 bundleURLs: capturedURLs
@@ -142,7 +142,7 @@ extension ViewerViewController {
                     let errorDesc = error.localizedDescription
                     scheduleTaxonomyOnMainRunLoop {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            _ = OperationCenter.shared.fail(
                                 id: opID,
                                 detail: errorDesc
                             )
@@ -230,11 +230,11 @@ extension ViewerViewController {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.updateWithLog(
+                            guard OperationCenter.shared.updateWithLog(
                                 id: opID,
                                 progress: 0.1,
                                 detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
-                            )
+                            ) else { return }
                             weakController?.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
                         }
                     }
@@ -245,11 +245,11 @@ extension ViewerViewController {
                         progress: { fraction, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    OperationCenter.shared.updateWithLog(
+                                    guard OperationCenter.shared.updateWithLog(
                                         id: opID,
                                         progress: fraction,
                                         detail: message
-                                    )
+                                    ) else { return }
                                     let lower = message.lowercased()
                                     if lower.contains("waiting") {
                                         weakController?.showBlastLoading(phase: .waiting, requestId: nil, runID: blastRunID)
@@ -266,10 +266,10 @@ extension ViewerViewController {
                     let capturedResult = blastResult
                     scheduleTaxonomyOnMainRunLoop {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.complete(
+                            guard OperationCenter.shared.complete(
                                 id: opID,
                                 detail: "\(capturedResult.verifiedCount)/\(capturedResult.readResults.count) reads verified"
-                            )
+                            ) else { return }
                             weakController?.showBlastResults(capturedResult, runID: blastRunID)
                         }
                     }
@@ -277,10 +277,10 @@ extension ViewerViewController {
                     let errorDesc = error.localizedDescription
                     scheduleTaxonomyOnMainRunLoop {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            guard OperationCenter.shared.fail(
                                 id: opID,
                                 detail: errorDesc
-                            )
+                            ) else { return }
                             weakController?.showBlastFailure(message: errorDesc, runID: blastRunID)
                             showBlastVerificationErrorAlert(errorDesc)
                         }
@@ -429,11 +429,11 @@ extension ViewerViewController {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.updateWithLog(
+                            guard OperationCenter.shared.updateWithLog(
                                 id: opID,
                                 progress: 0.1,
                                 detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
-                            )
+                            ) else { return }
                             weakController.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
                         }
                     }
@@ -443,11 +443,11 @@ extension ViewerViewController {
                         progress: { fraction, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    OperationCenter.shared.updateWithLog(
+                                    guard OperationCenter.shared.updateWithLog(
                                         id: opID,
                                         progress: fraction,
                                         detail: message
-                                    )
+                                    ) else { return }
                                     let lower = message.lowercased()
                                     if lower.contains("waiting") {
                                         weakController.showBlastLoading(phase: .waiting, requestId: nil, runID: blastRunID)
@@ -463,10 +463,10 @@ extension ViewerViewController {
 
                     scheduleTaxonomyOnMainRunLoop {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.complete(
+                            guard OperationCenter.shared.complete(
                                 id: opID,
                                 detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) reads verified"
-                            )
+                            ) else { return }
                             weakController.showBlastResults(blastResult, runID: blastRunID)
                         }
                     }
@@ -474,7 +474,7 @@ extension ViewerViewController {
                     let errorDesc = error.localizedDescription
                     scheduleTaxonomyOnMainRunLoop {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                            guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
                             weakController.showBlastFailure(message: errorDesc, runID: blastRunID)
                             showBlastVerificationErrorAlert(errorDesc)
                         }

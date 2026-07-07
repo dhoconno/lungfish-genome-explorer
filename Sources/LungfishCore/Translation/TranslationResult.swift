@@ -2,8 +2,6 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import Foundation
-
 // MARK: - Translation Result
 
 /// The result of translating a CDS annotation, including coordinate mapping.

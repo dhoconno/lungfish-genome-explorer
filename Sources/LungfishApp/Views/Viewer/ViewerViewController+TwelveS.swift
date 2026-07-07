@@ -51,7 +51,7 @@ extension ViewerViewController {
                 arguments += ["--sequence-id", sequenceID]
             }
             let cliCommand = ViralReconWorkflowCommandPreview.build(
-                executableName: "lungfish-cli",
+                executableName: CLICommandIdentity.executableName,
                 arguments: arguments
             )
             let operationID = OperationCenter.shared.start(
@@ -64,13 +64,17 @@ extension ViewerViewController {
                 OperationCenter.shared.cancel(id: operationID)
             }
 
+            let cliCancellation = LungfishCLIRunner.CancellationHandle()
             let task = Task.detached {
+                defer {
+                    try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
+                }
                 do {
                     try FileManager.default.createDirectory(
                         at: exportURL.deletingLastPathComponent(),
                         withIntermediateDirectories: true
                     )
-                    _ = try LungfishCLIRunner.run(arguments: arguments)
+                    _ = try LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
                     try Self.verifyTwelveSBlastPreparationProvenance(
                         sidecarURL: exportURL.appendingPathExtension("lungfish-provenance.json"),
                         outputURL: exportURL
@@ -91,7 +95,9 @@ extension ViewerViewController {
                         progress: { fraction, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    OperationCenter.shared.update(id: operationID, progress: fraction, detail: message)
+                                    guard OperationCenter.shared.update(id: operationID, progress: fraction, detail: message) else {
+                                        return
+                                    }
                                     let lower = message.lowercased()
                                     if lower.contains("waiting") {
                                         controller.showBlastLoading(phase: .waiting, requestId: nil)
@@ -106,11 +112,19 @@ extension ViewerViewController {
                     )
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.complete(
+                            let accepted = OperationCenter.shared.complete(
                                 id: operationID,
                                 detail: "BLAST results ready for \(sequences.count) unresolved sequence\(sequences.count == 1 ? "" : "s")"
                             )
+                            controller.onUnresolvedBlastCancelRequested = nil
+                            guard accepted else { return }
                             controller.showBlastResults(result)
+                        }
+                    }
+                } catch LungfishCLIRunner.RunError.cancelled {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(id: operationID, level: .info, message: "12S BLAST preparation cancelled")
                             controller.onUnresolvedBlastCancelRequested = nil
                         }
                     }
@@ -118,18 +132,22 @@ extension ViewerViewController {
                     let message = error.localizedDescription
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.fail(
+                            let accepted = OperationCenter.shared.fail(
                                 id: operationID,
                                 detail: message,
                                 errorMessage: message
                             )
-                            controller.showBlastFailure(message)
                             controller.onUnresolvedBlastCancelRequested = nil
+                            guard accepted else { return }
+                            controller.showBlastFailure(message)
                         }
                     }
                 }
             }
-            OperationCenter.shared.setCancelCallback(for: operationID) { task.cancel() }
+            OperationCenter.shared.setCancelCallback(for: operationID) {
+                task.cancel()
+                cliCancellation.cancel()
+            }
         }
 
         annotationDrawerView?.isHidden = true
@@ -209,12 +227,21 @@ extension ViewerViewController {
         return records
     }
 
+    nonisolated static func removeTwelveSBlastPreparationArtifacts(for exportURL: URL) throws {
+        let stagingDirectory = exportURL.deletingLastPathComponent()
+        guard stagingDirectory.lastPathComponent.hasPrefix("lungfish-12s-blast-"),
+              FileManager.default.fileExists(atPath: stagingDirectory.path) else {
+            return
+        }
+        try FileManager.default.removeItem(at: stagingDirectory)
+    }
+
     private nonisolated static func verifyTwelveSBlastPreparationProvenance(
         sidecarURL: URL,
         outputURL: URL
     ) throws {
         guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL),
-              envelope.toolName == "lungfish-cli",
+              envelope.toolName == CLICommandIdentity.executableName,
               envelope.workflowName == "lungfish fastq 12s-export-unresolved",
               envelope.exitStatus == 0,
               !envelope.argv.isEmpty else {

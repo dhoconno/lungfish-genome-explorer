@@ -1,4 +1,6 @@
 import Foundation
+import CryptoKit
+import LungfishCore
 import Testing
 
 @Suite("Release Build Configuration")
@@ -20,6 +22,47 @@ struct ReleaseBuildConfigurationTests {
         #expect(releaseBlock.contains("EXCLUDED_ARCHS = x86_64;"))
         #expect(releaseBlock.contains("ONLY_ACTIVE_ARCH = YES;"))
         #expect(releaseBlock.contains("ENABLE_HARDENED_RUNTIME = YES;"))
+    }
+
+    @Test("Release identity uses canonical beta1 version and Sparkle channel")
+    func releaseIdentityUsesCanonicalBetaVersionAndSparkleChannel() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+        let infoPlist = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish-Info.plist"),
+            encoding: .utf8
+        )
+        let releaseScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            encoding: .utf8
+        )
+
+        #expect(project.contains(#"MARKETING_VERSION = "\#(LungfishAppVersion.short)";"#))
+        #expect(project.contains("0.5.0-alpha") == false)
+        #expect(infoPlist.contains("sparkle-beta/appcast-beta.xml"))
+        #expect(infoPlist.contains("sparkle-alpha") == false)
+        #expect(releaseScript.contains("${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/appcast-beta.xml"))
+        #expect(releaseScript.contains("appcast-alpha.xml") == false)
+    }
+
+    @Test("Xcode Swift language mode stays on Swift 6 while SwiftPM pins the 6.2 toolchain")
+    func xcodeSwiftLanguageModeStaysOnSwift6() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let packageManifest = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Package.swift"),
+            encoding: .utf8
+        )
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+
+        #expect(packageManifest.hasPrefix("// swift-tools-version: 6.2"))
+        #expect(project.contains("SWIFT_VERSION = 6.0;"))
+        #expect(project.contains("SWIFT_VERSION = 5.") == false)
     }
 
     @Test("Xcode app bundle metadata uses 2026 Dave O'Connor copyright")
@@ -65,6 +108,28 @@ struct ReleaseBuildConfigurationTests {
 
         #expect(script.contains("swift build -c release --arch arm64"))
         #expect(script.contains(".build/arm64-apple-macosx/release"))
+    }
+
+    @Test("Fallback build-app script uses the Xcode app bundle identifiers")
+    func buildAppScriptUsesXcodeAppBundleIdentifiers() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let script = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+        let releaseBlock = try Self.buildConfigurationBlock(
+            named: "F1E2D3C4B5A6978877665559 /* Release */",
+            in: project
+        )
+
+        #expect(releaseBlock.contains("PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser;"))
+        #expect(script.contains(#"BUNDLE_ID="com.lungfish.browser""#))
+        #expect(script.contains(#"DEBUG_BUNDLE_ID="com.lungfish.browser.debug""#))
+        #expect(script.contains("org.lungfish.genome-browser") == false)
     }
 
     @Test("Fallback build-app script supports debug app bundles")
@@ -135,6 +200,31 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains(#"codesign --verify --deep --strict --verbose=4 "$APP_DIR""#))
     }
 
+    @Test("Fallback build-app script signs embedded CLI with CLI entitlements before app bundle")
+    func buildAppScriptSignsEmbeddedCLIWithCLIEntitlementsBeforeAppBundle() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+        let cliSignMarker = #"codesign --force --sign - --options runtime --entitlements "$CLI_ENTITLEMENTS" "$MACOS_DIR/lungfish-cli""#
+
+        #expect(script.contains(#"CLI_ENTITLEMENTS="$PROJECT_ROOT/lungfish-cli.entitlements""#))
+        #expect(script.contains(cliSignMarker))
+
+        let lines = script.split(separator: "\n", omittingEmptySubsequences: false)
+        guard let cliSignIndex = lines.firstIndex(where: { $0.contains(cliSignMarker) }),
+              let appSignIndex = lines.firstIndex(where: {
+                  $0.contains(#"codesign --force --deep --sign - "$APP_DIR""#)
+              })
+        else {
+            Issue.record("expected fallback build to sign lungfish-cli before signing the app bundle")
+            return
+        }
+
+        #expect(cliSignIndex < appSignIndex)
+    }
+
     @Test("Fallback build-app script sanitizes copied workflow tools from flat SwiftPM bundles")
     func buildAppScriptSanitizesCopiedWorkflowToolsFromFlatBundleLayout() throws {
         let script = try String(
@@ -199,6 +289,93 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("download_ucsc_tools") == false)
     }
 
+    @Test("Retired standalone cutadapt bundler is removed")
+    func retiredStandaloneCutadaptBundlerIsRemoved() {
+        let scriptURL = Self.repositoryRoot().appendingPathComponent("scripts/build-cutadapt.sh")
+
+        #expect(FileManager.default.fileExists(atPath: scriptURL.path) == false)
+    }
+
+    @Test("CLI signing helper resolves release binary through SwiftPM")
+    func cliSigningHelperResolvesReleaseBinaryThroughSwiftPM() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot().appendingPathComponent("sign-cli.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("--configuration release"))
+        #expect(script.contains("--show-bin-path"))
+        #expect(script.contains(".build/release/lungfish-cli") == false)
+    }
+
+    @Test("Shared CLI locator avoids hardcoded SwiftPM executable paths")
+    func sharedCLILocatorAvoidsHardcodedSwiftPMExecutablePaths() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let sources = [
+            "Sources/LungfishKit/CLIBinaryLocator.swift",
+            "Sources/LungfishKit/LungfishCLIRunner.swift",
+            "Sources/LungfishApp/Services/CLIImportRunner.swift",
+        ]
+
+        for sourcePath in sources {
+            let source = try String(
+                contentsOf: repositoryRoot.appendingPathComponent(sourcePath),
+                encoding: .utf8
+            )
+            #expect(source.contains(".build/release/lungfish-cli") == false)
+            #expect(source.contains(".build/arm64-apple-macosx/debug/lungfish-cli") == false)
+            #expect(source.contains(".build/debug/lungfish-cli") == false)
+        }
+
+        let locatorSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/LungfishKit/CLIBinaryLocator.swift"),
+            encoding: .utf8
+        )
+        #expect(locatorSource.contains("--show-bin-path"))
+    }
+
+    @Test("CLI subprocess tests resolve binaries through SwiftPM bin path")
+    func cliSubprocessTestsResolveBinariesThroughSwiftPMBinPath() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let sources = [
+            "Tests/LungfishCLITests/ApplicationExportImportE2ETests.swift",
+            "Tests/LungfishCLITests/CLIExitCodeProcessTests.swift",
+            "Tests/LungfishCLITests/ExtractContigsCommandTests.swift",
+            "Tests/LungfishCLITests/ImportFastqE2ETests.swift",
+            "Tests/LungfishCLITests/ImportMSATreeE2ETests.swift",
+            "Tests/LungfishCLITests/MarkdupCommandTests.swift",
+            "Tests/LungfishIntegrationTests/CLIBAMFilteringIntegrationTests.swift",
+            "Tests/LungfishXCUITests/TestSupport/AssemblyRobot.swift",
+            "Tests/LungfishXCUITests/TestSupport/BundleBrowserRobot.swift",
+            "Tests/LungfishXCUITests/TestSupport/LungfishProjectFixtureBuilder.swift",
+            "Tests/LungfishXCUITests/TestSupport/MappingRobot.swift",
+        ]
+
+        for sourcePath in sources {
+            let source = try String(
+                contentsOf: repositoryRoot.appendingPathComponent(sourcePath),
+                encoding: .utf8
+            )
+            #expect(source.contains(".build/release/lungfish-cli") == false)
+            #expect(source.contains(".build/arm64-apple-macosx/debug/lungfish-cli") == false)
+            #expect(source.contains(".build/x86_64-apple-macosx/debug/lungfish-cli") == false)
+            #expect(source.contains(".build/debug/lungfish-cli") == false)
+        }
+    }
+
+    @Test("Primer-trim GUI integration locates CLI through SwiftPM bin path")
+    func primerTrimGUIIntegrationLocatesCLIThroughSwiftPMBinPath() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("Tests/LungfishIntegrationTests/PrimerTrim/PrimerTrimGUIIntegrationTests.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("--show-bin-path"))
+        #expect(source.contains(".build/release/lungfish-cli") == false)
+        #expect(source.contains(".build/debug/lungfish-cli") == false)
+    }
+
     @Test("Bundled tool manifest keeps only micromamba")
     func bundledToolManifestKeepsOnlyMicromamba() throws {
         let manifest = try String(
@@ -214,6 +391,103 @@ struct ReleaseBuildConfigurationTests {
         #expect(manifest.contains(#""name": "seqkit""#) == false)
         #expect(manifest.contains(#""name": "vsearch""#) == false)
         #expect(manifest.contains(#""name": "cutadapt""#) == false)
+    }
+
+    @Test("Shipped workflow resources do not leak developer-local paths")
+    func shippedWorkflowResourcesDoNotLeakDeveloperLocalPaths() throws {
+        let resourcesRoot = Self.repositoryRoot()
+            .appendingPathComponent("Sources/LungfishWorkflow/Resources", isDirectory: true)
+        let leakPatterns = ["/Users/"]
+        let scannedExtensions = Set(["json", "md", "txt"])
+        var leaks: [String] = []
+
+        guard let enumerator = FileManager.default.enumerator(
+            at: resourcesRoot,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: []
+        ) else {
+            throw NSError(domain: "ReleaseBuildConfigurationTests", code: 3)
+        }
+
+        for case let fileURL as URL in enumerator {
+            guard scannedExtensions.contains(fileURL.pathExtension.lowercased()),
+                  let text = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                continue
+            }
+            for pattern in leakPatterns where text.contains(pattern) {
+                leaks.append(Self.relativePath(fileURL, from: Self.repositoryRoot()))
+                break
+            }
+        }
+
+        #expect(leaks.isEmpty, "Bundled resource leaks developer paths: \(leaks.sorted().joined(separator: ", "))")
+    }
+
+    @Test("Bundled MCM provenance manifest matches shipped payload files")
+    func bundledMCMProvenanceManifestMatchesShippedPayloadFiles() throws {
+        let bundleURL = Self.repositoryRoot()
+            .appendingPathComponent(
+                "Sources/LungfishWorkflow/Resources/MCMHaplotyping/MCM-MHC-miSeq-20260617.lungfishmhcref",
+                isDirectory: true
+            )
+        let provenanceURL = bundleURL.appendingPathComponent(".lungfish-provenance.json")
+        let provenance = try JSONDecoder().decode(
+            ShippedMCMProvenance.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let manifestEntries = provenance.bundleDirectoryManifest.sorted { $0.path < $1.path }
+        let expectedPayloadPaths = Set([
+            "haplotypes/mcm-mhc-miseq-20260617.lungfishhaplotypedef.json",
+            "mcm_mhc_miseq_reference.trimmed.unique.fasta",
+            "mhc-reference.json",
+            "sources/IPD-MHC_NHKIR_Mafa_genomic.fasta",
+            "sources/MCM_IPD_names_Acc#_Haplotype.xlsx",
+            "sources/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
+        ])
+        var failures: [String] = []
+        var seenPaths = Set<String>()
+        var totalSizeBytes = 0
+
+        #expect(Set(manifestEntries.map(\.path)) == expectedPayloadPaths)
+
+        for entry in manifestEntries {
+            if !seenPaths.insert(entry.path).inserted {
+                failures.append("\(entry.path): duplicate manifest path")
+                continue
+            }
+            do {
+                let fileURL = try BundleManifest.validatedBundleMemberURL(
+                    for: entry.path,
+                    in: bundleURL,
+                    field: "bundleDirectoryManifest[].path"
+                )
+                guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                    failures.append("\(entry.path): missing payload file")
+                    continue
+                }
+                let actualSize = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
+                let actualSHA256 = try Self.sha256Hex(of: fileURL)
+                if entry.sizeBytes != actualSize {
+                    failures.append("\(entry.path): size \(entry.sizeBytes) != \(actualSize)")
+                }
+                if entry.sha256 != actualSHA256 {
+                    failures.append("\(entry.path): sha256 \(entry.sha256) != \(actualSHA256)")
+                }
+                totalSizeBytes += actualSize
+            } catch {
+                failures.append("\(entry.path): invalid payload path")
+            }
+        }
+
+        let bundleOutput = try #require(
+            provenance.outputs.first { $0.role == "lungfish_mhc_reference_bundle" }
+        )
+        #expect(failures.isEmpty, "Bundled MCM provenance manifest mismatches: \(failures.joined(separator: ", "))")
+        #expect(bundleOutput.path == ".")
+        #expect(bundleOutput.fileCount == manifestEntries.count)
+        #expect(bundleOutput.sizeBytes == totalSizeBytes)
+        let expectedDigest = try Self.directoryDigest(for: manifestEntries)
+        #expect(bundleOutput.sha256 == expectedDigest)
     }
 
     @Test("Release tools sanitizer preserves Mach-O binaries and strips non-executables")
@@ -344,6 +618,24 @@ struct ReleaseBuildConfigurationTests {
         #expect(embedBlock.contains("LUNGFISH_SKIP_EMBED_LUNGFISH_CLI"))
     }
 
+    @Test("Xcode project compiles every checked-in XCUITest file reference")
+    func xcodeProjectCompilesEveryCheckedInXCUITestFileReference() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+        let xcuiRoot = repositoryRoot.appendingPathComponent("Tests/LungfishXCUITests", isDirectory: true)
+        let checkedInSwiftFiles = try Self.swiftFiles(in: xcuiRoot, relativeTo: repositoryRoot)
+
+        #expect(!checkedInSwiftFiles.isEmpty)
+        for relativePath in checkedInSwiftFiles {
+            let filename = URL(fileURLWithPath: relativePath).lastPathComponent
+            #expect(project.contains("path = \(relativePath);"), "\(relativePath) should be referenced by the Xcode project")
+            #expect(project.contains("\(filename) in Sources"), "\(relativePath) should be compiled by LungfishXCUITests")
+        }
+    }
+
     @Test("Sanitize bundled tools phase supports scripted release skip override")
     func sanitizeBundledToolsPhaseSupportsScriptedReleaseSkipOverride() throws {
         let project = try String(
@@ -384,6 +676,11 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("version summary still references retired tool"))
         #expect(script.contains("bcftools \\\n    tabix \\\n    htslib"))
         #expect(script.contains("run_test micromamba "))
+        #expect(script.contains(#"CLI_BIN="$APP_PATH/Contents/MacOS/lungfish-cli""#))
+        #expect(script.contains("run_test lungfish-cli-version "))
+        #expect(script.contains("run_test lungfish-cli-tools "))
+        #expect(script.contains("run_test lungfish-cli-qc-summary "))
+        #expect(script.contains(#"$QC_OUTPUT.lungfish-provenance.json"#))
         #expect(script.contains("run_test samtools ") == false)
         #expect(script.contains("run_test seqkit ") == false)
     }
@@ -536,6 +833,24 @@ struct ReleaseBuildConfigurationTests {
 
         #expect(installIndex < firstCodesignIndex)
         #expect(installIndex < dmgStageIndex)
+    }
+
+    @Test("Notarized DMG release script signs outer app with app entitlements")
+    func notarizedDMGReleaseScriptSignsOuterAppWithAppEntitlements() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            encoding: .utf8
+        )
+
+        guard let appSigningBlock = Self.commandBlock(containing: #""$APP_PATH""#, in: script) else {
+            Issue.record("expected outer app codesign block in release script")
+            return
+        }
+
+        #expect(appSigningBlock.contains(#"--entitlements "${PROJECT_ROOT}/lungfish-cli.entitlements""#))
+        #expect(appSigningBlock.contains("--generate-entitlement-der"))
+        #expect(appSigningBlock.contains(#""$APP_PATH""#))
     }
 
     @Test("Shared Info.plist declares Lungfish workflow bundle type")
@@ -831,6 +1146,67 @@ struct ReleaseBuildConfigurationTests {
         }
     }
 
+    @Test("CI installs Python dependencies required by script tests")
+    func ciInstallsPythonDependenciesRequiredByScriptTests() throws {
+        let workflow = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent(".github/workflows/ci.yml"),
+            encoding: .utf8
+        )
+
+        #expect(workflow.contains(".ci-python/bin/python -m pip install Pillow openpyxl"))
+    }
+
+    @Test("CI fast gate runs scientific CLI provenance coverage")
+    func ciFastGateRunsScientificCLIProvenanceCoverage() throws {
+        let workflow = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent(".github/workflows/ci.yml"),
+            encoding: .utf8
+        )
+
+        #expect(workflow.contains("ScientificCLIProvenanceCoverageTests"))
+    }
+
+    @Test("CI fast gate runs native scientific provenance policy coverage")
+    func ciFastGateRunsNativeScientificProvenancePolicyCoverage() throws {
+        let workflow = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent(".github/workflows/ci.yml"),
+            encoding: .utf8
+        )
+
+        #expect(workflow.contains("ScientificProvenancePolicyTests"))
+    }
+
+    @Test("CI fast gate builds the Xcode project path used for release packaging")
+    func ciFastGateBuildsXcodeProjectPathUsedForReleasePackaging() throws {
+        let workflow = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent(".github/workflows/ci.yml"),
+            encoding: .utf8
+        )
+
+        #expect(workflow.contains("xcodebuild -project Lungfish.xcodeproj -scheme Lungfish"))
+        #expect(workflow.contains("CODE_SIGNING_ALLOWED=NO"))
+        #expect(workflow.contains("LUNGFISH_SKIP_EMBED_LUNGFISH_CLI=1"))
+        #expect(workflow.contains("LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1"))
+    }
+
+    @Test("Git ignore rules do not hide tracked files")
+    func gitIgnoreRulesDoNotHideTrackedFiles() throws {
+        let result = try Self.runCommand(
+            URL(fileURLWithPath: "/usr/bin/git"),
+            arguments: ["ls-files", "-ci", "--exclude-standard"],
+            currentDirectory: Self.repositoryRoot()
+        )
+
+        #expect(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "Tracked files hidden by .gitignore:\n\(result.stdout)"
+        )
+    }
+
     @Test("Release GUI runtime avoids compile-time source path fallbacks")
     func releaseGUIRuntimeAvoidsCompileTimeSourcePathFallbacks() throws {
         let source = try String(
@@ -937,6 +1313,52 @@ struct ReleaseBuildConfigurationTests {
         fatalError("Cannot locate repository root from \(#filePath)")
     }
 
+    private struct CommandResult {
+        let stdout: String
+        let stderr: String
+    }
+
+    private static func runCommand(
+        _ executableURL: URL,
+        arguments: [String],
+        currentDirectory: URL
+    ) throws -> CommandResult {
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        process.currentDirectoryURL = currentDirectory
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+        let result = CommandResult(
+            stdout: String(decoding: stdoutData, as: UTF8.self),
+            stderr: String(decoding: stderrData, as: UTF8.self)
+        )
+
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "ReleaseBuildConfigurationTests",
+                code: Int(process.terminationStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey: """
+                    Command failed: \(executableURL.path) \(arguments.joined(separator: " "))
+                    \(result.stderr)
+                    """
+                ]
+            )
+        }
+
+        return result
+    }
+
     private static func releaseAgentCanonicalContents() throws -> String {
         try String(
             contentsOf: Self.repositoryRoot()
@@ -964,6 +1386,105 @@ struct ReleaseBuildConfigurationTests {
         }
 
         return String(project[markerRange.lowerBound..<blockEnd.upperBound])
+    }
+
+    private static func relativePath(_ url: URL, from root: URL) -> String {
+        let rootPath = root.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : "\(rootPath)/"
+        return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
+    }
+
+    private static func sha256Hex(of url: URL) throws -> String {
+        try sha256Hex(of: Data(contentsOf: url))
+    }
+
+    private static func sha256Hex(of data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func directoryDigest(for entries: [ShippedBundleManifestEntry]) throws -> String {
+        let payload = try entries.map { entry in
+            let path = try jsonStringLiteral(entry.path)
+            let sha256 = try jsonStringLiteral(entry.sha256)
+            return #"{"path":\#(path),"sha256":\#(sha256),"sizeBytes":\#(entry.sizeBytes)}"#
+        }.joined(separator: ",")
+        return sha256Hex(of: Data("[\(payload)]".utf8))
+    }
+
+    private static func jsonStringLiteral(_ value: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: [value], options: [])
+        let encoded = String(decoding: data, as: UTF8.self)
+            .replacingOccurrences(of: #"\/"#, with: "/")
+        return String(encoded.dropFirst().dropLast())
+    }
+
+    private struct ShippedMCMProvenance: Decodable {
+        let bundleDirectoryManifest: [ShippedBundleManifestEntry]
+        let outputs: [ShippedProvenanceOutput]
+    }
+
+    private struct ShippedBundleManifestEntry: Decodable {
+        let path: String
+        let sha256: String
+        let sizeBytes: Int
+    }
+
+    private struct ShippedProvenanceOutput: Decodable {
+        let path: String
+        let role: String
+        let sha256: String?
+        let sizeBytes: Int?
+        let fileCount: Int?
+    }
+
+    private static func swiftFiles(in directory: URL, relativeTo repositoryRoot: URL) throws -> [String] {
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        let repositoryPath = repositoryRoot.standardizedFileURL.path + "/"
+        var files: [String] = []
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true else { continue }
+            let path = url.standardizedFileURL.path
+            guard path.hasPrefix(repositoryPath) else { continue }
+            files.append(String(path.dropFirst(repositoryPath.count)))
+        }
+        return files.sorted()
+    }
+
+    private static func commandBlock(containing marker: String, in script: String) -> String? {
+        let lines = script.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var index = lines.startIndex
+        while index < lines.endIndex {
+            let line = lines[index]
+            guard line.contains("/usr/bin/codesign ") else {
+                index = lines.index(after: index)
+                continue
+            }
+
+            var block = [line]
+            var cursor = index
+            while lines[cursor].trimmingCharacters(in: .whitespaces).hasSuffix("\\") {
+                cursor = lines.index(after: cursor)
+                guard cursor < lines.endIndex else { break }
+                block.append(lines[cursor])
+            }
+
+            let joined = block.joined(separator: "\n")
+            if joined.contains(marker) {
+                return joined
+            }
+            index = lines.index(after: cursor)
+        }
+        return nil
     }
 
     private static func makeExecutable(_ url: URL) throws {

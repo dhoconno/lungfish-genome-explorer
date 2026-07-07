@@ -579,26 +579,6 @@ public struct AIHaplotypingRunner: Sendable {
         }
     }
 
-    private func promptInputJSONString(
-        chunk: AIHaplotypingEvidenceChunk,
-        expectedRun: AIHaplotypingRunMetadata,
-        runContext: AIHaplotypingRunContext,
-        knowledgePack: AIHaplotypingKnowledgePack?
-    ) throws -> String {
-        let input = PromptInput(
-            chunkID: chunk.id,
-            expectedRun: expectedRun,
-            runContext: runContext,
-            knowledgePack: knowledgePack,
-            evidenceRegistry: chunk.registry
-        )
-        let data = AIHaplotypingCanonicalJSON.canonicalData(of: input)
-        guard let json = String(data: data, encoding: .utf8) else {
-            throw AIProviderError.decodingError("AI haplotyping prompt input was not UTF-8.")
-        }
-        return json
-    }
-
     private static func usesCompactMCMEvidence(
         template: AIHaplotypingPromptTemplate,
         mode: AIHaplotypingPromptMode
@@ -1173,14 +1153,6 @@ public struct AIHaplotypingRunner: Sendable {
         @unknown default:
             return decodingError.localizedDescription
         }
-    }
-
-    private struct PromptInput: Encodable {
-        let chunkID: String
-        let expectedRun: AIHaplotypingRunMetadata
-        let runContext: AIHaplotypingRunContext
-        let knowledgePack: AIHaplotypingKnowledgePack?
-        let evidenceRegistry: AIHaplotypingEvidenceRegistry
     }
 
     private struct ValidatedStructuredResponse {

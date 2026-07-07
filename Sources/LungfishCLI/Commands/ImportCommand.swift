@@ -92,10 +92,12 @@ extension ImportCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            let startedAt = Date()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let fileManager = FileManager.default
             let inputURL = URL(fileURLWithPath: inputPath)
             let bundleURL = URL(fileURLWithPath: bundlePath)
+            let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
 
             guard fileManager.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Metadata file not found: \(inputPath)"))
@@ -108,8 +110,12 @@ extension ImportCommand {
             }
 
             let manifest = try BundleManifest.load(from: bundleURL)
-            guard !manifest.variants.isEmpty else {
-                print(formatter.error("This bundle has no variant tracks to apply metadata to."))
+            let databaseURLs = manifest.variants.compactMap { track -> URL? in
+                guard let databasePath = track.databasePath else { return nil }
+                return bundleURL.appendingPathComponent(databasePath)
+            }
+            guard !databaseURLs.isEmpty else {
+                print(formatter.error("This bundle has no variant databases to apply metadata to."))
                 throw CLIExitCode.inputError.exitCode
             }
 
@@ -124,38 +130,353 @@ extension ImportCommand {
                 throw CLIExitCode.formatError.exitCode
             }
 
-            var totalUpdated = 0
-            var updatedTracks = 0
+            let inputRecords = sampleMetadataInputRecords(
+                inputURL: inputURL,
+                metadataFormat: format,
+                manifestURL: manifestURL,
+                databaseURLs: databaseURLs
+            )
+            let rollbackSnapshot = try createSampleMetadataRollbackSnapshot(
+                bundleURL: bundleURL,
+                databaseURLs: databaseURLs
+            )
+            defer { removeRollbackBackup(rollbackSnapshot) }
 
-            for track in manifest.variants {
-                guard let databasePath = track.databasePath else { continue }
-                let databaseURL = bundleURL.appendingPathComponent(databasePath)
-                let database = try VariantDatabase(url: databaseURL, readWrite: true)
-                totalUpdated += try database.importSampleMetadata(from: inputURL, format: format)
-                updatedTracks += 1
+            do {
+                var totalUpdated = 0
+                var updatedTracks = 0
+
+                for databaseURL in databaseURLs {
+                    let database = try VariantDatabase(url: databaseURL, readWrite: true)
+                    totalUpdated += try database.importSampleMetadata(from: inputURL, format: format)
+                    updatedTracks += 1
+                }
+
+                let outputRecords = sampleMetadataOutputRecords(databaseURLs: databaseURLs)
+                try await CLIProvenanceSupport.recordSingleStepRun(
+                    name: "lungfish import sample-metadata",
+                    parameters: sampleMetadataProvenanceParameters(
+                        inputURL: inputURL,
+                        bundleURL: bundleURL,
+                        metadataFormat: format
+                    ),
+                    defaults: sampleMetadataProvenanceDefaults(),
+                    resolved: sampleMetadataProvenanceResolved(
+                        inputURL: inputURL,
+                        bundleURL: bundleURL,
+                        metadataFormat: format,
+                        updatedTracks: updatedTracks,
+                        sampleRowsUpdated: totalUpdated,
+                        databaseURLs: databaseURLs
+                    ),
+                    toolName: "lungfish import sample-metadata",
+                    toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    command: sampleMetadataProvenanceCommand(inputURL: inputURL, bundleURL: bundleURL),
+                    inputs: inputRecords,
+                    outputs: outputRecords,
+                    exitCode: 0,
+                    wallTime: Date().timeIntervalSince(startedAt),
+                    stderr: nil,
+                    status: .completed,
+                    outputDirectory: bundleURL
+                )
+
+                if globalOptions.outputFormat == .json {
+                    let handler = JSONOutputHandler()
+                    handler.writeData([
+                        "bundle": bundlePath,
+                        "provenance": bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename).path,
+                        "sampleRowsUpdated": "\(totalUpdated)",
+                        "tracksUpdated": "\(updatedTracks)",
+                        "status": "ok",
+                    ], label: nil)
+                    return
+                }
+
+                if !globalOptions.quiet {
+                    print(formatter.success(
+                        "Imported sample metadata into \(updatedTracks) variant track(s); updated \(totalUpdated) sample row(s)."
+                    ))
+                }
+            } catch {
+                do {
+                    try restoreSampleMetadataRollbackSnapshot(rollbackSnapshot)
+                } catch let rollbackError {
+                    throw SampleMetadataRollbackFailure(
+                        operationError: error,
+                        rollbackError: rollbackError
+                    )
+                }
+                throw error
+            }
+        }
+
+        private func sampleMetadataInputRecords(
+            inputURL: URL,
+            metadataFormat: MetadataFormat,
+            manifestURL: URL,
+            databaseURLs: [URL]
+        ) -> [FileRecord] {
+            [
+                ProvenanceRecorder.fileRecord(
+                    url: inputURL,
+                    format: fileFormat(forMetadataFormat: metadataFormat),
+                    role: .input
+                ),
+                ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .input)
+            ] + databaseURLs.map {
+                ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .input)
+            }
+        }
+
+        private func sampleMetadataOutputRecords(databaseURLs: [URL]) -> [FileRecord] {
+            databaseURLs.map {
+                ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output)
+            }
+        }
+
+        private func sampleMetadataProvenanceCommand(inputURL: URL, bundleURL: URL) -> [String] {
+            [
+                CLICommandIdentity.executableName,
+                "import",
+                "sample-metadata",
+                inputURL.path,
+                "--bundle",
+                bundleURL.path
+            ] + replayableGlobalArguments()
+        }
+
+        private func sampleMetadataProvenanceParameters(
+            inputURL: URL,
+            bundleURL: URL,
+            metadataFormat: MetadataFormat
+        ) -> [String: ParameterValue] {
+            var parameters: [String: ParameterValue] = [
+                "inputFile": .file(inputURL),
+                "bundle": .file(bundleURL),
+                "metadataFormat": .string(metadataFormat.rawValue)
+            ]
+            parameters.merge(globalExplicitOptions()) { _, explicit in explicit }
+            return parameters
+        }
+
+        private func sampleMetadataProvenanceDefaults() -> [String: ParameterValue] {
+            [
+                "metadataFormat": .string("inferred-from-extension"),
+                "outputFormat": .string(OutputFormat.text.rawValue),
+                "quiet": .boolean(false),
+                "verbosity": .integer(0),
+                "progress": .boolean(false),
+                "noProgress": .boolean(false),
+                "debug": .boolean(false),
+                "logFile": .null,
+                "noColor": .boolean(false),
+                "threads": .null
+            ]
+        }
+
+        private func sampleMetadataProvenanceResolved(
+            inputURL: URL,
+            bundleURL: URL,
+            metadataFormat: MetadataFormat,
+            updatedTracks: Int,
+            sampleRowsUpdated: Int,
+            databaseURLs: [URL]
+        ) -> [String: ParameterValue] {
+            [
+                "inputFile": .file(inputURL),
+                "bundle": .file(bundleURL),
+                "metadataFormat": .string(metadataFormat.rawValue),
+                "outputFormat": .string(globalOptions.outputFormat.rawValue),
+                "quiet": .boolean(globalOptions.quiet),
+                "verbosity": .integer(globalOptions.verbosity),
+                "progress": .boolean(globalOptions.showProgress),
+                "noProgress": .boolean(globalOptions.noProgress),
+                "debug": .boolean(globalOptions.debug),
+                "logFile": globalOptions.logFile.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
+                "noColor": .boolean(globalOptions.noColor),
+                "threads": globalOptions.threads.map(ParameterValue.integer) ?? .integer(globalOptions.effectiveThreads),
+                "useColors": .boolean(globalOptions.useColors),
+                "shouldShowProgress": .boolean(globalOptions.shouldShowProgress),
+                "tracksUpdated": .integer(updatedTracks),
+                "sampleRowsUpdated": .integer(sampleRowsUpdated),
+                "variantDatabaseCount": .integer(databaseURLs.count),
+                "variantDatabases": .array(databaseURLs.map { .file($0) })
+            ]
+        }
+
+        private func fileFormat(forMetadataFormat format: MetadataFormat) -> FileFormat {
+            switch format {
+            case .csv, .tsv:
+                return .text
+            case .excel:
+                return .unknown
+            }
+        }
+
+        private func replayableGlobalArguments() -> [String] {
+            var argv: [String] = []
+            if globalOptions.outputFormat != .text {
+                argv += ["--format", globalOptions.outputFormat.rawValue]
+            }
+            if globalOptions.verbosity > 0 {
+                argv += Array(repeating: "--verbose", count: globalOptions.verbosity)
+            }
+            if globalOptions.quiet {
+                argv.append("--quiet")
+            }
+            if globalOptions.showProgress {
+                argv.append("--progress")
+            }
+            if globalOptions.noProgress {
+                argv.append("--no-progress")
+            }
+            if globalOptions.debug {
+                argv.append("--debug")
+            }
+            if let logFile = globalOptions.logFile {
+                argv += ["--log-file", logFile]
+            }
+            if globalOptions.noColor {
+                argv.append("--no-color")
+            }
+            if let threads = globalOptions.threads {
+                argv += ["--threads", String(threads)]
+            }
+            return argv
+        }
+
+        private func globalExplicitOptions() -> [String: ParameterValue] {
+            var explicit: [String: ParameterValue] = [:]
+            if globalOptions.outputFormat != .text {
+                explicit["outputFormat"] = .string(globalOptions.outputFormat.rawValue)
+            }
+            if globalOptions.verbosity > 0 {
+                explicit["verbosity"] = .integer(globalOptions.verbosity)
+            }
+            if globalOptions.quiet {
+                explicit["quiet"] = .boolean(true)
+            }
+            if globalOptions.showProgress {
+                explicit["progress"] = .boolean(true)
+            }
+            if globalOptions.noProgress {
+                explicit["noProgress"] = .boolean(true)
+            }
+            if globalOptions.debug {
+                explicit["debug"] = .boolean(true)
+            }
+            if let logFile = globalOptions.logFile {
+                explicit["logFile"] = .file(URL(fileURLWithPath: logFile))
+            }
+            if globalOptions.noColor {
+                explicit["noColor"] = .boolean(true)
+            }
+            if let threads = globalOptions.threads {
+                explicit["threads"] = .integer(threads)
+            }
+            return explicit
+        }
+
+        private struct RollbackSnapshot {
+            let backupDirectory: URL
+            let artifacts: [ArtifactSnapshot]
+        }
+
+        private struct ArtifactSnapshot {
+            let originalURL: URL
+            let backupURL: URL?
+        }
+
+        private struct SampleMetadataRollbackFailure: LocalizedError {
+            let operationError: Error
+            let rollbackError: Error
+
+            var errorDescription: String? {
+                """
+                Sample metadata import failed and rollback also failed. Original error: \(operationError.localizedDescription). Rollback error: \(rollbackError.localizedDescription)
+                """
+            }
+        }
+
+        private func createSampleMetadataRollbackSnapshot(
+            bundleURL: URL,
+            databaseURLs: [URL]
+        ) throws -> RollbackSnapshot {
+            let fileManager = FileManager.default
+            let backupDirectory = fileManager.temporaryDirectory
+                .appendingPathComponent("lungfish-sample-metadata-rollback-\(UUID().uuidString)", isDirectory: true)
+            try fileManager.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+
+            let artifacts = try rollbackArtifactURLs(bundleURL: bundleURL, databaseURLs: databaseURLs)
+                .enumerated()
+                .map { index, originalURL -> ArtifactSnapshot in
+                    let standardizedURL = originalURL.standardizedFileURL
+                    var isDirectory: ObjCBool = false
+                    guard fileManager.fileExists(atPath: standardizedURL.path, isDirectory: &isDirectory) else {
+                        return ArtifactSnapshot(originalURL: standardizedURL, backupURL: nil)
+                    }
+
+                    let backupURL = backupDirectory.appendingPathComponent("artifact-\(index)")
+                    try fileManager.copyItem(at: standardizedURL, to: backupURL)
+                    return ArtifactSnapshot(originalURL: standardizedURL, backupURL: backupURL)
+                }
+
+            return RollbackSnapshot(backupDirectory: backupDirectory, artifacts: artifacts)
+        }
+
+        private func restoreSampleMetadataRollbackSnapshot(_ snapshot: RollbackSnapshot) throws {
+            let fileManager = FileManager.default
+            for artifact in snapshot.artifacts.reversed() {
+                if fileManager.fileExists(atPath: artifact.originalURL.path) {
+                    try fileManager.removeItem(at: artifact.originalURL)
+                }
+                guard let backupURL = artifact.backupURL else { continue }
+                try fileManager.createDirectory(
+                    at: artifact.originalURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try fileManager.copyItem(at: backupURL, to: artifact.originalURL)
+            }
+        }
+
+        private func removeRollbackBackup(_ snapshot: RollbackSnapshot) {
+            try? FileManager.default.removeItem(at: snapshot.backupDirectory)
+        }
+
+        private func rollbackArtifactURLs(bundleURL: URL, databaseURLs: [URL]) -> [URL] {
+            var urls: [URL] = []
+            var seen = Set<String>()
+            func append(_ url: URL) {
+                let standardizedURL = url.standardizedFileURL
+                guard seen.insert(standardizedURL.path).inserted else { return }
+                urls.append(standardizedURL)
+            }
+            func appendProvenanceSidecar(_ sidecarURL: URL) {
+                append(sidecarURL)
+                append(ProvenanceSigningConfiguration.signatureURL(for: sidecarURL))
+                append(ProvenanceSigningConfiguration.publicKeyURL(for: sidecarURL))
             }
 
-            guard updatedTracks > 0 else {
-                print(formatter.error("No writable variant databases were found in the bundle."))
-                throw CLIExitCode.outputError.exitCode
-            }
+            appendProvenanceSidecar(bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+            append(bundleURL.appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true))
 
-            if globalOptions.outputFormat == .json {
-                let handler = JSONOutputHandler()
-                handler.writeData([
-                    "bundle": bundlePath,
-                    "tracksUpdated": "\(updatedTracks)",
-                    "sampleValuesUpdated": "\(totalUpdated)",
-                    "status": "ok",
-                ], label: nil)
-                return
+            for databaseURL in databaseURLs {
+                for sqliteArtifact in sqliteArtifactURLs(for: databaseURL) {
+                    append(sqliteArtifact)
+                }
+                appendProvenanceSidecar(ProvenanceRecorder.fileSidecarURL(for: databaseURL))
             }
+            return urls
+        }
 
-            if !globalOptions.quiet {
-                print(formatter.success(
-                    "Imported sample metadata into \(updatedTracks) variant track(s); updated \(totalUpdated) sample metadata value(s)."
-                ))
-            }
+        private func sqliteArtifactURLs(for databaseURL: URL) -> [URL] {
+            [
+                databaseURL,
+                URL(fileURLWithPath: databaseURL.path + "-wal"),
+                URL(fileURLWithPath: databaseURL.path + "-shm"),
+                URL(fileURLWithPath: databaseURL.path + "-journal")
+            ]
         }
     }
 
@@ -187,6 +508,7 @@ extension ImportCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            let startedAt = Date()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let inputURL = URL(fileURLWithPath: inputFile)
 
@@ -223,115 +545,219 @@ extension ImportCommand {
                 withIntermediateDirectories: true
             )
 
-            // Copy alignment file.
-            let destURL = outputDirectory.appendingPathComponent(inputURL.lastPathComponent)
-            if !FileManager.default.fileExists(atPath: destURL.path) {
-                if !globalOptions.quiet {
-                    print(formatter.info("Copying alignment file..."))
-                }
-                try FileManager.default.copyItem(at: inputURL, to: destURL)
-            }
-
-            // Check for companion index file and copy if present.
-            let indexCopied = copyCompanionIndex(
-                for: inputURL, to: outputDirectory, formatter: formatter
-            )
-
-            // Attempt to collect statistics via samtools.
-            var totalReads: Int64 = 0
-            var mappedReads: Int64 = 0
-            var unmappedReads: Int64 = 0
-            var refContigs = 0
-            var statsCollected = false
-
+            let alignmentFormat = alignmentFileFormat(forExtension: ext)
+            var createdArtifacts: [URL] = []
             do {
-                let runner = NativeToolRunner.shared
-                let idxstatsResult = try await runner.run(
-                    .samtools,
-                    arguments: ["idxstats", destURL.path],
-                    timeout: 120
-                )
-                if idxstatsResult.isSuccess {
-                    let lines = idxstatsResult.stdout.split(separator: "\n")
-                    for line in lines {
-                        let cols = line.split(separator: "\t")
-                        guard cols.count >= 4 else { continue }
-                        let refName = String(cols[0])
-                        let mapped = Int64(cols[2]) ?? 0
-                        let unmapped = Int64(cols[3]) ?? 0
-                        mappedReads += mapped
-                        unmappedReads += unmapped
-                        if refName != "*" {
-                            refContigs += 1
-                        }
+                // Copy alignment file.
+                let destURL = outputDirectory.appendingPathComponent(inputURL.lastPathComponent)
+                if try copyImportArtifactIfNeeded(from: inputURL, to: destURL) {
+                    createdArtifacts.append(destURL)
+                    if !globalOptions.quiet {
+                        print(formatter.info("Copied alignment file"))
                     }
-                    totalReads = mappedReads + unmappedReads
-                    statsCollected = true
                 }
-            } catch {
-                // samtools not available - skip stats.
-                if !globalOptions.quiet {
-                    print(formatter.warning("samtools not available; skipping statistics collection"))
-                }
-            }
 
-            // If no index was copied and samtools is available, try creating one.
-            if !indexCopied {
+                // Check for companion index file and copy if present.
+                var indexArtifact = try copyCompanionIndex(
+                    for: inputURL,
+                    to: outputDirectory,
+                    formatter: formatter,
+                    createdArtifacts: &createdArtifacts
+                )
+
+                // Attempt to collect statistics via samtools.
+                var totalReads: Int64 = 0
+                var mappedReads: Int64 = 0
+                var unmappedReads: Int64 = 0
+                var refContigs = 0
+                var statsCollected = false
+                var provenanceMessages: [String] = []
+                var provenanceSteps: [ProvenanceStep] = []
+                let samtoolsVersion = await detectNativeToolVersion(.samtools)
+
                 do {
                     let runner = NativeToolRunner.shared
-                    if !globalOptions.quiet {
-                        print(formatter.info("Creating index..."))
-                    }
-                    let indexResult = try await runner.run(
+                    let idxstatsStartedAt = Date()
+                    let idxstatsResult = try await runner.run(
                         .samtools,
-                        arguments: ["index", destURL.path],
-                        timeout: 3600
+                        arguments: ["idxstats", destURL.path],
+                        timeout: 120
                     )
-                    if indexResult.isSuccess {
-                        if !globalOptions.quiet {
-                            print(formatter.success("Index created"))
+                    let idxstatsCompletedAt = Date()
+                    provenanceSteps.append(try nativeToolProvenanceStep(
+                        toolName: "samtools",
+                        toolVersion: samtoolsVersion,
+                        result: idxstatsResult,
+                        fallbackArgv: ["samtools", "idxstats", destURL.path],
+                        inputs: [
+                            ProvenanceFileDescriptor.file(url: destURL, format: alignmentFormat, role: .input)
+                        ],
+                        outputs: [],
+                        startedAt: idxstatsStartedAt,
+                        completedAt: idxstatsCompletedAt
+                    ))
+                    if idxstatsResult.isSuccess {
+                        let lines = idxstatsResult.stdout.split(separator: "\n")
+                        for line in lines {
+                            let cols = line.split(separator: "\t")
+                            guard cols.count >= 4 else { continue }
+                            let refName = String(cols[0])
+                            let mapped = Int64(cols[2]) ?? 0
+                            let unmapped = Int64(cols[3]) ?? 0
+                            mappedReads += mapped
+                            unmappedReads += unmapped
+                            if refName != "*" {
+                                refContigs += 1
+                            }
                         }
+                        totalReads = mappedReads + unmappedReads
+                        statsCollected = true
                     } else {
-                        print(formatter.warning(
-                            "Failed to create index. The file may need sorting first."
-                        ))
+                        provenanceMessages.append(
+                            "samtools idxstats exited \(idxstatsResult.exitCode): \(idxstatsResult.stderr)"
+                        )
+                    }
+                    if !idxstatsResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        provenanceMessages.append("samtools idxstats stderr: \(idxstatsResult.stderr)")
                     }
                 } catch {
-                    print(formatter.warning("samtools not available; could not create index"))
+                    // samtools not available - skip stats.
+                    provenanceMessages.append("samtools idxstats unavailable: \(error.localizedDescription)")
+                    if !globalOptions.quiet {
+                        print(formatter.warning("samtools not available; skipping statistics collection"))
+                    }
                 }
+
+                // If no source index was copied and a destination index is already present,
+                // do not claim that stale index as an output of this import.
+                if indexArtifact == nil, let existingIndexURL = existingAlignmentIndex(for: destURL) {
+                    throw ImportArtifactConflictError(sourceURL: inputURL, destinationURL: existingIndexURL)
+                }
+
+                // If no index was copied and samtools is available, try creating one.
+                if indexArtifact == nil {
+                    do {
+                        let runner = NativeToolRunner.shared
+                        if !globalOptions.quiet {
+                            print(formatter.info("Creating index..."))
+                        }
+                        let indexStartedAt = Date()
+                        let indexResult = try await runner.run(
+                            .samtools,
+                            arguments: ["index", destURL.path],
+                            timeout: 3600
+                        )
+                        let indexCompletedAt = Date()
+                        var indexStepOutputs: [ProvenanceFileDescriptor] = []
+                        if indexResult.isSuccess {
+                            if let generatedIndexURL = existingAlignmentIndex(for: destURL) {
+                                indexArtifact = (sourceURL: nil, destinationURL: generatedIndexURL)
+                                createdArtifacts.append(generatedIndexURL)
+                                indexStepOutputs = [
+                                    try ProvenanceFileDescriptor.file(
+                                        url: generatedIndexURL,
+                                        format: .unknown,
+                                        role: .index
+                                    )
+                                ]
+                            }
+                            if !globalOptions.quiet {
+                                print(formatter.success("Index created"))
+                            }
+                        } else {
+                            provenanceMessages.append(
+                                "samtools index exited \(indexResult.exitCode): \(indexResult.stderr)"
+                            )
+                            print(formatter.warning(
+                                "Failed to create index. The file may need sorting first."
+                            ))
+                        }
+                        provenanceSteps.append(try nativeToolProvenanceStep(
+                            toolName: "samtools",
+                            toolVersion: samtoolsVersion,
+                            result: indexResult,
+                            fallbackArgv: ["samtools", "index", destURL.path],
+                            inputs: [
+                                ProvenanceFileDescriptor.file(url: destURL, format: alignmentFormat, role: .input)
+                            ],
+                            outputs: indexStepOutputs,
+                            startedAt: indexStartedAt,
+                            completedAt: indexCompletedAt
+                        ))
+                        if !indexResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            provenanceMessages.append("samtools index stderr: \(indexResult.stderr)")
+                        }
+                    } catch {
+                        provenanceMessages.append("samtools index unavailable: \(error.localizedDescription)")
+                        print(formatter.warning("samtools not available; could not create index"))
+                    }
+                }
+
+                let inputRecords = bamInputRecords(inputURL: inputURL, format: alignmentFormat, indexArtifact: indexArtifact)
+                let outputRecords = bamOutputRecords(destURL: destURL, format: alignmentFormat, indexArtifact: indexArtifact)
+                try await CLIProvenanceSupport.recordSingleStepRun(
+                    name: "lungfish import bam",
+                    parameters: bamProvenanceParameters(inputURL: inputURL),
+                    defaults: bamProvenanceDefaults(),
+                    resolved: bamProvenanceResolved(
+                        outputURL: destURL,
+                        format: ext,
+                        indexArtifact: indexArtifact,
+                        statsCollected: statsCollected,
+                        totalReads: totalReads,
+                        mappedReads: mappedReads,
+                        unmappedReads: unmappedReads,
+                        refContigs: refContigs
+                    ),
+                    toolName: "lungfish import bam",
+                    toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    command: bamProvenanceCommand(inputURL: inputURL, outputDirectory: outputDirectory),
+                    extraSteps: provenanceSteps,
+                    inputs: inputRecords,
+                    outputs: outputRecords,
+                    exitCode: 0,
+                    wallTime: Date().timeIntervalSince(startedAt),
+                    stderr: provenanceMessages.isEmpty ? nil : provenanceMessages.joined(separator: "\n"),
+                    status: .completed,
+                    outputDirectory: outputDirectory
+                )
+
+                print("")
+                print(formatter.header("Summary"))
+                print("")
+
+                if statsCollected {
+                    let mappedPct = totalReads > 0
+                        ? String(format: "%.2f%%", Double(mappedReads) / Double(totalReads) * 100)
+                        : "N/A"
+                    print(formatter.keyValueTable([
+                        ("Total reads", formatNumber(totalReads)),
+                        ("Mapped reads", "\(formatNumber(mappedReads)) (\(mappedPct))"),
+                        ("Unmapped reads", formatNumber(unmappedReads)),
+                        ("Reference contigs", String(refContigs)),
+                    ]))
+                } else {
+                    print(formatter.keyValueTable([
+                        ("File", destURL.lastPathComponent),
+                        ("Index", indexArtifact == nil ? "not found" : "found"),
+                    ]))
+                }
+
+                print("")
+                print(formatter.success("BAM import complete: \(destURL.lastPathComponent)"))
+            } catch {
+                removeCreatedImportArtifacts(createdArtifacts)
+                throw error
             }
-
-            print("")
-            print(formatter.header("Summary"))
-            print("")
-
-            if statsCollected {
-                let mappedPct = totalReads > 0
-                    ? String(format: "%.2f%%", Double(mappedReads) / Double(totalReads) * 100)
-                    : "N/A"
-                print(formatter.keyValueTable([
-                    ("Total reads", formatNumber(totalReads)),
-                    ("Mapped reads", "\(formatNumber(mappedReads)) (\(mappedPct))"),
-                    ("Unmapped reads", formatNumber(unmappedReads)),
-                    ("Reference contigs", String(refContigs)),
-                ]))
-            } else {
-                print(formatter.keyValueTable([
-                    ("File", destURL.lastPathComponent),
-                    ("Index", indexCopied ? "found" : "not found"),
-                ]))
-            }
-
-            print("")
-            print(formatter.success("BAM import complete: \(destURL.lastPathComponent)"))
         }
 
         /// Copies a companion index file (.bai, .csi, .crai) if one exists next to the input.
         private func copyCompanionIndex(
             for inputURL: URL,
             to outputDirectory: URL,
-            formatter: TerminalFormatter
-        ) -> Bool {
+            formatter: TerminalFormatter,
+            createdArtifacts: inout [URL]
+        ) throws -> (sourceURL: URL?, destinationURL: URL)? {
             let fm = FileManager.default
             let basePath = inputURL.path
 
@@ -347,20 +773,124 @@ extension ImportCommand {
                 if fm.fileExists(atPath: candidatePath) {
                     let indexURL = URL(fileURLWithPath: candidatePath)
                     let destIndex = outputDirectory.appendingPathComponent(indexURL.lastPathComponent)
-                    if !fm.fileExists(atPath: destIndex.path) {
-                        do {
-                            try fm.copyItem(at: indexURL, to: destIndex)
-                            if !globalOptions.quiet {
-                                print(formatter.info("Copied index: \(indexURL.lastPathComponent)"))
-                            }
-                        } catch {
-                            // Non-fatal; we can try creating one later.
+                    if try copyImportArtifactIfNeeded(from: indexURL, to: destIndex) {
+                        createdArtifacts.append(destIndex)
+                        if !globalOptions.quiet {
+                            print(formatter.info("Copied index: \(indexURL.lastPathComponent)"))
                         }
                     }
-                    return true
+                    return (sourceURL: indexURL, destinationURL: destIndex)
                 }
             }
-            return false
+            return nil
+        }
+
+        private func existingAlignmentIndex(for alignmentURL: URL) -> URL? {
+            let candidates = [
+                alignmentURL.path + ".bai",
+                alignmentURL.path + ".csi",
+                alignmentURL.path + ".crai",
+                alignmentURL.deletingPathExtension().path + ".bai",
+            ]
+            return candidates
+                .map(URL.init(fileURLWithPath:))
+                .first { FileManager.default.fileExists(atPath: $0.path) }
+        }
+
+        private func bamInputRecords(
+            inputURL: URL,
+            format: FileFormat,
+            indexArtifact: (sourceURL: URL?, destinationURL: URL)?
+        ) -> [FileRecord] {
+            var records = [
+                ProvenanceRecorder.fileRecord(url: inputURL, format: format, role: .input)
+            ]
+            if let sourceURL = indexArtifact?.sourceURL {
+                records.append(ProvenanceRecorder.fileRecord(url: sourceURL, format: .unknown, role: .index))
+            }
+            return records
+        }
+
+        private func bamOutputRecords(
+            destURL: URL,
+            format: FileFormat,
+            indexArtifact: (sourceURL: URL?, destinationURL: URL)?
+        ) -> [FileRecord] {
+            var records = [
+                ProvenanceRecorder.fileRecord(url: destURL, format: format, role: .output)
+            ]
+            if let indexURL = indexArtifact?.destinationURL {
+                records.append(ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index))
+            }
+            return records
+        }
+
+        private func bamProvenanceCommand(inputURL: URL, outputDirectory: URL) -> [String] {
+            var command = [CLICommandIdentity.executableName, "import", "bam", inputURL.path, "--output-dir", outputDirectory.path]
+            if let name {
+                command += ["--name", name]
+            }
+            if globalOptions.quiet {
+                command.append("--quiet")
+            }
+            if globalOptions.noColor {
+                command.append("--no-color")
+            }
+            return command
+        }
+
+        private func bamProvenanceParameters(
+            inputURL: URL
+        ) -> [String: ParameterValue] {
+            [
+                "inputFile": .string(inputURL.path),
+                "outputDir": outputDir.map(ParameterValue.string) ?? .null,
+                "name": name.map(ParameterValue.string) ?? .null,
+                "quiet": .boolean(globalOptions.quiet),
+                "noColor": .boolean(globalOptions.noColor)
+            ]
+        }
+
+        private func bamProvenanceDefaults() -> [String: ParameterValue] {
+            [
+                "outputDir": .string(FileManager.default.currentDirectoryPath),
+                "name": .null,
+                "quiet": .boolean(false),
+                "noColor": .boolean(false)
+            ]
+        }
+
+        private func bamProvenanceResolved(
+            outputURL: URL,
+            format: String,
+            indexArtifact: (sourceURL: URL?, destinationURL: URL)?,
+            statsCollected: Bool,
+            totalReads: Int64,
+            mappedReads: Int64,
+            unmappedReads: Int64,
+            refContigs: Int
+        ) -> [String: ParameterValue] {
+            [
+                "outputFile": .string(outputURL.path),
+                "outputDirectory": .string(outputURL.deletingLastPathComponent().path),
+                "format": .string(format),
+                "indexFile": indexArtifact.map { .string($0.destinationURL.path) } ?? .null,
+                "indexSource": indexArtifact?.sourceURL.map { .string($0.path) } ?? .null,
+                "statsCollected": .boolean(statsCollected),
+                "totalReads": .integer(Int(totalReads)),
+                "mappedReads": .integer(Int(mappedReads)),
+                "unmappedReads": .integer(Int(unmappedReads)),
+                "referenceContigs": .integer(refContigs)
+            ]
+        }
+
+        private func alignmentFileFormat(forExtension ext: String) -> FileFormat {
+            switch ext {
+            case "bam": return .bam
+            case "cram": return .cram
+            case "sam": return .sam
+            default: return .unknown
+            }
         }
     }
 }
@@ -391,6 +921,7 @@ extension ImportCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            let startedAt = Date()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let inputURL = URL(fileURLWithPath: inputFile)
 
@@ -434,51 +965,86 @@ extension ImportCommand {
                 at: outputDirectory,
                 withIntermediateDirectories: true
             )
-            let destURL = outputDirectory.appendingPathComponent(inputURL.lastPathComponent)
-            if !FileManager.default.fileExists(atPath: destURL.path) {
-                try FileManager.default.copyItem(at: inputURL, to: destURL)
-            }
+            var createdArtifacts: [URL] = []
+            do {
+                let destURL = outputDirectory.appendingPathComponent(inputURL.lastPathComponent)
+                if try copyImportArtifactIfNeeded(from: inputURL, to: destURL) {
+                    createdArtifacts.append(destURL)
+                }
 
-            // Copy companion index (.tbi, .csi) if present.
-            copyVCFIndex(for: inputURL, to: outputDirectory, formatter: formatter)
+                // Copy companion index (.tbi, .csi) if present.
+                let indexArtifact = try copyVCFIndex(
+                    for: inputURL,
+                    to: outputDirectory,
+                    formatter: formatter,
+                    createdArtifacts: &createdArtifacts
+                )
 
-            print("")
-            print(formatter.header("Summary"))
-            print("")
+                let variantFormat = variantFileFormat(forExtension: ext)
+                try await CLIProvenanceSupport.recordSingleStepRun(
+                    name: "lungfish import vcf",
+                    parameters: vcfProvenanceParameters(inputURL: inputURL),
+                    defaults: vcfProvenanceDefaults(),
+                    resolved: vcfProvenanceResolved(
+                        outputURL: destURL,
+                        format: ext,
+                        indexArtifact: indexArtifact,
+                        summary: summary
+                    ),
+                    toolName: "lungfish import vcf",
+                    toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    command: vcfProvenanceCommand(inputURL: inputURL, outputDirectory: outputDirectory),
+                    inputs: vcfInputRecords(inputURL: inputURL, format: variantFormat, indexArtifact: indexArtifact),
+                    outputs: vcfOutputRecords(destURL: destURL, format: variantFormat, indexArtifact: indexArtifact),
+                    exitCode: 0,
+                    wallTime: Date().timeIntervalSince(startedAt),
+                    stderr: nil,
+                    status: .completed,
+                    outputDirectory: outputDirectory
+                )
 
-            // Format variant type breakdown.
-            let typeBreakdown = summary.variantTypes
-                .sorted { $0.value > $1.value }
-                .map { "\($0.key): \(formatNumber(Int64($0.value)))" }
-                .joined(separator: ", ")
-
-            print(formatter.keyValueTable([
-                ("Format", summary.header.fileFormat),
-                ("Variants", formatNumber(Int64(summary.variantCount))),
-                ("Types", typeBreakdown.isEmpty ? "N/A" : typeBreakdown),
-                ("Samples", String(summary.header.sampleNames.count)),
-                ("Contigs", String(summary.chromosomes.count)),
-            ]))
-
-            if !summary.header.sampleNames.isEmpty {
-                let sampleList = summary.header.sampleNames.prefix(10)
-                    .joined(separator: ", ")
-                let suffix = summary.header.sampleNames.count > 10
-                    ? " (+\(summary.header.sampleNames.count - 10) more)" : ""
                 print("")
-                print("  Samples: \(sampleList)\(suffix)")
-            }
+                print(formatter.header("Summary"))
+                print("")
 
-            print("")
-            print(formatter.success("VCF import complete: \(destURL.lastPathComponent)"))
+                // Format variant type breakdown.
+                let typeBreakdown = summary.variantTypes
+                    .sorted { $0.value > $1.value }
+                    .map { "\($0.key): \(formatNumber(Int64($0.value)))" }
+                    .joined(separator: ", ")
+
+                print(formatter.keyValueTable([
+                    ("Format", summary.header.fileFormat),
+                    ("Variants", formatNumber(Int64(summary.variantCount))),
+                    ("Types", typeBreakdown.isEmpty ? "N/A" : typeBreakdown),
+                    ("Samples", String(summary.header.sampleNames.count)),
+                    ("Contigs", String(summary.chromosomes.count)),
+                ]))
+
+                if !summary.header.sampleNames.isEmpty {
+                    let sampleList = summary.header.sampleNames.prefix(10)
+                        .joined(separator: ", ")
+                    let suffix = summary.header.sampleNames.count > 10
+                        ? " (+\(summary.header.sampleNames.count - 10) more)" : ""
+                    print("")
+                    print("  Samples: \(sampleList)\(suffix)")
+                }
+
+                print("")
+                print(formatter.success("VCF import complete: \(destURL.lastPathComponent)"))
+            } catch {
+                removeCreatedImportArtifacts(createdArtifacts)
+                throw error
+            }
         }
 
         /// Copies a companion index file (.tbi, .csi) if one exists next to the input.
         private func copyVCFIndex(
             for inputURL: URL,
             to outputDirectory: URL,
-            formatter: TerminalFormatter
-        ) {
+            formatter: TerminalFormatter,
+            createdArtifacts: inout [URL]
+        ) throws -> (sourceURL: URL, destinationURL: URL)? {
             let fm = FileManager.default
             let candidates = [
                 inputURL.path + ".tbi",
@@ -489,17 +1055,100 @@ extension ImportCommand {
                 if fm.fileExists(atPath: candidatePath) {
                     let indexURL = URL(fileURLWithPath: candidatePath)
                     let destIndex = outputDirectory.appendingPathComponent(indexURL.lastPathComponent)
-                    if !fm.fileExists(atPath: destIndex.path) {
-                        do {
-                            try fm.copyItem(at: indexURL, to: destIndex)
-                            if !globalOptions.quiet {
-                                print(formatter.info("Copied index: \(indexURL.lastPathComponent)"))
-                            }
-                        } catch {
-                            // Non-fatal.
+                    if try copyImportArtifactIfNeeded(from: indexURL, to: destIndex) {
+                        createdArtifacts.append(destIndex)
+                        if !globalOptions.quiet {
+                            print(formatter.info("Copied index: \(indexURL.lastPathComponent)"))
                         }
                     }
+                    return (sourceURL: indexURL, destinationURL: destIndex)
                 }
+            }
+            return nil
+        }
+
+        private func vcfInputRecords(
+            inputURL: URL,
+            format: FileFormat,
+            indexArtifact: (sourceURL: URL, destinationURL: URL)?
+        ) -> [FileRecord] {
+            var records = [
+                ProvenanceRecorder.fileRecord(url: inputURL, format: format, role: .input)
+            ]
+            if let indexURL = indexArtifact?.sourceURL {
+                records.append(ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index))
+            }
+            return records
+        }
+
+        private func vcfOutputRecords(
+            destURL: URL,
+            format: FileFormat,
+            indexArtifact: (sourceURL: URL, destinationURL: URL)?
+        ) -> [FileRecord] {
+            var records = [
+                ProvenanceRecorder.fileRecord(url: destURL, format: format, role: .output)
+            ]
+            if let indexURL = indexArtifact?.destinationURL {
+                records.append(ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index))
+            }
+            return records
+        }
+
+        private func vcfProvenanceCommand(inputURL: URL, outputDirectory: URL) -> [String] {
+            var command = [CLICommandIdentity.executableName, "import", "vcf", inputURL.path, "--output-dir", outputDirectory.path]
+            if globalOptions.quiet {
+                command.append("--quiet")
+            }
+            if globalOptions.noColor {
+                command.append("--no-color")
+            }
+            return command
+        }
+
+        private func vcfProvenanceParameters(
+            inputURL: URL
+        ) -> [String: ParameterValue] {
+            [
+                "inputFile": .string(inputURL.path),
+                "outputDir": outputDir.map(ParameterValue.string) ?? .null,
+                "quiet": .boolean(globalOptions.quiet),
+                "noColor": .boolean(globalOptions.noColor)
+            ]
+        }
+
+        private func vcfProvenanceDefaults() -> [String: ParameterValue] {
+            [
+                "outputDir": .string(FileManager.default.currentDirectoryPath),
+                "quiet": .boolean(false),
+                "noColor": .boolean(false)
+            ]
+        }
+
+        private func vcfProvenanceResolved(
+            outputURL: URL,
+            format: String,
+            indexArtifact: (sourceURL: URL, destinationURL: URL)?,
+            summary: VCFSummary
+        ) -> [String: ParameterValue] {
+            [
+                "outputFile": .string(outputURL.path),
+                "outputDirectory": .string(outputURL.deletingLastPathComponent().path),
+                "format": .string(format),
+                "indexFile": indexArtifact.map { .string($0.destinationURL.path) } ?? .null,
+                "indexSource": indexArtifact.map { .string($0.sourceURL.path) } ?? .null,
+                "vcfHeaderFormat": .string(summary.header.fileFormat),
+                "variantCount": .integer(summary.variantCount),
+                "sampleCount": .integer(summary.header.sampleNames.count),
+                "contigCount": .integer(summary.chromosomes.count)
+            ]
+        }
+
+        private func variantFileFormat(forExtension ext: String) -> FileFormat {
+            switch ext {
+            case "vcf": return .vcf
+            case "bcf": return .bcf
+            default: return .unknown
             }
         }
     }
@@ -700,7 +1349,7 @@ extension ImportCommand {
             bundleName: String
         ) -> [String] {
             var command = [
-                "lungfish",
+                CLICommandIdentity.executableName,
                 "import",
                 "fasta",
                 sourceURL.path,
@@ -924,11 +1573,26 @@ extension ImportCommand {
 
             let imported: Kraken2ImportResult
             do {
+                var provenanceCommand = [
+                    CLICommandIdentity.executableName,
+                    "import",
+                    "kraken2",
+                    kreportURL.path,
+                    "--output-dir",
+                    outputDirectory.path,
+                ]
+                if let outputFile {
+                    provenanceCommand += ["--output", URL(fileURLWithPath: outputFile).path]
+                }
+                if let name {
+                    provenanceCommand += ["--name", name]
+                }
                 imported = try MetagenomicsImportService.importKraken2(
                     kreportURL: kreportURL,
                     outputDirectory: outputDirectory,
                     outputFileURL: outputFile.map { URL(fileURLWithPath: $0) },
-                    preferredName: name
+                    preferredName: name,
+                    provenanceCommand: provenanceCommand
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
@@ -1019,10 +1683,22 @@ extension ImportCommand {
 
             let imported: EsVirituImportResult
             do {
+                var provenanceCommand = [
+                    CLICommandIdentity.executableName,
+                    "import",
+                    "esviritu",
+                    inputURL.path,
+                    "--output-dir",
+                    outputDirectory.path,
+                ]
+                if let name {
+                    provenanceCommand += ["--name", name]
+                }
                 imported = try MetagenomicsImportService.importEsViritu(
                     inputURL: inputURL,
                     outputDirectory: outputDirectory,
-                    preferredName: name
+                    preferredName: name,
+                    provenanceCommand: provenanceCommand
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
@@ -1088,10 +1764,22 @@ extension ImportCommand {
 
             let imported: TaxTriageImportResult
             do {
+                var provenanceCommand = [
+                    CLICommandIdentity.executableName,
+                    "import",
+                    "taxtriage",
+                    inputURL.path,
+                    "--output-dir",
+                    outputDirectory.path,
+                ]
+                if let name {
+                    provenanceCommand += ["--name", name]
+                }
                 imported = try MetagenomicsImportService.importTaxTriage(
                     inputURL: inputURL,
                     outputDirectory: outputDirectory,
-                    preferredName: name
+                    preferredName: name,
+                    provenanceCommand: provenanceCommand
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
@@ -1177,12 +1865,27 @@ extension ImportCommand {
 
             let imported: NaoMgsImportResult
             do {
+                var provenanceCommand = [
+                    CLICommandIdentity.executableName,
+                    "import",
+                    "nao-mgs",
+                    inputURL.path,
+                    "--output-dir",
+                    outputDirectory.path,
+                ]
+                if let sampleName {
+                    provenanceCommand += ["--sample-name", sampleName]
+                }
+                if !fetchReferences {
+                    provenanceCommand.append("--no-fetch-references")
+                }
                 imported = try await MetagenomicsImportService.importNaoMgs(
                     inputURL: inputURL,
                     outputDirectory: outputDirectory,
                     sampleName: sampleName,
                     fetchReferences: fetchReferences,
-                    preferredName: sampleName
+                    preferredName: sampleName,
+                    provenanceCommand: provenanceCommand
                 ) { progress, message in
                     guard !globalOptions.quiet else { return }
                     print(String(format: "[%3.0f%%] %@", progress * 100, message))
@@ -1210,8 +1913,9 @@ extension ImportCommand {
 
     /// Import NVD (Novel Virus Diagnostics) BLAST results into a Lungfish project.
     ///
-    /// Parses `*_blast_concatenated.csv(.gz)` and writes a `manifest.json` summary
-    /// into an `nvd-{experiment}` bundle directory.
+    /// Parses `*_blast_concatenated.csv(.gz)` and writes an app-viewable
+    /// `nvd-{experiment}` bundle with `manifest.json`, `hits.sqlite`, copied
+    /// sample assets when present, and canonical provenance.
     struct NvdSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "nvd",
@@ -1244,33 +1948,9 @@ extension ImportCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            // Locate blast_concatenated.csv(.gz)
-            let labkeyDir = inputURL.appendingPathComponent("05_labkey_bundling", isDirectory: true)
-            guard FileManager.default.fileExists(atPath: labkeyDir.path) else {
-                print(formatter.error("Expected 05_labkey_bundling/ inside: \(inputPath)"))
-                throw CLIExitCode.inputError.exitCode
-            }
-
-            let labkeyContents = try FileManager.default.contentsOfDirectory(
-                at: labkeyDir,
-                includingPropertiesForKeys: nil
-            )
-            guard let csvURL = labkeyContents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
-                print(formatter.error("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"))
-                throw CLIExitCode.inputError.exitCode
-            }
-
             if !globalOptions.quiet {
                 print(formatter.header("NVD Import"))
                 print("")
-                print(formatter.info("Parsing \(csvURL.lastPathComponent)..."))
-            }
-
-            let parser = NvdResultParser()
-            let result = try await parser.parse(at: csvURL) { lineCount in
-                if lineCount % 5000 == 0 && !globalOptions.quiet {
-                    print(String(format: "[%3.0f%%] Parsed %d rows", 0.0, lineCount))
-                }
             }
 
             let outputDirectory: URL
@@ -1280,81 +1960,44 @@ extension ImportCommand {
                 outputDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             }
 
-            let bundleName = name ?? "nvd-\(result.experiment.isEmpty ? inputURL.lastPathComponent : result.experiment)"
-            let bundleDir = outputDirectory.appendingPathComponent(bundleName, isDirectory: true)
-            try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
-
-            // Build per-sample summaries
-            var perSampleHits: [String: Int] = [:]
-            var perSampleContigs: [String: Set<String>] = [:]
-            var perSampleTotalReads: [String: Int] = [:]
-            for hit in result.hits {
-                perSampleHits[hit.sampleId, default: 0] += 1
-                perSampleContigs[hit.sampleId, default: []].insert(hit.qseqid)
-                if perSampleTotalReads[hit.sampleId] == nil {
-                    perSampleTotalReads[hit.sampleId] = hit.totalReads
-                }
+            var provenanceCommand = [
+                CLICommandIdentity.executableName,
+                "import",
+                "nvd",
+                inputURL.path,
+                "--output-dir",
+                outputDirectory.path,
+            ]
+            if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                provenanceCommand += ["--name", name]
             }
 
-            let sampleSummaries = result.sampleIds.sorted().map { sampleId in
-                NvdSampleSummary(
-                    sampleId: sampleId,
-                    contigCount: perSampleContigs[sampleId]?.count ?? 0,
-                    hitCount: perSampleHits[sampleId] ?? 0,
-                    totalReads: perSampleTotalReads[sampleId] ?? 0,
-                    bamRelativePath: "bam/\(sampleId).filtered.bam",
-                    fastaRelativePath: "fasta/\(sampleId).human_virus.fasta"
-                )
-            }
-
-            let topContigs: [NvdContigRow] = result.hits
-                .filter { $0.hitRank == 1 }
-                .prefix(200)
-                .map { hit in
-                    NvdContigRow(
-                        sampleId: hit.sampleId,
-                        qseqid: hit.qseqid,
-                        qlen: hit.qlen,
-                        adjustedTaxidName: hit.adjustedTaxidName,
-                        adjustedTaxidRank: hit.adjustedTaxidRank,
-                        sseqid: hit.sseqid,
-                        stitle: hit.stitle,
-                        pident: hit.pident,
-                        evalue: hit.evalue,
-                        bitscore: hit.bitscore,
-                        mappedReads: hit.mappedReads,
-                        readsPerBillion: hit.readsPerBillion
-                    )
+            do {
+                let imported = try await MetagenomicsImportService.importNvd(
+                    inputURL: inputURL,
+                    outputDirectory: outputDirectory,
+                    preferredName: name,
+                    samtoolsPath: nil,
+                    provenanceCommand: provenanceCommand
+                ) { progress, message in
+                    if !globalOptions.quiet, progress < 1.0 {
+                        print(formatter.info(message))
+                    }
                 }
 
-            let manifest = NvdManifest(
-                experiment: result.experiment,
-                sampleCount: result.sampleIds.count,
-                contigCount: Set(result.hits.map { "\($0.sampleId)\u{1F}\($0.qseqid)" }).count,
-                hitCount: result.hits.count,
-                blastDbVersion: result.hits.first?.blastDbVersion,
-                snakemakeRunId: result.hits.first?.snakemakeRunId,
-                sourceDirectoryPath: inputURL.path,
-                samples: sampleSummaries,
-                cachedTopContigs: topContigs
-            )
-
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            encoder.dateEncodingStrategy = .iso8601
-            let manifestData = try encoder.encode(manifest)
-            let manifestURL = bundleDir.appendingPathComponent("manifest.json")
-            try manifestData.write(to: manifestURL, options: .atomic)
-
-            if !globalOptions.quiet {
-                print(formatter.keyValueTable([
-                    ("Experiment", result.experiment.isEmpty ? "(none)" : result.experiment),
-                    ("Total hits", String(result.hits.count)),
-                    ("Samples", String(result.sampleIds.count)),
-                    ("Output", bundleDir.lastPathComponent),
-                ]))
-                print("")
-                print(formatter.success("NVD import complete: \(bundleName)"))
+                if !globalOptions.quiet {
+                    print(formatter.keyValueTable([
+                        ("Total hits", String(imported.hitCount)),
+                        ("Samples", String(imported.sampleCount)),
+                        ("Contigs", String(imported.contigCount)),
+                        ("Output", imported.resultDirectory.lastPathComponent),
+                    ]))
+                    print("")
+                    print(formatter.success("NVD import complete: \(imported.resultDirectory.lastPathComponent)"))
+                }
+            } catch {
+                print(formatter.error(error.localizedDescription))
+                throw metagenomicsImportExitCode(for: error).exitCode
             }
         }
     }
@@ -1378,6 +2021,8 @@ private func metagenomicsImportExitCode(for error: MetagenomicsImportError) -> C
         return .inputError
     case .parseFailed:
         return .formatError
+    case .outputAlreadyExists:
+        return .outputError
     case .outputDirectoryCreationFailed, .copyFailed:
         return .outputError
     case .toolUnavailable:
@@ -1529,6 +2174,87 @@ private func formatBases(_ bases: Int64) -> String {
     }
 }
 
+private struct ImportArtifactConflictError: Error, LocalizedError {
+    let sourceURL: URL
+    let destinationURL: URL
+
+    var errorDescription: String? {
+        """
+        Destination already exists with different contents: \(destinationURL.path). \
+        Remove or rename the existing file before importing \(sourceURL.path).
+        """
+    }
+}
+
+private func copyImportArtifactIfNeeded(from sourceURL: URL, to destinationURL: URL) throws -> Bool {
+    let fileManager = FileManager.default
+    if sourceURL.standardizedFileURL.path == destinationURL.standardizedFileURL.path {
+        return false
+    }
+
+    if fileManager.fileExists(atPath: destinationURL.path) {
+        guard try importArtifactsMatch(sourceURL, destinationURL) else {
+            throw ImportArtifactConflictError(sourceURL: sourceURL, destinationURL: destinationURL)
+        }
+        return false
+    }
+
+    try fileManager.copyItem(at: sourceURL, to: destinationURL)
+    return true
+}
+
+private func importArtifactsMatch(_ lhs: URL, _ rhs: URL) throws -> Bool {
+    let lhsSize = try ProvenanceFileHasher.fileSize(of: lhs)
+    let rhsSize = try ProvenanceFileHasher.fileSize(of: rhs)
+    guard lhsSize == rhsSize else { return false }
+    return try ProvenanceFileHasher.sha256(of: lhs) == ProvenanceFileHasher.sha256(of: rhs)
+}
+
+private func removeCreatedImportArtifacts(_ urls: [URL]) {
+    for url in urls.reversed() {
+        try? FileManager.default.removeItem(at: url)
+    }
+}
+
+private func detectNativeToolVersion(_ tool: NativeTool) async -> String {
+    do {
+        let result = try await NativeToolRunner.shared.run(tool, arguments: ["--version"], timeout: 30)
+        let combined = (result.stdout + "\n" + result.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = combined.range(of: #"\d+\.\d+(\.\d+)?"#, options: .regularExpression) {
+            return String(combined[range])
+        }
+        return combined.split(whereSeparator: \.isNewline).first.map(String.init) ?? "unknown"
+    } catch {
+        return "unknown"
+    }
+}
+
+private func nativeToolProvenanceStep(
+    toolName: String,
+    toolVersion: String,
+    result: NativeToolResult,
+    fallbackArgv: [String],
+    inputs: [ProvenanceFileDescriptor],
+    outputs: [ProvenanceFileDescriptor],
+    startedAt: Date,
+    completedAt: Date
+) -> ProvenanceStep {
+    let argv = result.arguments.isEmpty ? fallbackArgv : result.arguments
+    return ProvenanceStep(
+        toolName: toolName,
+        toolVersion: toolVersion,
+        argv: argv,
+        reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+        inputs: inputs,
+        outputs: outputs,
+        exitStatus: Int(result.exitCode),
+        wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+        stderr: result.stderr,
+        startedAt: startedAt,
+        completedAt: completedAt
+    )
+}
+
     // MARK: - Metadata Import
 
     /// Import sample metadata CSV/TSV into a result bundle.
@@ -1602,19 +2328,30 @@ private func formatBases(_ bases: Int64) -> String {
                 knownSampleIds: knownSampleIds
             )
 
-            // Persist to bundle (pass original CSV data for storage)
-            try store.persist(originalData: csvData, to: bundleURL)
-            try writeProvenance(
-                store: store,
-                inputURL: inputURL,
-                bundleURL: bundleURL,
-                metadataURL: bundleURL.appendingPathComponent("metadata/sample_metadata.tsv"),
-                sampleColumnIndex: bestColumn.index,
-                sampleColumnName: bestColumn.name,
-                knownSampleCount: knownSampleIds.count,
-                totalMetadataRows: scanResult.totalRows,
-                startedAt: startedAt
+            let metadataURL = bundleURL.appendingPathComponent("metadata/sample_metadata.tsv")
+            let snapshot = try ProvenancePublicationSnapshot(
+                urls: sampleMetadataPublicationArtifacts(bundleURL: bundleURL, metadataURL: metadataURL),
+                backupNamePrefix: "lungfish-import-metadata"
             )
+            defer { snapshot.discard() }
+            do {
+                // Persist to bundle (pass original CSV data for storage)
+                try store.persist(originalData: csvData, to: bundleURL)
+                try writeProvenance(
+                    store: store,
+                    inputURL: inputURL,
+                    bundleURL: bundleURL,
+                    metadataURL: metadataURL,
+                    sampleColumnIndex: bestColumn.index,
+                    sampleColumnName: bestColumn.name,
+                    knownSampleCount: knownSampleIds.count,
+                    totalMetadataRows: scanResult.totalRows,
+                    startedAt: startedAt
+                )
+            } catch {
+                try snapshot.restore()
+                throw error
+            }
 
             print(formatter.header("Metadata Import"))
             print("")
@@ -1635,6 +2372,12 @@ private func formatBases(_ bases: Int64) -> String {
             }
         }
 
+        private func sampleMetadataPublicationArtifacts(bundleURL: URL, metadataURL: URL) -> [URL] {
+            let metadataDirectory = metadataURL.deletingLastPathComponent()
+            return [metadataDirectory]
+                + ProvenancePublicationArtifacts.bundleRootArtifacts(for: bundleURL)
+        }
+
         private func writeProvenance(
             store: SampleMetadataStore,
             inputURL: URL,
@@ -1649,11 +2392,11 @@ private func formatBases(_ bases: Int64) -> String {
             var builder = ProvenanceRunBuilder(
                 workflowName: "Sample metadata import",
                 workflowVersion: WorkflowRun.currentAppVersion,
-                toolName: "lungfish-cli",
+                toolName: CLICommandIdentity.executableName,
                 toolVersion: WorkflowRun.currentAppVersion
             )
             .argv([
-                "lungfish-cli",
+                CLICommandIdentity.executableName,
                 "import",
                 "metadata",
             ] + replayableGlobalArguments() + [
@@ -1737,26 +2480,6 @@ private func formatBases(_ bases: Int64) -> String {
             return argv
         }
     }
-
-/// Scans a directory for files matching the given extensions.
-private func scanForFiles(in directory: URL, extensions: [String]) -> [URL] {
-    let fm = FileManager.default
-    guard let contents = try? fm.contentsOfDirectory(
-        at: directory,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles]
-    ) else { return [] }
-
-    let lowercasedExts = Set(extensions.map { $0.lowercased() })
-    return contents.filter { url in
-        var ext = url.pathExtension.lowercased()
-        // Handle double extensions like .tsv.gz.
-        if ext == "gz" {
-            ext = url.deletingPathExtension().pathExtension.lowercased()
-        }
-        return lowercasedExts.contains(ext) || lowercasedExts.contains(url.pathExtension.lowercased())
-    }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-}
 
 /// Recursively scans a directory and returns regular files sorted by path.
 private func scanRegularFilesRecursively(in directory: URL) -> [URL] {

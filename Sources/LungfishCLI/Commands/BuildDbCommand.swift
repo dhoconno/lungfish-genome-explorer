@@ -53,6 +53,59 @@ private enum BuildDbUniqueReadsError: LocalizedError {
     }
 }
 
+private struct BuildDbDatabaseSnapshot {
+    private let dbURL: URL
+    private let sidecarURL: URL
+    private let snapshotDirectory: URL
+    private let capturedFiles: [(source: URL, destination: URL)]
+
+    static func capture(dbURL: URL) throws -> BuildDbDatabaseSnapshot {
+        let snapshotDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-build-db-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: snapshotDirectory, withIntermediateDirectories: true)
+
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: dbURL)
+        let urls = [
+            dbURL,
+            URL(fileURLWithPath: dbURL.path + "-wal"),
+            URL(fileURLWithPath: dbURL.path + "-shm"),
+            sidecarURL,
+        ]
+        var capturedFiles: [(source: URL, destination: URL)] = []
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            let destination = snapshotDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.copyItem(at: url, to: destination)
+            capturedFiles.append((source: url, destination: destination))
+        }
+
+        return BuildDbDatabaseSnapshot(
+            dbURL: dbURL,
+            sidecarURL: sidecarURL,
+            snapshotDirectory: snapshotDirectory,
+            capturedFiles: capturedFiles
+        )
+    }
+
+    func restore() throws {
+        for url in [
+            dbURL,
+            URL(fileURLWithPath: dbURL.path + "-wal"),
+            URL(fileURLWithPath: dbURL.path + "-shm"),
+            sidecarURL,
+        ] {
+            try? FileManager.default.removeItem(at: url)
+        }
+        for file in capturedFiles {
+            try FileManager.default.copyItem(at: file.destination, to: file.source)
+        }
+        try discard()
+    }
+
+    func discard() throws {
+        try? FileManager.default.removeItem(at: snapshotDirectory)
+    }
+}
+
 /// Updates the `unique_reads` column in a SQLite database for rows with BAM paths.
 ///
 /// Opens the database read-write, queries rows that have a BAM path and accession,
@@ -77,8 +130,9 @@ private func updateUniqueReadsInDB(
     resultURL: URL,
     bamPathResolver: (URL, String, String) -> String,
     updateAccessionLength: Bool,
-    quiet: Bool
-) throws {
+    quiet: Bool,
+    provenance: BuildDbSamtoolsProvenanceCollector
+) async throws {
     var db: OpaquePointer?
     guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
         if !quiet { print("Warning: could not open database for unique reads update") }
@@ -123,6 +177,10 @@ private func updateUniqueReadsInDB(
     guard let samtoolsPath = findSamtools() else {
         throw BuildDbUniqueReadsError.managedSamtoolsUnavailable
     }
+    let samtoolsProvenance = BuildDbSamtoolsProvenanceTracker(
+        samtoolsPath: samtoolsPath,
+        collector: provenance
+    )
 
     // Step 1: Run markdup on each unique BAM file
     let uniqueBAMPaths = Set(rowsToProcess.map { bamPathResolver(resultURL, $0.sample, $0.bamRelPath) })
@@ -132,8 +190,10 @@ private func updateUniqueReadsInDB(
         let bamURL = URL(fileURLWithPath: bamFullPath)
         guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
         do {
-            let result = try MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
+            let result = try await samtoolsProvenance.markdup(bamURL: bamURL)
             if !result.wasAlreadyMarkduped { marked += 1 }
+        } catch let provenanceError as BuildDbSamtoolsProvenanceError {
+            throw provenanceError
         } catch {
             if !quiet { print("  Warning: markdup failed on \(bamURL.lastPathComponent): \(error.localizedDescription)") }
         }
@@ -148,17 +208,8 @@ private func updateUniqueReadsInDB(
     if updateAccessionLength {
         for bamFullPath in uniqueBAMPaths {
             guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
-            let idxProcess = Process()
-            idxProcess.executableURL = URL(fileURLWithPath: samtoolsPath)
-            idxProcess.arguments = ["idxstats", bamFullPath]
-            let pipe = Pipe()
-            idxProcess.standardOutput = pipe
-            idxProcess.standardError = FileHandle.nullDevice
-            do { try idxProcess.run() } catch { continue }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            idxProcess.waitUntilExit()
-            guard idxProcess.terminationStatus == 0,
-                  let output = String(data: data, encoding: .utf8) else { continue }
+            let bamURL = URL(fileURLWithPath: bamFullPath)
+            guard let output = try await samtoolsProvenance.idxstats(bamURL: bamURL) else { continue }
             for line in output.split(separator: "\n") {
                 let cols = line.split(separator: "\t")
                 guard cols.count >= 2 else { continue }
@@ -221,11 +272,10 @@ private func updateUniqueReadsInDB(
             unique = cached
         } else {
             do {
-                unique = try MarkdupService.countReads(
+                unique = try await samtoolsProvenance.countReads(
                     bamURL: bamURL,
                     accession: row.accession,
-                    flagFilter: 0x404,  // unmapped + duplicate
-                    samtoolsPath: samtoolsPath
+                    flagFilter: 0x404  // unmapped + duplicate
                 )
                 uniqueCache[cacheKey] = unique
             } catch {
@@ -238,11 +288,10 @@ private func updateUniqueReadsInDB(
             total = cached
         } else {
             do {
-                total = try MarkdupService.countReads(
+                total = try await samtoolsProvenance.countReads(
                     bamURL: bamURL,
                     accession: row.accession,
-                    flagFilter: 0x4,  // unmapped only (includes duplicates)
-                    samtoolsPath: samtoolsPath
+                    flagFilter: 0x4  // unmapped only (includes duplicates)
                 )
                 totalCache[cacheKey] = total
             } catch {
@@ -307,6 +356,7 @@ extension BuildDbCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            let provenanceStartedAt = Date()
             let resultURL = URL(fileURLWithPath: resultDir)
             let dbURL = resultURL.appendingPathComponent("taxtriage.sqlite")
 
@@ -318,55 +368,97 @@ extension BuildDbCommand {
                 return
             }
 
-            // 1. Locate a supported taxonomy report
-            let resolvedInput = try resolveTaxonomyRows(resultURL: resultURL)
-            let rows = resolvedInput.rows
-            let accessionMap = resolvedInput.accessionMap
+            let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .taxTriage, resultURL: resultURL)
+            let samtoolsProvenance = BuildDbSamtoolsProvenanceCollector()
+            let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
 
-            if !globalOptions.quiet {
-                print("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from \(resolvedInput.sourceDescription)")
-            }
+            do {
+                // 1. Locate a supported taxonomy report
+                let resolvedInput = try resolveTaxonomyRows(resultURL: resultURL)
+                let rows = resolvedInput.rows
+                let accessionMap = resolvedInput.accessionMap
 
-            // 3. Build database
-            let metadata: [String: String] = [
-                "tool": "taxtriage",
-                "created_at": ISO8601DateFormatter().string(from: Date()),
-                "source_dir": resultURL.path,
-            ]
+                if !globalOptions.quiet {
+                    print("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from \(resolvedInput.sourceDescription)")
+                }
 
-            try TaxTriageDatabase.create(at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata) { fraction, msg in
-                if self.globalOptions.outputFormat == .json {
-                    let obj: [String: Any] = ["progress": fraction, "message": msg]
-                    if let data = try? JSONSerialization.data(withJSONObject: obj),
-                       let json = String(data: data, encoding: .utf8) {
-                        FileHandle.standardError.write(Data((json + "\n").utf8))
+                // 3. Build database
+                let metadata: [String: String] = [
+                    "tool": "taxtriage",
+                    "created_at": ISO8601DateFormatter().string(from: Date()),
+                    "source_dir": resultURL.path,
+                ]
+
+                try TaxTriageDatabase.create(at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata) { fraction, msg in
+                    if self.globalOptions.outputFormat == .json {
+                        let obj: [String: Any] = ["progress": fraction, "message": msg]
+                        if let data = try? JSONSerialization.data(withJSONObject: obj),
+                           let json = String(data: data, encoding: .utf8) {
+                            FileHandle.standardError.write(Data((json + "\n").utf8))
+                        }
                     }
                 }
-            }
 
-            if !globalOptions.quiet {
-                print("Built database at \(dbURL.path) with \(rows.count) rows")
-            }
+                if !globalOptions.quiet {
+                    print("Built database at \(dbURL.path) with \(rows.count) rows")
+                }
 
-            // 4. Compute unique reads from BAMs and update DB
-            try updateUniqueReadsInDB(
-                dbPath: dbURL.path,
-                table: "taxonomy_rows",
-                sampleCol: "sample",
-                accessionCol: "primary_accession",
-                bamPathCol: "bam_path",
-                totalReadsCol: "reads_aligned",
-                resultURL: resultURL,
-                bamPathResolver: { resultURL, _, bamRelPath in
-                    // TaxTriage BAM paths are relative to resultURL directly
-                    resultURL.appendingPathComponent(bamRelPath).path
-                },
-                updateAccessionLength: true,
-                quiet: globalOptions.quiet
-            )
+                // 4. Compute unique reads from BAMs and update DB
+                try await updateUniqueReadsInDB(
+                    dbPath: dbURL.path,
+                    table: "taxonomy_rows",
+                    sampleCol: "sample",
+                    accessionCol: "primary_accession",
+                    bamPathCol: "bam_path",
+                    totalReadsCol: "reads_aligned",
+                    resultURL: resultURL,
+                    bamPathResolver: { resultURL, _, bamRelPath in
+                        // TaxTriage BAM paths are relative to resultURL directly
+                        resultURL.appendingPathComponent(bamRelPath).path
+                    },
+                    updateAccessionLength: true,
+                    quiet: globalOptions.quiet,
+                    provenance: samtoolsProvenance
+                )
 
-            if !noCleanup {
-                performCleanup(resultURL: resultURL)
+                if !noCleanup {
+                    performCleanup(resultURL: resultURL)
+                }
+
+                try await BuildDbCommand.recordBuildDbProvenance(
+                    tool: .taxTriage,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs,
+                    additionalSteps: samtoolsProvenance.steps
+                )
+                try databaseSnapshot.discard()
+            } catch {
+                do {
+                    try databaseSnapshot.restore()
+                } catch {
+                    if !globalOptions.quiet {
+                        fputs("Warning: could not restore previous TaxTriage database: \(error.localizedDescription)\n", stderr)
+                    }
+                }
+                await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
+                    tool: .taxTriage,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs,
+                    error: error,
+                    additionalSteps: samtoolsProvenance.steps,
+                    includeOutputRecords: false
+                )
+                throw error
             }
         }
 
@@ -672,7 +764,9 @@ extension BuildDbCommand.TaxTriageSubcommand {
                 status: status,
                 tassScore: tassScore,
                 readsAligned: readsAligned,
-                uniqueReads: nil, // Deferred: computed in a separate pass via samtools dedup (Task 4)
+                // Filled by the post-parse unique-read update pass once samtools
+                // dedup counts are available for all rows.
+                uniqueReads: nil,
                 pctReads: Double(pctReads ?? ""),
                 pctAlignedReads: Double(pctAlignedReads ?? ""),
                 coverageBreadth: Double(coverageBreadth ?? ""),
@@ -1035,6 +1129,7 @@ extension BuildDbCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            let provenanceStartedAt = Date()
             let resultURL = URL(fileURLWithPath: resultDir)
             let dbURL = resultURL.appendingPathComponent("esviritu.sqlite")
 
@@ -1046,87 +1141,129 @@ extension BuildDbCommand {
                 return
             }
 
-            // 1. Enumerate sample subdirectories containing detection TSVs
-            let rows = try parseSampleDirectories(resultURL: resultURL)
+            let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .esViritu, resultURL: resultURL)
+            let samtoolsProvenance = BuildDbSamtoolsProvenanceCollector()
+            let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
 
-            if !globalOptions.quiet {
-                print("Parsed \(rows.count) detection rows from EsViritu results")
-            }
+            do {
+                // 1. Enumerate sample subdirectories containing detection TSVs
+                let rows = try parseSampleDirectories(resultURL: resultURL)
 
-            // 2. Parse coverage windows from virus_coverage_windows.tsv files
-            var allWindows: [EsVirituCoverageWindow] = []
-            let fm = FileManager.default
-            if let sampleDirs = try? fm.contentsOfDirectory(at: resultURL, includingPropertiesForKeys: [.isDirectoryKey]) {
-                for dir in sampleDirs {
-                    let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                    guard isDir else { continue }
-                    let sampleName = dir.lastPathComponent
-                    guard !sampleName.hasPrefix(".") else { continue }
+                if !globalOptions.quiet {
+                    print("Parsed \(rows.count) detection rows from EsViritu results")
+                }
 
-                    let cwURL = dir.appendingPathComponent("\(sampleName).virus_coverage_windows.tsv")
-                    if fm.fileExists(atPath: cwURL.path) {
-                        if let parsed = try? EsVirituCoverageParser.parse(url: cwURL) {
-                            let dbWindows = parsed.map { w in
-                                EsVirituCoverageWindow(
-                                    sample: sampleName, accession: w.accession,
-                                    windowIndex: w.windowIndex, windowStart: w.windowStart,
-                                    windowEnd: w.windowEnd, averageCoverage: w.averageCoverage
-                                )
+                // 2. Parse coverage windows from virus_coverage_windows.tsv files
+                var allWindows: [EsVirituCoverageWindow] = []
+                let fm = FileManager.default
+                if let sampleDirs = try? fm.contentsOfDirectory(at: resultURL, includingPropertiesForKeys: [.isDirectoryKey]) {
+                    for dir in sampleDirs {
+                        let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                        guard isDir else { continue }
+                        let sampleName = dir.lastPathComponent
+                        guard !sampleName.hasPrefix(".") else { continue }
+
+                        let cwURL = dir.appendingPathComponent("\(sampleName).virus_coverage_windows.tsv")
+                        if fm.fileExists(atPath: cwURL.path) {
+                            if let parsed = try? EsVirituCoverageParser.parse(url: cwURL) {
+                                let dbWindows = parsed.map { w in
+                                    EsVirituCoverageWindow(
+                                        sample: sampleName, accession: w.accession,
+                                        windowIndex: w.windowIndex, windowStart: w.windowStart,
+                                        windowEnd: w.windowEnd, averageCoverage: w.averageCoverage
+                                    )
+                                }
+                                allWindows.append(contentsOf: dbWindows)
                             }
-                            allWindows.append(contentsOf: dbWindows)
                         }
                     }
                 }
-            }
 
-            if !globalOptions.quiet {
-                print("Parsed \(allWindows.count) coverage windows from EsViritu results")
-            }
+                if !globalOptions.quiet {
+                    print("Parsed \(allWindows.count) coverage windows from EsViritu results")
+                }
 
-            // 3. Build database
-            let metadata: [String: String] = [
-                "tool": "esviritu",
-                "created_at": ISO8601DateFormatter().string(from: Date()),
-                "source_dir": resultURL.path,
-            ]
+                // 3. Build database
+                let metadata: [String: String] = [
+                    "tool": "esviritu",
+                    "created_at": ISO8601DateFormatter().string(from: Date()),
+                    "source_dir": resultURL.path,
+                ]
 
-            _ = try EsVirituDatabase.create(at: dbURL, rows: rows, coverageWindows: allWindows, metadata: metadata) { fraction, msg in
-                if self.globalOptions.outputFormat == .json {
-                    let obj: [String: Any] = ["progress": fraction, "message": msg]
-                    if let data = try? JSONSerialization.data(withJSONObject: obj),
-                       let json = String(data: data, encoding: .utf8) {
-                        FileHandle.standardError.write(Data((json + "\n").utf8))
+                _ = try EsVirituDatabase.create(at: dbURL, rows: rows, coverageWindows: allWindows, metadata: metadata) { fraction, msg in
+                    if self.globalOptions.outputFormat == .json {
+                        let obj: [String: Any] = ["progress": fraction, "message": msg]
+                        if let data = try? JSONSerialization.data(withJSONObject: obj),
+                           let json = String(data: data, encoding: .utf8) {
+                            FileHandle.standardError.write(Data((json + "\n").utf8))
+                        }
                     }
                 }
-            }
 
-            if !globalOptions.quiet {
-                print("Built database at \(dbURL.path) with \(rows.count) rows")
-            }
+                if !globalOptions.quiet {
+                    print("Built database at \(dbURL.path) with \(rows.count) rows")
+                }
 
-            // 4. Relocate BAMs from <sample>/<sample>_temp/ to <sample>/bams/ so the
-            // resolver in updateUniqueReadsInDB and post-cleanup VC can both find them.
-            relocateEsVirituBAMs(resultURL: resultURL)
+                // 4. Relocate BAMs from <sample>/<sample>_temp/ to <sample>/bams/ so the
+                // resolver in updateUniqueReadsInDB and post-cleanup VC can both find them.
+                relocateEsVirituBAMs(resultURL: resultURL)
 
-            // 5. Compute unique reads from BAMs and update DB
-            try updateUniqueReadsInDB(
-                dbPath: dbURL.path,
-                table: "detection_rows",
-                sampleCol: "sample",
-                accessionCol: "accession",
-                bamPathCol: "bam_path",
-                totalReadsCol: "read_count",
-                resultURL: resultURL,
-                bamPathResolver: { resultURL, _, bamRelPath in
-                    // EsViritu BAM paths are now full relative paths from the result root.
-                    resultURL.appendingPathComponent(bamRelPath).path
-                },
-                updateAccessionLength: false,
-                quiet: globalOptions.quiet
-            )
+                // 5. Compute unique reads from BAMs and update DB
+                try await updateUniqueReadsInDB(
+                    dbPath: dbURL.path,
+                    table: "detection_rows",
+                    sampleCol: "sample",
+                    accessionCol: "accession",
+                    bamPathCol: "bam_path",
+                    totalReadsCol: "read_count",
+                    resultURL: resultURL,
+                    bamPathResolver: { resultURL, _, bamRelPath in
+                        // EsViritu BAM paths are now full relative paths from the result root.
+                        resultURL.appendingPathComponent(bamRelPath).path
+                    },
+                    updateAccessionLength: false,
+                    quiet: globalOptions.quiet,
+                    provenance: samtoolsProvenance
+                )
 
-            if !noCleanup {
-                performCleanup(resultURL: resultURL)
+                if !noCleanup {
+                    performCleanup(resultURL: resultURL)
+                }
+
+                try await BuildDbCommand.recordBuildDbProvenance(
+                    tool: .esViritu,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs,
+                    additionalSteps: samtoolsProvenance.steps
+                )
+                try databaseSnapshot.discard()
+            } catch {
+                do {
+                    try databaseSnapshot.restore()
+                } catch {
+                    if !globalOptions.quiet {
+                        fputs("Warning: could not restore previous EsViritu database: \(error.localizedDescription)\n", stderr)
+                    }
+                }
+                await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
+                    tool: .esViritu,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs,
+                    error: error,
+                    additionalSteps: samtoolsProvenance.steps,
+                    includeOutputRecords: false
+                )
+                throw error
             }
         }
 
@@ -1261,7 +1398,9 @@ extension BuildDbCommand {
                     subspecies: subspecies,
                     rpkmf: rpkmf,
                     readCount: readCount,
-                    uniqueReads: nil, // Deferred: computed in a separate pass
+                    // Filled by the post-parse unique-read update pass once
+                    // sample-level dedup counts are available.
+                    uniqueReads: nil,
                     coveredBases: coveredBases,
                     meanCoverage: meanCoverage,
                     avgReadIdentity: avgReadIdentity,
@@ -1476,11 +1615,16 @@ extension BuildDbCommand {
         @Flag(name: .customLong("no-cleanup"), help: "Skip post-build cleanup of intermediate files")
         var noCleanup: Bool = false
 
+        @Option(name: .customLong("sample-dir"), help: "Successful Kraken2 sample result directory to include. May be repeated.")
+        var sampleDirs: [String] = []
+
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            let provenanceStartedAt = Date()
             let resultURL = URL(fileURLWithPath: resultDir)
             let dbURL = resultURL.appendingPathComponent("kraken2.sqlite")
+            let requestedSampleDirectories = sampleDirs.map { URL(fileURLWithPath: $0).standardizedFileURL }
 
             // Skip if exists (unless --force)
             if !force && FileManager.default.fileExists(atPath: dbURL.path) {
@@ -1490,40 +1634,88 @@ extension BuildDbCommand {
                 return
             }
 
-            // 1. Enumerate sample subdirectories and parse kreport files
-            let (rows, sampleMetadata) = try parseSampleDirectories(resultURL: resultURL)
+            let explicitSampleDirectories = try validatedExplicitSampleDirectories(requestedSampleDirectories)
+            let provenanceInputs = BuildDbCommand.buildDbInputRecords(
+                tool: .kraken2,
+                resultURL: resultURL,
+                sampleDirectories: explicitSampleDirectories
+            )
+            let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
 
-            if !globalOptions.quiet {
-                print("Parsed \(rows.count) classification rows from Kraken2 results")
-            }
+            do {
+                // 1. Enumerate sample subdirectories and parse kreport files
+                let (rows, sampleMetadata) = try parseSampleDirectories(
+                    resultURL: resultURL,
+                    sampleDirectories: explicitSampleDirectories
+                )
 
-            // 2. Build database
-            var metadata: [String: String] = [
-                "tool": "kraken2",
-                "created_at": ISO8601DateFormatter().string(from: Date()),
-                "source_dir": resultURL.path,
-            ]
-            // Merge per-sample tree statistics into metadata
-            for (key, value) in sampleMetadata {
-                metadata[key] = value
-            }
+                if !globalOptions.quiet {
+                    print("Parsed \(rows.count) classification rows from Kraken2 results")
+                }
 
-            try Kraken2Database.create(at: dbURL, rows: rows, metadata: metadata) { fraction, msg in
-                if self.globalOptions.outputFormat == .json {
-                    let obj: [String: Any] = ["progress": fraction, "message": msg]
-                    if let data = try? JSONSerialization.data(withJSONObject: obj),
-                       let json = String(data: data, encoding: .utf8) {
-                        FileHandle.standardError.write(Data((json + "\n").utf8))
+                // 2. Build database
+                var metadata: [String: String] = [
+                    "tool": "kraken2",
+                    "created_at": ISO8601DateFormatter().string(from: Date()),
+                    "source_dir": resultURL.path,
+                ]
+                // Merge per-sample tree statistics into metadata
+                for (key, value) in sampleMetadata {
+                    metadata[key] = value
+                }
+
+                try Kraken2Database.create(at: dbURL, rows: rows, metadata: metadata) { fraction, msg in
+                    if self.globalOptions.outputFormat == .json {
+                        let obj: [String: Any] = ["progress": fraction, "message": msg]
+                        if let data = try? JSONSerialization.data(withJSONObject: obj),
+                           let json = String(data: data, encoding: .utf8) {
+                            FileHandle.standardError.write(Data((json + "\n").utf8))
+                        }
                     }
                 }
-            }
 
-            if !globalOptions.quiet {
-                print("Built database at \(dbURL.path) with \(rows.count) rows")
-            }
+                if !globalOptions.quiet {
+                    print("Built database at \(dbURL.path) with \(rows.count) rows")
+                }
 
-            if !noCleanup {
-                performCleanup(resultURL: resultURL)
+                if !noCleanup {
+                    performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories)
+                }
+
+                try await BuildDbCommand.recordBuildDbProvenance(
+                    tool: .kraken2,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs,
+                    sampleDirectories: explicitSampleDirectories
+                )
+                try databaseSnapshot.discard()
+            } catch {
+                do {
+                    try databaseSnapshot.restore()
+                } catch {
+                    if !globalOptions.quiet {
+                        fputs("Warning: could not restore previous Kraken2 database: \(error.localizedDescription)\n", stderr)
+                    }
+                }
+                await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
+                    tool: .kraken2,
+                    resultURL: resultURL,
+                    dbURL: dbURL,
+                    force: force,
+                    noCleanup: noCleanup,
+                    globalOptions: globalOptions,
+                    startedAt: provenanceStartedAt,
+                    inputRecords: provenanceInputs,
+                    error: error,
+                    sampleDirectories: explicitSampleDirectories,
+                    includeOutputRecords: false
+                )
+                throw error
             }
         }
 
@@ -1533,9 +1725,41 @@ extension BuildDbCommand {
         ///
         /// Returns classification rows and per-sample metadata for tree reconstruction.
         func parseSampleDirectories(
-            resultURL: URL
+            resultURL: URL,
+            sampleDirectories: [URL] = []
         ) throws -> (rows: [Kraken2ClassificationRow], sampleMetadata: [String: String]) {
             let fm = FileManager.default
+            let explicitSampleDirectories = try validatedExplicitSampleDirectories(sampleDirectories)
+            if !explicitSampleDirectories.isEmpty {
+                var allRows: [Kraken2ClassificationRow] = []
+                var sampleMetadata: [String: String] = [:]
+
+                for dir in explicitSampleDirectories {
+                    var isDirectory: ObjCBool = false
+                    guard fm.fileExists(atPath: dir.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                        throw ValidationError("--sample-dir must be an existing directory: \(dir.path)")
+                    }
+
+                    let sampleId = dir.lastPathComponent
+                    guard !sampleId.hasPrefix(".") else {
+                        throw ValidationError("--sample-dir must not point to a hidden directory: \(dir.path)")
+                    }
+
+                    let kreportURL = dir.appendingPathComponent("classification.kreport")
+                    guard fm.fileExists(atPath: kreportURL.path) else {
+                        throw ValidationError("Missing classification.kreport in --sample-dir \(dir.path)")
+                    }
+
+                    let (rows, tree) = try parseKreport(at: kreportURL, sampleId: sampleId)
+                    allRows.append(contentsOf: rows)
+                    sampleMetadata["total_reads_\(sampleId)"] = "\(tree.totalReads)"
+                    sampleMetadata["classified_reads_\(sampleId)"] = "\(tree.classifiedReads)"
+                    sampleMetadata["unclassified_reads_\(sampleId)"] = "\(tree.unclassifiedReads)"
+                }
+
+                return (allRows, sampleMetadata)
+            }
+
             let contents = try fm.contentsOfDirectory(
                 at: resultURL,
                 includingPropertiesForKeys: [.isDirectoryKey]
@@ -1591,6 +1815,31 @@ extension BuildDbCommand {
             return (allRows, sampleMetadata)
         }
 
+        private func validatedExplicitSampleDirectories(_ sampleDirectories: [URL]) throws -> [URL] {
+            var seenPaths = Set<String>()
+            var seenSampleIds = Set<String>()
+            var validated: [URL] = []
+
+            for url in sampleDirectories {
+                let directory = url.standardizedFileURL
+                guard seenPaths.insert(directory.path).inserted else {
+                    throw ValidationError("Duplicate --sample-dir path: \(directory.path)")
+                }
+
+                let sampleId = directory.lastPathComponent
+                guard !sampleId.hasPrefix(".") else {
+                    throw ValidationError("--sample-dir must not point to a hidden directory: \(directory.path)")
+                }
+                guard seenSampleIds.insert(sampleId).inserted else {
+                    throw ValidationError("Duplicate --sample-dir sample identifier '\(sampleId)'. Sample directory basenames must be unique.")
+                }
+
+                validated.append(directory)
+            }
+
+            return validated.sorted { $0.path < $1.path }
+        }
+
         /// Parses a single kreport file into classification rows.
         ///
         /// Flattens the taxonomy tree produced by `KreportParser`, excluding
@@ -1632,22 +1881,32 @@ extension BuildDbCommand {
         /// Keeps: `classification.kraken.gz`,
         /// `classification.kraken.gz.idx.sqlite`, `classification.kreport`,
         /// `classification-result.json`, `kraken2.sqlite`.
-        private func performCleanup(resultURL: URL) {
+        private func performCleanup(resultURL: URL, sampleDirectories: [URL] = []) {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
 
-            guard let contents = try? fm.contentsOfDirectory(
-                at: resultURL,
-                includingPropertiesForKeys: [.isDirectoryKey]
-            ) else { return }
+            let cleanupDirs: [URL]
+            if sampleDirectories.isEmpty {
+                guard let contents = try? fm.contentsOfDirectory(
+                    at: resultURL,
+                    includingPropertiesForKeys: [.isDirectoryKey]
+                ) else { return }
 
-            var cleanupDirs = [resultURL]
-            cleanupDirs.append(contentsOf: contents
-                .filter { url in
-                    ((try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
-                        && !url.lastPathComponent.hasPrefix(".")
-                }
-                .sorted { $0.lastPathComponent < $1.lastPathComponent })
+                cleanupDirs = [resultURL] + contents
+                    .filter { url in
+                        ((try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
+                            && !url.lastPathComponent.hasPrefix(".")
+                    }
+                    .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            } else {
+                cleanupDirs = sampleDirectories
+                    .map(\.standardizedFileURL)
+                    .filter { url in
+                        ((try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
+                            && !url.lastPathComponent.hasPrefix(".")
+                    }
+                    .sorted { $0.path < $1.path }
+            }
 
             for dir in cleanupDirs {
                 let name = dir.lastPathComponent

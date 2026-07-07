@@ -2,8 +2,6 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import Foundation
-
 // MARK: - Codon Table
 
 /// A genetic code table for translation.
@@ -93,13 +91,13 @@ public struct CodonTable: Sendable {
 
     /// Translates a single codon to an amino acid.
     public func translate(_ codon: String) -> Character {
-        let upperCodon = codon.uppercased().replacingOccurrences(of: "U", with: "T")
+        let upperCodon = codon.uppercased().replacing("U", with: "T")
         return translations[upperCodon] ?? "X"
     }
 
     /// Whether a codon is a start codon in this table.
     public func isStartCodon(_ codon: String) -> Bool {
-        let upperCodon = codon.uppercased().replacingOccurrences(of: "U", with: "T")
+        let upperCodon = codon.uppercased().replacing("U", with: "T")
         return startCodons.contains(upperCodon)
     }
 

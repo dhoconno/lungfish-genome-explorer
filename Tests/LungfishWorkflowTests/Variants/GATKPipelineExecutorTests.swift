@@ -120,6 +120,38 @@ final class GATKPipelineExecutorTests: XCTestCase {
         XCTAssertFalse(provenanceJSON.contains("/staging/"))
     }
 
+    func testRecordsGeneratedVCFIndexInFinalLocationProvenance() async throws {
+        let reference = try write("reference.fa", contents: ">chr1\nACGT\n")
+        let bam = try write("sample.bam", contents: "bam-bytes")
+        let output = tempDir.appendingPathComponent("sample.g.vcf.gz")
+        let index = URL(fileURLWithPath: output.path + ".tbi")
+        let config = GATKHaplotypeCallerConfiguration(
+            referenceFASTAURL: reference,
+            inputBAMURL: bam,
+            outputVCFURL: output
+        )
+        let runner = RecordingGATKCommandRunner { _ in
+            try Data("gvcf-bytes".utf8).write(to: output)
+            try Data("tabix-index".utf8).write(to: index)
+            return GATKCommandExecutionResult(exitCode: 0, stdout: "ok", stderr: "", wallTime: 0.5)
+        }
+        let executor = GATKPipelineExecutor(runner: runner)
+        let request = GATKPipelineExecutionRequest.haplotypeCaller(
+            configuration: config,
+            toolVersion: "4.6.2.0"
+        )
+
+        let result = try await executor.run(request)
+
+        let provenance = try decodeProvenance(at: result.provenanceURL)
+        let outputs = try XCTUnwrap(provenance.steps.first?.outputs)
+        XCTAssertEqual(outputs.map(\.path).sorted(), [index.path, output.path].sorted())
+        let indexRecord = try XCTUnwrap(outputs.first { $0.path == index.path })
+        XCTAssertEqual(indexRecord.role, .index)
+        XCTAssertEqual(indexRecord.sizeBytes, 11)
+        XCTAssertNotNil(indexRecord.sha256)
+    }
+
     func testExecutionRequestFactoriesCoverAllWrappedGATKCommandsWithGATKCoreRuntime() throws {
         let runtime = GATKRuntimeIdentity(condaEnvironment: "/tmp/conda/envs/gatk-core")
         let requests: [GATKPipelineExecutionRequest] = [
@@ -283,6 +315,92 @@ final class GATKPipelineExecutorTests: XCTestCase {
         XCTAssertEqual(provenance.steps.first?.outputs.first?.path, output.path)
         XCTAssertNil(provenance.steps.first?.outputs.first?.sha256)
         XCTAssertNil(provenance.steps.first?.outputs.first?.sizeBytes)
+    }
+
+    func testNonZeroExitRemovesNewVCFAndIndexBeforeWritingFailedProvenance() async throws {
+        let reference = try write("reference.fa", contents: ">chr1\nACGT\n")
+        let bam = try write("sample.bam", contents: "bam-bytes")
+        let output = tempDir.appendingPathComponent("sample.g.vcf.gz")
+        let index = URL(fileURLWithPath: output.path + ".tbi")
+        let config = GATKHaplotypeCallerConfiguration(
+            referenceFASTAURL: reference,
+            inputBAMURL: bam,
+            outputVCFURL: output
+        )
+        let runner = RecordingGATKCommandRunner { _ in
+            try Data("partial-gvcf".utf8).write(to: output)
+            try Data("partial-index".utf8).write(to: index)
+            return GATKCommandExecutionResult(
+                exitCode: 7,
+                stdout: "",
+                stderr: "native pair hmm failed",
+                wallTime: 0.25
+            )
+        }
+        let executor = GATKPipelineExecutor(runner: runner)
+        let request = GATKPipelineExecutionRequest.haplotypeCaller(
+            configuration: config,
+            toolVersion: "4.6.2.0"
+        )
+
+        do {
+            _ = try await executor.run(request)
+            XCTFail("Expected non-zero GATK exit to throw.")
+        } catch let error as GATKPipelineExecutionError {
+            guard case .commandFailed(let exitCode, let provenanceURL) = error else {
+                return XCTFail("Expected commandFailed, got \(error).")
+            }
+            XCTAssertEqual(exitCode, 7)
+            XCTAssertEqual(provenanceURL, tempDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: index.path))
+
+        let provenance = try decodeProvenance(at: tempDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        let outputs = try XCTUnwrap(provenance.steps.first?.outputs)
+        XCTAssertEqual(outputs.map(\.path).sorted(), [index.path, output.path].sorted())
+        XCTAssertTrue(outputs.allSatisfy { $0.sizeBytes == nil && $0.sha256 == nil })
+    }
+
+    func testRemovesNewOutputsWhenCompletedRunCannotWriteProvenance() async throws {
+        let reference = try write("reference.fa", contents: ">chr1\nACGT\n")
+        let bam = try write("sample.bam", contents: "bam-bytes")
+        let output = tempDir.appendingPathComponent("sample.g.vcf.gz")
+        let index = URL(fileURLWithPath: output.path + ".tbi")
+        let blockedProvenanceURL = tempDir
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename, isDirectory: true)
+        try FileManager.default.createDirectory(at: blockedProvenanceURL, withIntermediateDirectories: true)
+        let config = GATKHaplotypeCallerConfiguration(
+            referenceFASTAURL: reference,
+            inputBAMURL: bam,
+            outputVCFURL: output
+        )
+        let runner = RecordingGATKCommandRunner { _ in
+            try Data("gvcf-bytes".utf8).write(to: output)
+            try Data("tabix-index".utf8).write(to: index)
+            return GATKCommandExecutionResult(exitCode: 0, stdout: "ok", stderr: "", wallTime: 0.5)
+        }
+        let executor = GATKPipelineExecutor(runner: runner)
+        let request = GATKPipelineExecutionRequest.haplotypeCaller(
+            configuration: config,
+            toolVersion: "4.6.2.0"
+        )
+
+        do {
+            _ = try await executor.run(request)
+            XCTFail("Expected provenance write failure to throw.")
+        } catch {
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: output.path),
+            "Newly-created GATK outputs must be removed when final provenance cannot be written."
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: index.path),
+            "Newly-created GATK index outputs must be removed when final provenance cannot be written."
+        )
     }
 
     func testProcessRunnerCapturesVerboseStdoutAndStderrWithoutRealGATK() async throws {

@@ -4,26 +4,16 @@
 
 import XCTest
 import Foundation
+import LungfishTestSupport
 import LungfishWorkflow
 
 final class ImportFastqE2ETests: XCTestCase {
 
-    /// Find the CLI binary in the build products directory.
-    /// Checks both `.build/debug/` (symlink) and the arch-specific path.
+    /// Find the CLI binary in SwiftPM's active build products directory.
     private var cliBinaryPath: URL? {
-        let thisFile = URL(fileURLWithPath: #filePath)
-        let repoRoot = thisFile
-            .deletingLastPathComponent() // LungfishCLITests/
-            .deletingLastPathComponent() // Tests/
-            .deletingLastPathComponent() // repo root
-
-        // Try the symlink first, then the arch-specific path
-        let candidates = [
-            repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
-            repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
-        ]
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        CLITestBinaryResolver.cliBinaryURL(
+            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+        )
     }
 
     /// Sarscov2 fixtures directory containing test_1.fastq.gz and test_2.fastq.gz
@@ -120,8 +110,8 @@ final class ImportFastqE2ETests: XCTestCase {
     func testRealImportOnFixtures() throws {
         guard let fixtures = fixturesDir else { throw XCTSkip("Fixtures not found") }
 
-        // Copy FASTQ fixtures into a temp input directory so the importer doesn't
-        // move or delete the originals from the shared test fixture folder.
+        // Copy FASTQ fixtures into a temp input directory so this subprocess test
+        // can freely create adjacent sidecars without touching shared fixtures.
         let tmpInput = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-input-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmpInput, withIntermediateDirectories: true)
@@ -166,18 +156,32 @@ final class ImportFastqE2ETests: XCTestCase {
             "FASTQ import should write provenance at \(provenanceURL.path)"
         )
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let run = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
-        XCTAssertEqual(run.name, "lungfish import fastq")
-        XCTAssertEqual(run.status, .completed)
-        XCTAssertTrue(run.steps.contains { $0.toolName == "lungfish import fastq" })
-        XCTAssertTrue(run.primaryInputFiles.contains { $0.sha256 != nil && $0.sizeBytes != nil })
-        XCTAssertTrue(run.allOutputFiles.contains {
-            $0.path.hasSuffix(".fastq.gz") && $0.sha256 != nil && $0.sizeBytes != nil
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: try Data(contentsOf: provenanceURL)
+        )
+        XCTAssertEqual(envelope.workflowName, "lungfish import fastq")
+        XCTAssertEqual(envelope.toolName, "lungfish import fastq")
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(envelope.options.defaults["compressionLevel"], .string(CompressionLevel.balanced.rawValue))
+        XCTAssertEqual(envelope.options.defaults["optimizeStorage"], .boolean(true))
+        XCTAssertEqual(envelope.options.defaults["threads"], .integer(4))
+        XCTAssertEqual(envelope.options.resolvedDefaults["compressionLevel"], .string(CompressionLevel.fast.rawValue))
+        XCTAssertEqual(envelope.options.resolvedDefaults["optimizeStorage"], .boolean(false))
+        guard case .integer(let resolvedThreads) = envelope.options.resolvedDefaults["threads"] else {
+            return XCTFail("Expected resolved thread count in FASTQ provenance")
+        }
+        XCTAssertGreaterThan(resolvedThreads, 0)
+        XCTAssertEqual(envelope.legacyWorkflowRun().status, .completed)
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "lungfish import fastq" })
+        XCTAssertTrue(envelope.files.contains {
+            $0.role == .input && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(envelope.outputs.contains {
+            $0.path.hasSuffix(".fastq.gz") && $0.checksumSHA256 != nil && $0.fileSize != nil
         })
         XCTAssertFalse(
-            run.allOutputFiles.contains { $0.path.contains("/.tmp/") },
+            envelope.outputs.contains { $0.path.contains("/.tmp/") },
             "Final provenance output records should point at bundle payloads, not temp workspace files"
         )
     }

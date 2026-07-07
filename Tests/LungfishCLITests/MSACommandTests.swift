@@ -102,6 +102,41 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(events.contains(outputURL.path.replacingOccurrences(of: "/", with: "\\/")))
     }
 
+    func testExportSubcommandRemovesOutputWhenProvenanceSidecarCannotBeWritten() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/MSACommandTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundleURL = try makeMSABundle(
+            in: tempDir,
+            contents: """
+            >seq1
+            ACGT
+
+            """,
+            name: "export-rollback-fixture"
+        )
+        let outputURL = tempDir.appendingPathComponent("rollback.fa")
+        let blockedSidecarURL = outputURL.appendingPathExtension("lungfish-provenance.json")
+        try FileManager.default.createDirectory(at: blockedSidecarURL, withIntermediateDirectories: true)
+        let command = try MSACommand.ExportSubcommand.parse([
+            bundleURL.path,
+            "--output-format", "fasta",
+            "--output", outputURL.path,
+            "--format", "json",
+        ])
+
+        XCTAssertThrowsError(try command.executeForTesting { _ in })
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputURL.path),
+            "MSA export output must not survive when provenance sidecar publication fails."
+        )
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: blockedSidecarURL.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+    }
+
     func testExportSubcommandDistinguishesUngappedAndAlignedFASTAOutputs() throws {
         let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(".build/test-artifacts/MSACommandTests-\(UUID().uuidString)", isDirectory: true)
@@ -343,6 +378,43 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(recorder.joined().contains(#""event":"msaActionComplete""#))
     }
 
+    func testConsensusSubcommandRemovesFastaWhenProvenanceSidecarCannotBeWritten() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/MSACommandTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundleURL = try makeMSABundle(
+            in: tempDir,
+            contents: """
+            >seq1
+            ACGT
+            >seq2
+            ACGT
+
+            """,
+            name: "consensus-rollback-fixture"
+        )
+        let outputURL = tempDir.appendingPathComponent("rollback-consensus.fa")
+        let blockedSidecarURL = outputURL.appendingPathExtension("lungfish-provenance.json")
+        try FileManager.default.createDirectory(at: blockedSidecarURL, withIntermediateDirectories: true)
+        let command = try MSACommand.ConsensusSubcommand.parse([
+            bundleURL.path,
+            "--output", outputURL.path,
+            "--name", "rollback-consensus",
+            "--format", "json",
+        ])
+
+        XCTAssertThrowsError(try command.executeForTesting { _ in })
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputURL.path),
+            "MSA consensus FASTA must not survive when provenance sidecar publication fails."
+        )
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: blockedSidecarURL.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+    }
+
     func testConsensusSubcommandWritesReferenceBundleWithConsensusMetadataAndProvenance() throws {
         let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(".build/test-artifacts/MSACommandTests-\(UUID().uuidString)", isDirectory: true)
@@ -519,6 +591,44 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(provenance.contains(#""sequenceLayout" : "ungapped""#))
         XCTAssertFalse(provenance.contains("/tmp/"))
         XCTAssertFalse(provenance.contains("/.tmp/"))
+    }
+
+    func testExtractSubcommandRemovesFastaWhenProvenanceSidecarCannotBeWritten() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/MSACommandTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundleURL = try makeMSABundle(
+            in: tempDir,
+            contents: """
+            >seq1
+            ACGT--
+            >seq2
+            A-GTAA
+
+            """,
+            name: "extract-rollback-fixture"
+        )
+        let outputURL = tempDir.appendingPathComponent("rollback-extract.fa")
+        let blockedSidecarURL = outputURL.appendingPathExtension("lungfish-provenance.json")
+        try FileManager.default.createDirectory(at: blockedSidecarURL, withIntermediateDirectories: true)
+        let command = try MSACommand.ExtractSubcommand.parse([
+            bundleURL.path,
+            "--output-kind", "fasta",
+            "--output", outputURL.path,
+            "--rows", "seq2",
+            "--format", "json",
+        ])
+
+        XCTAssertThrowsError(try command.executeForTesting { _ in })
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputURL.path),
+            "MSA extracted FASTA must not survive when provenance sidecar publication fails."
+        )
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: blockedSidecarURL.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
     }
 
     func testExtractSubcommandWritesReferenceBundleWithUngappedSequencesCoordinateMapAndProvenance() throws {
@@ -1145,6 +1255,43 @@ final class MSACommandTests: XCTestCase {
         XCTAssertFalse(provenance.contains("/tmp/"))
         XCTAssertFalse(provenance.contains("/.tmp/"))
         XCTAssertTrue(pDistanceRecorder.joined().contains(#""event":"msaActionComplete""#))
+    }
+
+    func testDistanceSubcommandRemovesMatrixWhenProvenanceSidecarCannotBeWritten() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/MSACommandTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundleURL = try makeMSABundle(
+            in: tempDir,
+            contents: """
+            >seq1
+            ACGT
+            >seq2
+            A-GT
+
+            """,
+            name: "distance-rollback-fixture"
+        )
+        let outputURL = tempDir.appendingPathComponent("rollback-distance.tsv")
+        let blockedSidecarURL = outputURL.appendingPathExtension("lungfish-provenance.json")
+        try FileManager.default.createDirectory(at: blockedSidecarURL, withIntermediateDirectories: true)
+        let command = try MSACommand.DistanceSubcommand.parse([
+            bundleURL.path,
+            "--model", "identity",
+            "--output", outputURL.path,
+            "--format", "json",
+        ])
+
+        XCTAssertThrowsError(try command.executeForTesting { _ in })
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputURL.path),
+            "MSA distance matrix must not survive when provenance sidecar publication fails."
+        )
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: blockedSidecarURL.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
     }
 
     func testAnnotateAddSubcommandWritesSQLiteAnnotationStoreAndProvenance() throws {

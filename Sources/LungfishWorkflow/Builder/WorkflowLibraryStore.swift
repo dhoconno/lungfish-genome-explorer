@@ -112,8 +112,8 @@ public enum WorkflowLibraryStore {
             workflowName: graph.name,
             graphID: graph.id,
             savedAt: Date(),
-            argv: ["Lungfish", "Tools > Workflow Builder", "Save"],
-            command: ["Lungfish", "Tools > Workflow Builder", "save", bundleURL.path].map(shellEscape).joined(separator: " "),
+            argv: ["Lungfish", "Tools > Workflow Builder (Experimental)", "Save"],
+            command: ["Lungfish", "Tools > Workflow Builder (Experimental)", "save", bundleURL.path].map(shellEscape).joined(separator: " "),
             outputPath: bundleURL.path,
             files: [
                 WorkflowLibraryFileProvenance(

@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 struct ProvenanceCommand: AsyncParsableCommand {
@@ -136,7 +137,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
                 let provenanceSource = try ProvenanceCommand.resolveProvenanceSource(inputURL)
                 let selectedExportFormat = try ProvenanceExportFormat.cliValue(exportFormat)
                 let fallbackArgv = [
-                    "lungfish", "provenance", "export",
+                    CLICommandIdentity.executableName, "provenance", "export",
                     input,
                     "--export-format", exportFormat,
                     "--output", output

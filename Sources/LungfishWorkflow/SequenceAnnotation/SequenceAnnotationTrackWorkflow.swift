@@ -223,17 +223,17 @@ public enum SequenceAnnotationTrackWorkflow {
             )
         }
 
-        func restore() {
+        func restore() throws {
             if let originalRootProvenanceData {
-                try? originalRootProvenanceData.write(to: rootProvenanceURL, options: .atomic)
+                try originalRootProvenanceData.write(to: rootProvenanceURL, options: .atomic)
             } else if FileManager.default.fileExists(atPath: rootProvenanceURL.path) {
-                try? FileManager.default.removeItem(at: rootProvenanceURL)
+                try FileManager.default.removeItem(at: rootProvenanceURL)
             }
             if FileManager.default.fileExists(atPath: provenanceDirectoryURL.path) {
-                try? FileManager.default.removeItem(at: provenanceDirectoryURL)
+                try FileManager.default.removeItem(at: provenanceDirectoryURL)
             }
             if hadProvenanceDirectory {
-                try? FileManager.default.copyItem(at: provenanceDirectoryBackupURL, to: provenanceDirectoryURL)
+                try FileManager.default.copyItem(at: provenanceDirectoryBackupURL, to: provenanceDirectoryURL)
             }
         }
     }
@@ -312,11 +312,23 @@ public enum SequenceAnnotationTrackWorkflow {
             )
             var inputURLs = [
                 manifestURL,
-                request.bundleURL.appendingPathComponent(genome.path),
-                request.bundleURL.appendingPathComponent(genome.indexPath)
+                try BundleManifest.validatedBundleMemberURL(
+                    for: genome.path,
+                    in: request.bundleURL,
+                    field: "genome.path"
+                ),
+                try BundleManifest.validatedBundleMemberURL(
+                    for: genome.indexPath,
+                    in: request.bundleURL,
+                    field: "genome.indexPath"
+                )
             ]
             if let gzipIndexPath = genome.gzipIndexPath {
-                inputURLs.append(request.bundleURL.appendingPathComponent(gzipIndexPath))
+                inputURLs.append(try BundleManifest.validatedBundleMemberURL(
+                    for: gzipIndexPath,
+                    in: request.bundleURL,
+                    field: "genome.gzipIndexPath"
+                ))
             }
             let inputDescriptors = try provenanceInputDescriptors(for: inputURLs)
 
@@ -342,13 +354,18 @@ public enum SequenceAnnotationTrackWorkflow {
                 provenanceURL: provenanceURL
             )
         } catch {
-            try? FileManager.default.removeItem(at: bedURL)
-            try? FileManager.default.removeItem(at: databaseURL)
-            if let originalManifestData {
-                try? originalManifestData.write(to: manifestURL, options: .atomic)
+            try throwAfterProvenancePublicationFailure(error) {
+                if FileManager.default.fileExists(atPath: bedURL.path) {
+                    try FileManager.default.removeItem(at: bedURL)
+                }
+                if FileManager.default.fileExists(atPath: databaseURL.path) {
+                    try FileManager.default.removeItem(at: databaseURL)
+                }
+                if let originalManifestData {
+                    try originalManifestData.write(to: manifestURL, options: .atomic)
+                }
+                try provenanceSnapshot.restore()
             }
-            provenanceSnapshot.restore()
-            throw error
         }
     }
 
@@ -407,19 +424,11 @@ public enum SequenceAnnotationTrackWorkflow {
                 provenanceURL: provenanceURL
             )
         } catch {
-            try? originalManifestData.write(to: manifestURL, options: .atomic)
-            for backup in backups {
-                try? FileManager.default.createDirectory(
-                    at: backup.original.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                if FileManager.default.fileExists(atPath: backup.original.path) {
-                    try? FileManager.default.removeItem(at: backup.original)
-                }
-                try? FileManager.default.copyItem(at: backup.backup, to: backup.original)
+            try throwAfterProvenancePublicationFailure(error) {
+                try originalManifestData.write(to: manifestURL, options: .atomic)
+                try restoreFiles(backups)
+                try provenanceSnapshot.restore()
             }
-            provenanceSnapshot.restore()
-            throw error
         }
     }
 
@@ -528,10 +537,11 @@ public enum SequenceAnnotationTrackWorkflow {
                 provenanceURL: provenanceURL
             )
         } catch {
-            try? originalManifestData.write(to: manifestURL, options: .atomic)
-            restoreFiles(payloadBackups)
-            provenanceSnapshot.restore()
-            throw error
+            try throwAfterProvenancePublicationFailure(error) {
+                try originalManifestData.write(to: manifestURL, options: .atomic)
+                try restoreFiles(payloadBackups)
+                try provenanceSnapshot.restore()
+            }
         }
     }
 
@@ -802,16 +812,16 @@ public enum SequenceAnnotationTrackWorkflow {
         }
     }
 
-    private static func restoreFiles(_ backups: [FileBackup]) {
+    private static func restoreFiles(_ backups: [FileBackup]) throws {
         for backup in backups {
-            try? FileManager.default.createDirectory(
+            try FileManager.default.createDirectory(
                 at: backup.original.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
             if FileManager.default.fileExists(atPath: backup.original.path) {
-                try? FileManager.default.removeItem(at: backup.original)
+                try FileManager.default.removeItem(at: backup.original)
             }
-            try? FileManager.default.copyItem(at: backup.backup, to: backup.original)
+            try FileManager.default.copyItem(at: backup.backup, to: backup.original)
         }
     }
 

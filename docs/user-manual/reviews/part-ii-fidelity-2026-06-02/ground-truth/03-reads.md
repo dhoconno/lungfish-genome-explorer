@@ -58,8 +58,8 @@ Conventions used here:
 
 ### APP FEATURES MISSING FROM THE DOCS
 
-1. `lungfish import-fastq` exposes rich options the chapter never mentions:
-   `--recipe` (vsp2, wgs, amplicon, hifi, none), `--quality-binning`
+1. `lungfish import fastq` exposes rich options the chapter never mentions:
+   `--recipe` (vsp2, wgs, hifi, none), `--quality-binning`
    (illumina4 default, eightLevel, none), `--compression` (fast, balanced,
    maximum), `--no-optimize-storage`, `--recursive`, `--dry-run`, `--force`,
    `--log-dir` (all from `import-fastq --help`). The chapter presents import

@@ -315,13 +315,13 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: temp) }
         let packageRoot = temp.appendingPathComponent("repo", isDirectory: true)
         let sourceSubdirectory = packageRoot.appendingPathComponent("Sources/LungfishApp", isDirectory: true)
-        let cliDirectory = packageRoot.appendingPathComponent(".build/debug", isDirectory: true)
         let workingDirectory = temp.appendingPathComponent("run", isDirectory: true)
         try FileManager.default.createDirectory(at: sourceSubdirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: cliDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
         try Data("// swift-tools-version: 6.2\n".utf8)
             .write(to: packageRoot.appendingPathComponent("Package.swift"))
+        let cliDirectory = try swiftPMBinPath(packageRoot: packageRoot)
+        try FileManager.default.createDirectory(at: cliDirectory, withIntermediateDirectories: true)
 
         let fakeCLI = cliDirectory.appendingPathComponent("lungfish-cli")
         let script = """
@@ -438,6 +438,26 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         )
 
         XCTAssertTrue(cancelBody.contains("requestProcessTreeTermination(gracePeriod: 0)"))
+    }
+
+    private func swiftPMBinPath(packageRoot: URL) throws -> URL {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "swift",
+            "build",
+            "--package-path", packageRoot.path,
+            "--show-bin-path",
+        ]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return URL(fileURLWithPath: try XCTUnwrap(output), isDirectory: true)
     }
 }
 

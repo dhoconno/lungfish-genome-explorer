@@ -96,17 +96,16 @@ public struct SequenceDiff: Codable, Sendable, Equatable {
 
     /// Computes a more detailed diff with multiple operations.
     ///
-    /// This method identifies individual changes rather than grouping them
-    /// into a single operation. Useful for displaying change history.
+    /// This compatibility API currently delegates to ``compute(from:to:)``.
+    /// A future implementation can switch to Myers diff or similar while
+    /// preserving the public entry point.
     ///
     /// - Parameters:
     ///   - original: The original sequence
     ///   - modified: The modified sequence
     /// - Returns: A diff with individual operations
     public static func computeDetailed(from original: String, to modified: String) -> SequenceDiff {
-        // For now, delegate to the simple algorithm
-        // A more sophisticated implementation could use Myers diff or similar
-        return compute(from: original, to: modified)
+        compute(from: original, to: modified)
     }
 
     private static func commonPrefixLength(_ a: String, _ b: String) -> Int {

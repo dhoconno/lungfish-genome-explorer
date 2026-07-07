@@ -100,7 +100,7 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
             workflowName: "genotype.export.xlsx",
             toolName: "lungfish genotype export-xlsx",
             command: [
-                "lungfish", "genotype", "export-xlsx",
+                CLICommandIdentity.executableName, "genotype", "export-xlsx",
                 "--bundle", bundleURL.path,
                 "--output", outputURL.path,
             ],

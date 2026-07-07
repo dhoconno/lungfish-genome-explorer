@@ -728,7 +728,7 @@ public class ReferenceBundleViewportController: NSViewController {
     }
 
     func buildConsensusExportPayload() async throws -> (records: [String], suggestedName: String) {
-        let request = try buildConsensusExportRequest()
+        let request = try buildInspectorConsensusExportRequest()
         let consensus = try await embeddedViewerController.fetchMappingConsensusSequence(request)
         let record = ">\(request.recordName)\n\(consensus)\n"
         return ([record], request.suggestedName)
@@ -762,6 +762,17 @@ public class ReferenceBundleViewportController: NSViewController {
             )
         }
         return try buildConsensusExportRequest(explicitRegion: region)
+    }
+
+    func buildInspectorConsensusExportRequest() throws -> MappingConsensusExportRequest {
+        guard let viewer = embeddedViewerController.viewerView else {
+            return try buildVisibleViewportConsensusExportRequest()
+        }
+        if viewer.isUserColumnSelection,
+           viewer.selectionRange?.isEmpty == false {
+            return try buildSelectedRegionConsensusExportRequest()
+        }
+        return try buildVisibleViewportConsensusExportRequest()
     }
 
     private func buildConsensusExportRequest(
@@ -1095,6 +1106,57 @@ private struct VisibleAlignmentSummary: Equatable {
     let totalReads: Int
 }
 
+private enum MappingResultExportError: LocalizedError {
+    case noData
+    case unsupportedFormat(ResultExportFormat)
+
+    var errorDescription: String? {
+        switch self {
+        case .noData:
+            return "No mapping result data is loaded; cannot export."
+        case .unsupportedFormat(let format):
+            return "Export format '\(format.rawValue)' is not supported for mapping results."
+        }
+    }
+}
+
+private enum MappingResultExportBuilder {
+    private static let numericLocale = Locale(identifier: "en_US_POSIX")
+
+    static func delimitedContent(for result: MappingResult, separator: String) -> String {
+        let headers = [
+            "Contig",
+            "Length",
+            "Mapped Reads",
+            "% Mapped",
+            "Mean Depth",
+            "Coverage Breadth",
+            "Median MAPQ",
+            "Mean Identity",
+        ]
+        let rows = result.contigs.map { contig in
+            [
+                escaped(contig.contigName, separator: separator),
+                "\(contig.contigLength)",
+                "\(contig.mappedReads)",
+                String(format: "%.4f", locale: numericLocale, contig.mappedReadPercent),
+                String(format: "%.4f", locale: numericLocale, contig.meanDepth),
+                String(format: "%.4f", locale: numericLocale, contig.coverageBreadth),
+                String(format: "%.4f", locale: numericLocale, contig.medianMAPQ),
+                String(format: "%.4f", locale: numericLocale, contig.meanIdentity),
+            ].joined(separator: separator)
+        }
+        return ([headers.joined(separator: separator)] + rows).joined(separator: "\n") + "\n"
+    }
+
+    private static func escaped(_ value: String, separator: String) -> String {
+        guard value.contains(separator) || value.contains("\"") || value.contains("\n") else {
+            return value
+        }
+        return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+    }
+}
+
 extension ReferenceBundleViewportController: ResultViewportController {
     public typealias ResultType = MappingResult
 
@@ -1123,11 +1185,85 @@ extension ReferenceBundleViewportController: ResultViewportController {
     public var summaryBarView: NSView { summaryBar }
 
     public func exportResults(to url: URL, format: ResultExportFormat) throws {
-        throw NSError(
-            domain: "Lungfish",
-            code: -1,
-            userInfo: [NSLocalizedDescriptionKey: "Mapping export not yet implemented"]
-        )
+        guard let result = currentResult else {
+            throw MappingResultExportError.noData
+        }
+
+        switch format {
+        case .csv:
+            let startedAt = Date()
+            let content = MappingResultExportBuilder.delimitedContent(for: result, separator: ",")
+            try content.write(to: url, atomically: true, encoding: .utf8)
+            try writeMappingResultExportProvenance(result: result, outputURL: url, format: format, startedAt: startedAt)
+        case .tsv:
+            let startedAt = Date()
+            let content = MappingResultExportBuilder.delimitedContent(for: result, separator: "\t")
+            try content.write(to: url, atomically: true, encoding: .utf8)
+            try writeMappingResultExportProvenance(result: result, outputURL: url, format: format, startedAt: startedAt)
+        case .json, .fasta:
+            throw MappingResultExportError.unsupportedFormat(format)
+        }
+    }
+
+    private func writeMappingResultExportProvenance(
+        result: MappingResult,
+        outputURL: URL,
+        format: ResultExportFormat,
+        startedAt: Date
+    ) throws {
+        let sourceURLs = mappingResultExportSourceURLs(for: result)
+        try ScientificFileExportProvenance.write(.init(
+            workflowName: "lungfish app mapping result export",
+            sourceURLs: sourceURLs,
+            outputURL: outputURL,
+            outputFormat: .text,
+            argv: [
+                "Lungfish.app",
+                "export-mapping-results",
+                "--format",
+                format.rawValue,
+                "--output",
+                outputURL.path,
+            ],
+            explicitOptions: [
+                "format": .string(format.rawValue),
+                "outputPath": .file(outputURL),
+            ],
+            resolved: [
+                "contigCount": .integer(result.contigs.count),
+                "mappedReads": .integer(result.mappedReads),
+                "sourceCount": .integer(sourceURLs.count),
+                "totalReads": .integer(result.totalReads),
+            ],
+            startedAt: startedAt
+        ))
+    }
+
+    private func mappingResultExportSourceURLs(for result: MappingResult) -> [URL] {
+        let primarySources = [
+            currentResultDirectoryURL,
+            currentInput?.renderedBundleURL,
+        ]
+        let fallbackSources = [
+            result.bamURL,
+            result.baiURL,
+            result.sourceReferenceBundleURL,
+            result.viewerBundleURL,
+        ]
+        return uniqueExistingURLs(primarySources.compactMap { $0 } + fallbackSources.compactMap { $0 })
+    }
+
+    private func uniqueExistingURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.compactMap { url in
+            let standardized = url.standardizedFileURL
+            guard FileManager.default.fileExists(atPath: standardized.path),
+                  seen.insert(standardized.path).inserted
+            else {
+                return nil
+            }
+            return standardized
+        }
     }
 }
 
@@ -1246,6 +1382,15 @@ extension ReferenceBundleViewportController {
 
     func testBuildConsensusExportRequest() throws -> MappingConsensusExportRequest {
         try buildConsensusExportRequest()
+    }
+
+    func testBuildInspectorConsensusExportRequest() throws -> MappingConsensusExportRequest {
+        try buildInspectorConsensusExportRequest()
+    }
+
+    func testSetEmbeddedSelectionRange(_ range: Range<Int>, isUserColumnSelection: Bool = true) {
+        embeddedViewerController.viewerView.selectionRange = range
+        embeddedViewerController.viewerView.isUserColumnSelection = isUserColumnSelection
     }
 
     func testSetEmbeddedReadDisplaySettings(minMapQ: Int, consensusMinMapQ: Int) {

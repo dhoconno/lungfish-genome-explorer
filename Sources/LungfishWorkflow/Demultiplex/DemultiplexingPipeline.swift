@@ -738,7 +738,14 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 let capturedInputFASTQ = inputFASTQ
                 let capturedTrimBarcodes = config.trimBarcodes
                 let capturedRootFASTQURL = config.rootBundleURL.flatMap { rootBundleURL in
-                    config.rootFASTQFilename.map { rootBundleURL.appendingPathComponent($0) }
+                    config.rootFASTQFilename.flatMap {
+                        try? FASTQBundle.validatedBundleMemberURL(
+                            for: $0,
+                            in: rootBundleURL,
+                            field: "rootFASTQFilename",
+                            allowExistingSymlinkEscape: true
+                        )
+                    }
                 }
                 group.addTask { [self] in
                     try Task.checkCancellation()
@@ -1035,11 +1042,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: parentBundleURL ?? config.inputURL),
                     sequenceFormat: config.inputSequenceFormat
                 )
-                do {
-                    try FASTQBundle.saveDerivedManifest(derivedManifest, in: result.bundleURL)
-                } catch {
-                    logger.error("Failed to save derived manifest for \(result.baseName): \(error)")
-                }
+                try saveRequiredDerivedManifest(
+                    derivedManifest,
+                    in: result.bundleURL,
+                    barcode: result.baseName
+                )
             }
 
             progress(
@@ -1243,11 +1250,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: config.sourceBundleURL ?? config.inputURL),
                     sequenceFormat: config.inputSequenceFormat
                 )
-                do {
-                    try FASTQBundle.saveDerivedManifest(derivedManifest, in: bundleURL)
-                } catch {
-                    logger.error("Failed to save derived manifest for \(sampleResult.sampleName): \(error)")
-                }
+                try saveRequiredDerivedManifest(
+                    derivedManifest,
+                    in: bundleURL,
+                    barcode: sampleResult.sampleName
+                )
             }
 
             // Look up sample assignment for sequence info
@@ -1327,11 +1334,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: config.sourceBundleURL ?? config.inputURL),
                     sequenceFormat: config.inputSequenceFormat
                 )
-                do {
-                    try FASTQBundle.saveDerivedManifest(derivedManifest, in: bundleURL)
-                } catch {
-                    logger.error("Failed to save derived manifest for unassigned: \(error)")
-                }
+                try saveRequiredDerivedManifest(
+                    derivedManifest,
+                    in: bundleURL,
+                    barcode: "unassigned"
+                )
             }
 
             unassignedBundleURL = bundleURL
@@ -1563,51 +1570,6 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     preferLast: false
                 ) {
                     if best == nil || match.start < best!.start {
-                        best = match
-                    }
-                }
-            }
-            return best
-        }
-
-        private func findFivePrime(in bytes: [UInt8]) -> ExactBareBarcodeMatch? {
-            var best: ExactBareBarcodeMatch?
-            for length in lengths {
-                guard length <= bytes.count,
-                      let map = mapsByLength[length] else { continue }
-                let maxStart = min(maxDistanceFrom5Prime, bytes.count - length)
-                guard maxStart >= 0 else { continue }
-                if let match = findMatch(
-                    in: bytes,
-                    length: length,
-                    startRange: 0...maxStart,
-                    map: map,
-                    preferLast: false
-                ) {
-                    if best == nil || match.start < best!.start {
-                        best = match
-                    }
-                }
-            }
-            return best
-        }
-
-        private func findThreePrime(in bytes: [UInt8]) -> ExactBareBarcodeMatch? {
-            var best: ExactBareBarcodeMatch?
-            for length in lengths {
-                guard length <= bytes.count,
-                      let map = mapsByLength[length] else { continue }
-                let minStart = max(0, bytes.count - maxDistanceFrom3Prime - length)
-                let maxStart = bytes.count - length
-                guard minStart <= maxStart else { continue }
-                if let match = findMatch(
-                    in: bytes,
-                    length: length,
-                    startRange: minStart...maxStart,
-                    map: map,
-                    preferLast: true
-                ) {
-                    if best == nil || match.start > best!.start {
                         best = match
                     }
                 }
@@ -2168,7 +2130,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: parentBundleURL ?? config.inputURL),
                     sequenceFormat: config.inputSequenceFormat
                 )
-                try FASTQBundle.saveDerivedManifest(derivedManifest, in: bundleURL)
+                try saveRequiredDerivedManifest(
+                    derivedManifest,
+                    in: bundleURL,
+                    barcode: accumulator.barcodeID
+                )
             }
         }
 
@@ -2879,6 +2845,22 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
     private func canonicalSampleID(_ value: String) -> String {
         sanitizedSampleIdentifier(value).lowercased()
+    }
+
+    private func saveRequiredDerivedManifest(
+        _ manifest: FASTQDerivedBundleManifest,
+        in bundleURL: URL,
+        barcode: String
+    ) throws {
+        do {
+            try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+        } catch {
+            try? FileManager.default.removeItem(at: bundleURL)
+            throw DemultiplexError.bundleCreationFailed(
+                barcode: barcode,
+                underlying: "Failed to save derived manifest: \(error.localizedDescription)"
+            )
+        }
     }
 
     private func sampleAssignmentLookup(

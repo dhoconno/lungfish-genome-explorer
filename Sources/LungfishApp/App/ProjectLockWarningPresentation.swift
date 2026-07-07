@@ -26,6 +26,12 @@ struct ProjectLockWarningPresentation: Equatable, Sendable {
         }
 
         if let readErrorDescription = state.readErrorDescription, !readErrorDescription.isEmpty {
+            if state.lockStatus == .corrupted {
+                detail = """
+                Project lock metadata is corrupted: \(readErrorDescription). Project-writing workflows are blocked until the lock file is inspected or force-removed.
+                """
+                return
+            }
             detail = """
             Project lock metadata could not be read: \(readErrorDescription). Project-writing workflows are blocked until the lock state can be checked.
             """

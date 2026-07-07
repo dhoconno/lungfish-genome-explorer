@@ -119,6 +119,26 @@ struct ScientificProvenancePolicyTests {
         )
     }
 
+    @Test("nested scientific CLI commands can be audited by full command path")
+    func nestedScientificCLICommandsCanBeAuditedByFullCommandPath() throws {
+        let pbaa = try #require(ScientificProvenancePolicy.cliCommand(path: ["fastq", "pbaa-cluster"]))
+        let debugFastqIngest = try #require(ScientificProvenancePolicy.cliCommand(path: ["debug", "fastq-ingest"]))
+
+        #expect(pbaa.id == "cli.fastq.pbaa-cluster")
+        #expect(pbaa.workflowKind == .dataWriting)
+        #expect(pbaa.createsOrModifiesScientificData)
+        #expect(pbaa.requiresProvenance)
+        #expect(pbaa.outputPathExpectation == .finalStoredPayload)
+        #expect(pbaa.writer == "PBAAClusteringPipeline")
+
+        #expect(debugFastqIngest.id == "cli.debug.fastq-ingest")
+        #expect(debugFastqIngest.workflowKind == .dataWriting)
+        #expect(debugFastqIngest.createsOrModifiesScientificData)
+        #expect(debugFastqIngest.requiresProvenance)
+        #expect(debugFastqIngest.outputPathExpectation == .finalStoredPayload)
+        #expect(debugFastqIngest.writer == "FASTQIngestSubcommand")
+    }
+
     @Test("non-data-writing policies do not claim scientific payload mutation")
     func nonDataWritingPoliciesDoNotClaimScientificPayloadMutation() {
         let policies = Array(ScientificProvenancePolicy.cliCommandPolicies.values)

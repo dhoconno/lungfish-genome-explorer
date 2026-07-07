@@ -1,6 +1,7 @@
 import Foundation
 import LungfishCore
 import LungfishKit
+import LungfishWorkflow
 import os.log
 
 private let msaActionRunnerLogger = Logger(
@@ -50,7 +51,7 @@ actor CLIMSAActionRunner {
     }
 
     private let cliURLOverride: URL?
-    private var process: Process?
+    private let cancellationHandle = NativeProcessCancellationHandle()
 
     init(cliURLOverride: URL? = nil) {
         self.cliURLOverride = cliURLOverride
@@ -121,7 +122,7 @@ actor CLIMSAActionRunner {
         let stderrPipe = Pipe()
         proc.standardOutput = stdoutPipe
         proc.standardError = stderrPipe
-        process = proc
+        cancellationHandle.store(proc)
 
         final class StreamState: @unchecked Sendable {
             var stdoutBuffer = Data()
@@ -163,7 +164,7 @@ actor CLIMSAActionRunner {
                     let clamped = max(0, min(1, progress))
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(id: opID, progress: clamped, detail: message)
+                            _ = OperationCenter.shared.update(id: opID, progress: clamped, detail: message)
                         }
                     }
                 case let .warning(actionID, _, message, warningCount):
@@ -241,16 +242,17 @@ actor CLIMSAActionRunner {
         }
 
         await performCLIOperationCenterUpdate {
-            OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
+            _ = OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
         }
 
         do {
             try proc.run()
+            cancellationHandle.terminateIfRequested()
         } catch {
             stdoutHandle.readabilityHandler = nil
             stderrHandle.readabilityHandler = nil
             drainStreamHandlers()
-            process = nil
+            cancellationHandle.clear(proc)
             await failOperation(opID, detail: error.localizedDescription)
             throw RunError.launchFailed(error.localizedDescription)
         }
@@ -269,7 +271,7 @@ actor CLIMSAActionRunner {
         }) {
             handleLine(trailing)
         }
-        process = nil
+        cancellationHandle.clear(proc)
 
         let snapshot = state.withLock { current in
             (
@@ -302,13 +304,13 @@ actor CLIMSAActionRunner {
         let outputURL = URL(fileURLWithPath: outputPath, isDirectory: Self.isNativeBundlePath(outputPath))
         await performCLIOperationCenterUpdate {
             if Self.isNativeBundleURL(outputURL) {
-                OperationCenter.shared.complete(
+                _ = OperationCenter.shared.complete(
                     id: opID,
                     detail: "MSA action complete",
                     bundleURLs: [outputURL]
                 )
             } else {
-                OperationCenter.shared.complete(
+                _ = OperationCenter.shared.complete(
                     id: opID,
                     detail: "MSA action complete",
                     outputURLs: [outputURL]
@@ -323,9 +325,8 @@ actor CLIMSAActionRunner {
         )
     }
 
-    func cancel() {
-        guard let process, process.isRunning else { return }
-        process.terminate()
+    nonisolated func cancel() {
+        cancellationHandle.terminateProcessTree(gracePeriod: 0)
     }
 
     @MainActor
@@ -339,7 +340,7 @@ actor CLIMSAActionRunner {
         guard OperationCenter.shared.items.first(where: { $0.id == id })?.state != .cancelled else {
             return
         }
-        OperationCenter.shared.fail(id: id, detail: message, errorMessage: message)
+        _ = OperationCenter.shared.fail(id: id, detail: message, errorMessage: message)
     }
 
     private static func isNativeBundlePath(_ path: String) -> Bool {

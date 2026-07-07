@@ -112,8 +112,14 @@ extension VariantDatabase {
             throw VariantDatabaseError.createFailed(msg)
         }
 
-        Self.insertMetadataRow(destDB, key: "schema_version", value: "3")
-        Self.insertMetadataRow(destDB, key: "extracted_from_region", value: "\(chromosome):\(start)-\(end)")
+        try Self.requireMetadataRow(destDB, key: "schema_version", value: "3", context: "extractRegion")
+        try Self.requireMetadataRow(destDB, key: "import_state", value: "inserting", context: "extractRegion")
+        try Self.requireMetadataRow(
+            destDB,
+            key: "extracted_from_region",
+            value: "\(chromosome):\(start)-\(end)",
+            context: "extractRegion"
+        )
 
         sqlite3_exec(destDB, "BEGIN TRANSACTION", nil, nil, nil)
 
@@ -398,14 +404,25 @@ extension VariantDatabase {
         sqlite3_finalize(selectSampleStmt)
         sqlite3_finalize(insertSampleStmt)
 
-        sqlite3_exec(destDB, "COMMIT", nil, nil, nil)
+        try Self.executeSQLite(destDB, "COMMIT", context: "extractRegion commit")
 
-        // Create indexes
-        sqlite3_exec(destDB, "CREATE INDEX IF NOT EXISTS idx_variants_chrom_pos ON variants(chromosome, position)", nil, nil, nil)
-        sqlite3_exec(destDB, "CREATE INDEX IF NOT EXISTS idx_variants_chrom_region ON variants(chromosome, position, end_pos)", nil, nil, nil)
-        sqlite3_exec(destDB, "CREATE INDEX IF NOT EXISTS idx_genotypes_sample ON genotypes(sample_name)", nil, nil, nil)
-        sqlite3_exec(destDB, "CREATE INDEX IF NOT EXISTS idx_variant_info_key ON variant_info(key)", nil, nil, nil)
-        sqlite3_exec(destDB, "CREATE INDEX IF NOT EXISTS idx_variant_info_key_value ON variant_info(key, value)", nil, nil, nil)
+        for (name, sql) in Self.allIndexStatements {
+            try Self.createRequiredIndex(db: destDB, name: name, sql: sql, context: "extractRegion")
+        }
+        try Self.requireMetadataRow(
+            destDB,
+            key: "import_variant_count",
+            value: "\(insertCount)",
+            replace: true,
+            context: "extractRegion"
+        )
+        try Self.requireMetadataRow(
+            destDB,
+            key: "import_state",
+            value: "complete",
+            replace: true,
+            context: "extractRegion"
+        )
 
         variantDBLogger.info("extractRegion: Extracted \(insertCount) variants (\(samplesWithGenotypes.count) samples with genotypes) from \(chromosome):\(start)-\(end)")
         return insertCount

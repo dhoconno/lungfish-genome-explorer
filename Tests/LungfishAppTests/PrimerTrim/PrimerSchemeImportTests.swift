@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class PrimerSchemeImportTests: XCTestCase {
     private var tempProjectURL: URL!
@@ -45,9 +46,19 @@ final class PrimerSchemeImportTests: XCTestCase {
         XCTAssertEqual(loaded.manifest.source, "imported")
         XCTAssertNil(loaded.fastaURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: loaded.provenanceURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: result.bundleURL.appendingPathComponent(".lungfish-provenance.json").path
-        ))
+        let canonicalProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: result.bundleURL))
+        XCTAssertEqual(canonicalProvenance.workflowName, "Lungfish Import Center primer scheme import")
+        XCTAssertEqual(canonicalProvenance.options.resolvedDefaults["referenceAccession"], .string("MN908947.3"))
+        XCTAssertTrue(canonicalProvenance.outputs.contains {
+            $0.path == result.bundleURL.appendingPathComponent("primers.bed").path
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        XCTAssertTrue(canonicalProvenance.outputs.contains {
+            $0.path == result.bundleURL.appendingPathComponent("manifest.json").path
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
     }
 
     @MainActor

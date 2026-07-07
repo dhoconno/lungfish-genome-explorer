@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 
 extension ImportCommand {
@@ -285,7 +286,7 @@ private func canonicalArgv(
     name: String?,
     sourceFormat: String?
 ) -> [String] {
-    var argv = ["lungfish", "import", command, sourceURL.path, "--project", projectURL.path, "--output", outputURL.path]
+    var argv = [CLICommandIdentity.executableName, "import", command, sourceURL.path, "--project", projectURL.path, "--output", outputURL.path]
     if let name {
         argv += ["--name", name]
     }

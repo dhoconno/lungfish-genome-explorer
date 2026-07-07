@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public enum CzIdDataConverter {
@@ -142,7 +143,7 @@ public enum CzIdDataConverter {
             sourceInput: sourceInputURL,
             outputs: [reportURL, outputURL, manifestURL, outputDirectory.appendingPathComponent("classification-result.json")],
             outputDirectory: outputDirectory,
-            command: command ?? ["lungfish", "cz-id", "import", url.path, "--output-dir", outputDirectory.path],
+            command: command ?? [CLICommandIdentity.executableName, "cz-id", "import", url.path, "--output-dir", outputDirectory.path],
             toolVersion: parsed.metadata.pipelineVersion ?? "unknown",
             startedAt: startedAt,
             additionalInputs: additionalInputURLs,
@@ -255,24 +256,25 @@ public enum CzIdDataConverter {
         toolName: String = "lungfish cz-id import",
         parameters: [String: ParameterValue] = [:]
     ) throws {
-        var inputRecords: [FileRecord] = []
+        var inputURLs: [URL] = []
         if let sourceInput {
-            inputRecords.append(fileRecord(for: sourceInput, role: .input))
+            inputURLs.append(sourceInput)
             if sourceInput.standardizedFileURL != input.standardizedFileURL {
-                inputRecords.append(fileRecord(for: input, role: .input))
+                inputURLs.append(input)
             }
         } else {
-            inputRecords.append(fileRecord(for: input, role: .input))
+            inputURLs.append(input)
         }
-        inputRecords.append(contentsOf: additionalInputs.map { fileRecord(for: $0, role: .input) })
-        let outputRecords = outputs.map {
-            FileRecord(
-                path: $0.path,
-                sha256: ProvenanceRecorder.sha256(of: $0),
-                sizeBytes: fileSize($0),
-                format: $0.pathExtension == "json" ? .json : .text,
-                role: $0.lastPathComponent == "classification.kreport" ? .report : .output
-            )
+        inputURLs.append(contentsOf: additionalInputs)
+
+        let inputRecords = inputURLs.map { fileRecord(for: $0, role: .input) }
+        let outputRecords = outputs.map { fileRecord(for: $0, role: outputRole(for: $0)) }
+        let inputDescriptors = inputRecords.map { ProvenanceFileDescriptor(fileRecord: $0) }
+        let outputDescriptors = outputRecords.map { ProvenanceFileDescriptor(fileRecord: $0) }
+        let defaults = defaultOptionValues()
+        var resolved = defaults
+        for (key, value) in parameters {
+            resolved[key] = value
         }
         let endedAt = Date()
         let step = StepExecution(
@@ -287,7 +289,7 @@ public enum CzIdDataConverter {
             startTime: startedAt,
             endTime: endedAt
         )
-        let run = WorkflowRun(
+        let legacyRun = WorkflowRun(
             name: "CZ-ID Import",
             startTime: startedAt,
             endTime: endedAt,
@@ -295,13 +297,67 @@ public enum CzIdDataConverter {
             steps: [step],
             parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run).write(
-            to: outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            options: .atomic
+        let provenanceStep = ProvenanceStep(
+            toolName: toolName,
+            toolVersion: toolVersion,
+            argv: command,
+            inputs: inputDescriptors,
+            outputs: outputDescriptors,
+            exitStatus: 0,
+            wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
+            stderr: nil,
+            startedAt: startedAt,
+            completedAt: endedAt
         )
+
+        var builder = ProvenanceRunBuilder(
+            workflowName: "CZ-ID Import",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: toolName,
+            toolVersion: toolVersion
+        )
+        .argv(command)
+        .durableReplayArgv(command)
+        .options(explicit: parameters, defaults: defaults, resolved: resolved)
+        .runtime(ProvenanceRuntimeIdentity())
+        .step(provenanceStep)
+
+        for (url, record) in zip(inputURLs, inputRecords) {
+            builder = try appendInputRecord(record, url: url, to: builder)
+        }
+        for (url, record) in zip(outputs, outputRecords) {
+            builder = try appendOutputRecord(record, url: url, to: builder)
+        }
+
+        let envelope = try builder.complete(
+            exitStatus: 0,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            legacyWorkflowRun: legacyRun
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: outputDirectory)
+    }
+
+    private static func appendInputRecord(
+        _ record: FileRecord,
+        url: URL,
+        to builder: ProvenanceRunBuilder
+    ) throws -> ProvenanceRunBuilder {
+        if isDirectory(url) {
+            return try builder.input(ProvenanceFileDescriptor(fileRecord: record))
+        }
+        return try builder.input(url, format: record.format, role: record.role)
+    }
+
+    private static func appendOutputRecord(
+        _ record: FileRecord,
+        url: URL,
+        to builder: ProvenanceRunBuilder
+    ) throws -> ProvenanceRunBuilder {
+        if isDirectory(url) {
+            return try builder.output(ProvenanceFileDescriptor(fileRecord: record))
+        }
+        return try builder.output(url, format: record.format, role: record.role)
     }
 
     private static func defaultProvenanceParameters(
@@ -326,19 +382,27 @@ public enum CzIdDataConverter {
         ]
     }
 
-    private static func fileSize(_ url: URL) -> UInt64? {
-        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? UInt64
+    private static func defaultOptionValues() -> [String: ParameterValue] {
+        [
+            "projectId": .null,
+            "metadataPath": .null,
+            "nonHostFastqPath": .null,
+            "outputDefaults": .string("classification.kreport, classification.czid.tsv, cz-id-manifest.json, classification-result.json"),
+        ]
     }
 
     private static func fileRecord(for url: URL, role: FileRole) -> FileRecord {
-        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        return FileRecord(
-            path: url.path,
-            sha256: isDirectory ? nil : ProvenanceRecorder.sha256(of: url),
-            sizeBytes: isDirectory ? nil : fileSize(url),
-            format: fileFormat(for: url),
-            role: role
-        )
+        ProvenanceRecorder.fileOrDirectoryRecord(url: url, format: fileFormat(for: url), role: role)
+    }
+
+    private static func outputRole(for url: URL) -> FileRole {
+        url.lastPathComponent == "classification.kreport" ? .report : .output
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
     }
 
     private static func fileFormat(for url: URL) -> FileFormat {

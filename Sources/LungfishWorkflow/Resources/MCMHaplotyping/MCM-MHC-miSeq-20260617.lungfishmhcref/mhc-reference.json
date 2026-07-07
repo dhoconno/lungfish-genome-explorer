@@ -15,27 +15,27 @@
   "schemaVersion": 1,
   "sourceFiles": [
     {
-      "originalPath": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/mcm_mhc_miseq_reference.trimmed.unique.fasta",
+      "originalPath": "mcm_mhc_miseq_reference.trimmed.unique.fasta",
       "path": "mcm_mhc_miseq_reference.trimmed.unique.fasta",
       "role": "reference_fasta"
     },
     {
-      "originalPath": "/Users/dho/Desktop/sandbox/mcm-mhc-miseq-reference-20260617/mcm-mhc-miseq-20260617.lungfishhaplotypedef.json",
+      "originalPath": "haplotypes/mcm-mhc-miseq-20260617.lungfishhaplotypedef.json",
       "path": "haplotypes/mcm-mhc-miseq-20260617.lungfishhaplotypedef.json",
       "role": "haplotype_definition_source"
     },
     {
-      "originalPath": "/Users/dho/Downloads/MCM_IPD_names_Acc#_Haplotype.xlsx",
+      "originalPath": "sources/MCM_IPD_names_Acc#_Haplotype.xlsx",
       "path": "sources/MCM_IPD_names_Acc#_Haplotype.xlsx",
       "role": "build_source"
     },
     {
-      "originalPath": "/Users/dho/Downloads/IPD-MHC_NHKIR_Mafa_genomic.fasta",
+      "originalPath": "sources/IPD-MHC_NHKIR_Mafa_genomic.fasta",
       "path": "sources/IPD-MHC_NHKIR_Mafa_genomic.fasta",
       "role": "build_source"
     },
     {
-      "originalPath": "/Users/dho/Downloads/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
+      "originalPath": "sources/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
       "path": "sources/MCM_MHC-all_mRNA-MiSeq_singles-RENAME_DPBupdated_1Jun26 (1).fasta",
       "role": "build_source"
     }

@@ -108,6 +108,47 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: lockURL(for: projectURL)), originalData)
     }
 
+    func testLockRefusesCorruptedLockWithoutForceAndLeavesFileUntouched() async throws {
+        let projectURL = try makeProject()
+        let lockURL = lockURL(for: projectURL)
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{not-json".write(to: lockURL, atomically: true, encoding: .utf8)
+        let originalData = try Data(contentsOf: lockURL)
+
+        let command = try ProjectCommand.LockSubcommand.parse([
+            projectURL.path,
+            "--quiet",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected corrupted lock to be refused")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Project lock file is corrupted"))
+        }
+
+        XCTAssertEqual(try Data(contentsOf: lockURL), originalData)
+    }
+
+    func testLockForceReplacesCorruptedLock() async throws {
+        let projectURL = try makeProject()
+        let lockURL = lockURL(for: projectURL)
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{not-json".write(to: lockURL, atomically: true, encoding: .utf8)
+
+        let command = try ProjectCommand.LockSubcommand.parse([
+            projectURL.path,
+            "--mode", "maintenance",
+            "--force",
+            "--quiet",
+        ])
+        try await command.run()
+
+        let record = try loadLockRecord(from: projectURL)
+        XCTAssertEqual(record["mode"] as? String, "maintenance")
+        XCTAssertEqual(record["toolName"] as? String, "lungfish project lock")
+    }
+
     func testLockReplacesStaleLocalLock() async throws {
         let projectURL = try makeProject()
         try writeLockRecord(
@@ -138,6 +179,65 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertEqual(record["pid"] as? Int, Int(ProcessInfo.processInfo.processIdentifier))
         XCTAssertEqual(record["mode"] as? String, "maintenance")
         XCTAssertEqual(record["appVersion"] as? String, "lungfish-cli \(LungfishCLI.configuration.version)")
+    }
+
+    func testConcurrentStaleLockReplacementAllowsOnlyOneWinner() async throws {
+        let projectURL = try makeProject()
+        try writeLockRecord(
+            [
+                "schemaVersion": 1,
+                "toolName": "lungfish project lock",
+                "appVersion": "lungfish-cli 0.0.0-test",
+                "projectPath": projectURL.standardizedFileURL.path,
+                "mode": "exclusive",
+                "user": currentUserName(),
+                "host": Host.current().localizedName ?? ProcessInfo.processInfo.hostName,
+                "pid": 999_999_937,
+                "processStartTime": "2000-01-01T00:00:00Z",
+                "cwd": "/tmp/old-cwd",
+                "createdAt": "2000-01-01T00:00:00Z",
+            ],
+            to: projectURL
+        )
+
+        let outcomes = await withTaskGroup(of: ProjectLockCommandOutcome.self) { group in
+            for index in 0..<20 {
+                let mode = "contender-\(index)"
+                let path = projectURL.path
+                group.addTask {
+                    do {
+                        let command = try ProjectCommand.LockSubcommand.parse([
+                            path,
+                            "--mode", mode,
+                            "--quiet",
+                        ])
+                        try await command.run()
+                        return .success(mode)
+                    } catch {
+                        return .failure(error.localizedDescription)
+                    }
+                }
+            }
+
+            var collected: [ProjectLockCommandOutcome] = []
+            for await outcome in group {
+                collected.append(outcome)
+            }
+            return collected
+        }
+
+        let successes = outcomes.compactMap { outcome -> String? in
+            if case .success(let mode) = outcome { return mode }
+            return nil
+        }
+        XCTAssertEqual(successes.count, 1, "Expected exactly one winning lock command, got \(outcomes)")
+        let record = try loadLockRecord(from: projectURL)
+        XCTAssertEqual(record["mode"] as? String, successes.first)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: ProjectLockManager.replacementLockURL(forLockAt: lockURL(for: projectURL)).path
+            )
+        )
     }
 
     func testUnlockRemovesOwnLock() async throws {
@@ -184,6 +284,34 @@ final class ProjectCommandTests: XCTestCase {
         try await unlock.run()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL(for: projectURL).path))
+    }
+
+    func testUnlockRefusesCorruptedLockUnlessForced() async throws {
+        let projectURL = try makeProject()
+        let lockURL = lockURL(for: projectURL)
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{not-json".write(to: lockURL, atomically: true, encoding: .utf8)
+
+        let unlock = try ProjectCommand.UnlockSubcommand.parse([
+            projectURL.path,
+            "--quiet",
+        ])
+        do {
+            try await unlock.run()
+            XCTFail("Expected unlock to refuse a corrupted lock")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Project lock file is corrupted"))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lockURL.path))
+
+        let forcedUnlock = try ProjectCommand.UnlockSubcommand.parse([
+            projectURL.path,
+            "--force",
+            "--quiet",
+        ])
+        try await forcedUnlock.run()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path))
     }
 
     func testUnlockRefusesForeignLockUnlessForced() async throws {
@@ -317,7 +445,7 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertEqual(step["toolName"] as? String, "lungfish project migrate")
         XCTAssertEqual(step["exitCode"] as? Int, 0)
         XCTAssertGreaterThan(step["wallTime"] as? Double ?? -1, 0)
-        XCTAssertEqual(step["command"] as? [String], ["lungfish", "project", "migrate", projectURL.path])
+        XCTAssertEqual(step["command"] as? [String], ["lungfish-cli", "project", "migrate", projectURL.path])
 
         let inputs = try XCTUnwrap(step["inputs"] as? [[String: Any]])
         XCTAssertTrue(inputs.contains { $0["path"] as? String == manifestURL.path && $0["sha256"] != nil && $0["sizeBytes"] != nil })
@@ -329,6 +457,24 @@ final class ProjectCommandTests: XCTestCase {
                 && $0["sha256"] != nil
                 && $0["sizeBytes"] != nil
         })
+    }
+
+    func testMigrateStagesManifestAndWritesProvenanceBeforePublishing() throws {
+        let source = try String(contentsOf: projectCommandSourceURL(), encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "private func migrateLegacyBrowserSummary"))
+        let end = try XCTUnwrap(
+            source.range(of: "\n    private func migrationInputRecords", range: start.upperBound..<source.endIndex)
+        )
+        let method = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertFalse(method.contains("migratedManifest.save(to: bundleURL)"))
+        let provenanceWrite = try XCTUnwrap(method.range(of: "try writeMigrationProvenance"))
+        let manifestPublish = try XCTUnwrap(method.range(of: "replaceItemAt"))
+        XCTAssertTrue(
+            provenanceWrite.lowerBound < manifestPublish.lowerBound,
+            "Migration provenance must be durable before the final manifest is published."
+        )
+        XCTAssertTrue(method.contains("try? fileManager.removeItem(at: provenanceURL)"))
     }
 
     private func makeProject() throws -> URL {
@@ -445,7 +591,29 @@ final class ProjectCommandTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
+    private func projectCommandSourceURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishCLI/Commands/ProjectCommand.swift")
+    }
+
     private func currentUserName() -> String {
         NSUserName().isEmpty ? (ProcessInfo.processInfo.environment["USER"] ?? "unknown") : NSUserName()
+    }
+}
+
+private enum ProjectLockCommandOutcome: Sendable, CustomStringConvertible {
+    case success(String)
+    case failure(String)
+
+    var description: String {
+        switch self {
+        case .success(let mode):
+            return "success(\(mode))"
+        case .failure(let message):
+            return "failure(\(message))"
+        }
     }
 }
