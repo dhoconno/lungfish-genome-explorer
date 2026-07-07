@@ -108,6 +108,22 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertEqual(durationSeconds, 12.5)
     }
 
+    func testParseRecipeReadDeltaEvent() throws {
+        let json = """
+        {"event":"recipeReadDelta","sample":"Sample1","label":"Deduplication","inputReads":1000000,"outputReads":720000,"readsRemoved":280000,"percentRemoved":28.0,"timestamp":"2026-04-04T10:00:05Z"}
+        """
+        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
+        guard case let .recipeReadDelta(sample, label, inputReads, outputReads, readsRemoved, percentRemoved) = event else {
+            return XCTFail("Expected recipeReadDelta, got \(event)")
+        }
+        XCTAssertEqual(sample, "Sample1")
+        XCTAssertEqual(label, "Deduplication")
+        XCTAssertEqual(inputReads, 1_000_000)
+        XCTAssertEqual(outputReads, 720_000)
+        XCTAssertEqual(readsRemoved, 280_000)
+        XCTAssertEqual(percentRemoved, 28.0, accuracy: 0.001)
+    }
+
     func testParseSampleCompleteEvent() throws {
         let json = """
         {"event":"sampleComplete","sample":"Sample1","bundle":"/project/Sample1.lungfishfastq","durationSeconds":45.2,"originalBytes":1048576,"finalBytes":524288,"timestamp":"2026-04-04T10:01:00Z"}

@@ -1137,6 +1137,14 @@ public struct DocumentSection: View {
                 metadataRow(label: "Net reads removed", value: "\(formatCount(totalRemoved))\(pct)")
             }
 
+            if let deduplicationSummary = info.deduplicationSummary {
+                metadataRow(label: "Deduplication", value: readDeltaDisplay(deduplicationSummary))
+            }
+
+            if let humanScrubSummary = info.humanScrubSummary {
+                metadataRow(label: "Human scrub", value: readDeltaDisplay(humanScrubSummary))
+            }
+
             if !info.stepResults.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(info.stepResults.indices, id: \.self) { idx in
@@ -1224,6 +1232,10 @@ public struct DocumentSection: View {
                 }
             }
         }
+    }
+
+    private func readDeltaDisplay(_ summary: RecipeAppliedInfo.ReadDeltaSummary) -> String {
+        "\(formatCount(summary.readsRemoved)) removed (\(String(format: "%.1f", summary.percentRemoved))%)"
     }
 
     /// Builds a shell script that reproduces the pipeline steps.

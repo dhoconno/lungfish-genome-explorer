@@ -48,6 +48,14 @@ public enum ImportLogEvent: Sendable {
     case sampleStart(sample: String, index: Int, total: Int, r1: String, r2: String?)
     case stepStart(sample: String, step: String, stepIndex: Int, totalSteps: Int)
     case stepComplete(sample: String, step: String, durationSeconds: Double)
+    case recipeReadDelta(
+        sample: String,
+        label: String,
+        inputReads: Int,
+        outputReads: Int,
+        readsRemoved: Int,
+        percentRemoved: Double
+    )
     case sampleComplete(sample: String, bundle: String, durationSeconds: Double, originalBytes: Int64, finalBytes: Int64)
     case sampleSkip(sample: String, reason: String)
     case sampleFailed(sample: String, error: String)
@@ -560,6 +568,15 @@ public enum FASTQBatchImporter {
             dict["step"] = step
             dict["durationSeconds"] = durationSeconds
 
+        case .recipeReadDelta(let sample, let label, let inputReads, let outputReads, let readsRemoved, let percentRemoved):
+            dict["event"] = "recipeReadDelta"
+            dict["sample"] = sample
+            dict["label"] = label
+            dict["inputReads"] = inputReads
+            dict["outputReads"] = outputReads
+            dict["readsRemoved"] = readsRemoved
+            dict["percentRemoved"] = percentRemoved
+
         case .sampleComplete(let sample, let bundle, let durationSeconds, let originalBytes, let finalBytes):
             dict["event"] = "sampleComplete"
             dict["sample"] = sample
@@ -601,6 +618,32 @@ public enum FASTQBatchImporter {
         if let data = output.data(using: .utf8) {
             standardError.write(data)
         }
+    }
+
+    static func recipeReadDeltaEvents(sample: String, recipeApplied: RecipeAppliedInfo) -> [ImportLogEvent] {
+        var events: [ImportLogEvent] = []
+        if let summary = recipeApplied.deduplicationSummary {
+            events.append(readDeltaEvent(sample: sample, label: "Deduplication", summary: summary))
+        }
+        if let summary = recipeApplied.humanScrubSummary {
+            events.append(readDeltaEvent(sample: sample, label: "Human scrub", summary: summary))
+        }
+        return events
+    }
+
+    private static func readDeltaEvent(
+        sample: String,
+        label: String,
+        summary: RecipeAppliedInfo.ReadDeltaSummary
+    ) -> ImportLogEvent {
+        .recipeReadDelta(
+            sample: sample,
+            label: label,
+            inputReads: summary.inputReads,
+            outputReads: summary.outputReads,
+            readsRemoved: summary.readsRemoved,
+            percentRemoved: summary.percentRemoved
+        )
     }
 
     // MARK: - Main Entry Point
@@ -934,6 +977,11 @@ public enum FASTQBatchImporter {
                 )
             }
             FASTQMetadataStore.save(metadata, for: stagingBundleFASTQURL)
+            if let recipeApplied = metadata.ingestion?.recipeApplied {
+                for event in recipeReadDeltaEvents(sample: pair.sampleName, recipeApplied: recipeApplied) {
+                    log?(event)
+                }
+            }
 
             // Write per-sample log if logDirectory is set
             if let logDir = config.logDirectory {

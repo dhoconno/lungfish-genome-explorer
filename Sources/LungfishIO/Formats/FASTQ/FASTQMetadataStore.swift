@@ -526,4 +526,55 @@ public struct RecipeAppliedInfo: Codable, Sendable {
               let last = stepResults.last?.outputReadCount else { return nil }
         return first - last
     }
+
+    public struct ReadDeltaSummary: Equatable, Sendable {
+        public let inputReads: Int
+        public let outputReads: Int
+
+        public init(inputReads: Int, outputReads: Int) {
+            self.inputReads = inputReads
+            self.outputReads = outputReads
+        }
+
+        public var readsRemoved: Int { inputReads - outputReads }
+
+        public var percentRemoved: Double {
+            inputReads > 0 ? Double(readsRemoved) / Double(inputReads) * 100 : 0
+        }
+    }
+
+    public var deduplicationSummary: ReadDeltaSummary? {
+        readDeltaSummary { step in
+            let name = step.stepName.lowercased()
+            return name.contains("dedup") || name.contains("duplicate")
+        }
+    }
+
+    public var humanScrubSummary: ReadDeltaSummary? {
+        readDeltaSummary { step in
+            let name = step.stepName.lowercased()
+            let tool = step.tool.lowercased()
+            return name.contains("human") || name.contains("scrub") || tool.contains("deacon")
+        }
+    }
+
+    public static func readDeltaLogLine(_ label: String, _ summary: ReadDeltaSummary) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        let input = formatter.string(from: NSNumber(value: summary.inputReads)) ?? "\(summary.inputReads)"
+        let output = formatter.string(from: NSNumber(value: summary.outputReads)) ?? "\(summary.outputReads)"
+        let pct = String(format: "%.1f", summary.percentRemoved)
+        return "\(label) removed \(pct)% of reads (\(input) -> \(output))"
+    }
+
+    private func readDeltaSummary(
+        matching predicate: (RecipeStepResult) -> Bool
+    ) -> ReadDeltaSummary? {
+        guard let step = stepResults.first(where: predicate),
+              let input = step.inputReadCount,
+              let output = step.outputReadCount else {
+            return nil
+        }
+        return ReadDeltaSummary(inputReads: input, outputReads: output)
+    }
 }

@@ -210,7 +210,7 @@ public final class RecipeEngine: Sendable {
         var reportableStepIndex = 0
 
         var stepRecords: [RecipeStepResult] = []
-        var previousReadCount: Int? = nil
+        var previousReadCount: Int? = try? await Self.countReadsForRecipeStep(currentOutput)
 
         for plannedStep in steps {
             let stepInput = StepInput(
@@ -277,6 +277,10 @@ public final class RecipeEngine: Sendable {
                 }
                 let commandArguments = currentOutput.arguments
                 let commandLine = commandArguments?.map(shellEscapeForRecipeCommand).joined(separator: " ")
+                var outputReadCount = currentOutput.readCount
+                if outputReadCount == nil {
+                    outputReadCount = try? await Self.countReadsForRecipeStep(currentOutput)
+                }
 
                 stepRecords.append(RecipeStepResult(
                     stepName: stepLabel,
@@ -285,10 +289,10 @@ public final class RecipeEngine: Sendable {
                     commandLine: commandLine,
                     commandArguments: commandArguments,
                     inputReadCount: previousReadCount,
-                    outputReadCount: currentOutput.readCount,
+                    outputReadCount: outputReadCount,
                     durationSeconds: stepDuration
                 ))
-                previousReadCount = currentOutput.readCount
+                previousReadCount = outputReadCount
             }
 
             // Delete previous step's intermediate files (only those inside the workspace)
@@ -299,6 +303,25 @@ public final class RecipeEngine: Sendable {
         }
 
         return RecipeExecutionResult(output: currentOutput, stepRecords: stepRecords)
+    }
+
+    static func countReadsForRecipeStep(_ output: StepOutput) async throws -> Int {
+        let reader = FASTQReader(validateSequence: false)
+        switch output.format {
+        case .pairedR1R2:
+            return try await reader.countRecords(in: output.r1)
+        case .interleaved, .single:
+            return try await reader.countRecords(in: output.r1)
+        case .merged:
+            var count = try await reader.countRecords(in: output.r1)
+            if let r2 = output.r2 {
+                count += try await reader.countRecords(in: r2)
+            }
+            if let r3 = output.r3 {
+                count += try await reader.countRecords(in: r3)
+            }
+            return count
+        }
     }
 
     // MARK: - Private helpers

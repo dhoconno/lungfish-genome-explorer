@@ -399,6 +399,48 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertTrue(json.contains("\"failed\""))
     }
 
+    func testRecipeReadDeltaEventsEmitDeduplicationAndHumanScrubSummaries() throws {
+        let info = RecipeAppliedInfo(
+            recipeID: "vsp2-target-enrichment",
+            recipeName: "Illumina VSP2 Target Enrichment",
+            appliedDate: Date(timeIntervalSince1970: 0),
+            stepResults: [
+                RecipeStepResult(
+                    stepName: "Remove PCR duplicates",
+                    tool: "fastp",
+                    inputReadCount: 1_000,
+                    outputReadCount: 720,
+                    durationSeconds: 1
+                ),
+                RecipeStepResult(
+                    stepName: "Remove human reads",
+                    tool: "deacon",
+                    inputReadCount: 720,
+                    outputReadCount: 700,
+                    durationSeconds: 1
+                ),
+            ]
+        )
+
+        let events = FASTQBatchImporter.recipeReadDeltaEvents(sample: "S1", recipeApplied: info)
+
+        XCTAssertEqual(events.count, 2)
+        guard case let .recipeReadDelta(sample, label, inputReads, outputReads, readsRemoved, percentRemoved) = events[0] else {
+            return XCTFail("Expected first read-delta event")
+        }
+        XCTAssertEqual(sample, "S1")
+        XCTAssertEqual(label, "Deduplication")
+        XCTAssertEqual(inputReads, 1_000)
+        XCTAssertEqual(outputReads, 720)
+        XCTAssertEqual(readsRemoved, 280)
+        XCTAssertEqual(percentRemoved, 28.0, accuracy: 0.001)
+
+        let json = FASTQBatchImporter.encodeLogEvent(events[0])
+        XCTAssertTrue(json.contains("\"recipeReadDelta\""))
+        XCTAssertTrue(json.contains("\"inputReads\":1000"))
+        XCTAssertTrue(json.contains("\"readsRemoved\":280"))
+    }
+
     // MARK: - ImportConfig Construction
 
     func testImportConfigConstruction() {
