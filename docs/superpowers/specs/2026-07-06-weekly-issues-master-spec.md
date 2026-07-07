@@ -2,7 +2,7 @@
 
 **Status:** Ready for implementation
 **Author:** Fable (planning session 2026-07-06)
-**Scope:** All 8 open GitHub issues created in the last week (#20–#27) in `dhoconno/lungfish-genome-explorer`.
+**Scope:** Open GitHub issues created in the last week (#20–#27) in `dhoconno/lungfish-genome-explorer`. **Issue #25 (GenBank submissions) is DEFERRED to a future version** at the user's direction (2026-07-06) and has no active plan; the remaining 7 issues are planned below.
 **Audience:** An implementing LLM (or engineer) with strong general skills but **zero prior context** on this codebase.
 
 ---
@@ -18,7 +18,7 @@ This is the **index and shared context** for eight issues. Each issue has its ow
 | 22 | TaxTriage no miniBAMs on downsampled reads | Bug | `2026-07-06-issue-22-downsampled-minibam.md` | M (diagnosis-first) |
 | 23 | Human read removal working in VSP2? | Bug | `2026-07-06-issue-23-vsp2-human-scrub.md` | M (diagnosis-first) |
 | 24 | VSP2 provenance: dedup read-removal stats | Feature | `2026-07-06-issue-24-vsp2-dedup-stats.md` | S |
-| 25 | Create NCBI GenBank submissions from bundles | Feature | `2026-07-06-issue-25-genbank-submission.md` | L |
+| ~~25~~ | ~~Create NCBI GenBank submissions from bundles~~ | Feature | **DEFERRED to a future version (2026-07-06)** — no plan | — |
 | 26 | Revise Tools menu | Feature | `2026-07-06-issue-26-tools-menu-revision.md` | L |
 | 27 | Add Trim Galore --clumpify support | Feature | `2026-07-06-issue-27-trim-galore-clumpify.md` | M |
 
@@ -30,8 +30,9 @@ This is the **index and shared context** for eight issues. Each issue has its ow
 4. **#22** (diagnosis-first; independent) →
 5. **#21** (folder fan-out; touches classification entry points) →
 6. **#27** (Trim Galore; touches import pipeline + tool registry) →
-7. **#26** (Tools menu; large UI restructure; do after #21/#27 so menu wiring is stable) →
-8. **#25** (GenBank; largest, most independent; can be done any time but is the biggest single deliverable).
+7. **#26** (Tools menu; large UI restructure; do after #21/#27 so menu wiring is stable).
+
+**#25 (GenBank submissions) is deferred** — do not implement in this cycle.
 
 Issues #23 and #22 are **diagnosis-first**: their plans begin with a verification task to confirm the root cause before changing code, because the symptom (2–5% human reads; missing miniBAMs) has more than one plausible cause. Do not skip the diagnosis task.
 
@@ -189,7 +190,7 @@ Full criteria live in each plan; this is the at-a-glance list.
 - **#22:** Running a classifier (TaxTriage specifically) on a downsampled bundle produces miniBAMs and unique-read counts identical in kind to a full-dataset run.
 - **#23:** After root-cause diagnosis, human-read removal in VSP2 is corrected (or its limits documented + surfaced) so residual human reads are minimized; residual fraction is measured and reported.
 - **#24:** VSP2 provenance shows original read count, deduplicated read count, and percentage removed, in an obvious place (Inspector + operation log + CLI output).
-- **#25:** A user can produce a GenBank-ready submission package (annotated `.gb` + BioSample TSV + source-modifier file + manifest) from an LGE assembly/consensus bundle, via GUI and a `lungfish genbank prepare` CLI command.
+- **#25:** DEFERRED to a future version (2026-07-06). No acceptance criteria in this cycle.
 - **#26:** Tools menu shows FASTQ/FASTA operation categories at the top level; enabled workflows appear inside the matching category; installable-but-disabled workflows appear dimmed and, when clicked, offer to enable (routing to the workflow chooser); the standalone "Workflow Operations" menu item is gone; genotyping workflows live under a "Genotyping" category.
 - **#27:** FASTQ import offers a choice of clumping tool (BBTools clumpify [default] / Trim Galore --clumpify / skip); Trim Galore is a registered core tool; the VSP2 import path uses Trim Galore --clumpify while other recipes keep BBTools.
 
