@@ -872,6 +872,48 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(step.command, ["fastp", "--in1", inputURL.path, "--label", "sample one"])
     }
 
+    func testRecipeProvenanceIncludesAuxiliaryOutputsWithDurableReplayPaths() throws {
+        let inputURL = URL(fileURLWithPath: "/tmp/input/Sample_R1.fastq")
+        let bundleFASTQURL = URL(fileURLWithPath: "/tmp/project/Imports/Sample.lungfishfastq/Sample.fastq.gz")
+        let temporarySummaryPath = "/tmp/project/.tmp/fastq-import-123/Sample_deacon_summary.json"
+        let finalSummaryURL = URL(
+            fileURLWithPath: "/tmp/project/Imports/Sample.lungfishfastq/metadata/recipe-step-artifacts/1-1-human-read-removal-Sample_deacon_summary.json"
+        )
+        let stepResult = RecipeStepResult(
+            stepName: "Human Read Removal",
+            tool: "deacon",
+            toolVersion: "0.15.0",
+            commandArguments: [
+                "deacon", "filter", "--deplete",
+                "--summary", temporarySummaryPath,
+                "/tmp/db/panhuman.idx", inputURL.path,
+                "-o", "/tmp/project/.tmp/fastq-import-123/Sample_scrubbed_R1.fq.gz",
+            ],
+            durationSeconds: 1.25,
+            auxiliaryOutputPaths: [finalSummaryURL.path],
+            auxiliaryCommandPathRewrites: [temporarySummaryPath: finalSummaryURL.path]
+        )
+
+        let steps = FASTQBatchImporter.recipeProvenanceSteps(
+            recipeStepResults: [stepResult],
+            originalInputURLs: [inputURL],
+            bundleFASTQURL: bundleFASTQURL
+        )
+
+        let step = try XCTUnwrap(steps.first)
+        XCTAssertTrue(step.outputs.contains { $0.path == bundleFASTQURL.path })
+        XCTAssertTrue(step.outputs.contains { $0.path == finalSummaryURL.path })
+        XCTAssertEqual(
+            step.durableReplayArgv,
+            [
+                "deacon", "filter", "--deplete",
+                "--summary", finalSummaryURL.path,
+                "/tmp/db/panhuman.idx", inputURL.path,
+                "-o", "/tmp/project/.tmp/fastq-import-123/Sample_scrubbed_R1.fq.gz",
+            ]
+        )
+    }
+
     func testPublishFASTQBundleUsesFoundationReplacementForExistingBundle() throws {
         let source = try String(contentsOf: fastqBatchImporterSourceURL(), encoding: .utf8)
         let start = try XCTUnwrap(source.range(of: "static func publishFASTQBundle"))

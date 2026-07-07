@@ -469,6 +469,23 @@ public struct RecipeStepResult: Codable, Sendable {
     public let outputReadCount: Int?
     /// Wall-clock seconds this step took.
     public let durationSeconds: Double
+    /// Additional files emitted by the step and retained with the final bundle.
+    public let auxiliaryOutputPaths: [String]
+    /// Rewrites from exact execution-time paths to durable replay paths for auxiliary outputs.
+    public let auxiliaryCommandPathRewrites: [String: String]
+
+    private enum CodingKeys: String, CodingKey {
+        case stepName
+        case tool
+        case toolVersion
+        case commandLine
+        case commandArguments
+        case inputReadCount
+        case outputReadCount
+        case durationSeconds
+        case auxiliaryOutputPaths
+        case auxiliaryCommandPathRewrites
+    }
 
     public init(
         stepName: String,
@@ -478,7 +495,9 @@ public struct RecipeStepResult: Codable, Sendable {
         commandArguments: [String]? = nil,
         inputReadCount: Int? = nil,
         outputReadCount: Int? = nil,
-        durationSeconds: Double
+        durationSeconds: Double,
+        auxiliaryOutputPaths: [String] = [],
+        auxiliaryCommandPathRewrites: [String: String] = [:]
     ) {
         self.stepName = stepName
         self.tool = tool
@@ -488,6 +507,61 @@ public struct RecipeStepResult: Codable, Sendable {
         self.inputReadCount = inputReadCount
         self.outputReadCount = outputReadCount
         self.durationSeconds = durationSeconds
+        self.auxiliaryOutputPaths = auxiliaryOutputPaths
+        self.auxiliaryCommandPathRewrites = auxiliaryCommandPathRewrites
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        stepName = try container.decode(String.self, forKey: .stepName)
+        tool = try container.decode(String.self, forKey: .tool)
+        toolVersion = try container.decodeIfPresent(String.self, forKey: .toolVersion)
+        commandLine = try container.decodeIfPresent(String.self, forKey: .commandLine)
+        commandArguments = try container.decodeIfPresent([String].self, forKey: .commandArguments)
+        inputReadCount = try container.decodeIfPresent(Int.self, forKey: .inputReadCount)
+        outputReadCount = try container.decodeIfPresent(Int.self, forKey: .outputReadCount)
+        durationSeconds = try container.decode(Double.self, forKey: .durationSeconds)
+        auxiliaryOutputPaths = try container.decodeIfPresent([String].self, forKey: .auxiliaryOutputPaths) ?? []
+        auxiliaryCommandPathRewrites = try container.decodeIfPresent(
+            [String: String].self,
+            forKey: .auxiliaryCommandPathRewrites
+        ) ?? [:]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(stepName, forKey: .stepName)
+        try container.encode(tool, forKey: .tool)
+        try container.encodeIfPresent(toolVersion, forKey: .toolVersion)
+        try container.encodeIfPresent(commandLine, forKey: .commandLine)
+        try container.encodeIfPresent(commandArguments, forKey: .commandArguments)
+        try container.encodeIfPresent(inputReadCount, forKey: .inputReadCount)
+        try container.encodeIfPresent(outputReadCount, forKey: .outputReadCount)
+        try container.encode(durationSeconds, forKey: .durationSeconds)
+        if !auxiliaryOutputPaths.isEmpty {
+            try container.encode(auxiliaryOutputPaths, forKey: .auxiliaryOutputPaths)
+        }
+        if !auxiliaryCommandPathRewrites.isEmpty {
+            try container.encode(auxiliaryCommandPathRewrites, forKey: .auxiliaryCommandPathRewrites)
+        }
+    }
+
+    public func replacingAuxiliaryOutputs(
+        paths: [String],
+        commandPathRewrites: [String: String]
+    ) -> RecipeStepResult {
+        RecipeStepResult(
+            stepName: stepName,
+            tool: tool,
+            toolVersion: toolVersion,
+            commandLine: commandLine,
+            commandArguments: commandArguments,
+            inputReadCount: inputReadCount,
+            outputReadCount: outputReadCount,
+            durationSeconds: durationSeconds,
+            auxiliaryOutputPaths: paths,
+            auxiliaryCommandPathRewrites: commandPathRewrites
+        )
     }
 
     /// Reads removed (positive) or added (negative) by this step.

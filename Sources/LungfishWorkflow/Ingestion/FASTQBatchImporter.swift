@@ -74,6 +74,7 @@ public enum BatchImportError: Error, LocalizedError {
     case recipeNotApplicable(recipe: String, sample: String, reason: String)
     case outputBundleAlreadyExists(URL)
     case statisticsUnavailable(String)
+    case recipeArtifactMissing(URL)
 
     public var errorDescription: String? {
         switch self {
@@ -93,6 +94,8 @@ public enum BatchImportError: Error, LocalizedError {
             return "Output FASTQ bundle already exists: \(url.path). Use --force to replace it."
         case .statisticsUnavailable(let reason):
             return "FASTQ statistics could not be computed: \(reason)"
+        case .recipeArtifactMissing(let url):
+            return "Recipe step artifact is missing and cannot be retained: \(url.path)"
         }
     }
 }
@@ -946,6 +949,11 @@ public enum FASTQBatchImporter {
                 metadataPairs["sample"] = pair.sampleName
                 try FASTQBundleCSVMetadata.save(FASTQBundleCSVMetadata(keyValuePairs: metadataPairs), to: stagingBundleURL)
             }
+            recipeStepResults = try materializeRecipeAuxiliaryOutputs(
+                recipeStepResults,
+                stagingBundleURL: stagingBundleURL,
+                publishedBundleURL: bundleURL
+            )
 
             // Write ingestion metadata sidecar
             let pairingMeta: IngestionMetadata.PairingMode = pair.r2 != nil ? .interleaved : .singleEnd
@@ -1147,6 +1155,79 @@ public enum FASTQBatchImporter {
         }
     }
 
+    private static func materializeRecipeAuxiliaryOutputs(
+        _ stepResults: [RecipeStepResult],
+        stagingBundleURL: URL,
+        publishedBundleURL: URL
+    ) throws -> [RecipeStepResult] {
+        let fm = FileManager.default
+        let stagingDirectory = stagingBundleURL
+            .appendingPathComponent("metadata", isDirectory: true)
+            .appendingPathComponent("recipe-step-artifacts", isDirectory: true)
+        let publishedDirectory = publishedBundleURL
+            .appendingPathComponent("metadata", isDirectory: true)
+            .appendingPathComponent("recipe-step-artifacts", isDirectory: true)
+
+        var materialized: [RecipeStepResult] = []
+        for (stepIndex, result) in stepResults.enumerated() {
+            guard !result.auxiliaryOutputPaths.isEmpty else {
+                materialized.append(result)
+                continue
+            }
+
+            try fm.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+            var finalPaths: [String] = []
+            var rewrites = result.auxiliaryCommandPathRewrites
+            for (artifactIndex, sourcePath) in result.auxiliaryOutputPaths.enumerated() {
+                let sourceURL = URL(fileURLWithPath: sourcePath)
+                guard fm.fileExists(atPath: sourceURL.path) else {
+                    throw BatchImportError.recipeArtifactMissing(sourceURL)
+                }
+
+                let filename = recipeArtifactFilename(
+                    stepIndex: stepIndex,
+                    artifactIndex: artifactIndex,
+                    stepName: result.stepName,
+                    sourceURL: sourceURL
+                )
+                let stagingURL = stagingDirectory.appendingPathComponent(filename)
+                let publishedURL = publishedDirectory.appendingPathComponent(filename)
+                if sourceURL.standardizedFileURL != stagingURL.standardizedFileURL {
+                    try? fm.removeItem(at: stagingURL)
+                    try fm.copyItem(at: sourceURL, to: stagingURL)
+                }
+                finalPaths.append(publishedURL.path)
+                rewrites[sourceURL.path] = publishedURL.path
+            }
+
+            materialized.append(result.replacingAuxiliaryOutputs(
+                paths: finalPaths,
+                commandPathRewrites: rewrites
+            ))
+        }
+        return materialized
+    }
+
+    private static func recipeArtifactFilename(
+        stepIndex: Int,
+        artifactIndex: Int,
+        stepName: String,
+        sourceURL: URL
+    ) -> String {
+        let stem = stepName
+            .lowercased()
+            .unicodeScalars
+            .map { scalar -> String in
+                CharacterSet.alphanumerics.contains(scalar) ? String(scalar) : "-"
+            }
+            .joined()
+        let slug = String(stem)
+            .split(separator: "-")
+            .joined(separator: "-")
+            .prefix(48)
+        return "\(stepIndex + 1)-\(artifactIndex + 1)-\(slug)-\(sourceURL.lastPathComponent)"
+    }
+
     // MARK: - Provenance
 
     private static func writeImportProvenance(
@@ -1175,7 +1256,9 @@ public enum FASTQBatchImporter {
         steps.append(contentsOf: recipeProvenanceSteps(
             recipeStepResults: recipeStepResults,
             originalInputURLs: originalInputURLs,
-            bundleFASTQURL: stagingBundleFASTQURL
+            bundleFASTQURL: stagingBundleFASTQURL,
+            stagingBundleURL: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
         ))
         steps.append(contentsOf: rehydratedIngestionSteps(
             ingestionResult.provenanceSteps,
@@ -1457,7 +1540,9 @@ public enum FASTQBatchImporter {
     static func recipeProvenanceSteps(
         recipeStepResults: [RecipeStepResult],
         originalInputURLs: [URL],
-        bundleFASTQURL: URL
+        bundleFASTQURL: URL,
+        stagingBundleURL: URL? = nil,
+        publishedBundleURL: URL? = nil
     ) -> [StepExecution] {
         recipeStepResults.compactMap { result in
             guard result.stepName != "Compute statistics",
@@ -1466,21 +1551,94 @@ public enum FASTQBatchImporter {
                 return nil
             }
             let command = recipeStepCommandArguments(for: result)
+            let durableReplayArgv = durableRecipeStepArguments(
+                command,
+                pathRewrites: result.auxiliaryCommandPathRewrites
+            )
             let timestamp = Date()
             return StepExecution(
                 toolName: result.tool,
                 toolVersion: result.toolVersion ?? "unknown",
                 command: command,
+                durableReplayArgv: durableReplayArgv == command ? nil : durableReplayArgv,
                 inputs: originalInputURLs.map {
                     ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
                 },
-                outputs: [ProvenanceRecorder.fileRecord(url: bundleFASTQURL, format: .fastq, role: .output)],
+                outputs: [ProvenanceRecorder.fileRecord(url: bundleFASTQURL, format: .fastq, role: .output)]
+                    + result.auxiliaryOutputPaths.map {
+                        recipeAuxiliaryOutputRecord(
+                            finalPath: $0,
+                            stagingBundleURL: stagingBundleURL,
+                            publishedBundleURL: publishedBundleURL
+                        )
+                    },
                 exitCode: 0,
                 wallTime: result.durationSeconds,
                 stderr: nil,
                 startTime: timestamp.addingTimeInterval(-result.durationSeconds),
                 endTime: timestamp
             )
+        }
+    }
+
+    private static func durableRecipeStepArguments(
+        _ command: [String],
+        pathRewrites: [String: String]
+    ) -> [String] {
+        guard !pathRewrites.isEmpty else { return command }
+        return command.map { argument in
+            pathRewrites[argument] ?? argument
+        }
+    }
+
+    private static func recipeAuxiliaryOutputRecord(
+        finalPath: String,
+        stagingBundleURL: URL?,
+        publishedBundleURL: URL?
+    ) -> FileRecord {
+        let finalURL = URL(fileURLWithPath: finalPath)
+        let checksumURL = stagedURLForPublishedBundlePath(
+            finalPath,
+            stagingBundleURL: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
+        ) ?? finalURL
+        let baseRecord = ProvenanceRecorder.fileRecord(
+            url: checksumURL,
+            format: recipeAuxiliaryOutputFormat(for: finalURL),
+            role: .output
+        )
+        return FileRecord(
+            path: finalURL.path,
+            sha256: baseRecord.sha256,
+            sizeBytes: baseRecord.sizeBytes,
+            format: baseRecord.format,
+            role: baseRecord.role
+        )
+    }
+
+    private static func stagedURLForPublishedBundlePath(
+        _ path: String,
+        stagingBundleURL: URL?,
+        publishedBundleURL: URL?
+    ) -> URL? {
+        guard let stagingBundleURL, let publishedBundleURL else { return nil }
+        let publishedPath = publishedBundleURL.standardizedFileURL.path
+        let stagingPath = stagingBundleURL.standardizedFileURL.path
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard standardized == publishedPath || standardized.hasPrefix(publishedPath + "/") else {
+            return nil
+        }
+        return URL(fileURLWithPath: stagingPath + String(standardized.dropFirst(publishedPath.count)))
+    }
+
+    private static func recipeAuxiliaryOutputFormat(for url: URL) -> FileFormat {
+        switch url.pathExtension.lowercased() {
+        case "json":
+            return .json
+        case "txt", "log":
+            return .text
+        default:
+            return .unknown
         }
     }
 

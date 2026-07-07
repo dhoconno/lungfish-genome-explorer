@@ -290,7 +290,8 @@ public final class RecipeEngine: Sendable {
                     commandArguments: commandArguments,
                     inputReadCount: previousReadCount,
                     outputReadCount: outputReadCount,
-                    durationSeconds: stepDuration
+                    durationSeconds: stepDuration,
+                    auxiliaryOutputPaths: currentOutput.auxiliaryOutputs.map(\.path)
                 ))
                 previousReadCount = outputReadCount
             }
