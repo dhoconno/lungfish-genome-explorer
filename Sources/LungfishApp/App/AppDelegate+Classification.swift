@@ -657,9 +657,12 @@ extension AppDelegate {
                                 message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
                             )
                         }
+                        let completionDetail = capturedResult.detections.isEmpty
+                            ? "No viral hits detected"
+                            : "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families"
                         _ = OperationCenter.shared.complete(
                             id: opID,
-                            detail: "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families"
+                            detail: completionDetail
                         )
                         // Reload sidebar so the new result bundle appears.
                         // User clicks the new result to view it (batch-only display path).
@@ -1177,6 +1180,7 @@ extension AppDelegate {
                                         progress: overall,
                                         detail: "\(samplePrefix): \(message)"
                                     )
+                                    OperationCenter.shared.log(id: opID, level: .info, message: "\(samplePrefix): \(message)")
                                 }
                             }
                         }

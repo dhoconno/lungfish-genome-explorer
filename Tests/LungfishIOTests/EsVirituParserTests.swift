@@ -147,12 +147,11 @@ final class EsVirituParserTests: XCTestCase {
         }
     }
 
-    func testParseDetectionHeaderOnlyThrows() {
+    func testParseDetectionHeaderOnlyReturnsNoDetections() throws {
         let text = "sample_ID\tName\tdescription\tLength\tSegment\tAccession\tAssembly\tAsm_length\tkingdom\tphylum\ttclass\torder\tfamily\tgenus\tspecies\tsubspecies\tRPKMF\tread_count\tcovered_bases\tmean_coverage\tavg_read_identity\tPi\tfiltered_reads_in_sample\n"
 
-        XCTAssertThrowsError(try EsVirituDetectionParser.parse(text: text)) { error in
-            XCTAssertTrue(error is EsVirituDetectionParserError)
-        }
+        let detections = try EsVirituDetectionParser.parse(text: text)
+        XCTAssertTrue(detections.isEmpty, "Header-only EsViritu output represents a successful zero-hit run")
     }
 
     func testParseMalformedDetectionLinesSkipped() throws {

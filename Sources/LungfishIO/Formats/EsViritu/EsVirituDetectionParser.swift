@@ -125,6 +125,7 @@ public enum EsVirituDetectionParser {
         let lines = text.components(separatedBy: .newlines)
         var detections: [ViralDetection] = []
         var lineNumber = 0
+        var sawDetectionHeader = false
 
         for line in lines {
             lineNumber += 1
@@ -134,6 +135,7 @@ public enum EsVirituDetectionParser {
 
             // Skip header line
             if trimmed.hasPrefix("sample_ID") || trimmed.hasPrefix("sample_id") {
+                sawDetectionHeader = true
                 continue
             }
 
@@ -148,6 +150,10 @@ public enum EsVirituDetectionParser {
         }
 
         if detections.isEmpty {
+            if sawDetectionHeader {
+                logger.info("Parsed EsViritu detections: 0 viral contigs")
+                return []
+            }
             throw EsVirituDetectionParserError.emptyFile
         }
 
