@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishCore
 import LungfishIO
 
 /// External-artifact canaries for the mounted Zhang pan-genome project.
@@ -58,7 +59,7 @@ final class ZhangArtifactCanaryTests: XCTestCase {
         }
 
         for command in commands {
-            XCTAssertTrue(command.contains("lungfish convert"))
+            XCTAssertTrue(command.contains("\(CLICommandIdentity.executableName) convert"))
             XCTAssertTrue(command.contains("--to-format genbank"))
             XCTAssertTrue(command.contains("--include-annotations"))
         }

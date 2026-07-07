@@ -59,9 +59,16 @@ final class ExtraArgsWrappedToolsTests: XCTestCase {
     }
 
     func testEsVirituExtraArgsParseAndReachCommandArguments() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/ExtraArgsEsVirituTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+
         let command = try EsVirituCommand.DetectSubcommand.parse([
             "detect",
-            "--input", "reads.fastq",
+            "--input", inputURL.path,
             "--sample", "sample-a",
             "--db", "/db/esviritu",
             "--extra-args", "--min_ani 0.95 --keep_tmp",

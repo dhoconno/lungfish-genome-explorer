@@ -39,6 +39,7 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn("--sparkle-generate-appcast", self.release_script)
         self.assertIn("--sparkle-ed-key-file", self.release_script)
         self.assertIn("--sparkle-appcast-dir", self.release_script)
+        self.assertIn("--sparkle-appcast-filename", self.release_script)
         self.assertIn("--sparkle-publish-release", self.release_script)
         self.assertIn("--github-release-tag", self.release_script)
         self.assertIn("appcast-beta.xml", self.release_script)
@@ -51,6 +52,30 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn("gh release upload", self.release_script)
         self.assertIn('gh release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH" --clobber', self.release_script)
         self.assertIn("Lungfish-${VERSION}-arm64.md", self.release_script)
+
+    def test_release_script_can_publish_legacy_alpha_appcast_filename(self):
+        self.assertIn("SPARKLE_APPCAST_FILENAME=", self.release_script)
+        self.assertIn("SPARKLE_APPCAST_FILENAME=\"$2\"", self.release_script)
+        self.assertIn(
+            'SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/${SPARKLE_APPCAST_FILENAME}"',
+            self.release_script,
+        )
+        self.assertIn(
+            'SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/${SPARKLE_APPCAST_FILENAME}"',
+            self.release_script,
+        )
+
+    def test_release_script_can_publish_legacy_bridge_feed_without_changing_primary_feed(self):
+        self.assertIn("--sparkle-bridge-publish-release", self.release_script)
+        self.assertIn("--sparkle-bridge-appcast-filename", self.release_script)
+        self.assertIn("SPARKLE_BRIDGE_PUBLISH_RELEASE=\"$2\"", self.release_script)
+        self.assertIn("SPARKLE_BRIDGE_APPCAST_FILENAME=\"$2\"", self.release_script)
+        self.assertIn(
+            'local bridge_appcast_path="${SPARKLE_APPCAST_DIR}/${SPARKLE_BRIDGE_APPCAST_FILENAME}"',
+            self.release_script,
+        )
+        self.assertIn('/bin/cp -p "$SPARKLE_APPCAST_PATH" "$bridge_appcast_path"', self.release_script)
+        self.assertIn('gh release upload "$SPARKLE_BRIDGE_PUBLISH_RELEASE" "$bridge_appcast_path" --clobber', self.release_script)
 
     def test_release_script_stamps_sparkle_keys_before_codesigning(self):
         self.assertIn("configure_sparkle_info_plist", self.release_script)

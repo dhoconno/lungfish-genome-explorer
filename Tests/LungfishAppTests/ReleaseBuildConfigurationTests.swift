@@ -24,7 +24,7 @@ struct ReleaseBuildConfigurationTests {
         #expect(releaseBlock.contains("ENABLE_HARDENED_RUNTIME = YES;"))
     }
 
-    @Test("Release identity uses canonical beta1 version and Sparkle channel")
+    @Test("Release identity uses canonical beta version and Sparkle channel")
     func releaseIdentityUsesCanonicalBetaVersionAndSparkleChannel() throws {
         let repositoryRoot = Self.repositoryRoot()
         let project = try String(
@@ -44,8 +44,8 @@ struct ReleaseBuildConfigurationTests {
         #expect(project.contains("0.5.0-alpha") == false)
         #expect(infoPlist.contains("sparkle-beta/appcast-beta.xml"))
         #expect(infoPlist.contains("sparkle-alpha") == false)
-        #expect(releaseScript.contains("${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/appcast-beta.xml"))
-        #expect(releaseScript.contains("appcast-alpha.xml") == false)
+        #expect(releaseScript.contains("${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/${SPARKLE_APPCAST_FILENAME}"))
+        #expect(releaseScript.contains("appcast-alpha.xml"))
     }
 
     @Test("Xcode Swift language mode stays on Swift 6 while SwiftPM pins the 6.2 toolchain")

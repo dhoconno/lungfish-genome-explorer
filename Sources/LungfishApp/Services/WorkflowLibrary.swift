@@ -297,7 +297,7 @@ extension WorkflowPackageRunnerKind {
         case .nextflow, .snakemake:
             return nil
         case .command:
-            return "Command-runner packages can be imported and reviewed, but beta1 does not execute them."
+            return "Command-runner packages can be imported and reviewed, but beta builds do not execute them."
         }
     }
 }

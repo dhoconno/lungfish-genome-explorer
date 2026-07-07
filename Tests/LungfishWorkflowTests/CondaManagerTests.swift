@@ -201,7 +201,7 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertEqual(lock.packID, "lungfish-tools")
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
         XCTAssertEqual(lock.version, LungfishAppVersion.short)
-        XCTAssertEqual(lock.tools.count, 16)
+        XCTAssertEqual(lock.tools.count, 17)
         XCTAssertEqual(lock.managedData.count, 2)
 
         let expectedSpecs: [String: String] = [
@@ -209,6 +209,7 @@ final class CondaManagerTests: XCTestCase {
             "snakemake": "bioconda::snakemake=9.19.0=hdfd78af_1",
             "bbtools": "bioconda::bbmap=39.80=h2e3bd82_0",
             "fastp": "bioconda::fastp=1.3.2=ha1d0559_0",
+            "trim_galore": "bioconda::trim-galore=2.3.0=h48b4a6d_0",
             "deacon": "bioconda::deacon=0.15.0=hc0d6d67_0",
             "samtools": "bioconda::samtools=1.23.1=hc612e98_0",
             "bcftools": "bioconda::bcftools=1.23.1=h0ba0a6f_0",

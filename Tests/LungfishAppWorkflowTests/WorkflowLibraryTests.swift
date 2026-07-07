@@ -396,7 +396,7 @@ final class WorkflowLibraryTests: XCTestCase {
 
         await viewModel.refreshDependencyStatuses()
 
-        XCTAssertEqual(package.workflowLibraryExecutionUnavailableReason, "Command-runner packages can be imported and reviewed, but beta1 does not execute them.")
+        XCTAssertEqual(package.workflowLibraryExecutionUnavailableReason, "Command-runner packages can be imported and reviewed, but beta builds do not execute them.")
         XCTAssertEqual(viewModel.dependencyStatusRows(for: package), [
             WorkflowLibraryPackageStatusRow(
                 id: "dependency.lungfish-tools",
@@ -551,7 +551,7 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(statusProvider.installedPackIDs, [])
         XCTAssertFalse(viewModel.isEnabled(package))
         XCTAssertTrue(viewModel.showingError)
-        XCTAssertTrue(viewModel.errorMessage?.contains("beta1 does not execute") == true)
+        XCTAssertTrue(viewModel.errorMessage?.contains("beta builds do not execute") == true)
     }
 
     func testViewModelInstallsMissingDependenciesBeforeEnablingUserWorkflowPackage() async throws {

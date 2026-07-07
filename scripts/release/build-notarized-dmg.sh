@@ -10,7 +10,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-publish-release TAG] [--defer-remote-publish]
+Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-appcast-filename NAME] [--sparkle-publish-release TAG] [--sparkle-bridge-publish-release TAG] [--sparkle-bridge-appcast-filename NAME] [--defer-remote-publish]
 
 Required:
   --signing-identity  Developer ID Application identity used for codesign
@@ -34,10 +34,16 @@ Optional:
                       Private Sparkle EdDSA key file passed to generate_appcast instead of using the Keychain
   --sparkle-appcast-dir PATH
                       Local appcast working directory (default: <release-dir>/sparkle-appcast)
+  --sparkle-appcast-filename NAME
+                      Appcast asset filename and feed path (default: appcast-beta.xml)
   --sparkle-download-url-prefix URL
                       URL prefix for versioned DMG downloads (default: GitHub release v<version>)
   --sparkle-publish-release TAG
-                      Upload appcast-beta.xml and release notes to this GitHub release tag with gh
+                      Upload the appcast and release notes to this GitHub release tag with gh
+  --sparkle-bridge-publish-release TAG
+                      Also upload the generated appcast to a legacy Sparkle feed release
+  --sparkle-bridge-appcast-filename NAME
+                      Legacy bridge appcast filename (default: appcast-alpha.xml)
   --defer-remote-publish
                       Build, notarize, and generate appcast files without running gh uploads
 
@@ -62,6 +68,9 @@ SPARKLE_PUBLIC_ED_KEY="${LUNGFISH_SPARKLE_PUBLIC_ED_KEY:-}"
 SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
 SPARKLE_ED_KEY_FILE="${SPARKLE_ED_KEY_FILE:-}"
 SPARKLE_APPCAST_DIR=""
+SPARKLE_APPCAST_FILENAME="appcast-beta.xml"
+SPARKLE_BRIDGE_PUBLISH_RELEASE=""
+SPARKLE_BRIDGE_APPCAST_FILENAME="appcast-alpha.xml"
 SPARKLE_DOWNLOAD_URL_PREFIX=""
 SPARKLE_PUBLISH_RELEASE=""
 SPARKLE_RELEASE_NOTES=""
@@ -128,12 +137,24 @@ while [ "$#" -gt 0 ]; do
             SPARKLE_APPCAST_DIR="$2"
             shift 2
             ;;
+        --sparkle-appcast-filename)
+            SPARKLE_APPCAST_FILENAME="$2"
+            shift 2
+            ;;
         --sparkle-download-url-prefix)
             SPARKLE_DOWNLOAD_URL_PREFIX="$2"
             shift 2
             ;;
         --sparkle-publish-release)
             SPARKLE_PUBLISH_RELEASE="$2"
+            shift 2
+            ;;
+        --sparkle-bridge-publish-release)
+            SPARKLE_BRIDGE_PUBLISH_RELEASE="$2"
+            shift 2
+            ;;
+        --sparkle-bridge-appcast-filename)
+            SPARKLE_BRIDGE_APPCAST_FILENAME="$2"
             shift 2
             ;;
         --defer-remote-publish)
@@ -166,10 +187,23 @@ if [ -z "$SPARKLE_PUBLIC_ED_KEY" ]; then
     exit 64
 fi
 
+case "$SPARKLE_APPCAST_FILENAME" in
+    ""|*/*)
+        echo "invalid Sparkle appcast filename: $SPARKLE_APPCAST_FILENAME" >&2
+        exit 64
+        ;;
+esac
+case "$SPARKLE_BRIDGE_APPCAST_FILENAME" in
+    ""|*/*)
+        echo "invalid Sparkle bridge appcast filename: $SPARKLE_BRIDGE_APPCAST_FILENAME" >&2
+        exit 64
+        ;;
+esac
+
 if [ -z "$DERIVED_DATA_PATH" ]; then
     DERIVED_DATA_PATH="${PROJECT_ROOT}/.build/release-derived-data"
 fi
-SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/appcast-beta.xml"
+SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/${SPARKLE_APPCAST_FILENAME}"
 RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
 ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
 
@@ -189,7 +223,7 @@ for command in xcodebuild xcrun swift codesign hdiutil ditto shasum mktemp /usr/
     require_command "$command"
 done
 
-if [ "$DEFER_REMOTE_PUBLISH" -eq 0 ] && { [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; }; then
+if [ "$DEFER_REMOTE_PUBLISH" -eq 0 ] && { [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; }; then
     require_command gh
 fi
 
@@ -351,7 +385,7 @@ generate_sparkle_appcast() {
         /usr/bin/install -m 644 "$notes_source" "$notes_dest"
     fi
 
-    SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/appcast-beta.xml"
+    SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/${SPARKLE_APPCAST_FILENAME}"
     local appcast_args=(
         --download-url-prefix "$download_url_prefix"
         --release-notes-url-prefix "$release_notes_url_prefix"
@@ -392,6 +426,27 @@ generate_sparkle_appcast() {
                 gh release upload "$SPARKLE_PUBLISH_RELEASE" "$signed_feed_asset" --clobber
             fi
         done
+    fi
+
+    if [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ] && [ "$DEFER_REMOTE_PUBLISH" -eq 0 ]; then
+        local bridge_appcast_path="${SPARKLE_APPCAST_DIR}/${SPARKLE_BRIDGE_APPCAST_FILENAME}"
+        /bin/cp -p "$SPARKLE_APPCAST_PATH" "$bridge_appcast_path"
+
+        if ! gh release view "$SPARKLE_BRIDGE_PUBLISH_RELEASE" >/dev/null 2>&1; then
+            local target_commit
+            target_commit="$(git rev-parse HEAD)"
+            gh release create "$SPARKLE_BRIDGE_PUBLISH_RELEASE" \
+                --title "Lungfish Sparkle Legacy Bridge Appcast" \
+                --notes "Mutable Sparkle appcast bridge for legacy Lungfish prerelease channels." \
+                --prerelease \
+                --target "$target_commit"
+        else
+            local target_commit
+            target_commit="$(git rev-parse HEAD)"
+            gh release edit "$SPARKLE_BRIDGE_PUBLISH_RELEASE" --target "$target_commit"
+        fi
+
+        gh release upload "$SPARKLE_BRIDGE_PUBLISH_RELEASE" "$bridge_appcast_path" --clobber
     fi
 }
 
@@ -658,6 +713,9 @@ team_id=<redacted>
 notary_profile=<redacted>
 sparkle_feed_url=${SPARKLE_FEED_URL}
 github_release_tag=${GITHUB_RELEASE_TAG}
+sparkle_publish_release=${SPARKLE_PUBLISH_RELEASE}
+sparkle_bridge_publish_release=${SPARKLE_BRIDGE_PUBLISH_RELEASE}
+sparkle_bridge_appcast_filename=${SPARKLE_BRIDGE_APPCAST_FILENAME}
 archive_path=$(relative_to_project_root "$ARCHIVE_PATH")
 app_path=$(relative_to_project_root "$APP_PATH")
 release_app_path=$(relative_to_project_root "$RELEASE_APP_PATH")

@@ -156,7 +156,7 @@ struct WorkflowLibraryPanelView: View {
             Text(
                 """
                 Import a .lungfishflowpkg package to catalog Nextflow, Snakemake, \
-                or command-based workflows. In beta1, only Nextflow and Snakemake \
+                or command-based workflows. In beta builds, only Nextflow and Snakemake \
                 packages with a reference-plus-FASTQ contract can be enabled.
                 """
             )
