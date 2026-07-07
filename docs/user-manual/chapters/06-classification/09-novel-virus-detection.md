@@ -26,17 +26,17 @@ lead_approved: false
 
 ## What it is
 
-Novel Virus Diagnostics (NVD) takes a different route to the same goal as a
-classifier. Instead of assigning short reads to a database one at a time, the
-NVD pipeline assembles reads into longer contigs and BLASTs each contig against
-a nucleotide database. A contig is a long, assembled stretch of sequence, so a
-single BLAST hit on a contig carries far more signal than a hit on one 150-base
-read. That is what makes NVD a discovery tool: a contig that only partially
-matches a known virus, or matches it at low identity, is exactly the signature
-of something the read-level classifiers would have placed too confidently or
-missed.
+Novel Virus Diagnostics (NVD) reaches the same goal as a classifier by a
+different road. Rather than assigning short reads to a database one at a time,
+the NVD pipeline stitches reads into longer contigs and BLASTs each contig
+against a nucleotide database. A contig is a long, assembled stretch of
+sequence, so a single BLAST hit on a contig carries far more signal than a hit
+on one 150-base read. That is what makes NVD a discovery tool: a contig that
+only partly matches a known virus, or matches it at low identity, is exactly
+the signature of something the read-level classifiers would have placed too
+confidently or missed.
 
-NVD is an external Snakemake pipeline aimed at wastewater viral surveillance,
+NVD is an external Snakemake pipeline built for wastewater viral surveillance,
 and Lungfish does not run it. It imports the pipeline's output, the same way it
 imports CZ-ID and NAO-MGS results. What Lungfish adds on top of the raw BLAST
 table is a browsable viewport: each contig becomes a row showing its best BLAST
@@ -46,26 +46,25 @@ below it. The pipeline's main output file is named `*_blast_concatenated.csv`
 folder.
 
 The mental model is contigs first, taxa second. Where a Kraken2 sunburst is
-keyed by taxon, the NVD viewport is keyed by contig: you are reading "this
+keyed by taxon, the NVD viewport is keyed by contig. You are reading "this
 assembled sequence best matches that virus, and here is how good the match is,"
-which is the right framing when the interesting cases are the imperfect matches.
+the right framing when the interesting cases are the imperfect matches.
 
-So what should you do with this? When an NVD run finishes, import its output
-into your project and read the contigs whose best hit is partial or low-identity
-first, because those are the candidate novel or divergent viruses the pipeline
-exists to surface.
+In practice, when an NVD run finishes, import its output into your project and
+read the contigs whose best hit is partial or low identity first. Those are the
+candidate novel or divergent viruses the pipeline exists to surface.
 
 ## What you will learn
 
-By the end of this chapter you will be able to import NVD results from the
+You will come away able to import NVD results from the
 Import Center or the command line, read the contig-keyed viewport and its
 secondary hits, group results by sample or by taxon, and verify a contig with
 BLAST.
 
 ## How NVD differs from the read classifiers
 
-NVD answers a discovery question the read-level tools answer less directly. The
-table below places it next to the runnable classifiers and the other import-only
+NVD answers a discovery question the read-level tools handle less directly. The
+table below sets it beside the runnable classifiers and the other import-only
 tools in this part.
 
 | Tool | Unit of analysis | Best at | Runs in Lungfish? |
@@ -76,19 +75,19 @@ tools in this part.
 | NVD | Per contig (assembled, BLASTed) | Flagging novel or divergent viruses | No, import only |
 
 The contig unit is the distinction that matters. Because NVD works on assembled
-sequence, a near-miss against a known reference is informative rather than
-noise, which is the case for novel-virus surveillance.
+sequence, a near-miss against a known reference is signal rather than noise,
+which is exactly what novel-virus surveillance needs.
 
 ## Procedure: import an NVD run
 
 1. Choose **File > Import Center…**, open the **Classification Results** tab,
-   and pick the **NVD Results** card. (The standalone NVD import sheet reaches
-   the same importer.)
+   and pick the **NVD Results** card. The standalone NVD import sheet reaches
+   the same importer.
    <!-- planned: nvd-import-card -->
 
 2. Click **Choose** and select the NVD results directory. The importer expects
-   the run to contain a `05_labkey_bundling/` folder holding the
-   `*_blast_concatenated.csv(.gz)` file; it locates that file for you.
+   the run to hold a `05_labkey_bundling/` folder containing the
+   `*_blast_concatenated.csv(.gz)` file, and it locates that file for you.
 
 3. Click **Import**. Lungfish parses the BLAST hits, builds the per-contig
    rankings, copies the result into the project, and writes a provenance
@@ -96,25 +95,28 @@ noise, which is the case for novel-virus surveillance.
 
 4. Double-click the result to open the NVD viewport.
 
-The same import is available headless, which is the form to script from a
-scheduled job:
+The same import runs headless, the form to script from a scheduled job:
 
 ```bash
 lungfish nvd import /path/to/nvd-output/ --output-dir ./project/Imports/
 ```
 
 The argument is the results directory. `--output-dir` (`-o`) chooses where the
-imported bundle lands, and `--name` overrides the bundle name (the default is
-`nvd-<experiment>`). The Import-command family also offers `lungfish import
+imported bundle lands, and `--name` overrides the bundle name, which defaults
+to `nvd-<experiment>`. The Import-command family also offers `lungfish import
 nvd`, which behaves the same way.
 
 To inspect a run before importing, summarise the top contigs without writing
-anything. The summary accepts either the run directory or a single
+anything. The summary takes either the run directory or a single
 `*_blast_concatenated.csv(.gz)` file:
 
 ```bash
 lungfish nvd summary /path/to/100_blast_concatenated.csv.gz --top 20
 ```
+
+`--top` sets how many contigs the table shows and defaults to 20. Add
+`--format json` or `--format tsv` to emit the same summary as machine-readable
+JSON or TSV for a downstream script.
 
 ## Interpretation: reading the contig viewport
 
@@ -127,34 +129,51 @@ right.
 
 Each top-level row is one contig, showing its best BLAST hit. The columns
 include the **Sample** and **Contig** identifiers, the contig **Length**, the
-hit's **Classification** and **Rank**, the subject **Accession**, **Identity %**,
-**E-value**, **Bit Score**, and read counts (**Mapped Reads** and **RPB**, reads
-per billion, a depth-normalised abundance). Expand a contig row to see the
-secondary BLAST hits the pipeline ranked below the best one, which is how you
-judge whether a call is clean (one strong hit, a large gap to the next) or
-ambiguous (several near-equal hits to different organisms).
+hit's **Classification** and **Rank**, the subject **Accession** and its **Subject**
+title, **Identity %**, **E-value**, **Bit Score**, **Aln Length**, the length of
+the BLAST alignment, and read counts: **Mapped Reads**, **Unique Reads**, and
+**RPB**, reads per billion, a depth-normalised abundance. Expand a contig row to see the
+secondary BLAST hits the pipeline ranked below the best one. That is how you
+judge whether a call is clean, one strong hit with a large gap to the next, or
+ambiguous, several near-equal hits to different organisms.
 
-A grouping control switches the outline between **By Sample** (a flat contig
-list) and **By Taxon** (contigs gathered under the organism their best hit
-names). By Sample is the right view for walking one run's contigs; By Taxon is
-the right view when you want every contig that matched a given virus together.
+A grouping control switches the outline between **By Sample**, a flat contig
+list, and **By Taxon**, contigs gathered under the organism their best hit
+names. By Sample is the view for walking one run's contigs. By Taxon is
+the view when you want every contig that matched a given virus in one place.
 
-Sort by **Identity %** ascending to surface the partial and divergent matches
-first. A contig whose best hit is a high-identity full-length match to a known
-virus is the expected, routine case. A long contig whose best hit is only
+Two more controls sit in the outline's filter bar. A sample-filter button,
+labelled with the current sample count, opens a popover for narrowing the
+outline to chosen samples, and a **Search contigs…** field filters the rows by
+contig or hit text as you type.
+
+Sort by **Identity %** ascending to float the partial and divergent matches
+to the top. A contig whose best hit is a high-identity, full-length match to a
+known virus is the routine case. A long contig whose best hit is only
 70% identity, or covers only part of its length, is the candidate the pipeline
-exists to find, and it is the row to verify next.
+exists to find, and the row to verify next.
 
-Selecting a contig populates the detail pane. For a contig with alignment data,
+Selecting a contig fills the detail pane. For a contig with alignment data,
 the pane includes a mini-BAM viewer showing the reads that built it, so you can
-check whether the contig is supported by a deep, even pile or by a thin stack
-that may be an assembly artifact.
+check whether a deep, even pile supports the contig or a thin stack that may be
+an assembly artifact.
 
 To get an independent opinion on a contig, click **BLAST Verify** in the
 viewport's action bar. The verification submits the contig sequence to NCBI
 BLAST and returns a verdict, the same flow described in
 [BLAST Verification](06-blast-verification.md). The action bar's **Export**
-button writes the displayed results out for downstream use.
+button writes the displayed results out for downstream use, and its
+**Extract FASTQ** button pulls the reads behind the selected contigs into a
+fresh FASTQ dataset through the shared extraction dialog.
+
+Right-clicking a contig row opens a fuller set of per-contig actions.
+**Extract Reads…** reaches the same extraction dialog, while
+**Extract Sequence…**, **Verify with BLAST…**, **Copy FASTA**,
+**Export FASTA…**, **Create Bundle…**, and **Run Operation…** act on the
+contig's own sequence. The rest are lookups: **Copy Contig Name** and
+**Copy Accession** place those identifiers on the clipboard, and
+**View Accession on NCBI** and **Search PubMed** open the subject accession or
+its organism name in a browser.
 
 The provenance record for the import is reachable from the Inspector and names
 the source directory, the importing command, and the input checksums, so a

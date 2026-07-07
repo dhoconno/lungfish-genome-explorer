@@ -192,6 +192,144 @@ over the annotation names; on the SARS-CoV-2 reference, typing `spike`
 jumps to the `S` gene at position 21563. To centre on a feature you can
 already see, click its block in the annotation track.
 
+### Right-click actions
+
+Right-click (or Control-click) inside the viewport and the menu matches
+whatever sits under the pointer. Right-click a feature block in the
+annotation track for its own menu:
+
+- **Copy**: a submenu for the feature's name, coordinates, bases, complement, reverse complement, or FASTA, with a protein-FASTA option on CDS features.
+- **Extract Sequence...**: writes the feature's bases to a fresh bundle or FASTA.
+- **Run FASTQ/FASTA Operation...**: sends the feature's sequence into the operations dialog.
+- **Zoom to Annotation**: fits the view to the feature.
+- **Edit Annotation...** and **Delete Annotation**: revise or remove it.
+
+Right-click a region you have dragged out instead, and the menu turns to
+the selection: **Copy Visible Region** puts its bases on the clipboard,
+**Zoom to Visible Region** fits the view to it, and **Center View Here**
+recentres on the click point.
+
+## Translating a sequence to protein
+
+Translation reads a nucleotide sequence three bases at a time and swaps
+each triplet (a codon) for the amino acid it encodes, turning DNA or RNA
+into the protein it would build. Which amino acid a codon maps to depends
+on the genetic code, so the tool lets you choose one: the standard code
+(table 1) covers most nuclear genes, while alternatives cover vertebrate
+mitochondria (table 2), yeast mitochondria (table 3), and bacteria
+(table 11). A reading frame is the offset the triplets are counted from,
+and there are six: three on the forward strand (`+1`, `+2`, `+3`) and
+three on the reverse-complement strand (`-1`, `-2`, `-3`).
+
+The practical takeaway: translate in the frame and code that match your
+sequence to read the protein, or scan all six frames when you do not yet
+know which one is coding.
+
+### In the app
+
+Open a sequence bundle, then choose **Sequence > Translate...**. A sheet
+opens with a Mode control offering `Single Frame`, `3 Forward`,
+`3 Reverse`, and `All 6 Frames`; pick `Single Frame` to reveal a picker
+for one specific frame. Choose the genetic code under `Genetic Code`.
+Under `Display Options`, the `Color Scheme` picker sets how the overlaid
+residues are tinted: `Zappo` (the default, grouping by physicochemical
+property), `ClustalX`, `Taylor`, or `Hydrophobicity`. Leave
+`Show Stop Codons` on if you want stop positions marked, and click
+`Apply`. The translation appears as an overlay aligned to the bases in
+the viewport, and `Hide Translation` clears it. The in-app tool overlays
+the translation for reading; it writes no protein file.
+
+### From the command line
+
+To write a protein FASTA to disk, drop to the CLI:
+
+```bash
+lungfish translate MN908947.3.fasta --frame 1 --table 1 -o spike-protein.fasta
+```
+
+Frames `1` to `3` are the forward strand; `4` to `6` are the reverse
+complement. Omit `--frame` to translate all six. `--table` selects the
+genetic code (default 1, the standard code). Three flags shape the
+output: `--trim-to-stop` cuts each translation at its first stop codon,
+`--no-stop-asterisk` drops the `*` characters that mark stops, and
+`--longest-orf` keeps only the longest stop-free stretch per frame. The
+command drops a provenance sidecar next to the output, recording the
+exact options used. Adding the global `--format json` flag prints a
+machine-readable summary of the run (input and output files, sequence
+and translation counts, and the genetic code) to standard output, handy
+when a script needs to confirm what was produced.
+
+## Annotating features on a sequence
+
+An annotation is a labelled interval on the genome: a start, an end, a
+strand, and a type such as `gene` or `CDS` (the coding part of a gene). A
+GenBank import carries annotations in for you, but you can also add your
+own or let Lungfish detect them.
+
+So what should you do with this? Add an annotation by hand when you
+already know where a feature sits, and auto-detect open reading frames
+when you want the software to propose candidate coding regions for you.
+
+### Adding one annotation by hand
+
+Drag across the bases in the sequence viewport to select a region, then
+choose **Sequence > Add Annotation...**. A dialog asks for a name, a type,
+and a strand. The type menu offers `gene`, `CDS`, `exon`, `mRNA`,
+`region`, `misc_feature`, `promoter`, `primer`, and `restriction_site`;
+the strand menu offers `+`, `-`, or `none`. Click **Add**. Lungfish
+writes the annotation into the bundle's annotation track and redraws the
+viewport with the new labelled block. It saves inside the `.lungfishref`
+bundle, so it travels with the reference.
+
+### Auto-detecting open reading frames
+
+An open reading frame (ORF) is a stretch that begins with a start codon
+and runs to a stop codon without a break, which makes it a candidate
+protein-coding region. Choose **Sequence > Find ORFs...** on an open
+reference bundle. The dialog's main controls are:
+
+- `Reading Frames`: checkboxes for `+1`, `+2`, `+3`, `-1`, `-2`, `-3` (all six on by default).
+- `Codon table`: the genetic code used to recognise starts and stops.
+- `Minimum ORF length`: the shortest ORF to keep, in nucleotides (default 100).
+- `Include partial ORFs`: keep ORFs that run off the end of the selected range.
+- `Allow alternative starts`: also treat `GTG`, `TTG`, and `CTG` as starts.
+
+An `Output` section names where the results land: a `Track name` field,
+prefilled with the sequence name followed by ` ORFs` (for the SARS-CoV-2
+reference, `MN908947.3 ORFs`), and a `Track ID` field holding the track's
+stable identifier.
+
+Click **Run**. Lungfish writes a new annotation track into the bundle,
+one feature per ORF, each carrying its translated protein as an attribute.
+The same operation runs from the command line, where the `--track-name`
+option instead defaults to `ORFs`:
+
+```bash
+lungfish sequence annotate-orfs MN908947.3.lungfishref \
+  --frames +1,+2,+3 --table 1 --min-length 300 --track-name "ORFs"
+```
+
+### Transferring best-match CDS annotations
+
+Once you have mapped a reference's coding sequences against a new
+assembly, Lungfish can carry the best-matching CDS models across as
+annotations on a fresh bundle. This path lives under the alignment tools
+rather than the Sequence menu, because it reads a mapping result:
+
+```bash
+lungfish bam annotate-cds-best \
+  --bundle source.lungfishref \
+  --mapping-result mapping-out/ \
+  --output-bundle annotated.lungfishref \
+  --output-track-name "CDS (best match)"
+```
+
+It builds a new `.lungfishref` bundle and leaves the source untouched.
+The new bundle's annotation track holds one gene and CDS model per query
+that aligned well enough. The `--min-query-cover` option sets that bar
+(default 0.5, meaning at least half of the CDS query must be covered by
+the alignment).
+
 ## When import fails
 
 The error sheet names the file, the line number where parsing stopped,

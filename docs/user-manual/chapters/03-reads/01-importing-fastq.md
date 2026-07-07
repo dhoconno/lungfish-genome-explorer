@@ -135,7 +135,69 @@ lungfish import fastq \
 
 For a folder of samples, pass the folder path; the CLI detects pairs the same way the GUI does. Run `lungfish import fastq --help` for the full option list.
 
-Two CLI defaults change the stored bytes, so name them in a methods record if bit-exact reproduction matters. `--quality-binning` defaults to `illumina4`, which re-quantises each base quality into one of four levels (the same scheme NovaSeq applies in hardware); pass `--quality-binning none` to keep the original per-base scores. Storage-optimized read reordering is on by default; pass `--no-optimize-storage` to keep the original read order. `--recipe` (one of `vsp2`, `wgs`, `hifi`, `none`; default `none`) applies a packaged processing pass at import, and `--dry-run` lists the pairs the CLI detected without importing anything.
+Two CLI defaults change the stored bytes, so name them in a methods
+record if bit-exact reproduction matters. `--quality-binning` defaults
+to `illumina4`, which re-quantises each base quality into one of four
+levels (the same scheme NovaSeq applies in hardware); pass
+`--quality-binning eightLevel` for the eight-level scheme or
+`--quality-binning none` to keep the original per-base scores.
+`--compression` sets how hard Lungfish squeezes the output and takes
+`fast`, `balanced`, or `maximum`, defaulting to `balanced`.
+Storage-optimized read reordering is on by default; pass
+`--no-optimize-storage` to keep the original read order. `--recipe` (one
+of `vsp2`, `wgs`, `hifi`, `none`; default `none`) applies a packaged
+processing pass at import, and `--dry-run` lists the pairs the CLI
+detected without importing anything.
+
+Three more flags shape which files the CLI picks up and whether it
+repeats work. `--recursive`, off by default, walks a directory's
+subfolders so a nested run layout imports in one call rather than one
+folder at a time. `--force`, also off by default, reimports a sample even
+when a bundle of that name already sits in the project, replacing the
+earlier import instead of skipping it. `--log-dir <dir>` writes a
+per-sample log file into the directory you name, which is worth turning
+on for an unattended batch so a single failed sample leaves a trail you
+can read afterward.
+
+## The import configuration sheet
+
+Every GUI import, by drag-drop or through the Import Center, opens a
+configuration sheet before the copy begins. It confirms what Lungfish
+detected and lets you override it. The **Platform** selector offers
+seven choices: Illumina, Oxford Nanopore, PacBio, Element Biosciences,
+Ultima Genomics, MGI / DNBSEQ, and Unknown / Other. Choosing Oxford
+Nanopore forces single-end and drops quality binning to None, since
+neither pairing nor Illumina-style binning applies to Nanopore reads.
+
+Three more controls shape the bundle on disk. **Quality Binning** takes
+Illumina 4-level, 8-level, or None (preserve original), defaulting to
+4-level for Illumina, Element, and MGI and to None for the long-read
+platforms. **Pairing** takes Single-end, Paired-end, or Interleaved.
+**Compression** takes Fast, Balanced (the default), or Maximum. The
+**Optimize storage** checkbox, on by default, reorders reads for tighter
+compression; clear it to keep them in their original order.
+
+The **Apply processing recipe after import** checkbox, off by default,
+runs a packaged workflow on the reads as they land. The ONT
+demultiplexing recipes, one splitting by Fluidigm sample barcodes and
+one by PacBio barcode pairs, need two extra inputs before they can run: a
+barcode sheet, a CSV, TSV, or text file of sample names and barcodes, and
+a name for the demux output folder.
+
+A FASTQ bundle can be virtual. Rather than holding a copied FASTQ, it
+stores a derived manifest that names a root file and the operation to
+apply, whether a read-ID subset, trim positions, or a full-payload copy.
+The viewport previews from that manifest while heavier operations run
+against the full file. To write a virtual or derived bundle back out as a
+plain FASTQ, materialize it:
+
+```sh
+lungfish fastq materialize SampleA.lungfishfastq -o SampleA.fastq
+```
+
+Add `--temp-dir <dir>` to place intermediate files on a specific volume,
+`--force` to overwrite an existing output, and `--compress` to gzip the
+result.
 
 ## What gets recorded at import
 

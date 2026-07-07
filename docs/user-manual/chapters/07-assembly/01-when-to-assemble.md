@@ -27,57 +27,53 @@ lead_approved: false
 
 ## What it is
 
-Assembly takes sequencing reads and stitches them together into longer
-contiguous sequences, called contigs, without consulting a reference genome.
-The assembler looks for overlaps between reads, builds a graph of those
-overlaps, and walks the graph to produce a small set of long sequences that
-together represent the sample's genome. Where reference mapping asks "where
-on this known genome does each read fit?", assembly asks "what sequence
-must the sample have for these reads to make sense?".
+Assembly stitches sequencing reads into longer contiguous sequences, called
+contigs, without ever consulting a reference genome. The assembler hunts for
+overlaps between reads, builds a graph of those overlaps, and walks the graph
+to yield a small set of long sequences that together stand in for the sample's
+genome. Reference mapping asks "where on this known genome does each read
+fit?" Assembly asks the harder question: "what sequence must the sample carry
+for these reads to make sense?"
 
 ![Mapping with a reference contrasted against de novo assembly from read overlaps into contigs](../../assets/illustrations-imagegen/07-assembly/01-when-to-assemble/assembly-vs-mapping.png)
 
 Three situations call for assembly. The first is a sample with no good
-reference: a novel virus, a known virus that has drifted far enough from
-its closest GenBank entry that mapping wastes most of the reads, or a
-contaminating organism you want to identify by BLASTing the resulting
-contigs. The second is a sample where you want a higher-quality consensus
-than reference mapping can give. Mapping forces every read into the
-reference's coordinate system, which masks insertions, deletions, and
-rearrangements; assembly recovers them. The third is structural variation.
-Large duplications, inversions, and translocations leave reads soft-clipped
-or unmapped against a reference, but appear as their actual sequence in
-contigs.
+reference: a novel virus, a known virus that has drifted so far from its
+closest GenBank entry that mapping throws away most of the reads, or a
+contaminating organism you want to identify by BLASTing the resulting contigs.
+The second is a sample where you want a cleaner consensus than mapping can
+give. Mapping forces every read into the reference's coordinate system, which
+buries insertions, deletions, and rearrangements. Assembly brings them back.
+The third is structural variation. Large duplications, inversions, and
+translocations leave reads soft-clipped or unmapped against a reference, yet
+they show up as their actual sequence in contigs.
 
 Lungfish runs five assemblers through one wizard and packages every result
-the same way: a `.lungfishref` assembly bundle in the project's
-`Assemblies/` folder, with each contig as a navigable sequence and assembly
-statistics (N50, total length, contig count) in the Inspector. There is one
-menu item, `Tools > FASTQ/FASTA Operations > Assembly…`, and you pick the
-assembler from a segmented Assembler control inside the wizard. The bundle
-format is identical to a reference bundle, so any contig you produce can be
-used downstream as a mapping target, an annotation target, or a phylogeny
-input.
+the same way: a `.lungfishref` assembly bundle in the project's `Assemblies/`
+folder, with each contig as a navigable sequence and the assembly statistics
+(N50, total length, contig count) in the Inspector. One menu item opens the
+wizard, `Tools > FASTQ/FASTA Operations > Assembly…`, and you pick the
+assembler from a segmented Assembler control inside it. The bundle format
+matches a reference bundle exactly, so any contig you produce can serve
+downstream as a mapping target, an annotation target, or a phylogeny input.
 
-In practice, before you open the Assembly wizard, work through the decision
-walkthrough in the next section. Most short-read viral
-and bacterial work belongs on SPAdes; metagenomic work belongs on MEGAHIT;
-long-read work belongs on Flye or Hifiasm; and a meaningful fraction of
-projects do not need assembly at all.
+Before you open the Assembly wizard, work through the decision walkthrough in
+the next section. Most short-read viral and bacterial work belongs on SPAdes.
+Metagenomic work belongs on MEGAHIT. Long-read work belongs on Flye or
+Hifiasm. And a fair share of projects need no assembly at all.
 
 ## What you will learn
 
-By the end of this chapter you will be able to decide whether to assemble
-or to map against a reference, choose the right assembler for your data
-type, run the Assembly wizard, and find the resulting assembly bundle in
-the project.
+This chapter walks you through deciding whether to assemble or to map against
+a reference, choosing the right assembler for your data type, running the
+Assembly wizard, and finding the resulting assembly bundle in the project.
 
 ## The five assemblers at a glance
 
 Lungfish ships five de novo assemblers. Each was built for a specific
-combination of read length, error profile, and genome class, and using one
-outside its niche usually produces a worse assembly than the alternative.
-The table below summarises the niches.
+combination of read length, error profile, and genome class, and pushing one
+outside its niche usually yields a worse assembly than the right alternative.
+The table below lays out the niches.
 
 | Assembler | Read type | Best for | Genome size | Notes |
 |---|---|---|---|---|
@@ -87,111 +83,103 @@ The table below summarises the niches.
 | Flye | Oxford Nanopore long reads | Anything from viral to bacterial chromosomes | up to ~100 Mb | Handles repeats well because long reads span them. In this version Flye accepts ONT reads only. |
 | Hifiasm | PacBio HiFi long reads | High-accuracy long-read assembly | unbounded | Designed for HiFi's <1% error rate. Produces near reference-grade contigs. Also accepts ONT reads. |
 
-Two assemblers are not in this table because Lungfish does not ship them:
-Canu and Trinity. Canu has been superseded by Flye for Nanopore work in
-most published comparisons. Trinity targets transcriptome assembly, which
-Lungfish does not currently expose.
+Two assemblers are missing from this table because Lungfish does not ship
+them: Canu and Trinity. Flye has overtaken Canu for Nanopore work in most
+published comparisons. Trinity targets transcriptome assembly, which Lungfish
+does not currently expose.
 
-The wizard reads the FASTQ headers and detects the read class for you, then
-shows only the assemblers that match. If you select a paired Illumina
-bundle, the Assembler picker offers SPAdes, MEGAHIT, and SKESA; an ONT
-bundle offers Flye and Hifiasm. A tool you expect may therefore be absent
-because it does not accept your detected read type, not because it is
-missing.
+The wizard reads the FASTQ headers, detects the read class for you, and then
+shows only the assemblers that fit. Select a paired Illumina bundle and the
+Assembler picker offers SPAdes, MEGAHIT, and SKESA; an ONT bundle offers Flye
+and Hifiasm. So a tool you expected may be absent simply because it does not
+accept your detected read type, not because it went missing.
 
 ## A decision walkthrough
 
-Work through three questions in order. The answers select an assembler or
-send you back to reference mapping.
+Work through three questions in order. The answers point you to an assembler
+or send you back to reference mapping.
 
-**Do I have a reference that fits?** A reference fits when the sample
-shares more than ~95% identity across most of the reference's length. For
-SARS-CoV-2 from 2020 onwards this is always true: every sequenced isolate
-maps cleanly against MN908947.3 or a Wuhan-Hu-1 derivative. For a sample
-where the closest GenBank hit is the wrong genus, or where mapping leaves
-more than half the reads unmapped, you do not have a reference that fits
-and assembly is the right tool. If a reference fits, assembly is usually
-unnecessary; map and call variants instead, and only assemble if you
-suspect structural variation that mapping is hiding.
+**Do I have a reference that fits?** A reference fits when the sample shares
+more than ~95% identity across most of the reference's length. For SARS-CoV-2
+from 2020 onward this always holds: every sequenced isolate maps cleanly
+against MN908947.3 or a Wuhan-Hu-1 derivative. If the closest GenBank hit is
+the wrong genus, or mapping leaves more than half the reads unmapped, no
+reference fits and assembly is the right tool. When a reference does fit,
+assembly is usually unnecessary. Map and call variants instead, and assemble
+only when you suspect structural variation that mapping is hiding.
 
 **Is the genome small or large?** Small means viral or single-bacterial
-(under ~10 Mb). Large means metagenomic, multi-species, or eukaryotic.
-Small genomes go to SPAdes (viral or bacterial) or SKESA (bacterial
-isolates with strict isolate-quality requirements). Large or mixed samples
-go to MEGAHIT, which trades some contiguity for the ability to assemble
-many organisms in one pass without exhausting memory.
+(under ~10 Mb). Large means metagenomic, multi-species, or eukaryotic. Small
+genomes go to SPAdes (viral or bacterial) or SKESA (bacterial isolates with
+strict isolate-quality requirements). Large or mixed samples go to MEGAHIT,
+which trades some contiguity for the reach to assemble many organisms in one
+pass without exhausting memory.
 
 **Are the reads short or long?** Illumina is short (50–300 bp), and SPAdes,
 MEGAHIT, or SKESA apply. Oxford Nanopore is long (1–100 kb) with ~5–10%
 per-base error, and Flye applies. PacBio HiFi is long (10–25 kb) with <1%
-error, and Hifiasm applies. Hybrid assembly that mixes read types in one
-run exists in some assemblers, but it is out of scope here: the Lungfish
-wizard detects one read class per bundle and runs a single technology at a
-time.
+error, and Hifiasm applies. Hybrid assembly that blends read types in one run
+exists in some assemblers, but it sits out of scope here: the Lungfish wizard
+detects one read class per bundle and runs a single technology at a time.
 
-A worked example. Suppose you have a wastewater sample sequenced with
-Illumina paired-end shotgun and you want to recover any viral genomes
-present. You do not have a single fitting reference because you do not yet
-know what organisms are in the sample, so the first question sends you to
-assembly. The genome is large in aggregate (a metagenome), so the second
-question sends you to MEGAHIT rather than SPAdes. The reads are short, so
-the third question confirms MEGAHIT. After assembly, you BLAST the longest
-contigs to identify what assembled. If one of those contigs is a complete
-SARS-CoV-2 genome, you can drop it back into the project as a reference
+A worked example. Suppose you have a wastewater sample sequenced with Illumina
+paired-end shotgun, and you want to recover any viral genomes it holds. No
+single reference fits, because you do not yet know what organisms are in the
+sample, so the first question sends you to assembly. The genome is large in
+aggregate (a metagenome), so the second question steers you to MEGAHIT over
+SPAdes. The reads are short, so the third question confirms MEGAHIT. After
+assembly you BLAST the longest contigs to see what assembled. If one is a
+complete SARS-CoV-2 genome, drop it back into the project as a reference
 bundle and re-map the full read set against it for a clean variant call.
 
-A second worked example. A clinical bacterial isolate with Nanopore
-sequencing and no Illumina backup. The first question sends you to
-assembly because there may be a closer reference but you want a
-chromosome-level genome with the structural variation intact. The second
-question is bacterial-isolate territory but the third question (long
-reads) overrides it: Flye, not SKESA. Flye runs its own internal polishing,
-so its output is usable as a draft genome straight from the wizard.
+A second worked example. A clinical bacterial isolate, Nanopore sequenced,
+with no Illumina backup. The first question sends you to assembly: a closer
+reference may exist, but you want a chromosome-level genome with the
+structural variation intact. The second question reads as bacterial-isolate
+territory, yet the third question overrides it on read length: Flye, not
+SKESA. Flye runs its own internal polishing, so its output is usable as a
+draft genome straight from the wizard.
 
 ## Comparing SPAdes and MEGAHIT on the same sample
 
-If you have not assembled before, you can skip this comparison and return
-to it after your first run; it goes a step deeper than the decision
-walkthrough above.
+If you have never assembled before, skip this comparison and come back after
+your first run. It goes a step deeper than the decision walkthrough above.
 
-SPAdes and MEGAHIT both accept Illumina paired short reads, and both
-appear in the wizard's Assembler picker for that input type. The difference
-shows up in the output. Consider SRR36291587, a SARS-CoV-2 amplicon
-Illumina run.
+SPAdes and MEGAHIT both accept Illumina paired short reads, and both surface
+in the wizard's Assembler picker for that input type. The difference emerges
+in the output. Consider SRR36291587, a SARS-CoV-2 amplicon Illumina run.
 
-Run SPAdes with its default Isolate profile against the paired FASTQ.
-There is no viral profile in Lungfish; for a single-organism amplicon run
-the Isolate profile is the right default. The expected output is one or a
-small number of contigs, with the longest near 29.9 kb (the full
-SARS-CoV-2 genome) when amplicon coverage is uniform, plus one or two
-shorter fragments where amplicon dropouts forced a graph break. The N50
-is essentially the longest contig length. Total assembly length is close
-to 30 kb.
+Run SPAdes with its default Isolate profile against the paired FASTQ. Lungfish
+ships no viral profile, and for a single-organism amplicon run the Isolate
+profile is the right default. Expect one contig or a small handful, the
+longest near 29.9 kb (the full SARS-CoV-2 genome) when amplicon coverage is
+uniform, plus a shorter fragment or two where amplicon dropouts forced a graph
+break. The N50 is essentially the longest contig length. Total assembly length
+sits close to 30 kb.
 
-Run MEGAHIT against the same FASTQ. The expected output is a noticeably
-longer contig list, with the longest contig often shorter than SPAdes's
-longest, total assembly length similar, and N50 lower. MEGAHIT's
-metagenomic-first heuristics treat the input as a possibly mixed sample
-and split the graph more aggressively at coverage transitions, which a
-viral isolate exhibits at every amplicon boundary.
+Now run MEGAHIT against the same FASTQ. Expect a noticeably longer contig
+list, its longest contig often shorter than SPAdes's longest, total assembly
+length similar, and N50 lower. MEGAHIT's metagenomic-first heuristics treat
+the input as a possibly mixed sample and split the graph more aggressively at
+coverage transitions, which a viral isolate throws up at every amplicon
+boundary.
 
-For this sample SPAdes is the right tool because the input is a
-single-organism amplicon run with a known target size. If the same FASTQ
-came from a wastewater shotgun preparation, MEGAHIT would be right
-because the assumption of a single dominant organism would not hold. The
-take-away: identical input, different assembler assumption, different
-shape of result. Match the assembler's assumption to your sample.
+For this sample SPAdes wins, because the input is a single-organism amplicon
+run with a known target size. Had the same FASTQ come from a wastewater
+shotgun preparation, MEGAHIT would win, because the single-dominant-organism
+assumption would collapse. The takeaway: identical input, different assembler
+assumption, different shape of result. Match the assembler's assumption to
+your sample.
 
 ## Where the result lands
 
-Every assembler in this list writes a `.lungfishref` assembly bundle into
-the project's `Assemblies/` folder. The bundle's primary FASTA contains
-the contigs in length-descending order. The Inspector shows N50, total
-assembled length, contig count, longest-contig length, and the resolved
-tool version. The contigs themselves appear as navigable sequences in the
-sidebar, and any contig can be opened in a sequence viewport, used as a
-mapping target for a fresh `Map Reads` run, or annotated with a transferred
-GFF3.
+Every assembler in this list writes a `.lungfishref` assembly bundle into the
+project's `Assemblies/` folder. The bundle's primary FASTA holds the contigs
+in length-descending order. The Inspector shows N50, total assembled length,
+contig count, longest-contig length, and the resolved tool version. The
+contigs themselves appear as navigable sequences in the sidebar, and any one
+can be opened in a sequence viewport, used as a mapping target for a fresh
+`Map Reads` run, or annotated with a transferred GFF3.
 
 <!-- planned: assembly-bundle-in-sidebar -->
 

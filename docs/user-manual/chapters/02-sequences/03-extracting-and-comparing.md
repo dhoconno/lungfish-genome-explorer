@@ -26,17 +26,17 @@ lead_approved: false
 
 ## What it is
 
-Working with a reference genome often means working with one piece of it. You may want to clone the spike gene, design a primer in a 200-base window, or scan a contig for every open reading frame above 100 codons. An open reading frame (ORF) is a stretch that runs from a start codon to a stop codon without interruption, so it could in principle encode a protein; a codon is a run of three bases that codes for one amino acid. Lungfish handles these jobs from the `Sequence` menu of an open sequence viewport.
+Working with a reference genome often means working with just one piece of it. You might clone the spike gene, design a primer in a 200-base window, or scan a contig for every open reading frame above 100 codons. An open reading frame (ORF) is a stretch that runs from a start codon to a stop codon without a break, so it could in principle encode a protein; a codon is a run of three bases that codes for one amino acid. Lungfish handles these jobs from the `Sequence` menu of an open sequence viewport.
 
-The operations split into two groups. The first group produces output: extract a visible range as a new reference bundle, copy a visible range to the clipboard as FASTA, reverse-complement a selected range, or translate it through the standard FASTQ/FASTA Operations dialog. The second group annotates the active reference bundle in place: Find ORFs adds an ORF track with translated products and provenance, and Add Annotation lets you mark a region by hand.
+The operations split into two groups. One produces output: extract a visible range as a new reference bundle, copy a visible range to the clipboard as FASTA, reverse-complement a selected range, or translate it through the standard FASTQ/FASTA Operations dialog. The other annotates the active reference bundle in place: Find ORFs adds an ORF track with translated products and provenance, and Add Annotation lets you mark a region by hand.
 
-These are single-sequence operations. They do not align two sequences against each other and they do not build a multiple-sequence alignment. For those workflows see the [MSAs and Trees](04-msa-and-trees.md) chapter.
+These are single-sequence operations. They do not align two sequences against each other, and they do not build a multiple-sequence alignment. For those workflows, see the [MSAs and Trees](04-msa-and-trees.md) chapter.
 
 The practical takeaway: treat the `Sequence` menu as your bench-side toolkit for cutting one region out of one bundle, marking up its features, and handing the result to a downstream tool (a primer designer, a cloning protocol, an aligner) without leaving the project.
 
 ## What you will learn
 
-By the end of this chapter you will be able to select a region of a sequence, extract it as a new bundle, copy a region as FASTA for pasting elsewhere, find ORFs with translated products, and use the resulting tracks to navigate the sequence.
+Here you will learn to select a region of a sequence, extract it as a new bundle, copy a region as FASTA for pasting elsewhere, find ORFs with translated products, and use the resulting tracks to navigate the sequence.
 
 ## The operations at a glance
 
@@ -49,21 +49,21 @@ By the end of this chapter you will be able to select a region of a sequence, ex
 | Find ORFs | `Sequence > Find ORFs` | none | ORF annotation track |
 | Add Annotation | `Sequence > Add Annotation…` | none | Annotation on the active bundle |
 
-The menu items that carry an ellipsis open a dialog before they act; the ellipsis is your cue that a confirmation step follows. `Copy Visible Region as FASTA` and `Find ORFs` have no ellipsis, but Find ORFs still opens a dialog. `Cmd-Shift-C` overrides the standard macOS Copy because the active window is a sequence viewport. To copy a row of text from a list view elsewhere in the project, click that view first.
+The menu items ending in an ellipsis open a dialog before they act; the ellipsis is your cue that a confirmation step follows. `Copy Visible Region as FASTA` and `Find ORFs` carry no ellipsis, yet Find ORFs still opens a dialog. `Cmd-Shift-C` overrides the standard macOS Copy because the active window is a sequence viewport. To copy a row of text from a list view elsewhere in the project, click that view first.
 
 ## Procedure: extract a region as a new bundle
 
 Use this when you need the region as a reusable input to another workflow: an aligner, an external primer designer, or another Lungfish operation that takes a reference bundle.
 
 1. Open the source bundle by double-clicking it in the sidebar. The sequence viewport opens with the full reference visible.
-2. Set the range you want before opening the dialog. Drag across the ruler, or type coordinates into the position field at the top of the viewport (placeholder `chr:start-end`). The selected range highlights in orange. The dialog extracts whatever region is visible, so frame it now.
+2. Set the range you want before opening the dialog. Drag across the ruler, or type coordinates into the position field at the top of the viewport (placeholder `chr:start-end`). The selected range lights up orange. The dialog extracts whatever region is visible, so frame it now.
 3. Choose `Sequence > Extract Visible Region…`, or press `Cmd-Shift-E`. A sheet titled **Extract Sequence** opens.
-4. The sheet has a **Destination** radio group and a **Name** field; there are no coordinate boxes, because the range is the one you already framed. Choose a destination, name the new bundle, and click `Extract`.
+4. The sheet has a **Destination** radio group and a **Name** field, and no coordinate boxes, because the range is the one you already framed. Choose a destination, name the new bundle, and click `Extract`.
 5. Lungfish writes a new `.lungfishref` bundle into the project's `Reference Sequences/` folder and selects it in the sidebar.
 
 <!-- planned: extract-region-dialog -->
 
-The new bundle is a complete reference: it has its own FASTA, its own FAI index, and its own provenance sidecar recording the source bundle and the extracted coordinates. You can map reads to it, attach annotations, or extract a sub-region of it later.
+The new bundle is a complete reference: its own FASTA, its own FAI index, and its own provenance sidecar recording the source bundle and the extracted coordinates. Map reads to it, attach annotations, or extract a sub-region of it later.
 
 ## Procedure: copy a region as FASTA
 
@@ -71,9 +71,9 @@ Use this when you need the sequence as text in another application: a primer-des
 
 1. Select the range as in step 2 above.
 2. Choose `Sequence > Copy Visible Region as FASTA`, or press `Cmd-Shift-C`.
-3. Paste anywhere. The clipboard now holds a FASTA record whose header names the source bundle and the extracted coordinates and whose body is the selected bases.
+3. Paste anywhere. The clipboard now holds a FASTA record whose header names the source bundle and the extracted coordinates, and whose body is the selected bases.
 
-For reverse-complement or protein output, use the `Reverse Complement…` or `Translate…` menu items. Those open the standard FASTQ/FASTA Operations dialog and write CLI-backed derived outputs with provenance.
+For reverse-complement or protein output, reach for the `Reverse Complement…` or `Translate…` menu items. Those open the standard FASTQ/FASTA Operations dialog and write CLI-backed derived outputs with provenance.
 
 ## Procedure: reverse-complement or translate a region
 
@@ -83,28 +83,43 @@ Use this when the selected bases should become a new derived sequence artifact r
 2. Choose `Sequence > Reverse Complement…` or `Sequence > Translate…`.
 3. Confirm the preselected tool and output settings in the FASTQ/FASTA Operations dialog, then click `Run`.
 
-Lungfish materializes the selected bases as a temporary FASTA input and runs the corresponding `lungfish-cli fastq` operation. The generated output is imported through the same provenance-preserving FASTQ/FASTA operation path used by the Tools menu.
+Lungfish writes the selected bases out as a temporary FASTA input and runs the matching `lungfish-cli fastq` operation. The generated output comes back in through the same provenance-preserving FASTQ/FASTA operation path the Tools menu uses.
 
 ## Procedure: find ORFs
 
-Use this when you want to see every protein-coding window above a length cutoff, for example before primer design in an unannotated contig or when triaging a metagenomic assembly.
+Use this when you want to see every protein-coding window above a length cutoff, say before primer design in an unannotated contig, or when triaging a metagenomic assembly.
 
 1. Make the sequence viewport active.
 2. Choose `Sequence > Find ORFs`. The dialog (titled **Find ORFs**) groups its controls: **Reading Frames** (which of the six frames to scan), **Translation** (the **Codon table** and the **Minimum ORF length** in nucleotides), **Output** (the **Track name** and **Track ID** for the new track), and **Options** (toggles for **Include partial ORFs** and **Allow alternative starts**).
 3. Click `Run`. Lungfish calls `lungfish sequence annotate-orfs`, adds a new ORF annotation track to the bundle, and records provenance for the generated BED, database, and updated manifest.
 
-The ORF track behaves like any annotation track. Click an ORF to jump to its coordinates. Right-click to copy its range, extract it, or translate it. The track persists with the bundle until you remove it, which you do from the command line with `lungfish sequence delete-annotation-track --track-id <id>` (the track's ID is the **Track ID** you set in the dialog).
+The ORF track behaves like any annotation track. Click an ORF to jump to its coordinates. Right-click to copy its range, extract it, or translate it. The track stays with the bundle until you remove it, which you do from the command line with `lungfish sequence delete-annotation-track --track-id <id>` (the track's ID is the **Track ID** you set in the dialog).
+
+## Procedure: extract all features of a type
+
+Use this when you want every annotated feature of one type pulled out at once, for example the sequence of every gene on a bundle, rather than framing and extracting each region by hand. This is a command-line operation, so a bench reader who only needs single regions can skip it.
+
+`lungfish bundle extract-annotations` reads an annotation track from a source bundle and writes the matching feature sequences into a new `.lungfishref` bundle:
+
+```sh
+lungfish bundle extract-annotations \
+  --bundle MN908947.3.lungfishref \
+  --track genes \
+  --output-bundle spike-genes.lungfishref
+```
+
+`--track` accepts either the track ID or the track name. `--feature-type` selects which features to pull and defaults to `gene`; set it to `CDS` or `ORF` to match a Find ORFs track. `--name-prefix` keeps only features whose name or gene name starts with a given string, and `--replace` overwrites an existing output bundle instead of stopping. Minus-strand features are reverse-complemented so every extracted sequence reads in its coding orientation. Each FASTA header carries provenance in the form `source=chrom:start-end strand=`, where the coordinates are 1-based against the source sequence, so the trail back to the original bundle stays intact.
 
 ## Worked example: extract the spike gene from MN908947.3
 
 You have the SARS-CoV-2 reference open and you need the spike CDS as its own bundle, ready to map reads against or to feed a primer-design tool.
 
-1. With the reference viewport active, click in the position field and type `21563-25384`. Press `Return`. The viewport scrolls to the spike CDS and the range highlights.
+1. With the reference viewport active, click in the position field and type `21563-25384`, then press `Return`. The viewport scrolls to the spike CDS and the range highlights.
 2. Press `Cmd-Shift-E` to open the **Extract Sequence** sheet. Choose a destination, name the new bundle `MN908947.3-spike`, and click `Extract`. The extracted range is the region you just framed.
 3. Lungfish writes `Reference Sequences/MN908947.3-spike.lungfishref/` and selects it in the sidebar.
 4. The new bundle is 3,822 bases long. Map reads to it with `Tools > FASTQ/FASTA Operations > Mapping…` (the "Map Reads" operation), or open it and run `Sequence > Find ORFs` to confirm a single full-length ORF on the forward strand.
 
-The provenance sidecar inside the new bundle records the source bundle path, the extracted range, and the Lungfish version that produced it. A collaborator who opens the bundle later can reconstruct exactly where it came from.
+The provenance sidecar inside the new bundle records the source bundle path, the extracted range, and the Lungfish version that produced it. A collaborator who opens the bundle later can trace exactly where it came from.
 
 ## Worked example: design a forward primer
 
@@ -115,7 +130,7 @@ You want a 22-base forward primer beginning around position 21,600 of the spike 
 3. Press `Cmd-Shift-C`. The 22 bases plus a FASTA header are now on the clipboard.
 4. Paste into your primer-design tool. The header names the source bundle and the extracted coordinates, so the coordinate trail back to the original reference stays intact.
 
-If you also want to check the same window on the reverse strand, select the same range and choose `Sequence > Reverse Complement…`. Run the preselected FASTQ/FASTA operation and use the generated reverse-complement output.
+To check the same window on the reverse strand, select the same range and choose `Sequence > Reverse Complement…`. Run the preselected FASTQ/FASTA operation and use the generated reverse-complement output.
 
 ## Worked example: find ORFs in a metagenomic contig
 
@@ -126,13 +141,13 @@ You have a SPAdes contig from an assembly and you want every ORF of at least 100
 3. Lungfish adds an `ORFs` track with one feature per qualifying ORF. Each ORF stores its translated amino-acid sequence in the annotation attributes.
 4. Click any ORF to jump to it. Use `Sequence > Extract Visible Region…` to pull a visible ORF range out as a new bundle, or expand the ORF annotation to inspect its translation.
 
-This is a triage view, not a gene call. ORF length is a weak proxy for "real gene". For a curated annotation, use a tool such as Prodigal or Prokka outside Lungfish and import the resulting GFF3 as an annotation.
+This is a triage view, not a gene call. ORF length is a weak proxy for a real gene. For a curated annotation, run a tool such as Prodigal or Prokka outside Lungfish and import the resulting GFF3 as an annotation.
 
 ## From the command line
 
 Each of these operations has a CLI form, which is the route for scripted or batch work. A bench reader can skip this subsection.
 
-Extraction is `lungfish extract sequence`, which reads a FASTA and takes a region in `name:start-end` form (1-based, inclusive). Unlike the GUI, it can pad the region with flanking bases, a daily need for primer design where you want context on either side of a target:
+Extraction is `lungfish extract sequence`, which reads a FASTA and takes a region in `name:start-end` form (1-based, inclusive). Unlike the GUI, it can pad the region with flanking bases, a daily need in primer design when you want context on either side of a target:
 
 ```sh
 lungfish extract sequence MN908947.3.fasta MN908947.3:21563-25384 \
@@ -148,9 +163,9 @@ These are single-sequence tools. They do not compare two sequences to each other
 
 - They will not align two reference bundles. For pairwise or multiple-sequence alignment, see the [MSAs and Trees](04-msa-and-trees.md) chapter.
 - They will not call variants between an extracted region and another bundle. Variant calling needs reads, not two reference sequences. See the variants chapter.
-- They will not produce a phylogenetic tree from a set of extracted regions. Tree building also lives in the MSA chapter.
+- They will not build a phylogenetic tree from a set of extracted regions. Tree building also lives in the MSA chapter.
 
-If you want to compare the spike region across two isolates, the workflow is: extract the same region from each bundle, gather the resulting bundles into an MSA input, and run an alignment from the MSA tools. Each step in this chapter is a single-sequence building block for that larger workflow.
+To compare the spike region across two isolates, the workflow runs like this: extract the same region from each bundle, gather the resulting bundles into an MSA input, and run an alignment from the MSA tools. Each step in this chapter is a single-sequence building block for that larger workflow.
 
 ## Next
 

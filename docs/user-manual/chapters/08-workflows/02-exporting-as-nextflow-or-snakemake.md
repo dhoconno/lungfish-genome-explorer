@@ -26,14 +26,14 @@ lead_approved: false
 
 ## What it is
 
-A Lungfish analysis does not have to stay inside Lungfish. Once you have run a
-pipeline and you are happy with it, the **File > Export > Provenance** submenu
-emits the same work as a runnable artifact you can hand to a collaborator,
-commit to a git repository, or feed to a cluster scheduler. The export is built
-from the provenance records the app already keeps for every operation you ran,
-not from a Workflow Builder graph. That distinction matters: you do not need to
-have built a workflow in the Builder to export. Any sequence of operations you
-have run leaves provenance, and that provenance is what the exporter renders.
+A Lungfish analysis does not have to stay inside Lungfish. Once a pipeline has
+run and you are happy with it, the **File > Export > Provenance** submenu
+re-emits that same work as a runnable artifact: something you can hand to a
+collaborator, commit to a git repository, or feed to a cluster scheduler. The
+export is built from the provenance records the app keeps for every operation
+you ran, not from a Workflow Builder graph. That distinction matters. You never
+had to build a workflow in the Builder to export one. Any sequence of operations
+leaves provenance behind, and that provenance is what the exporter renders.
 
 Six targets are available. They sit on a spectrum from "executable on a
 cluster" to "ready to paste into a paper". Pick the target that matches what
@@ -48,17 +48,16 @@ your collaborator, or your future self, needs to do with it.
 | Methods Section | `methods.md`, `provenance/` | Pasting a tool-and-version paragraph into a paper |
 | Full Provenance (JSON) | `provenance.json`, `provenance/` | The raw machine-readable provenance envelope for tooling |
 
-The submenu draws a visual separator between the first four targets and the
-last two, but all six render and all six work. Every export is a single folder,
-and every export contains a `provenance/` subdirectory holding the provenance
-records copied from the project, so the export is self-describing even after it
-leaves your machine. The practical takeaway: when a collaborator asks
-"how did you run this", export the run as Nextflow or Snakemake instead of
-writing them an email.
+The submenu draws a separator between the first four targets and the last two,
+but all six render and all six work. Every export is a single folder, and every
+one carries a `provenance/` subdirectory of the records copied from the project.
+So the export describes itself even after it leaves your machine. The practical
+takeaway: when a collaborator asks "how did you run this", export the run as
+Nextflow or Snakemake instead of writing them an email.
 
 ## What you will learn
 
-By the end of this chapter you will be able to choose among the six export
+Working through this chapter, you will learn to choose among the six export
 targets depending on your destination, generate an export from a project's
 provenance, run an exported pipeline on a fresh machine, and edit the exported
 pipeline for collaborators who want to swap inputs.
@@ -107,8 +106,8 @@ produced it.
 
 ## Interpretation: what the export captures, and what it does not
 
-The export is honest about what it is. It captures what Lungfish recorded. It
-does not capture everything your operating system controls.
+The export is honest about what it is. It captures what Lungfish recorded, not
+everything your operating system controls.
 
 What the export captures, by reading the provenance records:
 

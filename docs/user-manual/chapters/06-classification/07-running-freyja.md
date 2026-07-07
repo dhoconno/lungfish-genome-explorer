@@ -21,39 +21,40 @@ lead_approved: false
 
 ## What it is
 
-This chapter covers building and running a Freyja command plan for wastewater
+This chapter is about building and running a Freyja command plan for wastewater
 SARS-CoV-2 samples. For the upstream variant and depth tables Freyja consumes,
-see [Consensus and Lineage](../05-variants/05-consensus-and-lineage.md); for
+see [Consensus and Lineage](../05-variants/05-consensus-and-lineage.md). For
 the native classifiers that answer "what is present?", see
 [What Is Read Classification](01-what-is-classification.md).
 
 Freyja estimates SARS-CoV-2 lineage mixtures from wastewater sequencing data by
-demixing: it solves for the combination of known lineages whose expected
-mutation profiles best explain the variant frequencies it sees. It is not a
+demixing: it solves for the blend of known lineages whose expected mutation
+profiles best explain the variant frequencies in front of it. It is not a
 general metagenomic classifier. Kraken2, EsViritu, TaxTriage, and NAO-MGS
-answer "what organisms are present?" Freyja answers "given this SARS-CoV-2
-variant and depth summary, what lineage mixture best explains the sample?"
+answer "what organisms are present?" Freyja answers a narrower one: "given this
+SARS-CoV-2 variant and depth summary, what lineage mixture best explains the
+sample?"
 
 Lungfish exposes Freyja as a command-plan workflow. A dry run writes the exact
-`freyja demix` command, resolved options, input and output file records, pack
-identity, tool version, and Lungfish provenance sidecar. Add `--execute` when
-the `wastewater-surveillance` pack is installed and you want Lungfish to run
-the command immediately.
+`freyja demix` command, the resolved options, the input and output file records,
+the pack identity, the tool version, and the Lungfish provenance sidecar. Add
+`--execute` once the `wastewater-surveillance` pack is installed and you want
+Lungfish to run the command on the spot.
 
 In practice, install the `wastewater-surveillance` pack, point `freyja demix`
-at a matched variant and depth table from the same sample, and run a dry run
+at a matched variant and depth table from the same sample, and dry-run it
 first to capture the command before you add `--execute`.
 
 ## What you will learn
 
-By the end of this chapter you will be able to install the
-`wastewater-surveillance` pack, assemble the variant and depth inputs Freyja
-needs, write a reproducible `freyja demix` command plan, run it with
-`--execute`, and cite the provenance sidecar in a methods section.
+The tasks ahead: install the `wastewater-surveillance` pack, assemble the
+variant and depth inputs Freyja needs, write a reproducible `freyja demix`
+command plan, run it with `--execute`, and cite the provenance sidecar in a
+methods section.
 
 ## Inputs
 
-Freyja demixing starts after mapping and variant summarization. You need two
+Freyja demixing picks up after mapping and variant summarization. It needs two
 files:
 
 | Input | Meaning |
@@ -61,17 +62,17 @@ files:
 | Variants | The variant table Freyja should demix. |
 | Depths | The depth table matching the same sample and reference. |
 
-Keep the two files from the same sample and the same reference build. Mixing a
-variant table from one run with depths from another produces a command that can
-execute, but the lineage estimates are not meaningful.
+Keep the two files from the same sample and the same reference build. Pair a
+variant table from one run with depths from another and the command still
+executes, but the lineage estimates mean nothing.
 
 ## GUI path
 
 Open `Tools > Plugin Manager…` and select the `wastewater-surveillance` pack to
-install or verify Freyja before running a command plan from the CLI. There is no
-Freyja menu item: the GUI's role here is installing the pack, and the demixing
-itself runs from the command line below. Freyja is not listed under FASTQ/FASTA
-Operations because that menu is reserved for direct data operations.
+install or verify Freyja before you run a command plan from the CLI. There is no
+Freyja menu item. The GUI's job here is installing the pack. The demixing
+itself runs from the command line below. Freyja stays off the FASTQ/FASTA
+Operations menu because that menu is reserved for direct data operations.
 
 ## CLI path
 
@@ -104,6 +105,17 @@ lungfish freyja demix \
     --sample sample-001
 ```
 
+One behavior is worth calling out because it surprises people: `--dry-run` wins
+over `--execute`. Pass both flags and Freyja does not run. Lungfish still writes
+and prints the command plan, but it records the operation as a dry run in
+provenance and skips the tool call. Drop `--dry-run` entirely when you actually
+want `--execute` to launch Freyja.
+
+When the run does execute, Freyja writes its lineage-abundance table to
+`freyja-demix.tsv` inside the `--output-dir`, next to `freyja-command-plan.json`
+and the provenance sidecar. A dry run writes the plan and provenance but not
+that table, since Freyja never runs.
+
 Advanced Freyja arguments pass through with `--extra-args`:
 
 ```bash
@@ -117,15 +129,16 @@ lungfish freyja demix \
 ## Provenance
 
 Both dry-run and execute modes write provenance. The sidecar records the
-workflow name (`lungfish freyja demix`), Lungfish version, exact command line,
-resolved defaults, pack identity (`wastewater-surveillance`), tool version,
-input and output paths, checksums and file sizes when the files exist, exit
-status, wall time, and stderr when execution produces useful diagnostic text.
+workflow name (`lungfish freyja demix`), the Lungfish version, the exact command
+line, the resolved defaults, the pack identity (`wastewater-surveillance`), the
+tool version, the input and output paths, checksums and file sizes when the
+files exist, the exit status, the wall time, and stderr when execution turns up
+useful diagnostic text.
 
 For methods sections, cite the `.lungfish-provenance.json` sidecar from the
-output directory rather than copying the command from memory.
+output directory rather than retyping the command from memory.
 
 The practical takeaway: keep the demixing reproducible. Run the dry run to
 lock the command and its resolved defaults, add `--execute` only once the pack
-is in place, and treat the lineage proportions as an estimate of the mixture
-in that sample rather than a single called lineage.
+is in place, and read the lineage proportions as an estimate of the mixture
+in that sample, not a single called lineage.

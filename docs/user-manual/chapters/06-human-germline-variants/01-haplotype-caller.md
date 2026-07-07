@@ -29,17 +29,18 @@ lead_approved: false
 
 ## What it is
 
-This chapter is the first Lungfish bridge into human germline variant
-workflows. GATK4 HaplotypeCaller is the Broad Institute's
-local-reassembly caller for germline single-nucleotide variants and short
-indels. Lungfish wraps it with sensible defaults and runs it for you.
+This chapter is where Lungfish first reaches into human germline work. GATK4
+HaplotypeCaller is the Broad Institute's local-reassembly caller for germline
+single-nucleotide variants and short indels. Lungfish wraps it in sensible
+defaults and drives it for you.
 
-By default the command below prints a GATK4 HaplotypeCaller invocation with
-Lungfish defaults and does not run GATK. Add `--execute` to run it: Lungfish
-launches GATK in the managed `gatk-core` environment, writes the GVCF
-(genomic VCF: per-position reference confidence, the form HaplotypeCaller
-emits for later joint genotyping), and records provenance. Add `--dry-run`
-to force a preview even when `--execute` is present.
+Run the command below as written and nothing touches your data. Lungfish
+prints the GATK4 HaplotypeCaller invocation it would issue, defaults and all,
+then stops. Add `--execute` and it acts: Lungfish launches GATK in the managed
+`gatk-core` environment, writes the GVCF (genomic VCF: per-position reference
+confidence, the form HaplotypeCaller emits for later joint genotyping), and
+records provenance. Add `--dry-run` to force a preview even when `--execute`
+is present.
 
 ```bash
 lungfish gatk haplotype-caller \
@@ -49,10 +50,10 @@ lungfish gatk haplotype-caller \
 # add --execute to run; omit it to preview the command only
 ```
 
-The constructed command uses `HaplotypeCaller`, emits a GVCF by default
-(`--emit-ref-confidence GVCF`), and sets sample ploidy to `2`. Use
-`--extra-args` when you need a GATK option Lungfish has not promoted yet. The
-text inside the quotes is passed to GATK verbatim:
+The command Lungfish builds calls `HaplotypeCaller`, emits a GVCF by default
+(`--emit-ref-confidence GVCF`), and sets sample ploidy to `2`. Reach for
+`--extra-args` when you need a GATK option Lungfish has not promoted yet.
+Whatever sits inside the quotes passes to GATK verbatim:
 
 ```bash
 lungfish gatk haplotype-caller \
@@ -63,14 +64,14 @@ lungfish gatk haplotype-caller \
   --extra-args "--annotation Coverage"
 ```
 
-In practice, preview first to confirm the command, then re-run with
+The habit is simple. Preview first to read the command back, then re-run with
 `--execute` to produce a real GVCF with provenance attached.
 
 ## Preview versus execute
 
-Three flag combinations control whether GATK runs. The rule in code is
+Three flag combinations decide whether GATK runs. The rule in the code is
 `isDryRun = !execute || dryRun`: you must pass `--execute`, and `--dry-run`
-always wins if both are present.
+wins whenever both are present.
 
 | Flags passed | Behaviour |
 |---|---|
@@ -79,22 +80,22 @@ always wins if both are present.
 | `--execute --dry-run` | Preview. `--dry-run` overrides `--execute`. |
 
 On `--execute`, Lungfish runs GATK through the managed environment and prints
-two lines: the GATK exit code and `Provenance: <path>`. The provenance record
-captures the exact GATK command, the environment identity, inputs, outputs,
-checksums, sizes, exit status, wall time, and stderr. This is the same
-provenance bar the rest of Lungfish meets, and it is written today, not
+two lines: the GATK exit code and `Provenance: <path>`. That provenance record
+holds the exact GATK command, the environment identity, inputs, outputs,
+checksums, sizes, exit status, wall time, and stderr. It clears the same
+provenance bar as the rest of Lungfish, and it lands on disk now, not
 "on the way".
 
-If GATK exits nonzero, the `lungfish` process also exits nonzero: the failure
-surfaces as an error and a failure provenance record is still written, so a
-CI step can branch on the wrapper's own exit status rather than scraping the
+When GATK exits nonzero, the `lungfish` process exits nonzero too. The failure
+surfaces as an error, a failure provenance record is still written, and a CI
+step can branch on the wrapper's own exit status instead of scraping the
 printed exit-code line.
 
 ## Promoted defaults
 
-Lungfish promotes the HaplotypeCaller flags below to first-class options, so
-you reach for `--extra-args` only for flags this table does not cover. Each
-shows its default; override any of them on the command line.
+Lungfish lifts the HaplotypeCaller flags below to first-class options, so
+`--extra-args` is only for flags this table leaves out. Each row shows its
+default. Override any of them on the command line.
 
 | Flag | Default | What it sets |
 |---|---|---|
@@ -105,32 +106,32 @@ shows its default; override any of them on the command line.
 | `--max-alternate-alleles` | `6` | Maximum alternate alleles per site |
 | `--pair-hmm-threads` | `4` | Native PairHMM threads |
 
-The `--stand-call-conf` threshold only takes effect when
-`--emit-ref-confidence NONE` produces a genotyped VCF; in GVCF mode GATK
-defers calling to the joint-genotyping step (see
-[joint genotyping](02-joint-genotyping.md)).
+The `--stand-call-conf` threshold bites only when `--emit-ref-confidence NONE`
+produces a genotyped VCF. In GVCF mode GATK holds off and defers the call to
+the joint-genotyping step (see [joint genotyping](02-joint-genotyping.md)).
 
 ## From the GUI
 
-HaplotypeCaller also runs from the project window, not only the CLI. Open a
-bundle that has a BAM track, open the BAM variant-calling dialog, and choose
-**GATK HaplotypeCaller** ("Germline SNP and indel calling with standard VCF
-genotypes"). Lungfish runs HaplotypeCaller on the selected alignment track,
-writes `variants/gatk/<id>.vcf.gz` inside the bundle, and attaches the result
-as a variant track you can browse in the viewport. The run is logged in the
-Operations Panel with its provenance, exactly like the CLI `--execute` path.
+HaplotypeCaller is not CLI-only; it runs straight from the project window.
+Open a bundle that carries a BAM track, open the BAM variant-calling dialog,
+and choose **GATK HaplotypeCaller** ("Germline SNP and indel calling with
+standard VCF genotypes"). Lungfish runs HaplotypeCaller on the selected
+alignment track, writes `variants/gatk/<id>.vcf.gz` inside the bundle, and
+attaches the result as a variant track you can browse in the viewport. The
+Operations Panel logs the run with its provenance, exactly like the CLI
+`--execute` path.
 
 A second GUI tool, **GATK + WhatsHap Phased** ("Phase-aware HaplotypeCaller
-plus WhatsHap command plan"), pairs HaplotypeCaller with read-backed phasing;
-it requires both the `gatk-core` pack and the `phasing` pack.
+plus WhatsHap command plan"), pairs HaplotypeCaller with read-backed phasing.
+It needs both the `gatk-core` pack and the `phasing` pack.
 
-One behavioural difference is worth pinning down before you compare outputs:
-the GUI tool emits a final genotyped VCF (`--emit-ref-confidence NONE`),
-whereas the CLI defaults to a GVCF. If a GUI VCF and a CLI GVCF look
-different at the same site, that default is usually why; pass
-`--emit-ref-confidence NONE` to the CLI to match the GUI, or feed the CLI
-GVCF through joint genotyping to reach a comparable genotyped VCF.
+One behavioural difference is worth pinning down before you compare outputs.
+The GUI tool emits a final genotyped VCF (`--emit-ref-confidence NONE`); the
+CLI defaults to a GVCF. When a GUI VCF and a CLI GVCF disagree at the same
+site, that default is usually the reason. Pass `--emit-ref-confidence NONE` to
+the CLI to match the GUI, or feed the CLI GVCF through joint genotyping to
+reach a comparable genotyped VCF.
 
-The practical takeaway: use the GUI tool for a quick single-sample
-genotyped VCF attached to a bundle, and the CLI GVCF path when you plan to
-joint-genotype a cohort.
+The practical takeaway: reach for the GUI tool when you want a quick
+single-sample genotyped VCF attached to a bundle, and the CLI GVCF path when
+you plan to joint-genotype a cohort.

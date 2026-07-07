@@ -25,13 +25,18 @@ The remaining foundations chapters cover [The Lungfish Genome Explorer Project](
 
 ## Working with the app
 
-Each part is one workflow domain. Chapters within a part declare prereqs in their frontmatter.
+Each part is one workflow domain. Chapters within a part declare prereqs in their frontmatter. The core sequence-to-variant path is:
 
 - [Sequences](chapters/02-sequences/01-importing-and-viewing.md) for FASTA, GenBank, NCBI download, and MSA workflows
 - [Reads (FASTQ)](chapters/03-reads/01-importing-fastq.md) for read import, QC, trimming, decontamination, and ONT runs
 - [Alignments](chapters/04-alignments/01-mapping-reads-to-a-reference.md) for read mapping and primer trimming
 - [Variants](chapters/05-variants/01-calling-variants-from-amplicons.md) for variant calling and VCF interpretation
-- [Classification](chapters/06-classification/01-what-is-classification.md) for taxonomic classification of reads
+- [Classification](chapters/06-classification/01-what-is-classification.md) for taxonomic classification and 12S metabarcoding
+
+The specialized and downstream domains are:
+
+- [Human Germline Variants](chapters/06-human-germline-variants/01-haplotype-caller.md) for GATK germline calling (power-user preview)
+- [Genotyping](chapters/09-genotyping/01-what-is-mhc-genotyping.md) for amplicon MHC immunogenetics and named haplotype calling
 - [Assembly](chapters/07-assembly/01-when-to-assemble.md) for de novo assembly
 - [Workflows](chapters/08-workflows/01-the-workflow-builder.md) for the visual Workflow Builder and Nextflow / Snakemake export
 

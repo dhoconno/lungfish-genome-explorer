@@ -31,12 +31,11 @@ lead_approved: false
 
 ## What it is
 
-After joint genotyping you usually clean up the cohort VCF: flag low-quality
+A fresh cohort VCF is rarely the finished product. You flag low-quality
 records, pull out one sample or one variant class, normalize indel
 representation, export a flat table, and collect summary metrics. Lungfish
-wraps the standard GATK and Picard tools for each of these. By default a
-command is printed for review; add `--execute` to run it and attach
-provenance.
+wraps the standard GATK and Picard tools for each of these. By default the
+command prints for review. Add `--execute` to run it and attach provenance.
 
 `filter` builds `VariantFiltration`, and `select` builds `SelectVariants`:
 
@@ -56,16 +55,16 @@ lungfish gatk select \
 The `filter` preset is one of `best-practices-snp`, `best-practices-indel`,
 or `best-practices-both` (the default), each applying GATK's recommended
 hard-filter expressions for that variant class. The `select --type` value is
-`SNP`, `INDEL`, or `MIXED`; both `--sample` and `--type` are optional.
+`SNP`, `INDEL`, or `MIXED`, and both `--sample` and `--type` are optional.
 
-In practice, preview each command to confirm its flags, then re-run with
-`--execute` so every cleanup step lands a provenance record alongside its
-output.
+The rhythm holds throughout the chapter: preview each command to check its
+flags, then re-run with `--execute` so every cleanup step drops a provenance
+record beside its output.
 
 ## Normalizing and tabulating
 
-`leftalign` builds `LeftAlignAndTrimVariants` for normalization, which
-left-shifts and trims indels to a canonical representation so the same indel
+`leftalign` builds `LeftAlignAndTrimVariants` for normalization. It
+left-shifts and trims indels to a canonical representation, so the same indel
 is written the same way across callers:
 
 ```bash
@@ -77,15 +76,15 @@ lungfish gatk leftalign \
 ```
 
 `--split-multi-allelics` splits multi-allelic records into one row per
-allele. Two numeric defaults govern which indels are normalized, and they are
+allele. Two numeric defaults decide which indels get normalized, and they are
 load-bearing for clinical work: an indel longer than `--max-indel-length`
-(default `200`) or one needing more than `--max-leading-bases` (default
-`1000`) of left shift falls outside the default window. If you call long
-indels, raise these before you rely on the output.
+(default `200`), or one needing more than `--max-leading-bases` (default
+`1000`) of left shift, falls outside the default window. If you call long
+indels, raise these before you trust the output.
 
 `variants-to-table` builds `VariantsToTable`, exporting selected fields to a
 TSV for downstream analysis or review. The default field set is
-`CHROM,POS,REF,ALT,QUAL,AF,DP`; override it with `--fields`:
+`CHROM,POS,REF,ALT,QUAL,AF,DP`. Override it with `--fields`:
 
 ```bash
 lungfish gatk variants-to-table \
@@ -98,8 +97,8 @@ lungfish gatk variants-to-table \
 
 `collect-metrics` builds Picard `CollectVariantCallingMetrics` through GATK,
 producing summary and detail metrics files against a dbSNP reference (dbSNP is
-NCBI's database of known human variation, used here to separate novel from
-known sites):
+NCBI's database of known human variation, used here to tell novel sites from
+known ones):
 
 ```bash
 lungfish gatk collect-metrics \
@@ -111,11 +110,10 @@ lungfish gatk collect-metrics \
 
 Pass `--gvcf-input` when the input is a GVCF rather than a genotyped VCF.
 Every command in this chapter accepts `--extra-args` for advanced GATK or
-Picard options written verbatim.
+Picard options, written verbatim.
 
-Where this matters: normalize before you compare or merge VCFs, export a
-table when you need the calls outside Lungfish, and run `collect-metrics` to
-get the cohort's titration of known versus novel sites.
-On `--execute`, each command writes its output plus a provenance record
-capturing the GATK command, environment identity, checksums, exit status, and
-wall time.
+Where this matters: normalize before you compare or merge VCFs, export a table
+when you need the calls outside Lungfish, and run `collect-metrics` to read
+the cohort's balance of known against novel sites. On `--execute`, each
+command writes its output plus a provenance record capturing the GATK command,
+environment identity, checksums, exit status, and wall time.

@@ -6,9 +6,13 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 ## A
 
+**AI assistant**{#ai-assistant}. An in-app chat panel that answers questions about the active dataset and suggests workflows through a bring-your-own-key AI provider; it interprets and explains but does not modify your project.
+
 **Alias map**{#alias-map}. The internal table Lungfish consults during VCF import to recognise that two reference accessions (for example, the GenBank record `MN908947.3` and the RefSeq record `NC_045512.2`) name the same underlying sequence, so a VCF keyed against one resolves cleanly to a project bundle keyed against the other. See also: VCF, reference bundle.
 
 **Alignment**{#alignment}. The mapping of one read against a reference genome, recorded as one row in a BAM file with a position, strand, CIGAR string, and quality scores. See also: BAM, mapping.
+
+**Allele**{#allele}. One of the alternative sequences observed at a locus; in Lungfish MHC genotyping an allele is an individual MiSeq target identity, distinct from a named haplotype that spans several loci. See also: haplotype, MHC.
 
 **Allele frequency**{#allele-frequency}. The proportion of sequencing reads at a position that carry the alternate base. A clinical isolate usually shows allele frequencies near 0 or 1; a mixed-population sample (for example, wastewater) shows a full spectrum.
 
@@ -26,7 +30,11 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Barcode**{#barcode}. A short oligonucleotide sequence (typically 8 to 24 bases) ligated onto a sample's reads during library prep so that pooled samples can be sorted back to their wells after multiplexed sequencing; ONT runs identify barcodes during basecalling and write one subfolder per barcode. See also: basecaller.
 
+**Barcode kit**{#barcode-kit}. The named set of barcode sequences a sequencing kit uses to tag samples, which Lungfish reads to demultiplex a run. See also: barcode, demultiplex.
+
 **Basecaller**{#basecaller}. The program that converts a sequencer's raw signal into base-called reads with quality scores; for Oxford Nanopore data, Guppy and Dorado are the two basecallers in current use, and the model used to call a run determines which Medaka model is appropriate downstream. See also: simplex read, duplex read.
+
+**BioSample**{#biosample}. An NCBI record describing one biological sample; Lungfish can export a BioSample submission TSV from a project's sample metadata. See also: sample metadata.
 
 **BLAST (Basic Local Alignment Search Tool)**{#blast}. NCBI's nucleotide and protein sequence search service that ranks database entries by local-alignment score against a query, used in Lungfish to verify a classifier's hit by sending a representative read to NCBI's `nt` database. See also: e-value, percent identity, query coverage.
 
@@ -36,11 +44,19 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 ## C
 
+**CDS (coding sequence)**{#cds}. The portion of a gene that is translated into protein; Lungfish can annotate a best-match CDS on a sequence. See also: open reading frame, reading frame.
+
 **CIGAR**{#cigar}. A compact string in each BAM row that describes, base by base, how the read aligns to the reference: `M` for aligned positions, `I` and `D` for insertions and deletions, `S` for soft-clipped ends, and `H` for hard-clipped ends. See also: BAM, soft-clip.
 
 **Clade**{#clade}. A group on a phylogenetic tree consisting of one internal node and every tip descended from it; the unit a phylogeneticist points to when claiming "these isolates share a recent common ancestor". See also: phylogram.
 
+**Clair3**{#clair3}. A deep-learning variant caller for Oxford Nanopore reads, run in Lungfish as an alternative to Medaka for ONT variant calling; it reads the sorted BAM directly and takes a model path matched to the basecaller. See also: variant-caller, Medaka.
+
+**Clustering**{#clustering}. Grouping near-identical reads into representative consensus sequences before genotyping, used for full-length ONT MHC amplicons. See also: pbAA, savONT.
+
 **Codon**{#codon}. A run of three consecutive bases inside a protein-coding gene that together encode one amino acid. Three adjacent SNPs falling inside one codon describe one amino acid change, not three; iVar can group them into a single VCF row when given a GFF annotation. See also: VCF.
+
+**Cohort**{#cohort}. A set of samples genotyped and compared together, presented across the columns of the genotype comparison matrix. See also: genotype matrix.
 
 **Conda**{#conda}. A package manager that handles compiled non-Python dependencies cleanly, used in Lungfish to install bioinformatics tools from the bioconda channel into per-tool environments under `~/.lungfish/conda`. See also: micromamba, plugin pack.
 
@@ -57,6 +73,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 **Ct (cycle threshold)**{#ct}. The qPCR cycle number at which a sample's amplification signal crosses the detection threshold; a lower Ct means more starting template, so for a viral diagnostic a low Ct predicts a higher viral fraction in the sequencing reads and a smaller host-removal rate.
 
 ## D
+
+**Demultiplex**{#demultiplex}. Separating a mixed sequencing run into per-sample read sets by their barcode. See also: barcode, barcode kit.
 
 **Depth**{#depth}. Synonym for coverage in this manual. The number of reads stacked at one reference position. See also: coverage.
 
@@ -86,15 +104,25 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 ## G
 
+**Genetic code**{#genetic-code}. The mapping from codons to amino acids; Lungfish lets you pick the code (for example the vertebrate mitochondrial code) when translating a sequence. See also: codon, reading frame.
+
 **GenomicsDB**{#genomicsdb}. GATK's on-disk multi-sample variant store that scales joint genotyping to large cohorts better than a single combined GVCF; Lungfish builds one with `GenomicsDBImport` when a cohort exceeds 50 samples. See also: GVCF, joint genotyping.
 
 **Genotype**{#genotype}. A compact notation for which alleles are observed at a variant position, conventionally diploid-style `0/1` (heterozygous) or `1/1` (homozygous alternate). For a single-organism viral isolate, confidently-called variants are nearly always `1/1`.
+
+**Genotype matrix**{#genotype-matrix}. The Lungfish dashboard that presents genotype calls as allele-target rows by sample columns, with a haplotype tape, cohort summary, and per-sample evidence; it is not one of the five genomic viewport classes. See also: haplotype, cohort.
 
 **GFF (General Feature Format)**{#gff}. A tab-separated table format for genomic features (genes, CDS, mature peptides, regulatory elements). GFF3 is the current spec; Lungfish accepts GFF3 paired with a FASTA at bundle creation. See also: FASTA, reference bundle.
 
 **GVCF (genomic VCF)**{#gvcf}. A VCF variant that records, at every position rather than only at variant sites, the confidence that the sample matches the reference, so per-sample GVCFs can later be combined and genotyped together; the form GATK HaplotypeCaller emits by default in Lungfish. See also: VCF, joint genotyping, GenomicsDB.
 
+## H
+
+**Haplotype**{#haplotype}. A set of alleles across linked loci that tend to travel together; in Lungfish MHC genotyping these are the named M1 to M7 families spanning the MHC-A, MHC-E, MHC-B, MHC-DR, MHC-DQ, and MHC-DP loci. See also: allele, MHC.
+
 ## I
+
+**Immunogenetics**{#immunogenetics}. The study of genetic variation in immune-system loci such as the MHC; the domain of Lungfish's amplicon genotyping feature. See also: MHC.
 
 **INFO (in a VCF)**{#info}. The eighth standard VCF column, holding semicolon-separated `KEY=VALUE` pairs of per-row metadata such as depth (`DP`), allele frequency (`AF`), strand bias (`SB`), and per-allele depths (`AD`). See also: VCF, FILTER, FORMAT.
 
@@ -110,6 +138,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 ## L
 
+**LabKey**{#labkey}. A laboratory data management platform; Lungfish can export genotype results as LabKey-ready CSV files.
+
 **Lineage**{#lineage}. A named subgroup within a viral species, defined by a characteristic set of variants and assigned by a domain-specific tool (Pangolin for SARS-CoV-2, Nextclade for many viruses). Lungfish does not assign lineages itself; it produces consensus FASTAs that downstream tools call lineages from. See also: consensus FASTA.
 
 ## M
@@ -122,9 +152,15 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **MAPQ (mapping quality)**{#mapq}. A per-read confidence score in each BAM row, encoding how unambiguously the mapper placed the read at the recorded position; 0 means no confidence (the read fits multiple places equally well), 60 is the maximum for most mappers and means the placement is well above the second-best alternative. See also: BAM, mapper.
 
+**Metabarcoding**{#metabarcoding}. Identifying which species are present in a mixed sample by matching a short marker amplicon (such as 12S) against a reference of known sequences. See also: 12S.
+
 **Methods export**{#methods-export}. The Lungfish provenance export that emits a plain-prose Markdown paragraph naming each tool and its resolved version in the order the workflow ran them, suitable for pasting into a paper's methods section. See also: provenance sidecar.
 
+**MHC (Major Histocompatibility Complex)**{#mhc}. A gene-dense immune region genotyped here by amplicon sequencing, using the Mauritian cynomolgus macaque as the running example. See also: haplotype, immunogenetics.
+
 **Micromamba**{#micromamba}. A small standalone bootstrap that speaks the conda protocol without requiring a full Anaconda installation, used by Lungfish as the engine for plugin pack installs. See also: conda, plugin pack.
+
+**Minimizer**{#minimizer}. The smallest k-mer within a sliding window of a sequence, picked as a compact fingerprint so a tool can match reads quickly without comparing every base; Kraken2 classifies on minimizers and Deacon counts minimizer hits to flag host reads. See also: Kraken2, Deacon.
 
 **MSA (Multiple Sequence Alignment)**{#msa}. A rectangular arrangement of two or more related sequences in which each column represents an inferred homologous position, with `-` gap characters padding insertions; in Lungfish stored as a `.lungfishmsa` bundle. See also: MAFFT.
 
@@ -140,6 +176,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 ## O
 
+**Open reading frame**{#open-reading-frame}. A stretch of codons from a start to a stop with no internal stop, a candidate protein-coding region Lungfish can auto-detect. See also: reading frame, CDS.
+
 **Operations Panel**{#operations-panel}. The bottom pane of a Lungfish project window that lists every long-running operation with a status, timestamp, log link, and provenance disclosure, and that serves as the project's audit trail. Toggle with `Cmd-Shift-P` or by clicking the footer status chip. See also: provenance, project.
 
 **ORF (open reading frame)**{#orf}. A stretch of sequence running from a start codon to an in-frame stop codon without interruption, so it could in principle encode a protein; Lungfish finds ORFs and stores them as an annotation track, but ORF length is only a weak proxy for a real gene. See also: codon.
@@ -149,6 +187,12 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 ## P
 
 **Paired-end**{#paired-end}. A sequencing protocol that reads each DNA fragment from both ends, producing two reads per fragment; the two halves of a pair travel as separate FASTQ files with `_1`/`_2` or `_R1`/`_R2` suffixes. See also: FASTQ, single-end.
+
+**Pathoplexus**{#pathoplexus}. An open pathogen-genome database Lungfish can search and import reference sequences from.
+
+**pbAA**{#pbaa}. A read-clustering tool that derives high-accuracy amplicon consensus sequences, one of the clustering options for full-length ONT MHC genotyping. See also: clustering, savONT.
+
+**p-distance**{#p-distance}. The simplest genetic distance between two aligned sequences: the proportion of positions at which they differ, with no model correction. One of the distance models Lungfish's `msa distance` can compute. See also: MSA.
 
 **Phred score**{#phred-score}. A logarithmic per-base quality value defined as `Q = -10 * log10(P)` where P is the error probability; Q20 = 1% error, Q30 = 0.1% error, Q40 = 0.01% error. Encoded in FASTQ files as ASCII characters offset by 33 (so `!` = Q0, `F` = Q37). See also: FASTQ.
 
@@ -180,6 +224,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Read length**{#read-length}. The number of bases in a sequencing read; Illumina reads are typically 75-300 bp (fixed per run), Oxford Nanopore reads range from 1 kb to 100 kb (variable per run with mean 5-15 kb), PacBio HiFi reads are 10-25 kb. See also: FASTQ.
 
+**Reading frame**{#reading-frame}. One of the three ways to divide a nucleotide sequence into codons on a given strand, selected when translating a sequence to protein. See also: genetic code, codon.
+
 **Reference bundle**{#reference-bundle}. A `.lungfishref` bundle stored under a project's `Reference Sequences/` folder, containing a primary FASTA, an index, optional annotations such as GFF3 or GTF, any tracks attached to that reference (alignments, variants, classifications), and a manifest. See also: bundle, assembly bundle.
 
 **Reference genome**{#reference-genome}. A specific, community-agreed sequence used as the comparison point for samples; for SARS-CoV-2 the standard reference is `MN908947.3` (the Wuhan-Hu-1 isolate). Variants are described relative to a chosen reference, so reference choice affects which variants are reported and at what positions. See also: reference bundle.
@@ -191,6 +237,12 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 **Reproducibility**{#reproducibility}. The property that a workflow re-run with the same inputs, the same plugin pack version, and the same Lungfish build produces output that matches the original by checksum (bit-identical) or by content (logically equivalent); the provenance sidecar carries every field needed to verify this. See also: provenance sidecar.
 
 ## S
+
+**Sample metadata**{#sample-metadata}. Structured per-sample fields (collection date, source, and so on) imported from a CSV or TSV sheet and attached to samples in a project. See also: BioSample.
+
+**savONT**{#savont}. A clustering option for full-length ONT MHC amplicons, an alternative to pbAA. See also: clustering, pbAA.
+
+**SH-aLRT**{#sh-alrt}. The Shimodaira-Hasegawa approximate likelihood ratio test, a fast branch-support measure IQ-TREE reports as a percentage at each internal node; read alongside bootstrap support, with values at or above 80 treated as reliable. See also: support value, IQ-TREE.
 
 **Shotgun sequencing**{#shotgun}. A library preparation strategy in which sample nucleic acid is fragmented at random and sequenced without targeted amplification; each read lands at an essentially arbitrary position on the genome. Shotgun data does not require primer trimming. See also: amplicon.
 
@@ -215,6 +267,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 ## T
 
 **Tabix**{#tabix}. A position-aware index for a bgzipped tab-delimited genomic file (typically `.vcf.gz` or `.bed.gz`), conventionally named with a `.tbi` suffix and kept beside the data file, that lets viewers and callers fetch records for a region without scanning the whole file. See also: VCF.
+
+**12S**{#twelve-s}. A short mitochondrial 12S rRNA amplicon used to identify vertebrate species; Lungfish matches merged 12S reads exactly against a deduplicated reference FASTA. See also: metabarcoding.
 
 ## V
 
