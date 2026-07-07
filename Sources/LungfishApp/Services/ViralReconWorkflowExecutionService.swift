@@ -65,7 +65,9 @@ final class ViralReconWorkflowExecutionService {
                 logProcessOutput(processResult, operationID: operationID)
             }
 
-            if processResult.exitCode == 0 {
+            if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
+                await waitForOperationCancellation(operationID)
+            } else if processResult.exitCode == 0 {
                 operationCenter.log(id: operationID, level: .info, message: "Viral Recon completed")
                 _ = operationCenter.complete(
                     id: operationID,
@@ -105,6 +107,18 @@ final class ViralReconWorkflowExecutionService {
             bundleURL: bundleURL,
             operationItem: operationCenter.items.first { $0.id == operationID }
         )
+    }
+
+    private func waitForOperationCancellation(_ operationID: UUID) async {
+        for _ in 0..<50 {
+            guard let item = operationCenter.items.first(where: { $0.id == operationID }) else {
+                return
+            }
+            if !item.state.isActive {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
     }
 
     private func persistGeneratedInputs(from request: ViralReconRunRequest, in bundleURL: URL) throws -> ViralReconRunRequest {
@@ -469,7 +483,7 @@ final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRun
     }
 
     private static func lungfishCLIURL() -> URL? {
-        CLIImportRunner.cliBinaryPath()
+        CLIBinaryLocator.cliBinaryPath()
     }
 
     func cancel() {

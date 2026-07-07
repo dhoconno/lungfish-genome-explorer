@@ -34,7 +34,7 @@ struct AttachmentsSection: View {
             if let attachmentErrorMessage {
                 Text(attachmentErrorMessage)
                     .font(.system(size: 10))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.lungfishDangerFallback)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

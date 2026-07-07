@@ -197,19 +197,18 @@ final class WorkflowBuilderRunServiceTests: XCTestCase {
         XCTAssertEqual(record.provenance.exitStatus, 0)
         XCTAssertTrue(record.provenance.outputs.contains { $0.path == invocation.bundleURL.standardizedFileURL.path })
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let localProvenance = try decoder.decode(
-            WorkflowRun.self,
-            from: Data(contentsOf: invocation.bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-        )
+        let localProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: invocation.bundleURL))
         let step = try XCTUnwrap(localProvenance.steps.first)
         XCTAssertEqual(step.toolName, "lungfish-cli workflow run")
-        XCTAssertEqual(step.exitCode, 0)
-        XCTAssertTrue(step.command.contains("lungfish-cli"))
-        XCTAssertTrue(step.command.contains(exportedWorkflowURL.path))
-        XCTAssertTrue(step.inputs.contains { $0.path == fixture.sampleURL.appendingPathComponent("reads.fastq").standardizedFileURL.path && $0.sha256 != nil && $0.sizeBytes != nil })
-        XCTAssertTrue(step.outputs.contains { $0.path == invocation.bundleURL.standardizedFileURL.path })
+        XCTAssertEqual(step.exitStatus, 0)
+        XCTAssertTrue(step.argv.contains("lungfish-cli"))
+        XCTAssertTrue(step.argv.contains(exportedWorkflowURL.path))
+        let sampleReadPath = fixture.sampleURL.appendingPathComponent("reads.fastq").standardizedFileURL.path
+        let sampleReadInput = try XCTUnwrap(step.inputs.first { $0.path == sampleReadPath })
+        XCTAssertNotNil(sampleReadInput.checksumSHA256)
+        XCTAssertNotNil(sampleReadInput.fileSize)
+        let runBundlePath = invocation.bundleURL.standardizedFileURL.path
+        XCTAssertTrue(step.outputs.contains { $0.path == runBundlePath })
         XCTAssertTrue(operationCenter.items.contains { $0.title == "Local Workflow" && $0.state == .completed })
     }
 
@@ -239,13 +238,8 @@ final class WorkflowBuilderRunServiceTests: XCTestCase {
         XCTAssertEqual(record.status, .succeeded)
         XCTAssertTrue(record.provenance.outputs.contains { $0.path == invocation.outputBundleURL.path })
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let outputProvenance = try decoder.decode(
-            WorkflowRun.self,
-            from: Data(contentsOf: invocation.outputBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-        )
-        XCTAssertEqual(outputProvenance.status, .completed)
+        let outputProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: invocation.outputBundleURL))
+        XCTAssertEqual(outputProvenance.exitStatus, 0)
         XCTAssertTrue(outputProvenance.steps.contains { $0.toolName == "lungfish-cli workflow builder-run" })
         XCTAssertTrue(operationCenter.items.contains { $0.title == "Workflow Builder Runner" && $0.state == .completed })
     }
@@ -403,10 +397,10 @@ private final class ProvenanceWritingWorkflowCLIProcessRunner: LocalWorkflowCLIP
             steps: [step],
             parameters: request.effectiveParams.mapValues { .string($0) }
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run).write(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
+        try ProvenanceJSON.encoder.encode(run.canonicalEnvelope()).write(
+            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            options: .atomic
+        )
 
         return LocalWorkflowCLIProcessResult(
             exitCode: 0,
@@ -522,10 +516,7 @@ private final class ProvenanceWritingBuilderRunCLIProcessRunner: LocalWorkflowCL
             steps: [step],
             parameters: [:]
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run).write(
+        try ProvenanceJSON.encoder.encode(run.canonicalEnvelope()).write(
             to: outputBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
             options: .atomic
         )

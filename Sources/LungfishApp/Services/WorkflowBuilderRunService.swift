@@ -207,7 +207,6 @@ public final class WorkflowBuilderRunService {
                     title: node.label,
                     detail: "Running workflow node",
                     operationType: .workflow,
-                    targetBundleURL: workflowBundleURL,
                     cliCommand: argv.map(shellEscapeForWorkflowBuilder).joined(separator: " "),
                     workflowRunID: runID,
                     routeContext: routeContext
@@ -327,7 +326,6 @@ public final class WorkflowBuilderRunService {
             title: "Workflow Builder Runner",
             detail: "Running native Workflow Builder graph",
             operationType: .workflow,
-            targetBundleURL: workflowBundleURL,
             cliCommand: command,
             workflowRunID: runID,
             routeContext: routeContext

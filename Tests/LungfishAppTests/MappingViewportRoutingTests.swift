@@ -275,7 +275,7 @@ final class MappingViewportRoutingTests: XCTestCase {
     func testAIHaplotypingGUIUsesReplayableCLICommandPreviewAndSanitizedFailureDetail() throws {
         let source = try loadSource(at: "Sources/LungfishApp/Services/GenotypeAIHaplotypingExecutionService.swift")
 
-        XCTAssertTrue(source.contains("\"lungfish-cli\""))
+        XCTAssertTrue(source.contains("CLICommandIdentity.executableName"))
         XCTAssertTrue(source.contains("mode.commandLineArgument"))
         XCTAssertTrue(source.contains("AIHaplotypingExecutionDefaults.maxObservationsPerChunk"))
         XCTAssertTrue(source.contains("AIHaplotypingExecutionDefaults.maxOutputTokens"))

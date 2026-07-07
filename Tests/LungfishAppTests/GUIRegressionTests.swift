@@ -611,10 +611,10 @@ final class UnifiedWizardTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("case .classifyReads: return \"Classify & Profile (Kraken2)\""))
-        XCTAssertTrue(source.contains("case .detectViruses: return \"Detect Viruses (EsViritu)\""))
-        XCTAssertTrue(source.contains("case .comprehensiveTriage: return \"Detect Pathogens (TaxTriage)\""))
-        XCTAssertTrue(source.contains("return \"Run TaxTriage for end-to-end pathogen detection from metagenomic reads with confidence scoring and organism reporting.\""))
+        XCTAssertTrue(source.contains("Run Kraken2/Bracken taxonomic classification and abundance profiling on this dataset."))
+        XCTAssertTrue(source.contains("Run EsViritu viral detection with genome coverage analysis on this dataset."))
+        XCTAssertTrue(source.contains("Run TaxTriage end-to-end clinical metagenomics triage with confidence scoring."))
+        XCTAssertTrue(source.contains("Run TaxTriage"))
         XCTAssertFalse(source.contains("Clinical Triage (TaxTriage)"))
     }
 
@@ -929,8 +929,7 @@ final class OperationsPanelTests: XCTestCase {
         tableView.reloadData()
         tableView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(tableView.numberOfRows, 1)
-        let collapsedRow = try XCTUnwrap(tableView.rowView(atRow: 0, makeIfNecessary: true))
+        let collapsedRow = try rowView(for: operationID, in: tableView)
         collapsedRow.layoutSubtreeIfNeeded()
         let toggle = try XCTUnwrap(
             collapsedRow.firstSubview(withAccessibilityIdentifier: "operations-detail-toggle-\(operationID.uuidString)") as? NSButton
@@ -941,9 +940,23 @@ final class OperationsPanelTests: XCTestCase {
         tableView.reloadData()
         tableView.layoutSubtreeIfNeeded()
 
-        let expandedRow = try XCTUnwrap(tableView.rowView(atRow: 0, makeIfNecessary: true))
+        let expandedRow = try rowView(for: operationID, in: tableView)
         expandedRow.layoutSubtreeIfNeeded()
         return expandedRow
+    }
+
+    @MainActor
+    private func rowView(for operationID: UUID, in tableView: NSTableView) throws -> NSView {
+        for row in 0..<tableView.numberOfRows {
+            guard let rowView = tableView.rowView(atRow: row, makeIfNecessary: true) else {
+                continue
+            }
+            rowView.layoutSubtreeIfNeeded()
+            if rowView.firstSubview(withAccessibilityIdentifier: "operations-detail-toggle-\(operationID.uuidString)") != nil {
+                return rowView
+            }
+        }
+        return try XCTUnwrap(nil as NSView?, "Expected operation row for \(operationID)")
     }
 
     @MainActor

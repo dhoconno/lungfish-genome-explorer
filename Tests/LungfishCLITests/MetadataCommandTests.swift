@@ -145,7 +145,7 @@ final class MetadataCommandFunctionalTests: XCTestCase {
         XCTAssertEqual(envelope.toolName, "lungfish metadata set")
         XCTAssertEqual(envelope.toolVersion, WorkflowRun.currentAppVersion)
         XCTAssertEqual(envelope.argv, [
-            "lungfish", "metadata", "set",
+            CLICommandIdentity.executableName, "metadata", "set",
             bundleDir.path,
             "--field", "sample_type",
             "--value", "Blood",
@@ -325,7 +325,7 @@ final class MetadataCommandFunctionalTests: XCTestCase {
         XCTAssertEqual(envelope.toolName, "lungfish metadata import")
         XCTAssertEqual(envelope.toolVersion, WorkflowRun.currentAppVersion)
         XCTAssertEqual(envelope.argv, [
-            "lungfish", "metadata", "import",
+            CLICommandIdentity.executableName, "metadata", "import",
             folder.path,
             csvFile.path,
             "--sync-bundles",

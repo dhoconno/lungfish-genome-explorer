@@ -223,9 +223,9 @@ enum ReferenceBundleMergeService {
         }
         let inputs = uniqueDescriptors(sourceInputs + Array(durableFASTAInput.map { [$0] } ?? []))
 
-        return envelope.steps.map { step in
+        return envelope.steps.compactMap { step -> ProvenanceStep? in
             guard step.toolName == "NativeBundleBuilder.build" else {
-                return step
+                return nil
             }
             let originalArgv = step.durableReplayArgv ?? step.argv
             let argv = rewriteBuilderReplayArgv(
