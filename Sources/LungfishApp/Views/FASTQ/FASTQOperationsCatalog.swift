@@ -13,6 +13,7 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
     case assembly
     case clustering
     case classification
+    case genotyping
 
     var title: String {
         switch self {
@@ -27,12 +28,13 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
         case .assembly: return "ASSEMBLY"
         case .clustering: return "CLUSTERING"
         case .classification: return "CLASSIFICATION"
+        case .genotyping: return "GENOTYPING"
         }
     }
 
     var requiredPackIDs: [String] {
         switch self {
-        case .qcReporting, .demultiplexing, .trimmingFiltering, .decontamination, .readProcessing, .searchSubsetting, .clustering:
+        case .qcReporting, .demultiplexing, .trimmingFiltering, .decontamination, .readProcessing, .searchSubsetting, .clustering, .genotyping:
             return []
         case .alignment:
             return ["multiple-sequence-alignment"]

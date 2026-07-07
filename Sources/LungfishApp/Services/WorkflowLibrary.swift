@@ -142,7 +142,7 @@ enum WorkflowLibraryCatalog {
         id: twelveSAmpliconMatchingID,
         title: "12S Amplicon Matching",
         subtitle: "Match merged 12S amplicon reads exactly to a deduplicated FASTA and review unresolved sequences.",
-        categoryID: .classification,
+        categoryID: .genotyping,
         maturity: .specialized,
         requiredPluginPackIDs: ["lungfish-tools"],
         capabilities: [.workflowOperations]
@@ -152,7 +152,7 @@ enum WorkflowLibraryCatalog {
         id: fullLengthONTMHCGenotypingID,
         title: "Full-length ONT MHC genotyping",
         subtitle: "Cluster full-length ONT MHC amplicons with Savont and genotype cluster consensus sequences against an MHC allele library.",
-        categoryID: .classification,
+        categoryID: .genotyping,
         maturity: .specialized,
         requiredPluginPackIDs: [
             "lungfish-tools",
@@ -247,6 +247,7 @@ enum WorkflowLibraryCatalog {
         case .assembly: return "Assembly"
         case .clustering: return "Clustering"
         case .classification: return "Classification"
+        case .genotyping: return "Genotyping"
         }
     }
 }

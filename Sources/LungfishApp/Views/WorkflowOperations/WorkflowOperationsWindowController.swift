@@ -15,21 +15,24 @@ final class WorkflowOperationsWindowController: NSWindowController {
         projectURL: URL?,
         routeContext: OperationRouteContext? = nil,
         selectedReadURLs: [URL] = [],
-        sidebarInputSelection: WorkflowSidebarInputSelection? = nil
+        sidebarInputSelection: WorkflowSidebarInputSelection? = nil,
+        initialToolID: String? = nil
     ) {
         if shared == nil {
             shared = WorkflowOperationsWindowController(
                 projectURL: projectURL,
                 routeContext: routeContext,
                 selectedReadURLs: selectedReadURLs,
-                sidebarInputSelection: sidebarInputSelection
+                sidebarInputSelection: sidebarInputSelection,
+                initialToolID: initialToolID
             )
         } else {
             shared?.configure(
                 projectURL: projectURL,
                 routeContext: routeContext,
                 selectedReadURLs: selectedReadURLs,
-                sidebarInputSelection: sidebarInputSelection
+                sidebarInputSelection: sidebarInputSelection,
+                initialToolID: initialToolID
             )
         }
         shared?.showWindow(nil)
@@ -40,13 +43,15 @@ final class WorkflowOperationsWindowController: NSWindowController {
         routeContext: OperationRouteContext?,
         selectedReadURLs: [URL],
         sidebarInputSelection: WorkflowSidebarInputSelection?,
+        initialToolID: String?,
         service: WorkflowOperationExecutionService = WorkflowOperationExecutionService()
     ) {
         self.state = WorkflowOperationDialogState(
             projectURL: projectURL,
             selectedReadURLs: selectedReadURLs,
             sidebarInputSelection: sidebarInputSelection,
-            projectDiscoveryMode: .asynchronous
+            projectDiscoveryMode: .asynchronous,
+            initialToolID: initialToolID
         )
         self.routeContext = routeContext
         self.service = service
@@ -98,7 +103,8 @@ final class WorkflowOperationsWindowController: NSWindowController {
         projectURL: URL?,
         routeContext: OperationRouteContext?,
         selectedReadURLs: [URL],
-        sidebarInputSelection: WorkflowSidebarInputSelection?
+        sidebarInputSelection: WorkflowSidebarInputSelection?,
+        initialToolID: String?
     ) {
         self.routeContext = routeContext
         state.configureProject(
@@ -106,6 +112,9 @@ final class WorkflowOperationsWindowController: NSWindowController {
             selectedReadURLs: selectedReadURLs,
             sidebarInputSelection: sidebarInputSelection
         )
+        if let initialToolID {
+            state.selectTool(initialToolID)
+        }
         refreshAISpecialistPresetAvailability()
     }
 

@@ -71,14 +71,29 @@ public struct ONTPacBioBarcodeDemuxCutadaptRun: Sendable, Codable, Equatable {
     }
 }
 
+public struct ONTPacBioBarcodeDemuxBarcodeDefinitions: Sendable {
+    public let barcodeKit: BarcodeKitDefinition
+    public let sampleAssignments: [FASTQSampleBarcodeAssignment]
+
+    public init(
+        barcodeKit: BarcodeKitDefinition,
+        sampleAssignments: [FASTQSampleBarcodeAssignment]
+    ) {
+        self.barcodeKit = barcodeKit
+        self.sampleAssignments = sampleAssignments
+    }
+}
+
 public enum ONTPacBioBarcodeDemuxMaterializerError: LocalizedError, Sendable, Equatable {
     case missingInput(URL)
     case missingBarcodeDefinitions(URL)
     case outputExists(URL)
     case noBarcodeRows(URL)
+    case unknownBarcodeID(String)
     case noInputFASTQs(URL)
     case noCutadaptCommand(URL)
     case noSampleOutputs
+    case gzipFailed(URL, Int32, String)
 
     public var errorDescription: String? {
         switch self {
@@ -89,13 +104,17 @@ public enum ONTPacBioBarcodeDemuxMaterializerError: LocalizedError, Sendable, Eq
         case .outputExists(let url):
             return "Output directory already exists: \(url.path). Use --force to replace it."
         case .noBarcodeRows(let url):
-            return "No PacBio barcode-pair rows were found in \(url.path). Expected columns: sample,forward_barcode,reverse_barcode."
+            return "No PacBio barcode-pair rows were found in \(url.path). Expected columns: sample_id,barcode_1,barcode_2."
+        case .unknownBarcodeID(let barcodeID):
+            return "PacBio barcode ID '\(barcodeID)' is not in the built-in Sequel 16, 96, or 384 barcode sets. Use a built-in bcXXXX ID or provide explicit barcode sequences."
         case .noInputFASTQs(let url):
             return "No physical FASTQ chunks could be resolved from \(url.path)."
         case .noCutadaptCommand(let url):
             return "Chunk demultiplexing did not report its cutadapt command for \(url.path)."
         case .noSampleOutputs:
-            return "cutadapt completed, but no sample FASTQ outputs were produced."
+            return "Demultiplexing completed, but no sample FASTQ outputs were produced."
+        case .gzipFailed(let url, let status, let stderr):
+            return "Failed to gzip \(url.lastPathComponent) (exit \(status)): \(stderr)"
         }
     }
 }
@@ -128,15 +147,24 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
         }
         try fileManager.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
 
-        let kitName = request.barcodeDefinitionsURL.deletingPathExtension().lastPathComponent
-        let barcodeKit = try BarcodeKitRegistry.loadCustomKit(from: request.barcodeDefinitionsURL, name: kitName)
-        guard !barcodeKit.barcodes.isEmpty else {
-            throw ONTPacBioBarcodeDemuxMaterializerError.noBarcodeRows(request.barcodeDefinitionsURL)
-        }
-
         let inputFASTQs = try ONTBarcodeDemuxGenotypingPipeline.resolveInputFASTQURLs(for: request.inputURL)
         guard !inputFASTQs.isEmpty else {
             throw ONTPacBioBarcodeDemuxMaterializerError.noInputFASTQs(request.inputURL)
+        }
+
+        let barcodeDefinitions = try Self.loadBarcodeDefinitions(from: request.barcodeDefinitionsURL)
+        if !barcodeDefinitions.sampleAssignments.isEmpty {
+            return try await runExactSampleSheetMaterialization(
+                request: request,
+                inputFASTQs: inputFASTQs,
+                barcodeDefinitions: barcodeDefinitions,
+                progress: progress
+            )
+        }
+
+        let barcodeKit = barcodeDefinitions.barcodeKit
+        guard !barcodeKit.barcodes.isEmpty else {
+            throw ONTPacBioBarcodeDemuxMaterializerError.noBarcodeRows(request.barcodeDefinitionsURL)
         }
 
         let tempRoot = request.outputDirectory.appendingPathComponent(".chunked-cutadapt-\(UUID().uuidString)", isDirectory: true)
@@ -351,6 +379,270 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
             chunkJobs: effectiveChunkJobs,
             cutadaptRuns: cutadaptRuns
         )
+    }
+
+    public static func loadBarcodeDefinitions(from url: URL) throws -> ONTPacBioBarcodeDemuxBarcodeDefinitions {
+        if let assignments = try? FASTQSampleBarcodeCSV.load(from: url), !assignments.isEmpty {
+            return ONTPacBioBarcodeDemuxBarcodeDefinitions(
+                barcodeKit: try builtInPacBioBarcodeKit(for: assignments),
+                sampleAssignments: assignments
+            )
+        }
+
+        let kitName = url.deletingPathExtension().lastPathComponent
+        return ONTPacBioBarcodeDemuxBarcodeDefinitions(
+            barcodeKit: try BarcodeKitRegistry.loadCustomKit(from: url, name: kitName),
+            sampleAssignments: []
+        )
+    }
+
+    private static func builtInPacBioBarcodeKit(
+        for assignments: [FASTQSampleBarcodeAssignment]
+    ) throws -> BarcodeKitDefinition {
+        let lookup = builtInPacBioBarcodeLookup()
+        var selectedByID: [String: BarcodeEntry] = [:]
+
+        for assignment in assignments {
+            for barcodeID in [assignment.forwardBarcodeID, assignment.reverseBarcodeID].compactMap(\.self) {
+                let key = barcodeID.lowercased()
+                guard let barcode = lookup[key] else {
+                    throw ONTPacBioBarcodeDemuxMaterializerError.unknownBarcodeID(barcodeID)
+                }
+                selectedByID[barcode.id.lowercased()] = barcode
+            }
+        }
+
+        let selected = selectedByID.values.sorted {
+            $0.id.localizedStandardCompare($1.id) == .orderedAscending
+        }
+        return BarcodeKitDefinition(
+            id: "pacbio-built-in-sample-assignments",
+            displayName: "Built-in PacBio Sequel barcode assignments",
+            vendor: "pacbio",
+            platform: .pacbio,
+            kitType: .pacbioM13Amplicon,
+            isDualIndexed: true,
+            pairingMode: .combinatorialDual,
+            barcodes: selected.isEmpty ? builtInPacBioBarcodeEntries() : selected
+        )
+    }
+
+    private static func resolveBarcodeSequence(
+        explicitSequence: String?,
+        barcodeID: String?,
+        kit: BarcodeKitDefinition
+    ) -> String? {
+        if let explicitSequence {
+            return explicitSequence
+        }
+        guard let barcodeID else {
+            return nil
+        }
+        return kit.barcodes.first {
+            $0.id.caseInsensitiveCompare(barcodeID) == .orderedSame
+        }?.i7Sequence
+    }
+
+    private static func sanitizedSampleIdentifier(_ sampleID: String) -> String {
+        let trimmed = sampleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sanitized = trimmed
+            .replacingOccurrences(of: "[^A-Za-z0-9._-]+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "._-"))
+        return sanitized.isEmpty ? "sample" : sanitized
+    }
+
+    private static func builtInPacBioBarcodeLookup() -> [String: BarcodeEntry] {
+        Dictionary(
+            builtInPacBioBarcodeEntries().map { ($0.id.lowercased(), $0) },
+            uniquingKeysWith: { existing, _ in existing }
+        )
+    }
+
+    private static func builtInPacBioBarcodeEntries() -> [BarcodeEntry] {
+        [
+            BarcodeKitRegistry.pacbioSequel16V3,
+            BarcodeKitRegistry.pacbioSequel96V2,
+            BarcodeKitRegistry.pacbioSequel384V1,
+        ].flatMap(\.barcodes)
+    }
+
+    private func runExactSampleSheetMaterialization(
+        request: ONTPacBioBarcodeDemuxMaterializationRequest,
+        inputFASTQs: [URL],
+        barcodeDefinitions: ONTPacBioBarcodeDemuxBarcodeDefinitions,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> ONTPacBioBarcodeDemuxMaterializationResult {
+        let sampleBarcodes = try Self.exactSampleBarcodePairs(from: barcodeDefinitions)
+        guard !sampleBarcodes.isEmpty else {
+            throw ONTPacBioBarcodeDemuxMaterializerError.noBarcodeRows(request.barcodeDefinitionsURL)
+        }
+
+        progress(0.02, "Running exact PacBio barcode demultiplexing on \(inputFASTQs.count) ONT FASTQ chunk(s)")
+        let demuxResult = try await ExactBarcodeDemux.run(
+            config: ExactBarcodeDemuxConfig(
+                inputURLs: inputFASTQs,
+                sampleBarcodes: sampleBarcodes,
+                minimumInsert: 2000,
+                previewLimit: 0
+            ),
+            progress: { fraction, message in
+                progress(0.02 + 0.68 * fraction, message)
+            }
+        )
+
+        guard !demuxResult.sampleResults.isEmpty else {
+            throw ONTPacBioBarcodeDemuxMaterializerError.noSampleOutputs
+        }
+
+        progress(0.72, "Materializing exact PacBio sample FASTQ bundles...")
+        let materializedSamples = try await materializeExactSampleOutputs(
+            demuxResult: demuxResult,
+            inputFASTQs: inputFASTQs,
+            outputDirectory: request.outputDirectory,
+            inputURL: request.inputURL,
+            barcodeDefinitionsURL: request.barcodeDefinitionsURL,
+            progress: progress
+        )
+        let sampleOutputs = materializedSamples.map(\.sampleOutput)
+
+        let manifestURL = request.outputDirectory.appendingPathComponent(Self.manifestFilename)
+        let sampleTotals: [String: Int] = Dictionary(uniqueKeysWithValues: sampleOutputs.map {
+            ($0.sampleID, $0.readCount)
+        })
+        let manifest: [String: Any] = [
+            "schemaVersion": 1,
+            "toolName": "lungfish fastq ont-pacbio-barcode-demux",
+            "assignmentEngine": "exact-barcode-demux",
+            "input": request.inputURL.path,
+            "barcodes": request.barcodeDefinitionsURL.path,
+            "outputDirectory": request.outputDirectory.path,
+            "inputChunkCount": inputFASTQs.count,
+            "executedCutadaptChunkCount": 0,
+            "inputReadCount": demuxResult.totalReads,
+            "assignedReadCount": demuxResult.assignedReads,
+            "unassignedReadCount": demuxResult.unassignedReadCount,
+            "payloadCompression": "gzip",
+            "minimumInsert": 2000,
+            "sampleTotals": sampleTotals,
+            "samples": sampleOutputs.map { $0.manifestItem },
+            "cutadaptRuns": [],
+            "gzipRuns": materializedSamples.map(\.gzipManifestItem),
+        ]
+        let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+        try manifestData.write(to: manifestURL, options: .atomic)
+
+        progress(1.0, "PacBio barcode demultiplexing complete")
+        return ONTPacBioBarcodeDemuxMaterializationResult(
+            outputDirectory: request.outputDirectory,
+            manifestURL: manifestURL,
+            outputBundleURLs: sampleOutputs.map { $0.bundleURL },
+            inputChunkCount: inputFASTQs.count,
+            executedCutadaptChunkCount: 0,
+            inputReadCount: demuxResult.totalReads,
+            assignedReadCount: demuxResult.assignedReads,
+            unassignedReadCount: demuxResult.unassignedReadCount,
+            chunkJobs: 1,
+            cutadaptRuns: []
+        )
+    }
+
+    private static func exactSampleBarcodePairs(
+        from definitions: ONTPacBioBarcodeDemuxBarcodeDefinitions
+    ) throws -> [ExactBarcodeDemuxConfig.SampleBarcodePair] {
+        try definitions.sampleAssignments.map { assignment in
+            guard let forward = resolveBarcodeSequence(
+                explicitSequence: assignment.forwardSequence,
+                barcodeID: assignment.forwardBarcodeID,
+                kit: definitions.barcodeKit
+            ), let reverse = resolveBarcodeSequence(
+                explicitSequence: assignment.reverseSequence,
+                barcodeID: assignment.reverseBarcodeID,
+                kit: definitions.barcodeKit
+            ) else {
+                throw ONTPacBioBarcodeDemuxMaterializerError.noBarcodeRows(URL(fileURLWithPath: assignment.sampleID))
+            }
+            return ExactBarcodeDemuxConfig.SampleBarcodePair(
+                sampleName: sanitizedSampleIdentifier(assignment.sampleID),
+                forwardSequence: forward,
+                reverseSequence: reverse
+            )
+        }
+    }
+
+    private func materializeExactSampleOutputs(
+        demuxResult: ExactBarcodeDemuxResult,
+        inputFASTQs: [URL],
+        outputDirectory: URL,
+        inputURL: URL,
+        barcodeDefinitionsURL: URL,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> [ExactMaterializedSample] {
+        let readToSample = Dictionary(
+            demuxResult.sampleResults.flatMap { sample in
+                sample.readIDs.map { ($0, sample.sampleName) }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var buildersBySample: [String: ExactSampleBuilder] = [:]
+        let sampleResultsByName = Dictionary(uniqueKeysWithValues: demuxResult.sampleResults.map {
+            ($0.sampleName, $0)
+        })
+        for sample in demuxResult.sampleResults {
+            buildersBySample[sample.sampleName] = try ExactSampleBuilder(
+                sampleResult: sample,
+                outputDirectory: outputDirectory
+            )
+        }
+
+        var recordLines: [String] = []
+        recordLines.reserveCapacity(4)
+        var scannedReads = 0
+        for try await line in URL.multiFileLinesAutoDecompressing(inputFASTQs) {
+            if line.isEmpty && recordLines.isEmpty { continue }
+            recordLines.append(line)
+            guard recordLines.count == 4 else { continue }
+            let record = FASTQRawRecord(
+                header: recordLines[0],
+                sequence: recordLines[1],
+                separator: recordLines[2],
+                quality: recordLines[3]
+            )
+            recordLines.removeAll(keepingCapacity: true)
+            scannedReads += 1
+            if let sampleName = readToSample[record.readID],
+               let builder = buildersBySample[sampleName] {
+                try builder.append(record)
+            }
+            if scannedReads % 100_000 == 0 {
+                progress(
+                    0.72 + 0.18 * Double(scannedReads) / Double(max(1, demuxResult.totalReads)),
+                    "Materialized \(scannedReads)/\(demuxResult.totalReads) reads..."
+                )
+                try Task.checkCancellation()
+            }
+        }
+        if !recordLines.isEmpty {
+            throw FASTQError.incompleteRecord(line: scannedReads * 4 + recordLines.count)
+        }
+
+        progress(0.92, "Finalizing exact PacBio sample FASTQ bundles...")
+        var materialized: [ExactMaterializedSample] = []
+        for sample in demuxResult.sampleResults.sorted(by: {
+            $0.sampleName.localizedStandardCompare($1.sampleName) == .orderedAscending
+        }) {
+            guard let builder = buildersBySample[sample.sampleName],
+                  let sampleResult = sampleResultsByName[sample.sampleName] else {
+                continue
+            }
+            materialized.append(
+                try await builder.finalize(
+                    sampleResult: sampleResult,
+                    inputURL: inputURL,
+                    barcodeDefinitionsURL: barcodeDefinitionsURL
+                )
+            )
+        }
+        return materialized
     }
 
     private static func requiresSubSlicing(
@@ -611,6 +903,160 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 checksum: checksum
             )
         }
+    }
+
+    private final class ExactSampleBuilder {
+        let sampleID: String
+        let bundleURL: URL
+        let rawFASTQURL: URL
+        let fastqURL: URL
+        private let handle: FileHandle
+        private(set) var writtenReadCount = 0
+
+        init(sampleResult: ExactBarcodeSampleResult, outputDirectory: URL) throws {
+            self.sampleID = sampleResult.sampleName
+            self.bundleURL = outputDirectory.appendingPathComponent(
+                "\(sampleID).\(FASTQBundle.directoryExtension)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+            self.rawFASTQURL = bundleURL.appendingPathComponent("\(sampleID).fastq")
+            self.fastqURL = bundleURL.appendingPathComponent("\(sampleID).fastq.gz")
+            FileManager.default.createFile(atPath: rawFASTQURL.path, contents: nil)
+            self.handle = try FileHandle(forWritingTo: rawFASTQURL)
+        }
+
+        deinit {
+            try? handle.close()
+        }
+
+        func append(_ record: FASTQRawRecord) throws {
+            try handle.write(contentsOf: Data(record.fastqString.utf8))
+            writtenReadCount += 1
+        }
+
+        func finalize(
+            sampleResult: ExactBarcodeSampleResult,
+            inputURL: URL,
+            barcodeDefinitionsURL: URL
+        ) async throws -> ExactMaterializedSample {
+            try handle.close()
+            guard writtenReadCount == sampleResult.readCount else {
+                throw ONTPacBioBarcodeDemuxMaterializerError.noSampleOutputs
+            }
+
+            let gzipRun = try Self.gzipFile(rawFASTQURL, to: fastqURL)
+            try? FileManager.default.removeItem(at: rawFASTQURL)
+
+            let checksum = try PayloadChecksum.sha256Hex(fileAt: fastqURL)
+            let operation = FASTQDerivativeOperation(
+                kind: .demultiplex,
+                barcodeID: sampleID,
+                sampleName: sampleID,
+                toolUsed: "exact-barcode-demux",
+                toolVersion: nil,
+                toolCommand: "lungfish fastq ont-pacbio-barcode-demux"
+            )
+            let manifest = FASTQDerivedBundleManifest(
+                name: sampleID,
+                parentBundleRelativePath: ".",
+                rootBundleRelativePath: ".",
+                rootFASTQFilename: fastqURL.lastPathComponent,
+                payload: .full(fastqFilename: fastqURL.lastPathComponent),
+                lineage: [operation],
+                operation: operation,
+                cachedStatistics: ExactBarcodeDemux.computeStatistics(
+                    readCount: sampleResult.readCount,
+                    baseCount: sampleResult.baseCount,
+                    minReadLength: sampleResult.minReadLength,
+                    maxReadLength: sampleResult.maxReadLength,
+                    readLengthHistogram: sampleResult.readLengthHistogram
+                ),
+                pairingMode: nil,
+                sequenceFormat: .fastq,
+                provenance: SampleProvenance(
+                    sampleID: sampleID,
+                    libraryPrep: "Full-length MHC ONT amplicon with PacBio barcode pairs",
+                    notes: "Materialized per-sample ONT reads with exact PacBio barcode-pair matching from \(barcodeDefinitionsURL.lastPathComponent). Source: \(inputURL.path)"
+                ),
+                payloadChecksums: PayloadChecksum(checksums: [fastqURL.lastPathComponent: checksum]),
+                materializationState: .materialized(checksum: checksum)
+            )
+            try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+            return ExactMaterializedSample(
+                sampleOutput: SampleOutput(
+                    sampleID: sampleID,
+                    bundleURL: bundleURL.standardizedFileURL,
+                    fastqURL: fastqURL.standardizedFileURL,
+                    readCount: sampleResult.readCount,
+                    baseCount: sampleResult.baseCount,
+                    checksum: checksum
+                ),
+                gzipRun: gzipRun
+            )
+        }
+
+        private static func gzipFile(_ inputURL: URL, to outputURL: URL) throws -> ExactGzipRun {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+            process.arguments = ["-n", "-c", inputURL.path]
+
+            FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+            let outputHandle = try FileHandle(forWritingTo: outputURL)
+            defer { try? outputHandle.close() }
+            let stderrPipe = Pipe()
+            process.standardOutput = outputHandle
+            process.standardError = stderrPipe
+
+            let start = Date()
+            try process.run()
+            process.waitUntilExit()
+            let wallTime = Date().timeIntervalSince(start)
+            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            let stderr = String(data: stderrData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            guard process.terminationStatus == 0 else {
+                throw ONTPacBioBarcodeDemuxMaterializerError.gzipFailed(
+                    outputURL,
+                    process.terminationStatus,
+                    stderr
+                )
+            }
+            return ExactGzipRun(
+                argv: ["/usr/bin/gzip", "-n", "-c", inputURL.path],
+                inputPath: inputURL.path,
+                outputPath: outputURL.path,
+                exitStatus: process.terminationStatus,
+                wallTimeSeconds: wallTime,
+                stderr: stderr.isEmpty ? nil : stderr
+            )
+        }
+    }
+
+    private struct ExactMaterializedSample {
+        let sampleOutput: SampleOutput
+        let gzipRun: ExactGzipRun
+
+        var gzipManifestItem: [String: Any] {
+            [
+                "argv": gzipRun.argv,
+                "input": gzipRun.inputPath,
+                "output": gzipRun.outputPath,
+                "exitStatus": gzipRun.exitStatus,
+                "wallTimeSeconds": gzipRun.wallTimeSeconds,
+                "stderr": gzipRun.stderr as Any,
+            ]
+        }
+    }
+
+    private struct ExactGzipRun {
+        let argv: [String]
+        let inputPath: String
+        let outputPath: String
+        let exitStatus: Int32
+        let wallTimeSeconds: Double
+        let stderr: String?
     }
 
     private struct SampleOutput: Sendable {

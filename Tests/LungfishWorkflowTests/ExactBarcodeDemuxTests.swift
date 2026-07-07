@@ -439,4 +439,21 @@ final class ExactBarcodeDemuxTests: XCTestCase {
         XCTAssertEqual(assignments[0].forwardBarcodeID, "bc1001")
         XCTAssertEqual(assignments[0].reverseBarcodeID, "bc1021")
     }
+
+    func testPacBioBarcodeAssignmentCSVResolvesBuiltInBarcodeIDs() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pacbio-assignment-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let csvURL = tempDir.appendingPathComponent("pacbio-barcodes.csv")
+        try "sample_id,barcode_1,barcode_2\nLN94,bc1001,bc1021\n"
+            .write(to: csvURL, atomically: true, encoding: .utf8)
+
+        let definitions = try ONTPacBioBarcodeDemuxMaterializer.loadBarcodeDefinitions(from: csvURL)
+
+        XCTAssertEqual(definitions.sampleAssignments.count, 1)
+        XCTAssertEqual(definitions.sampleAssignments[0].sampleID, "LN94")
+        XCTAssertEqual(definitions.barcodeKit.barcodes.first { $0.id == "bc1001" }?.i7Sequence, "CACATATCAGAGTGCG")
+        XCTAssertEqual(definitions.barcodeKit.barcodes.first { $0.id == "bc1021" }?.i7Sequence, "CTATACATAGTGATGT")
+    }
 }

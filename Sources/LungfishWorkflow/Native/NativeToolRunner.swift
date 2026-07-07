@@ -334,6 +334,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case vsearch
     case blastn
     case cutadapt
+    case trimGalore
     case ribodetector
     case clumpify
     case bbduk
@@ -369,6 +370,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .vsearch: return "vsearch"
         case .blastn: return "blastn"
         case .cutadapt: return "cutadapt"
+        case .trimGalore: return "trim_galore"
         case .ribodetector: return "ribodetector_cpu"
         case .clumpify: return "clumpify.sh"
         case .bbduk: return "bbduk.sh"
@@ -438,6 +440,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return .managed(environment: "blast", executableName: "blastn")
         case .cutadapt:
             return .managed(environment: "cutadapt", executableName: "cutadapt")
+        case .trimGalore:
+            return .managed(environment: "trim_galore", executableName: "trim_galore")
         case .ribodetector:
             return .managed(environment: "ribodetector", executableName: "ribodetector_cpu")
         case .clumpify:
@@ -528,6 +532,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .vsearch: return "vsearch"
         case .blastn: return "ncbi-blast"
         case .cutadapt: return "cutadapt"
+        case .trimGalore: return "trim-galore"
         case .ribodetector: return "ribodetector"
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat, .bbmap, .mapPacBio: return "bbmap"
         case .fasterqDump, .prefetch: return "sra-tools"
@@ -570,6 +575,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "Public Domain (NCBI)"
         case .cutadapt:
             return "MIT License"
+        case .trimGalore:
+            return "GPL-3.0-only"
         case .ribodetector:
             return "GPL-3.0-or-later"
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat, .bbmap, .mapPacBio:

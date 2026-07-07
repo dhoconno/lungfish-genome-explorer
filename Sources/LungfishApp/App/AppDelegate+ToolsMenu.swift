@@ -49,8 +49,16 @@ extension AppDelegate {
         showFASTQOperationsDialog(sender, initialCategory: .assembly)
     }
 
+    @objc func showFASTQClusteringOperations(_ sender: Any?) {
+        showFASTQOperationsDialog(sender, initialCategory: .clustering)
+    }
+
     @objc func showFASTQClassificationOperations(_ sender: Any?) {
         showFASTQOperationsDialog(sender, initialCategory: .classification)
+    }
+
+    @objc func showFASTQGenotypingOperations(_ sender: Any?) {
+        showFASTQOperationsDialog(sender, initialCategory: .genotyping)
     }
 
     @objc func showFASTQReverseComplementOperation(_ sender: Any?) {
@@ -59,6 +67,11 @@ extension AppDelegate {
 
     @objc func showFASTQTranslateOperation(_ sender: Any?) {
         showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .translate)
+    }
+
+    @objc func launchFASTQOperationToolFromMenu(_ sender: NSMenuItem) {
+        guard let toolID = sender.representedObject as? FASTQOperationToolID else { return }
+        showFASTQOperationsDialog(sender, initialCategory: toolID.categoryID, initialToolID: toolID)
     }
 
     @objc func showFreyjaDemix(_ sender: Any?) {
@@ -99,7 +112,7 @@ extension AppDelegate {
             let alert = NSAlert()
             alert.alertStyle = .informational
             alert.messageText = title
-            alert.informativeText = message ?? "Select one or more FASTQ or FASTA files, sequence bundles, or reference bundles in the sidebar, then choose Tools > FASTQ/FASTA Operations."
+            alert.informativeText = message ?? "Select one or more FASTQ or FASTA files, sequence bundles, or reference bundles in the sidebar, then choose the matching operation category from the Tools menu."
             alert.addButton(withTitle: "OK")
             alert.beginSheetModal(for: window)
         }
@@ -1237,6 +1250,46 @@ extension AppDelegate {
     }
 
     @objc func showWorkflowOperations(_ sender: Any?) {
+        showWorkflowOperations(sender, preselectedWorkflowID: nil)
+    }
+
+    @objc func launchWorkflowFromMenu(_ sender: NSMenuItem) {
+        guard let workflowID = workflowOperationID(from: sender.representedObject) else { return }
+        showWorkflowOperations(sender, preselectedWorkflowID: workflowID)
+    }
+
+    @objc func promptEnableWorkflowFromMenu(_ sender: NSMenuItem) {
+        let workflowTitle = sender.title.replacingOccurrences(of: " (not enabled)", with: "")
+        guard let window = activeMainWindowController(sender: sender)?.window else {
+            WorkflowLibraryWindowController.show()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Enable “\(workflowTitle)”?"
+        alert.informativeText = "This workflow is available but not yet enabled. Enable it in the Workflow Library?"
+        alert.addButton(withTitle: "Open Workflow Library")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            WorkflowLibraryWindowController.show()
+        }
+    }
+
+    private func workflowOperationID(from representedObject: Any?) -> String? {
+        if let toolID = representedObject as? FASTQOperationToolID {
+            switch toolID {
+            case .ontGenotyping:
+                return "builtin.ont-genotyping"
+            default:
+                return toolID.rawValue
+            }
+        }
+        return representedObject as? String
+    }
+
+    private func showWorkflowOperations(_ sender: Any?, preselectedWorkflowID: String?) {
         let sourceController = activeMainWindowController(sender: sender)
         let routeContext = sourceController.map { currentOperationRouteContext(for: $0) } ?? nil
         let projectURL = routeContext?.projectURL
@@ -1251,7 +1304,8 @@ extension AppDelegate {
             projectURL: projectURL,
             routeContext: routeContext,
             selectedReadURLs: selectedReadURLs,
-            sidebarInputSelection: sidebarResolution?.sidebarInputSelection
+            sidebarInputSelection: sidebarResolution?.sidebarInputSelection,
+            initialToolID: preselectedWorkflowID
         )
     }
 

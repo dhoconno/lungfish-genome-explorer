@@ -163,10 +163,12 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
             optimizeStorage: false,
             threads: 2
         )
+        let collector = FASTQBatchImporterRecipeEventCollector()
 
         let result = await FASTQBatchImporter.runBatchImport(
             pairs: [pair],
-            config: config
+            config: config,
+            log: { collector.append($0) }
         )
 
         XCTAssertEqual(result.completed, 1, "Importer should create a bundle for paired-end merge recipes")
@@ -176,13 +178,31 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         let bundleURL = config.projectDirectory
             .appendingPathComponent("Imports")
             .appendingPathComponent("merge-sample.lungfishfastq")
+        let fastqURL = bundleURL.appendingPathComponent("merge-sample.fastq.gz")
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
         XCTAssertTrue(
-            FileManager.default.fileExists(
-                atPath: bundleURL.appendingPathComponent("merge-sample.fastq.gz").path
-            ),
+            FileManager.default.fileExists(atPath: fastqURL.path),
             "Merged bundle should contain the final FASTQ payload"
         )
+        let rawInputSize = try fileSize(pair.r1) + fileSize(try XCTUnwrap(pair.r2))
+        let metadata = try XCTUnwrap(FASTQMetadataStore.load(for: fastqURL))
+        XCTAssertEqual(metadata.ingestion?.originalSizeBytes, rawInputSize)
+        XCTAssertNotNil(metadata.ingestion?.storageInputSizeBytes)
+        XCTAssertEqual(metadata.ingestion?.storageOutputSizeBytes, try fileSize(fastqURL))
+
+        let startedSteps = collector.events.compactMap { event -> (String, Int, Int)? in
+            guard case .stepStart(_, let step, let stepIndex, let totalSteps) = event else {
+                return nil
+            }
+            return (step, stepIndex, totalSteps)
+        }
+        XCTAssertEqual(startedSteps.map(\.0), [
+            "merge-strict",
+            "Compress",
+            "Compute statistics",
+        ])
+        XCTAssertEqual(startedSteps.map(\.1), [1, 2, 3])
+        XCTAssertEqual(startedSteps.map(\.2), [1, 3, 3])
     }
 
     func testRunBatchImportVSP2RetainsDeaconSummaryArtifactAndProvenance() async throws {
@@ -287,5 +307,10 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
             ].joined(separator: "\n")
         }.joined(separator: "\n")
         try content.appending("\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func fileSize(_ url: URL) throws -> Int64 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return try XCTUnwrap(attributes[.size] as? Int64)
     }
 }

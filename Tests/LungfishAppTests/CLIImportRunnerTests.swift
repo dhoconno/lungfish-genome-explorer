@@ -245,6 +245,40 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertTrue(args.contains("fast"))
     }
 
+    func testBuildCLIArgumentsIncludesExplicitClumpingTool() {
+        let args = CLIImportRunner.buildCLIArguments(
+            r1: URL(fileURLWithPath: "/data/reads.fastq.gz"),
+            r2: nil,
+            projectDirectory: URL(fileURLWithPath: "/project"),
+            platform: "illumina",
+            recipeName: nil,
+            qualityBinning: "illumina4",
+            optimizeStorage: true,
+            clumpingTool: .trimGalore,
+            compressionLevel: "balanced"
+        )
+
+        XCTAssertTrue(args.contains("--clumping-tool"))
+        XCTAssertTrue(args.contains("trim-galore"))
+    }
+
+    func testBuildCLIArgumentsTreatsNoClumpingToolAsNoOptimizeStorage() {
+        let args = CLIImportRunner.buildCLIArguments(
+            r1: URL(fileURLWithPath: "/data/reads.fastq.gz"),
+            r2: nil,
+            projectDirectory: URL(fileURLWithPath: "/project"),
+            platform: "illumina",
+            recipeName: nil,
+            qualityBinning: "illumina4",
+            optimizeStorage: true,
+            clumpingTool: .none,
+            compressionLevel: "balanced"
+        )
+
+        XCTAssertTrue(args.contains("--no-optimize-storage"))
+        XCTAssertFalse(args.contains("--clumping-tool"))
+    }
+
     func testCommandLineShellQuotesArguments() {
         let args = CLIImportRunner.buildCLIArguments(
             r1: URL(fileURLWithPath: "/Volumes/iWES WNPRC/ww test/Sample R1.fastq.gz"),

@@ -14,6 +14,7 @@ final class ImportConfigTests: XCTestCase {
         )
         XCTAssertEqual(config.platform, .illumina)
         XCTAssertTrue(config.optimizeStorage)
+        XCTAssertEqual(config.clumpingTool, .auto)
         XCTAssertEqual(config.qualityBinning, .illumina4)
         XCTAssertEqual(config.compressionLevel, .balanced)
         XCTAssertNil(config.newRecipe)
@@ -26,6 +27,7 @@ final class ImportConfigTests: XCTestCase {
             platform: .ont
         )
         XCTAssertFalse(config.optimizeStorage)
+        XCTAssertEqual(config.clumpingTool, .none)
         XCTAssertEqual(config.qualityBinning, QualityBinningScheme.none)
     }
 
@@ -39,9 +41,21 @@ final class ImportConfigTests: XCTestCase {
             forceReimport: true
         )
         XCTAssertFalse(config.optimizeStorage)
+        XCTAssertEqual(config.clumpingTool, .none)
         XCTAssertEqual(config.qualityBinning, .none)
         XCTAssertEqual(config.compressionLevel, .maximum)
         XCTAssertTrue(config.forceReimport)
+    }
+
+    func testImportConfigDoesNotEnableShortReadClumpingForONT() {
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: URL(fileURLWithPath: "/tmp/test.lungfish"),
+            platform: .ont,
+            clumpingTool: .bbtools
+        )
+
+        XCTAssertFalse(config.optimizeStorage)
+        XCTAssertEqual(config.clumpingTool, .none)
     }
 
     func testImportConfigRecipeQualityBinningFallback() {
@@ -53,6 +67,7 @@ final class ImportConfigTests: XCTestCase {
         )
         XCTAssertEqual(config.qualityBinning, .none, "PacBio platform default is .none")
         XCTAssertFalse(config.optimizeStorage)
+        XCTAssertEqual(config.clumpingTool, .none)
     }
 
     func testImportConfigDefaultThreads() {

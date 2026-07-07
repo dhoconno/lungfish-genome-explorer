@@ -1098,13 +1098,15 @@ final class FASTQOperationDialogState {
         case .alignment:
             return [.mafft]
         case .mapping:
-            return [.minimap2, .bwaMem2, .bowtie2, .bbmap, .ontGenotyping, .viralRecon]
+            return [.minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon]
         case .assembly:
             return [.spades, .megahit, .skesa, .flye, .hifiasm]
         case .clustering:
             return [.pbaa]
         case .classification:
             return [.kraken2, .esViritu, .taxTriage]
+        case .genotyping:
+            return [.ontGenotyping]
         }
     }
 
@@ -1806,12 +1808,14 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .alignment
         case .pbaa:
             return .clustering
-        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .ontGenotyping:
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon:
             return .mapping
         case .spades, .megahit, .skesa, .flye, .hifiasm:
             return .assembly
         case .kraken2, .esViritu, .taxTriage:
             return .classification
+        case .ontGenotyping:
+            return .genotyping
         }
     }
 
@@ -2078,6 +2082,8 @@ extension FASTQOperationCategoryID {
             return .pbaa
         case .classification:
             return .kraken2
+        case .genotyping:
+            return .ontGenotyping
         }
     }
 }

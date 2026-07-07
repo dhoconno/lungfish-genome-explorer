@@ -422,8 +422,14 @@ public struct IngestionMetadata: Codable, Sendable {
     /// Date the ingestion pipeline completed.
     public var ingestionDate: Date?
 
-    /// Size of the file before clumpification/compression (bytes).
+    /// Size of the original source files before import or recipe processing (bytes).
     public var originalSizeBytes: Int64?
+
+    /// Size of the FASTQ payload handed to the final storage optimization step (bytes).
+    public var storageInputSizeBytes: Int64?
+
+    /// Size of the final stored FASTQ payload after storage optimization/compression (bytes).
+    public var storageOutputSizeBytes: Int64?
 
     /// Post-import recipe applied during ingestion, with per-step stats.
     public var recipeApplied: RecipeAppliedInfo?
@@ -436,6 +442,8 @@ public struct IngestionMetadata: Codable, Sendable {
         originalFilenames: [String] = [],
         ingestionDate: Date? = nil,
         originalSizeBytes: Int64? = nil,
+        storageInputSizeBytes: Int64? = nil,
+        storageOutputSizeBytes: Int64? = nil,
         recipeApplied: RecipeAppliedInfo? = nil
     ) {
         self.isClumpified = isClumpified
@@ -445,6 +453,8 @@ public struct IngestionMetadata: Codable, Sendable {
         self.originalFilenames = originalFilenames
         self.ingestionDate = ingestionDate
         self.originalSizeBytes = originalSizeBytes
+        self.storageInputSizeBytes = storageInputSizeBytes
+        self.storageOutputSizeBytes = storageOutputSizeBytes
         self.recipeApplied = recipeApplied
     }
 }

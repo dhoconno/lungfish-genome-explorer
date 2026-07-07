@@ -115,6 +115,12 @@ extension ImportCommand {
         var noOptimizeStorage: Bool = false
 
         @Option(
+            name: .customLong("clumping-tool"),
+            help: "Storage optimization tool: auto, bbtools, trim-galore, none (default: platform-specific)"
+        )
+        var clumpingTool: String?
+
+        @Option(
             name: .customLong("compression"),
             help: "Compression level: fast, balanced, maximum (default: balanced)"
         )
@@ -298,11 +304,24 @@ extension ImportCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
+            // MARK: Resolve clumping tool
+
+            let requestedClumpingTool: ClumpingTool?
+            do {
+                requestedClumpingTool = noOptimizeStorage
+                    ? ClumpingTool.none
+                    : try clumpingTool.map(Self.parseClumpingTool)
+            } catch {
+                print(formatter.error("Unknown clumping-tool value '\(clumpingTool ?? "")'. Valid: auto, bbtools, trim-galore, none"))
+                throw CLIExitCode.inputError.exitCode
+            }
+
             // MARK: Build config
 
             let projectURL = URL(fileURLWithPath: project)
             let logDirURL = logDir.map { URL(fileURLWithPath: $0) }
             let threadCount = globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount
+            let effectiveOptimizeStorage = !noOptimizeStorage && requestedClumpingTool != ClumpingTool.none
 
             let config = FASTQBatchImporter.ImportConfig(
                 projectDirectory: projectURL,
@@ -310,7 +329,8 @@ extension ImportCommand {
                 recipe: oldRecipe,
                 newRecipe: newRecipe,
                 qualityBinning: binningScheme,
-                optimizeStorage: !noOptimizeStorage,
+                optimizeStorage: effectiveOptimizeStorage,
+                clumpingTool: requestedClumpingTool,
                 compressionLevel: compLevel,
                 threads: threadCount,
                 logDirectory: logDirURL,
@@ -408,6 +428,22 @@ extension ImportCommand {
             }
 
             return (nil, try FASTQBatchImporter.resolveRecipe(named: name))
+        }
+
+        static func parseClumpingTool(_ value: String) throws -> ClumpingTool {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "auto":
+                return .auto
+            case "bbtools", "clumpify", "clumpify.sh":
+                return .bbtools
+            case "trim-galore", "trimgalore", "trim_galore":
+                return .trimGalore
+            case "none", "skip", "off", "false":
+                return .none
+            default:
+                struct UnknownClumpingTool: Error {}
+                throw UnknownClumpingTool()
+            }
         }
 
         private static let v2RecipeAliases: [String: String] = [

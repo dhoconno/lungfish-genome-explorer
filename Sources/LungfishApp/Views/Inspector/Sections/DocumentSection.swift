@@ -1099,6 +1099,17 @@ public struct DocumentSection: View {
                     metadataRow(label: "Original Size", value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
                 }
 
+                if let size = ingestion.storageInputSizeBytes,
+                   size != ingestion.originalSizeBytes || ingestion.recipeApplied != nil {
+                    let label = ingestion.isClumpified ? "Before Clumpify" : "Storage Input"
+                    metadataRow(label: label, value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                }
+
+                if let size = ingestion.storageOutputSizeBytes {
+                    let label = ingestion.isClumpified ? "After Clumpify" : "Stored Size"
+                    metadataRow(label: label, value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                }
+
                 if let date = ingestion.ingestionDate {
                     metadataRow(label: "Processed", value: formatDate(date))
                 }

@@ -31,6 +31,18 @@ public final class MainMenu {
         experimentalFeaturesEnabled: Bool = AppSettings.shared.experimentalFeaturesEnabled,
         workflowFeatureAvailability: WorkflowFeatureAvailability? = nil
     ) -> NSMenu {
+        createMainMenu(
+            experimentalFeaturesEnabled: experimentalFeaturesEnabled,
+            workflowFeatureAvailability: workflowFeatureAvailability,
+            workflowLibraryEnablementStore: .shared
+        )
+    }
+
+    static func createMainMenu(
+        experimentalFeaturesEnabled: Bool = AppSettings.shared.experimentalFeaturesEnabled,
+        workflowFeatureAvailability: WorkflowFeatureAvailability? = nil,
+        workflowLibraryEnablementStore: WorkflowLibraryEnablementStore = .shared
+    ) -> NSMenu {
         let mainMenu = NSMenu()
         let workflowFeatureAvailability = workflowFeatureAvailability ?? .current()
 
@@ -53,7 +65,8 @@ public final class MainMenu {
         mainMenu.addItem(
             createToolsMenu(
                 experimentalFeaturesEnabled: experimentalFeaturesEnabled,
-                workflowFeatureAvailability: workflowFeatureAvailability
+                workflowFeatureAvailability: workflowFeatureAvailability,
+                workflowLibraryEnablementStore: workflowLibraryEnablementStore
             )
         )
 
@@ -634,84 +647,16 @@ public final class MainMenu {
 
     private static func createToolsMenu(
         experimentalFeaturesEnabled: Bool,
-        workflowFeatureAvailability: WorkflowFeatureAvailability
+        workflowFeatureAvailability: WorkflowFeatureAvailability,
+        workflowLibraryEnablementStore: WorkflowLibraryEnablementStore
     ) -> NSMenuItem {
         let toolsMenuItem = NSMenuItem(title: "Tools", action: nil, keyEquivalent: "")
         toolsMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.toolsMenu)
         let toolsMenu = NSMenu(title: "Tools")
 
-        let fastqOperationsItem = NSMenuItem(title: "FASTQ/FASTA Operations", action: nil, keyEquivalent: "")
-        let fastqOperationsMenu = NSMenu(title: "FASTQ/FASTA Operations")
-        fastqOperationsMenu.addItem(
-            withTitle: "QC & Reporting…",
-            action: #selector(ToolsMenuActions.showFASTQQCReportingOperations(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsMenu.addItem(
-            withTitle: "Demultiplexing…",
-            action: #selector(ToolsMenuActions.showFASTQDemultiplexingOperations(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsMenu.addItem(
-            withTitle: "Trimming & Filtering…",
-            action: #selector(ToolsMenuActions.showFASTQTrimmingFilteringOperations(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsMenu.addItem(
-            withTitle: "Decontamination…",
-            action: #selector(ToolsMenuActions.showFASTQDecontaminationOperations(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsMenu.addItem(
-            withTitle: "Read Processing…",
-            action: #selector(ToolsMenuActions.showFASTQReadProcessingOperations(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsMenu.addItem(
-            withTitle: "Search & Subsetting…",
-            action: #selector(ToolsMenuActions.showFASTQSearchSubsettingOperations(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsMenu.addItem(
-            withTitle: "Multiple Sequence Alignment…",
-            action: #selector(ToolsMenuActions.showFASTQAlignmentOperations(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsMenu.addItem(
-            withTitle: "Mapping…",
-            action: #selector(ToolsMenuActions.showFASTQMappingOperations(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsMenu.addItem(
-            withTitle: "Assembly…",
-            action: #selector(ToolsMenuActions.showFASTQAssemblyOperations(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsMenu.addItem(
-            withTitle: "Classification…",
-            action: #selector(ToolsMenuActions.showFASTQClassificationOperations(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsMenu.addItem(
-            withTitle: "Reverse Complement\u{2026}",
-            action: #selector(ToolsMenuActions.showFASTQReverseComplementOperation(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsMenu.addItem(
-            withTitle: "Translate\u{2026}",
-            action: #selector(ToolsMenuActions.showFASTQTranslateOperation(_:)),
-            keyEquivalent: ""
-        )
-        fastqOperationsItem.submenu = fastqOperationsMenu
-        toolsMenu.addItem(fastqOperationsItem)
-
-        if workflowFeatureAvailability.hasWorkflowOperations {
-            let workflowOperationsItem = toolsMenu.addItem(
-                withTitle: "Workflow Operations\u{2026}",
-                action: #selector(ToolsMenuActions.showWorkflowOperations(_:)),
-                keyEquivalent: ""
-            )
-            workflowOperationsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowOperations)
+        let model = ToolsMenuModel.build(isEnabled: { workflowLibraryEnablementStore.isWorkflowEnabled($0) })
+        for category in model.categories {
+            toolsMenu.addItem(categoryToolsMenuItem(for: category))
         }
 
         if workflowFeatureAvailability.hasHaplotypeDefinitions {
@@ -790,6 +735,67 @@ public final class MainMenu {
 
         toolsMenuItem.submenu = toolsMenu
         return toolsMenuItem
+    }
+
+    private static func categoryToolsMenuItem(for category: ToolsMenuModel.Category) -> NSMenuItem {
+        let categoryItem = NSMenuItem(title: category.title, action: nil, keyEquivalent: "")
+        let categoryMenu = NSMenu(title: category.title)
+
+        for item in operationMenuItems(for: category.id) {
+            categoryMenu.addItem(item)
+        }
+
+        if !category.workflows.isEmpty {
+            categoryMenu.addItem(.separator())
+            for workflow in category.workflows {
+                categoryMenu.addItem(workflowMenuItem(for: workflow))
+            }
+        }
+
+        categoryItem.submenu = categoryMenu
+        return categoryItem
+    }
+
+    private static func operationMenuItems(for categoryID: FASTQOperationCategoryID) -> [NSMenuItem] {
+        FASTQOperationDialogState.toolIDs(for: categoryID)
+            .filter { toolID in
+                WorkflowLibraryCatalog.item(for: toolID)?.capabilities.contains(.workflowOperations) != true
+            }
+            .map { toolID in
+                let item = NSMenuItem(
+                    title: "\(toolID.title)\u{2026}",
+                    action: #selector(ToolsMenuActions.launchFASTQOperationToolFromMenu(_:)),
+                    keyEquivalent: ""
+                )
+                item.representedObject = toolID
+                return item
+            }
+    }
+
+    private static func workflowMenuItem(for workflow: ToolsMenuModel.WorkflowEntry) -> NSMenuItem {
+        if workflow.isEnabled {
+            let item = NSMenuItem(
+                title: "\(workflow.title)\u{2026}",
+                action: #selector(ToolsMenuActions.launchWorkflowFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            item.representedObject = workflow.representedObject
+            return item
+        }
+
+        let title = "\(workflow.title) (not enabled)"
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(ToolsMenuActions.promptEnableWorkflowFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        item.representedObject = workflow.representedObject
+        // Disabled NSMenuItems cannot invoke actions, so this remains enabled and is styled as unavailable.
+        item.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [.foregroundColor: NSColor.disabledControlTextColor]
+        )
+        return item
     }
 
     // MARK: - Operations Menu
@@ -1108,7 +1114,10 @@ enum ProvenanceExportMenuModel {
     func showFASTQAlignmentOperations(_ sender: Any?)
     func showFASTQMappingOperations(_ sender: Any?)
     func showFASTQAssemblyOperations(_ sender: Any?)
+    func showFASTQClusteringOperations(_ sender: Any?)
     func showFASTQClassificationOperations(_ sender: Any?)
+    func showFASTQGenotypingOperations(_ sender: Any?)
+    func launchFASTQOperationToolFromMenu(_ sender: NSMenuItem)
     func showFASTQReverseComplementOperation(_ sender: Any?)
     func showFASTQTranslateOperation(_ sender: Any?)
     func showFreyjaDemix(_ sender: Any?)
@@ -1120,6 +1129,10 @@ enum ProvenanceExportMenuModel {
     func showWorkflowBuilder(_ sender: Any?)
     /// Opens the enabled workflow operations runner.
     func showWorkflowOperations(_ sender: Any?)
+    /// Opens an enabled workflow operation from an in-category Tools menu item.
+    func launchWorkflowFromMenu(_ sender: NSMenuItem)
+    /// Prompts the user to enable an installable workflow from the Workflow Library.
+    func promptEnableWorkflowFromMenu(_ sender: NSMenuItem)
     /// Opens the CLI-backed haplotype definition manager for ONT genotyping workflows.
     func showHaplotypeDefinitions(_ sender: Any?)
     /// Opens the Workflow Library window for enabling specialized workflow surfaces.

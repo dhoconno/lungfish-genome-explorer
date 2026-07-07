@@ -124,6 +124,9 @@ public enum FASTQBatchImporter {
         /// Whether to run clumpify for storage optimisation. Defaults to the
         /// platform default; can be overridden explicitly.
         public let optimizeStorage: Bool
+        /// Storage optimization tool selection. `.auto` resolves after recipe
+        /// execution against the actual files that will be bundled.
+        public let clumpingTool: ClumpingTool
         /// Gzip compression level. Defaults to `.balanced`.
         public let compressionLevel: CompressionLevel
         public let threads: Int
@@ -138,6 +141,7 @@ public enum FASTQBatchImporter {
             newRecipe: Recipe? = nil,
             qualityBinning: QualityBinningScheme? = nil,
             optimizeStorage: Bool? = nil,
+            clumpingTool: ClumpingTool? = nil,
             compressionLevel: CompressionLevel? = nil,
             threads: Int = 4,
             logDirectory: URL? = nil,
@@ -149,11 +153,27 @@ public enum FASTQBatchImporter {
             self.newRecipe = newRecipe
             // Default resolution: explicit value > recipe suggestion > platform default
             self.qualityBinning = qualityBinning ?? newRecipe?.qualityBinning ?? platform.defaultQualityBinning
-            self.optimizeStorage = optimizeStorage ?? platform.defaultOptimizeStorage
+            let platformSupportsClumping = Self.platformSupportsClumping(platform)
+            let resolvedOptimizeStorage = platformSupportsClumping && (
+                optimizeStorage
+                    ?? clumpingTool.map(\.isClumpingEnabled)
+                    ?? platform.defaultOptimizeStorage
+            )
+            self.optimizeStorage = resolvedOptimizeStorage
+            self.clumpingTool = resolvedOptimizeStorage ? (clumpingTool ?? .default) : .none
             self.compressionLevel = compressionLevel ?? platform.defaultCompressionLevel
             self.threads = threads
             self.logDirectory = logDirectory
             self.forceReimport = forceReimport
+        }
+
+        private static func platformSupportsClumping(_ platform: LungfishWorkflow.SequencingPlatform) -> Bool {
+            switch platform {
+            case .illumina, .ultima:
+                return true
+            case .ont, .pacbio:
+                return false
+            }
         }
     }
 
@@ -862,6 +882,8 @@ public enum FASTQBatchImporter {
             }
 
             // Step 2: Clumpify + compress (on recipe output, or raw input if no recipe)
+            let rawInputURLs = [pair.r1] + (pair.r2.map { [$0] } ?? [])
+            let rawOriginalSizeBytes = totalFileSize(rawInputURLs)
             let clumpifyInput: [URL]
             let clumpifyPairingMode: FASTQIngestionConfig.PairingMode
             let deleteIngestionInputsAfterRun: Bool
@@ -871,7 +893,10 @@ public enum FASTQBatchImporter {
                 deleteIngestionInputsAfterRun = true
             } else {
                 let rawInputs = pair.r2 != nil ? [pair.r1, pair.r2!] : [pair.r1]
-                if config.optimizeStorage {
+                let resolvedRawClumpingTool = config.clumpingTool.resolve(
+                    estimatedInputBytes: FASTQIngestionPipeline.estimatedUncompressedInputBytes(for: rawInputs)
+                ).resolved
+                if config.optimizeStorage && resolvedRawClumpingTool != .none {
                     clumpifyInput = rawInputs
                     deleteIngestionInputsAfterRun = false
                 } else {
@@ -888,7 +913,9 @@ public enum FASTQBatchImporter {
                 threads: config.threads,
                 deleteOriginals: deleteIngestionInputsAfterRun,
                 qualityBinning: config.qualityBinning,
-                skipClumpify: !config.optimizeStorage
+                skipClumpify: config.clumpingTool == .none,
+                compressionLevel: config.compressionLevel,
+                clumpingTool: config.clumpingTool
             )
 
             // Total steps = recipe steps + clumpify + stats
@@ -896,7 +923,7 @@ public enum FASTQBatchImporter {
             let totalSteps = recipeStepCount + 2  // +1 clumpify, +1 stats
             let clumpifyStepIndex = recipeStepCount + 1
             let statsStepIndex = recipeStepCount + 2
-            let clumpifyLabel = config.optimizeStorage ? "Clumpify + Compress" : "Compress"
+            let clumpifyLabel = config.optimizeStorage ? "Optimize storage + Compress" : "Compress"
             log?(.stepStart(sample: pair.sampleName, step: clumpifyLabel, stepIndex: clumpifyStepIndex, totalSteps: totalSteps))
             printProgress("  \u{2192} \(clumpifyLabel)...")
             let clumpifyStart = Date()
@@ -913,7 +940,7 @@ public enum FASTQBatchImporter {
             ))
             recipeStepResults.append(RecipeStepResult(
                 stepName: clumpifyLabel,
-                tool: ingestionResult.processingTool ?? (config.optimizeStorage ? "clumpify.sh" : "compression"),
+                tool: ingestionResult.processingTool ?? (config.optimizeStorage ? ingestionResult.resolvedClumpingTool.rawValue : "compression"),
                 toolVersion: ingestionResult.processingToolVersion,
                 commandLine: ingestionResult.processingCommandLine,
                 inputReadCount: nil,
@@ -962,9 +989,11 @@ public enum FASTQBatchImporter {
                 isCompressed: true,
                 pairingMode: pairingMeta,
                 qualityBinning: ingestionResult.qualityBinning.rawValue,
-                originalFilenames: [pair.r1.lastPathComponent] + (pair.r2.map { [$0.lastPathComponent] } ?? []),
+                originalFilenames: rawInputURLs.map(\.lastPathComponent),
                 ingestionDate: Date(),
-                originalSizeBytes: ingestionResult.originalSizeBytes
+                originalSizeBytes: rawOriginalSizeBytes,
+                storageInputSizeBytes: ingestionResult.originalSizeBytes,
+                storageOutputSizeBytes: ingestionResult.finalSizeBytes
             )
             var metadata = PersistedFASTQMetadata()
             metadata.ingestion = ingestion
@@ -1832,6 +1861,7 @@ public enum FASTQBatchImporter {
             "recipe": .string(config.newRecipe?.id ?? config.recipe?.name ?? "none"),
             "qualityBinning": .string(config.qualityBinning.rawValue),
             "optimizeStorage": .boolean(config.optimizeStorage),
+            "clumpingTool": .string(config.clumpingTool.rawValue),
             "compressionLevel": .string(config.compressionLevel.rawValue),
             "threads": .integer(config.threads),
             "forceReimport": .boolean(config.forceReimport),
@@ -1846,6 +1876,7 @@ public enum FASTQBatchImporter {
                 (config.newRecipe?.qualityBinning ?? config.platform.defaultQualityBinning).rawValue
             ),
             "optimizeStorage": .boolean(config.platform.defaultOptimizeStorage),
+            "clumpingTool": .string(config.platform.defaultOptimizeStorage ? ClumpingTool.default.rawValue : ClumpingTool.none.rawValue),
             "compressionLevel": .string(config.platform.defaultCompressionLevel.rawValue),
             "threads": .integer(4),
             "forceReimport": .boolean(false),
@@ -1873,13 +1904,29 @@ public enum FASTQBatchImporter {
         parameters["pairedEndInput"] = .boolean(pair.r2 != nil)
         parameters["outputPairingMode"] = .string(ingestionResult.pairingMode.rawValue)
         parameters["wasClumpified"] = .boolean(ingestionResult.wasClumpified)
-        parameters["originalFilenames"] = .array(ingestionResult.originalFilenames.map { .string($0) })
-        parameters["originalSizeBytes"] = .integer(Int(ingestionResult.originalSizeBytes))
+        parameters["requestedClumpingTool"] = .string(ingestionResult.requestedClumpingTool.rawValue)
+        parameters["resolvedClumpingTool"] = .string(ingestionResult.resolvedClumpingTool.rawValue)
+        parameters["clumpingEstimatedInputBytes"] = .integer(Int(ingestionResult.clumpingResolution.estimatedInputBytes))
+        parameters["clumpingPhysicalMemoryBytes"] = .integer(Int(ingestionResult.clumpingResolution.physicalMemoryBytes))
+        parameters["clumpingHeapBytes"] = .integer(Int(ingestionResult.clumpingResolution.clumpifyHeapBytes))
+        parameters["clumpingThresholdBytes"] = .integer(Int(ingestionResult.clumpingResolution.thresholdBytes))
+        parameters["clumpingResolutionReason"] = .string(ingestionResult.clumpingResolution.reason)
+        parameters["originalFilenames"] = .array(([pair.r1] + (pair.r2.map { [$0] } ?? [])).map {
+            .string($0.lastPathComponent)
+        })
+        parameters["originalSizeBytes"] = .integer(Int(totalFileSize([pair.r1] + (pair.r2.map { [$0] } ?? []))))
         parameters["finalSizeBytes"] = .integer(Int(ingestionResult.finalSizeBytes))
         parameters["processingTool"] = ingestionResult.processingTool.map(ParameterValue.string) ?? .null
         parameters["processingToolVersion"] = ingestionResult.processingToolVersion.map(ParameterValue.string) ?? .null
         parameters["processingCommandLine"] = ingestionResult.processingCommandLine.map(ParameterValue.string) ?? .null
         return parameters
+    }
+
+    private static func totalFileSize(_ urls: [URL]) -> Int64 {
+        urls.reduce(Int64(0)) { total, url in
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+            return total + size
+        }
     }
 
     private static func reproducibleImportCommand(pair: SamplePair, config: ImportConfig) -> [String] {
@@ -1891,6 +1938,7 @@ public enum FASTQBatchImporter {
                 "--platform", config.platform.rawValue,
                 "--recipe", config.newRecipe?.id ?? config.recipe?.name ?? "none",
                 "--quality-binning", config.qualityBinning.rawValue,
+                "--clumping-tool", config.clumpingTool.rawValue,
                 "--compression", config.compressionLevel.rawValue,
                 "--threads", String(config.threads),
             ]
@@ -1915,6 +1963,7 @@ public enum FASTQBatchImporter {
             "--platform", config.platform.rawValue,
             "--recipe", config.newRecipe?.id ?? config.recipe?.name ?? "none",
             "--quality-binning", config.qualityBinning.rawValue,
+            "--clumping-tool", config.clumpingTool.rawValue,
             "--compression", config.compressionLevel.rawValue,
             "--threads", String(config.threads),
         ]

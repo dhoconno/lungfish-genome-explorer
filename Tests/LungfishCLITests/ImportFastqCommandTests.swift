@@ -154,11 +154,13 @@ final class ImportFastqCommandTests: XCTestCase {
             "--platform", "illumina",
             "--recipe", "vsp2",
             "--no-optimize-storage",
+            "--clumping-tool", "trim-galore",
             "--compression", "maximum",
             "--force",
         ])
         XCTAssertEqual(command.platform, "illumina")
         XCTAssertTrue(command.noOptimizeStorage)
+        XCTAssertEqual(command.clumpingTool, "trim-galore")
         XCTAssertEqual(command.compression, "maximum")
         XCTAssertTrue(command.force)
     }
@@ -170,8 +172,16 @@ final class ImportFastqCommandTests: XCTestCase {
         ])
         XCTAssertNil(command.platform)
         XCTAssertFalse(command.noOptimizeStorage)
+        XCTAssertNil(command.clumpingTool)
         XCTAssertEqual(command.compression, "balanced")
         XCTAssertFalse(command.force)
+    }
+
+    func testParseClumpingToolAliases() throws {
+        XCTAssertEqual(try ImportCommand.FastqSubcommand.parseClumpingTool("auto"), .auto)
+        XCTAssertEqual(try ImportCommand.FastqSubcommand.parseClumpingTool("clumpify.sh"), .bbtools)
+        XCTAssertEqual(try ImportCommand.FastqSubcommand.parseClumpingTool("trim_galore"), .trimGalore)
+        XCTAssertEqual(try ImportCommand.FastqSubcommand.parseClumpingTool("skip"), .none)
     }
 
     func testParsePlatformONT() throws {

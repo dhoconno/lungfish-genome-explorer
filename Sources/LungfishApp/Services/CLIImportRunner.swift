@@ -107,6 +107,7 @@ public actor CLIImportRunner {
     ///   - recipeName: Optional recipe name (e.g. "vsp2").
     ///   - qualityBinning: Whether to enable quality score binning.
     ///   - optimizeStorage: Whether to optimize storage (omitted flag means enabled).
+    ///   - clumpingTool: Storage optimization tool selection.
     ///   - compressionLevel: Compression level (1-9).
     /// - Returns: Array of argument strings suitable for ``Process.arguments``.
     public static func buildCLIArguments(
@@ -117,6 +118,7 @@ public actor CLIImportRunner {
         recipeName: String?,
         qualityBinning: String,
         optimizeStorage: Bool,
+        clumpingTool: ClumpingTool = .default,
         compressionLevel: String
     ) -> [String] {
         var args = ["import", "fastq", r1.path]
@@ -136,8 +138,10 @@ public actor CLIImportRunner {
             args += ["--recipe", recipeName]
         }
 
-        if !optimizeStorage {
+        if !optimizeStorage || clumpingTool == .none {
             args.append("--no-optimize-storage")
+        } else if clumpingTool != .default {
+            args += ["--clumping-tool", clumpingTool.rawValue]
         }
 
         return args

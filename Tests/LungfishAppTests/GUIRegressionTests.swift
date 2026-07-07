@@ -24,27 +24,26 @@ import LungfishKit
 final class GUIRegressionTests: XCTestCase {
 
     @MainActor
-    func testToolsMenuContainsFASTQOperationsSubmenu() throws {
+    func testToolsMenuContainsFlattenedFASTQOperationCategories() throws {
         _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
-        let fastqOperationsItem = try XCTUnwrap(toolsMenu.items.first { $0.title == "FASTQ/FASTA Operations" })
-        let fastqOperationsMenu = try XCTUnwrap(fastqOperationsItem.submenu)
 
-        XCTAssertEqual(fastqOperationsMenu.items.map(\.title), [
-            "QC & Reporting…",
-            "Demultiplexing…",
-            "Trimming & Filtering…",
-            "Decontamination…",
-            "Read Processing…",
-            "Search & Subsetting…",
-            "Multiple Sequence Alignment…",
-            "Mapping…",
-            "Assembly…",
-            "Classification…",
-            "Reverse Complement\u{2026}",
-            "Translate…",
+        XCTAssertEqual(toolsMenu.items.prefix(12).map(\.title), [
+            "QC & Reporting",
+            "Demultiplexing",
+            "Trimming & Filtering",
+            "Decontamination",
+            "Read Processing",
+            "Search & Subsetting",
+            "Multiple Sequence Alignment",
+            "Mapping",
+            "Assembly",
+            "Clustering",
+            "Classification",
+            "Genotyping",
         ])
+        XCTAssertNil(toolsMenu.items.first { $0.title == "FASTQ/FASTA Operations" })
 
         let toolTitles = toolsMenu.items.map(\.title)
         XCTAssertFalse(toolTitles.contains("Classify & Profile Reads…"))
@@ -59,8 +58,18 @@ final class GUIRegressionTests: XCTestCase {
         let visibleTitles = toolsMenu.items.compactMap { $0.isSeparatorItem ? nil : $0.title }
 
         XCTAssertEqual(visibleTitles, [
-            "FASTQ/FASTA Operations",
-            "Workflow Operations…",
+            "QC & Reporting",
+            "Demultiplexing",
+            "Trimming & Filtering",
+            "Decontamination",
+            "Read Processing",
+            "Search & Subsetting",
+            "Multiple Sequence Alignment",
+            "Mapping",
+            "Assembly",
+            "Clustering",
+            "Classification",
+            "Genotyping",
             "Haplotype Definitions…",
             "Call Variants…",
             "Workflow Builder (Experimental)…",

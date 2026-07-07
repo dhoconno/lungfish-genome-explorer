@@ -28,7 +28,7 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertNil(twelveS.toolID)
         XCTAssertEqual(twelveS.title, "12S Amplicon Matching")
         XCTAssertEqual(twelveS.maturity, .specialized)
-        XCTAssertEqual(twelveS.categoryID, .classification)
+        XCTAssertEqual(twelveS.categoryID, .genotyping)
         XCTAssertEqual(twelveS.requiredPluginPackIDs, ["lungfish-tools"])
     }
 
@@ -40,7 +40,7 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertNil(workflow.toolID)
         XCTAssertEqual(workflow.title, "Full-length ONT MHC genotyping")
         XCTAssertEqual(workflow.maturity, .specialized)
-        XCTAssertEqual(workflow.categoryID, .classification)
+        XCTAssertEqual(workflow.categoryID, .genotyping)
         XCTAssertEqual(workflow.requiredPluginPackIDs, [
             "lungfish-tools",
             "read-mapping",

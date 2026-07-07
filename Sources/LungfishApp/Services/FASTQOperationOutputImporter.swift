@@ -94,7 +94,9 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 qualityBinning: result.qualityBinning.rawValue,
                 originalFilenames: result.originalFilenames,
                 ingestionDate: Date(),
-                originalSizeBytes: result.originalSizeBytes
+                originalSizeBytes: result.originalSizeBytes,
+                storageInputSizeBytes: result.originalSizeBytes,
+                storageOutputSizeBytes: result.finalSizeBytes
             )
             FASTQMetadataStore.save(metadata, for: result.outputFile)
 

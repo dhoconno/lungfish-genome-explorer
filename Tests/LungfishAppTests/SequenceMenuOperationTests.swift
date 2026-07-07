@@ -29,7 +29,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         let sequenceMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Sequence" }?.submenu)
         let titles = sequenceMenu.items.map(\.title)
         let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
-        let fastqMenu = try XCTUnwrap(toolsMenu.items.first { $0.title == "FASTQ/FASTA Operations" }?.submenu)
+        let fastqMenu = try XCTUnwrap(toolsMenu.items.first { $0.title == "Read Processing" }?.submenu)
         let fastqTitles = fastqMenu.items.map(\.title)
 
         XCTAssertTrue(titles.contains("Reverse Complement\u{2026}"))
@@ -409,8 +409,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(sequenceViewerSource.contains("viewController?.contentMode == .genomics, !isHidden"))
         XCTAssertTrue(appDelegateSource.contains("showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .reverseComplement)"))
         XCTAssertTrue(appDelegateSource.contains("showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .translate)"))
-        XCTAssertTrue(mainMenuSource.contains("#selector(ToolsMenuActions.showFASTQReverseComplementOperation(_:))"))
-        XCTAssertTrue(mainMenuSource.contains("#selector(ToolsMenuActions.showFASTQTranslateOperation(_:))"))
+        XCTAssertTrue(mainMenuSource.contains("#selector(ToolsMenuActions.launchFASTQOperationToolFromMenu(_:))"))
         XCTAssertTrue(sequenceViewerSource.contains("presentFASTAOperationDialog("))
     }
 
