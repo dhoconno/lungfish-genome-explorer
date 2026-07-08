@@ -2549,27 +2549,29 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.selectedBatchSampleId = row.sample
             self.selectedBatchOrganismName = row.organism
 
-            // Show the left pane (miniBAM viewer) when a single row is
-            // selected — we know exactly which sample + organism to display.
-            if self.leftPaneContainer.isHidden {
-                self.leftPaneContainer.isHidden = false
-                self.restoreDefaultSplitPosition()
-            }
-
-            guard let sampleId = row.sample,
-                  let bamURL = self.bamFilesBySample[sampleId] else {
-                self.miniBAMController?.clear()
-                return
-            }
-            let bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: [])
-            if let accessions = self.accessions(for: row), !accessions.isEmpty {
+            // Reveal the miniBAM detail pane ONLY when the selected organism has
+            // BAM alignment data to display. Showing it unconditionally left a
+            // large empty pane for organisms without alignments — including the
+            // top row auto-selected on initial load — which read as a blank
+            // viewport until the user changed the layout.
+            let bamURL = row.sample.flatMap { self.bamFilesBySample[$0] }
+            let accessions = self.accessions(for: row) ?? []
+            if let bamURL, !accessions.isEmpty {
+                if self.leftPaneContainer.isHidden {
+                    self.leftPaneContainer.isHidden = false
+                    self.restoreDefaultSplitPosition()
+                }
                 self.displayTaxTriageMiniBAM(
                     bamURL: bamURL,
-                    indexURL: bamIndexURL,
+                    indexURL: resolveBamIndex(for: bamURL, allOutputFiles: []),
                     accessions: accessions
                 )
             } else {
                 self.miniBAMController?.clear()
+                if !self.leftPaneContainer.isHidden {
+                    self.leftPaneContainer.isHidden = true
+                    self.collapseHiddenDetailPaneIfNeeded()
+                }
             }
         }
         batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
@@ -2595,6 +2597,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.selectedBatchSampleId = nil
             self.selectedBatchOrganismName = nil
             self.miniBAMController?.clear()
+            // Nothing selected -> collapse the empty detail pane so the organism
+            // table keeps the full viewport.
+            if !self.leftPaneContainer.isHidden {
+                self.leftPaneContainer.isHidden = true
+                self.collapseHiddenDetailPaneIfNeeded()
+            }
         }
 
         // Show flat table, hide single-result UI.
@@ -2839,28 +2847,27 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.selectedBatchSampleId = row.sample
             self.selectedBatchOrganismName = row.organism
 
-            // Show the left pane (miniBAM viewer) for the selected sample + organism.
-            if self.leftPaneContainer.isHidden {
-                self.leftPaneContainer.isHidden = false
-                self.restoreDefaultSplitPosition()
-            }
-
-            guard let sampleId = row.sample,
-                  let bamURL = self.bamFilesBySample[sampleId] else {
-                self.miniBAMController?.clear()
-                return
-            }
-
-            let bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: self.taxTriageResult?.allOutputFiles ?? [])
-
-            if let accessions = self.accessions(for: row), !accessions.isEmpty {
+            // Reveal the miniBAM detail pane ONLY when the selected organism has
+            // BAM alignment data. Showing it for organisms without alignments
+            // left a large empty pane that read as a blank viewport.
+            let bamURL = row.sample.flatMap { self.bamFilesBySample[$0] }
+            let accessions = self.accessions(for: row) ?? []
+            if let bamURL, !accessions.isEmpty {
+                if self.leftPaneContainer.isHidden {
+                    self.leftPaneContainer.isHidden = false
+                    self.restoreDefaultSplitPosition()
+                }
                 self.displayTaxTriageMiniBAM(
                     bamURL: bamURL,
-                    indexURL: bamIndexURL,
+                    indexURL: resolveBamIndex(for: bamURL, allOutputFiles: self.taxTriageResult?.allOutputFiles ?? []),
                     accessions: accessions
                 )
             } else {
                 self.miniBAMController?.clear()
+                if !self.leftPaneContainer.isHidden {
+                    self.leftPaneContainer.isHidden = true
+                    self.collapseHiddenDetailPaneIfNeeded()
+                }
             }
         }
         batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
@@ -2885,6 +2892,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.selectedBatchSampleId = nil
             self.selectedBatchOrganismName = nil
             self.miniBAMController?.clear()
+            // Nothing selected -> collapse the empty detail pane.
+            if !self.leftPaneContainer.isHidden {
+                self.leftPaneContainer.isHidden = true
+                self.collapseHiddenDetailPaneIfNeeded()
+            }
         }
 
         summaryBar.updateBatch(sampleCount: sampleIds.count, totalOrganisms: metrics.count)
