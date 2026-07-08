@@ -9,7 +9,7 @@ feed instead:
 
 The `sparkle-beta` GitHub release is a mutable feed container. Each real app
 version still gets its own versioned prerelease tag, for example
-`v0.5.0-beta2`, with the notarized DMG attached there. The appcast points at
+`v0.5.0-beta3`, with the notarized DMG attached there. The appcast points at
 those versioned DMG assets.
 
 Legacy alpha builds before `0.5.0-beta1` still read:
@@ -42,7 +42,7 @@ bash scripts/release/build-notarized-dmg.sh \
   --signing-identity "Developer ID Application: Example (TEAMID)" \
   --team-id TEAMID \
   --notary-profile PROFILE \
-  --github-release-tag "v0.5.0-beta2" \
+  --github-release-tag "v0.5.0-beta3" \
   --sparkle-generate-appcast "/path/to/Sparkle/bin/generate_appcast" \
   --sparkle-ed-key-file "/path/to/private-key.txt" \
   --sparkle-publish-release "sparkle-beta" \

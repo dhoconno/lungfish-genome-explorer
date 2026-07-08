@@ -97,10 +97,12 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
 
-        let deadline = Date().addingTimeInterval(2)
-        while vc.testBatchFlatTableView.displayedRows.isEmpty && Date() < deadline {
+        let deadline = Date().addingTimeInterval(5)
+        while vc.testBatchFlatTableView.displayedRows.count < rows.count && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
+        XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, rows.count)
+        vc.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
 
@@ -108,7 +110,96 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === vc.testRightPaneContainer)
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === vc.testLeftPaneContainer)
         XCTAssertEqual(vc.testBatchFlatTableView.selectedMetrics().map(\.organism), ["Aeromonas salmonicida"])
-        XCTAssertFalse(vc.testLeftPaneContainer.isHidden)
+        XCTAssertLessThanOrEqual(
+            vc.testLeftPaneContainer.frame.height,
+            1,
+            "Auto-selecting a TaxTriage database row without BAM data must keep the empty miniBAM pane collapsed"
+        )
+    }
+
+    @MainActor func testDatabaseRowWithBamDataRevealsMiniBAMPane() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TaxTriageMiniBAMVisible-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bamURL = tempDir.appendingPathComponent("sample-1.bam")
+        try Data().write(to: bamURL)
+
+        let dbURL = tempDir.appendingPathComponent("taxtriage.sqlite")
+        let row = TaxTriageTaxonomyRow(
+            sample: "sample-1",
+            organism: "Influenza A virus",
+            taxId: 11320,
+            status: nil,
+            tassScore: 0.95,
+            readsAligned: 37,
+            uniqueReads: 21,
+            pctReads: nil,
+            pctAlignedReads: nil,
+            coverageBreadth: 82.5,
+            meanCoverage: nil,
+            meanDepth: nil,
+            confidence: "high",
+            k2Reads: nil,
+            parentK2Reads: nil,
+            giniCoefficient: nil,
+            meanBaseQ: nil,
+            meanMapQ: nil,
+            mapqScore: nil,
+            disparityScore: nil,
+            minhashScore: nil,
+            diamondIdentity: nil,
+            k2DisparityScore: nil,
+            siblingsScore: nil,
+            breadthWeightScore: nil,
+            hhsPercentile: nil,
+            isAnnotated: nil,
+            annClass: nil,
+            microbialCategory: nil,
+            highConsequence: nil,
+            isSpecies: nil,
+            pathogenicSubstrains: nil,
+            sampleType: nil,
+            bamPath: bamURL.path,
+            bamIndexPath: nil,
+            primaryAccession: "NC_123456.1",
+            accessionLength: 1_000
+        )
+        let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
+
+        let vc = TaxTriageResultViewController()
+        _ = vc.view
+        vc.configureFromDatabase(db, resultURL: tempDir)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+
+        let deadline = Date().addingTimeInterval(5)
+        while vc.testBatchFlatTableView.displayedRows.isEmpty && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, 1)
+
+        vc.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(
+            vc.testLeftPaneContainer.isHidden,
+            "Selecting a TaxTriage database row with BAM data and accession mapping should reveal the miniBAM pane"
+        )
+        XCTAssertGreaterThan(vc.testLeftPaneContainer.frame.height, 100)
     }
 
     @MainActor func testDatabaseConfiguredBeforeWindowDisplaysBatchTableAfterAttach() throws {
@@ -272,10 +363,12 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
 
-        let deadline = Date().addingTimeInterval(2)
-        while vc.testBatchFlatTableView.selectedMetrics().isEmpty && Date() < deadline {
+        let deadline = Date().addingTimeInterval(5)
+        while vc.testBatchFlatTableView.displayedRows.isEmpty && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
+        XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, 1)
+        vc.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
 
         XCTAssertTrue(vc.testActionBar.blastButton.isEnabled)
         vc.testActionBar.blastButton.performClick(nil)

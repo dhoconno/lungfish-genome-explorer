@@ -685,6 +685,31 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         needsInitialSplitValidation = false
     }
 
+    private func collapseMiniBAMDetailPane() {
+        leftPaneContainer.isHidden = true
+        collapseHiddenDetailPaneIfNeeded()
+    }
+
+    private func miniBAMDetailPaneExtent() -> CGFloat {
+        splitView.isVertical ? leftPaneContainer.frame.width : leftPaneContainer.frame.height
+    }
+
+    private func revealMiniBAMDetailPaneIfNeeded() {
+        if leftPaneContainer.isHidden || miniBAMDetailPaneExtent() <= 1 {
+            leftPaneContainer.isHidden = false
+            restoreDefaultSplitPosition()
+            splitView.adjustSubviews()
+            if miniBAMDetailPaneExtent() <= 1 {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    guard !self.leftPaneContainer.isHidden else { return }
+                    self.restoreDefaultSplitPosition()
+                    self.splitView.adjustSubviews()
+                }
+            }
+        }
+    }
+
     private func applyInitialSplitPositionIfNeeded() {
         guard !didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
 
@@ -2557,10 +2582,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             let bamURL = row.sample.flatMap { self.bamFilesBySample[$0] }
             let accessions = self.accessions(for: row) ?? []
             if let bamURL, !accessions.isEmpty {
-                if self.leftPaneContainer.isHidden {
-                    self.leftPaneContainer.isHidden = false
-                    self.restoreDefaultSplitPosition()
-                }
+                self.revealMiniBAMDetailPaneIfNeeded()
                 self.displayTaxTriageMiniBAM(
                     bamURL: bamURL,
                     indexURL: resolveBamIndex(for: bamURL, allOutputFiles: []),
@@ -2568,10 +2590,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 )
             } else {
                 self.miniBAMController?.clear()
-                if !self.leftPaneContainer.isHidden {
-                    self.leftPaneContainer.isHidden = true
-                    self.collapseHiddenDetailPaneIfNeeded()
-                }
+                self.collapseMiniBAMDetailPane()
             }
         }
         batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
@@ -2584,10 +2603,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.selectedBatchOrganismName = nil
             // Hide the left pane when multiple rows are selected — the
             // miniBAM viewer can only show one organism at a time.
-            if !self.leftPaneContainer.isHidden {
-                self.leftPaneContainer.isHidden = true
-                self.collapseHiddenDetailPaneIfNeeded()
-            }
+            self.collapseMiniBAMDetailPane()
         }
         batchFlatTableView.onSelectionCleared = { [weak self] in
             guard let self else { return }
@@ -2599,10 +2615,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.miniBAMController?.clear()
             // Nothing selected -> collapse the empty detail pane so the organism
             // table keeps the full viewport.
-            if !self.leftPaneContainer.isHidden {
-                self.leftPaneContainer.isHidden = true
-                self.collapseHiddenDetailPaneIfNeeded()
-            }
+            self.collapseMiniBAMDetailPane()
         }
 
         // Show flat table, hide single-result UI.
@@ -2611,6 +2624,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         organismTableView.isHidden = true
         batchOverviewView.isHidden = true
         batchFlatTableView.isHidden = false
+        collapseMiniBAMDetailPane()
 
         // Show the organism search field.
         organismSearchField.isHidden = false
@@ -2831,6 +2845,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // Switch right pane: hide organism table, show flat table.
         organismTableView.isHidden = true
         batchFlatTableView.isHidden = false
+        collapseMiniBAMDetailPane()
         batchFlatTableView.metadataColumns.isMultiSampleMode = true
         batchFlatTableView.resultIdentity = taxTriageConfig?.outputDirectory.standardizedFileURL.path
 
@@ -2853,10 +2868,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             let bamURL = row.sample.flatMap { self.bamFilesBySample[$0] }
             let accessions = self.accessions(for: row) ?? []
             if let bamURL, !accessions.isEmpty {
-                if self.leftPaneContainer.isHidden {
-                    self.leftPaneContainer.isHidden = false
-                    self.restoreDefaultSplitPosition()
-                }
+                self.revealMiniBAMDetailPaneIfNeeded()
                 self.displayTaxTriageMiniBAM(
                     bamURL: bamURL,
                     indexURL: resolveBamIndex(for: bamURL, allOutputFiles: self.taxTriageResult?.allOutputFiles ?? []),
@@ -2864,10 +2876,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 )
             } else {
                 self.miniBAMController?.clear()
-                if !self.leftPaneContainer.isHidden {
-                    self.leftPaneContainer.isHidden = true
-                    self.collapseHiddenDetailPaneIfNeeded()
-                }
+                self.collapseMiniBAMDetailPane()
             }
         }
         batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
@@ -2879,10 +2888,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.selectedBatchSampleId = nil
             self.selectedBatchOrganismName = nil
             // Hide the left pane when multiple rows are selected.
-            if !self.leftPaneContainer.isHidden {
-                self.leftPaneContainer.isHidden = true
-                self.collapseHiddenDetailPaneIfNeeded()
-            }
+            self.collapseMiniBAMDetailPane()
         }
         batchFlatTableView.onSelectionCleared = { [weak self] in
             guard let self else { return }
@@ -2893,10 +2899,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.selectedBatchOrganismName = nil
             self.miniBAMController?.clear()
             // Nothing selected -> collapse the empty detail pane.
-            if !self.leftPaneContainer.isHidden {
-                self.leftPaneContainer.isHidden = true
-                self.collapseHiddenDetailPaneIfNeeded()
-            }
+            self.collapseMiniBAMDetailPane()
         }
 
         summaryBar.updateBatch(sampleCount: sampleIds.count, totalOrganisms: metrics.count)
