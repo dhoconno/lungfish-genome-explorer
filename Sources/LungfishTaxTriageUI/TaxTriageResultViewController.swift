@@ -441,6 +441,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private var pendingInitialSplitValidation = false
     private var pendingInitialValidationLeadingExtent: CGFloat?
     private var isSynchronizingTrackedSplitPosition = false
+    private var isMiniBAMDetailPaneCollapsed = false
 
     // MARK: - Callbacks
 
@@ -685,6 +686,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func collapseMiniBAMDetailPane() {
+        isMiniBAMDetailPaneCollapsed = true
         leftPaneContainer.isHidden = true
         collapseHiddenDetailPaneIfNeeded()
     }
@@ -694,6 +696,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func revealMiniBAMDetailPaneIfNeeded() {
+        isMiniBAMDetailPaneCollapsed = false
         if leftPaneContainer.isHidden || miniBAMDetailPaneExtent() <= 1 {
             leftPaneContainer.isHidden = false
             restoreDefaultSplitPosition()
@@ -841,6 +844,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let layout = currentPanelLayout()
         guard splitView.arrangedSubviews.count == 2 else { return }
 
+        let detailPaneWasHidden = leftPaneContainer.isHidden || isMiniBAMDetailPaneCollapsed
         let desiredIsVertical = layout != .stacked
         let desiredFirstPane: NSView = layout == .detailLeading ? leftPaneContainer : rightPaneContainer
         let desiredSecondPane: NSView = layout == .detailLeading ? rightPaneContainer : leftPaneContainer
@@ -864,8 +868,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             splitView.isVertical = desiredIsVertical
             splitView.addArrangedSubview(desiredFirstPane)
             splitView.addArrangedSubview(desiredSecondPane)
+            leftPaneContainer.isHidden = detailPaneWasHidden
         } else {
             splitView.isVertical = desiredIsVertical
+            leftPaneContainer.isHidden = detailPaneWasHidden
         }
 
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
@@ -884,8 +890,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             return
         }
 
-        if leftPaneContainer.isHidden {
-            splitView.setPosition(collapsedSplitPositionForHiddenDetail(containerExtent: totalExtent), ofDividerAt: 0)
+        if detailPaneWasHidden {
+            let collapsedPosition = collapsedSplitPositionForHiddenDetail(containerExtent: totalExtent)
+            splitView.setPosition(collapsedPosition, ofDividerAt: 0)
+            applySplitFrames(for: collapsedPosition)
             didSetInitialSplitPosition = true
             needsInitialSplitValidation = false
             return
@@ -1286,10 +1294,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // Collapse/restore left pane for full-width batch overview
         if showBatchOverview {
             // Hide left pane — give all space to the batch comparison table
+            isMiniBAMDetailPaneCollapsed = true
             leftPaneContainer.isHidden = true
             collapseHiddenDetailPaneIfNeeded()
         } else {
             // Restore the left pane (taxonomy/alignments)
+            isMiniBAMDetailPaneCollapsed = false
             if leftPaneContainer.isHidden {
                 leftPaneContainer.isHidden = false
                 restoreDefaultSplitPosition()
