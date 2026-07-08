@@ -441,7 +441,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private var pendingInitialSplitValidation = false
     private var pendingInitialValidationLeadingExtent: CGFloat?
     private var isSynchronizingTrackedSplitPosition = false
-    private var isApplyingDefaultSplitResize = false
 
     // MARK: - Callbacks
 
@@ -815,17 +814,22 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 height: splitView.bounds.height
             )
         } else {
+            // Keep frame order consistent with the arrangedSubviews array:
+            // firstView occupies the leading (y == 0) slice, secondView the
+            // trailing slice. Inverting these makes AppKit log "arranged view
+            // frames are not in the same order as the arranged views array" and
+            // fall back to its own layout.
             let totalHeight = splitView.bounds.height
             let trailingHeight = max(0, totalHeight - leadingExtent - dividerThickness)
             firstView.frame = NSRect(
                 x: 0,
-                y: totalHeight - leadingExtent,
+                y: 0,
                 width: splitView.bounds.width,
                 height: leadingExtent
             )
             secondView.frame = NSRect(
                 x: 0,
-                y: 0,
+                y: leadingExtent + dividerThickness,
                 width: splitView.bounds.width,
                 height: trailingHeight
             )
@@ -3386,16 +3390,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     public func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
         guard splitView === self.splitView, splitView.arrangedSubviews.count == 2 else { return }
 
-        if !splitView.isVertical {
-            guard !isApplyingDefaultSplitResize else { return }
-            isApplyingDefaultSplitResize = true
-            let originalDelegate = splitView.delegate
-            splitView.delegate = nil
-            splitView.adjustSubviews()
-            splitView.delegate = originalDelegate
-            isApplyingDefaultSplitResize = false
-            return
-        }
+        // Both orientations flow through the same computed-target + applySplitFrames
+        // path. Delegating the stacked (horizontal) case to adjustSubviews() left
+        // the arranged subviews at zero height on first display, so the organism
+        // table rendered blank until the user changed layout.
 
         let totalExtent = splitContainerExtent()
         guard totalExtent > 0 else { return }
