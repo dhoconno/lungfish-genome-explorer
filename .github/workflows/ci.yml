@@ -54,6 +54,9 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
+      - name: Repair Xcode Package.resolved after Xcode build
+        run: bash scripts/check-package-resolved-consistency.sh --repair
+
       - name: Check Package.resolved consistency
         run: bash scripts/check-package-resolved-consistency.sh
 
