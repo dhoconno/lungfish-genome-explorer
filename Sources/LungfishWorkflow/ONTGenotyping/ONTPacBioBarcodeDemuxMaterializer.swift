@@ -89,6 +89,7 @@ public enum ONTPacBioBarcodeDemuxMaterializerError: LocalizedError, Sendable, Eq
     case missingBarcodeDefinitions(URL)
     case outputExists(URL)
     case noBarcodeRows(URL)
+    case invalidBarcodeDefinitions(URL, String)
     case unknownBarcodeID(String)
     case noInputFASTQs(URL)
     case noCutadaptCommand(URL)
@@ -105,8 +106,10 @@ public enum ONTPacBioBarcodeDemuxMaterializerError: LocalizedError, Sendable, Eq
             return "Output directory already exists: \(url.path). Use --force to replace it."
         case .noBarcodeRows(let url):
             return "No PacBio barcode-pair rows were found in \(url.path). Expected columns: sample_id,barcode_1,barcode_2."
+        case .invalidBarcodeDefinitions(let url, let reason):
+            return "Invalid PacBio barcode-pair sheet at \(url.path). Expected columns sample_id,barcode_1,barcode_2, or headerless rows like sample_id,bc1001,bc1021. \(reason)"
         case .unknownBarcodeID(let barcodeID):
-            return "PacBio barcode ID '\(barcodeID)' is not in the built-in Sequel 16, 96, or 384 barcode sets. Use a built-in bcXXXX ID or provide explicit barcode sequences."
+            return "PacBio barcode ID '\(barcodeID)' is not in the built-in Sequel 16, 96, or 384 barcode sets. Use a built-in bcXXXX ID."
         case .noInputFASTQs(let url):
             return "No physical FASTQ chunks could be resolved from \(url.path)."
         case .noCutadaptCommand(let url):
@@ -139,6 +142,8 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
         guard fileManager.fileExists(atPath: request.barcodeDefinitionsURL.path) else {
             throw ONTPacBioBarcodeDemuxMaterializerError.missingBarcodeDefinitions(request.barcodeDefinitionsURL)
         }
+        let barcodeDefinitions = try Self.loadBarcodeDefinitions(from: request.barcodeDefinitionsURL)
+
         if fileManager.fileExists(atPath: request.outputDirectory.path) {
             guard request.force else {
                 throw ONTPacBioBarcodeDemuxMaterializerError.outputExists(request.outputDirectory)
@@ -152,7 +157,6 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
             throw ONTPacBioBarcodeDemuxMaterializerError.noInputFASTQs(request.inputURL)
         }
 
-        let barcodeDefinitions = try Self.loadBarcodeDefinitions(from: request.barcodeDefinitionsURL)
         if !barcodeDefinitions.sampleAssignments.isEmpty {
             return try await runExactSampleSheetMaterialization(
                 request: request,
@@ -382,18 +386,33 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
     }
 
     public static func loadBarcodeDefinitions(from url: URL) throws -> ONTPacBioBarcodeDemuxBarcodeDefinitions {
-        if let assignments = try? FASTQSampleBarcodeCSV.load(from: url), !assignments.isEmpty {
+        do {
+            let assignments = try FASTQSampleBarcodeCSV.loadPacBioBarcodePairs(from: url)
+            guard !assignments.isEmpty else {
+                throw ONTPacBioBarcodeDemuxMaterializerError.noBarcodeRows(url)
+            }
             return ONTPacBioBarcodeDemuxBarcodeDefinitions(
                 barcodeKit: try builtInPacBioBarcodeKit(for: assignments),
                 sampleAssignments: assignments
             )
+        } catch let error as ONTPacBioBarcodeDemuxMaterializerError {
+            throw error
+        } catch {
+            throw ONTPacBioBarcodeDemuxMaterializerError.invalidBarcodeDefinitions(
+                url,
+                "\(error.localizedDescription)\(Self.firstDataRowSummary(from: url))"
+            )
         }
+    }
 
-        let kitName = url.deletingPathExtension().lastPathComponent
-        return ONTPacBioBarcodeDemuxBarcodeDefinitions(
-            barcodeKit: try BarcodeKitRegistry.loadCustomKit(from: url, name: kitName),
-            sampleAssignments: []
-        )
+    private static func firstDataRowSummary(from url: URL) -> String {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return "" }
+        let rows = content
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+        guard let row = rows.dropFirst().first ?? rows.first else { return "" }
+        return " First non-empty row: \(row)."
     }
 
     private static func builtInPacBioBarcodeKit(

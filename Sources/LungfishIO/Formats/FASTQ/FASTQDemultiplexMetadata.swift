@@ -103,6 +103,88 @@ public enum FASTQSampleBarcodeCSV {
         return try parse(content: content, delimiter: delimiter)
     }
 
+    public static func loadPacBioBarcodePairs(from url: URL) throws -> [FASTQSampleBarcodeAssignment] {
+        let content = try String(contentsOf: url, encoding: .utf8)
+        let delimiter: Character = url.pathExtension.lowercased() == "tsv" ? "\t" : ","
+        return try parsePacBioBarcodePairs(content: content, delimiter: delimiter)
+    }
+
+    public static func parsePacBioBarcodePairs(
+        content: String,
+        delimiter: Character = ","
+    ) throws -> [FASTQSampleBarcodeAssignment] {
+        let rows = parseDelimited(content: content, delimiter: delimiter)
+        guard !rows.isEmpty else { return [] }
+
+        let firstRow = rows[0].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let normalizedFirstRow = firstRow.map { normalizeColumnName($0) }
+        let sampleIDColumnAliases: Set<String> = ["sample_id", "sample", "sampleid"]
+        let forwardIDAliases: Set<String> = ["barcode_5p", "forward_barcode_id", "barcode5_id", "i7_id", "barcode_1"]
+        let reverseIDAliases: Set<String> = ["barcode_3p", "reverse_barcode_id", "barcode3_id", "i5_id", "barcode_2"]
+
+        let looksLikeHeader = normalizedFirstRow.contains { token in
+            sampleIDColumnAliases.contains(token)
+                || forwardIDAliases.contains(token)
+                || reverseIDAliases.contains(token)
+        }
+
+        let assignments: [FASTQSampleBarcodeAssignment]
+        let firstDataLineNumber: Int
+        if looksLikeHeader {
+            assignments = try parse(content: content, delimiter: delimiter)
+            firstDataLineNumber = 2
+        } else {
+            assignments = try rows.enumerated().map { offset, row in
+                let lineNumber = offset + 1
+                guard row.count >= 3 else {
+                    throw Error.invalidRow(
+                        lineNumber,
+                        "expected headerless columns sample_id, barcode_1, barcode_2"
+                    )
+                }
+                let sampleID = value(at: 0, in: row).trimmingCharacters(in: .whitespacesAndNewlines)
+                let forwardID = value(at: 1, in: row).trimmingCharacters(in: .whitespacesAndNewlines)
+                let reverseID = value(at: 2, in: row).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !sampleID.isEmpty else {
+                    throw Error.invalidRow(lineNumber, "sample_id is empty")
+                }
+                guard !forwardID.isEmpty, !reverseID.isEmpty else {
+                    throw Error.invalidRow(lineNumber, "both barcode_1 and barcode_2 are required")
+                }
+                return FASTQSampleBarcodeAssignment(
+                    sampleID: sampleID,
+                    forwardBarcodeID: forwardID,
+                    reverseBarcodeID: reverseID
+                )
+            }
+            firstDataLineNumber = 1
+        }
+
+        for (offset, assignment) in assignments.enumerated() {
+            let lineNumber = offset + firstDataLineNumber
+            guard assignment.forwardSequence == nil, assignment.reverseSequence == nil else {
+                throw Error.invalidRow(
+                    lineNumber,
+                    "PacBio barcode-pair sheets must use built-in bc* barcode IDs, not literal sequences"
+                )
+            }
+            guard let forwardID = assignment.forwardBarcodeID, isPacBioBarcodeID(forwardID) else {
+                throw Error.invalidRow(
+                    lineNumber,
+                    "barcode_1 must be a PacBio barcode ID such as bc1001"
+                )
+            }
+            guard let reverseID = assignment.reverseBarcodeID, isPacBioBarcodeID(reverseID) else {
+                throw Error.invalidRow(
+                    lineNumber,
+                    "barcode_2 must be a PacBio barcode ID such as bc1021"
+                )
+            }
+        }
+
+        return assignments
+    }
+
     public static func parse(content: String, delimiter: Character = ",") throws -> [FASTQSampleBarcodeAssignment] {
         let rows = parseDelimited(content: content, delimiter: delimiter)
         guard !rows.isEmpty else { return [] }
@@ -247,6 +329,10 @@ public enum FASTQSampleBarcodeCSV {
         raw.lowercased()
             .replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "-", with: "_")
+    }
+
+    private static func isPacBioBarcodeID(_ value: String) -> Bool {
+        value.range(of: #"^bc[0-9]+$"#, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     private static func parseDelimited(content: String, delimiter: Character) -> [[String]] {

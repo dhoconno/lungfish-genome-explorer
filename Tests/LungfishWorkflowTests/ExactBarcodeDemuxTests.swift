@@ -456,4 +456,54 @@ final class ExactBarcodeDemuxTests: XCTestCase {
         XCTAssertEqual(definitions.barcodeKit.barcodes.first { $0.id == "bc1001" }?.i7Sequence, "CACATATCAGAGTGCG")
         XCTAssertEqual(definitions.barcodeKit.barcodes.first { $0.id == "bc1021" }?.i7Sequence, "CTATACATAGTGATGT")
     }
+
+    func testPacBioBarcodeAssignmentCSVAcceptsHeaderlessBuiltInBarcodeIDs() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pacbio-headerless-assignment-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let csvURL = tempDir.appendingPathComponent("pacbio-barcodes.csv")
+        try "LN94,BC1001,BC1021\nMR10,bc1002,bc1022\n"
+            .write(to: csvURL, atomically: true, encoding: .utf8)
+
+        let definitions = try ONTPacBioBarcodeDemuxMaterializer.loadBarcodeDefinitions(from: csvURL)
+
+        XCTAssertEqual(definitions.sampleAssignments.count, 2)
+        guard definitions.sampleAssignments.count == 2 else { return }
+        XCTAssertEqual(definitions.sampleAssignments[0].sampleID, "LN94")
+        XCTAssertEqual(definitions.sampleAssignments[0].forwardBarcodeID, "BC1001")
+        XCTAssertEqual(definitions.sampleAssignments[0].reverseBarcodeID, "BC1021")
+        XCTAssertEqual(definitions.barcodeKit.barcodes.first { $0.id == "bc1001" }?.i7Sequence, "CACATATCAGAGTGCG")
+        XCTAssertEqual(definitions.barcodeKit.barcodes.first { $0.id == "bc1021" }?.i7Sequence, "CTATACATAGTGATGT")
+    }
+
+    func testPacBioBarcodeAssignmentCSVAllowsHeaderlessSampleIDsContainingBarcode() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pacbio-headerless-barcode-sample-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let csvURL = tempDir.appendingPathComponent("pacbio-barcodes.csv")
+        try "barcode17,BC1001,BC1021\n"
+            .write(to: csvURL, atomically: true, encoding: .utf8)
+
+        let definitions = try ONTPacBioBarcodeDemuxMaterializer.loadBarcodeDefinitions(from: csvURL)
+
+        XCTAssertEqual(definitions.sampleAssignments.map(\.sampleID), ["barcode17"])
+    }
+
+    func testPacBioBarcodeAssignmentCSVRejectsGenericSingleBarcodeSheetBeforeCustomKitFallback() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pacbio-invalid-assignment-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let csvURL = tempDir.appendingPathComponent("pacbio-barcodes.csv")
+        try "sample,barcode\nLN94,BC1001\n"
+            .write(to: csvURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try ONTPacBioBarcodeDemuxMaterializer.loadBarcodeDefinitions(from: csvURL)) { error in
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("sample_id,barcode_1,barcode_2"), message)
+            XCTAssertTrue(message.contains("BC1001"), message)
+        }
+    }
 }

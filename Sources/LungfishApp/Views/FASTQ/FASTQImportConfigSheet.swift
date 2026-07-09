@@ -77,8 +77,8 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
         id: "ont-pacbio-barcode-demux",
         name: "Demultiplex full-length MHC ONT amplicons with PacBio barcodes",
         presentationText: [
-            "Runs cutadapt on each ONT FASTQ chunk with a PacBio barcode-pair sheet.",
-            "Workflow: demultiplex physical chunks \u{2192} concatenate per-sample FASTQ bundles",
+            "Splits ONT FASTQ chunks with a PacBio barcode-pair sample sheet.",
+            "Workflow: validate PacBio bc* pairs \u{2192} exact barcode demux \u{2192} write per-sample FASTQ bundles",
             "Input: ONT run folder"
         ].joined(separator: "\n"),
         requiresBarcodeDefinition: true,
@@ -187,7 +187,7 @@ public final class FASTQImportConfigSheet: NSViewController {
                 "Example:",
                 "LN94, bc1001, bc1021",
                 "",
-                "Built-in PacBio Sequel 16 v3, Sequel 96 v2, and Sequel 384 v1 barcode IDs are supported. Use explicit sequences only for custom barcodes. The selected sheet is recorded in import provenance.",
+                "Headerless rows in the same order are also accepted. Built-in PacBio Sequel 16 v3, Sequel 96 v2, and Sequel 384 v1 barcode IDs are supported. The selected sheet is recorded in import provenance.",
             ].joined(separator: "\n")
         case FASTQImportSheetRecipeOption.ontFluidigmSampleSplit.id:
             return [

@@ -2839,32 +2839,32 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
         commandName: "ont-pacbio-barcode-demux",
         abstract: "Demultiplex full-length MHC ONT amplicons with PacBio barcode pairs",
         discussion: """
-            Runs cutadapt independently on each physical ONT FASTQ chunk, then
-            concatenates per-chunk demultiplexed outputs into one materialized
-            .lungfishfastq bundle per sample. Barcode definitions must contain
-            sample, forward barcode, and reverse barcode columns.
+            Validates a PacBio barcode-pair sample sheet, resolves built-in bc*
+            barcode IDs, and writes one materialized .lungfishfastq bundle per
+            sample. Barcode definitions must contain sample_id, barcode_1, and
+            barcode_2 columns, or headerless rows in that order.
             """
     )
 
     @Argument(help: "Input ONT FASTQ file, barcode directory, run directory, or .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("barcodes"), help: "CSV/TSV file with sample, forward barcode, and reverse barcode columns")
+    @Option(name: .customLong("barcodes"), help: "CSV/TSV file with sample_id, barcode_1, and barcode_2 columns, or headerless rows in that order")
     var barcodes: String
 
     @Option(name: [.customLong("output"), .customShort("o")], help: "Output directory for per-sample .lungfishfastq bundles")
     var output: String
 
-    @Option(name: .customLong("threads"), help: "cutadapt cores per chunk (default: 1)")
+    @Option(name: .customLong("threads"), help: "Compatibility option for legacy chunked demux paths (default: 1)")
     var threads: Int = 1
 
-    @Option(name: .customLong("chunk-jobs"), help: "Physical ONT chunks to demultiplex concurrently (default: active cores; each cutadapt run uses --threads cores)")
+    @Option(name: .customLong("chunk-jobs"), help: "Compatibility option for legacy chunked demux paths (default: active cores)")
     var chunkJobs: Int = ONTPacBioBarcodeDemuxMaterializationRequest.defaultChunkJobs
 
-    @Option(name: .customLong("max-reads-per-slice"), help: "Maximum reads per temporary slice when an input chunk exceeds --max-bytes-per-cutadapt; 0 disables sub-slicing (default: 100000)")
+    @Option(name: .customLong("max-reads-per-slice"), help: "Compatibility option for legacy chunked demux paths; 0 disables sub-slicing (default: 100000)")
     var maxReadsPerSlice: Int = 100_000
 
-    @Option(name: .customLong("max-bytes-per-cutadapt"), help: "Input chunk byte threshold above which --max-reads-per-slice is applied (default: 536870912)")
+    @Option(name: .customLong("max-bytes-per-cutadapt"), help: "Compatibility option for legacy chunked demux paths (default: 536870912)")
     var maxBytesPerCutadapt: Int64 = 512 * 1024 * 1024
 
     @Flag(name: .customLong("force"), help: "Replace an existing output directory")
