@@ -53,6 +53,17 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn('gh release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH" --clobber', self.release_script)
         self.assertIn("Lungfish-${VERSION}-arm64.md", self.release_script)
 
+    def test_release_script_can_prune_old_prerelease_releases_without_git_tags(self):
+        self.assertIn("--prune-prereleases", self.release_script)
+        self.assertIn("--prune-prereleases-keep", self.release_script)
+        self.assertIn("prune-github-prereleases.py", self.release_script)
+        self.assertIn('"$PRERELEASE_PRUNE_SCRIPT"', self.release_script)
+        self.assertIn("--current-tag", self.release_script)
+        self.assertIn("--apply", self.release_script)
+        self.assertNotIn("--cleanup-tag", self.release_script)
+        self.assertIn("prerelease_prune_report_path=", self.release_script)
+        self.assertIn("prerelease_prune_enabled=", self.release_script)
+
     def test_release_script_can_publish_legacy_alpha_appcast_filename(self):
         self.assertIn("SPARKLE_APPCAST_FILENAME=", self.release_script)
         self.assertIn("SPARKLE_APPCAST_FILENAME=\"$2\"", self.release_script)

@@ -1,3 +1,5 @@
+import argparse
+import contextlib
 import importlib.util
 import os
 import subprocess
@@ -268,6 +270,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                     "--team-id", "TEAMID",
                     "--notary-profile", "notary",
                     "--sparkle-generate-appcast", str(root / "appcast.xml"),
+                    "--no-prune-prereleases",
                 ])
 
             self.assertEqual(status, 0)
@@ -284,6 +287,95 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
             self.assertLess(calls.index("verify_release_artifacts"), push_indexes[0])
             self.assertLess(push_indexes[-1], calls.index("publish_release"))
             self.assertLess(calls.index("publish_release"), calls.index("verify_published_release"))
+
+    def test_main_prunes_old_prereleases_after_published_release_verification(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            rescue_root = root / ".build" / "rescue"
+            lock_path = root / ".build" / "nightly-prerelease-release.lock"
+            calls = []
+
+            def record(name):
+                def inner(*_args, **_kwargs):
+                    calls.append(name)
+                return inner
+
+            def fake_git(_root, *args):
+                calls.append(("git", args))
+
+            def fake_git_output(_root, *args):
+                if args == ("tag", "--list"):
+                    return "v0.5.0-beta1\n"
+                return ""
+
+            def fake_create_lock(_root):
+                lock_path.mkdir(parents=True)
+                return lock_path
+
+            def fake_build_release(_root, _args, _release_tag, *, defer_remote_publish):
+                calls.append(("build_release", defer_remote_publish))
+
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(mock.patch.object(self.release, "create_lock", fake_create_lock))
+                stack.enter_context(mock.patch.object(self.release, "ensure_rescue_root_is_ignored", record("ensure_rescue_root_is_ignored")))
+                stack.enter_context(mock.patch.object(self.release, "prune_rescue_archives", record("prune_rescue_archives")))
+                stack.enter_context(mock.patch.object(self.release, "ensure_clean_main", record("ensure_clean_main")))
+                stack.enter_context(mock.patch.object(self.release, "git", fake_git))
+                stack.enter_context(mock.patch.object(self.release, "git_output", fake_git_output))
+                stack.enter_context(mock.patch.object(self.release, "current_version", return_value="0.5.0-beta1"))
+                stack.enter_context(mock.patch.object(self.release, "discover_agent_branches", return_value=[]))
+                stack.enter_context(mock.patch.object(self.release, "create_rescue_dir", return_value=rescue_root))
+                stack.enter_context(mock.patch.object(self.release, "write_rescue_archive", record("write_rescue_archive")))
+                stack.enter_context(mock.patch.object(self.release, "commit_dirty_worktrees", record("commit_dirty_worktrees")))
+                stack.enter_context(mock.patch.object(self.release, "merge_agent_branches", record("merge_agent_branches")))
+                stack.enter_context(mock.patch.object(self.release, "prepare_release_commit", record("prepare_release_commit")))
+                stack.enter_context(mock.patch.object(self.release, "run_tests", record("run_tests")))
+                stack.enter_context(mock.patch.object(self.release, "build_release", fake_build_release))
+                stack.enter_context(mock.patch.object(self.release, "verify_release_artifacts", side_effect=lambda *_args: calls.append("verify_release_artifacts") or {}))
+                stack.enter_context(mock.patch.object(self.release, "publish_release", record("publish_release")))
+                stack.enter_context(mock.patch.object(self.release, "verify_published_release", side_effect=lambda *_args: calls.append("verify_published_release") or {}))
+                stack.enter_context(mock.patch.object(self.release, "prune_github_prereleases", record("prune_github_prereleases")))
+                stack.enter_context(mock.patch.object(self.release, "cleanup_agent_refs", record("cleanup_agent_refs")))
+                stack.enter_context(mock.patch.object(self.release, "print_summary", record("print_summary")))
+                status = self.release.main([
+                    "--repo", str(root),
+                    "--rescue-root", str(rescue_root),
+                    "--signing-identity", "Developer ID Application: Example",
+                    "--team-id", "TEAMID",
+                    "--notary-profile", "notary",
+                    "--sparkle-generate-appcast", str(root / "appcast.xml"),
+                ])
+
+            self.assertEqual(status, 0)
+            self.assertLess(calls.index("verify_published_release"), calls.index("prune_github_prereleases"))
+            self.assertLess(calls.index("prune_github_prereleases"), calls.index("cleanup_agent_refs"))
+
+    def test_build_release_passes_prune_flags_only_when_remote_publish_is_not_deferred(self):
+        root = Path("/repo")
+        args = argparse.Namespace(
+            release_script=Path("/repo/scripts/release/build-notarized-dmg.sh"),
+            team_id="TEAMID",
+            notary_profile="notary",
+            signing_identity="Developer ID Application: Example",
+            sparkle_generate_appcast="/sparkle/generate_appcast",
+            sparkle_publish_release="sparkle-beta",
+            sparkle_public_ed_key="",
+            sparkle_ed_key_file="",
+            prune_prereleases=True,
+            prune_prereleases_keep=10,
+        )
+        commands = []
+
+        def fake_run(command, cwd, *, env=None):
+            commands.append(command)
+
+        with mock.patch.object(self.release, "run", fake_run):
+            self.release.build_release(root, args, "v0.5.0-beta2", defer_remote_publish=False)
+            self.release.build_release(root, args, "v0.5.0-beta2", defer_remote_publish=True)
+
+        self.assertIn("--prune-prereleases", commands[0])
+        self.assertIn("--prune-prereleases-keep", commands[0])
+        self.assertNotIn("--prune-prereleases", commands[1])
 
 
 if __name__ == "__main__":

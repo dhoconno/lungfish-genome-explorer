@@ -29,6 +29,7 @@ CLAUDE_WORKTREE_PREFIX = "worktree-"
 PROTECTED_BRANCHES = {"main", "master", "develop", "development"}
 DEFAULT_TEST_COMMAND = "swift test"
 DEFAULT_SPARKLE_RELEASE = "sparkle-beta"
+DEFAULT_PRERELEASES_TO_KEEP = 10
 PRERELEASE_PATTERN = re.compile(r"(.+)-(alpha|beta)(\d+)")
 
 
@@ -486,6 +487,8 @@ def build_release(
         command.extend(["--sparkle-public-ed-key", args.sparkle_public_ed_key])
     if args.sparkle_ed_key_file:
         command.extend(["--sparkle-ed-key-file", args.sparkle_ed_key_file])
+    if args.prune_prereleases and not defer_remote_publish:
+        command.extend(["--prune-prereleases", "--prune-prereleases-keep", str(args.prune_prereleases_keep)])
     if defer_remote_publish:
         command.append("--defer-remote-publish")
     env = os.environ.copy()
@@ -622,6 +625,25 @@ def verify_published_release(
     return metadata
 
 
+def prune_github_prereleases(root: Path, args: argparse.Namespace, release_tag: str) -> None:
+    if not args.prune_prereleases:
+        return
+    command = [
+        sys.executable,
+        str(root / "scripts" / "release" / "prune-github-prereleases.py"),
+        "--current-tag",
+        release_tag,
+        "--keep",
+        str(args.prune_prereleases_keep),
+        "--sparkle-release",
+        args.sparkle_publish_release,
+        "--notes-root",
+        str(root / "docs" / "release-notes"),
+        "--apply",
+    ]
+    run(command, cwd=root)
+
+
 def drop_agent_stashes(root: Path, rescue_dir: Path) -> None:
     stash_text = git_output(root, "stash", "list")
     matches = parse_agent_stashes(stash_text)
@@ -682,6 +704,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--sparkle-publish-release", default=DEFAULT_SPARKLE_RELEASE)
     parser.add_argument("--sparkle-public-ed-key", default=os.environ.get("LUNGFISH_SPARKLE_PUBLIC_ED_KEY", ""))
     parser.add_argument("--sparkle-ed-key-file", default="")
+    prune_group = parser.add_mutually_exclusive_group()
+    prune_group.add_argument("--prune-prereleases", dest="prune_prereleases", action="store_true", default=True)
+    prune_group.add_argument("--no-prune-prereleases", dest="prune_prereleases", action="store_false")
+    parser.add_argument("--prune-prereleases-keep", type=int, default=DEFAULT_PRERELEASES_TO_KEEP)
     return parser.parse_args(argv)
 
 
@@ -720,6 +746,7 @@ def main(argv: list[str]) -> int:
         git(root, "push", args.remote, release_tag)
         publish_release(root, args, release_tag, metadata)
         metadata = verify_published_release(root, release_tag, args.sparkle_publish_release, metadata)
+        prune_github_prereleases(root, args, release_tag)
         cleanup_agent_refs(root, args.remote, candidates, rescue_dir)
         ensure_clean_main(root, args.main_branch)
         print_summary(metadata, release_tag, rescue_dir)

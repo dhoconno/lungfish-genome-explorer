@@ -10,7 +10,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-appcast-filename NAME] [--sparkle-publish-release TAG] [--sparkle-bridge-publish-release TAG] [--sparkle-bridge-appcast-filename NAME] [--defer-remote-publish]
+Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-appcast-filename NAME] [--sparkle-publish-release TAG] [--sparkle-bridge-publish-release TAG] [--sparkle-bridge-appcast-filename NAME] [--prune-prereleases] [--prune-prereleases-keep COUNT] [--defer-remote-publish]
 
 Required:
   --signing-identity  Developer ID Application identity used for codesign
@@ -44,6 +44,10 @@ Optional:
                       Also upload the generated appcast to a legacy Sparkle feed release
   --sparkle-bridge-appcast-filename NAME
                       Legacy bridge appcast filename (default: appcast-alpha.xml)
+  --prune-prereleases
+                      After successful remote publishing, delete old prerelease GitHub Release records while preserving git tags
+  --prune-prereleases-keep COUNT
+                      Keep this many newest prerelease records for the current beta/alpha series (default: 10)
   --defer-remote-publish
                       Build, notarize, and generate appcast files without running gh uploads
 
@@ -54,6 +58,7 @@ EOF
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PRERELEASE_PRUNE_SCRIPT="${PROJECT_ROOT}/scripts/release/prune-github-prereleases.py"
 
 SIGNING_IDENTITY=""
 TEAM_ID=""
@@ -78,6 +83,9 @@ SPARKLE_BUILD_NUMBER="${LUNGFISH_BUILD_NUMBER:-}"
 SPARKLE_FEED_URL=""
 GITHUB_RELEASE_TAG=""
 DEFER_REMOTE_PUBLISH=0
+PRERELEASE_PRUNE_ENABLED=0
+PRERELEASE_PRUNE_KEEP=10
+PRERELEASE_PRUNE_REPORT_PATH=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -157,6 +165,14 @@ while [ "$#" -gt 0 ]; do
             SPARKLE_BRIDGE_APPCAST_FILENAME="$2"
             shift 2
             ;;
+        --prune-prereleases)
+            PRERELEASE_PRUNE_ENABLED=1
+            shift
+            ;;
+        --prune-prereleases-keep)
+            PRERELEASE_PRUNE_KEEP="$2"
+            shift 2
+            ;;
         --defer-remote-publish)
             DEFER_REMOTE_PUBLISH=1
             shift
@@ -199,6 +215,16 @@ case "$SPARKLE_BRIDGE_APPCAST_FILENAME" in
         exit 64
         ;;
 esac
+case "$PRERELEASE_PRUNE_KEEP" in
+    ''|*[!0-9]*)
+        echo "invalid prerelease prune keep count: $PRERELEASE_PRUNE_KEEP" >&2
+        exit 64
+        ;;
+esac
+if [ "$PRERELEASE_PRUNE_KEEP" -lt 1 ]; then
+    echo "prerelease prune keep count must be at least 1" >&2
+    exit 64
+fi
 
 if [ -z "$DERIVED_DATA_PATH" ]; then
     DERIVED_DATA_PATH="${PROJECT_ROOT}/.build/release-derived-data"
@@ -225,6 +251,10 @@ done
 
 if [ "$DEFER_REMOTE_PUBLISH" -eq 0 ] && { [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; }; then
     require_command gh
+fi
+if [ "$PRERELEASE_PRUNE_ENABLED" -eq 1 ] && [ "$DEFER_REMOTE_PUBLISH" -eq 0 ]; then
+    require_command gh
+    require_command python3
 fi
 
 if [ -n "$SPARKLE_GENERATE_APPCAST" ] && [ ! -x "$SPARKLE_GENERATE_APPCAST" ]; then
@@ -448,6 +478,24 @@ generate_sparkle_appcast() {
 
         gh release upload "$SPARKLE_BRIDGE_PUBLISH_RELEASE" "$bridge_appcast_path" --clobber
     fi
+}
+
+prune_github_prereleases() {
+    if [ "$PRERELEASE_PRUNE_ENABLED" -eq 0 ] || [ "$DEFER_REMOTE_PUBLISH" -eq 1 ]; then
+        return
+    fi
+    if [ -z "$GITHUB_RELEASE_TAG" ]; then
+        echo "--prune-prereleases requires a GitHub release tag" >&2
+        exit 64
+    fi
+    PRERELEASE_PRUNE_REPORT_PATH="${RELEASE_DIR}/prerelease-prune-plan.json"
+    python3 "$PRERELEASE_PRUNE_SCRIPT" \
+        --current-tag "$GITHUB_RELEASE_TAG" \
+        --keep "$PRERELEASE_PRUNE_KEEP" \
+        --sparkle-release "${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}" \
+        --notes-root "${PROJECT_ROOT}/docs/release-notes" \
+        --report-path "$PRERELEASE_PRUNE_REPORT_PATH" \
+        --apply
 }
 
 prepare_release_dir() {
@@ -700,6 +748,7 @@ fi
 
 publish_github_release_dmg
 generate_sparkle_appcast
+prune_github_prereleases
 
 DMG_SHA=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
 COMMIT_SHA=$(git rev-parse HEAD)
@@ -716,6 +765,9 @@ github_release_tag=${GITHUB_RELEASE_TAG}
 sparkle_publish_release=${SPARKLE_PUBLISH_RELEASE}
 sparkle_bridge_publish_release=${SPARKLE_BRIDGE_PUBLISH_RELEASE}
 sparkle_bridge_appcast_filename=${SPARKLE_BRIDGE_APPCAST_FILENAME}
+prerelease_prune_enabled=${PRERELEASE_PRUNE_ENABLED}
+prerelease_prune_keep=${PRERELEASE_PRUNE_KEEP}
+prerelease_prune_report_path=$(relative_to_project_root "${PRERELEASE_PRUNE_REPORT_PATH:-}")
 archive_path=$(relative_to_project_root "$ARCHIVE_PATH")
 app_path=$(relative_to_project_root "$APP_PATH")
 release_app_path=$(relative_to_project_root "$RELEASE_APP_PATH")
