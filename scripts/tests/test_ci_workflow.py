@@ -28,10 +28,19 @@ class CIWorkflowTests(unittest.TestCase):
 
     def test_fast_gate_installs_native_tools_before_smoke_package_tests(self):
         install_tools = "brew install htslib samtools seqkit"
+        htslib_link = 'ln -sf "$(brew --prefix htslib)/bin/bgzip" "$HOME/.lungfish/conda/envs/htslib/bin/bgzip"'
+        samtools_link = 'ln -sf "$(brew --prefix samtools)/bin/samtools" "$HOME/.lungfish/conda/envs/samtools/bin/samtools"'
+        seqkit_link = 'ln -sf "$(brew --prefix seqkit)/bin/seqkit" "$HOME/.lungfish/conda/envs/seqkit/bin/seqkit"'
         smoke_tests = "swift test --filter"
 
         self.assertIn(install_tools, self.workflow)
-        self.assertLess(self.workflow.index(install_tools), self.workflow.index(smoke_tests))
+        self.assertIn(htslib_link, self.workflow)
+        self.assertIn(samtools_link, self.workflow)
+        self.assertIn(seqkit_link, self.workflow)
+        self.assertLess(self.workflow.index(install_tools), self.workflow.index(htslib_link))
+        self.assertLess(self.workflow.index(htslib_link), self.workflow.index(smoke_tests))
+        self.assertLess(self.workflow.index(samtools_link), self.workflow.index(smoke_tests))
+        self.assertLess(self.workflow.index(seqkit_link), self.workflow.index(smoke_tests))
 
 
 if __name__ == "__main__":

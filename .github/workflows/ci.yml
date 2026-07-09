@@ -61,7 +61,14 @@ jobs:
         run: bash scripts/check-package-resolved-consistency.sh
 
       - name: Install smoke test tool dependencies
-        run: brew install htslib samtools seqkit
+        run: |
+          brew install htslib samtools seqkit
+          mkdir -p "$HOME/.lungfish/conda/envs/htslib/bin"
+          mkdir -p "$HOME/.lungfish/conda/envs/samtools/bin"
+          mkdir -p "$HOME/.lungfish/conda/envs/seqkit/bin"
+          ln -sf "$(brew --prefix htslib)/bin/bgzip" "$HOME/.lungfish/conda/envs/htslib/bin/bgzip"
+          ln -sf "$(brew --prefix samtools)/bin/samtools" "$HOME/.lungfish/conda/envs/samtools/bin/samtools"
+          ln -sf "$(brew --prefix seqkit)/bin/seqkit" "$HOME/.lungfish/conda/envs/seqkit/bin/seqkit"
 
       - name: Run smoke package tests
         run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\.ScientificCLIProvenanceCoverageTests)(/|$)'
