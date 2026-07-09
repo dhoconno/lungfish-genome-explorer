@@ -60,6 +60,9 @@ jobs:
       - name: Check Package.resolved consistency
         run: bash scripts/check-package-resolved-consistency.sh
 
+      - name: Install smoke test tool dependencies
+        run: brew install htslib samtools seqkit
+
       - name: Run smoke package tests
         run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\.ScientificCLIProvenanceCoverageTests)(/|$)'
 

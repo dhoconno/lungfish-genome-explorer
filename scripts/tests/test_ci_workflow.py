@@ -26,6 +26,13 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertLess(self.workflow.index(xcodebuild), second_repair)
         self.assertLess(second_repair, final_check)
 
+    def test_fast_gate_installs_native_tools_before_smoke_package_tests(self):
+        install_tools = "brew install htslib samtools seqkit"
+        smoke_tests = "swift test --filter"
+
+        self.assertIn(install_tools, self.workflow)
+        self.assertLess(self.workflow.index(install_tools), self.workflow.index(smoke_tests))
+
 
 if __name__ == "__main__":
     unittest.main()
