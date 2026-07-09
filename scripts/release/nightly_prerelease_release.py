@@ -19,16 +19,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 VERSIONED_FILES = (
     "Lungfish.xcodeproj/project.pbxproj",
     "Sources/LungfishCore/AppVersion.swift",
-    "Sources/LungfishApp/App/AboutWindowController.swift",
     "Sources/LungfishApp/Resources/HelpBook/Lungfish.help/Contents/Info.plist",
-    "Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift",
-    "Sources/LungfishCLI/Commands/PrimerCommand.swift",
-    "Sources/LungfishCLI/Commands/SequenceCommand.swift",
-    "Sources/LungfishCLI/LungfishCLI.swift",
     "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json",
-    "Tests/LungfishCLITests/CLIRegressionTests.swift",
     "Tests/LungfishCoreTests/AppVersionTests.swift",
-    "Tests/LungfishWorkflowTests/CondaManagerTests.swift",
 )
 
 AGENT_BRANCH_PREFIXES = ("codex/", "claude/")
