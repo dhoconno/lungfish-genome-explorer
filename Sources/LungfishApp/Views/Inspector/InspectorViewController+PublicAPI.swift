@@ -337,12 +337,15 @@ extension InspectorViewController {
                 GenotypeResultArtifactRow(label: "Long Summary CSV", fileURL: result.artifacts.longSummaryCSVURL),
                 GenotypeResultArtifactRow(label: "Sample Summary CSV", fileURL: result.artifacts.sampleSummaryCSVURL),
                 GenotypeResultArtifactRow(label: "Run Stats JSON", fileURL: result.artifacts.statsJSONURL),
+                result.artifacts.deduplicatedUnmatchedClustersFASTAURL.map {
+                    GenotypeResultArtifactRow(label: "Deduplicated Unmatched FASTA", fileURL: $0)
+                },
                 GenotypeResultArtifactRow(label: "Provenance", fileURL: result.artifacts.provenanceURL),
                 GenotypeResultArtifactRow(
                     label: "Annotations & Audit",
                     fileURL: ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: result.bundleURL)
                 ),
-            ],
+            ].compactMap { $0 },
             smartCohorts: smartCohorts,
             auditEntries: sidecar.auditLog,
             haplotypeDefinitionRows: genotypeHaplotypeDefinitionRows(result, sidecar: sidecar),

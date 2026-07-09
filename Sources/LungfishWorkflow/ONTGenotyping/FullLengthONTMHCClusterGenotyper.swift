@@ -58,6 +58,9 @@ public struct FullLengthONTMHCClosestMatch: Codable, Equatable, Sendable {
     public let indelBases: Int
     public let alignedBases: Int
     public let score: Int
+    public let trimStart: Int?
+    public let trimEnd: Int?
+    public let isReverse: Bool?
 
     public init(
         sample: String,
@@ -70,7 +73,10 @@ public struct FullLengthONTMHCClosestMatch: Codable, Equatable, Sendable {
         snpDifferences: Int,
         indelBases: Int,
         alignedBases: Int,
-        score: Int
+        score: Int,
+        trimStart: Int? = nil,
+        trimEnd: Int? = nil,
+        isReverse: Bool? = nil
     ) {
         self.sample = sample
         self.cluster = cluster
@@ -83,6 +89,9 @@ public struct FullLengthONTMHCClosestMatch: Codable, Equatable, Sendable {
         self.indelBases = indelBases
         self.alignedBases = alignedBases
         self.score = score
+        self.trimStart = trimStart
+        self.trimEnd = trimEnd
+        self.isReverse = isReverse
     }
 }
 
@@ -125,6 +134,9 @@ public enum FullLengthONTMHCClusterGenotyper {
         let matchedBases: Int
         let indelBases: Int
         let score: Int
+        let targetStart: Int
+        let targetEnd: Int
+        let isReverse: Bool
     }
 
     public static func genotypeSummary(
@@ -147,19 +159,24 @@ public enum FullLengthONTMHCClusterGenotyper {
             guard !rawLine.hasPrefix("@") else { continue }
             let fields = rawLine.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard fields.count >= 6,
-                  let flag = Int(fields[1]) else { continue }
+                  let flag = Int(fields[1]),
+                  let position = Int(fields[3]) else { continue }
             let allele = fields[0].split(whereSeparator: \.isWhitespace).first.map(String.init) ?? fields[0]
             let cluster = fields[2]
             let cigar = fields[5]
-            guard cluster != "*", flag & 4 == 0 else { continue }
+            guard cluster != "*", flag & 4 == 0, cigar != "*", position > 0 else { continue }
             let parsed = parseCIGAR(cigar)
+            guard parsed.targetSpan > 0 else { continue }
             let score = parsed.matchedBases - 10 * parsed.indelBases - 100 * parsed.snps
             clusterHits[cluster, default: []].append(Hit(
                 allele: allele,
                 snps: parsed.snps,
                 matchedBases: parsed.matchedBases,
                 indelBases: parsed.indelBases,
-                score: score
+                score: score,
+                targetStart: position,
+                targetEnd: position + parsed.targetSpan - 1,
+                isReverse: flag & 16 != 0
             ))
         }
 
@@ -253,7 +270,10 @@ public enum FullLengthONTMHCClusterGenotyper {
             snpDifferences: hit.snps,
             indelBases: hit.indelBases,
             alignedBases: hit.matchedBases,
-            score: hit.score
+            score: hit.score,
+            trimStart: min(hit.targetStart, hit.targetEnd),
+            trimEnd: max(hit.targetStart, hit.targetEnd),
+            isReverse: hit.isReverse
         )
     }
 
@@ -294,10 +314,11 @@ public enum FullLengthONTMHCClusterGenotyper {
         return Int(digits) ?? 0
     }
 
-    static func parseCIGAR(_ cigar: String) -> (snps: Int, matchedBases: Int, indelBases: Int) {
+    static func parseCIGAR(_ cigar: String) -> (snps: Int, matchedBases: Int, indelBases: Int, targetSpan: Int) {
         var snps = 0
         var matched = 0
         var indels = 0
+        var targetSpan = 0
         var number = ""
         for character in cigar {
             if character.isNumber {
@@ -311,16 +332,23 @@ public enum FullLengthONTMHCClusterGenotyper {
             switch character {
             case "X":
                 snps += count
+                targetSpan += count
             case "=", "M":
                 matched += count
+                targetSpan += count
             case "I", "D":
                 indels += count
+                if character == "D" {
+                    targetSpan += count
+                }
+            case "N":
+                targetSpan += count
             default:
                 break
             }
             number = ""
         }
-        return (snps, matched, indels)
+        return (snps, matched, indels, targetSpan)
     }
 
     private static func localizedStandardLessThan(_ lhs: String, _ rhs: String) -> Bool {

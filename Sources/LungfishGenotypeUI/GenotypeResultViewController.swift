@@ -2455,7 +2455,13 @@ public final class GenotypeResultViewController: NSViewController {
             artifactRow(label: "Sample Summary CSV", url: result.artifacts.sampleSummaryCSVURL),
             artifactRow(label: "Run Stats JSON", url: result.artifacts.statsJSONURL),
             artifactRow(label: "Provenance", url: result.artifacts.provenanceURL),
-        ] + (result.artifacts.haplotypeAnalysisURL.map { [artifactRow(label: "Haplotype Analysis", url: $0)] } ?? [])
+        ]
+        if let fastaURL = result.artifacts.deduplicatedUnmatchedClustersFASTAURL {
+            artifactRows.append(artifactRow(label: "Deduplicated Unmatched FASTA", url: fastaURL))
+        }
+        if let haplotypeAnalysisURL = result.artifacts.haplotypeAnalysisURL {
+            artifactRows.append(artifactRow(label: "Haplotype Analysis", url: haplotypeAnalysisURL))
+        }
         addAuditSection(title: "Bundle Artifacts", contents: artifactRows)
 
         if manualHaplotypingIsAvailable(result: result) {

@@ -216,6 +216,7 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let originalWorkbookURL = bundleURL.appendingPathComponent("barcode05-mhc.xlsx")
         let currentWorkbookURL = bundleURL.appendingPathComponent("artifacts/workbooks/current.xlsx")
+        let unmatchedFASTAURL = bundleURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta")
         let result = ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
             manifest: ONTGenotypeResultBundleManifest(
@@ -226,7 +227,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
                 longSummaryCSVPath: "barcode05-mhc.retained-demux-genotypes.csv",
                 sampleSummaryCSVPath: "barcode05-mhc.retained-demux-samples.csv",
                 statsJSONPath: "barcode05-mhc.retained-demux-stats.json",
-                provenancePath: "retained-demux-genotyping-provenance.json"
+                provenancePath: "retained-demux-genotyping-provenance.json",
+                deduplicatedUnmatchedClustersFASTAPath: unmatchedFASTAURL.lastPathComponent
             ),
             artifacts: ONTGenotypeResultArtifacts(
                 workbookURL: currentWorkbookURL,
@@ -234,7 +236,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
                 longSummaryCSVURL: bundleURL.appendingPathComponent("barcode05-mhc.retained-demux-genotypes.csv"),
                 sampleSummaryCSVURL: bundleURL.appendingPathComponent("barcode05-mhc.retained-demux-samples.csv"),
                 statsJSONURL: bundleURL.appendingPathComponent("barcode05-mhc.retained-demux-stats.json"),
-                provenanceURL: bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json")
+                provenanceURL: bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json"),
+                deduplicatedUnmatchedClustersFASTAURL: unmatchedFASTAURL
             ),
             stats: ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60),
             calls: [],
@@ -250,6 +253,9 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertEqual(rows.first?.fileURL, currentWorkbookURL.standardizedFileURL)
         XCTAssertTrue(rows.contains {
             $0.label == "Original Workbook" && $0.fileURL == originalWorkbookURL.standardizedFileURL
+        })
+        XCTAssertTrue(rows.contains {
+            $0.label == "Deduplicated Unmatched FASTA" && $0.fileURL == unmatchedFASTAURL.standardizedFileURL
         })
     }
 

@@ -140,6 +140,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let sampleSummaryCSVPath: String
     public let statsJSONPath: String
     public let provenancePath: String
+    public let deduplicatedUnmatchedClustersFASTAPath: String?
     public let haplotypeAnalysisPath: String?
     public let activeHaplotypeAnalysisRevisionID: String?
     public let haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]?
@@ -161,6 +162,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         sampleSummaryCSVPath: String,
         statsJSONPath: String,
         provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
         haplotypeAnalysisPath: String? = nil,
         haplotypeDefinitionSetID: String? = nil,
         haplotypeAssayID: String? = nil,
@@ -181,6 +183,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         self.sampleSummaryCSVPath = sampleSummaryCSVPath
         self.statsJSONPath = statsJSONPath
         self.provenancePath = provenancePath
+        self.deduplicatedUnmatchedClustersFASTAPath = deduplicatedUnmatchedClustersFASTAPath
         self.haplotypeAnalysisPath = haplotypeAnalysisPath
         self.activeHaplotypeAnalysisRevisionID = activeHaplotypeAnalysisRevisionID
         self.haplotypeAnalysisRevisions = haplotypeAnalysisRevisions
@@ -203,6 +206,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         sampleSummaryCSVPath: String,
         statsJSONPath: String,
         provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
         haplotypeAnalysisPath: String? = nil,
         haplotypeDefinitionSetID: String? = nil,
         haplotypeAssayID: String? = nil,
@@ -222,6 +226,91 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             sampleSummaryCSVPath: sampleSummaryCSVPath,
             statsJSONPath: statsJSONPath,
             provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: nil,
+            haplotypeAnalysisRevisions: nil
+        )
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil,
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil
+    ) {
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            currentWorkbookPath: nil,
+            workbookRevisions: nil,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions
+        )
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil
+    ) {
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
             haplotypeAnalysisPath: haplotypeAnalysisPath,
             haplotypeDefinitionSetID: haplotypeDefinitionSetID,
             haplotypeAssayID: haplotypeAssayID,
@@ -248,48 +337,6 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         haplotypeAssayID: String? = nil,
         presetID: String? = nil,
         presetVersion: String? = nil,
-        createdAt: String? = nil,
-        activeHaplotypeAnalysisRevisionID: String? = nil,
-        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil
-    ) {
-        self.init(
-            schemaVersion: schemaVersion,
-            kind: kind,
-            outputName: outputName,
-            analysisName: analysisName,
-            primaryWorkbookPath: primaryWorkbookPath,
-            currentWorkbookPath: nil,
-            workbookRevisions: nil,
-            longSummaryCSVPath: longSummaryCSVPath,
-            sampleSummaryCSVPath: sampleSummaryCSVPath,
-            statsJSONPath: statsJSONPath,
-            provenancePath: provenancePath,
-            haplotypeAnalysisPath: haplotypeAnalysisPath,
-            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
-            haplotypeAssayID: haplotypeAssayID,
-            presetID: presetID,
-            presetVersion: presetVersion,
-            createdAt: createdAt,
-            activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
-            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions
-        )
-    }
-
-    public init(
-        schemaVersion: Int = 1,
-        kind: String = "ont-barcode-genotype",
-        outputName: String,
-        analysisName: String,
-        primaryWorkbookPath: String,
-        longSummaryCSVPath: String,
-        sampleSummaryCSVPath: String,
-        statsJSONPath: String,
-        provenancePath: String,
-        haplotypeAnalysisPath: String? = nil,
-        haplotypeDefinitionSetID: String? = nil,
-        haplotypeAssayID: String? = nil,
-        presetID: String? = nil,
-        presetVersion: String? = nil,
         createdAt: String? = nil
     ) {
         self.init(
@@ -302,6 +349,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             sampleSummaryCSVPath: sampleSummaryCSVPath,
             statsJSONPath: statsJSONPath,
             provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: nil,
             haplotypeAnalysisPath: haplotypeAnalysisPath,
             haplotypeDefinitionSetID: haplotypeDefinitionSetID,
             haplotypeAssayID: haplotypeAssayID,
@@ -818,6 +866,7 @@ public struct ONTGenotypeResultArtifacts: Codable, Equatable, Sendable {
     public let sampleSummaryCSVURL: URL
     public let statsJSONURL: URL
     public let provenanceURL: URL
+    public let deduplicatedUnmatchedClustersFASTAURL: URL?
     public let haplotypeAnalysisURL: URL?
 
     public init(
@@ -827,6 +876,7 @@ public struct ONTGenotypeResultArtifacts: Codable, Equatable, Sendable {
         sampleSummaryCSVURL: URL,
         statsJSONURL: URL,
         provenanceURL: URL,
+        deduplicatedUnmatchedClustersFASTAURL: URL? = nil,
         haplotypeAnalysisURL: URL? = nil
     ) {
         self.workbookURL = workbookURL.standardizedFileURL
@@ -835,7 +885,29 @@ public struct ONTGenotypeResultArtifacts: Codable, Equatable, Sendable {
         self.sampleSummaryCSVURL = sampleSummaryCSVURL.standardizedFileURL
         self.statsJSONURL = statsJSONURL.standardizedFileURL
         self.provenanceURL = provenanceURL.standardizedFileURL
+        self.deduplicatedUnmatchedClustersFASTAURL = deduplicatedUnmatchedClustersFASTAURL?.standardizedFileURL
         self.haplotypeAnalysisURL = haplotypeAnalysisURL?.standardizedFileURL
+    }
+
+    public init(
+        workbookURL: URL,
+        longSummaryCSVURL: URL,
+        sampleSummaryCSVURL: URL,
+        statsJSONURL: URL,
+        provenanceURL: URL,
+        deduplicatedUnmatchedClustersFASTAURL: URL? = nil,
+        haplotypeAnalysisURL: URL? = nil
+    ) {
+        self.init(
+            workbookURL: workbookURL,
+            primaryWorkbookURL: workbookURL,
+            longSummaryCSVURL: longSummaryCSVURL,
+            sampleSummaryCSVURL: sampleSummaryCSVURL,
+            statsJSONURL: statsJSONURL,
+            provenanceURL: provenanceURL,
+            deduplicatedUnmatchedClustersFASTAURL: deduplicatedUnmatchedClustersFASTAURL,
+            haplotypeAnalysisURL: haplotypeAnalysisURL
+        )
     }
 
     public init(
@@ -853,6 +925,7 @@ public struct ONTGenotypeResultArtifacts: Codable, Equatable, Sendable {
             sampleSummaryCSVURL: sampleSummaryCSVURL,
             statsJSONURL: statsJSONURL,
             provenanceURL: provenanceURL,
+            deduplicatedUnmatchedClustersFASTAURL: nil,
             haplotypeAnalysisURL: haplotypeAnalysisURL
         )
     }
@@ -1245,6 +1318,9 @@ public enum ONTGenotypeResultBundle {
             sampleSummaryCSVURL: resolvedURL(for: manifest.sampleSummaryCSVPath, in: bundleURL),
             statsJSONURL: resolvedURL(for: manifest.statsJSONPath, in: bundleURL),
             provenanceURL: resolvedURL(for: manifest.provenancePath, in: bundleURL),
+            deduplicatedUnmatchedClustersFASTAURL: manifest.deduplicatedUnmatchedClustersFASTAPath.map {
+                resolvedURL(for: $0, in: bundleURL)
+            },
             haplotypeAnalysisURL: manifest.haplotypeAnalysisPath.map {
                 resolvedURL(for: $0, in: bundleURL)
             }

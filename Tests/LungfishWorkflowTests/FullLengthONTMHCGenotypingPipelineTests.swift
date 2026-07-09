@@ -413,6 +413,11 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             envelope.outputs.contains { $0.path.hasSuffix(retainedLogSuffix) },
             "Expected retained Savont log in outputs. Outputs: \(envelope.outputs.map(\.path))"
         )
+        XCTAssertTrue(
+            envelope.outputs.contains { $0.path.hasSuffix("/deduplicated_unmatched_clusters.fasta") },
+            "Expected deduplicated unmatched FASTA in provenance outputs. Outputs: \(envelope.outputs.map(\.path))"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.deduplicatedUnmatchedClustersFASTAURL.path))
 
         let workbookXML = try Self.unzippedText(path: "xl/workbook.xml", from: result.workbookURL)
         XCTAssertEqual(
@@ -426,6 +431,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 "Unmatched Shared Pivot",
                 "MHC-like Unmatched Clusters",
                 "MHC-like Unmatched Pivot",
+                "Unified Genotype Pivot",
             ]
         )
         XCTAssertFalse(workbookXML.contains("Cluster Alignments"))
@@ -898,9 +904,47 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 snpDifferences: 2,
                 indelBases: 0,
                 alignedBases: 6,
-                score: -194
+                score: -194,
+                trimStart: 1,
+                trimEnd: 8,
+                isReverse: false
             ),
         ])
+    }
+
+    func testClusterGenotyperReportsTrimBoundsAndReverseStrandForClosestMatch() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-closest-reverse-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let clusters = root.appendingPathComponent("clusters.fasta")
+        let reference = root.appendingPathComponent("reference.fasta")
+        try """
+        >ClusterReverse_ReadCount-9
+        TTAAGCATGG
+        """.write(to: clusters, atomically: true, encoding: .utf8)
+        try """
+        >Mamu-A1*001
+        ATGCTT
+        """.write(to: reference, atomically: true, encoding: .utf8)
+        let sam = """
+        @SQ\tSN:ClusterReverse_ReadCount-9\tLN:10
+        Mamu-A1*001\t16\tClusterReverse_ReadCount-9\t3\t60\t4=2X\t*\t0\t0\tATGCTT\t*
+        """
+
+        let summary = try FullLengthONTMHCClusterGenotyper.genotypeSummary(
+            sampleID: "DL47",
+            clustersFASTAURL: clusters,
+            referenceFASTAURL: reference,
+            samText: sam,
+            cdnaThreshold: 2_000,
+            minUnmatchedReads: 5
+        )
+
+        let closest = try XCTUnwrap(summary.closestMatches.first)
+        XCTAssertEqual(closest.trimStart, 3)
+        XCTAssertEqual(closest.trimEnd, 8)
+        XCTAssertEqual(closest.isReverse, true)
     }
 
     func testClusterGenotyperTreatsZeroSNPIndelOnlyHitAsExtension() throws {
@@ -946,9 +990,50 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 snpDifferences: 0,
                 indelBases: 2,
                 alignedBases: 8,
-                score: -12
+                score: -12,
+                trimStart: 1,
+                trimEnd: 8,
+                isReverse: false
             ),
         ])
+    }
+
+    func testUnmatchedNormalizerTrimsAndReverseComplementsBeforeIDAssignment() {
+        let record = FullLengthONTMHCClusterFASTARecord(
+            name: "ClusterReverse_ReadCount-9",
+            sequence: "TTAAGCATGG",
+            readCount: 9
+        )
+        let closest = FullLengthONTMHCClosestMatch(
+            sample: "DL47",
+            cluster: "ClusterReverse_ReadCount-9",
+            clusterReads: 9,
+            closestReference: "Mamu-A1*001",
+            matchClass: .snpDifferent,
+            closestMatchID: "Mamu-A1*001_2SNP",
+            nucleotidesDifferent: 2,
+            snpDifferences: 2,
+            indelBases: 0,
+            alignedBases: 4,
+            score: -196,
+            trimStart: 3,
+            trimEnd: 8,
+            isReverse: true
+        )
+
+        let row = FullLengthONTMHCUnmatchedSequenceNormalizer.workbookRow(
+            sample: "DL47",
+            record: record,
+            closestMatch: closest
+        )
+
+        XCTAssertEqual(row.rawSequence, "TTAAGCATGG")
+        XCTAssertEqual(row.sequence, "ATGCTT")
+        XCTAssertEqual(row.trimStart, 3)
+        XCTAssertEqual(row.trimEnd, 8)
+        XCTAssertEqual(row.trimSource, "minimap2-target-interval-reverse-complement")
+        XCTAssertEqual(row.rawLength, 10)
+        XCTAssertEqual(row.trimmedLength, 6)
     }
 
     func testReportRowsConsolidateMultipleClustersMatchingSameAllele() {
@@ -1172,6 +1257,11 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                     "sample",
                     "cluster",
                     "cluster_reads",
+                    "raw_length",
+                    "trimmed_length",
+                    "trim_start",
+                    "trim_end",
+                    "trim_source",
                     "closest_match_id",
                     "match_class",
                     "nucleotides_different",
@@ -1181,10 +1271,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                     "score",
                     "sequence",
                 ],
-                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "DL47", "ClusterA_ReadCount-9", "9", "Mamu-A1*001_2SNP", "snp-different", "2", "2", "0", "6", "-194", "ACGT"],
-                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "DL48", "ClusterB_ReadCount-11", "11", "Mamu-A1*001_2SNP", "snp-different", "2", "2", "0", "6", "-194", "ACGT"],
-                ["3fd8b2c4-aea7-54d9-90ec-b00284070196", "DL48", "ClusterC_ReadCount-5", "5", "Mamu-cDNA*001_extension", "extension", "0", "0", "2", "8", "-12", "TTTT"],
-                ["93ccf25b-7870-5fdc-aa82-f98b6b7a1ca4", "DL49", "ClusterD_ReadCount-7", "7", "", "", "", "", "", "", "", "GGGG"],
+                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "DL47", "ClusterA_ReadCount-9", "9", "4", "4", "", "", "provided-sequence", "Mamu-A1*001_2SNP", "snp-different", "2", "2", "0", "6", "-194", "ACGT"],
+                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "DL48", "ClusterB_ReadCount-11", "11", "4", "4", "", "", "provided-sequence", "Mamu-A1*001_2SNP", "snp-different", "2", "2", "0", "6", "-194", "ACGT"],
+                ["3fd8b2c4-aea7-54d9-90ec-b00284070196", "DL48", "ClusterC_ReadCount-5", "5", "4", "4", "", "", "provided-sequence", "Mamu-cDNA*001_extension", "extension", "0", "0", "2", "8", "-12", "TTTT"],
+                ["93ccf25b-7870-5fdc-aa82-f98b6b7a1ca4", "DL49", "ClusterD_ReadCount-7", "7", "4", "4", "", "", "provided-sequence", "", "", "", "", "", "", "", "GGGG"],
             ]
         )
         XCTAssertEqual(
@@ -1193,6 +1283,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 [
                     "unmatched_sequence_id",
                     "occurrence_count",
+                    "sample_count",
                     "total_cluster_reads",
                     "closest_match_id",
                     "match_class",
@@ -1205,9 +1296,117 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                     "DL48",
                     "DL49",
                 ],
-                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "2", "20", "Mamu-A1*001_2SNP", "snp-different", "2", "2", "0", "6", "-194", "9", "11", ""],
-                ["93ccf25b-7870-5fdc-aa82-f98b6b7a1ca4", "1", "7", "", "", "", "", "", "", "", "", "", "7"],
-                ["3fd8b2c4-aea7-54d9-90ec-b00284070196", "1", "5", "Mamu-cDNA*001_extension", "extension", "0", "0", "2", "8", "-12", "", "5", ""],
+                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "2", "2", "20", "Mamu-A1*001_2SNP", "snp-different", "2", "2", "0", "6", "-194", "9", "11", ""],
+                ["93ccf25b-7870-5fdc-aa82-f98b6b7a1ca4", "1", "1", "7", "", "", "", "", "", "", "", "", "", "7"],
+                ["3fd8b2c4-aea7-54d9-90ec-b00284070196", "1", "1", "5", "Mamu-cDNA*001_extension", "extension", "0", "0", "2", "8", "-12", "", "5", ""],
+            ]
+        )
+    }
+
+    func testDeduplicatedUnmatchedFASTARecordsIncludeOccurrencesAndSamples() {
+        let rows = [
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
+                sample: "DL47",
+                cluster: "ClusterA_ReadCount-9",
+                clusterReads: 9,
+                sequence: "ACGT",
+                closestMatch: nil
+            ),
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
+                sample: "DL48",
+                cluster: "ClusterB_ReadCount-11",
+                clusterReads: 11,
+                sequence: "ACGT",
+                closestMatch: nil
+            ),
+        ]
+
+        XCTAssertEqual(
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.deduplicatedFASTARecords(rows),
+            [
+                FullLengthONTMHCClusterFASTARecord(
+                    name: "1dff3e84-fe78-57e0-a73b-69bbddcf4012|occurrences=2|sample_count=2|samples=DL47;DL48|total_cluster_reads=20",
+                    sequence: "ACGT",
+                    readCount: 20
+                ),
+            ]
+        )
+    }
+
+    func testUnifiedPivotCombinesKnownAllelesAndNovelUnmatchedClusters() {
+        let reportRows = [
+            FullLengthONTMHCReportRow(
+                sample: "DL47",
+                genotype: "Mamu-A1*001",
+                passedAlignments: 12,
+                passedUniqueReads: 12,
+                sampleTotalReads: 100,
+                sampleUniqueRetainedReads: 12,
+                sampleUniqueRetainedPercent: 12,
+                overallInputReads: 300,
+                overallUniqueRetainedReads: 32,
+                overallUniqueRetainedPercent: 10.7
+            ),
+            FullLengthONTMHCReportRow(
+                sample: "DL48",
+                genotype: "Mamu-A1*001",
+                passedAlignments: 20,
+                passedUniqueReads: 20,
+                sampleTotalReads: 200,
+                sampleUniqueRetainedReads: 20,
+                sampleUniqueRetainedPercent: 10,
+                overallInputReads: 300,
+                overallUniqueRetainedReads: 32,
+                overallUniqueRetainedPercent: 10.7
+            ),
+        ]
+        let closest = FullLengthONTMHCClosestMatch(
+            sample: "DL47",
+            cluster: "ClusterNovel_ReadCount-9",
+            clusterReads: 9,
+            closestReference: "Mamu-A1*002",
+            matchClass: .snpDifferent,
+            closestMatchID: "Mamu-A1*002_2SNP",
+            nucleotidesDifferent: 2,
+            snpDifferences: 2,
+            indelBases: 0,
+            alignedBases: 2_900,
+            score: 2_700,
+            trimStart: 1,
+            trimEnd: 2_902,
+            isReverse: false
+        )
+        let unmatched = [
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
+                sample: "DL47",
+                cluster: "ClusterNovel_ReadCount-9",
+                clusterReads: 9,
+                sequence: "ACGT",
+                closestMatch: closest
+            ),
+        ]
+
+        XCTAssertEqual(
+            FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildRows(
+                reportRows: reportRows,
+                unmatchedRows: unmatched,
+                sampleOrder: ["DL47", "DL48"]
+            ),
+            [
+                [
+                    "call_type",
+                    "call_id",
+                    "display_name",
+                    "closest_reference",
+                    "match_class",
+                    "occurrence_count",
+                    "sample_count",
+                    "total_cluster_reads",
+                    "DL47",
+                    "DL48",
+                ],
+                ["known-allele", "Mamu-A1*001", "Mamu-A1*001", "Mamu-A1*001", "exact", "2", "2", "32", "12", "20"],
+                ["novel-unmatched", "1dff3e84-fe78-57e0-a73b-69bbddcf4012", "Novel:1dff3e84-fe78-57e0-a73b-69bbddcf4012", "Mamu-A1*002", "snp-different", "1", "1", "9", "9", ""],
             ]
         )
     }
@@ -1273,6 +1472,11 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                     "sample",
                     "cluster",
                     "cluster_reads",
+                    "raw_length",
+                    "trimmed_length",
+                    "trim_start",
+                    "trim_end",
+                    "trim_source",
                     "match_source",
                     "closest_match_id",
                     "closest_reference",
@@ -1288,8 +1492,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                     "bitscore",
                     "sequence",
                 ],
-                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "DL47", "ClusterA_ReadCount-9", "9", "genotyping-sam", "Mamu-A1*001_2SNP", "Mamu-A1*001", "snp-different", "2", "2", "0", "6", "-194", "", "", "", "", "ACGT"],
-                ["3fd8b2c4-aea7-54d9-90ec-b00284070196", "DL48", "ClusterB_ReadCount-11", "11", "local-blast-rescue", "Mamu-G*02_nov01b_blast-rescue", "Mamu-G*02_nov01b", "blast-rescue", "", "", "", "2892", "", "99.966", "98", "0", "5341", "TTTT"],
+                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "DL47", "ClusterA_ReadCount-9", "9", "4", "4", "", "", "provided-sequence", "genotyping-sam", "Mamu-A1*001_2SNP", "Mamu-A1*001", "snp-different", "2", "2", "0", "6", "-194", "", "", "", "", "ACGT"],
+                ["3fd8b2c4-aea7-54d9-90ec-b00284070196", "DL48", "ClusterB_ReadCount-11", "11", "4", "4", "", "", "provided-sequence", "local-blast-rescue", "Mamu-G*02_nov01b_blast-rescue", "Mamu-G*02_nov01b", "blast-rescue", "", "", "", "2892", "", "99.966", "98", "0", "5341", "TTTT"],
             ]
         )
         XCTAssertEqual(
@@ -1298,6 +1502,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 [
                     "unmatched_sequence_id",
                     "occurrence_count",
+                    "sample_count",
                     "total_cluster_reads",
                     "match_source",
                     "closest_match_id",
@@ -1311,8 +1516,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                     "DL47",
                     "DL48",
                 ],
-                ["3fd8b2c4-aea7-54d9-90ec-b00284070196", "1", "11", "local-blast-rescue", "Mamu-G*02_nov01b_blast-rescue", "Mamu-G*02_nov01b", "blast-rescue", "", "99.966", "98", "0", "5341", "", "11"],
-                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "1", "9", "genotyping-sam", "Mamu-A1*001_2SNP", "Mamu-A1*001", "snp-different", "2", "", "", "", "", "9", ""],
+                ["3fd8b2c4-aea7-54d9-90ec-b00284070196", "1", "1", "11", "local-blast-rescue", "Mamu-G*02_nov01b_blast-rescue", "Mamu-G*02_nov01b", "blast-rescue", "", "99.966", "98", "0", "5341", "", "11"],
+                ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "1", "1", "9", "genotyping-sam", "Mamu-A1*001_2SNP", "Mamu-A1*001", "snp-different", "2", "", "", "", "", "9", ""],
             ]
         )
     }
