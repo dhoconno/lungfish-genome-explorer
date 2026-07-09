@@ -35,6 +35,9 @@ jobs:
       - name: Resolve dependencies
         run: swift package resolve
 
+      - name: Seed Xcode Package.resolved
+        run: bash scripts/check-package-resolved-consistency.sh --repair
+
       - name: Build app executable
         run: swift build --product Lungfish
 
