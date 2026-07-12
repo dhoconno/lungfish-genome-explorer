@@ -1128,39 +1128,32 @@ final class GenotypeResultViewportTests: XCTestCase {
         return matrix
     }
 
-    private func makeManyRowComparisonMatrix() -> GenotypeComparisonMatrixView {
+    private func makeManyRowComparisonMatrix(sampleCount: Int = 2) -> GenotypeComparisonMatrixView {
         let matrix = GenotypeComparisonMatrixView()
         var calls: [ONTGenotypeCall] = []
-        var firstSampleCalls: [ONTGenotypeCall] = []
-        var secondSampleCalls: [ONTGenotypeCall] = []
+        let sampleNames = (0..<sampleCount).map { "Sample\($0)" }
+        var callsBySample = Array(repeating: [ONTGenotypeCall](), count: sampleCount)
 
         for index in 0..<32 {
             let genotype = String(format: "Mafa-AG*%02d:01", index)
-            let firstCall = makeCall(sample: "SampleA", genotype: genotype, reads: 100 + index)
-            let secondCall = makeCall(sample: "SampleB", genotype: genotype, reads: 200 + index)
-            calls.append(contentsOf: [firstCall, secondCall])
-            firstSampleCalls.append(firstCall)
-            secondSampleCalls.append(secondCall)
+            for (sampleIndex, sample) in sampleNames.enumerated() {
+                let call = makeCall(sample: sample, genotype: genotype, reads: 100 + sampleIndex + index)
+                calls.append(call)
+                callsBySample[sampleIndex].append(call)
+            }
         }
 
-        matrix.configure(result: makeResult(samples: [
+        let samples = sampleNames.enumerated().map { sampleIndex, sample in
             ONTGenotypeSampleResult(
-                sample: "SampleA",
-                passedAlignments: 100,
-                passedUniqueReads: 100,
+                sample: sample,
+                passedAlignments: 100 + sampleIndex,
+                passedUniqueReads: 100 + sampleIndex,
                 sampleTotalReads: nil,
                 sampleUniqueRetainedPercent: nil,
-                calls: firstSampleCalls
-            ),
-            ONTGenotypeSampleResult(
-                sample: "SampleB",
-                passedAlignments: 200,
-                passedUniqueReads: 200,
-                sampleTotalReads: nil,
-                sampleUniqueRetainedPercent: nil,
-                calls: secondSampleCalls
-            ),
-        ], calls: calls))
+                calls: callsBySample[sampleIndex]
+            )
+        }
+        matrix.configure(result: makeResult(samples: samples, calls: calls))
         return matrix
     }
 
@@ -1168,6 +1161,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         let matrix = makeManyRowComparisonMatrix()
         matrix.frame = NSRect(x: 0, y: 0, width: 900, height: 180)
         matrix.layoutSubtreeIfNeeded()
+        XCTAssertEqual(matrix.testingSampleMatrixBottomChromeHeight, 0)
         let sampleScrollView = try XCTUnwrap(
             matrix.subviews.compactMap { $0 as? NSScrollView }.first { $0.hasHorizontalScroller }
         )
@@ -1183,6 +1177,25 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(matrix.testingSampleMatrixScrollOffset.y, 132)
         XCTAssertEqual(matrix.testingSampleMatrixScrollOffset.x, 37)
+    }
+
+    func testComparisonMatrixAlignsBottomRowsWhenSampleScrollerOccupiesBottomChrome() {
+        let matrix = makeManyRowComparisonMatrix(sampleCount: 6)
+        matrix.frame = NSRect(x: 0, y: 0, width: 900, height: 180)
+        matrix.layoutSubtreeIfNeeded()
+        matrix.testingConfigureSampleMatrixLegacyHorizontalScroller()
+
+        XCTAssertEqual(matrix.testingSampleMatrixBottomChromeHeight, 17, accuracy: 0.001)
+
+        matrix.testingScrollSampleMatrixToBottom(x: 37)
+
+        let finalRow = matrix.testingVisibleRows.count - 1
+        XCTAssertEqual(matrix.testingSampleMatrixScrollOffset.x, 37)
+        XCTAssertEqual(
+            matrix.testingPinnedRowYInMatrix(row: finalRow),
+            matrix.testingSampleMatrixRowYInMatrix(row: finalRow),
+            accuracy: 0.001
+        )
     }
 
     func testComparisonMatrixCapsSampleColumnsAtSixtyByDefault() {

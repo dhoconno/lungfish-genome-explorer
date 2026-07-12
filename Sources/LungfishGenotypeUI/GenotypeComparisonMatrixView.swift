@@ -525,6 +525,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         tableView.dataSource = self
     }
 
+    override func layout() {
+        super.layout()
+        synchronizePinnedScrollBottomInset()
+    }
+
     @objc private func scrollViewBoundsChanged(_ notification: Notification) {
         guard !suppressScrollSync,
               let sourceContentView = notification.object as? NSClipView else {
@@ -541,14 +546,32 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return
         }
 
-        let y = sourceContentView.bounds.origin.y
-        guard destinationContentView.bounds.origin.y != y else { return }
-
         suppressScrollSync = true
         defer { suppressScrollSync = false }
+        synchronizePinnedScrollBottomInset()
+
+        let y = sourceContentView.bounds.origin.y
+        guard destinationContentView.bounds.origin.y != y else { return }
         var destinationBounds = destinationContentView.bounds
         destinationBounds.origin.y = y
         destinationContentView.setBoundsOrigin(destinationBounds.origin)
+    }
+
+    private func synchronizePinnedScrollBottomInset() {
+        let bottomChrome = sampleMatrixBottomChromeHeight()
+        guard pinnedScrollView.contentInsets.bottom != bottomChrome else { return }
+        var contentInsets = pinnedScrollView.contentInsets
+        contentInsets.bottom = bottomChrome
+        pinnedScrollView.contentInsets = contentInsets
+    }
+
+    private func sampleMatrixBottomChromeHeight() -> CGFloat {
+        guard let horizontalScroller = scrollView.horizontalScroller,
+              !horizontalScroller.isHidden,
+              scrollView.scrollerStyle == .legacy else {
+            return 0
+        }
+        return max(0, scrollView.bounds.maxY - horizontalScroller.frame.minY)
     }
 
     private func rebuildLocusPopup(_ summaries: [ONTGenotypeLocusSummary]) {
@@ -2344,6 +2367,25 @@ extension GenotypeComparisonMatrixView {
     }
     func testingScrollSampleMatrix(to origin: NSPoint) {
         scrollView.contentView.setBoundsOrigin(origin)
+    }
+    func testingConfigureSampleMatrixLegacyHorizontalScroller() {
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = false
+        scrollView.scrollerStyle = .legacy
+        scrollView.tile()
+        layoutSubtreeIfNeeded()
+    }
+    var testingSampleMatrixBottomChromeHeight: CGFloat {
+        sampleMatrixBottomChromeHeight()
+    }
+    func testingScrollSampleMatrixToBottom(x: CGFloat) {
+        scrollView.contentView.setBoundsOrigin(NSPoint(x: x, y: CGFloat.greatestFiniteMagnitude))
+    }
+    func testingPinnedRowYInMatrix(row: Int) -> CGFloat {
+        pinnedTableView.convert(pinnedTableView.rect(ofRow: row), to: self).minY
+    }
+    func testingSampleMatrixRowYInMatrix(row: Int) -> CGFloat {
+        tableView.convert(tableView.rect(ofRow: row), to: self).minY
     }
     /// Count of INSTANTIATED per-sample columns (subject to the display window).
     var testingSampleColumnCount: Int {
