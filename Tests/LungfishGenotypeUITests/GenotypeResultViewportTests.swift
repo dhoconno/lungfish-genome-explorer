@@ -1128,6 +1128,63 @@ final class GenotypeResultViewportTests: XCTestCase {
         return matrix
     }
 
+    private func makeManyRowComparisonMatrix() -> GenotypeComparisonMatrixView {
+        let matrix = GenotypeComparisonMatrixView()
+        var calls: [ONTGenotypeCall] = []
+        var firstSampleCalls: [ONTGenotypeCall] = []
+        var secondSampleCalls: [ONTGenotypeCall] = []
+
+        for index in 0..<32 {
+            let genotype = String(format: "Mafa-AG*%02d:01", index)
+            let firstCall = makeCall(sample: "SampleA", genotype: genotype, reads: 100 + index)
+            let secondCall = makeCall(sample: "SampleB", genotype: genotype, reads: 200 + index)
+            calls.append(contentsOf: [firstCall, secondCall])
+            firstSampleCalls.append(firstCall)
+            secondSampleCalls.append(secondCall)
+        }
+
+        matrix.configure(result: makeResult(samples: [
+            ONTGenotypeSampleResult(
+                sample: "SampleA",
+                passedAlignments: 100,
+                passedUniqueReads: 100,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: firstSampleCalls
+            ),
+            ONTGenotypeSampleResult(
+                sample: "SampleB",
+                passedAlignments: 200,
+                passedUniqueReads: 200,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: secondSampleCalls
+            ),
+        ], calls: calls))
+        return matrix
+    }
+
+    func testComparisonMatrixSynchronizesVerticalScrollingFromEitherPanel() throws {
+        let matrix = makeManyRowComparisonMatrix()
+        matrix.frame = NSRect(x: 0, y: 0, width: 900, height: 180)
+        matrix.layoutSubtreeIfNeeded()
+        let sampleScrollView = try XCTUnwrap(
+            matrix.subviews.compactMap { $0 as? NSScrollView }.first { $0.hasHorizontalScroller }
+        )
+        sampleScrollView.setFrameSize(NSSize(width: 99, height: sampleScrollView.frame.height))
+        sampleScrollView.tile()
+
+        matrix.testingScrollSampleMatrix(to: NSPoint(x: 37, y: 88))
+
+        XCTAssertEqual(matrix.testingPinnedVerticalScrollOffset, 88)
+        XCTAssertEqual(matrix.testingSampleMatrixScrollOffset.x, 37)
+
+        matrix.testingScrollPinnedPanel(toY: 132)
+
+        XCTAssertEqual(matrix.testingSampleMatrixScrollOffset.y, 132)
+        XCTAssertEqual(matrix.testingSampleMatrixScrollOffset.x, 37)
+    }
+
     func testComparisonMatrixCapsSampleColumnsAtSixtyByDefault() {
         let matrix = makeManySampleMatrix(sampleCount: 150)
         XCTAssertEqual(matrix.testingSampleColumnCount, 60)

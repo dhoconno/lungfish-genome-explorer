@@ -478,6 +478,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(scrollViewBoundsChanged(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: pinnedScrollView.contentView
+        )
 
         NSLayoutConstraint.activate([
             filterField.topAnchor.constraint(equalTo: topAnchor, constant: 4),
@@ -520,14 +526,29 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     @objc private func scrollViewBoundsChanged(_ notification: Notification) {
-        guard !suppressScrollSync else { return }
-        let y = scrollView.contentView.bounds.origin.y
-        guard pinnedScrollView.contentView.bounds.origin.y != y else { return }
+        guard !suppressScrollSync,
+              let sourceContentView = notification.object as? NSClipView else {
+            return
+        }
+
+        let destinationContentView: NSClipView
+        switch sourceContentView {
+        case scrollView.contentView:
+            destinationContentView = pinnedScrollView.contentView
+        case pinnedScrollView.contentView:
+            destinationContentView = scrollView.contentView
+        default:
+            return
+        }
+
+        let y = sourceContentView.bounds.origin.y
+        guard destinationContentView.bounds.origin.y != y else { return }
+
         suppressScrollSync = true
-        var bounds = pinnedScrollView.contentView.bounds
-        bounds.origin.y = y
-        pinnedScrollView.contentView.setBoundsOrigin(bounds.origin)
-        suppressScrollSync = false
+        defer { suppressScrollSync = false }
+        var destinationBounds = destinationContentView.bounds
+        destinationBounds.origin.y = y
+        destinationContentView.setBoundsOrigin(destinationBounds.origin)
     }
 
     private func rebuildLocusPopup(_ summaries: [ONTGenotypeLocusSummary]) {
@@ -2310,6 +2331,20 @@ extension GenotypeComparisonMatrixView {
     var testingVisibleRows: [ONTGenotypeSharedCall] { visibleRows }
     var testingVisibleGenotypes: [String] { visibleRows.map(\.genotype) }
     var testingVisibleSampleNames: [String] { visibleSampleNames }
+    var testingPinnedVerticalScrollOffset: CGFloat {
+        pinnedScrollView.contentView.bounds.origin.y
+    }
+    var testingSampleMatrixScrollOffset: NSPoint {
+        scrollView.contentView.bounds.origin
+    }
+    func testingScrollPinnedPanel(toY y: CGFloat) {
+        var origin = pinnedScrollView.contentView.bounds.origin
+        origin.y = y
+        pinnedScrollView.contentView.setBoundsOrigin(origin)
+    }
+    func testingScrollSampleMatrix(to origin: NSPoint) {
+        scrollView.contentView.setBoundsOrigin(origin)
+    }
     /// Count of INSTANTIATED per-sample columns (subject to the display window).
     var testingSampleColumnCount: Int {
         tableView.tableColumns.filter { sampleColumnLookup[$0.identifier] != nil }.count
