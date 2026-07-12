@@ -230,6 +230,12 @@ public enum FASTQIngestionService {
     nonisolated private static func withImportSlot<Value>(
         _ body: () async throws -> Value
     ) async throws -> Value {
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "Importing FASTQ files"
+        )
+        defer { ProcessInfo.processInfo.endActivity(activity) }
+
         try await FASTQImportSlotCoordinator.shared.acquire()
         do {
             let value = try await body()

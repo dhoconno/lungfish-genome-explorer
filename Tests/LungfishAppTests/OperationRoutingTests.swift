@@ -569,6 +569,25 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(body.contains("throw CancellationError()"))
     }
 
+    func testFASTQImportSlotPreventsIdleSystemSleepWhileProcessing() throws {
+        let serviceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Services/FASTQIngestionService.swift")
+        let source = try String(contentsOf: serviceURL, encoding: .utf8)
+        let body = try sourceFunctionBody(
+            named: "nonisolated private static func withImportSlot",
+            endingBefore: "    /// Runs the ingestion pipeline off the main actor.",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("ProcessInfo.processInfo.beginActivity"))
+        XCTAssertTrue(body.contains(".userInitiated"))
+        XCTAssertTrue(body.contains(".idleSystemSleepDisabled"))
+        XCTAssertTrue(body.contains("defer { ProcessInfo.processInfo.endActivity(activity) }"))
+    }
+
     func testTwelveSBlastPreparationCancelsCLISubprocessTree() throws {
         let viewerURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -807,14 +807,43 @@ public actor NativeToolRunner {
 
         logger.info("Running \(tool.rawValue): \(resolvedArgs.joined(separator: " "))")
 
+        let effectiveEnvironment = bbToolsEnvironment(
+            for: tool,
+            overriding: environment
+        )
+
         return try await runProcess(
             executableURL: toolPath,
             arguments: resolvedArgs,
             workingDirectory: workingDirectory,
-            environment: environment,
+            environment: effectiveEnvironment,
             timeout: timeout ?? defaultTimeout,
             toolName: tool.rawValue
         )
+    }
+
+    private func bbToolsEnvironment(
+        for tool: NativeTool,
+        overriding environment: [String: String]?
+    ) -> [String: String]? {
+        guard tool.isBBToolsShellScript else { return environment }
+
+        let existingPath = environment?["PATH"]
+            ?? ProcessInfo.processInfo.environment["PATH"]
+            ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        var managedEnvironment = CoreToolLocator.bbToolsEnvironment(
+            homeDirectory: homeDirectory,
+            existingPath: existingPath
+        )
+        if let environment {
+            for (key, value) in environment where key != "PATH"
+                && key != "JAVA_HOME"
+                && key != "BBMAP_JAVA"
+            {
+                managedEnvironment[key] = value
+            }
+        }
+        return managedEnvironment
     }
     
     /// Runs an arbitrary executable with the given arguments.
@@ -1014,6 +1043,10 @@ public actor NativeToolRunner {
         _ = try requireProvenancePolicy(for: tool)
         let toolPath = try findTool(tool)
         let actualTimeout = timeout ?? defaultTimeout
+        let effectiveEnvironment = bbToolsEnvironment(
+            for: tool,
+            overriding: environment
+        )
         logger.info("Running \(tool.rawValue): \(arguments.joined(separator: " ")) > \(outputFile.path, privacy: .public)")
         let cancellationState = ProcessCancellationState()
         let temporaryOutputFile = temporaryOutputURL(for: outputFile)
@@ -1031,8 +1064,8 @@ public actor NativeToolRunner {
             }
 
             var processEnvironment = ProcessInfo.processInfo.environment
-            if let environment {
-                for (key, value) in environment {
+            if let effectiveEnvironment {
+                for (key, value) in effectiveEnvironment {
                     processEnvironment[key] = value
                 }
             }
@@ -1356,12 +1389,8 @@ extension NativeToolRunner {
             var stderrPipes: [Pipe] = []
             let stdoutPipe = Pipe() // Captures final stage stdout
 
-            // Build merged environment
-            var processEnvironment = ProcessInfo.processInfo.environment
-            if let environment {
-                for (key, value) in environment {
-                    processEnvironment[key] = value
-                }
+            let stageEnvironments = stages.map {
+                bbToolsEnvironment(for: $0.tool, overriding: environment)
             }
 
             // Create processes and wire pipes
@@ -1371,6 +1400,12 @@ extension NativeToolRunner {
                 process.arguments = stage.arguments
                 if let workingDirectory {
                     process.currentDirectoryURL = workingDirectory
+                }
+                var processEnvironment = ProcessInfo.processInfo.environment
+                if let stageEnvironment = stageEnvironments[index] {
+                    for (key, value) in stageEnvironment {
+                        processEnvironment[key] = value
+                    }
                 }
                 process.environment = processEnvironment
 
@@ -1537,11 +1572,8 @@ extension NativeToolRunner {
             var stderrPipes: [Pipe] = []
             var outputHandle: FileHandle?
 
-            var processEnvironment = ProcessInfo.processInfo.environment
-            if let environment {
-                for (key, value) in environment {
-                    processEnvironment[key] = value
-                }
+            let stageEnvironments = stages.map {
+                bbToolsEnvironment(for: $0.tool, overriding: environment)
             }
 
             // Create temp output and handle before building processes.
@@ -1561,6 +1593,12 @@ extension NativeToolRunner {
                 process.arguments = stage.arguments
                 if let workingDirectory {
                     process.currentDirectoryURL = workingDirectory
+                }
+                var processEnvironment = ProcessInfo.processInfo.environment
+                if let stageEnvironment = stageEnvironments[index] {
+                    for (key, value) in stageEnvironment {
+                        processEnvironment[key] = value
+                    }
                 }
                 process.environment = processEnvironment
 

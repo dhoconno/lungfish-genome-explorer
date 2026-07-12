@@ -125,9 +125,10 @@ public enum CoreToolLocator {
         let binDir = envRoot.appendingPathComponent("bin", isDirectory: true)
         let javaHome = envRoot.appendingPathComponent("lib/jvm", isDirectory: true)
         let java = bbToolsJavaURL(homeDirectory: homeDirectory)
+        let javaBinDir = java.deletingLastPathComponent()
 
         return [
-            "PATH": "\(binDir.path):\(existingPath)",
+            "PATH": "\(javaBinDir.path):\(binDir.path):\(existingPath)",
             "JAVA_HOME": javaHome.path,
             "BBMAP_JAVA": java.path,
         ]

@@ -855,6 +855,53 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertFalse(tokens.joined(separator: "\n").contains(projectDir.path), "Safe BBTools paths should not live under the spaced project directory: \(tokens)")
     }
 
+    func testBBToolsUseManagedJavaRuntimeEnvironment() async throws {
+        let fixture = try makeBBToolsJavaTestRunner()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let result = try await fixture.runner.run(
+            .reformat,
+            arguments: [],
+            environment: [
+                "PATH": "/usr/bin:/bin",
+                "JAVA_HOME": "/host/java",
+                "BBMAP_JAVA": "/host/java/bin/java",
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, "BBTools should receive its managed Java environment: \(result.stderr)")
+    }
+
+    func testBBToolsFileAndPipelineRunnersUseManagedJavaRuntimeEnvironment() async throws {
+        let fixture = try makeBBToolsJavaTestRunner()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let environment = ["PATH": "/usr/bin:/bin"]
+        let fileOutput = fixture.root.appendingPathComponent("file-output.txt")
+        let pipelineOutput = fixture.root.appendingPathComponent("pipeline-output.txt")
+
+        let fileResult = try await fixture.runner.runWithFileOutput(
+            .reformat,
+            arguments: [],
+            outputFile: fileOutput,
+            environment: environment
+        )
+        XCTAssertEqual(fileResult.exitCode, 0, "BBTools file output should receive managed Java: \(fileResult.stderr)")
+
+        let stages = [
+            NativePipelineStage(.reformat, arguments: []),
+            NativePipelineStage(.reformat, arguments: []),
+        ]
+        let pipelineResult = try await fixture.runner.runPipeline(stages, environment: environment)
+        XCTAssertTrue(pipelineResult.isSuccess, "BBTools pipeline should receive managed Java: \(pipelineResult.combinedStderr)")
+
+        let pipelineFileResult = try await fixture.runner.runPipelineWithFileOutput(
+            stages,
+            outputFile: pipelineOutput,
+            environment: environment
+        )
+        XCTAssertTrue(pipelineFileResult.isSuccess, "BBTools file pipeline should receive managed Java: \(pipelineFileResult.combinedStderr)")
+    }
+
     // MARK: - Managed Fixture
 
     private func makeManagedNativeToolRunner() throws -> (runner: NativeToolRunner, root: URL) {
@@ -962,6 +1009,37 @@ final class NativeToolRunnerTests: XCTestCase {
             try spec.script.write(to: executableURL, atomically: true, encoding: .utf8)
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
         }
+
+        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
+    }
+
+    private func makeBBToolsJavaTestRunner() throws -> (runner: NativeToolRunner, root: URL) {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("NativeToolRunner BBTools Java Test \(UUID().uuidString)", isDirectory: true)
+        let bbtoolsBin = root
+            .appendingPathComponent(".lungfish/conda/envs/bbtools/bin", isDirectory: true)
+        let javaHome = root
+            .appendingPathComponent(".lungfish/conda/envs/bbtools/lib/jvm", isDirectory: true)
+
+        try fm.createDirectory(at: bbtoolsBin, withIntermediateDirectories: true)
+        try fm.createDirectory(at: javaHome.appendingPathComponent("bin"), withIntermediateDirectories: true)
+
+        let scriptURL = bbtoolsBin.appendingPathComponent("reformat.sh")
+        let script = """
+        #!/bin/sh
+        set -eu
+        expected_java_home="\(javaHome.path)"
+        [ "$JAVA_HOME" = "$expected_java_home" ]
+        [ "$BBMAP_JAVA" = "$expected_java_home/bin/java" ]
+        case "$PATH" in
+          "$expected_java_home/bin":*) ;;
+          *) exit 3 ;;
+        esac
+        printf 'managed-java\\n'
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
         return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
     }
