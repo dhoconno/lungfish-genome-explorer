@@ -5,6 +5,38 @@
 import Foundation
 import LungfishCore
 
+public struct GenBankParseWarning: Codable, Equatable, Sendable {
+    public let message: String
+    public let recordIdentifier: String?
+    public let featureType: String?
+    public let sourceLocation: String?
+    public let lineNumber: Int?
+
+    public init(
+        message: String,
+        recordIdentifier: String? = nil,
+        featureType: String? = nil,
+        sourceLocation: String? = nil,
+        lineNumber: Int? = nil
+    ) {
+        self.message = message
+        self.recordIdentifier = recordIdentifier
+        self.featureType = featureType
+        self.sourceLocation = sourceLocation
+        self.lineNumber = lineNumber
+    }
+}
+
+public struct GenBankRecoveryResult: Sendable {
+    public let records: [GenBankRecord]
+    public let warnings: [GenBankParseWarning]
+
+    public init(records: [GenBankRecord], warnings: [GenBankParseWarning]) {
+        self.records = records
+        self.warnings = warnings
+    }
+}
+
 /// A parser for GenBank flat file format (.gb, .gbk, .genbank).
 ///
 /// GenBankReader provides both streaming and batch access to GenBank files.
@@ -95,6 +127,31 @@ public final class GenBankReader: Sendable {
             records.append(record)
         }
         return records
+    }
+
+    /// Reads all records while treating malformed individual features as warnings.
+    /// Sequence and record parsing remain strict so callers never receive a silently
+    /// fabricated reference when the biological sequence itself is invalid.
+    public func readAllRecoveringAnnotations() async throws -> GenBankRecoveryResult {
+        try readAllRecoveringAnnotationsSync()
+    }
+
+    /// Synchronous variant of ``readAllRecoveringAnnotations()``.
+    public func readAllRecoveringAnnotationsSync() throws -> GenBankRecoveryResult {
+        var records: [GenBankRecord] = []
+        var warnings: [GenBankParseWarning] = []
+        let scanner = try GenBankRecordScanner(url: url) { [self] lines in
+            let (record, _) = try parseRecord(
+                lines: lines,
+                startIndex: 0,
+                featureWarningHandler: { warnings.append($0) }
+            )
+            return record
+        }
+        while let record = try scanner.nextRecord() {
+            records.append(record)
+        }
+        return GenBankRecoveryResult(records: records, warnings: warnings)
     }
 
     /// Returns an async stream of GenBank records.
@@ -251,7 +308,11 @@ public final class GenBankReader: Sendable {
         }
     }
 
-    private func parseRecord(lines: [String], startIndex: Int) throws -> (GenBankRecord?, Int) {
+    private func parseRecord(
+        lines: [String],
+        startIndex: Int,
+        featureWarningHandler: ((GenBankParseWarning) -> Void)? = nil
+    ) throws -> (GenBankRecord?, Int) {
         var lineIndex = startIndex
         var locus: LocusInfo?
         var definition: String?
@@ -305,7 +366,12 @@ public final class GenBankReader: Sendable {
                 }
                 currentSection = .features
                 // Parse the features table, passing locus name for per-sequence annotation filtering
-                let (parsedFeatures, nextIndex) = try parseFeatures(lines: lines, startIndex: lineIndex + 1, locusName: locus?.name)
+                let (parsedFeatures, nextIndex) = try parseFeatures(
+                    lines: lines,
+                    startIndex: lineIndex + 1,
+                    locusName: locus?.name,
+                    warningHandler: featureWarningHandler
+                )
                 features = parsedFeatures
                 lineIndex = nextIndex
                 continue
@@ -440,7 +506,12 @@ public final class GenBankReader: Sendable {
 
     // MARK: - Features Parsing
 
-    private func parseFeatures(lines: [String], startIndex: Int, locusName: String?) throws -> ([SequenceAnnotation], Int) {
+    private func parseFeatures(
+        lines: [String],
+        startIndex: Int,
+        locusName: String?,
+        warningHandler: ((GenBankParseWarning) -> Void)?
+    ) throws -> ([SequenceAnnotation], Int) {
         var features: [SequenceAnnotation] = []
         var lineIndex = startIndex
 
@@ -450,6 +521,14 @@ public final class GenBankReader: Sendable {
         var currentQualifiers: [(String, String?)] = []
         var currentQualifierKey: String?
         var currentQualifierValue: String?
+
+        func resetCurrentFeature() {
+            currentFeatureType = nil
+            currentLocation = nil
+            currentQualifiers = []
+            currentQualifierKey = nil
+            currentQualifierValue = nil
+        }
 
         func finalizeCurrentFeature() throws {
             guard let featureType = currentFeatureType,
@@ -462,8 +541,22 @@ public final class GenBankReader: Sendable {
                 currentQualifiers.append((key, currentQualifierValue))
             }
 
-            // Parse the location
-            let (intervals, strand) = try parseLocation(locationStr, lineNumber: lineIndex)
+            let intervals: [AnnotationInterval]
+            let strand: Strand
+            do {
+                (intervals, strand) = try parseLocation(locationStr, lineNumber: lineIndex)
+            } catch {
+                guard let warningHandler else { throw error }
+                warningHandler(GenBankParseWarning(
+                    message: error.localizedDescription,
+                    recordIdentifier: locusName,
+                    featureType: featureType,
+                    sourceLocation: locationStr,
+                    lineNumber: lineIndex
+                ))
+                resetCurrentFeature()
+                return
+            }
 
             // Convert qualifiers to dictionary
             var qualifierDict: [String: AnnotationQualifier] = [:]
@@ -506,12 +599,7 @@ public final class GenBankReader: Sendable {
             )
             features.append(annotation)
 
-            // Reset state
-            currentFeatureType = nil
-            currentLocation = nil
-            currentQualifiers = []
-            currentQualifierKey = nil
-            currentQualifierValue = nil
+            resetCurrentFeature()
         }
 
         while lineIndex < lines.count {
