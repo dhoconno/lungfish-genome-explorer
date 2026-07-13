@@ -13,6 +13,28 @@ public struct MHCAmpliconReferenceBundleMetrics: Codable, Equatable, Sendable {
     }
 }
 
+public struct MHCReferenceBundleWarning: Codable, Equatable, Sendable {
+    public let category: String
+    public let message: String
+    public let recordIdentifier: String?
+    public let featureType: String?
+    public let sourceLocation: String?
+
+    public init(
+        category: String,
+        message: String,
+        recordIdentifier: String? = nil,
+        featureType: String? = nil,
+        sourceLocation: String? = nil
+    ) {
+        self.category = category
+        self.message = message
+        self.recordIdentifier = recordIdentifier
+        self.featureType = featureType
+        self.sourceLocation = sourceLocation
+    }
+}
+
 public struct MHCAmpliconReferenceBundleManifest: ReferenceBundleManifesting {
     public static let manifestFilename = "mhc-reference.json"
     public static let kindIdentifier = "mhc-reference"
@@ -21,13 +43,46 @@ public struct MHCAmpliconReferenceBundleManifest: ReferenceBundleManifesting {
     public let kind: String
     public let name: String
     public let referenceFastaPath: String
+    /// Embedded standard `.lungfishref` bundle. Present and required in schema v2.
+    public let referenceBundlePath: String?
     public let haplotypeDefinitionPaths: [String]
     public let defaultHaplotypeDefinitionID: String?
     public let sourceFiles: [MHCAmpliconReferenceBundleSourceFile]
     public let metrics: MHCAmpliconReferenceBundleMetrics
     public let provenancePath: String?
+    /// Recoverable source-import problems retained for display in the app.
+    public let warnings: [MHCReferenceBundleWarning]
     public let createdAt: String
 
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = MHCAmpliconReferenceBundleManifest.kindIdentifier,
+        name: String,
+        referenceFastaPath: String,
+        referenceBundlePath: String? = nil,
+        haplotypeDefinitionPaths: [String],
+        defaultHaplotypeDefinitionID: String?,
+        sourceFiles: [MHCAmpliconReferenceBundleSourceFile] = [],
+        metrics: MHCAmpliconReferenceBundleMetrics,
+        provenancePath: String? = nil,
+        warnings: [MHCReferenceBundleWarning] = [],
+        createdAt: String
+    ) {
+        self.schemaVersion = schemaVersion
+        self.kind = kind
+        self.name = name
+        self.referenceFastaPath = referenceFastaPath
+        self.referenceBundlePath = referenceBundlePath
+        self.haplotypeDefinitionPaths = haplotypeDefinitionPaths
+        self.defaultHaplotypeDefinitionID = defaultHaplotypeDefinitionID
+        self.sourceFiles = sourceFiles
+        self.metrics = metrics
+        self.provenancePath = provenancePath
+        self.warnings = warnings
+        self.createdAt = createdAt
+    }
+
+    /// Source- and binary-compatible initializer retained for schema-v1 clients.
     public init(
         schemaVersion: Int = 1,
         kind: String = MHCAmpliconReferenceBundleManifest.kindIdentifier,
@@ -40,23 +95,53 @@ public struct MHCAmpliconReferenceBundleManifest: ReferenceBundleManifesting {
         provenancePath: String? = nil,
         createdAt: String
     ) {
-        self.schemaVersion = schemaVersion
-        self.kind = kind
-        self.name = name
-        self.referenceFastaPath = referenceFastaPath
-        self.haplotypeDefinitionPaths = haplotypeDefinitionPaths
-        self.defaultHaplotypeDefinitionID = defaultHaplotypeDefinitionID
-        self.sourceFiles = sourceFiles
-        self.metrics = metrics
-        self.provenancePath = provenancePath
-        self.createdAt = createdAt
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            name: name,
+            referenceFastaPath: referenceFastaPath,
+            referenceBundlePath: nil,
+            haplotypeDefinitionPaths: haplotypeDefinitionPaths,
+            defaultHaplotypeDefinitionID: defaultHaplotypeDefinitionID,
+            sourceFiles: sourceFiles,
+            metrics: metrics,
+            provenancePath: provenancePath,
+            warnings: [],
+            createdAt: createdAt
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, kind, name, referenceFastaPath, referenceBundlePath
+        case haplotypeDefinitionPaths, defaultHaplotypeDefinitionID, sourceFiles
+        case metrics, provenancePath, warnings, createdAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        kind = try container.decode(String.self, forKey: .kind)
+        name = try container.decode(String.self, forKey: .name)
+        referenceFastaPath = try container.decode(String.self, forKey: .referenceFastaPath)
+        referenceBundlePath = try container.decodeIfPresent(String.self, forKey: .referenceBundlePath)
+        haplotypeDefinitionPaths = try container.decode([String].self, forKey: .haplotypeDefinitionPaths)
+        defaultHaplotypeDefinitionID = try container.decodeIfPresent(String.self, forKey: .defaultHaplotypeDefinitionID)
+        sourceFiles = try container.decodeIfPresent(
+            [MHCAmpliconReferenceBundleSourceFile].self,
+            forKey: .sourceFiles
+        ) ?? []
+        metrics = try container.decode(MHCAmpliconReferenceBundleMetrics.self, forKey: .metrics)
+        provenancePath = try container.decodeIfPresent(String.self, forKey: .provenancePath)
+        warnings = try container.decodeIfPresent([MHCReferenceBundleWarning].self, forKey: .warnings) ?? []
+        createdAt = try container.decode(String.self, forKey: .createdAt)
     }
 }
 
 public enum MHCAmpliconReferenceBundle {
     public static let directoryExtension = "lungfishmhcref"
     public static let manifestFilename = MHCAmpliconReferenceBundleManifest.manifestFilename
-    private static let supportedSchemaVersion = 1
+    private static let supportedSchemaVersions = 1...2
+    private static let currentSchemaVersion = 2
 
     /// Consume-side check: requires both the extension and a manifest on disk.
     public static func isBundleURL(_ url: URL) -> Bool {
@@ -95,10 +180,10 @@ public enum MHCAmpliconReferenceBundle {
     /// the expected schema version and kind.
     public static func validate(at bundleURL: URL) throws {
         let manifest = try loadManifest(from: bundleURL)
-        guard manifest.schemaVersion == supportedSchemaVersion else {
+        guard supportedSchemaVersions.contains(manifest.schemaVersion) else {
             throw ReferenceBundleValidationError(
                 kind: .schemaMismatch(
-                    expected: supportedSchemaVersion,
+                    expected: currentSchemaVersion,
                     found: manifest.schemaVersion
                 )
             )
@@ -118,6 +203,15 @@ public enum MHCAmpliconReferenceBundle {
         )
         guard FileManager.default.fileExists(atPath: referenceURL.path) else {
             throw ReferenceBundleValidationError(kind: .missingFile(referenceURL.path))
+        }
+        if manifest.schemaVersion >= 2 {
+            guard let embeddedReferenceURL = try validatedEmbeddedReferenceBundleURL(
+                manifest: manifest,
+                in: bundleURL
+            ) else {
+                throw ReferenceBundleValidationError(kind: .missingFile("referenceBundlePath"))
+            }
+            try validateEmbeddedReferenceBundle(at: embeddedReferenceURL)
         }
         for relativePath in manifest.haplotypeDefinitionPaths {
             let definitionURL = try validatedBundleMemberURL(
@@ -147,6 +241,15 @@ public enum MHCAmpliconReferenceBundle {
             in: bundleURL,
             field: "referenceFastaPath"
         )
+    }
+
+    public static func referenceBundleURL(in bundleURL: URL) -> URL? {
+        guard let manifest = try? loadManifest(from: bundleURL),
+              isSupported(manifest),
+              let url = try? validatedEmbeddedReferenceBundleURL(manifest: manifest, in: bundleURL),
+              FileManager.default.fileExists(atPath: url.appendingPathComponent(BundleManifest.filename).path)
+        else { return nil }
+        return url
     }
 
     public static func haplotypeDefinitionURLs(in bundleURL: URL) -> [URL] {
@@ -192,7 +295,7 @@ public enum MHCAmpliconReferenceBundle {
         guard isSupported(manifest) else {
             throw ReferenceBundleValidationError(
                 kind: .schemaMismatch(
-                    expected: supportedSchemaVersion,
+                    expected: currentSchemaVersion,
                     found: manifest.schemaVersion
                 )
             )
@@ -229,7 +332,49 @@ public enum MHCAmpliconReferenceBundle {
     }
 
     private static func isSupported(_ manifest: MHCAmpliconReferenceBundleManifest) -> Bool {
-        manifest.schemaVersion == supportedSchemaVersion
+        supportedSchemaVersions.contains(manifest.schemaVersion)
             && manifest.kind == MHCAmpliconReferenceBundleManifest.kindIdentifier
+    }
+
+    private static func validatedEmbeddedReferenceBundleURL(
+        manifest: MHCAmpliconReferenceBundleManifest,
+        in bundleURL: URL
+    ) throws -> URL? {
+        guard let relativePath = manifest.referenceBundlePath else { return nil }
+        return try validatedBundleMemberURL(relativePath, in: bundleURL, field: "referenceBundlePath")
+    }
+
+    private static func validateEmbeddedReferenceBundle(at embeddedURL: URL) throws {
+        guard embeddedURL.pathExtension.lowercased() == "lungfishref" else {
+            throw ReferenceBundleValidationError(kind: .missingFile(embeddedURL.path))
+        }
+        let embeddedManifest: BundleManifest
+        do {
+            embeddedManifest = try BundleManifest.load(from: embeddedURL)
+        } catch {
+            throw ReferenceBundleValidationError(
+                kind: .missingFile(embeddedURL.appendingPathComponent(BundleManifest.filename).path)
+            )
+        }
+        guard embeddedManifest.validate().isEmpty, let genome = embeddedManifest.genome else {
+            throw ReferenceBundleValidationError(kind: .missingFile(embeddedURL.path))
+        }
+        var requiredPaths = [genome.path, genome.indexPath]
+        if let gzipIndexPath = genome.gzipIndexPath { requiredPaths.append(gzipIndexPath) }
+        for annotation in embeddedManifest.annotations {
+            requiredPaths.append(annotation.path)
+            if let databasePath = annotation.databasePath { requiredPaths.append(databasePath) }
+        }
+        for path in requiredPaths {
+            let url: URL
+            do {
+                url = try BundleManifest.validatedBundleMemberURL(for: path, in: embeddedURL, field: path)
+            } catch {
+                throw ReferenceBundleValidationError(kind: .missingFile(path))
+            }
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw ReferenceBundleValidationError(kind: .missingFile(url.path))
+            }
+        }
     }
 }

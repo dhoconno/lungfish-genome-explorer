@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import LungfishCore
 @testable import LungfishIO
 
 final class MHCAmpliconReferenceBundleTests: XCTestCase {
@@ -77,7 +78,7 @@ final class MHCAmpliconReferenceBundleTests: XCTestCase {
         try ">M1\nACGT\n".write(to: bundleURL.appendingPathComponent("reference.fa"), atomically: true, encoding: .utf8)
 
         let manifest = MHCAmpliconReferenceBundleManifest(
-            schemaVersion: 2,
+            schemaVersion: 3,
             name: "MCM MHC",
             referenceFastaPath: "reference.fa",
             haplotypeDefinitionPaths: [],
@@ -91,9 +92,89 @@ final class MHCAmpliconReferenceBundleTests: XCTestCase {
         XCTAssertThrowsError(try MHCAmpliconReferenceBundle.validate(at: bundleURL)) { error in
             XCTAssertEqual(
                 (error as? ReferenceBundleValidationError)?.kind,
-                .schemaMismatch(expected: 1, found: 2)
+                .schemaMismatch(expected: 2, found: 3)
             )
         }
+    }
+
+    func testSchemaVersionTwoResolvesEmbeddedReferenceBundleAndWarnings() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MHCAmpliconReferenceBundleTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        let embeddedURL = bundleURL.appendingPathComponent("reference/MCM-MHC.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: embeddedURL.appendingPathComponent("genome"), withIntermediateDirectories: true)
+        try ">M1\nACGT\n".write(
+            to: embeddedURL.appendingPathComponent("genome/sequence.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "M1\t4\t4\t4\t5\n".write(
+            to: embeddedURL.appendingPathComponent("genome/sequence.fa.fai"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try BundleManifest(
+            name: "MCM MHC",
+            identifier: "org.lungfish.mcm-mhc",
+            source: SourceInfo(organism: "MCM", assembly: "MHC", database: "local"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 4,
+                chromosomes: [
+                    ChromosomeInfo(name: "M1", length: 4, offset: 4, lineBases: 4, lineWidth: 5)
+                ]
+            )
+        ).save(
+            to: embeddedURL
+        )
+
+        let warning = MHCReferenceBundleWarning(
+            category: "genbank.annotation.skipped",
+            message: "Skipped malformed feature location.",
+            recordIdentifier: "M1",
+            featureType: "CDS",
+            sourceLocation: "join(1..2,bad)"
+        )
+        let manifest = MHCAmpliconReferenceBundleManifest(
+            schemaVersion: 2,
+            name: "MCM MHC",
+            referenceFastaPath: "reference/MCM-MHC.lungfishref/genome/sequence.fa",
+            referenceBundlePath: "reference/MCM-MHC.lungfishref",
+            haplotypeDefinitionPaths: [],
+            defaultHaplotypeDefinitionID: nil,
+            metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 0),
+            warnings: [warning],
+            createdAt: "2026-05-30T00:00:00Z"
+        )
+        try MHCAmpliconReferenceBundle.writeManifest(manifest, to: bundleURL)
+
+        XCTAssertNoThrow(try MHCAmpliconReferenceBundle.validate(at: bundleURL))
+        XCTAssertEqual(MHCAmpliconReferenceBundle.referenceBundleURL(in: bundleURL), embeddedURL)
+        XCTAssertEqual(try MHCAmpliconReferenceBundle.loadManifest(from: bundleURL).warnings, [warning])
+    }
+
+    func testSchemaVersionTwoRequiresEmbeddedReferenceBundle() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MHCAmpliconReferenceBundleTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let manifest = MHCAmpliconReferenceBundleManifest(
+            schemaVersion: 2,
+            name: "MCM MHC",
+            referenceFastaPath: "reference/missing.lungfishref/genome/sequence.fa",
+            referenceBundlePath: "reference/missing.lungfishref",
+            haplotypeDefinitionPaths: [],
+            defaultHaplotypeDefinitionID: nil,
+            metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 0),
+            createdAt: "2026-05-30T00:00:00Z"
+        )
+        try MHCAmpliconReferenceBundle.writeManifest(manifest, to: bundleURL)
+
+        XCTAssertNil(MHCAmpliconReferenceBundle.referenceBundleURL(in: bundleURL))
+        XCTAssertThrowsError(try MHCAmpliconReferenceBundle.validate(at: bundleURL))
     }
 
     func testHaplotypeDefinitionURLsRejectTraversalPath() throws {
