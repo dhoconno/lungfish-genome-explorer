@@ -453,7 +453,12 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         XCTAssertEqual(manifest.metrics.referenceCount, 2)
         XCTAssertEqual(manifest.metrics.haplotypeDefinitionCount, 1)
         XCTAssertEqual(try MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: outputURL)?.id, definitionID)
-        XCTAssertEqual(MHCAmpliconReferenceBundle.referenceFASTAURL(in: outputURL)?.lastPathComponent, "reference.fa")
+        XCTAssertEqual(manifest.schemaVersion, 2)
+        XCTAssertEqual(
+            MHCAmpliconReferenceBundle.referenceFASTAURL(in: outputURL)?.lastPathComponent,
+            "sequence.fa.gz"
+        )
+        XCTAssertNotNil(MHCAmpliconReferenceBundle.referenceBundleURL(in: outputURL))
 
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
         XCTAssertEqual(provenance.workflowName, "lungfish haplotypes bundle-create")
