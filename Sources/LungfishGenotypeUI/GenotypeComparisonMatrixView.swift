@@ -3,6 +3,20 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 
+/// Enforces the vertical document bounds for every AppKit scroll request while
+/// preserving the requested horizontal position. `NSScrollView` normally
+/// performs this constraint for wheel events, but a direct/provisional clip
+/// origin can otherwise be outside the document while a trackpad gesture is
+/// active.
+private final class VerticallyClampedClipView: NSClipView {
+    override func scroll(to newOrigin: NSPoint) {
+        var proposedBounds = bounds
+        proposedBounds.origin.y = newOrigin.y
+        let constrainedY = super.constrainBoundsRect(proposedBounds).origin.y
+        super.scroll(to: NSPoint(x: newOrigin.x, y: constrainedY))
+    }
+}
+
 @MainActor
 final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private struct CellKey: Hashable {
@@ -406,6 +420,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         pinnedScrollView.hasHorizontalScroller = false
         pinnedScrollView.autohidesScrollers = true
         pinnedScrollView.verticalScrollElasticity = .none
+        pinnedScrollView.contentView = VerticallyClampedClipView()
         pinnedScrollView.borderType = .noBorder
         pinnedScrollView.postsFrameChangedNotifications = true
         pinnedScrollView.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -416,6 +431,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.verticalScrollElasticity = .none
+        scrollView.contentView = VerticallyClampedClipView()
         scrollView.borderType = .noBorder
         scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(scrollView)

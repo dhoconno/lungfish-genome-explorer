@@ -1181,12 +1181,59 @@ final class GenotypeResultViewportTests: XCTestCase {
 
     func testComparisonMatrixDisablesVerticalScrollElasticity() throws {
         let matrix = GenotypeComparisonMatrixView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 500),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView()
+        host.translatesAutoresizingMaskIntoConstraints = false
+        window.contentView = host
+        host.addSubview(matrix)
+        NSLayoutConstraint.activate([
+            matrix.topAnchor.constraint(equalTo: host.topAnchor),
+            matrix.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            matrix.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            matrix.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ])
+        window.layoutIfNeeded()
+        matrix.layoutSubtreeIfNeeded()
+
         let scrollViews = matrix.subviews.compactMap { $0 as? NSScrollView }
         let pinnedScrollView = try XCTUnwrap(scrollViews.first { !$0.hasHorizontalScroller })
         let sampleScrollView = try XCTUnwrap(scrollViews.first { $0.hasHorizontalScroller })
 
         XCTAssertEqual(pinnedScrollView.verticalScrollElasticity, .none)
         XCTAssertEqual(sampleScrollView.verticalScrollElasticity, .none)
+    }
+
+    func testComparisonMatrixClampsRawVerticalClipOrigins() throws {
+        let matrix = makeManyRowComparisonMatrix()
+        matrix.frame = NSRect(x: 0, y: 0, width: 900, height: 180)
+        matrix.layoutSubtreeIfNeeded()
+
+        let scrollViews = matrix.subviews.compactMap { $0 as? NSScrollView }
+        let pinnedScrollView = try XCTUnwrap(scrollViews.first { !$0.hasHorizontalScroller })
+        let sampleScrollView = try XCTUnwrap(scrollViews.first { $0.hasHorizontalScroller })
+
+        sampleScrollView.contentView.scroll(to: NSPoint(x: 37, y: -1_000))
+        let sampleBounds = sampleScrollView.contentView.bounds
+        XCTAssertEqual(
+            sampleBounds.origin.y,
+            sampleScrollView.contentView.constrainBoundsRect(sampleBounds).origin.y,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(sampleBounds.origin.x, 37, accuracy: 0.001)
+
+        pinnedScrollView.contentView.scroll(to: NSPoint(x: 19, y: 9_999))
+        let pinnedBounds = pinnedScrollView.contentView.bounds
+        XCTAssertEqual(
+            pinnedBounds.origin.y,
+            pinnedScrollView.contentView.constrainBoundsRect(pinnedBounds).origin.y,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(pinnedBounds.origin.x, 19, accuracy: 0.001)
     }
 
     func testComparisonMatrixAlignsBottomRowsWhenSampleScrollerOccupiesBottomChrome() {
