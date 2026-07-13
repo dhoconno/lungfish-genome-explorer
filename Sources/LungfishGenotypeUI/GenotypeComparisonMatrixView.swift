@@ -405,6 +405,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         pinnedScrollView.hasVerticalScroller = false
         pinnedScrollView.hasHorizontalScroller = false
         pinnedScrollView.autohidesScrollers = true
+        pinnedScrollView.verticalScrollElasticity = .none
         pinnedScrollView.borderType = .noBorder
         pinnedScrollView.postsFrameChangedNotifications = true
         pinnedScrollView.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -414,6 +415,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
+        scrollView.verticalScrollElasticity = .none
         scrollView.borderType = .noBorder
         scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(scrollView)

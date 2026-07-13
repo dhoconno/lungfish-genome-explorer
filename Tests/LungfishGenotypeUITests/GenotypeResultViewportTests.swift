@@ -1179,6 +1179,16 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(matrix.testingSampleMatrixScrollOffset.x, 37)
     }
 
+    func testComparisonMatrixDisablesVerticalScrollElasticity() throws {
+        let matrix = GenotypeComparisonMatrixView()
+        let scrollViews = matrix.subviews.compactMap { $0 as? NSScrollView }
+        let pinnedScrollView = try XCTUnwrap(scrollViews.first { !$0.hasHorizontalScroller })
+        let sampleScrollView = try XCTUnwrap(scrollViews.first { $0.hasHorizontalScroller })
+
+        XCTAssertEqual(pinnedScrollView.verticalScrollElasticity, .none)
+        XCTAssertEqual(sampleScrollView.verticalScrollElasticity, .none)
+    }
+
     func testComparisonMatrixAlignsBottomRowsWhenSampleScrollerOccupiesBottomChrome() {
         let matrix = makeManyRowComparisonMatrix(sampleCount: 6)
         matrix.frame = NSRect(x: 0, y: 0, width: 900, height: 180)
