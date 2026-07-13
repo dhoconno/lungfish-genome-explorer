@@ -1313,7 +1313,7 @@ public final class NativeBundleBuilder: ObservableObject {
         logger.info("Converting GenBank file to BED12+: \(sourceURL.lastPathComponent)")
 
         let reader = try GenBankReader(url: sourceURL)
-        let records = try await reader.readAll()
+        let records = try await reader.readAllRecoveringAnnotations().records
 
         // Collect all BED lines with sort keys, then sort by chromosome + start
         struct BEDEntry {
