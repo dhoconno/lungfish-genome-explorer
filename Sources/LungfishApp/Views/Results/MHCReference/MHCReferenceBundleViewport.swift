@@ -11,6 +11,14 @@ enum MHCReferenceBundleViewportMode: String, CaseIterable, Equatable {
 }
 
 struct MHCReferenceBundleViewportModel: Equatable {
+    private struct FASTAPreview: Sendable {
+        let text: String
+        let isTruncated: Bool
+        let fileSize: UInt64
+    }
+
+    private static let maximumFASTAPreviewBytes = 64 * 1_024
+
     struct DefinitionSummary: Equatable, Identifiable {
         let id: String
         let displayName: String
@@ -23,6 +31,8 @@ struct MHCReferenceBundleViewportModel: Equatable {
     let bundleURL: URL
     let title: String
     let fastaText: String
+    let isFastaPreviewTruncated: Bool
+    let fastaFileSize: UInt64
     let referenceCount: Int
     let definitionSummaries: [DefinitionSummary]
     let embeddedReferenceBundleURL: URL?
@@ -41,14 +51,16 @@ struct MHCReferenceBundleViewportModel: Equatable {
         }
         let embeddedReferenceBundleURL = MHCAmpliconReferenceBundle.referenceBundleURL(in: standardizedBundleURL)
         let embeddedReferenceManifest = try embeddedReferenceBundleURL.map(BundleManifest.load(from:))
-        let fastaText = embeddedReferenceBundleURL == nil
-            ? try String(contentsOf: fastaURL, encoding: .utf8)
-            : ""
+        let fastaPreview = embeddedReferenceBundleURL == nil
+            ? try loadFASTAPreview(from: fastaURL)
+            : FASTAPreview(text: "", isTruncated: false, fileSize: 0)
         let definitions = try MHCAmpliconReferenceBundle.haplotypeDefinitions(in: standardizedBundleURL)
         return MHCReferenceBundleViewportModel(
             bundleURL: standardizedBundleURL,
             title: manifest.name,
-            fastaText: fastaText,
+            fastaText: fastaPreview.text,
+            isFastaPreviewTruncated: fastaPreview.isTruncated,
+            fastaFileSize: fastaPreview.fileSize,
             referenceCount: manifest.metrics.referenceCount,
             definitionSummaries: definitions.map(Self.summary(for:)),
             embeddedReferenceBundleURL: embeddedReferenceBundleURL,
@@ -57,10 +69,9 @@ struct MHCReferenceBundleViewportModel: Equatable {
         )
     }
 
-    /// Async variant of ``load(bundleURL:)`` that reads the reference FASTA off
-    /// the main actor via ``AsyncFileReader``. Parsing and manifest/definition
-    /// loading are identical to the synchronous version; only the FASTA read
-    /// moves off-main so a large reference does not block the UI during display.
+    /// Async variant of ``load(bundleURL:)`` that reads the bounded legacy FASTA
+    /// preview off the main actor. Parsing and manifest/definition loading are
+    /// otherwise identical to the synchronous version.
     static func loadAsync(bundleURL: URL) async throws -> MHCReferenceBundleViewportModel {
         let standardizedBundleURL = bundleURL.standardizedFileURL
         let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: standardizedBundleURL)
@@ -69,19 +80,39 @@ struct MHCReferenceBundleViewportModel: Equatable {
         }
         let embeddedReferenceBundleURL = MHCAmpliconReferenceBundle.referenceBundleURL(in: standardizedBundleURL)
         let embeddedReferenceManifest = try embeddedReferenceBundleURL.map(BundleManifest.load(from:))
-        let fastaText = embeddedReferenceBundleURL == nil
-            ? try await AsyncFileReader.readString(fastaURL, encoding: .utf8)
-            : ""
+        let fastaPreview = if embeddedReferenceBundleURL == nil {
+            try await Task.detached(priority: .userInitiated) {
+                try loadFASTAPreview(from: fastaURL)
+            }.value
+        } else {
+            FASTAPreview(text: "", isTruncated: false, fileSize: 0)
+        }
         let definitions = try MHCAmpliconReferenceBundle.haplotypeDefinitions(in: standardizedBundleURL)
         return MHCReferenceBundleViewportModel(
             bundleURL: standardizedBundleURL,
             title: manifest.name,
-            fastaText: fastaText,
+            fastaText: fastaPreview.text,
+            isFastaPreviewTruncated: fastaPreview.isTruncated,
+            fastaFileSize: fastaPreview.fileSize,
             referenceCount: manifest.metrics.referenceCount,
             definitionSummaries: definitions.map(Self.summary(for:)),
             embeddedReferenceBundleURL: embeddedReferenceBundleURL,
             embeddedReferenceManifest: embeddedReferenceManifest,
             warnings: manifest.warnings
+        )
+    }
+
+    private static func loadFASTAPreview(from url: URL) throws -> FASTAPreview {
+        let fileSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize.map(UInt64.init) ?? 0
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: maximumFASTAPreviewBytes + 1) ?? Data()
+        let isTruncated = data.count > maximumFASTAPreviewBytes
+        let previewData = data.prefix(maximumFASTAPreviewBytes)
+        return FASTAPreview(
+            text: String(decoding: previewData, as: UTF8.self),
+            isTruncated: isTruncated,
+            fileSize: fileSize
         )
     }
 
@@ -187,6 +218,14 @@ struct MHCReferenceBundleViewport: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Reference FASTA")
                 .font(.subheadline.weight(.semibold))
+            if model.isFastaPreviewTruncated {
+                Label(
+                    "Showing the first 64 KB of \(ByteCountFormatter.string(fromByteCount: Int64(model.fastaFileSize), countStyle: .file)).",
+                    systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
             ScrollView([.vertical, .horizontal]) {
                 Text(model.fastaText)
                     .font(.system(.caption, design: .monospaced))

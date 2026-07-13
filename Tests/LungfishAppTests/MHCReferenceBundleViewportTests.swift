@@ -86,6 +86,29 @@ final class MHCReferenceBundleViewportTests: XCTestCase {
         XCTAssertTrue(asyncModel.fastaText.contains(">M1"))
     }
 
+    func testLegacyBundleLimitsLargeFastaPreviewForSynchronousAndAsyncLoads() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MHCReferenceBundleViewport-\(UUID().uuidString)", isDirectory: true)
+        let bundleURL = tempRoot.appendingPathComponent("MCM.lungfishmhcref", isDirectory: true)
+        try MHCReferenceBundleSidebarTests.writeMHCReferenceBundle(at: bundleURL, name: "MCM")
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let fastaURL = try XCTUnwrap(MHCAmpliconReferenceBundle.referenceFASTAURL(in: bundleURL))
+        let tailMarker = ">TAIL-MARKER"
+        let largeFASTA = ">M1\n"
+            + String(repeating: "ACGTACGTACGTACGTACGTACGTACGTACGT\n", count: 10_000)
+            + "\(tailMarker)\nACGT\n"
+        try largeFASTA.write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let syncModel = try MHCReferenceBundleViewportModel.load(bundleURL: bundleURL)
+        let asyncModel = try await MHCReferenceBundleViewportModel.loadAsync(bundleURL: bundleURL)
+
+        XCTAssertLessThan(syncModel.fastaText.utf8.count, largeFASTA.utf8.count)
+        XCTAssertTrue(syncModel.fastaText.hasPrefix(">M1\n"))
+        XCTAssertFalse(syncModel.fastaText.contains(tailMarker))
+        XCTAssertEqual(asyncModel, syncModel)
+    }
+
     func testViewportModelRejectsTraversalReferencePath() async throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("MHCReferenceBundleViewport-\(UUID().uuidString)", isDirectory: true)
