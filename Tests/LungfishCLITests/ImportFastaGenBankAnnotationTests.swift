@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class ImportFastaGenBankAnnotationTests: XCTestCase {
 
@@ -88,11 +89,17 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         XCTAssertTrue(outputs.contains {
             ($0["path"] as? String)?.hasSuffix("annotations/imported_annotations.gff3") == true
         })
-        XCTAssertTrue(outputs.contains {
+        let recordStoreOutput = try XCTUnwrap(outputs.first {
             ($0["path"] as? String) == recordStoreURL.path
-                && $0["sha256"] != nil
-                && $0["sizeBytes"] != nil
         })
+        XCTAssertEqual(
+            recordStoreOutput["sha256"] as? String,
+            try ProvenanceFileHasher.sha256(of: recordStoreURL)
+        )
+        XCTAssertEqual(
+            (recordStoreOutput["sizeBytes"] as? NSNumber)?.uint64Value,
+            try ProvenanceFileHasher.fileSize(of: recordStoreURL)
+        )
         XCTAssertFalse(outputs.contains {
             ($0["path"] as? String)?.contains("/.tmp/") == true
         })
@@ -147,6 +154,34 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         XCTAssertTrue(gff.contains("\tmat_peptide\t"))
     }
 
+    func testCompressedGenBankImportRecoversRecordsWhenOneAnnotationIsMalformed() async throws {
+        let uncompressedURL = tempDir.appendingPathComponent("mixed.gb")
+        try Self.mixedValidityGenBank.write(to: uncompressedURL, atomically: true, encoding: .utf8)
+        let inputURL = tempDir.appendingPathComponent("mixed.gb.gz")
+        try gzip(sourceURL: uncompressedURL, destinationURL: inputURL)
+        let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        let command = try ImportCommand.FASTASubcommand.parse([
+            inputURL.path,
+            "--output-dir", projectURL.path,
+            "--name", "mixed",
+            "--quiet",
+        ])
+        try await command.run()
+
+        let bundleURL = projectURL
+            .appendingPathComponent(ReferenceSequenceFolder.folderName, isDirectory: true)
+            .appendingPathComponent("mixed.lungfishref", isDirectory: true)
+        let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(manifest.genome?.chromosomes.map(\.name), ["record1", "record2"])
+        let recordStore = try XCTUnwrap(manifest.recordStore)
+        XCTAssertEqual(try GenBankRecordDatabase(
+            url: bundleURL.appendingPathComponent(recordStore.databasePath)
+        ).recordCount(), 2)
+        XCTAssertEqual(manifest.annotations.first?.featureCount, 1)
+    }
+
     private func gzip(sourceURL: URL, destinationURL: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
@@ -184,6 +219,29 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
     ORIGIN
             1 atgcatgcat gcatgcatgc atgcatgcat gcatgcatgc atgcatgcat gcatgcatgc
            61 atgcatgcat gcatgcatgc atgcatgcat gcatgcatgc atgcatgcat gcatgcatgc
+    //
+    """
+
+    private static let mixedValidityGenBank = """
+    LOCUS       record1                  12 bp    DNA     linear   UNK 01-JAN-2024
+    DEFINITION  First synthetic record.
+    ACCESSION   record1
+    VERSION     record1.1
+    FEATURES             Location/Qualifiers
+         gene            1..6
+                         /gene="valid"
+    ORIGIN
+            1 atgcatgcatgc
+    //
+    LOCUS       record2                  12 bp    DNA     linear   UNK 01-JAN-2024
+    DEFINITION  Second synthetic record.
+    ACCESSION   record2
+    VERSION     record2.1
+    FEATURES             Location/Qualifiers
+         CDS             invalid..location
+                         /product="skipped"
+    ORIGIN
+            1 atgcatgcatgc
     //
     """
 }

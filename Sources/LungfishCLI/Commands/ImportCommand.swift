@@ -1193,6 +1193,7 @@ extension ImportCommand {
             let fastaURL: URL
             let annotationInputs: [AnnotationInput]
             let recordStoreURL: URL?
+            let warnings: [ReferenceImportWarning]
             let organism: String
             let sequenceNames: [String]
             let sequenceCount: Int
@@ -1231,14 +1232,17 @@ extension ImportCommand {
             )
             defer { try? FileManager.default.removeItem(at: tempDirectory) }
 
+            let displayName = resolvedBundleName(explicitName: name, sourceURL: inputURL)
             let buildInputs = try await prepareBuildInputs(
                 sourceURL: inputURL,
-                extensionHint: ext,
+                bundleName: displayName,
                 tempDirectory: tempDirectory
             )
 
-            let displayName = resolvedBundleName(explicitName: name, sourceURL: inputURL)
             let bundleName = makeUniqueBundleName(base: displayName, in: refsDirectory)
+            for warning in buildInputs.warnings {
+                print(formatter.warning(warning.message))
+            }
 
             if !globalOptions.quiet {
                 print(formatter.info("Building .lungfishref bundle..."))
@@ -1368,70 +1372,15 @@ extension ImportCommand {
 
         private func prepareBuildInputs(
             sourceURL: URL,
-            extensionHint: String,
+            bundleName: String,
             tempDirectory: URL
         ) async throws -> BuildInputs {
-            let inputURL: URL
-            if Self.compressionExtensions.contains(sourceURL.pathExtension.lowercased()) {
-                let decompressedName = extensionHint.isEmpty
-                    ? "decompressed-input"
-                    : "decompressed-input.\(extensionHint)"
-                let decompressed = tempDirectory.appendingPathComponent(decompressedName)
-                try decompressInput(sourceURL: sourceURL, outputURL: decompressed)
-                inputURL = decompressed
-            } else {
-                inputURL = sourceURL
-            }
-
-            if Self.genbankExtensions.contains(extensionHint) {
-                let reader = try GenBankReader(url: inputURL)
-                let records = try await reader.readAll()
-                guard !records.isEmpty else {
-                    throw CLIError.validationFailed(errors: ["No sequences found in \(sourceURL.lastPathComponent)"])
-                }
-
-                let sequences = records.map(\.sequence)
-                guard !sequences.isEmpty else {
-                    throw CLIError.validationFailed(errors: ["No sequences found in \(sourceURL.lastPathComponent)"])
-                }
-
-                let fastaOutput = tempDirectory.appendingPathComponent("input.fa")
-                try FASTAWriter(url: fastaOutput).write(sequences)
-                let recordStoreURL = tempDirectory.appendingPathComponent("genbank_records.sqlite")
-                try GenBankRecordDatabase.create(records: records, at: recordStoreURL)
-
-                let sequenceNames = sequences.map(\.name)
-                let totalLength = sequences.reduce(Int64(0)) { partial, sequence in
-                    partial + Int64(sequence.length)
-                }
-
-                let hasAnnotations = records.contains { !$0.annotations.isEmpty }
-                let annotationInputs: [AnnotationInput] = hasAnnotations ? [
-                    AnnotationInput(
-                        url: inputURL,
-                        name: "Imported Annotations",
-                        description: "Converted from \(sourceURL.lastPathComponent)",
-                        id: "imported_annotations",
-                        annotationType: .gene
-                    ),
-                ] : []
-
-                let organism = records.first?.definition
-                    ?? records.first?.sequence.description
-                    ?? sourceURL.deletingPathExtension().lastPathComponent
-
-                return BuildInputs(
-                    fastaURL: fastaOutput,
-                    annotationInputs: annotationInputs,
-                    recordStoreURL: recordStoreURL,
-                    organism: organism,
-                    sequenceNames: sequenceNames,
-                    sequenceCount: sequences.count,
-                    totalLength: totalLength
-                )
-            }
-
-            let sequences = try await FASTAReader(url: inputURL).readAll()
+            let prepared = try await ReferenceSourcePreparer().prepare(
+                sourceURL: sourceURL,
+                bundleName: bundleName,
+                tempDirectory: tempDirectory
+            )
+            let sequences = try await FASTAReader(url: prepared.fastaURL).readAll()
             guard !sequences.isEmpty else {
                 throw CLIError.validationFailed(errors: ["No sequences found in \(sourceURL.lastPathComponent)"])
             }
@@ -1442,66 +1391,15 @@ extension ImportCommand {
             }
 
             return BuildInputs(
-                fastaURL: inputURL,
-                annotationInputs: [],
-                recordStoreURL: nil,
-                organism: sourceURL.deletingPathExtension().lastPathComponent,
+                fastaURL: prepared.fastaURL,
+                annotationInputs: prepared.annotationInputs,
+                recordStoreURL: prepared.recordStoreURL,
+                warnings: prepared.warnings,
+                organism: prepared.sourceInfo.organism,
                 sequenceNames: sequenceNames,
                 sequenceCount: sequences.count,
                 totalLength: totalLength
             )
-        }
-
-        private func decompressInput(sourceURL: URL, outputURL: URL) throws {
-            let fm = FileManager.default
-            if fm.fileExists(atPath: outputURL.path) {
-                try? fm.removeItem(at: outputURL)
-            }
-            fm.createFile(atPath: outputURL.path, contents: nil)
-
-            let outputHandle = try FileHandle(forWritingTo: outputURL)
-            defer { try? outputHandle.close() }
-
-            let wrapper = sourceURL.pathExtension.lowercased()
-            let executable: String
-            let arguments: [String]
-            switch wrapper {
-            case "gz", "gzip", "bgz":
-                executable = "/usr/bin/gzip"
-                arguments = ["-dc", sourceURL.path]
-            case "bz2":
-                executable = "/usr/bin/bzip2"
-                arguments = ["-dc", sourceURL.path]
-            case "xz":
-                executable = "/usr/bin/xz"
-                arguments = ["-dc", sourceURL.path]
-            case "zst", "zstd":
-                executable = "/usr/bin/env"
-                arguments = ["zstd", "-dc", sourceURL.path]
-            default:
-                throw CLIError.validationFailed(errors: ["Unsupported compression wrapper: .\(wrapper)"])
-            }
-
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = arguments
-            process.standardOutput = outputHandle
-            let stderrPipe = Pipe()
-            process.standardError = stderrPipe
-
-            do {
-                try process.run()
-            } catch {
-                throw CLIError.conversionFailed(reason: "Failed to launch decompressor: \(error.localizedDescription)")
-            }
-            process.waitUntilExit()
-
-            guard process.terminationStatus == 0 else {
-                let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let message = stderr?.isEmpty == false ? stderr! : "decompressor exited with code \(process.terminationStatus)"
-                throw CLIError.conversionFailed(reason: message)
-            }
         }
     }
 }

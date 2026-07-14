@@ -211,7 +211,8 @@ public final class NativeBundleBuilder: ObservableObject {
 
             let recordStoreInfo = try embedReferenceRecordStore(
                 from: configuration.referenceRecordStoreURL,
-                in: stagingBundleURL
+                in: stagingBundleURL,
+                chromosomes: genomeInfo.chromosomes
             )
 
             // Step 8: Generate manifest
@@ -397,7 +398,11 @@ public final class NativeBundleBuilder: ObservableObject {
         try await ProvenanceRecorder.shared.save(
             runID: runID,
             to: stagingBundleURL,
-            bundleLayoutRoot: publishedBundleURL
+            bundleLayoutRoot: publishedBundleURL,
+            options: recordStoreProvenanceOptions(
+                configuration: configuration,
+                bundleURL: publishedBundleURL
+            )
         )
     }
 
@@ -461,6 +466,9 @@ public final class NativeBundleBuilder: ObservableObject {
         urls.append(contentsOf: configuration.annotationFiles.map(\.url))
         urls.append(contentsOf: configuration.variantFiles.map(\.url))
         urls.append(contentsOf: configuration.signalFiles.map(\.url))
+        if let referenceRecordStoreURL = configuration.referenceRecordStoreURL {
+            urls.append(referenceRecordStoreURL)
+        }
         return uniqueExistingFileURLs(urls)
     }
 
@@ -557,11 +565,12 @@ public final class NativeBundleBuilder: ObservableObject {
         for configuration: BuildConfiguration,
         bundleURL: URL
     ) -> [String] {
+        let replayFASTAURL = configuration.provenanceInputFiles?.first ?? configuration.fastaURL
         var command = [
             "NativeBundleBuilder.build",
             "--name", configuration.name,
             "--identifier", configuration.identifier,
-            "--fasta", configuration.fastaURL.path,
+            "--fasta", replayFASTAURL.path,
             "--output-directory", configuration.outputDirectory.path,
             "--bundle", bundleURL.path,
             "--compress-fasta", String(configuration.compressFASTA),
@@ -572,6 +581,11 @@ public final class NativeBundleBuilder: ObservableObject {
         }
         for variant in configuration.variantFiles {
             command.append(contentsOf: ["--variant", variant.url.path])
+        }
+
+        if let recordStoreURL = configuration.referenceRecordStoreURL,
+           configuration.provenanceInputFiles == nil {
+            command.append(contentsOf: ["--record-store", recordStoreURL.path])
         }
 
         for signal in configuration.signalFiles {
@@ -681,9 +695,39 @@ public final class NativeBundleBuilder: ObservableObject {
 
     private func embedReferenceRecordStore(
         from sourceURL: URL?,
-        in bundleURL: URL
+        in bundleURL: URL,
+        chromosomes: [ChromosomeInfo]
     ) throws -> ReferenceRecordStoreInfo? {
         guard let sourceURL else { return nil }
+        let sourceDatabase = try GenBankRecordDatabase(url: sourceURL)
+        let rows = try sourceDatabase.records()
+        var identityErrors: [String] = []
+        if rows.count != chromosomes.count {
+            identityErrors.append(
+                "Record store count \(rows.count) does not match FASTA sequence count \(chromosomes.count)."
+            )
+        }
+        for (index, pair) in zip(rows, chromosomes).enumerated() {
+            let (row, chromosome) = pair
+            if row.sourceOrdinal != index {
+                identityErrors.append(
+                    "Record store source order \(row.sourceOrdinal) does not match FASTA order \(index)."
+                )
+            }
+            if row.sequenceName != chromosome.name {
+                identityErrors.append(
+                    "Record store sequence name '\(row.sequenceName)' does not match FASTA sequence name '\(chromosome.name)' at order \(index)."
+                )
+            }
+            if Int64(row.sequenceLength) != chromosome.length {
+                identityErrors.append(
+                    "Record store sequence length \(row.sequenceLength) does not match FASTA length \(chromosome.length) for '\(chromosome.name)'."
+                )
+            }
+        }
+        guard identityErrors.isEmpty else {
+            throw BundleBuildError.validationFailed(identityErrors)
+        }
         let relativePath = "metadata/genbank_records.sqlite"
         let destinationURL = bundleURL.appendingPathComponent(relativePath)
         try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
@@ -693,6 +737,25 @@ public final class NativeBundleBuilder: ObservableObject {
             format: ReferenceRecordStoreInfo.supportedFormat,
             databasePath: relativePath,
             recordCount: try database.recordCount()
+        )
+    }
+
+    private func recordStoreProvenanceOptions(
+        configuration: BuildConfiguration,
+        bundleURL: URL
+    ) -> ProvenanceOptions? {
+        guard configuration.referenceRecordStoreURL != nil else { return nil }
+        let durableURL = configuration.provenanceInputFiles?.first
+            ?? configuration.referenceRecordStoreURL
+        guard let durableURL else { return nil }
+
+        let key = "reference_record_store"
+        var explicit = provenanceParameters(for: configuration, bundleURL: bundleURL)
+        explicit[key] = .file(durableURL)
+        return ProvenanceOptions(
+            explicit: explicit,
+            defaults: [key: .string("none")],
+            resolvedDefaults: [key: .file(durableURL)]
         )
     }
 

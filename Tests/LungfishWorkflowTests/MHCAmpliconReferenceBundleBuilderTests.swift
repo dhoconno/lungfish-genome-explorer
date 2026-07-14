@@ -144,7 +144,7 @@ final class MHCAmpliconReferenceBundleBuilderTests: XCTestCase {
             .appendingPathComponent(try XCTUnwrap(manifest.referenceBundlePath))
             .appendingPathComponent(recordStorePath).path
         let storeOutput = try XCTUnwrap(provenance.steps.flatMap(\.outputs).first { $0.path == publishedStorePath })
-        XCTAssertNotNil(storeOutput.checksumSHA256)
+        XCTAssertEqual(storeOutput.checksumSHA256, try ProvenanceFileHasher.sha256(of: recordStoreURL))
         XCTAssertEqual(storeOutput.fileSize, try ProvenanceFileHasher.fileSize(of: recordStoreURL))
         XCTAssertFalse(provenance.files.contains { $0.path.contains(".reference-preparation") })
     }

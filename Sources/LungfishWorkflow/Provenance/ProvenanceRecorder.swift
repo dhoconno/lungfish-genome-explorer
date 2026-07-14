@@ -197,11 +197,17 @@ public actor ProvenanceRecorder {
     /// - Parameters:
     ///   - runID: The run to save
     ///   - directory: The output directory to write the sidecar into
-    public func save(runID: UUID, to directory: URL, bundleLayoutRoot: URL? = nil) throws {
+    public func save(
+        runID: UUID,
+        to directory: URL,
+        bundleLayoutRoot: URL? = nil,
+        options: ProvenanceOptions? = nil
+    ) throws {
         guard let run = runs[runID] else {
             throw ProvenanceError.runNotFound(runID)
         }
-        let envelope = run.canonicalEnvelope()
+        let canonical = run.canonicalEnvelope()
+        let envelope = options.map { canonical.replacingOptions($0) } ?? canonical
         let writer = ProvenanceWriter(signingProvider: signingProvider)
         let url: URL
         if let bundleLayoutRoot {
@@ -654,6 +660,36 @@ public actor ProvenanceRecorder {
         case "txt", "tsv", "csv", "log": return .text
         default: return .unknown
         }
+    }
+}
+
+private extension ProvenanceEnvelope {
+    func replacingOptions(_ options: ProvenanceOptions) -> ProvenanceEnvelope {
+        ProvenanceEnvelope(
+            schemaVersion: schemaVersion,
+            id: id,
+            createdAt: createdAt,
+            workflowName: workflowName,
+            workflowVersion: workflowVersion,
+            toolName: toolName,
+            toolVersion: toolVersion,
+            githubReleaseVersion: githubReleaseVersion,
+            tool: tool,
+            argv: argv,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: reproducibleCommand,
+            options: options,
+            runtimeIdentity: runtimeIdentity,
+            files: files,
+            output: output,
+            outputs: outputs,
+            steps: steps,
+            wallTimeSeconds: wallTimeSeconds,
+            exitStatus: exitStatus,
+            stderr: stderr,
+            signatures: signatures,
+            legacyWorkflowRun: legacyRun
+        )
     }
 }
 
