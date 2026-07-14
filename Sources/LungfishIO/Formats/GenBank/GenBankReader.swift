@@ -562,7 +562,7 @@ public final class GenBankReader: Sendable {
 
         let record = GenBankRecord(
             sequence: sequence,
-            annotations: features,
+            annotations: annotationsWithResolvedAlleleNames(features),
             locus: locusInfo,
             definition: definition,
             accession: accession,
@@ -571,6 +571,43 @@ public final class GenBankReader: Sendable {
         )
 
         return (record, lineIndex)
+    }
+
+    /// Uses the most specific allele designation available for feature display names.
+    ///
+    /// IPD records commonly place the full allele only on the gene/CDS features,
+    /// while sibling exons carry an abbreviated `gene` qualifier. When the record
+    /// contains exactly one allele, that value unambiguously names every non-source
+    /// feature in the record. Records containing multiple alleles inherit nothing,
+    /// but features with their own allele qualifier still use that full value.
+    private func annotationsWithResolvedAlleleNames(
+        _ annotations: [SequenceAnnotation]
+    ) -> [SequenceAnnotation] {
+        var recordAlleles: [String] = []
+        var seenAlleles: Set<String> = []
+
+        for annotation in annotations {
+            for value in annotation.qualifierValues("allele") {
+                let allele = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !allele.isEmpty, seenAlleles.insert(allele).inserted else { continue }
+                recordAlleles.append(allele)
+            }
+        }
+
+        let inheritedAllele = recordAlleles.count == 1 ? recordAlleles[0] : nil
+        return annotations.map { annotation in
+            guard annotation.type != .source else { return annotation }
+
+            let directAllele = annotation.qualifierValues("allele")
+                .lazy
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
+            guard let displayName = directAllele ?? inheritedAllele else { return annotation }
+
+            var resolved = annotation
+            resolved.name = displayName
+            return resolved
+        }
     }
 
     // MARK: - LOCUS Parsing
