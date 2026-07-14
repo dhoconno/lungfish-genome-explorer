@@ -8,7 +8,7 @@ import SQLite3
 /// A compact, queryable representation of record headers and feature qualifiers
 /// from a multi-record GenBank reference.
 public final class GenBankRecordDatabase: @unchecked Sendable {
-    public struct FieldDefinition: Sendable, Equatable {
+    public struct FieldDefinition: Codable, Sendable, Equatable {
         public let key: String
         public let displayTitle: String
         public let valueType: String
@@ -30,7 +30,7 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         }
     }
 
-    public struct RecordRow: Sendable, Equatable {
+    public struct RecordRow: Codable, Sendable, Equatable {
         public let id: Int64
         public let sequenceName: String
         public let sequenceLength: Int
@@ -272,6 +272,19 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         guard let database else { throw Error.openFailed("Database is closed") }
         var statement: OpaquePointer?
         try Self.prepare(database, sql: "SELECT COUNT(*) FROM records", statement: &statement)
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw Error.operationFailed(String(cString: sqlite3_errmsg(database)))
+        }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
+    /// Returns the number of available record metadata fields without materializing definitions.
+    public func fieldCount() throws -> Int {
+        guard let database else { throw Error.openFailed("Database is closed") }
+        var statement: OpaquePointer?
+        try Self.prepare(database, sql: "SELECT COUNT(*) FROM field_definitions", statement: &statement)
         defer { sqlite3_finalize(statement) }
 
         guard sqlite3_step(statement) == SQLITE_ROW else {

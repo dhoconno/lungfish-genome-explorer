@@ -1,8 +1,76 @@
 import Foundation
+import CryptoKit
 import XCTest
+import LungfishCore
 @testable import LungfishIO
 
 final class ONTGenotypeResultBundleTests: XCTestCase {
+    func testManifestRoundTripsAndLoadsEmbeddedGenBankReferenceMetadata() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("annotated.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let workbookURL = bundleURL.appendingPathComponent("annotated.xlsx")
+        try Data("workbook".utf8).write(to: workbookURL)
+        let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: "annotated")
+
+        let databaseURL = bundleURL.appendingPathComponent("metadata/genbank_records.sqlite")
+        let record = GenBankRecord(
+            sequence: try Sequence(name: "NHP01222", alphabet: .dna, bases: "ACGT"),
+            annotations: [
+                SequenceAnnotation(
+                    type: .gene,
+                    name: "Mafa-A1*006:01:02",
+                    start: 0,
+                    end: 4,
+                    qualifiers: [
+                        "gene": AnnotationQualifier("A1"),
+                        "allele": AnnotationQualifier("Mafa-A1*006:01:02"),
+                    ]
+                ),
+            ],
+            locus: LocusInfo(name: "NHP01222", length: 4, moleculeType: .dna, topology: .linear),
+            definition: "Mafa-A1*006:01:02, A1 locus allele.",
+            accession: "NHP01222"
+        )
+        let created = try GenBankRecordDatabase.create(records: [record], at: databaseURL)
+        let bytes = try Data(contentsOf: databaseURL)
+        let checksum = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        let info = ONTGenotypeReferenceRecordStoreInfo(
+            databasePath: "metadata/genbank_records.sqlite",
+            format: ONTGenotypeReferenceRecordStoreInfo.supportedFormat,
+            schemaVersion: GenBankRecordDatabase.schemaVersion,
+            recordCount: created.recordCount,
+            fieldCount: created.fieldCount,
+            sha256: checksum,
+            sizeBytes: Int64(bytes.count)
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "annotated",
+            analysisName: "annotated",
+            primaryWorkbookPath: workbookURL.lastPathComponent,
+            longSummaryCSVPath: artifacts.genotypeCSV.lastPathComponent,
+            sampleSummaryCSVPath: artifacts.sampleCSV.lastPathComponent,
+            statsJSONPath: artifacts.statsJSON.lastPathComponent,
+            provenancePath: artifacts.provenance.lastPathComponent,
+            referenceRecordStore: info
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+
+        XCTAssertEqual(try ONTGenotypeResultBundle.loadManifest(from: bundleURL).referenceRecordStore, info)
+        let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+        XCTAssertEqual(result.referenceMetadata?.alleleFieldKey, "feature.allele")
+        XCTAssertEqual(
+            result.referenceMetadata?.recordsBySequenceName["NHP01222"]?["feature.allele"],
+            "Mafa-A1*006:01:02"
+        )
+        XCTAssertEqual(
+            result.referenceMetadata?.fields.first(where: { $0.key == "feature.allele" })?.displayTitle,
+            "Allele"
+        )
+    }
+
     func testWritesAndLoadsPrimaryWorkbookManifest() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
