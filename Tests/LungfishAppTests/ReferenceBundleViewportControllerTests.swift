@@ -1,4 +1,5 @@
 import XCTest
+import SQLite3
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
@@ -41,6 +42,10 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
                 key: "feature.number", displayTitle: "Number", valueType: "number",
                 sourceCategory: "feature", preferredOrder: 7
             ),
+            GenBankRecordDatabase.FieldDefinition(
+                key: "record.CUSTOM_HEADER", displayTitle: "Custom Header", valueType: "text",
+                sourceCategory: "record", preferredOrder: 8
+            ),
         ]
         let first = BundleBrowserSequenceSummary(
             name: "record-a", displayDescription: "first definition", length: 100,
@@ -56,12 +61,14 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
                 "record.LOCUS.LENGTH": "100", "feature.gene": "Gene-A",
                 "record.DEFINITION": "first definition", "record.ACCESSION": "ACC-A",
                 "feature.product": "Product A", "feature.number": "10",
+                "record.CUSTOM_HEADER": "unexpected-header-value",
             ]),
             .init(summary: second, values: [
                 "feature.allele": "Mafa-B2", "record.ORGANISM": "Macaca fascicularis",
                 "record.LOCUS.LENGTH": "200", "feature.gene": "Gene-B",
                 "record.DEFINITION": "second definition", "record.ACCESSION": "ACC-B",
                 "feature.product": "Product B", "feature.number": "20",
+                "record.CUSTOM_HEADER": "other-value",
             ]),
         ])
 
@@ -70,6 +77,7 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
             "genbank.record.ORGANISM", "genbank.record.LOCUS.LENGTH",
             "genbank.feature.gene", "genbank.record.DEFINITION", "genbank.record.ACCESSION",
             "genbank.feature.product", "genbank.feature.number",
+            "genbank.record.CUSTOM_HEADER",
         ])
         table.setFilterText("Mafa-B2")
         XCTAssertEqual(table.displayedRows.map(\.summary.name), ["record-b"])
@@ -93,6 +101,31 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
             table.unfilteredRows[0], table.unfilteredRows[1],
             by: "genbank.record.LOCUS.LENGTH", ascending: true
         ))
+
+        table.clearAllColumnFilters()
+        table.setFilterText("unexpected-header-value")
+        XCTAssertEqual(table.displayedRows.map(\.summary.name), ["record-a"])
+        table.setFilterText("")
+        table.setColumnFilter(
+            ColumnFilter(columnId: "genbank.record.CUSTOM_HEADER", op: .equal, value: "other-value"),
+            for: "genbank.record.CUSTOM_HEADER"
+        )
+        XCTAssertEqual(table.displayedRows.map(\.summary.name), ["record-b"])
+
+        let customColumn = try XCTUnwrap(table.tableView.tableColumns.first {
+            $0.identifier.rawValue == "genbank.record.CUSTOM_HEADER"
+        })
+        XCTAssertEqual(customColumn.minWidth, 0)
+        XCTAssertEqual(customColumn.maxWidth, .greatestFiniteMagnitude)
+        let chooserItem = try XCTUnwrap(table.tableView.headerView?.menu?.items.first {
+            ($0.representedObject as? String) == "genbank.record.CUSTOM_HEADER"
+        })
+        NSApp.sendAction(try XCTUnwrap(chooserItem.action), to: chooserItem.target, from: chooserItem)
+        XCTAssertTrue(customColumn.isHidden)
+        table.configure(dynamicFields: fields, rows: table.unfilteredRows)
+        XCTAssertTrue(try XCTUnwrap(table.tableView.tableColumns.first {
+            $0.identifier.rawValue == "genbank.record.CUSTOM_HEADER"
+        }).isHidden)
     }
 
     func testGenBankRecordTableLegacyRowsUseOnlyFixedColumns() {
@@ -179,6 +212,49 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
         XCTAssertEqual(vc.testDisplayedSequenceNames, ["chr1"])
         XCTAssertEqual(vc.testRecordTableColumnIdentifiers, ["sequence", "length", "role"])
         XCTAssertTrue(vc.testSummaryText.contains("does not match"), vc.testSummaryText)
+    }
+
+    func testLengthMismatchedRecordStoreShowsWarningAndManifestRows() throws {
+        let records = try [
+            ReferenceViewportFixture.makeGenBankRecord(
+                name: "chr1", length: 99, allele: "Mafa-A1", organism: "Macaca fascicularis"
+            )
+        ]
+        let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Length Mismatched Metadata Reference",
+            chromosomes: [.init(name: "chr1", length: 100)],
+            includeAlignment: false,
+            includeVariant: false,
+            recordStoreRecords: records
+        )
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let vc = ReferenceBundleViewportController()
+        _ = vc.view
+
+        try vc.configureForTesting(input: .directBundle(bundleURL: bundleURL, manifest: manifest))
+
+        XCTAssertEqual(vc.testDisplayedSequenceNames, ["chr1"])
+        XCTAssertEqual(vc.testRecordTableColumnIdentifiers, ["sequence", "length", "role"])
+        XCTAssertTrue(vc.testSummaryText.contains("does not match"), vc.testSummaryText)
+    }
+
+    func testDuplicateRecordStoreIdentityShowsWarningAndManifestRows() throws {
+        let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Duplicate Metadata Reference",
+            chromosomes: [.init(name: "chr1", length: 100)],
+            includeAlignment: false,
+            includeVariant: false,
+            duplicateRecordStoreIdentity: "chr1"
+        )
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let vc = ReferenceBundleViewportController()
+        _ = vc.view
+
+        try vc.configureForTesting(input: .directBundle(bundleURL: bundleURL, manifest: manifest))
+
+        XCTAssertEqual(vc.testDisplayedSequenceNames, ["chr1"])
+        XCTAssertEqual(vc.testRecordTableColumnIdentifiers, ["sequence", "length", "role"])
+        XCTAssertTrue(vc.testSummaryText.contains("ambiguous record identities"), vc.testSummaryText)
     }
 
     func testDirectReferenceBundleShowsSequenceListAndLoadsFirstSequenceDetail() throws {
@@ -323,7 +399,8 @@ private enum ReferenceViewportFixture {
         includeAlignment: Bool,
         includeVariant: Bool,
         recordStoreRecords: [GenBankRecord]? = nil,
-        corruptRecordStore: Bool = false
+        corruptRecordStore: Bool = false,
+        duplicateRecordStoreIdentity: String? = nil
     ) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("reference-viewport-\(UUID().uuidString)", isDirectory: true)
@@ -379,6 +456,20 @@ private enum ReferenceViewportFixture {
                 format: ReferenceRecordStoreInfo.supportedFormat,
                 databasePath: "metadata/genbank_records.sqlite",
                 recordCount: chromosomes.count
+            )
+        } else if let duplicateRecordStoreIdentity {
+            let metadataURL = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+            try FileManager.default.createDirectory(at: metadataURL, withIntermediateDirectories: true)
+            try createDuplicateRecordDatabase(
+                at: metadataURL.appendingPathComponent("genbank_records.sqlite"),
+                identity: duplicateRecordStoreIdentity,
+                length: chromosomes.first?.length ?? 0
+            )
+            recordStore = ReferenceRecordStoreInfo(
+                schemaVersion: GenBankRecordDatabase.schemaVersion,
+                format: ReferenceRecordStoreInfo.supportedFormat,
+                databasePath: "metadata/genbank_records.sqlite",
+                recordCount: 2
             )
         } else {
             recordStore = nil
@@ -448,5 +539,35 @@ private enum ReferenceViewportFixture {
                 GenBankRecordField(key: "ORGANISM", value: organism, ordinal: 2),
             ]
         )
+    }
+
+    private static func createDuplicateRecordDatabase(
+        at url: URL,
+        identity: String,
+        length: Int
+    ) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            throw NSError(domain: "SQLite", code: 1)
+        }
+        defer { sqlite3_close(database) }
+        let escapedIdentity = identity.replacingOccurrences(of: "'", with: "''")
+        let sql = """
+            CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO metadata VALUES ('schema_version', '1');
+            CREATE TABLE records (id INTEGER PRIMARY KEY, sequence_name TEXT NOT NULL, sequence_length INTEGER NOT NULL, source_ordinal INTEGER NOT NULL);
+            INSERT INTO records VALUES (1, '\(escapedIdentity)', \(length), 0);
+            INSERT INTO records VALUES (2, '\(escapedIdentity)', \(length), 1);
+            CREATE TABLE field_definitions (key TEXT PRIMARY KEY, display_title TEXT NOT NULL, value_type TEXT NOT NULL, source_category TEXT NOT NULL, preferred_order INTEGER NOT NULL);
+            CREATE TABLE field_values (record_id INTEGER NOT NULL, field_key TEXT NOT NULL, value_ordinal INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY (record_id, field_key, value_ordinal));
+            CREATE INDEX idx_field_values_key_value ON field_values(field_key, value COLLATE NOCASE);
+            CREATE INDEX idx_field_values_record_key ON field_values(record_id, field_key);
+            """
+        var errorMessage: UnsafeMutablePointer<CChar>?
+        guard sqlite3_exec(database, sql, nil, nil, &errorMessage) == SQLITE_OK else {
+            let message = errorMessage.map { String(cString: $0) } ?? "Unknown SQLite error"
+            sqlite3_free(errorMessage)
+            throw NSError(domain: "SQLite", code: 2, userInfo: [NSLocalizedDescriptionKey: message])
+        }
     }
 }

@@ -85,7 +85,8 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
         for filteredColumn in columnFilters.keys where !availableColumnIdentifiers.contains(filteredColumn) {
             columnFilterSet.removeFilters(for: filteredColumn)
         }
-        rebuildColumns()
+        rebuildStandardColumns()
+        tableView.sortDescriptors = [NSSortDescriptor(key: "sequence", ascending: true)]
         super.configure(rows: rows)
     }
 
@@ -174,6 +175,11 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
         onDisplayedRowsChanged?()
     }
 
+    override func hideEmptyColumns() {
+        // Every recovered GenBank field remains user-reachable, and chooser state
+        // survives record-table refreshes even when the current rows have no value.
+    }
+
     static func columnIdentifier(for fieldKey: String) -> String {
         "genbank.\(fieldKey)"
     }
@@ -182,23 +188,6 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
         let prefix = "genbank."
         guard columnIdentifier.hasPrefix(prefix) else { return nil }
         return String(columnIdentifier.dropFirst(prefix.count))
-    }
-
-    private func rebuildColumns() {
-        tableView.tableColumns.forEach { tableView.removeTableColumn($0) }
-        for spec in columnSpecs {
-            let column = NSTableColumn(identifier: spec.identifier)
-            column.title = spec.title
-            column.width = spec.width
-            column.minWidth = spec.minWidth
-            column.headerToolTip = spec.toolTip
-            column.sortDescriptorPrototype = NSSortDescriptor(
-                key: spec.identifier.rawValue,
-                ascending: spec.defaultAscending
-            )
-            tableView.addTableColumn(column)
-        }
-        tableView.sortDescriptors = [NSSortDescriptor(key: "sequence", ascending: true)]
     }
 
     private func isNumeric(_ field: GenBankRecordDatabase.FieldDefinition) -> Bool {

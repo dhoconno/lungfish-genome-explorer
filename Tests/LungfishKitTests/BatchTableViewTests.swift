@@ -95,6 +95,27 @@ final class BatchTableViewTests: XCTestCase {
 
         XCTAssertEqual(table.displayedRows.map(\.name), ["raw-1501"])
     }
+
+    func testRebuiltStandardColumnsRefreshChooserAndPreserveHiddenState() throws {
+        let table = ReconfigurableBatchTableView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
+        table.metadataColumns.testingSetStandardColumnVisible(id: "name", visible: false)
+
+        table.showScoreColumn = true
+        table.rebuildStandardColumns()
+
+        let nameColumn = try XCTUnwrap(table.tableView.tableColumns.first { $0.identifier.rawValue == "name" })
+        let scoreColumn = try XCTUnwrap(table.tableView.tableColumns.first { $0.identifier.rawValue == "score" })
+        XCTAssertTrue(nameColumn.isHidden)
+        XCTAssertEqual(scoreColumn.minWidth, 0)
+        XCTAssertEqual(scoreColumn.maxWidth, .greatestFiniteMagnitude)
+
+        let chooserItem = try XCTUnwrap(table.tableView.headerView?.menu?.items.first {
+            ($0.representedObject as? String) == "score"
+        })
+        XCTAssertEqual(chooserItem.state, .on)
+        NSApp.sendAction(try XCTUnwrap(chooserItem.action), to: chooserItem.target, from: chooserItem)
+        XCTAssertTrue(scoreColumn.isHidden)
+    }
 }
 
 private struct TestBatchRow: Equatable {
@@ -184,6 +205,27 @@ private final class NumericBatchTableView: BatchTableView<NumericBatchRow> {
 
     override func columnNumericValue(for columnId: String, row: NumericBatchRow) -> Double? {
         columnId == "reads" ? row.rawReads : nil
+    }
+}
+
+@MainActor
+private final class ReconfigurableBatchTableView: BatchTableView<TestBatchRow> {
+    var showScoreColumn = false
+
+    override var columnSpecs: [BatchColumnSpec] {
+        var specs = [
+            BatchColumnSpec(
+                identifier: .init("name"), title: "Name", width: 120,
+                minWidth: 80, defaultAscending: true
+            )
+        ]
+        if showScoreColumn {
+            specs.append(BatchColumnSpec(
+                identifier: .init("score"), title: "Score", width: 90,
+                minWidth: 70, defaultAscending: false
+            ))
+        }
+        return specs
     }
 }
 

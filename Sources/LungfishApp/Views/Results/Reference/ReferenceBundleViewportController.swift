@@ -520,10 +520,14 @@ public class ReferenceBundleViewportController: NSViewController {
             var mergedRows: [ReferenceBundleRecordRow] = []
             mergedRows.reserveCapacity(records.count)
             for record in records {
-                guard seenRecordNames.insert(record.sequenceName).inserted,
-                      let summary = summariesByName[record.sequenceName],
-                      summary.length == Int64(record.sequenceLength) else {
+                guard seenRecordNames.insert(record.sequenceName).inserted else {
+                    return ([], fallbackRows, "GenBank metadata contains ambiguous record identities; showing manifest records.")
+                }
+                guard let summary = summariesByName[record.sequenceName] else {
                     return ([], fallbackRows, "GenBank metadata does not match the bundled sequences; showing manifest records.")
+                }
+                guard summary.length == Int64(record.sequenceLength) else {
+                    return ([], fallbackRows, "GenBank metadata does not match bundled sequence lengths; showing manifest records.")
                 }
                 mergedRows.append(ReferenceBundleRecordRow(summary: summary, values: record.values))
             }
