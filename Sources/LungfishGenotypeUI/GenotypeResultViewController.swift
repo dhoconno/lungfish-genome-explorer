@@ -1077,20 +1077,14 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func layout() {
-        view.addSubview(summaryStrip)
         view.addSubview(lensControl)
         view.addSubview(contentHost)
 
         NSLayoutConstraint.activate([
-            summaryStrip.topAnchor.constraint(equalTo: view.topAnchor),
-            summaryStrip.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            summaryStrip.trailingAnchor.constraint(lessThanOrEqualTo: lensControl.leadingAnchor, constant: -12),
-            summaryStrip.heightAnchor.constraint(equalToConstant: 48),
-
             lensControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            lensControl.centerYAnchor.constraint(equalTo: summaryStrip.centerYAnchor),
+            lensControl.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
 
-            contentHost.topAnchor.constraint(equalTo: summaryStrip.bottomAnchor),
+            contentHost.topAnchor.constraint(equalTo: view.topAnchor, constant: 48),
             contentHost.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             contentHost.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             contentHost.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -2036,22 +2030,6 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func rebuildSummary() {
         removeArrangedSubviews(from: summaryStrip)
-        guard let result else { return }
-        let qcCounts = result.qcStatusCounts
-        [
-            ("Samples", "\(result.sampleCount)"),
-            ("Calls", "\(result.callCount)"),
-            ("Genotypes", "\(result.locusSummaries.reduce(0) { $0 + $1.callCount })"),
-            ("Loci", "\(result.locusSummaries.count)"),
-            ("OK", "\(qcCounts[.ok, default: 0])"),
-            ("Review", "\(qcCounts[.review, default: 0])"),
-        ].forEach { label, value in
-            summaryStrip.addArrangedSubview(summaryPill(label: label, value: value))
-        }
-        if let context = haplotypeDefinitionContext(for: result) {
-            summaryStrip.addArrangedSubview(summaryPill(label: "Definition", value: context.definition.displayName))
-            summaryStrip.addArrangedSubview(summaryPill(label: "Source", value: context.source.displayName))
-        }
     }
 
     private func summaryPill(label: String, value: String) -> NSView {
@@ -5435,6 +5413,10 @@ extension GenotypeResultViewController {
 
     var testingSummaryStripText: String {
         textContent(in: summaryStrip).joined(separator: "\n")
+    }
+
+    var testingHasSummaryStatisticsStrip: Bool {
+        summaryStrip.superview != nil
     }
 
     var testingSamplePaneWidth: CGFloat {

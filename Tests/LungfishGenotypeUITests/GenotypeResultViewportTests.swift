@@ -123,6 +123,17 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
     }
 
+    func testResultViewportOmitsSummaryStatisticsStripForEveryLens() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: []))
+
+        for lens in GenotypeResultViewController.Lens.allCases {
+            controller.testingSelectLens(lens)
+            XCTAssertFalse(controller.testingHasSummaryStatisticsStrip)
+        }
+    }
+
     func testAnchorLensShowsDerivedAnchorSummaryAndCaveat() {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -1106,6 +1117,52 @@ final class GenotypeResultViewportTests: XCTestCase {
 
     // MARK: - Sample column windowing
 
+    func testGenBankMatrixDefaultsToAlleleAndOffersEveryReferenceField() {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)],
+            referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+
+        XCTAssertFalse(matrix.testingPinnedColumnTitles.contains("Genotype"))
+        XCTAssertTrue(matrix.testingPinnedColumnTitles.contains("Allele"))
+        XCTAssertEqual(matrix.testingReferenceValue(genotype: "NHP01222", fieldKey: "feature.allele"), "Mafa-A1*001:01")
+        XCTAssertEqual(
+            matrix.testingAvailableReferenceColumnTitles,
+            ["Allele", "Organism", "Product", "Definition"]
+        )
+    }
+
+    func testGenBankMatrixCanToggleAnyReferenceFieldAndFiltersHiddenFields() {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: makeResult(
+            samples: [],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73),
+                makeCall(sample: "AnimalA", genotype: "NHP99999", reads: 41),
+            ],
+            referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+
+        matrix.testingSetReferenceColumnVisible(fieldKey: "feature.product", visible: true)
+        XCTAssertTrue(matrix.testingPinnedColumnTitles.contains("Product"))
+
+        matrix.testingSetFilter("class I A1 antigen")
+        XCTAssertEqual(matrix.testingVisibleGenotypes, ["NHP01222"])
+    }
+
+    func testFASTAMatrixKeepsGenotypeColumnVisible() {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "FASTA_001", reads: 20)]
+        ))
+
+        XCTAssertTrue(matrix.testingPinnedColumnTitles.contains("Genotype"))
+        XCTAssertTrue(matrix.testingAvailableReferenceColumnTitles.isEmpty)
+    }
+
     private func makeManySampleMatrix(sampleCount: Int) -> GenotypeComparisonMatrixView {
         let matrix = GenotypeComparisonMatrixView()
         let genotype = "12_M3_B_075_01"
@@ -1163,7 +1220,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         matrix.layoutSubtreeIfNeeded()
         XCTAssertEqual(matrix.testingSampleMatrixBottomChromeHeight, 0)
         let sampleScrollView = try XCTUnwrap(
-            matrix.subviews.compactMap { $0 as? NSScrollView }.first { $0.hasHorizontalScroller }
+            matrix.subviews.compactMap { $0 as? NSScrollView }.first { $0.hasVerticalScroller }
         )
         sampleScrollView.setFrameSize(NSSize(width: 99, height: sampleScrollView.frame.height))
         sampleScrollView.tile()
@@ -1201,8 +1258,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         matrix.layoutSubtreeIfNeeded()
 
         let scrollViews = matrix.subviews.compactMap { $0 as? NSScrollView }
-        let pinnedScrollView = try XCTUnwrap(scrollViews.first { !$0.hasHorizontalScroller })
-        let sampleScrollView = try XCTUnwrap(scrollViews.first { $0.hasHorizontalScroller })
+        let pinnedScrollView = try XCTUnwrap(scrollViews.first { !$0.hasVerticalScroller })
+        let sampleScrollView = try XCTUnwrap(scrollViews.first { $0.hasVerticalScroller })
 
         XCTAssertEqual(pinnedScrollView.verticalScrollElasticity, .none)
         XCTAssertEqual(sampleScrollView.verticalScrollElasticity, .none)
@@ -1214,8 +1271,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         matrix.layoutSubtreeIfNeeded()
 
         let scrollViews = matrix.subviews.compactMap { $0 as? NSScrollView }
-        let pinnedScrollView = try XCTUnwrap(scrollViews.first { !$0.hasHorizontalScroller })
-        let sampleScrollView = try XCTUnwrap(scrollViews.first { $0.hasHorizontalScroller })
+        let pinnedScrollView = try XCTUnwrap(scrollViews.first { !$0.hasVerticalScroller })
+        let sampleScrollView = try XCTUnwrap(scrollViews.first { $0.hasVerticalScroller })
 
         sampleScrollView.contentView.scroll(to: NSPoint(x: 37, y: -1_000))
         let sampleBounds = sampleScrollView.contentView.bounds
@@ -1255,10 +1312,10 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
-    func testComparisonMatrixCapsSampleColumnsAtSixtyByDefault() {
+    func testComparisonMatrixShowsEverySampleColumnByDefault() {
         let matrix = makeManySampleMatrix(sampleCount: 150)
-        XCTAssertEqual(matrix.testingSampleColumnCount, 60)
-        XCTAssertTrue(matrix.testingIsColumnWindowActive)
+        XCTAssertEqual(matrix.testingSampleColumnCount, 150)
+        XCTAssertFalse(matrix.testingIsColumnWindowActive)
     }
 
     func testComparisonMatrixShowAllInstantiatesEveryColumn() {
@@ -1280,14 +1337,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(matrix.testingActiveSortDescriptorKey, key)
     }
 
-    /// The reveal banner is visible while windowed, and tapping its "Show all"
-    /// action instantiates every column and hides the banner.
-    func testComparisonMatrixShowAllBannerRevealsColumnsAndHides() {
+    func testComparisonMatrixDoesNotShowSampleLimitBanner() {
         let matrix = makeManySampleMatrix(sampleCount: 150)
-        XCTAssertTrue(matrix.testingColumnWindowBannerVisible)
-
-        matrix.testingTapShowAllBanner()
-
         XCTAssertEqual(matrix.testingSampleColumnCount, 150)
         XCTAssertFalse(matrix.testingIsColumnWindowActive)
         XCTAssertFalse(matrix.testingColumnWindowBannerVisible)
@@ -1304,15 +1355,26 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(matrix.testingIsColumnWindowActive)
     }
 
+    func testComparisonMatrixPinnedPaneCanResizeAndRemembersWidth() {
+        let matrix = makeManySampleMatrix(sampleCount: 4)
+        matrix.frame = NSRect(x: 0, y: 0, width: 1_000, height: 400)
+        matrix.testingSetPinnedPaneWidth(430)
+        XCTAssertEqual(matrix.testingPinnedPaneWidth, 430, accuracy: 1)
+
+        let restored = makeManySampleMatrix(sampleCount: 4)
+        restored.frame = NSRect(x: 0, y: 0, width: 1_000, height: 400)
+        restored.layoutSubtreeIfNeeded()
+        XCTAssertEqual(restored.testingPinnedPaneWidth, 430, accuracy: 1)
+    }
+
     /// Anti-leak (critical): with 150 samples and the window showing 60 columns,
     /// the FULL logical sample set (used by selection/support) AND scientific
     /// export must still see all 150 samples.
     func testComparisonMatrixExportSeesFullSampleSetWhileWindowed() {
         let matrix = makeManySampleMatrix(sampleCount: 150)
 
-        // Window caps instantiated columns to 60...
-        XCTAssertEqual(matrix.testingSampleColumnCount, 60)
-        // ...but the full logical set is intact.
+        XCTAssertEqual(matrix.testingSampleColumnCount, 150)
+        // The full logical set is intact.
         XCTAssertEqual(matrix.testingActiveSampleNames.count, 150)
         XCTAssertEqual(matrix.testingVisibleSampleNames.count, 150)
 
@@ -5430,7 +5492,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         calls: [ONTGenotypeCall],
         haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
         haplotypeDefinitionSetID: String? = nil,
-        stats: ONTGenotypeRunStats = ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60)
+        stats: ONTGenotypeRunStats = ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60),
+        referenceMetadata: ONTGenotypeReferenceMetadata? = nil
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
@@ -5454,7 +5517,35 @@ final class GenotypeResultViewportTests: XCTestCase {
             stats: stats,
             calls: calls,
             samples: samples,
-            haplotypeAnalysis: haplotypeAnalysis
+            haplotypeAnalysis: haplotypeAnalysis,
+            referenceMetadata: referenceMetadata
+        )
+    }
+
+    private func makeGenBankReferenceMetadata() -> ONTGenotypeReferenceMetadata {
+        let fields = [
+            GenBankRecordDatabase.FieldDefinition(key: "feature.allele", displayTitle: "Allele", valueType: "text", sourceCategory: "feature", preferredOrder: 0),
+            GenBankRecordDatabase.FieldDefinition(key: "source.organism", displayTitle: "Organism", valueType: "text", sourceCategory: "source", preferredOrder: 1),
+            GenBankRecordDatabase.FieldDefinition(key: "feature.product", displayTitle: "Product", valueType: "text", sourceCategory: "feature", preferredOrder: 2),
+            GenBankRecordDatabase.FieldDefinition(key: "record.definition", displayTitle: "Definition", valueType: "text", sourceCategory: "record", preferredOrder: 3),
+        ]
+        return ONTGenotypeReferenceMetadata(
+            fields: fields,
+            recordsBySequenceName: [
+                "NHP01222": [
+                    "feature.allele": "Mafa-A1*001:01",
+                    "source.organism": "Macaca fascicularis",
+                    "feature.product": "MHC class I A1 antigen",
+                    "record.definition": "Mafa-A1 complete coding sequence",
+                ],
+                "NHP99999": [
+                    "feature.allele": "Mafa-B*002:01",
+                    "source.organism": "Macaca fascicularis",
+                    "feature.product": "MHC class I B antigen",
+                    "record.definition": "Mafa-B complete coding sequence",
+                ],
+            ],
+            alleleFieldKey: "feature.allele"
         )
     }
 

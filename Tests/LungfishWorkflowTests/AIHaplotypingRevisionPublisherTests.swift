@@ -33,6 +33,7 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
             "artifacts/ai-haplotyping/revisions/haprev-ai-test/haplotype-analysis.json"
         )
         XCTAssertEqual(manifest.haplotypeAnalysisRevisions?.map(\.id), ["haprev-det-0001", "haprev-ai-test"])
+        XCTAssertEqual(manifest.referenceRecordStore, fixture.result.manifest.referenceRecordStore)
         let revision = try XCTUnwrap(manifest.haplotypeAnalysisRevisions?.last)
         XCTAssertEqual(revision.method, .aiRefinement)
         XCTAssertEqual(revision.reviewState, .needsReview)
@@ -296,7 +297,14 @@ private extension AIHaplotypingRevisionPublisherTests {
             haplotypeAssayID: "MHC-exon2-miSeq",
             createdAt: "2026-06-14T17:00:00Z",
             activeHaplotypeAnalysisRevisionID: predecessorRevision.id,
-            haplotypeAnalysisRevisions: [predecessorRevision]
+            haplotypeAnalysisRevisions: [predecessorRevision],
+            referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo(
+                databasePath: "reference/records.sqlite",
+                recordCount: 2,
+                fieldCount: 4,
+                sha256: String(repeating: "a", count: 64),
+                sizeBytes: 512
+            )
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
 

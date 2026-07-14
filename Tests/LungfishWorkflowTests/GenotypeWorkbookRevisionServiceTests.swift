@@ -172,6 +172,7 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: currentWorkbookURL), workbookData("collaborator edit"))
         XCTAssertEqual(updatedManifest.primaryWorkbookPath, fixture.manifest.primaryWorkbookPath)
         XCTAssertEqual(updatedManifest.currentWorkbookPath, "artifacts/workbooks/current.xlsx")
+        XCTAssertEqual(updatedManifest.referenceRecordStore, fixture.manifest.referenceRecordStore)
 
         let snapshot = try XCTUnwrap(updatedManifest.workbookRevisions?.first { revision in
             revision.path.hasPrefix("artifacts/workbooks/revisions/")
@@ -408,7 +409,14 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
             longSummaryCSVPath: artifacts.genotypeCSV.lastPathComponent,
             sampleSummaryCSVPath: artifacts.sampleCSV.lastPathComponent,
             statsJSONPath: artifacts.statsJSON.lastPathComponent,
-            provenancePath: artifacts.provenance.lastPathComponent
+            provenancePath: artifacts.provenance.lastPathComponent,
+            referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo(
+                databasePath: "reference/records.sqlite",
+                recordCount: 2,
+                fieldCount: 4,
+                sha256: String(repeating: "b", count: 64),
+                sizeBytes: 512
+            )
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
         return (bundleURL, manifest)

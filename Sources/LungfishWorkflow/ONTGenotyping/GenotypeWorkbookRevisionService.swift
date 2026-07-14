@@ -576,7 +576,8 @@ public struct GenotypeWorkbookRevisionService {
             presetVersion: manifest.presetVersion,
             createdAt: manifest.createdAt,
             activeHaplotypeAnalysisRevisionID: manifest.activeHaplotypeAnalysisRevisionID,
-            haplotypeAnalysisRevisions: manifest.haplotypeAnalysisRevisions
+            haplotypeAnalysisRevisions: manifest.haplotypeAnalysisRevisions,
+            referenceRecordStore: manifest.referenceRecordStore
         )
     }
 

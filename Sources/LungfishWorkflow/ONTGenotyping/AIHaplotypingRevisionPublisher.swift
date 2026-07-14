@@ -280,7 +280,8 @@ public struct AIHaplotypingRevisionPublisher {
             presetVersion: manifest.presetVersion,
             createdAt: manifest.createdAt,
             activeHaplotypeAnalysisRevisionID: revision.id,
-            haplotypeAnalysisRevisions: (manifest.haplotypeAnalysisRevisions ?? []) + [revision]
+            haplotypeAnalysisRevisions: (manifest.haplotypeAnalysisRevisions ?? []) + [revision],
+            referenceRecordStore: manifest.referenceRecordStore
         )
     }
 
