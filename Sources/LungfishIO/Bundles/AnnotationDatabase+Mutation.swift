@@ -145,7 +145,9 @@ extension AnnotationDatabase {
         var transactionOpen = true
         do {
             var deleted = 0
-            for rowID in Set(rowIDs) {
+            var seenRowIDs: Set<Int64> = []
+            let uniqueRowIDs = rowIDs.filter { seenRowIDs.insert($0).inserted }
+            for rowID in uniqueRowIDs {
                 sqlite3_reset(stmt)
                 sqlite3_clear_bindings(stmt)
                 sqlite3_bind_int64(stmt, 1, rowID)

@@ -328,6 +328,73 @@ final class AnnotationDatabaseTests: XCTestCase {
         XCTAssertEqual(db.totalCount(allowedChromosomes: scope), 51)
     }
 
+    #if DEBUG
+    func testScopedQueryHoldsConnectionLockThroughScopePreparationAndExecution() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "alpha", type: "gene"),
+            bed14(chrom: "record_beta", start: 200, end: 250, name: "beta", type: "CDS"),
+        ]
+        let bedURL = try createBEDFile(lines: lines, filename: "scope-lock-barrier.bed")
+        let dbURL = tempDir.appendingPathComponent("scope-lock-barrier.db")
+        _ = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
+        let db = try AnnotationDatabase(url: dbURL, readWrite: true)
+        let hookEntered = DispatchSemaphore(value: 0)
+        let releaseHook = DispatchSemaphore(value: 0)
+        let scopedComplete = DispatchSemaphore(value: 0)
+        let mutationStarted = DispatchSemaphore(value: 0)
+        let mutationComplete = DispatchSemaphore(value: 0)
+        let failures = AnnotationDatabaseFailureLog()
+
+        db.setScopePreparationTestHook {
+            hookEntered.signal()
+            _ = releaseHook.wait(timeout: .now() + 10)
+        }
+
+        DispatchQueue.global().async {
+            let records = db.queryForTable(allowedChromosomes: ["record_alpha"])
+            if records.map(\.name) != ["alpha"] {
+                failures.append("scoped query returned \(records.map(\.name))")
+            }
+            scopedComplete.signal()
+        }
+        guard hookEntered.wait(timeout: .now() + 10) == .success else {
+            releaseHook.signal()
+            return XCTFail("Scoped query did not reach the in-lock preparation hook")
+        }
+
+        DispatchQueue.global().async {
+            mutationStarted.signal()
+            do {
+                _ = try db.insertAnnotation(
+                    name: "inserted", type: "gene", chromosome: "record_beta",
+                    start: 300, end: 350, strand: "+", attributes: nil, geneName: nil
+                )
+            } catch {
+                failures.append("mutation failed: \(error)")
+            }
+            mutationComplete.signal()
+        }
+        XCTAssertEqual(mutationStarted.wait(timeout: .now() + 10), .success)
+        let prematureMutationCompletion = mutationComplete.wait(timeout: .now() + 0.1)
+        XCTAssertEqual(
+            prematureMutationCompletion,
+            .timedOut,
+            "Mutation completed while scoped query still held its connection-local scope transaction"
+        )
+
+        releaseHook.signal()
+        XCTAssertEqual(scopedComplete.wait(timeout: .now() + 10), .success)
+        if prematureMutationCompletion == .timedOut {
+            XCTAssertEqual(mutationComplete.wait(timeout: .now() + 10), .success)
+        }
+        db.setScopePreparationTestHook(nil)
+
+        XCTAssertTrue(failures.snapshot.isEmpty, failures.snapshot.joined(separator: "; "))
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: ["record_alpha"]).map(\.name), ["alpha"])
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: ["record_beta"]).map(\.name), ["beta", "inserted"])
+    }
+    #endif
+
     func testDeleteAnnotationsRollsBackEveryRowWhenOneDeleteFails() throws {
         let lines = [
             bed14(chrom: "record_alpha", start: 100, end: 150, name: "keep_one", type: "gene"),
@@ -339,11 +406,17 @@ final class AnnotationDatabaseTests: XCTestCase {
         var buildPlan = AnnotationDatabaseBuildPlan.default
         buildPlan.schemaSQL += """
 
-        CREATE TRIGGER reject_one_annotation_delete
+        CREATE TABLE annotation_delete_attempts (attempt_count INTEGER NOT NULL);
+        INSERT INTO annotation_delete_attempts (attempt_count) VALUES (0);
+
+        CREATE TRIGGER reject_second_annotation_delete
         BEFORE DELETE ON annotations
-        WHEN OLD.name = 'reject_delete'
         BEGIN
-            SELECT RAISE(FAIL, 'injected delete failure');
+            UPDATE annotation_delete_attempts SET attempt_count = attempt_count + 1;
+            SELECT CASE
+                WHEN (SELECT attempt_count FROM annotation_delete_attempts) = 2
+                THEN RAISE(FAIL, 'injected delete failure after one successful delete')
+            END;
         END;
         """
         _ = try AnnotationDatabase.createFromBED(
@@ -352,11 +425,14 @@ final class AnnotationDatabaseTests: XCTestCase {
             buildPlan: buildPlan
         )
         let db = try AnnotationDatabase(url: dbURL, readWrite: true)
-        let rowIDs = db.queryForTable(limit: 10).compactMap(\.rowID)
+        let records = db.queryForTable(limit: 10)
+        XCTAssertEqual(records.map(\.name), ["keep_one", "keep_two", "reject_delete"])
+        let rowIDs = records.compactMap(\.rowID)
 
         XCTAssertThrowsError(try db.deleteAnnotations(rowIDs: rowIDs)) { error in
-            XCTAssertTrue(String(describing: error).contains("injected delete failure"))
+            XCTAssertTrue(String(describing: error).contains("after one successful delete"))
         }
+        XCTAssertNotNil(db.lookupAnnotation(name: "keep_one", chromosome: "record_alpha", start: 100, end: 150))
         XCTAssertEqual(Set(db.queryForTable(limit: 10).map(\.name)), ["keep_one", "reject_delete", "keep_two"])
     }
 

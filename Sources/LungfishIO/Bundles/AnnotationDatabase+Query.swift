@@ -241,6 +241,10 @@ extension AnnotationDatabase {
             }
         }
 
+        #if DEBUG
+        scopePreparationTestHook?()
+        #endif
+
         guard sqlite3_exec(db, "RELEASE populate_query_chromosome_scope", nil, nil, nil) == SQLITE_OK else {
             dbLogger.error("Failed to commit annotation chromosome scope population")
             return false

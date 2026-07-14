@@ -57,6 +57,16 @@ public final class AnnotationDatabase: @unchecked Sendable {
     /// Serializes every operation using the shared SQLite connection. The lock
     /// also keeps transactions and connection-local temporary state atomic.
     let connectionLock = NSLock()
+    #if DEBUG
+    /// Test-only synchronization seam invoked while `connectionLock` is held.
+    private(set) var scopePreparationTestHook: (@Sendable () -> Void)?
+
+    func setScopePreparationTestHook(_ hook: (@Sendable () -> Void)?) {
+        connectionLock.lock()
+        scopePreparationTestHook = hook
+        connectionLock.unlock()
+    }
+    #endif
     private let url: URL
     public var databaseURL: URL { url }
 
