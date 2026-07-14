@@ -38,7 +38,19 @@ public enum GenotypeReferenceRecordStoreSnapshot {
         toResultBundle resultBundleURL: URL,
         fileManager: FileManager = .default
     ) async throws -> PublishedSnapshot? {
-        let referenceBundle = try await ReferenceBundle(url: referenceBundleURL.standardizedFileURL)
+        let requestedURL = referenceBundleURL.standardizedFileURL
+        let nativeReferenceURL: URL
+        if requestedURL.pathExtension.lowercased() == "lungfishmhcref" {
+            guard let embeddedURL = MHCAmpliconReferenceBundle.referenceBundleURL(in: requestedURL) else {
+                return nil
+            }
+            nativeReferenceURL = embeddedURL
+        } else if let enclosingURL = MappingReferenceStager.enclosingReferenceBundleURL(for: requestedURL) {
+            nativeReferenceURL = enclosingURL
+        } else {
+            return nil
+        }
+        let referenceBundle = try await ReferenceBundle(url: nativeReferenceURL)
         guard let sourceDatabase = try referenceBundle.recordStoreDatabase() else { return nil }
 
         let startedAt = Date()
@@ -59,7 +71,7 @@ public enum GenotypeReferenceRecordStoreSnapshot {
         )
         return PublishedSnapshot(
             info: info,
-            sourceReferenceBundleURL: referenceBundleURL,
+            sourceReferenceBundleURL: nativeReferenceURL,
             sourceURL: sourceDatabase.databaseURL,
             destinationURL: destinationURL,
             startedAt: startedAt,

@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
 
@@ -361,15 +362,55 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let condaRoot = CoreToolLocator.condaRoot(homeDirectory: homeDirectory)
         let bundledMicromamba = try makeFakeFullLengthCondaRoot(at: condaRoot)
         let inputFASTQ = root.appendingPathComponent("DL46.fastq")
-        let referenceFASTA = root.appendingPathComponent("reference.fasta")
+        let referenceBundle = root.appendingPathComponent("reference.lungfishref", isDirectory: true)
+        let referenceFASTA = referenceBundle.appendingPathComponent("genome/sequence.fa")
+        let referenceDatabase = referenceBundle.appendingPathComponent("metadata/genbank_records.sqlite")
         let outputDirectory = root.appendingPathComponent("full-length.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try "@read-1\nACGTACGT\n+\nIIIIIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: referenceFASTA.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: referenceDatabase.deletingLastPathComponent(), withIntermediateDirectories: true)
         try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "allele1\t8\t9\t8\t9\n".write(
+            to: referenceBundle.appendingPathComponent("genome/sequence.fa.fai"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let genBankRecord = GenBankRecord(
+            sequence: try Sequence(name: "allele1", alphabet: .dna, bases: "ACGTACGT"),
+            annotations: [
+                SequenceAnnotation(
+                    type: .gene,
+                    name: "Mafa-A1*001:01",
+                    start: 0,
+                    end: 8,
+                    qualifiers: ["allele": AnnotationQualifier("Mafa-A1*001:01")]
+                ),
+            ],
+            locus: LocusInfo(name: "allele1", length: 8, moleculeType: .dna, topology: .linear)
+        )
+        let createdRecordStore = try GenBankRecordDatabase.create(records: [genBankRecord], at: referenceDatabase)
+        try BundleManifest(
+            name: "Annotated MHC",
+            identifier: "test.full-length.annotated-mhc",
+            source: SourceInfo(organism: "Macaca fascicularis", assembly: "test"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 8,
+                chromosomes: [ChromosomeInfo(name: "allele1", length: 8, offset: 9, lineBases: 8, lineWidth: 9)]
+            ),
+            recordStore: ReferenceRecordStoreInfo(
+                schemaVersion: GenBankRecordDatabase.schemaVersion,
+                format: ReferenceRecordStoreInfo.supportedFormat,
+                databasePath: "metadata/genbank_records.sqlite",
+                recordCount: createdRecordStore.recordCount
+            )
+        ).save(to: referenceBundle)
 
         let request = FullLengthONTMHCGenotypingRunRequest(
             inputFASTQURLs: [inputFASTQ],
-            referenceSourceURL: referenceFASTA,
+            referenceSourceURL: referenceBundle,
             outputDirectory: outputDirectory,
             outputName: "full-length",
             threads: 2,
@@ -386,6 +427,9 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         )
 
         let result = try await pipeline.run(request)
+
+        let genotypeManifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        XCTAssertNotNil(genotypeManifest.referenceRecordStore)
 
         let workflowDirectory = outputDirectory.appendingPathComponent("workflow", isDirectory: true)
         XCTAssertFalse(
@@ -404,6 +448,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: rawDirectory.appendingPathComponent("feature-table.tsv").path))
 
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        XCTAssertTrue(
+            envelope.outputs.contains { $0.path.hasSuffix("/metadata/genbank_records.sqlite") },
+            "Embedded reference metadata must be a durable provenance output."
+        )
         XCTAssertFalse(
             envelope.outputs.contains { $0.path.contains("/workflow/") },
             "Regenerable workflow intermediates must not be top-level durable provenance outputs."

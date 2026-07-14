@@ -622,22 +622,45 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         let workbookCopy = try createInitialCurrentWorkbookCopy(for: request)
         pipelineSteps.append(workbookCopy.step)
+        let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
+            fromReferenceBundle: request.referenceSourceURL,
+            toResultBundle: request.outputDirectory
+        )
+        if let snapshot = referenceRecordStoreSnapshot {
+            pipelineSteps.append(FullLengthONTMHCProvenanceStep(
+                toolName: "lungfish genotype reference metadata snapshot",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: ["copy", snapshot.sourceURL.path, snapshot.destinationURL.path],
+                inputs: [snapshot.sourceURL],
+                outputs: [snapshot.destinationURL],
+                exitStatus: 0,
+                stderr: nil,
+                startedAt: snapshot.startedAt,
+                completedAt: snapshot.completedAt
+            ))
+        }
         let completedAt = Date()
         try writeManifest(
             request: request,
             workbookRevision: workbookCopy.revision,
+            referenceRecordStore: referenceRecordStoreSnapshot?.info,
             createdAt: completedAt
         )
-        try writeProvenance(
-            request: request,
-            referenceFASTAURL: referenceFASTAURL,
-            executionPlan: executionPlan,
-            stagedSamples: stagedSamples,
-            processingOrder: orderedSamples,
-            steps: pipelineSteps,
-            startedAt: startedAt,
-            completedAt: completedAt
-        )
+        do {
+            try writeProvenance(
+                request: request,
+                referenceFASTAURL: referenceFASTAURL,
+                executionPlan: executionPlan,
+                stagedSamples: stagedSamples,
+                processingOrder: orderedSamples,
+                steps: pipelineSteps,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: request.manifestURL)
+            throw error
+        }
         if request.keepIntermediates {
             progress.emit(0.98, "Preserving full-length ONT MHC workflow intermediates.")
         } else {
@@ -2291,6 +2314,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private func writeManifest(
         request: FullLengthONTMHCGenotypingRunRequest,
         workbookRevision: ONTGenotypeWorkbookRevision,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?,
         createdAt: Date
     ) throws {
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
@@ -2314,7 +2338,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 : relativePath(from: request.outputDirectory, to: request.haplotypeAnalysisURL),
             haplotypeDefinitionSetID: request.haplotypeDefinitionSetID,
             haplotypeAssayID: resolvedHaplotypeDefinitionSet?.assayID,
-            createdAt: ISO8601DateFormatter().string(from: createdAt)
+            createdAt: ISO8601DateFormatter().string(from: createdAt),
+            referenceRecordStore: referenceRecordStore
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: request.outputDirectory)
     }
