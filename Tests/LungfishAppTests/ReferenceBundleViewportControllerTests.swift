@@ -2,9 +2,185 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishKit
 
 @MainActor
 final class ReferenceBundleViewportControllerTests: XCTestCase {
+    func testGenBankRecordTableExposesAndFiltersDynamicFields() throws {
+        let table = ReferenceBundleRecordTable(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
+        let fields = [
+            GenBankRecordDatabase.FieldDefinition(
+                key: "feature.allele", displayTitle: "Allele", valueType: "text",
+                sourceCategory: "feature", preferredOrder: 0
+            ),
+            GenBankRecordDatabase.FieldDefinition(
+                key: "record.ORGANISM", displayTitle: "Organism", valueType: "text",
+                sourceCategory: "record", preferredOrder: 1
+            ),
+            GenBankRecordDatabase.FieldDefinition(
+                key: "record.LOCUS.LENGTH", displayTitle: "Locus Length", valueType: "number",
+                sourceCategory: "record", preferredOrder: 2
+            ),
+            GenBankRecordDatabase.FieldDefinition(
+                key: "feature.gene", displayTitle: "Gene", valueType: "text",
+                sourceCategory: "feature", preferredOrder: 3
+            ),
+            GenBankRecordDatabase.FieldDefinition(
+                key: "record.DEFINITION", displayTitle: "Definition", valueType: "text",
+                sourceCategory: "record", preferredOrder: 4
+            ),
+            GenBankRecordDatabase.FieldDefinition(
+                key: "record.ACCESSION", displayTitle: "Accession", valueType: "text",
+                sourceCategory: "record", preferredOrder: 5
+            ),
+            GenBankRecordDatabase.FieldDefinition(
+                key: "feature.product", displayTitle: "Product", valueType: "text",
+                sourceCategory: "feature", preferredOrder: 6
+            ),
+            GenBankRecordDatabase.FieldDefinition(
+                key: "feature.number", displayTitle: "Number", valueType: "number",
+                sourceCategory: "feature", preferredOrder: 7
+            ),
+        ]
+        let first = BundleBrowserSequenceSummary(
+            name: "record-a", displayDescription: "first definition", length: 100,
+            aliases: [], isPrimary: true, isMitochondrial: false, metrics: nil
+        )
+        let second = BundleBrowserSequenceSummary(
+            name: "record-b", displayDescription: "second definition", length: 200,
+            aliases: [], isPrimary: true, isMitochondrial: false, metrics: nil
+        )
+        table.configure(dynamicFields: fields, rows: [
+            .init(summary: first, values: [
+                "feature.allele": "Mafa-A1", "record.ORGANISM": "Macaca fascicularis",
+                "record.LOCUS.LENGTH": "100", "feature.gene": "Gene-A",
+                "record.DEFINITION": "first definition", "record.ACCESSION": "ACC-A",
+                "feature.product": "Product A", "feature.number": "10",
+            ]),
+            .init(summary: second, values: [
+                "feature.allele": "Mafa-B2", "record.ORGANISM": "Macaca fascicularis",
+                "record.LOCUS.LENGTH": "200", "feature.gene": "Gene-B",
+                "record.DEFINITION": "second definition", "record.ACCESSION": "ACC-B",
+                "feature.product": "Product B", "feature.number": "20",
+            ]),
+        ])
+
+        XCTAssertEqual(table.tableView.tableColumns.map(\.identifier.rawValue), [
+            "sequence", "length", "role", "genbank.feature.allele",
+            "genbank.record.ORGANISM", "genbank.record.LOCUS.LENGTH",
+            "genbank.feature.gene", "genbank.record.DEFINITION", "genbank.record.ACCESSION",
+            "genbank.feature.product", "genbank.feature.number",
+        ])
+        table.setFilterText("Mafa-B2")
+        XCTAssertEqual(table.displayedRows.map(\.summary.name), ["record-b"])
+
+        table.setFilterText("")
+        table.setColumnFilter(
+            ColumnFilter(columnId: "genbank.record.ORGANISM", op: .equal, value: "Macaca fascicularis"),
+            for: "genbank.record.ORGANISM"
+        )
+        XCTAssertEqual(table.displayedRows.map(\.summary.name), ["record-a", "record-b"])
+
+        table.clearAllColumnFilters()
+        table.setColumnFilter(
+            ColumnFilter(columnId: "genbank.record.LOCUS.LENGTH", op: .greaterOrEqual, value: "150"),
+            for: "genbank.record.LOCUS.LENGTH"
+        )
+        XCTAssertEqual(table.displayedRows.map(\.summary.name), ["record-b"])
+        XCTAssertEqual(table.columnTypeHints["genbank.record.LOCUS.LENGTH"], true)
+        XCTAssertEqual(table.columnTypeHints["genbank.feature.number"], true)
+        XCTAssertTrue(table.compareRows(
+            table.unfilteredRows[0], table.unfilteredRows[1],
+            by: "genbank.record.LOCUS.LENGTH", ascending: true
+        ))
+    }
+
+    func testGenBankRecordTableLegacyRowsUseOnlyFixedColumns() {
+        let table = ReferenceBundleRecordTable(frame: NSRect(x: 0, y: 0, width: 500, height: 300))
+        let summary = BundleBrowserSequenceSummary(
+            name: "chr1", displayDescription: nil, length: 100,
+            aliases: [], isPrimary: true, isMitochondrial: false, metrics: nil
+        )
+
+        table.configure(dynamicFields: [], rows: [.init(summary: summary, values: [:])])
+
+        XCTAssertEqual(table.tableView.tableColumns.map(\.identifier.rawValue), ["sequence", "length", "role"])
+        XCTAssertEqual(table.displayedRows.map(\.summary.name), ["chr1"])
+    }
+
+    func testDirectBundleMergesGenBankRecordStoreAndFiltersDynamicValues() throws {
+        let records = try [
+            ReferenceViewportFixture.makeGenBankRecord(
+                name: "record-a", length: 100, allele: "Mafa-A1", organism: "Macaca fascicularis"
+            ),
+            ReferenceViewportFixture.makeGenBankRecord(
+                name: "record-b", length: 200, allele: "Mafa-B2", organism: "Macaca fascicularis"
+            ),
+        ]
+        let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Annotated Reference",
+            chromosomes: [.init(name: "record-a", length: 100), .init(name: "record-b", length: 200)],
+            includeAlignment: false,
+            includeVariant: false,
+            recordStoreRecords: records
+        )
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let vc = ReferenceBundleViewportController()
+        _ = vc.view
+
+        try vc.configureForTesting(input: .directBundle(bundleURL: bundleURL, manifest: manifest))
+
+        XCTAssertTrue(vc.testRecordTableColumnIdentifiers.contains("genbank.feature.allele"))
+        XCTAssertTrue(vc.testRecordTableColumnIdentifiers.contains("genbank.record.ORGANISM"))
+        vc.testApplySequenceFilter("Mafa-B2")
+        XCTAssertEqual(vc.testDisplayedSequenceNames, ["record-b"])
+        XCTAssertEqual(vc.testSelectedSequenceName, "record-b")
+    }
+
+    func testCorruptDeclaredRecordStoreShowsWarningAndManifestRows() throws {
+        let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Corrupt Metadata Reference",
+            chromosomes: [.init(name: "chr1", length: 100), .init(name: "chr2", length: 200)],
+            includeAlignment: false,
+            includeVariant: false,
+            corruptRecordStore: true
+        )
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let vc = ReferenceBundleViewportController()
+        _ = vc.view
+
+        try vc.configureForTesting(input: .directBundle(bundleURL: bundleURL, manifest: manifest))
+
+        XCTAssertEqual(vc.testDisplayedSequenceNames, ["chr1", "chr2"])
+        XCTAssertEqual(vc.testRecordTableColumnIdentifiers, ["sequence", "length", "role"])
+        XCTAssertTrue(vc.testSummaryText.contains("Warning:"), vc.testSummaryText)
+        XCTAssertTrue(vc.testSummaryText.contains("showing manifest records"), vc.testSummaryText)
+    }
+
+    func testMismatchedRecordStoreShowsWarningAndManifestRows() throws {
+        let records = try [
+            ReferenceViewportFixture.makeGenBankRecord(
+                name: "unknown-record", length: 100, allele: "Mafa-A1", organism: "Macaca fascicularis"
+            )
+        ]
+        let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Mismatched Metadata Reference",
+            chromosomes: [.init(name: "chr1", length: 100)],
+            includeAlignment: false,
+            includeVariant: false,
+            recordStoreRecords: records
+        )
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let vc = ReferenceBundleViewportController()
+        _ = vc.view
+
+        try vc.configureForTesting(input: .directBundle(bundleURL: bundleURL, manifest: manifest))
+
+        XCTAssertEqual(vc.testDisplayedSequenceNames, ["chr1"])
+        XCTAssertEqual(vc.testRecordTableColumnIdentifiers, ["sequence", "length", "role"])
+        XCTAssertTrue(vc.testSummaryText.contains("does not match"), vc.testSummaryText)
+    }
+
     func testDirectReferenceBundleShowsSequenceListAndLoadsFirstSequenceDetail() throws {
         let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
             name: "Reference",
@@ -145,7 +321,9 @@ private enum ReferenceViewportFixture {
         name: String,
         chromosomes: [Chromosome],
         includeAlignment: Bool,
-        includeVariant: Bool
+        includeVariant: Bool,
+        recordStoreRecords: [GenBankRecord]? = nil,
+        corruptRecordStore: Bool = false
     ) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("reference-viewport-\(UUID().uuidString)", isDirectory: true)
@@ -175,6 +353,36 @@ private enum ReferenceViewportFixture {
             "\(chrom.name)\t\(chrom.length)\t\(info.offset)\t\(chrom.length)\t\(chrom.length + 1)\n"
         }.joined()
         try index.write(to: indexURL, atomically: true, encoding: .utf8)
+
+        var recordStore: ReferenceRecordStoreInfo?
+        if let recordStoreRecords {
+            let metadataURL = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+            try FileManager.default.createDirectory(at: metadataURL, withIntermediateDirectories: true)
+            try GenBankRecordDatabase.create(
+                records: recordStoreRecords,
+                at: metadataURL.appendingPathComponent("genbank_records.sqlite")
+            )
+            recordStore = ReferenceRecordStoreInfo(
+                schemaVersion: GenBankRecordDatabase.schemaVersion,
+                format: ReferenceRecordStoreInfo.supportedFormat,
+                databasePath: "metadata/genbank_records.sqlite",
+                recordCount: recordStoreRecords.count
+            )
+        } else if corruptRecordStore {
+            let metadataURL = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+            try FileManager.default.createDirectory(at: metadataURL, withIntermediateDirectories: true)
+            try Data("not a sqlite database".utf8).write(
+                to: metadataURL.appendingPathComponent("genbank_records.sqlite")
+            )
+            recordStore = ReferenceRecordStoreInfo(
+                schemaVersion: GenBankRecordDatabase.schemaVersion,
+                format: ReferenceRecordStoreInfo.supportedFormat,
+                databasePath: "metadata/genbank_records.sqlite",
+                recordCount: chromosomes.count
+            )
+        } else {
+            recordStore = nil
+        }
 
         let manifest = BundleManifest(
             name: name,
@@ -209,9 +417,36 @@ private enum ReferenceViewportFixture {
                         metrics: nil
                     )
                 }
-            )
+            ),
+            recordStore: recordStore
         )
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+
+    static func makeGenBankRecord(
+        name: String,
+        length: Int,
+        allele: String,
+        organism: String
+    ) throws -> GenBankRecord {
+        GenBankRecord(
+            sequence: try Sequence(name: name, alphabet: .dna, bases: String(repeating: "A", count: length)),
+            annotations: [
+                SequenceAnnotation(
+                    type: .gene,
+                    name: allele,
+                    start: 0,
+                    end: length,
+                    qualifiers: ["allele": AnnotationQualifier(allele)]
+                )
+            ],
+            locus: LocusInfo(name: name, length: length, moleculeType: .dna, topology: .linear),
+            recordFields: [
+                GenBankRecordField(key: "LOCUS.NAME", value: name, ordinal: 0),
+                GenBankRecordField(key: "LOCUS.LENGTH", value: String(length), ordinal: 1),
+                GenBankRecordField(key: "ORGANISM", value: organism, ordinal: 2),
+            ]
+        )
     }
 }
