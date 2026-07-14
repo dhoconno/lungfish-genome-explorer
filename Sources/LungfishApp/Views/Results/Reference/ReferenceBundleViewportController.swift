@@ -226,7 +226,7 @@ public class ReferenceBundleViewportController: NSViewController {
         view.addSubview(focusContainer)
 
         NSLayoutConstraint.activate([
-            summaryBar.topAnchor.constraint(equalTo: view.topAnchor),
+            summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
@@ -235,7 +235,7 @@ public class ReferenceBundleViewportController: NSViewController {
             splitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             splitView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            focusContainer.topAnchor.constraint(equalTo: view.topAnchor),
+            focusContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             focusContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             focusContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             focusContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),

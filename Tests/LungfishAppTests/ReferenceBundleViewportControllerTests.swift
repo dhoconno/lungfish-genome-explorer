@@ -437,6 +437,98 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
         XCTAssertEqual(vc.testSelectedSequenceName, "chr2")
         XCTAssertFalse(vc.testListContainer.isHidden)
     }
+
+    func testFullSizeContentKeepsSummaryAndSearchBelowEffectiveSafeAreaTop() throws {
+        let parent = NSViewController()
+        parent.view = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
+        let vc = ReferenceBundleViewportController()
+        parent.addChild(vc)
+        vc.view.translatesAutoresizingMaskIntoConstraints = false
+        parent.view.addSubview(vc.view)
+        NSLayoutConstraint.activate([
+            vc.view.topAnchor.constraint(equalTo: parent.view.topAnchor),
+            vc.view.leadingAnchor.constraint(equalTo: parent.view.leadingAnchor),
+            vc.view.trailingAnchor.constraint(equalTo: parent.view.trailingAnchor),
+            vc.view.bottomAnchor.constraint(equalTo: parent.view.bottomAnchor),
+        ])
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.titled, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Reference"
+        window.titlebarAppearsTransparent = true
+        window.contentViewController = parent
+
+        window.layoutIfNeeded()
+        parent.view.layoutSubtreeIfNeeded()
+
+        let summaryFrame = vc.view.convert(vc.summaryBarView.bounds, from: vc.summaryBarView)
+        let safeAreaTop = vc.view.bounds.maxY - vc.view.safeAreaInsets.top
+        XCTAssertLessThanOrEqual(summaryFrame.maxY, safeAreaTop + 0.5)
+
+        let searchField = try XCTUnwrap(
+            vc.view.descendant(withAccessibilityIdentifier: "reference-bundle-sequence-search")
+        )
+        let searchFrame = vc.view.convert(searchField.bounds, from: searchField)
+        XCTAssertLessThanOrEqual(searchFrame.maxY, summaryFrame.minY - 3.5)
+
+        window.setContentSize(NSSize(width: 700, height: 450))
+        window.layoutIfNeeded()
+        parent.view.layoutSubtreeIfNeeded()
+
+        let resizedSummaryFrame = vc.view.convert(vc.summaryBarView.bounds, from: vc.summaryBarView)
+        let resizedSafeAreaTop = vc.view.bounds.maxY - vc.view.safeAreaInsets.top
+        XCTAssertEqual(resizedSummaryFrame.maxY, resizedSafeAreaTop, accuracy: 0.5)
+        let resizedSearchFrame = vc.view.convert(searchField.bounds, from: searchField)
+        XCTAssertLessThanOrEqual(resizedSearchFrame.maxY, resizedSummaryFrame.minY - 3.5)
+    }
+
+    func testNormalChildContainerDoesNotAddSafeAreaGap() {
+        let parent = NSViewController()
+        parent.view = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
+        let vc = ReferenceBundleViewportController()
+        parent.addChild(vc)
+        vc.view.translatesAutoresizingMaskIntoConstraints = false
+        parent.view.addSubview(vc.view)
+        NSLayoutConstraint.activate([
+            vc.view.topAnchor.constraint(equalTo: parent.view.topAnchor),
+            vc.view.leadingAnchor.constraint(equalTo: parent.view.leadingAnchor),
+            vc.view.trailingAnchor.constraint(equalTo: parent.view.trailingAnchor),
+            vc.view.bottomAnchor.constraint(equalTo: parent.view.bottomAnchor),
+        ])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = parent
+        window.layoutIfNeeded()
+        parent.view.layoutSubtreeIfNeeded()
+
+        let summaryFrame = vc.view.convert(vc.summaryBarView.bounds, from: vc.summaryBarView)
+        XCTAssertEqual(summaryFrame.maxY, vc.view.bounds.maxY, accuracy: 0.5)
+        XCTAssertEqual(
+            summaryFrame.maxY,
+            vc.view.bounds.maxY - vc.view.safeAreaInsets.top,
+            accuracy: 0.5
+        )
+    }
+}
+
+private extension NSView {
+    func descendant(withAccessibilityIdentifier identifier: String) -> NSView? {
+        if accessibilityIdentifier() == identifier { return self }
+        for subview in subviews {
+            if let match = subview.descendant(withAccessibilityIdentifier: identifier) {
+                return match
+            }
+        }
+        return nil
+    }
 }
 
 private enum ReferenceViewportFixture {
