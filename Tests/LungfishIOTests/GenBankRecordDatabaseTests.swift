@@ -61,6 +61,43 @@ final class GenBankRecordDatabaseTests: XCTestCase {
         }
     }
 
+    func testFailedReplacementLeavesExistingDatabaseUnchangedAndReadable() throws {
+        let databaseURL = temporaryDirectory.appendingPathComponent("replace.sqlite")
+        let originalRecords = try makeRecords()
+        try GenBankRecordDatabase.create(records: originalRecords, at: databaseURL)
+        let originalBytes = try Data(contentsOf: databaseURL)
+
+        XCTAssertThrowsError(try GenBankRecordDatabase.create(
+            records: [originalRecords[0], originalRecords[0]],
+            at: databaseURL
+        ))
+
+        XCTAssertEqual(try Data(contentsOf: databaseURL), originalBytes)
+        let reopened = try GenBankRecordDatabase(url: databaseURL)
+        XCTAssertEqual(try reopened.records().map(\.sequenceName), ["NHP00353", "NHP02052"])
+    }
+
+    func testOpeningDatabaseWithMalformedRequiredColumnsIsRejected() throws {
+        let databaseURL = temporaryDirectory.appendingPathComponent("malformed-columns.sqlite")
+        try executeSQLite(at: databaseURL, sql: """
+            CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO metadata VALUES ('schema_version', '1');
+            CREATE TABLE records (id INTEGER PRIMARY KEY, sequence_name TEXT NOT NULL UNIQUE, source_ordinal INTEGER NOT NULL);
+            CREATE TABLE field_definitions (key TEXT PRIMARY KEY, display_title TEXT NOT NULL, value_type TEXT NOT NULL, source_category TEXT NOT NULL, preferred_order INTEGER NOT NULL);
+            CREATE TABLE field_values (record_id INTEGER NOT NULL REFERENCES records(id) ON DELETE CASCADE, field_key TEXT NOT NULL REFERENCES field_definitions(key), value_ordinal INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY (record_id,field_key,value_ordinal));
+            CREATE INDEX idx_field_values_key_value ON field_values(field_key,value COLLATE NOCASE);
+            CREATE INDEX idx_field_values_record_key ON field_values(record_id,field_key);
+            """)
+
+        XCTAssertThrowsError(try GenBankRecordDatabase(url: databaseURL)) { error in
+            guard case GenBankRecordDatabase.Error.invalidSchema(let reason) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(reason.contains("records"))
+            XCTAssertTrue(reason.contains("sequence_length"))
+        }
+    }
+
     func testOpeningUnsupportedSchemaVersionIsRejected() throws {
         let databaseURL = temporaryDirectory.appendingPathComponent("future.sqlite")
         try executeSQLite(at: databaseURL, sql: """

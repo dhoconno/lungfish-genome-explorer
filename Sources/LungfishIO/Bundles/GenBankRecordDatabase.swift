@@ -85,6 +85,13 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
 
     public static let schemaVersion = 1
     private static let requiredTables = ["metadata", "records", "field_definitions", "field_values"]
+    private static let requiredColumns: [String: Set<String>] = [
+        "metadata": ["key", "value"],
+        "records": ["id", "sequence_name", "sequence_length", "source_ordinal"],
+        "field_definitions": ["key", "display_title", "value_type", "source_category", "preferred_order"],
+        "field_values": ["record_id", "field_key", "value_ordinal", "value"]
+    ]
+    private static let requiredIndexes = ["idx_field_values_key_value", "idx_field_values_record_key"]
     private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     public let databaseURL: URL
@@ -92,7 +99,7 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
 
     public init(url: URL) throws {
         databaseURL = url
-        let result = sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil)
+        let result = sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil)
         guard result == SQLITE_OK, let database else {
             let message = self.database.map { String(cString: sqlite3_errmsg($0)) } ?? "Unknown SQLite error"
             sqlite3_close(self.database)
@@ -117,20 +124,23 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
     public static func create(records: [GenBankRecord], at url: URL) throws -> CreateResult {
         let recordValues = records.map(Self.collectValues)
         let definitions = makeFieldDefinitions(from: recordValues)
+        let stagingURL = SQLiteDatabasePublication.stagingURL(for: url)
+        defer { SQLiteDatabasePublication.removeDatabase(at: stagingURL) }
 
-        if FileManager.default.fileExists(atPath: url.path) {
-            do {
-                try FileManager.default.removeItem(at: url)
-            } catch {
-                throw Error.operationFailed("Remove existing database: \(error.localizedDescription)")
-            }
+        do {
+            try FileManager.default.createDirectory(
+                at: stagingURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            throw Error.operationFailed("Create database directory: \(error.localizedDescription)")
         }
 
         var database: OpaquePointer?
         let openResult = sqlite3_open_v2(
-            url.path,
+            stagingURL.path,
             &database,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
             nil
         )
         guard openResult == SQLITE_OK, let database else {
@@ -138,7 +148,6 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
             sqlite3_close(database)
             throw Error.openFailed(message)
         }
-        defer { sqlite3_close(database) }
 
         do {
             try execute(database, sql: "PRAGMA foreign_keys = ON")
@@ -154,8 +163,17 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
                 throw error
             }
         } catch {
-            try? FileManager.default.removeItem(at: url)
+            sqlite3_close(database)
             throw error
+        }
+
+        guard sqlite3_close(database) == SQLITE_OK else {
+            throw Error.operationFailed("Close staged database before publication")
+        }
+        do {
+            try SQLiteDatabasePublication.publish(stagingURL: stagingURL, to: url)
+        } catch {
+            throw Error.operationFailed("Publish database: \(error.localizedDescription)")
         }
 
         return CreateResult(recordCount: records.count, fieldCount: definitions.count)
@@ -414,6 +432,15 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         for table in requiredTables where !tableExists(database, name: table) {
             throw Error.invalidSchema("Missing required table: \(table)")
         }
+        for table in requiredTables {
+            let columns = columnsForTable(database, table: table)
+            let missing = (requiredColumns[table] ?? []).subtracting(columns)
+            guard missing.isEmpty else {
+                throw Error.invalidSchema(
+                    "\(table) table missing required columns: \(missing.sorted().joined(separator: ", "))"
+                )
+            }
+        }
         var statement: OpaquePointer?
         try prepare(database, sql: "SELECT value FROM metadata WHERE key = 'schema_version' LIMIT 1", statement: &statement)
         defer { sqlite3_finalize(statement) }
@@ -427,12 +454,40 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         guard version == schemaVersion else {
             throw Error.unsupportedSchemaVersion(found: version, expected: schemaVersion)
         }
+        let missingIndexes = requiredIndexes.filter { !indexExists(database, name: $0) }
+        guard missingIndexes.isEmpty else {
+            throw Error.invalidSchema("Missing required indexes: \(missingIndexes.joined(separator: ", "))")
+        }
     }
 
     private static func tableExists(_ database: OpaquePointer, name: String) -> Bool {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         guard sqlite3_prepare_v2(database, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1", -1, &statement, nil) == SQLITE_OK else {
+            return false
+        }
+        guard sqlite3_bind_text(statement, 1, name, -1, sqliteTransient) == SQLITE_OK else { return false }
+        return sqlite3_step(statement) == SQLITE_ROW
+    }
+
+    private static func columnsForTable(_ database: OpaquePointer, table: String) -> Set<String> {
+        guard table.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { return [] }
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(database, "PRAGMA table_info(\(table))", -1, &statement, nil) == SQLITE_OK else {
+            return []
+        }
+        var columns: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            columns.insert(text(statement, column: 1))
+        }
+        return columns
+    }
+
+    private static func indexExists(_ database: OpaquePointer, name: String) -> Bool {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(database, "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ? LIMIT 1", -1, &statement, nil) == SQLITE_OK else {
             return false
         }
         guard sqlite3_bind_text(statement, 1, name, -1, sqliteTransient) == SQLITE_OK else { return false }
