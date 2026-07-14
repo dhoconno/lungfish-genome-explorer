@@ -24,6 +24,14 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
 
     // MARK: - Public API
 
+    /// Restricts annotation detail queries to the supplied reference records.
+    /// `nil` means all records; an empty set intentionally yields no annotations.
+    public func setAnnotationRecordScope(_ chromosomes: Set<String>?) {
+        guard annotationRecordScope != chromosomes else { return }
+        annotationRecordScope = chromosomes
+        annotationDrawerView?.setAllowedChromosomes(chromosomes)
+    }
+
     /// Toggles the annotation drawer open/closed with animation.
     public func toggleAnnotationDrawer() {
         if isDisplayingFASTQDataset {
@@ -113,6 +121,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         drawer.windowStateScope = windowStateScope
         drawer.setViewportSyncSource(viewerView)
         drawer.setSampleDisplayState(viewerView.sampleDisplayState)
+        drawer.setAllowedChromosomes(annotationRecordScope)
         view.addSubview(drawer)
 
         // The drawer sits between the viewer content area and the status bar.

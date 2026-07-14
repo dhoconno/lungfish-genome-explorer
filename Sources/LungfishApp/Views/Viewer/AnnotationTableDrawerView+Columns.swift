@@ -692,6 +692,11 @@ extension AnnotationTableDrawerView {
             sampleFilterField.stringValue = sampleFilterText
         }
 
+        if tab == .annotations, allowedAnnotationChromosomes != nil {
+            setAllowedChromosomes(allowedAnnotationChromosomes, forceRefresh: true)
+            return
+        }
+
         // Reset variant subtab when switching to variants
         if tab == .variants {
             activeVariantSubtab = .calls
@@ -730,16 +735,31 @@ extension AnnotationTableDrawerView {
         markVariantFilterStateMutated()
         viewportRegionAtLastFilterMutation = nil
 
-        // Get metadata from the index — track annotation and variant counts separately
-        totalAnnotationCount = index.entryCount
+        // Get metadata from the index — track annotation and variant counts separately.
+        // A pending record scope must be applied even when the drawer/index is created lazily.
+        let annotationContext = annotationQueryContext(for: index)
+        let scopedLegacyRows = allowedAnnotationChromosomes.map { scope in
+            index.allResults.filter { scope.contains($0.chromosome) }
+        }
+        if index.hasDatabaseBackend {
+            totalAnnotationCount = annotationContext.totalCount()
+            availableAnnotationTypes = annotationContext.allTypes()
+        } else if let scopedLegacyRows {
+            totalAnnotationCount = scopedLegacyRows.count
+            availableAnnotationTypes = Set(scopedLegacyRows.map(\.type)).sorted()
+        } else {
+            totalAnnotationCount = index.entryCount
+            availableAnnotationTypes = index.annotationTypes
+        }
         totalVariantCount = index.variantCount
-        availableAnnotationTypes = index.annotationTypes
         availableVariantTypes = index.variantTypes
 
         // Discover INFO field definitions for dynamic variant columns
         infoColumnKeys = index.variantInfoKeys.map { (key: $0.key, type: $0.type, description: $0.description) }
         annotationAttributeColumnKeys = Self.orderedAnnotationAttributeKeys(
-            from: index.queryAnnotationsOnly(limit: Self.maxDisplayCount)
+            from: index.hasDatabaseBackend
+                ? annotationContext.queryAnnotationsOnly(limit: Self.maxDisplayCount)
+                : (scopedLegacyRows ?? index.allResults)
         )
         let previousTrackDisplayState = annotationTrackDisplayState
         for handle in index.annotationDatabaseHandles {

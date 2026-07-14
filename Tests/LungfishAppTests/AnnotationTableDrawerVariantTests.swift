@@ -52,6 +52,60 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         XCTAssertTrue(drawerSource.contains("if shouldCancel?() == true"))
     }
 
+    func testAnnotationQueryContextScopesRowsCountsAndTypesByAllowedChromosomes() throws {
+        let bedURL = tempDir.appendingPathComponent("scope.bed")
+        try """
+        record-a\t0\t10\tgene-a\t0\t+\t0\t10\t0,0,0\t1\t10\t0\tgene\tgene=gene-a
+        record-b\t10\t20\texon-b\t0\t+\t10\t20\t0,0,0\t1\t10\t0\texon\tgene=gene-b
+        record-c\t20\t30\tcds-c\t0\t+\t20\t30\t0,0,0\t1\t10\t0\tCDS\tgene=gene-c
+        """.write(to: bedURL, atomically: true, encoding: .utf8)
+        let databaseURL = tempDir.appendingPathComponent("scope.sqlite")
+        try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: databaseURL)
+
+        func context(_ scope: Set<String>?) -> AnnotationQueryContext {
+            AnnotationQueryContext(
+                databases: [(trackId: "annotations", databaseURL: databaseURL)],
+                trackNames: ["annotations": "Annotations"],
+                allowedChromosomes: scope
+            )
+        }
+
+        let all = context(nil)
+        XCTAssertEqual(all.totalCount(), 3)
+        XCTAssertEqual(Set(all.allTypes()), ["CDS", "exon", "gene"])
+        XCTAssertEqual(Set(all.queryAnnotationsOnly().map(\.chromosome)), ["record-a", "record-b", "record-c"])
+
+        let none = context([])
+        XCTAssertEqual(none.totalCount(), 0)
+        XCTAssertEqual(none.allTypes(), [])
+        XCTAssertTrue(none.queryAnnotationsOnly().isEmpty)
+
+        let two = context(["record-a", "record-c"])
+        XCTAssertEqual(two.totalCount(), 2)
+        XCTAssertEqual(Set(two.allTypes()), ["CDS", "gene"])
+        XCTAssertEqual(Set(two.queryAnnotationsOnly().map(\.chromosome)), ["record-a", "record-c"])
+    }
+
+    func testDrawerRecordScopeCancelsStaleRefreshAndDisplaysLatestScope() throws {
+        let drawer = try createDrawerWithAnnotationsAndVariants(bedLines: [
+            "record-a\t0\t10\tgene-a\t0\t+\t0\t10\t0,0,0\t1\t10\t0\tgene\tgene=gene-a",
+            "record-b\t10\t20\texon-b\t0\t+\t10\t20\t0,0,0\t1\t10\t0\texon\tgene=gene-b",
+            "record-c\t20\t30\tcds-c\t0\t+\t20\t30\t0,0,0\t1\t10\t0\tCDS\tgene=gene-c",
+        ])
+
+        drawer.setAllowedChromosomes(["record-b"])
+        drawer.setAllowedChromosomes(["record-a", "record-c"])
+        waitForDisplayedAnnotations(drawer) {
+            drawer.totalAnnotationCount == 2
+                && Set(drawer.displayedAnnotations.map(\.chromosome)) == ["record-a", "record-c"]
+        }
+
+        XCTAssertEqual(drawer.allowedAnnotationChromosomes, ["record-a", "record-c"])
+        XCTAssertEqual(drawer.totalAnnotationCount, 2)
+        XCTAssertEqual(Set(drawer.availableAnnotationTypes), ["CDS", "gene"])
+        XCTAssertEqual(Set(drawer.displayedAnnotations.map(\.chromosome)), ["record-a", "record-c"])
+    }
+
     // MARK: - Helpers
 
     /// Creates a drawer with both annotation and variant databases.

@@ -12,6 +12,96 @@ extension AnnotationTableDrawerView {
 
     // MARK: - Filtering
 
+    func annotationQueryContext(for index: AnnotationSearchIndex) -> AnnotationQueryContext {
+        var trackNames: [String: String] = [:]
+        for handle in index.annotationDatabaseHandles {
+            if let name = index.annotationTrackName(for: handle.trackId) {
+                trackNames[handle.trackId] = name
+            }
+        }
+        return AnnotationQueryContext(
+            databases: index.annotationDatabaseHandles.map {
+                (trackId: $0.trackId, databaseURL: $0.db.databaseURL)
+            },
+            trackNames: trackNames,
+            allowedChromosomes: allowedAnnotationChromosomes
+        )
+    }
+
+    /// Restricts annotation-table content to records currently displayed by a
+    /// reference record table. `nil` restores the unscoped database view.
+    func setAllowedChromosomes(_ chromosomes: Set<String>?, forceRefresh: Bool = false) {
+        guard forceRefresh || allowedAnnotationChromosomes != chromosomes else { return }
+        allowedAnnotationChromosomes = chromosomes
+        invalidatePendingAnnotationQuery()
+
+        // Record filtering does not alter the variants or samples tabs. The stored
+        // scope is refreshed when the annotations tab next becomes active.
+        guard activeTab == .annotations else { return }
+
+        setAnnotationBaseResults([])
+        tableView.reloadData()
+        annotationSearchRegion = nil
+        tooManyLabel.isHidden = true
+        updateCountLabel()
+
+        guard let index = searchIndex else { return }
+        guard index.hasDatabaseBackend else {
+            let previouslyAllTypes = visibleAnnotationTypes == Set(availableAnnotationTypes)
+            let scoped = chromosomes.map { scope in
+                index.allResults.filter { scope.contains($0.chromosome) }
+            } ?? index.allResults
+            totalAnnotationCount = scoped.count
+            availableAnnotationTypes = Set(scoped.map(\.type)).sorted()
+            visibleAnnotationTypes = previouslyAllTypes
+                ? Set(availableAnnotationTypes)
+                : visibleAnnotationTypes.intersection(availableAnnotationTypes)
+            annotationAttributeColumnKeys = Self.orderedAnnotationAttributeKeys(from: scoped)
+            configureColumnsForTab(.annotations)
+            rebuildChipButtons()
+            updateDisplayedAnnotations()
+            return
+        }
+
+        let generation = annotationQueryGeneration
+        let context = annotationQueryContext(for: index)
+        let cancelToken = VariantQueryCancellationToken()
+        let maxDisplayCount = Self.maxDisplayCount
+        activeAnnotationQueryCancelToken = cancelToken
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let count = context.totalCount(shouldCancel: { cancelToken.isCancelled })
+            guard !cancelToken.isCancelled else { return }
+            let types = context.allTypes(shouldCancel: { cancelToken.isCancelled })
+            guard !cancelToken.isCancelled else { return }
+            let sampleRows = context.queryAnnotationsOnly(
+                limit: maxDisplayCount,
+                shouldCancel: { cancelToken.isCancelled }
+            )
+            guard !cancelToken.isCancelled else { return }
+
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self,
+                          !cancelToken.isCancelled,
+                          self.activeAnnotationQueryCancelToken === cancelToken,
+                          self.annotationQueryGeneration == generation,
+                          self.activeTab == .annotations else { return }
+                    self.activeAnnotationQueryCancelToken = nil
+                    let previouslyAllTypes = self.visibleAnnotationTypes == Set(self.availableAnnotationTypes)
+                    self.totalAnnotationCount = count
+                    self.availableAnnotationTypes = types
+                    self.visibleAnnotationTypes = previouslyAllTypes
+                        ? Set(types)
+                        : self.visibleAnnotationTypes.intersection(types)
+                    self.annotationAttributeColumnKeys = Self.orderedAnnotationAttributeKeys(from: sampleRows)
+                    self.configureColumnsForTab(.annotations)
+                    self.rebuildChipButtons()
+                    self.updateDisplayedAnnotations()
+                }
+            }
+        }
+    }
+
     func updateDisplayedAnnotations() {
         if activeTab == .variants {
             enforceMaterializedOnlyRestrictionsIfNeeded()
@@ -90,18 +180,7 @@ extension AnnotationTableDrawerView {
                 let requiresPostOnlyColumnFiltering = hasPostOnlyAnnotationColumnFilters()
                 let maxDisplay = Self.maxDisplayCount
                 let generation = annotationQueryGeneration
-                var trackNames: [String: String] = [:]
-                for handle in index.annotationDatabaseHandles {
-                    if let name = index.annotationTrackName(for: handle.trackId) {
-                        trackNames[handle.trackId] = name
-                    }
-                }
-                let context = AnnotationQueryContext(
-                    databases: index.annotationDatabaseHandles.map {
-                        (trackId: $0.trackId, databaseURL: $0.db.databaseURL)
-                    },
-                    trackNames: trackNames
-                )
+                let context = annotationQueryContext(for: index)
                 let cancelToken = VariantQueryCancellationToken()
                 activeAnnotationQueryCancelToken = cancelToken
 
@@ -121,6 +200,7 @@ extension AnnotationTableDrawerView {
                     DispatchQueue.main.async { [weak self] in
                         MainActor.assumeIsolated {
                             guard let self,
+                                  !cancelToken.isCancelled,
                                   self.activeAnnotationQueryCancelToken === cancelToken,
                                   self.annotationQueryGeneration == generation,
                                   self.activeTab == .annotations else { return }
@@ -164,6 +244,9 @@ extension AnnotationTableDrawerView {
                 tooManyLabel.isHidden = false
             } else {
                 var results = index.allResults
+                if let allowedAnnotationChromosomes {
+                    results = results.filter { allowedAnnotationChromosomes.contains($0.chromosome) }
+                }
                 if !typeFilter.isEmpty {
                     results = results.filter { typeFilter.contains($0.type) }
                 }
@@ -227,9 +310,10 @@ extension AnnotationTableDrawerView {
     ) -> [AnnotationSearchIndex.SearchResult] {
         let targetCount = Self.maxDisplayCount + 1
         var fetchLimit = targetCount
+        let context = annotationQueryContext(for: index)
 
         while true {
-            let results = index.queryAnnotationsOnly(
+            let results = context.queryAnnotationsOnly(
                 nameFilter: nameFilter,
                 types: typeFilter,
                 chromosome: annotationQuery.chromosome,

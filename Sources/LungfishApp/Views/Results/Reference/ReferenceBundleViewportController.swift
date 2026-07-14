@@ -21,6 +21,7 @@ public class ReferenceBundleViewportController: NSViewController {
     private var currentResultDirectoryURL: URL?
     private var loadedViewerBundleURL: URL?
     private var sequenceRows: [ReferenceBundleRecordRow] = []
+    private var usesRecordStoreTable = false
     private var recordStoreWarning: String?
     private typealias AlignmentTrackSummaryBuilder = (URL, Int) async throws -> [MappingContigSummary]
     private var alignmentTrackSummaryBuilder: AlignmentTrackSummaryBuilder = { bamURL, totalReads in
@@ -261,7 +262,7 @@ public class ReferenceBundleViewportController: NSViewController {
             self?.showDetailPlaceholder("Select a sequence to inspect.")
         }
         sequenceTableView.onDisplayedRowsChanged = { [weak self] in
-            self?.reconcileSequenceSelectionAfterDisplayedRowsChanged()
+            self?.publishAnnotationScopeAndReconcileSequenceSelection()
         }
         embeddedViewerController.onSequenceRegionSelectionChanged = { [weak self] state in
             self?.onSequenceSelectionStateChanged?(state)
@@ -437,6 +438,7 @@ public class ReferenceBundleViewportController: NSViewController {
     }
 
     private func configureMappingRows(_ result: MappingResult?, preferredSelectionName: String?) {
+        usesRecordStoreTable = false
         sequenceRows = []
         sequenceTableView.configure(dynamicFields: [], rows: [])
         sequenceTableView.isHidden = true
@@ -453,6 +455,7 @@ public class ReferenceBundleViewportController: NSViewController {
     }
 
     private func configureDirectBundleRows(input: ReferenceBundleViewportInput, preferredSelectionName: String?) throws {
+        usesRecordStoreTable = false
         contigTableView.configure(rows: [])
         contigTableView.isHidden = true
         sequenceTableView.isHidden = false
@@ -477,6 +480,7 @@ public class ReferenceBundleViewportController: NSViewController {
             summaries: loadResult.summary.sequences
         )
         sequenceRows = tableContent.rows
+        usesRecordStoreTable = manifest.recordStore != nil
         recordStoreWarning = tableContent.warning
         updateSummaryBar()
         sequenceTableView.configure(dynamicFields: tableContent.fields, rows: sequenceRows)
@@ -582,8 +586,16 @@ public class ReferenceBundleViewportController: NSViewController {
         selectSequence(at: 0)
     }
 
-    private func reconcileSequenceSelectionAfterDisplayedRowsChanged() {
+    private func publishAnnotationScopeAndReconcileSequenceSelection() {
         guard currentInput?.kind == .directBundle, !sequenceTableView.isHidden else { return }
+
+        let hasActiveFilter = !sequenceTableView.currentFilterText
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !sequenceTableView.columnFilters.isEmpty
+        let scope: Set<String>? = usesRecordStoreTable || hasActiveFilter
+            ? Set(sequenceTableView.displayedRows.map(\.summary.name))
+            : nil
+        embeddedViewerController.setAnnotationRecordScope(scope)
 
         guard !sequenceTableView.displayedRows.isEmpty else {
             sequenceTableView.tableView.deselectAll(nil)
@@ -1300,6 +1312,7 @@ extension ReferenceBundleViewportController {
     var testCurrentSequenceAnnotationOperationContext: SequenceAnnotationDraftContext? {
         currentSequenceAnnotationOperationContext()
     }
+    var testAnnotationRecordScope: Set<String>? { embeddedViewerController.annotationRecordScope }
 
     func testSelectContig(named name: String) {
         _ = selectContig(named: name)

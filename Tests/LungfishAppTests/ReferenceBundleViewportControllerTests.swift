@@ -355,6 +355,58 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
         XCTAssertEqual(vc.testDetailPlaceholderMessage, "No sequences are available for this reference bundle.")
     }
 
+    func testRecordStoreFilteringPublishesDisplayedRecordScopeBeforeReconcilingSelection() throws {
+        let records = try [
+            ReferenceViewportFixture.makeGenBankRecord(name: "record-a", length: 100, allele: "A", organism: "Test"),
+            ReferenceViewportFixture.makeGenBankRecord(name: "record-b", length: 100, allele: "B", organism: "Test"),
+            ReferenceViewportFixture.makeGenBankRecord(name: "record-c", length: 100, allele: "C", organism: "Test"),
+        ]
+        let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Scoped Reference",
+            chromosomes: [
+                .init(name: "record-a", length: 100),
+                .init(name: "record-b", length: 100),
+                .init(name: "record-c", length: 100),
+            ],
+            includeAlignment: false,
+            includeVariant: false,
+            recordStoreRecords: records
+        )
+        let vc = ReferenceBundleViewportController()
+        _ = vc.view
+        try vc.configureForTesting(input: .directBundle(bundleURL: bundleURL, manifest: try .load(from: bundleURL)))
+
+        XCTAssertEqual(vc.testAnnotationRecordScope, ["record-a", "record-b", "record-c"])
+        vc.testSelectSequence(named: "record-c")
+        XCTAssertEqual(vc.testAnnotationRecordScope, ["record-a", "record-b", "record-c"])
+
+        vc.testApplySequenceFilter("record-b")
+        XCTAssertEqual(vc.testAnnotationRecordScope, ["record-b"])
+        XCTAssertEqual(vc.testSelectedSequenceName, "record-b")
+
+        vc.testApplySequenceFilter("missing")
+        XCTAssertEqual(vc.testAnnotationRecordScope, [])
+        XCTAssertNil(vc.testSelectedSequenceName)
+    }
+
+    func testLegacyReferenceUsesNilScopeUntilFilteringIsActive() throws {
+        let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Legacy Reference",
+            chromosomes: [.init(name: "chr1", length: 100), .init(name: "chr2", length: 100)],
+            includeAlignment: false,
+            includeVariant: false
+        )
+        let vc = ReferenceBundleViewportController()
+        _ = vc.view
+        try vc.configureForTesting(input: .directBundle(bundleURL: bundleURL, manifest: try .load(from: bundleURL)))
+
+        XCTAssertNil(vc.testAnnotationRecordScope)
+        vc.testApplySequenceFilter("chr2")
+        XCTAssertEqual(vc.testAnnotationRecordScope, ["chr2"])
+        vc.testApplySequenceFilter("")
+        XCTAssertNil(vc.testAnnotationRecordScope)
+    }
+
     func testFocusModeUsesVisibleBackButtonAndRestoresListDetailSelection() throws {
         let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
             name: "Reference",
