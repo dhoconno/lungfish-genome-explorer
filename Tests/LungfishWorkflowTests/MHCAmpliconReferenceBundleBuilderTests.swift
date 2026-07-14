@@ -91,6 +91,16 @@ final class MHCAmpliconReferenceBundleBuilderTests: XCTestCase {
         ORIGIN
                 1 atgcatgcatgc
         //
+        LOCUS       MHCREF2                 4 bp    DNA     linear   UNK 01-JAN-2024
+        DEFINITION  Second MHC reference.
+        ACCESSION   MHCREF2
+        VERSION     MHCREF2.1
+        FEATURES             Location/Qualifiers
+             source          1..4
+                             /organism="Test organism"
+        ORIGIN
+                1 acgt
+        //
         """.write(to: genBankURL, atomically: true, encoding: .utf8)
         try JSONEncoder().encode(Self.definition(id: "mcm-mhc")).write(to: definitionURL)
 
@@ -116,6 +126,10 @@ final class MHCAmpliconReferenceBundleBuilderTests: XCTestCase {
         let embeddedManifest = try BundleManifest.load(from: embeddedReferenceURL)
         XCTAssertEqual(embeddedManifest.annotations.count, 1)
         XCTAssertEqual(embeddedManifest.annotations.first?.featureCount, 1)
+        XCTAssertEqual(embeddedManifest.recordStore?.recordCount, 2)
+        let recordStorePath = try XCTUnwrap(embeddedManifest.recordStore?.databasePath)
+        let recordStoreURL = embeddedReferenceURL.appendingPathComponent(recordStorePath)
+        XCTAssertEqual(try GenBankRecordDatabase(url: recordStoreURL).recordCount(), 2)
         let annotationDatabasePath = try XCTUnwrap(embeddedManifest.annotations.first?.databasePath)
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: embeddedReferenceURL.appendingPathComponent(annotationDatabasePath).path
@@ -126,6 +140,13 @@ final class MHCAmpliconReferenceBundleBuilderTests: XCTestCase {
         XCTAssertTrue(provenance.stderr?.contains("Invalid GenBank location") == true)
         XCTAssertFalse(provenance.files.contains { $0.path.contains(".staging-") })
         XCTAssertFalse(provenance.steps.flatMap(\.outputs).contains { $0.path.contains(".staging-") })
+        let publishedStorePath = bundleURL
+            .appendingPathComponent(try XCTUnwrap(manifest.referenceBundlePath))
+            .appendingPathComponent(recordStorePath).path
+        let storeOutput = try XCTUnwrap(provenance.steps.flatMap(\.outputs).first { $0.path == publishedStorePath })
+        XCTAssertNotNil(storeOutput.checksumSHA256)
+        XCTAssertEqual(storeOutput.fileSize, try ProvenanceFileHasher.fileSize(of: recordStoreURL))
+        XCTAssertFalse(provenance.files.contains { $0.path.contains(".reference-preparation") })
     }
 
     func testBuildDoesNotPublishBundleBeforeProvenanceIsReady() async throws {

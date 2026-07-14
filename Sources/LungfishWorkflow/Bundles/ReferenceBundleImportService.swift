@@ -176,7 +176,8 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
                 bundleName: bundleName,
                 isEnabled: provenanceWorkflowName != nil
             ),
-            provenanceInputFiles: provenanceInputFiles ?? (provenanceWorkflowName == nil ? nil : [sourceURL])
+            provenanceInputFiles: provenanceInputFiles ?? (provenanceWorkflowName == nil ? nil : [sourceURL]),
+            referenceRecordStoreURL: prepared.recordStoreURL
         )
 
         let builder = await NativeBundleBuilder()

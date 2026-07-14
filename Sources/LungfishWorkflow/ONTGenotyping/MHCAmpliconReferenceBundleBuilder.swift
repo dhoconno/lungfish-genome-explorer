@@ -155,7 +155,8 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
                     compressFASTA: true,
                     provenanceWorkflowName: nil,
                     provenanceCommand: nil,
-                    provenanceInputFiles: nil
+                    provenanceInputFiles: nil,
+                    referenceRecordStoreURL: preparedReference.recordStoreURL
                 ),
                 progressHandler: { _, progress, message in
                     progressHandler?(0.26 + progress * 0.24, message)

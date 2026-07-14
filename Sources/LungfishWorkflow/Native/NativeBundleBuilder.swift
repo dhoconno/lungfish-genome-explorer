@@ -209,6 +209,11 @@ public final class NativeBundleBuilder: ObservableObject {
 
             try checkCancellation()
 
+            let recordStoreInfo = try embedReferenceRecordStore(
+                from: configuration.referenceRecordStoreURL,
+                in: stagingBundleURL
+            )
+
             // Step 8: Generate manifest
             try await executeStep(.generatingManifest, progressHandler: progressHandler) {
                 let manifest = BundleManifest(
@@ -219,7 +224,8 @@ public final class NativeBundleBuilder: ObservableObject {
                     annotations: annotationInfos,
                     variants: variantInfos,
                     tracks: signalInfos,
-                    metadata: configuration.metadata
+                    metadata: configuration.metadata,
+                    recordStore: recordStoreInfo
                 )
 
                 try manifest.save(to: stagingBundleURL)
@@ -431,7 +437,8 @@ public final class NativeBundleBuilder: ObservableObject {
             ([configuration.fastaURL]
                 + configuration.annotationFiles.map(\.url)
                 + configuration.variantFiles.map(\.url)
-                + configuration.signalFiles.map(\.url))
+                + configuration.signalFiles.map(\.url)
+                + [configuration.referenceRecordStoreURL].compactMap { $0 })
                 .map { $0.standardizedFileURL.path }
         )
         var resolved: [URL] = []
@@ -566,6 +573,7 @@ public final class NativeBundleBuilder: ObservableObject {
         for variant in configuration.variantFiles {
             command.append(contentsOf: ["--variant", variant.url.path])
         }
+
         for signal in configuration.signalFiles {
             command.append(contentsOf: ["--signal", signal.url.path])
         }
@@ -633,6 +641,16 @@ public final class NativeBundleBuilder: ObservableObject {
             }
         }
 
+        if let recordStoreURL = configuration.referenceRecordStoreURL {
+            guard fileManager.fileExists(atPath: recordStoreURL.path) else {
+                throw BundleBuildError.inputFileNotFound(recordStoreURL)
+            }
+            guard fileManager.isReadableFile(atPath: recordStoreURL.path) else {
+                throw BundleBuildError.inputFileNotReadable(recordStoreURL)
+            }
+            _ = try GenBankRecordDatabase(url: recordStoreURL)
+        }
+
         logger.info("Input validation complete")
     }
 
@@ -650,7 +668,8 @@ public final class NativeBundleBuilder: ObservableObject {
             bundleURL.appendingPathComponent("genome"),
             bundleURL.appendingPathComponent("annotations"),
             bundleURL.appendingPathComponent("variants"),
-            bundleURL.appendingPathComponent("tracks")
+            bundleURL.appendingPathComponent("tracks"),
+            bundleURL.appendingPathComponent("metadata")
         ]
 
         for dir in directories {
@@ -658,6 +677,23 @@ public final class NativeBundleBuilder: ObservableObject {
         }
 
         logger.info("Bundle structure created")
+    }
+
+    private func embedReferenceRecordStore(
+        from sourceURL: URL?,
+        in bundleURL: URL
+    ) throws -> ReferenceRecordStoreInfo? {
+        guard let sourceURL else { return nil }
+        let relativePath = "metadata/genbank_records.sqlite"
+        let destinationURL = bundleURL.appendingPathComponent(relativePath)
+        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        let database = try GenBankRecordDatabase(url: destinationURL)
+        return ReferenceRecordStoreInfo(
+            schemaVersion: GenBankRecordDatabase.schemaVersion,
+            format: ReferenceRecordStoreInfo.supportedFormat,
+            databasePath: relativePath,
+            recordCount: try database.recordCount()
+        )
     }
 
     private func prepareOutputDestination(for publishedBundleURL: URL) throws {

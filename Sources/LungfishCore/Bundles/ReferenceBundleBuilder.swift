@@ -52,6 +52,9 @@ public struct BuildConfiguration: Sendable {
     /// URL to the input FASTA file.
     public let fastaURL: URL
 
+    /// Optional staged indexed metadata for records parsed from a GenBank source.
+    public let referenceRecordStoreURL: URL?
+
     /// Annotation files to include (GFF3, GTF, GenBank, BED).
     public let annotationFiles: [AnnotationInput]
 
@@ -114,7 +117,8 @@ public struct BuildConfiguration: Sendable {
         metadata: [MetadataGroup]? = nil,
         provenanceWorkflowName: String? = nil,
         provenanceCommand: [String]? = nil,
-        provenanceInputFiles: [URL]? = nil
+        provenanceInputFiles: [URL]? = nil,
+        referenceRecordStoreURL: URL? = nil
     ) {
         self.name = name
         self.identifier = identifier
@@ -129,6 +133,7 @@ public struct BuildConfiguration: Sendable {
         self.provenanceWorkflowName = provenanceWorkflowName
         self.provenanceCommand = provenanceCommand
         self.provenanceInputFiles = provenanceInputFiles
+        self.referenceRecordStoreURL = referenceRecordStoreURL
     }
 }
 

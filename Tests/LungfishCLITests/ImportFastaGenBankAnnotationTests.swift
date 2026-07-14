@@ -46,6 +46,11 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         XCTAssertEqual(annotation.path, "annotations/imported_annotations.gff3")
         XCTAssertEqual(annotation.featureCount, 3)
 
+        let recordStore = try XCTUnwrap(manifest.recordStore)
+        XCTAssertEqual(recordStore.recordCount, 1)
+        let recordStoreURL = bundleURL.appendingPathComponent(recordStore.databasePath)
+        XCTAssertEqual(try GenBankRecordDatabase(url: recordStoreURL).recordCount(), 1)
+
         let gffURL = bundleURL.appendingPathComponent(annotation.path)
         XCTAssertTrue(FileManager.default.fileExists(atPath: gffURL.path))
 
@@ -83,8 +88,20 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         XCTAssertTrue(outputs.contains {
             ($0["path"] as? String)?.hasSuffix("annotations/imported_annotations.gff3") == true
         })
+        XCTAssertTrue(outputs.contains {
+            ($0["path"] as? String) == recordStoreURL.path
+                && $0["sha256"] != nil
+                && $0["sizeBytes"] != nil
+        })
         XCTAssertFalse(outputs.contains {
             ($0["path"] as? String)?.contains("/.tmp/") == true
+        })
+        XCTAssertFalse(outputs.contains {
+            ($0["path"] as? String)?.contains("lungfish-cli-ref-import-") == true
+        })
+        XCTAssertFalse(outputs.contains {
+            guard let path = $0["path"] as? String else { return false }
+            return path.hasSuffix("genbank_records.sqlite") && path != recordStoreURL.path
         })
         XCTAssertTrue(outputs.allSatisfy {
             $0["sha256"] != nil && $0["sizeBytes"] != nil
@@ -116,6 +133,10 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         XCTAssertEqual(annotation.path, "annotations/imported_annotations.gff3")
         XCTAssertEqual(annotation.databasePath, "annotations/imported_annotations.db")
         XCTAssertEqual(annotation.featureCount, 3)
+        let recordStore = try XCTUnwrap(manifest.recordStore)
+        XCTAssertEqual(try GenBankRecordDatabase(
+            url: bundleURL.appendingPathComponent(recordStore.databasePath)
+        ).recordCount(), 1)
 
         let gff = try String(
             contentsOf: bundleURL.appendingPathComponent(annotation.path),

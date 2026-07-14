@@ -3,6 +3,46 @@ import XCTest
 @testable import LungfishIO
 
 final class ReferenceSourcePreparerTests: XCTestCase {
+    func testGenBankPreparationCreatesQueryableRecordStoreForEveryRecord() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ReferenceSourcePreparerTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sourceURL = root.appendingPathComponent("two-records.gb")
+        try Self.twoRecordGenBank.write(to: sourceURL, atomically: true, encoding: .utf8)
+        let working = root.appendingPathComponent("working", isDirectory: true)
+
+        let prepared = try await ReferenceSourcePreparer().prepare(
+            sourceURL: sourceURL,
+            bundleName: "Two Records",
+            tempDirectory: working
+        )
+
+        let recordStoreURL = try XCTUnwrap(prepared.recordStoreURL)
+        XCTAssertEqual(recordStoreURL, working.appendingPathComponent("genbank_records.sqlite"))
+        let database = try GenBankRecordDatabase(url: recordStoreURL)
+        XCTAssertEqual(try database.recordCount(), 2)
+        XCTAssertEqual(try database.records().map(\.sequenceName), ["RECORD1", "RECORD2"])
+    }
+
+    func testFASTAPreparationDoesNotCreateRecordStore() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ReferenceSourcePreparerTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sourceURL = root.appendingPathComponent("reference.fa")
+        try ">chr1\nACGT\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+        let prepared = try await ReferenceSourcePreparer().prepare(
+            sourceURL: sourceURL,
+            bundleName: "FASTA",
+            tempDirectory: root.appendingPathComponent("working", isDirectory: true)
+        )
+
+        XCTAssertNil(prepared.recordStoreURL)
+    }
+
     func testGenBankPreparationKeepsSequenceAndReportsSkippedFeature() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ReferenceSourcePreparerTests-\(UUID().uuidString)", isDirectory: true)
@@ -39,4 +79,27 @@ final class ReferenceSourcePreparerTests: XCTestCase {
         XCTAssertEqual(prepared.warnings[0].recordIdentifier, "PREPARE1")
         XCTAssertEqual(prepared.warnings[0].featureType, "CDS")
     }
+
+    private static let twoRecordGenBank = """
+    LOCUS       RECORD1                  4 bp    DNA     linear   UNK 01-JAN-2024
+    DEFINITION  First record.
+    ACCESSION   RECORD1
+    VERSION     RECORD1.1
+    FEATURES             Location/Qualifiers
+         source          1..4
+                         /organism="Test one"
+    ORIGIN
+            1 acgt
+    //
+    LOCUS       RECORD2                  4 bp    DNA     linear   UNK 01-JAN-2024
+    DEFINITION  Second record.
+    ACCESSION   RECORD2
+    VERSION     RECORD2.1
+    FEATURES             Location/Qualifiers
+         source          1..4
+                         /organism="Test two"
+    ORIGIN
+            1 tgca
+    //
+    """
 }

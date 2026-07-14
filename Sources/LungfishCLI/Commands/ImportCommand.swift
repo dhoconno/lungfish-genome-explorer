@@ -1192,6 +1192,7 @@ extension ImportCommand {
         private struct BuildInputs {
             let fastaURL: URL
             let annotationInputs: [AnnotationInput]
+            let recordStoreURL: URL?
             let organism: String
             let sequenceNames: [String]
             let sequenceCount: Int
@@ -1266,7 +1267,8 @@ extension ImportCommand {
                     outputDirectory: outputDirectory,
                     bundleName: bundleName
                 ),
-                provenanceInputFiles: [inputURL]
+                provenanceInputFiles: [inputURL],
+                referenceRecordStoreURL: buildInputs.recordStoreURL
             )
 
             let bundleURL = try await NativeBundleBuilder().build(configuration: configuration)
@@ -1395,6 +1397,8 @@ extension ImportCommand {
 
                 let fastaOutput = tempDirectory.appendingPathComponent("input.fa")
                 try FASTAWriter(url: fastaOutput).write(sequences)
+                let recordStoreURL = tempDirectory.appendingPathComponent("genbank_records.sqlite")
+                try GenBankRecordDatabase.create(records: records, at: recordStoreURL)
 
                 let sequenceNames = sequences.map(\.name)
                 let totalLength = sequences.reduce(Int64(0)) { partial, sequence in
@@ -1419,6 +1423,7 @@ extension ImportCommand {
                 return BuildInputs(
                     fastaURL: fastaOutput,
                     annotationInputs: annotationInputs,
+                    recordStoreURL: recordStoreURL,
                     organism: organism,
                     sequenceNames: sequenceNames,
                     sequenceCount: sequences.count,
@@ -1439,6 +1444,7 @@ extension ImportCommand {
             return BuildInputs(
                 fastaURL: inputURL,
                 annotationInputs: [],
+                recordStoreURL: nil,
                 organism: sourceURL.deletingPathExtension().lastPathComponent,
                 sequenceNames: sequenceNames,
                 sequenceCount: sequences.count,

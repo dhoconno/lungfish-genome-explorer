@@ -30,19 +30,22 @@ public struct PreparedReferenceSource: Sendable {
     public let sourceInfo: SourceInfo
     public let sequenceNames: [String]
     public let warnings: [ReferenceImportWarning]
+    public let recordStoreURL: URL?
 
     public init(
         fastaURL: URL,
         annotationInputs: [AnnotationInput],
         sourceInfo: SourceInfo,
         sequenceNames: [String],
-        warnings: [ReferenceImportWarning]
+        warnings: [ReferenceImportWarning],
+        recordStoreURL: URL? = nil
     ) {
         self.fastaURL = fastaURL
         self.annotationInputs = annotationInputs
         self.sourceInfo = sourceInfo
         self.sequenceNames = sequenceNames
         self.warnings = warnings
+        self.recordStoreURL = recordStoreURL
     }
 }
 
@@ -123,6 +126,8 @@ public struct ReferenceSourcePreparer: Sendable {
 
         let fastaOutput = tempDirectory.appendingPathComponent("input.fa")
         try FASTAWriter(url: fastaOutput).write(sequences)
+        let recordStoreURL = tempDirectory.appendingPathComponent("genbank_records.sqlite")
+        try GenBankRecordDatabase.create(records: recovery.records, at: recordStoreURL)
         let hasAnnotations = recovery.records.contains { !$0.annotations.isEmpty }
         let annotationInputs = hasAnnotations ? [
             AnnotationInput(
@@ -150,7 +155,8 @@ public struct ReferenceSourcePreparer: Sendable {
                     featureType: $0.featureType,
                     sourceLocation: $0.sourceLocation
                 )
-            }
+            },
+            recordStoreURL: recordStoreURL
         )
     }
 
