@@ -41,6 +41,14 @@ extension BundleManifest {
             }
         }
 
+        if let recordStore {
+            appendPathValidationError(
+                path: recordStore.databasePath,
+                field: "record_store.database_path",
+                to: &errors
+            )
+        }
+
         // Check for duplicate track IDs. Iteration order (annotations -> variants
         // -> tracks -> alignments) is preserved so the first reported duplicate is
         // deterministic.

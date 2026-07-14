@@ -226,6 +226,20 @@ public final class ReferenceBundle: Sendable {
         chromosome(named: name)?.length
     }
 
+    /// Opens the optional indexed record-level metadata store declared by the manifest.
+    ///
+    /// Returns `nil` only when the manifest does not declare a record store. A declared
+    /// store that is missing, unsafe, or corrupt throws an error from path validation or
+    /// ``GenBankRecordDatabase`` rather than being treated as absent.
+    public func recordStoreDatabase() throws -> GenBankRecordDatabase? {
+        guard let recordStore = manifest.recordStore else { return nil }
+        let databaseURL = try validatedBundleMemberURL(
+            path: recordStore.databasePath,
+            field: "record_store.database_path"
+        )
+        return try GenBankRecordDatabase(url: databaseURL)
+    }
+
     // MARK: - Sequence Access
 
     /// Fetches sequence data for a genomic region.

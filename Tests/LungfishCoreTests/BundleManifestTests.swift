@@ -98,6 +98,60 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(loaded.originBundlePath, "@/Downloads/TestGenome.lungfishref")
     }
 
+    func testBundleManifestRoundTripsReferenceRecordStore() throws {
+        let recordStore = ReferenceRecordStoreInfo(
+            schemaVersion: 1,
+            format: "genbank",
+            databasePath: "metadata/genbank_records.sqlite",
+            recordCount: 2_321
+        )
+        let manifest = BundleManifest(
+            name: "MHC Reference",
+            identifier: "test.mhc-reference",
+            createdDate: Date(timeIntervalSince1970: 1_700_000_000),
+            modifiedDate: Date(timeIntervalSince1970: 1_700_000_000),
+            source: SourceInfo(organism: "Macaca fascicularis", assembly: "IPD-MHC"),
+            recordStore: recordStore
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(manifest)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let encodedStore = try XCTUnwrap(object["record_store"] as? [String: Any])
+        XCTAssertEqual(encodedStore["schema_version"] as? Int, 1)
+        XCTAssertEqual(encodedStore["format"] as? String, "genbank")
+        XCTAssertEqual(encodedStore["database_path"] as? String, "metadata/genbank_records.sqlite")
+        XCTAssertEqual(encodedStore["record_count"] as? Int, 2_321)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(BundleManifest.self, from: data)
+        XCTAssertEqual(decoded.recordStore, recordStore)
+        XCTAssertEqual(decoded, manifest)
+    }
+
+    func testManifestMutationPreservesReferenceRecordStore() {
+        let recordStore = ReferenceRecordStoreInfo(
+            schemaVersion: 1,
+            format: "genbank",
+            databasePath: "metadata/genbank_records.sqlite",
+            recordCount: 2_321
+        )
+        let manifest = BundleManifest(
+            name: "MHC Reference",
+            identifier: "test.mhc-reference",
+            source: SourceInfo(organism: "Macaca fascicularis", assembly: "IPD-MHC"),
+            recordStore: recordStore
+        )
+
+        let updated = manifest.addingAnnotationTrack(
+            AnnotationTrackInfo(id: "genes", name: "Genes", path: "annotations/genes.sqlite")
+        )
+
+        XCTAssertEqual(updated.recordStore, recordStore)
+    }
+
     func testBundleManifestSaveUsesAtomicWrite() throws {
         let root = try repoRoot()
         let sourceURL = root.appendingPathComponent("Sources/LungfishCore/Bundles/BundleManifest.swift")
@@ -611,6 +665,25 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertTrue(invalidPaths.contains("tracks[signal].path=tracks/./signal.bw"))
     }
 
+    func testValidateRejectsEscapingReferenceRecordStorePath() {
+        let manifest = BundleManifest(
+            name: "Unsafe Record Store",
+            identifier: "test.unsafe-record-store",
+            source: SourceInfo(organism: "Test", assembly: "Test"),
+            recordStore: ReferenceRecordStoreInfo(
+                schemaVersion: 1,
+                format: "genbank",
+                databasePath: "../escape.sqlite",
+                recordCount: 1
+            )
+        )
+
+        XCTAssertTrue(manifest.validate().contains { error in
+            guard case .invalidPath(let field, let path) = error else { return false }
+            return field == "record_store.database_path" && path == "../escape.sqlite"
+        })
+    }
+
     func testValidatedBundleMemberURLRejectsSymlinkEscapes() throws {
         let bundleURL = tempDirectory.appendingPathComponent("symlink-test.lungfishref", isDirectory: true)
         let genomeDirectory = bundleURL.appendingPathComponent("genome", isDirectory: true)
@@ -830,6 +903,7 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(manifest.genome?.chromosomes.map(\.name), ["chr1"])
         XCTAssertTrue(manifest.alignments.isEmpty)
         XCTAssertNil(manifest.browserSummary)
+        XCTAssertNil(manifest.recordStore)
     }
 
     func testDuplicateAlignmentTrackIdsValidation() {

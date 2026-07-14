@@ -38,6 +38,86 @@ final class ReferenceBundleTests: XCTestCase {
         XCTAssertEqual(bundle.organism, "Test organism")
     }
 
+    func testRecordStoreDatabaseReturnsNilWhenManifestDoesNotDeclareStore() async throws {
+        let bundleURL = try createValidTestBundle()
+        let bundle = try await ReferenceBundle(url: bundleURL)
+
+        XCTAssertNil(try bundle.recordStoreDatabase())
+    }
+
+    func testRecordStoreDatabaseOpensDeclaredGenBankDatabase() async throws {
+        let bundleURL = tempDirectory.appendingPathComponent("record-store.lungfishref", isDirectory: true)
+        let metadataURL = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataURL, withIntermediateDirectories: true)
+        let databaseURL = metadataURL.appendingPathComponent("genbank_records.sqlite")
+        let record = GenBankRecord(
+            sequence: try Sequence(name: "NHP00353", alphabet: .dna, bases: "ATGC"),
+            annotations: [],
+            locus: LocusInfo(name: "NHP00353", length: 4, moleculeType: .dna, topology: .linear),
+            accession: "NHP00353"
+        )
+        try GenBankRecordDatabase.create(records: [record], at: databaseURL)
+        let manifest = BundleManifest(
+            name: "MHC Reference",
+            identifier: "test.record-store",
+            source: SourceInfo(organism: "Macaca fascicularis", assembly: "IPD-MHC"),
+            recordStore: ReferenceRecordStoreInfo(
+                schemaVersion: 1,
+                format: "genbank",
+                databasePath: "metadata/genbank_records.sqlite",
+                recordCount: 1
+            )
+        )
+        try manifest.save(to: bundleURL)
+
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let database = try XCTUnwrap(bundle.recordStoreDatabase())
+
+        XCTAssertEqual(try database.records().map(\.sequenceName), ["NHP00353"])
+    }
+
+    func testRecordStoreDatabaseThrowsForMissingDeclaredDatabase() async throws {
+        let bundleURL = tempDirectory.appendingPathComponent("missing-record-store.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let manifest = BundleManifest(
+            name: "Missing Record Store",
+            identifier: "test.missing-record-store",
+            source: SourceInfo(organism: "Test", assembly: "Test"),
+            recordStore: ReferenceRecordStoreInfo(
+                schemaVersion: 1,
+                format: "genbank",
+                databasePath: "metadata/genbank_records.sqlite",
+                recordCount: 1
+            )
+        )
+        try manifest.save(to: bundleURL)
+        let bundle = try await ReferenceBundle(url: bundleURL)
+
+        XCTAssertThrowsError(try bundle.recordStoreDatabase())
+    }
+
+    func testRecordStoreDatabaseThrowsForCorruptDeclaredDatabase() async throws {
+        let bundleURL = tempDirectory.appendingPathComponent("corrupt-record-store.lungfishref", isDirectory: true)
+        let metadataURL = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataURL, withIntermediateDirectories: true)
+        try Data("not sqlite".utf8).write(to: metadataURL.appendingPathComponent("genbank_records.sqlite"))
+        let manifest = BundleManifest(
+            name: "Corrupt Record Store",
+            identifier: "test.corrupt-record-store",
+            source: SourceInfo(organism: "Test", assembly: "Test"),
+            recordStore: ReferenceRecordStoreInfo(
+                schemaVersion: 1,
+                format: "genbank",
+                databasePath: "metadata/genbank_records.sqlite",
+                recordCount: 1
+            )
+        )
+        try manifest.save(to: bundleURL)
+        let bundle = try await ReferenceBundle(url: bundleURL)
+
+        XCTAssertThrowsError(try bundle.recordStoreDatabase())
+    }
+
     func testOpenNonexistentBundle() async {
         let nonexistentURL = tempDirectory.appendingPathComponent("nonexistent.lungfishref")
 

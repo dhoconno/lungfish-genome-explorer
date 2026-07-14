@@ -4,6 +4,28 @@
 
 import Foundation
 
+/// Declares an indexed record-level metadata store embedded in a reference bundle.
+public struct ReferenceRecordStoreInfo: Codable, Sendable, Equatable {
+    public let schemaVersion: Int
+    public let format: String
+    public let databasePath: String
+    public let recordCount: Int
+
+    public init(schemaVersion: Int, format: String, databasePath: String, recordCount: Int) {
+        self.schemaVersion = schemaVersion
+        self.format = format
+        self.databasePath = databasePath
+        self.recordCount = recordCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case format
+        case databasePath = "database_path"
+        case recordCount = "record_count"
+    }
+}
+
 // MARK: - BundleManifest
 
 /// Manifest describing the contents of a `.lungfishref` reference genome bundle.
@@ -90,6 +112,9 @@ public struct BundleManifest: Codable, Sendable, Equatable {
     /// `nil` for variant-only bundles created from standalone VCF import.
     public let genome: GenomeInfo?
 
+    /// Optional indexed record-level metadata store, such as one produced from GenBank.
+    public let recordStore: ReferenceRecordStoreInfo?
+
     /// Whether this bundle contains only variant data (no reference sequence).
     public var isVariantOnly: Bool { genome == nil }
 
@@ -138,6 +163,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
             && lhs.modifiedDate == rhs.modifiedDate
             && lhs.source == rhs.source
             && lhs.genome == rhs.genome
+            && lhs.recordStore == rhs.recordStore
             && lhs.annotations == rhs.annotations
             && lhs.variants == rhs.variants
             && lhs.tracks == rhs.tracks
@@ -164,7 +190,8 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         tracks: [SignalTrackInfo] = [],
         alignments: [AlignmentTrackInfo] = [],
         metadata: [MetadataGroup]? = nil,
-        browserSummary: BundleBrowserSummary? = nil
+        browserSummary: BundleBrowserSummary? = nil,
+        recordStore: ReferenceRecordStoreInfo?
     ) {
         self.formatVersion = formatVersion
         self.name = name
@@ -175,6 +202,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         self.modifiedDate = modifiedDate
         self.source = source
         self.genome = genome
+        self.recordStore = recordStore
         self.annotations = annotations
         self.variants = variants
         self.tracks = tracks
@@ -183,8 +211,85 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         self.browserSummary = browserSummary
     }
 
+    /// Backward-compatible initializer for manifests without a record store.
+    public init(
+        formatVersion: String = "1.0",
+        name: String,
+        identifier: String,
+        description: String? = nil,
+        originBundlePath: String? = nil,
+        createdDate: Date = Date(),
+        modifiedDate: Date = Date(),
+        source: SourceInfo,
+        genome: GenomeInfo? = nil,
+        annotations: [AnnotationTrackInfo] = [],
+        variants: [VariantTrackInfo] = [],
+        tracks: [SignalTrackInfo] = [],
+        alignments: [AlignmentTrackInfo] = [],
+        metadata: [MetadataGroup]? = nil,
+        browserSummary: BundleBrowserSummary? = nil
+    ) {
+        self.init(
+            formatVersion: formatVersion,
+            name: name,
+            identifier: identifier,
+            description: description,
+            originBundlePath: originBundlePath,
+            createdDate: createdDate,
+            modifiedDate: modifiedDate,
+            source: source,
+            genome: genome,
+            annotations: annotations,
+            variants: variants,
+            tracks: tracks,
+            alignments: alignments,
+            metadata: metadata,
+            browserSummary: browserSummary,
+            recordStore: nil
+        )
+    }
+
     /// Backward-compatible initializer preserved for existing call sites that
     /// do not supply `originBundlePath`.
+    public init(
+        formatVersion: String = "1.0",
+        name: String,
+        identifier: String,
+        description: String? = nil,
+        createdDate: Date = Date(),
+        modifiedDate: Date = Date(),
+        source: SourceInfo,
+        genome: GenomeInfo? = nil,
+        annotations: [AnnotationTrackInfo] = [],
+        variants: [VariantTrackInfo] = [],
+        tracks: [SignalTrackInfo] = [],
+        alignments: [AlignmentTrackInfo] = [],
+        metadata: [MetadataGroup]? = nil,
+        browserSummary: BundleBrowserSummary? = nil,
+        recordStore: ReferenceRecordStoreInfo?
+    ) {
+        self.init(
+            formatVersion: formatVersion,
+            name: name,
+            identifier: identifier,
+            description: description,
+            originBundlePath: nil,
+            createdDate: createdDate,
+            modifiedDate: modifiedDate,
+            source: source,
+            genome: genome,
+            annotations: annotations,
+            variants: variants,
+            tracks: tracks,
+            alignments: alignments,
+            metadata: metadata,
+            browserSummary: browserSummary,
+            recordStore: recordStore
+        )
+    }
+
+    /// Backward-compatible initializer preserved for existing call sites that
+    /// do not supply `originBundlePath` or a record store.
     public init(
         formatVersion: String = "1.0",
         name: String,
@@ -206,7 +311,6 @@ public struct BundleManifest: Codable, Sendable, Equatable {
             name: name,
             identifier: identifier,
             description: description,
-            originBundlePath: nil,
             createdDate: createdDate,
             modifiedDate: modifiedDate,
             source: source,
@@ -216,7 +320,47 @@ public struct BundleManifest: Codable, Sendable, Equatable {
             tracks: tracks,
             alignments: alignments,
             metadata: metadata,
-            browserSummary: browserSummary
+            browserSummary: browserSummary,
+            recordStore: nil
+        )
+    }
+
+    /// Backward-compatible initializer preserved for existing binaries and
+    /// call sites that pre-date `browserSummary` but include `originBundlePath`.
+    public init(
+        formatVersion: String = "1.0",
+        name: String,
+        identifier: String,
+        description: String? = nil,
+        originBundlePath: String? = nil,
+        createdDate: Date = Date(),
+        modifiedDate: Date = Date(),
+        source: SourceInfo,
+        genome: GenomeInfo? = nil,
+        annotations: [AnnotationTrackInfo] = [],
+        variants: [VariantTrackInfo] = [],
+        tracks: [SignalTrackInfo] = [],
+        alignments: [AlignmentTrackInfo] = [],
+        metadata: [MetadataGroup]? = nil,
+        recordStore: ReferenceRecordStoreInfo?
+    ) {
+        self.init(
+            formatVersion: formatVersion,
+            name: name,
+            identifier: identifier,
+            description: description,
+            originBundlePath: originBundlePath,
+            createdDate: createdDate,
+            modifiedDate: modifiedDate,
+            source: source,
+            genome: genome,
+            annotations: annotations,
+            variants: variants,
+            tracks: tracks,
+            alignments: alignments,
+            metadata: metadata,
+            browserSummary: nil,
+            recordStore: recordStore
         )
     }
 
@@ -253,7 +397,45 @@ public struct BundleManifest: Codable, Sendable, Equatable {
             tracks: tracks,
             alignments: alignments,
             metadata: metadata,
-            browserSummary: nil
+            browserSummary: nil,
+            recordStore: nil
+        )
+    }
+
+    /// Backward-compatible initializer preserved for existing binaries and
+    /// call sites that pre-date `browserSummary`.
+    public init(
+        formatVersion: String = "1.0",
+        name: String,
+        identifier: String,
+        description: String? = nil,
+        createdDate: Date = Date(),
+        modifiedDate: Date = Date(),
+        source: SourceInfo,
+        genome: GenomeInfo? = nil,
+        annotations: [AnnotationTrackInfo] = [],
+        variants: [VariantTrackInfo] = [],
+        tracks: [SignalTrackInfo] = [],
+        alignments: [AlignmentTrackInfo] = [],
+        metadata: [MetadataGroup]? = nil,
+        recordStore: ReferenceRecordStoreInfo?
+    ) {
+        self.init(
+            formatVersion: formatVersion,
+            name: name,
+            identifier: identifier,
+            description: description,
+            createdDate: createdDate,
+            modifiedDate: modifiedDate,
+            source: source,
+            genome: genome,
+            annotations: annotations,
+            variants: variants,
+            tracks: tracks,
+            alignments: alignments,
+            metadata: metadata,
+            browserSummary: nil,
+            recordStore: recordStore
         )
     }
 
@@ -288,7 +470,8 @@ public struct BundleManifest: Codable, Sendable, Equatable {
             tracks: tracks,
             alignments: alignments,
             metadata: metadata,
-            browserSummary: nil
+            browserSummary: nil,
+            recordStore: nil
         )
     }
 
@@ -304,6 +487,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         case modifiedDate = "modified_date"
         case source
         case genome
+        case recordStore = "record_store"
         case annotations
         case variants
         case tracks
@@ -329,6 +513,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         modifiedDate = try container.decode(Date.self, forKey: .modifiedDate)
         source = try container.decode(SourceInfo.self, forKey: .source)
         genome = try container.decodeIfPresent(GenomeInfo.self, forKey: .genome)
+        recordStore = try container.decodeIfPresent(ReferenceRecordStoreInfo.self, forKey: .recordStore)
         annotations = try container.decode([AnnotationTrackInfo].self, forKey: .annotations)
         variants = try container.decode([VariantTrackInfo].self, forKey: .variants)
         tracks = try container.decode([SignalTrackInfo].self, forKey: .tracks)
@@ -382,7 +567,8 @@ extension BundleManifest {
         tracks: [SignalTrackInfo]? = nil,
         alignments: [AlignmentTrackInfo]? = nil,
         metadata: [MetadataGroup]?? = nil,
-        browserSummary: BundleBrowserSummary?? = nil
+        browserSummary: BundleBrowserSummary?? = nil,
+        recordStore: ReferenceRecordStoreInfo?? = nil
     ) -> BundleManifest {
         BundleManifest(
             formatVersion: formatVersion ?? self.formatVersion,
@@ -399,7 +585,8 @@ extension BundleManifest {
             tracks: tracks ?? self.tracks,
             alignments: alignments ?? self.alignments,
             metadata: metadata ?? self.metadata,
-            browserSummary: browserSummary ?? self.browserSummary
+            browserSummary: browserSummary ?? self.browserSummary,
+            recordStore: recordStore ?? self.recordStore
         )
     }
 
