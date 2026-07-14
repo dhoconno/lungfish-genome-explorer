@@ -303,6 +303,7 @@ public class ReferenceBundleViewportController: NSViewController {
         guard presentationMode != .focusedDetail else { return }
         presentationMode = .focusedDetail
         applyPresentationMode()
+        publishAnnotationScopeAndReconcileSequenceSelection()
     }
 
     private func returnToListDetailMode() {
@@ -310,6 +311,7 @@ public class ReferenceBundleViewportController: NSViewController {
         presentationMode = .listDetail
         applyPresentationMode()
         applyLayoutPreference()
+        publishAnnotationScopeAndReconcileSequenceSelection()
     }
 
     private func applyPresentationMode() {
@@ -589,26 +591,29 @@ public class ReferenceBundleViewportController: NSViewController {
     private func publishAnnotationScopeAndReconcileSequenceSelection() {
         guard currentInput?.kind == .directBundle, !sequenceTableView.isHidden else { return }
 
-        let hasActiveFilter = !sequenceTableView.currentFilterText
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !sequenceTableView.columnFilters.isEmpty
-        let scope: Set<String>? = usesRecordStoreTable || hasActiveFilter
-            ? Set(sequenceTableView.displayedRows.map(\.summary.name))
-            : nil
-        embeddedViewerController.setAnnotationRecordScope(scope)
-
         guard !sequenceTableView.displayedRows.isEmpty else {
+            embeddedViewerController.setAnnotationRecordScope([])
             sequenceTableView.tableView.deselectAll(nil)
             showDetailPlaceholder("No sequences are available for this reference bundle.")
             return
         }
 
-        if let selected = currentSelectedSequence() {
-            displaySelectedSequence(selected.summary)
-            return
+        if currentSelectedSequence() == nil {
+            selectSequence(at: 0)
         }
 
-        selectSequence(at: 0)
+        let scope: Set<String>?
+        if presentationMode == .focusedDetail {
+            scope = currentSelectedSequence().map { [$0.summary.name] } ?? []
+        } else {
+            let hasActiveFilter = !sequenceTableView.currentFilterText
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !sequenceTableView.columnFilters.isEmpty
+            scope = usesRecordStoreTable || hasActiveFilter
+                ? Set(sequenceTableView.displayedRows.map(\.summary.name))
+                : nil
+        }
+        embeddedViewerController.setAnnotationRecordScope(scope)
     }
 
     private func loadViewerBundleIfNeeded(from bundleURL: URL, sequenceName: String) throws {

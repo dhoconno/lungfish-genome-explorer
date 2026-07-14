@@ -355,7 +355,7 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
         XCTAssertEqual(vc.testDetailPlaceholderMessage, "No sequences are available for this reference bundle.")
     }
 
-    func testRecordStoreFilteringPublishesDisplayedRecordScopeBeforeReconcilingSelection() throws {
+    func testRecordStoreFocusScopesAnnotationsToSelectionAndListScopesToDisplayedRows() throws {
         let records = try [
             ReferenceViewportFixture.makeGenBankRecord(name: "record-a", length: 100, allele: "A", organism: "Test"),
             ReferenceViewportFixture.makeGenBankRecord(name: "record-b", length: 100, allele: "B", organism: "Test"),
@@ -380,16 +380,30 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
         vc.testSelectSequence(named: "record-c")
         XCTAssertEqual(vc.testAnnotationRecordScope, ["record-a", "record-b", "record-c"])
 
+        vc.testEnterFocusedDetailMode()
+        XCTAssertEqual(vc.testAnnotationRecordScope, ["record-c"])
+        XCTAssertEqual(vc.testSelectedSequenceName, "record-c")
+
         vc.testApplySequenceFilter("record-b")
         XCTAssertEqual(vc.testAnnotationRecordScope, ["record-b"])
         XCTAssertEqual(vc.testSelectedSequenceName, "record-b")
 
+        vc.testReturnToListDetailMode()
+        XCTAssertEqual(vc.testAnnotationRecordScope, ["record-b"])
+        XCTAssertEqual(vc.testSelectedSequenceName, "record-b")
+
+        vc.testApplySequenceFilter("")
+        XCTAssertEqual(vc.testAnnotationRecordScope, ["record-a", "record-b", "record-c"])
+        XCTAssertEqual(vc.testSelectedSequenceName, "record-b")
+
+        vc.testEnterFocusedDetailMode()
         vc.testApplySequenceFilter("missing")
         XCTAssertEqual(vc.testAnnotationRecordScope, [])
         XCTAssertNil(vc.testSelectedSequenceName)
+        XCTAssertEqual(vc.testDetailPlaceholderMessage, "No sequences are available for this reference bundle.")
     }
 
-    func testLegacyReferenceUsesNilScopeUntilFilteringIsActive() throws {
+    func testLegacyReferenceFocusScopesAnnotationsToSelectionAndListUsesNilWithoutFilter() throws {
         let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
             name: "Legacy Reference",
             chromosomes: [.init(name: "chr1", length: 100), .init(name: "chr2", length: 100)],
@@ -401,6 +415,15 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
         try vc.configureForTesting(input: .directBundle(bundleURL: bundleURL, manifest: try .load(from: bundleURL)))
 
         XCTAssertNil(vc.testAnnotationRecordScope)
+        vc.testSelectSequence(named: "chr2")
+        vc.testEnterFocusedDetailMode()
+        XCTAssertEqual(vc.testAnnotationRecordScope, ["chr2"])
+        XCTAssertEqual(vc.testSelectedSequenceName, "chr2")
+
+        vc.testReturnToListDetailMode()
+        XCTAssertNil(vc.testAnnotationRecordScope)
+        XCTAssertEqual(vc.testSelectedSequenceName, "chr2")
+
         vc.testApplySequenceFilter("chr2")
         XCTAssertEqual(vc.testAnnotationRecordScope, ["chr2"])
         vc.testApplySequenceFilter("")
