@@ -178,6 +178,64 @@ final class AnnotationDatabaseTests: XCTestCase {
         XCTAssertEqual(backslashMatches.map(\.name), ["slash\\literal"])
     }
 
+    // MARK: - Tests: Multi-chromosome query scope
+
+    func testMultiChromosomeScopeAcrossTableCountAndTypes() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 300, end: 350, name: "zeta", type: "gene"),
+            bed14(chrom: "record_beta", start: 100, end: 150, name: "alpha", type: "CDS"),
+            bed14(chrom: "record_gamma", start: 200, end: 250, name: "middle", type: "exon"),
+        ]
+        let (db, _) = try createAndOpenDB(lines: lines)
+
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: nil).map(\.name), ["alpha", "middle", "zeta"])
+        XCTAssertEqual(db.totalCount(allowedChromosomes: nil), 3)
+        XCTAssertEqual(db.allTypes(allowedChromosomes: nil), ["CDS", "exon", "gene"])
+
+        let emptyScope: Set<String> = []
+        XCTAssertTrue(db.queryForTable(allowedChromosomes: emptyScope).isEmpty)
+        XCTAssertEqual(db.totalCount(allowedChromosomes: emptyScope), 0)
+        XCTAssertTrue(db.allTypes(allowedChromosomes: emptyScope).isEmpty)
+
+        let twoRecords: Set<String> = ["record_alpha", "record_gamma"]
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: twoRecords).map(\.name), ["middle", "zeta"])
+        XCTAssertEqual(db.totalCount(allowedChromosomes: twoRecords), 2)
+        XCTAssertEqual(db.allTypes(allowedChromosomes: twoRecords), ["exon", "gene"])
+    }
+
+    func testMultiChromosomeScopeSupportsMoreThanSQLiteBindingLimit() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "alpha", type: "gene"),
+            bed14(chrom: "record_beta", start: 200, end: 250, name: "beta", type: "CDS"),
+            bed14(chrom: "record_gamma", start: 300, end: 350, name: "gamma", type: "exon"),
+        ]
+        let (db, _) = try createAndOpenDB(lines: lines)
+        var scope = Set((0..<1_200).map { "synthetic_record_\($0)" })
+        scope.formUnion(["record_alpha", "record_gamma"])
+
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: scope).map(\.name), ["alpha", "gamma"])
+        XCTAssertEqual(db.totalCount(allowedChromosomes: scope), 2)
+        XCTAssertEqual(db.allTypes(allowedChromosomes: scope), ["exon", "gene"])
+    }
+
+    func testMultiChromosomeScopeCombinesWithChromosomeFiltersAndPreservesLimitOrder() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 300, end: 350, name: "zeta", type: "gene"),
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "alpha", type: "gene"),
+            bed14(chrom: "record_beta", start: 200, end: 250, name: "middle", type: "gene"),
+            bed14(chrom: "record_gamma", start: 400, end: 450, name: "omega", type: "CDS"),
+        ]
+        let (db, _) = try createAndOpenDB(lines: lines)
+        let scope: Set<String> = ["record_alpha", "record_beta"]
+
+        XCTAssertEqual(
+            db.queryForTable(chromosome: "record_alpha", allowedChromosomes: scope).map(\.name),
+            ["alpha", "zeta"]
+        )
+        XCTAssertTrue(db.queryForTable(chromosome: "record_gamma", allowedChromosomes: scope).isEmpty)
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: scope, limit: 2).map(\.name), ["alpha", "middle"])
+    }
+
     // MARK: - Tests: createFromBED with GenBank Types
 
     func testCreateFromBEDWithGenBankTypes() throws {

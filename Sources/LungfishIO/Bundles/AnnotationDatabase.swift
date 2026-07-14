@@ -54,6 +54,8 @@ public final class AnnotationDatabase: @unchecked Sendable {
     ]
 
     var db: OpaquePointer?
+    /// Serializes operations that use connection-local temporary query state.
+    let scopedQueryLock = NSRecursiveLock()
     private let url: URL
     public var databaseURL: URL { url }
 
