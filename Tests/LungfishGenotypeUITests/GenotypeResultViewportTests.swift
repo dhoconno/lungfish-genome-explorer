@@ -1152,6 +1152,25 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(matrix.testingVisibleGenotypes, ["NHP01222"])
     }
 
+    func testGenBankMatrixSortsMissingReferenceValuesDeterministically() {
+        let metadata = makeGenBankReferenceMetadata()
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: makeResult(
+            samples: [],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: "NHP-Z", reads: 10),
+                makeCall(sample: "AnimalA", genotype: "NHP-A", reads: 10),
+            ],
+            referenceMetadata: ONTGenotypeReferenceMetadata(
+                fields: metadata.fields,
+                recordsBySequenceName: ["NHP-Z": [:], "NHP-A": [:]],
+                alleleFieldKey: metadata.alleleFieldKey
+            )
+        ))
+
+        XCTAssertEqual(matrix.testingVisibleGenotypes, ["NHP-A", "NHP-Z"])
+    }
+
     func testFASTAMatrixKeepsGenotypeColumnVisible() {
         let matrix = GenotypeComparisonMatrixView()
         matrix.configure(result: makeResult(
@@ -1318,34 +1337,10 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(matrix.testingIsColumnWindowActive)
     }
 
-    func testComparisonMatrixShowAllInstantiatesEveryColumn() {
-        let matrix = makeManySampleMatrix(sampleCount: 150)
-        matrix.showAllSampleColumns()
-        XCTAssertEqual(matrix.testingSampleColumnCount, 150)
-        XCTAssertFalse(matrix.testingIsColumnWindowActive)
-    }
-
-    func testComparisonMatrixShowAllPreservesExistingSampleSort() throws {
-        let matrix = makeManySampleMatrix(sampleCount: 150)
-        let key = try XCTUnwrap(matrix.testingSortKey(forSample: "SAMPLE_010"))
-        matrix.testingSetSortDescriptor(key: key, ascending: false)
-        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, key)
-
-        matrix.showAllSampleColumns()
-
-        XCTAssertEqual(matrix.testingSampleColumnCount, 150)
-        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, key)
-    }
-
     func testComparisonMatrixDoesNotShowSampleLimitBanner() {
         let matrix = makeManySampleMatrix(sampleCount: 150)
         XCTAssertEqual(matrix.testingSampleColumnCount, 150)
         XCTAssertFalse(matrix.testingIsColumnWindowActive)
-        XCTAssertFalse(matrix.testingColumnWindowBannerVisible)
-    }
-
-    func testComparisonMatrixShowAllBannerHiddenForSmallCohort() {
-        let matrix = makeManySampleMatrix(sampleCount: 40)
         XCTAssertFalse(matrix.testingColumnWindowBannerVisible)
     }
 
@@ -1367,10 +1362,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(restored.testingPinnedPaneWidth, 430, accuracy: 1)
     }
 
-    /// Anti-leak (critical): with 150 samples and the window showing 60 columns,
-    /// the FULL logical sample set (used by selection/support) AND scientific
-    /// export must still see all 150 samples.
-    func testComparisonMatrixExportSeesFullSampleSetWhileWindowed() {
+    func testComparisonMatrixExportSeesEveryVisibleSample() {
         let matrix = makeManySampleMatrix(sampleCount: 150)
 
         XCTAssertEqual(matrix.testingSampleColumnCount, 150)

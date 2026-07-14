@@ -37,7 +37,6 @@ public final class GenotypeResultViewController: NSViewController {
     public var onAIHaplotypingRequested: ((URL, GenotypeAIHaplotypingUIRequest) -> Void)?
     public var windowStateScope: WindowStateScope?
 
-    private let summaryStrip = NSStackView()
     private let lensControl = NSSegmentedControl(
         labels: Lens.allCases.map(\.displayName),
         trackingMode: .selectOne,
@@ -128,7 +127,6 @@ public final class GenotypeResultViewController: NSViewController {
         root.setAccessibilityIdentifier("genotype-result-view")
         view = root
 
-        configureSummaryStrip()
         configureLensControl()
         configureContentHost()
         configureSplitView()
@@ -474,7 +472,6 @@ public final class GenotypeResultViewController: NSViewController {
             liveHaplotypeAnalysis = nil
         }
         rebuildActiveHaplotypeAnalysisIndexes()
-        rebuildSummary()
         rebuildOutline()
         rebuildHaplotypeMatrix()
         rebuildCohortSummary()
@@ -932,16 +929,6 @@ public final class GenotypeResultViewController: NSViewController {
         } else {
             publishSelectionState(nil)
         }
-    }
-
-    private func configureSummaryStrip() {
-        summaryStrip.translatesAutoresizingMaskIntoConstraints = false
-        summaryStrip.orientation = .horizontal
-        summaryStrip.alignment = .centerY
-        summaryStrip.spacing = 10
-        summaryStrip.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        summaryStrip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        summaryStrip.setContentHuggingPriority(.defaultLow, for: .horizontal)
     }
 
     private func configureLensControl() {
@@ -2028,33 +2015,6 @@ public final class GenotypeResultViewController: NSViewController {
         )
     }
 
-    private func rebuildSummary() {
-        removeArrangedSubviews(from: summaryStrip)
-    }
-
-    private func summaryPill(label: String, value: String) -> NSView {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 1
-        stack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        let valueLabel = NSTextField(labelWithString: value)
-        valueLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        valueLabel.lineBreakMode = .byTruncatingTail
-        valueLabel.usesSingleLineMode = true
-
-        let keyLabel = NSTextField(labelWithString: label)
-        keyLabel.font = .systemFont(ofSize: 10)
-        keyLabel.textColor = .secondaryLabelColor
-        keyLabel.lineBreakMode = .byTruncatingTail
-        keyLabel.usesSingleLineMode = true
-
-        stack.addArrangedSubview(valueLabel)
-        stack.addArrangedSubview(keyLabel)
-        return stack
-    }
-
     private func showSharedCall(
         _ sharedCall: ONTGenotypeSharedCall,
         sample: String? = nil,
@@ -2527,7 +2487,6 @@ public final class GenotypeResultViewController: NSViewController {
         displayState.summaryViewMode = initialSummaryViewMode(for: updatedResult)
         rebuildActiveHaplotypeAnalysisIndexes()
         aiHaplotypingStatus = "AI haplotype revision created. Calls require manual review."
-        rebuildSummary()
         rebuildHaplotypeLens()
         rebuildOutline()
         rebuildHaplotypeMatrix()
@@ -2922,7 +2881,6 @@ public final class GenotypeResultViewController: NSViewController {
         } else {
             rebuildActiveHaplotypeAnalysisIndexes()
         }
-        rebuildSummary()
         rebuildHaplotypeLens()
         rebuildOutline()
         rebuildHaplotypeMatrix()
@@ -5411,12 +5369,8 @@ extension GenotypeResultViewController {
         return textContent(in: haplotypeStack).joined(separator: "\n")
     }
 
-    var testingSummaryStripText: String {
-        textContent(in: summaryStrip).joined(separator: "\n")
-    }
-
     var testingHasSummaryStatisticsStrip: Bool {
-        summaryStrip.superview != nil
+        false
     }
 
     var testingSamplePaneWidth: CGFloat {

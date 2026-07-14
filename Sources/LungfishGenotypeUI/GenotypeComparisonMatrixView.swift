@@ -91,7 +91,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     private let filterField = NSSearchField()
     private let locusPopup = NSPopUpButton()
-    private let columnWindowBanner = SampleColumnWindowBanner()
     private let pinnedScrollView = NSScrollView()
     private let pinnedTableView = GenotypeMatrixTableView()
     private let paneDivider = GenotypeMatrixPaneDivider()
@@ -118,16 +117,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     /// selection. This is the caller-visible logical set and is NEVER replaced by
     /// the display window.
     private var visibleSampleNames: [String] = []
-    /// Display-only cap on instantiated per-sample columns. Windowing only ever
-    /// affects `windowedColumnSampleNames` and the columns `rebuildColumns()`
-    /// instantiates. `visibleSampleNames` / `activeSampleNames()` stay full.
-    private var columnWindow = SampleColumnWindow()
-    /// The display-only slice of `visibleSampleNames` currently instantiated as
-    /// sample columns. Consumed ONLY by `rebuildColumns()`. `sampleColumnLookup`
-    /// therefore only maps instantiated columns, which is what confines the
-    /// per-column cell dataSource to the window without leaking into the logical
-    /// set.
-    private var windowedColumnSampleNames: [String] = []
     private var sampleColumnLookup: [NSUserInterfaceItemIdentifier: String] = [:]
     private var sampleReadTitleByName: [String: String] = [:]
     private var supportByRowAndSample: [RowKey: [String: ONTGenotypeSampleSupport]] = [:]
@@ -210,8 +199,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedRowFilter = nil
         selectedSampleFilter = nil
         applyAnnotationSidecar(sidecar, reload: false)
-        columnWindow.reset()
-        columnWindow.revealAll()
         rebuildRowsFromResult()
         rebuildColumns()
         applyDefaultSortDescriptor()
@@ -404,23 +391,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         )
     }
 
-    /// Whether the per-sample columns are currently capped by the display window.
-    /// Reflects the FULL filtered logical set (`activeSampleNames()`), so the
-    /// affordance appears exactly when some sample columns are hidden.
-    var isColumnWindowActive: Bool { columnWindow.caps(activeSampleNames()) }
-
-    /// Reveal every per-sample column, defeating the display cap. Rebuilds only
-    /// column instantiation; the logical sample set is unaffected.
-    func showAllSampleColumns() {
-        guard columnWindow.caps(activeSampleNames()) else { return }
-        let preservedSortDescriptors = activeSortDescriptors
-        columnWindow.revealAll()
-        rebuildColumns()
-        activeSortDescriptors = preservedSortDescriptors
-        syncSortDescriptorsToTables()
-        applyFilterAndSort()
-    }
-
     func selectFirstSharedCall() {
         guard !visibleRows.isEmpty else {
             onSelectionCleared?()
@@ -486,8 +456,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         scrollView.borderType = .noBorder
         scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(scrollView)
-
-        columnWindowBanner.isHidden = true
 
         configureTableView(pinnedTableView)
         configureTableView(tableView)
@@ -695,14 +663,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             addColumn(to: pinnedTableView, identifier: ColumnID.uniqueReads, title: "Unique", width: 78, minWidth: 50, ascending: false)
         }
 
-        // Display-only window: instantiate at most `columnWindow.limit` sample
-        // columns. `visibleSampleNames` (the full filtered logical set) is
-        // unchanged; export, annotation targets, support-cell selection, sort,
-        // and selection all continue to read the full set. `sampleColumnLookup`
-        // only maps the instantiated columns, which confines the per-column cell
-        // dataSource to the window without leaking into the logical set.
-        windowedColumnSampleNames = columnWindow.windowedSamples(from: visibleSampleNames)
-        for (index, sample) in windowedColumnSampleNames.enumerated() {
+        for (index, sample) in visibleSampleNames.enumerated() {
             let identifier = ColumnID.sample(index)
             sampleColumnLookup[identifier] = sample
             addColumn(to: tableView, identifier: identifier, title: sample, width: 68, minWidth: 58, ascending: false)
@@ -710,7 +671,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         updatePinnedWidth()
         pinnedTableView.headerView?.frame.size.height = 34
         tableView.headerView?.frame.size.height = 34
-        syncColumnWindowBanner()
         rebuildPinnedColumnMenu()
     }
 
@@ -819,17 +779,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         applyFilterAndSort()
     }
 
-    /// Keep the reveal banner in sync with the current window state. Driven from
-    /// `rebuildColumns()`, so every column instantiation (configure, filter,
-    /// cohort, display-state, and "Show all") refreshes the affordance. Reads the
-    /// FULL filtered logical set (`activeSampleNames()`), never the window.
-    private func syncColumnWindowBanner() {
-        columnWindowBanner.update(
-            isWindowActive: isColumnWindowActive,
-            shownCount: windowedColumnSampleNames.count,
-            totalCount: activeSampleNames().count
-        )
-    }
 
     private func activeSampleNames() -> [String] {
         let sampleFilter = displayState.matrixSampleFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1229,6 +1178,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             } else {
                 ordered = lhs.genotype.localizedStandardCompare(rhs.genotype)
             }
+        }
+        if ordered == .orderedSame {
+            let genotypeOrder = lhs.genotype.localizedStandardCompare(rhs.genotype)
+            if genotypeOrder != .orderedSame { return genotypeOrder == .orderedAscending }
+            return lhs.locus.localizedStandardCompare(rhs.locus) == .orderedAscending
         }
         return ascending ? ordered == .orderedAscending : ordered == .orderedDescending
     }
@@ -2618,15 +2572,13 @@ extension GenotypeComparisonMatrixView {
     func testingSampleMatrixRowYInMatrix(row: Int) -> CGFloat {
         tableView.convert(tableView.rect(ofRow: row), to: self).minY
     }
-    /// Count of INSTANTIATED per-sample columns (subject to the display window).
+    /// Count of instantiated per-sample columns.
     var testingSampleColumnCount: Int {
         tableView.tableColumns.filter { sampleColumnLookup[$0.identifier] != nil }.count
     }
-    /// FULL filtered logical sample set (never windowed).
     var testingActiveSampleNames: [String] { activeSampleNames() }
-    var testingIsColumnWindowActive: Bool { isColumnWindowActive }
-    var testingColumnWindowBannerVisible: Bool { !columnWindowBanner.isHidden }
-    func testingTapShowAllBanner() { columnWindowBanner.onShowAll?() }
+    var testingIsColumnWindowActive: Bool { false }
+    var testingColumnWindowBannerVisible: Bool { false }
     var testingVisibleSampleColumnTitles: [String] {
         tableView.tableColumns.compactMap { column in
             sampleColumnLookup[column.identifier] == nil ? nil : column.title
