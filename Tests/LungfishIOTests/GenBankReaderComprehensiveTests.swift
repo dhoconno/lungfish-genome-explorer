@@ -313,15 +313,16 @@ final class GenBankReaderComprehensiveTests: XCTestCase {
           AUTHORS   Example,A.
           TITLE     First publication
           JOURNAL   Journal 1
-          PUBMED    10640754
+           PUBMED   10640754
         REFERENCE   2  (bases 1 to 90)
           AUTHORS   Example,B.
           TITLE     Second publication
           JOURNAL   Journal 2
           PUBMED    19107381
-        COMMENT     Structured database notes.
-                    IPD accession: NHP00353
-                    Evidence: reviewed
+        COMMENT     ##Genome-Annotation-Data-START##
+                    IPD accession :: NHP00353
+                    Evidence :: reviewed
+                    ##Genome-Annotation-Data-END##
         CUSTOM_HEADER retained value
         FEATURES             Location/Qualifiers
              source          1..90
@@ -362,6 +363,8 @@ final class GenBankReaderComprehensiveTests: XCTestCase {
         XCTAssertEqual(record.values(forRecordField: "REFERENCE.1.PUBMED"), ["10640754"])
         XCTAssertEqual(record.values(forRecordField: "REFERENCE.2.PUBMED"), ["19107381"])
         XCTAssertEqual(record.values(forRecordField: "COMMENT.IPD accession"), ["NHP00353"])
+        XCTAssertEqual(record.values(forRecordField: "COMMENT.Evidence"), ["reviewed"])
+        XCTAssertFalse(record.values(forRecordField: "COMMENT").joined().contains("Genome-Annotation-Data"))
         XCTAssertEqual(record.values(forRecordField: "CUSTOM_HEADER"), ["retained value"])
         XCTAssertEqual(
             record.annotations.first(where: { $0.type == .source })?.qualifier("organism"),

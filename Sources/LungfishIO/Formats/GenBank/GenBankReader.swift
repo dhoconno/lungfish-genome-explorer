@@ -347,7 +347,7 @@ public final class GenBankReader: Sendable {
             let existing = recordFields[index]
             recordFields[index] = GenBankRecordField(
                 key: existing.key,
-                value: existing.value + " " + value,
+                value: existing.value.isEmpty ? value : existing.value + " " + value,
                 ordinal: existing.ordinal
             )
         }
@@ -371,11 +371,22 @@ public final class GenBankReader: Sendable {
         }
 
         func labeledCommentValue(_ value: String) -> (key: String, value: String)? {
-            guard let colon = value.firstIndex(of: ":") else { return nil }
-            let label = String(value[..<colon]).trimmingCharacters(in: .whitespaces)
-            let labeledValue = String(value[value.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            let delimiter: Range<String.Index>
+            if let doubleColon = value.range(of: "::") {
+                delimiter = doubleColon
+            } else if let colon = value.firstIndex(of: ":") {
+                delimiter = colon..<value.index(after: colon)
+            } else {
+                return nil
+            }
+            let label = String(value[..<delimiter.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let labeledValue = String(value[delimiter.upperBound...]).trimmingCharacters(in: .whitespaces)
             guard !label.isEmpty, !labeledValue.isEmpty else { return nil }
             return ("COMMENT.\(label)", labeledValue)
+        }
+
+        func isStructuredCommentBoundary(_ value: String) -> Bool {
+            value.hasPrefix("##") && (value.hasSuffix("-START##") || value.hasSuffix("-END##"))
         }
 
         // Track current section
@@ -444,7 +455,8 @@ public final class GenBankReader: Sendable {
                     }
 
                     currentFieldStartIndex = recordFields.count
-                    appendRecordField(key: key, value: value)
+                    let storedValue = key == "COMMENT" && isStructuredCommentBoundary(value) ? "" : value
+                    appendRecordField(key: key, value: storedValue)
                     currentFieldKey = key
                     currentCommentLabelKey = nil
                     if key == "REFERENCE" {
@@ -454,11 +466,11 @@ public final class GenBankReader: Sendable {
                         currentReferenceOrdinal = nil
                     }
 
-                    if key == "COMMENT", let labeled = labeledCommentValue(value) {
+                    if key == "COMMENT", !isStructuredCommentBoundary(value), let labeled = labeledCommentValue(value) {
                         appendRecordField(key: labeled.key, value: labeled.value)
                         currentCommentLabelKey = labeled.key
                     }
-                } else if leadingSpaceCount == 2 {
+                } else if leadingSpaceCount < 12 {
                     let subfield = keywordArea
                     let isNamedSubfield = !subfield.isEmpty && subfield == subfield.uppercased()
                     guard isNamedSubfield else {
@@ -482,20 +494,21 @@ public final class GenBankReader: Sendable {
                     appendRecordField(key: key, value: value)
                     currentFieldKey = key
                     currentCommentLabelKey = nil
-                } else if leadingSpaceCount < 12 {
-                    if let currentFieldKey {
-                        try omitMalformedField(key: currentFieldKey, lineNumber: lineIndex + 1)
-                    }
                 } else if let continuationKey = currentFieldKey {
                     if continuationKey == "DBLINK" {
                         appendRecordField(key: continuationKey, value: trimmedLine)
                     } else if continuationKey == "COMMENT" {
-                        appendToLastRecordField(key: continuationKey, value: trimmedLine)
-                        if let labeled = labeledCommentValue(trimmedLine) {
+                        if isStructuredCommentBoundary(trimmedLine) {
+                            currentCommentLabelKey = nil
+                        } else if let labeled = labeledCommentValue(trimmedLine) {
+                            appendToLastRecordField(key: continuationKey, value: trimmedLine)
                             appendRecordField(key: labeled.key, value: labeled.value)
                             currentCommentLabelKey = labeled.key
-                        } else if let currentCommentLabelKey {
-                            appendToLastRecordField(key: currentCommentLabelKey, value: trimmedLine)
+                        } else {
+                            appendToLastRecordField(key: continuationKey, value: trimmedLine)
+                            if let currentCommentLabelKey {
+                                appendToLastRecordField(key: currentCommentLabelKey, value: trimmedLine)
+                            }
                         }
                     } else if continuationKey == "ORGANISM" || continuationKey == "TAXONOMY" {
                         appendToLastRecordField(key: "TAXONOMY", value: trimmedLine)
