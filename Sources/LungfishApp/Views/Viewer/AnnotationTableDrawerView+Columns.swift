@@ -728,6 +728,7 @@ extension AnnotationTableDrawerView {
     /// Connects the drawer to a search index for direct SQL queries.
     /// Does NOT load all annotations into memory — queries the database on demand.
     func setSearchIndex(_ index: AnnotationSearchIndex) {
+        invalidatePendingAnnotationScopeMetadataQuery()
         searchIndex = index
         isLoading = false
         cachedGlobalFilteredVariantRows = []

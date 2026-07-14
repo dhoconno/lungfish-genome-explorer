@@ -106,6 +106,36 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         XCTAssertEqual(Set(drawer.displayedAnnotations.map(\.chromosome)), ["record-a", "record-c"])
     }
 
+    func testAnnotationFilterChangeDoesNotStrandInFlightScopeMetadata() throws {
+        let drawer = try createDrawerWithAnnotationsAndVariants(bedLines: [
+            "record-a\t0\t10\tgene-a\t0\t+\t0\t10\t0,0,0\t1\t10\t0\tgene\tscope_key=A",
+            "record-b\t10\t20\texon-b\t0\t+\t10\t20\t0,0,0\t1\t10\t0\texon\tother_key=B",
+            "record-c\t20\t30\tcds-c\t0\t+\t20\t30\t0,0,0\t1\t10\t0\tCDS\tscope_key=C",
+        ])
+        let gate = AnnotationScopeMetadataQueryGate()
+        drawer.debugAnnotationScopeMetadataQueryGate = gate
+
+        drawer.setAllowedChromosomes(["record-a", "record-c"])
+        XCTAssertTrue(gate.waitUntilPaused(), "Scope metadata query should enter the deterministic test gate")
+
+        drawer.debugSetAnnotationFilterText("gene-a")
+        drawer.debugRefreshDisplayedAnnotations()
+        gate.resume()
+
+        waitForDisplayedAnnotations(drawer) {
+            drawer.totalAnnotationCount == 2
+                && drawer.displayedAnnotations.map(\.name) == ["gene-a"]
+                && drawer.annotationAttributeColumnKeys.contains("scope_key")
+                && !drawer.annotationAttributeColumnKeys.contains("other_key")
+        }
+
+        XCTAssertEqual(drawer.totalAnnotationCount, 2)
+        XCTAssertEqual(Set(drawer.availableAnnotationTypes), ["CDS", "gene"])
+        XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["gene-a"])
+        XCTAssertTrue(drawer.annotationAttributeColumnKeys.contains("scope_key"))
+        XCTAssertFalse(drawer.annotationAttributeColumnKeys.contains("other_key"))
+    }
+
     // MARK: - Helpers
 
     /// Creates a drawer with both annotation and variant databases.

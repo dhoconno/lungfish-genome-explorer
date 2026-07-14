@@ -279,10 +279,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Generation counter for stale annotation filter refreshes.
     var annotationQueryGeneration: Int = 0
     var activeAnnotationQueryCancelToken: VariantQueryCancellationToken?
+    /// Independent lifecycle for record-scope count/type/column metadata.
+    var annotationScopeMetadataQueryGeneration: Int = 0
+    var activeAnnotationScopeMetadataQueryCancelToken: VariantQueryCancellationToken?
 
     /// Optional record scope for annotation-table database queries. `nil` means all
     /// records; an empty set deliberately means no records.
     var allowedAnnotationChromosomes: Set<String>?
+    #if DEBUG
+    var debugAnnotationScopeMetadataQueryGate: AnnotationScopeMetadataQueryGate?
+    #endif
 
     /// Total annotation count in the database (annotation tab only).
     var totalAnnotationCount: Int = 0
@@ -4571,6 +4577,26 @@ final class VariantQueryCancellationToken: @unchecked Sendable {
         return value
     }
 }
+
+#if DEBUG
+final class AnnotationScopeMetadataQueryGate: @unchecked Sendable {
+    private let entered = DispatchSemaphore(value: 0)
+    private let release = DispatchSemaphore(value: 0)
+
+    func pause() {
+        entered.signal()
+        release.wait()
+    }
+
+    func waitUntilPaused(timeout: DispatchTime = .now() + 2) -> Bool {
+        entered.wait(timeout: timeout) == .success
+    }
+
+    func resume() {
+        release.signal()
+    }
+}
+#endif
 
 /// Snapshot of annotation database state needed for background annotation-table queries.
 /// Stores database URLs, not live handles, so each background query uses its own

@@ -34,6 +34,7 @@ extension AnnotationTableDrawerView {
         guard forceRefresh || allowedAnnotationChromosomes != chromosomes else { return }
         allowedAnnotationChromosomes = chromosomes
         invalidatePendingAnnotationQuery()
+        invalidatePendingAnnotationScopeMetadataQuery()
 
         // Record filtering does not alter the variants or samples tabs. The stored
         // scope is refreshed when the annotations tab next becomes active.
@@ -63,12 +64,18 @@ extension AnnotationTableDrawerView {
             return
         }
 
-        let generation = annotationQueryGeneration
+        let generation = annotationScopeMetadataQueryGeneration
         let context = annotationQueryContext(for: index)
         let cancelToken = VariantQueryCancellationToken()
         let maxDisplayCount = Self.maxDisplayCount
-        activeAnnotationQueryCancelToken = cancelToken
+        #if DEBUG
+        let debugGate = debugAnnotationScopeMetadataQueryGate
+        #endif
+        activeAnnotationScopeMetadataQueryCancelToken = cancelToken
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            #if DEBUG
+            debugGate?.pause()
+            #endif
             let count = context.totalCount(shouldCancel: { cancelToken.isCancelled })
             guard !cancelToken.isCancelled else { return }
             let types = context.allTypes(shouldCancel: { cancelToken.isCancelled })
@@ -83,10 +90,10 @@ extension AnnotationTableDrawerView {
                 MainActor.assumeIsolated {
                     guard let self,
                           !cancelToken.isCancelled,
-                          self.activeAnnotationQueryCancelToken === cancelToken,
-                          self.annotationQueryGeneration == generation,
+                          self.activeAnnotationScopeMetadataQueryCancelToken === cancelToken,
+                          self.annotationScopeMetadataQueryGeneration == generation,
                           self.activeTab == .annotations else { return }
-                    self.activeAnnotationQueryCancelToken = nil
+                    self.activeAnnotationScopeMetadataQueryCancelToken = nil
                     let previouslyAllTypes = self.visibleAnnotationTypes == Set(self.availableAnnotationTypes)
                     self.totalAnnotationCount = count
                     self.availableAnnotationTypes = types
@@ -343,6 +350,12 @@ extension AnnotationTableDrawerView {
         activeAnnotationQueryCancelToken?.cancel()
         activeAnnotationQueryCancelToken = nil
         annotationQueryGeneration += 1
+    }
+
+    func invalidatePendingAnnotationScopeMetadataQuery() {
+        activeAnnotationScopeMetadataQueryCancelToken?.cancel()
+        activeAnnotationScopeMetadataQueryCancelToken = nil
+        annotationScopeMetadataQueryGeneration += 1
     }
 
     func scheduleAnnotationQueryRefresh() {
