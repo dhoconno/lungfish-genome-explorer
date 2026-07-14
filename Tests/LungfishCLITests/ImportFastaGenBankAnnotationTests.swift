@@ -40,6 +40,7 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
             .appendingPathComponent(ReferenceSequenceFolder.folderName, isDirectory: true)
             .appendingPathComponent("MN908947.3.lungfishref", isDirectory: true)
         let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertTrue(manifest.warnings.isEmpty)
 
         let annotation: AnnotationTrackInfo = try XCTUnwrap(manifest.annotations.first)
         XCTAssertEqual(annotation.id, "imported_annotations")
@@ -113,6 +114,9 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         XCTAssertTrue(outputs.allSatisfy {
             $0["sha256"] != nil && $0["sizeBytes"] != nil
         })
+        let canonical = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        XCTAssertNil(canonical.options.explicit["warnings"])
+        XCTAssertTrue(canonical.steps.allSatisfy { $0.stderr?.isEmpty != false })
     }
 
     func testCompressedGenBankReferenceImportMaterializesAnnotationTrackGFF3() async throws {
@@ -180,6 +184,22 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
             url: bundleURL.appendingPathComponent(recordStore.databasePath)
         ).recordCount(), 2)
         XCTAssertEqual(manifest.annotations.first?.featureCount, 1)
+        XCTAssertEqual(Set(manifest.warnings.map(\.code)), [
+            "invalid_feature_location", "malformed_record_field",
+        ])
+        let recordWarning = try XCTUnwrap(manifest.warnings.first { $0.recordFieldKey == "DBLINK" })
+        XCTAssertEqual(recordWarning.category, "genbank.record-field.recovery")
+        XCTAssertEqual(recordWarning.recordIdentifier, "record1")
+        XCTAssertNotNil(recordWarning.lineNumber)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        guard case .array(let warningParameters)? = provenance.options.explicit["warnings"] else {
+            return XCTFail("Expected structured provenance warnings")
+        }
+        XCTAssertEqual(warningParameters.count, 2)
+        let warningText = String(decoding: try JSONEncoder().encode(provenance), as: UTF8.self)
+        XCTAssertTrue(warningText.contains("DBLINK"))
+        XCTAssertTrue(warningText.contains("record1"))
+        XCTAssertFalse(warningText.contains("lungfish-cli-ref-import-"))
     }
 
     private func gzip(sourceURL: URL, destinationURL: URL) throws {
@@ -227,6 +247,8 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
     DEFINITION  First synthetic record.
     ACCESSION   record1
     VERSION     record1.1
+    DBLINK      INSDC: OMITTED
+               malformed continuation indentation
     FEATURES             Location/Qualifiers
          gene            1..6
                          /gene="valid"

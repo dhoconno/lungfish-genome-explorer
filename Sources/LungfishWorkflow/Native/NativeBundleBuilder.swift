@@ -226,6 +226,7 @@ public final class NativeBundleBuilder: ObservableObject {
                     variants: variantInfos,
                     tracks: signalInfos,
                     metadata: configuration.metadata,
+                    warnings: configuration.warnings,
                     recordStore: recordStoreInfo
                 )
 
@@ -327,6 +328,9 @@ public final class NativeBundleBuilder: ObservableObject {
         if !configuration.annotationFiles.isEmpty {
             parameters["annotation_ids"] = .array(configuration.annotationFiles.map { .string($0.id) })
         }
+        if !configuration.warnings.isEmpty {
+            parameters["warnings"] = .array(configuration.warnings.map(warningParameter))
+        }
 
         return parameters
     }
@@ -362,7 +366,7 @@ public final class NativeBundleBuilder: ObservableObject {
             outputs: outputRecords,
             exitCode: 0,
             wallTime: wallTime,
-            stderr: nil
+            stderr: warningsStderr(configuration.warnings)
         )
         var previousNativeStepID: UUID?
         for step in nativeToolSteps {
@@ -750,12 +754,17 @@ public final class NativeBundleBuilder: ObservableObject {
         configuration: BuildConfiguration,
         bundleURL: URL
     ) -> ProvenanceOptions? {
-        guard configuration.referenceRecordStoreURL != nil else { return nil }
+        guard configuration.referenceRecordStoreURL != nil || !configuration.warnings.isEmpty else { return nil }
+        var explicit = provenanceParameters(for: configuration, bundleURL: bundleURL)
+        var defaults: [String: ParameterValue] = [:]
+        var resolvedDefaults: [String: ParameterValue] = [:]
+        guard configuration.referenceRecordStoreURL != nil else {
+            return ProvenanceOptions(explicit: explicit, defaults: defaults, resolvedDefaults: resolvedDefaults)
+        }
         let durableURL = configuration.provenanceInputFiles?.first
             ?? configuration.referenceRecordStoreURL
         guard let durableURL else { return nil }
 
-        var explicit = provenanceParameters(for: configuration, bundleURL: bundleURL)
         let key: String
         if configuration.provenanceInputFiles != nil {
             key = "reference_source"
@@ -763,11 +772,41 @@ public final class NativeBundleBuilder: ObservableObject {
             key = "reference_record_store"
         }
         explicit[key] = .file(durableURL)
+        defaults[key] = .string("none")
+        resolvedDefaults[key] = .file(durableURL)
         return ProvenanceOptions(
             explicit: explicit,
-            defaults: [key: .string("none")],
-            resolvedDefaults: [key: .file(durableURL)]
+            defaults: defaults,
+            resolvedDefaults: resolvedDefaults
         )
+    }
+
+    private func warningParameter(_ warning: BundleWarning) -> ParameterValue {
+        var fields: [String: ParameterValue] = [
+            "category": .string(warning.category),
+            "code": .string(warning.code),
+            "message": .string(warning.message),
+        ]
+        if let value = warning.recordIdentifier { fields["recordIdentifier"] = .string(value) }
+        if let value = warning.featureType { fields["featureType"] = .string(value) }
+        if let value = warning.recordFieldKey { fields["recordFieldKey"] = .string(value) }
+        if let value = warning.sourceLocation { fields["sourceLocation"] = .string(value) }
+        if let value = warning.lineNumber { fields["lineNumber"] = .integer(value) }
+        return .dictionary(fields)
+    }
+
+    private func warningsStderr(_ warnings: [BundleWarning]) -> String? {
+        guard !warnings.isEmpty else { return nil }
+        return warnings.map { warning in
+            var context: [String] = []
+            if let value = warning.recordIdentifier { context.append("record \(value)") }
+            if let value = warning.recordFieldKey { context.append("field \(value)") }
+            if let value = warning.featureType { context.append("feature \(value)") }
+            if let value = warning.sourceLocation { context.append("location \(value)") }
+            if let value = warning.lineNumber { context.append("line \(value)") }
+            let suffix = context.isEmpty ? "" : " [\(context.joined(separator: ", "))]"
+            return "\(warning.category)/\(warning.code): \(warning.message)\(suffix)"
+        }.joined(separator: "\n")
     }
 
     private func prepareOutputDestination(for publishedBundleURL: URL) throws {

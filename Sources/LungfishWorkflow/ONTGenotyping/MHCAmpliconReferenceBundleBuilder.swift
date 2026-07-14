@@ -156,6 +156,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
                     provenanceWorkflowName: nil,
                     provenanceCommand: nil,
                     provenanceInputFiles: nil,
+                    warnings: preparedReference.warnings.map(\.bundleWarning),
                     referenceRecordStoreURL: preparedReference.recordStoreURL
                 ),
                 progressHandler: { _, progress, message in
@@ -417,7 +418,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             outputs: outputs,
             exitStatus: 0,
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
-            stderr: warnings.isEmpty ? nil : warnings.map(\.message).joined(separator: "\n"),
+            stderr: warnings.isEmpty ? nil : warnings.map(warningDiagnostic).joined(separator: "\n"),
             startedAt: startedAt,
             completedAt: completedAt
         )
@@ -446,7 +447,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             steps: [step],
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             exitStatus: 0,
-            stderr: warnings.isEmpty ? nil : warnings.map(\.message).joined(separator: "\n")
+            stderr: warnings.isEmpty ? nil : warnings.map(warningDiagnostic).joined(separator: "\n")
         )
         return try ProvenanceWriter(signingProvider: nil).write(
             envelope,
@@ -478,10 +479,24 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             "category": .string(warning.category),
             "message": .string(warning.message),
         ]
+        if let value = warning.code { fields["code"] = .string(value) }
         if let value = warning.recordIdentifier { fields["recordIdentifier"] = .string(value) }
         if let value = warning.featureType { fields["featureType"] = .string(value) }
+        if let value = warning.recordFieldKey { fields["recordFieldKey"] = .string(value) }
         if let value = warning.sourceLocation { fields["sourceLocation"] = .string(value) }
+        if let value = warning.lineNumber { fields["lineNumber"] = .integer(value) }
         return .dictionary(fields)
+    }
+
+    private func warningDiagnostic(_ warning: MHCReferenceBundleWarning) -> String {
+        var context: [String] = []
+        if let value = warning.recordIdentifier { context.append("record \(value)") }
+        if let value = warning.recordFieldKey { context.append("field \(value)") }
+        if let value = warning.featureType { context.append("feature \(value)") }
+        if let value = warning.sourceLocation { context.append("location \(value)") }
+        if let value = warning.lineNumber { context.append("line \(value)") }
+        let suffix = context.isEmpty ? "" : " [\(context.joined(separator: ", "))]"
+        return "\(warning.category)/\(warning.code ?? "recoverable_import_warning"): \(warning.message)\(suffix)"
     }
 
     private func removeNestedReferenceProvenance(from bundleURL: URL) throws {
@@ -749,10 +764,13 @@ private extension MHCReferenceBundleWarning {
     init(_ warning: ReferenceImportWarning) {
         self.init(
             category: warning.category,
+            code: warning.code,
             message: warning.message,
             recordIdentifier: warning.recordIdentifier,
             featureType: warning.featureType,
-            sourceLocation: warning.sourceLocation
+            recordFieldKey: warning.recordFieldKey,
+            sourceLocation: warning.sourceLocation,
+            lineNumber: warning.lineNumber
         )
     }
 }

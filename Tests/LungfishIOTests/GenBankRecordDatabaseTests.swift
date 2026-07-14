@@ -45,6 +45,36 @@ final class GenBankRecordDatabaseTests: XCTestCase {
         XCTAssertEqual(definitions.first(where: { $0.key == "feature.allele" })?.sourceCategory, "feature")
     }
 
+    func testCreateExcludesReservedParserTransportQualifiers() throws {
+        let databaseURL = temporaryDirectory.appendingPathComponent("reserved.sqlite")
+        let record = GenBankRecord(
+            sequence: try Sequence(name: "record", alphabet: .dna, bases: "ACGT"),
+            annotations: [
+                SequenceAnnotation(
+                    type: .gene,
+                    name: "gene",
+                    start: 0,
+                    end: 4,
+                    qualifiers: [
+                        "gene": AnnotationQualifier("visible"),
+                        GenBankReader.rawFeatureTypeQualifierKey: AnnotationQualifier("gene"),
+                        GenBankReader.rawLocationQualifierKey: AnnotationQualifier("1..4"),
+                    ]
+                ),
+            ],
+            locus: LocusInfo(name: "record", length: 4, moleculeType: .dna, topology: .linear)
+        )
+
+        try GenBankRecordDatabase.create(records: [record], at: databaseURL)
+        let database = try GenBankRecordDatabase(url: databaseURL)
+        let keys = Set(try database.fieldDefinitions().map(\.key))
+
+        XCTAssertTrue(keys.contains("feature.gene"))
+        XCTAssertFalse(keys.contains("feature.\(GenBankReader.rawFeatureTypeQualifierKey)"))
+        XCTAssertFalse(keys.contains("feature.\(GenBankReader.rawLocationQualifierKey)"))
+        XCTAssertEqual(try database.records().first?.values["feature.gene"], "visible")
+    }
+
     func testOpeningDatabaseMissingRequiredTableIsRejected() throws {
         let databaseURL = temporaryDirectory.appendingPathComponent("corrupt.sqlite")
         try executeSQLite(at: databaseURL, sql: """

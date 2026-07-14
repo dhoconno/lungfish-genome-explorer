@@ -15,23 +15,32 @@ public struct MHCAmpliconReferenceBundleMetrics: Codable, Equatable, Sendable {
 
 public struct MHCReferenceBundleWarning: Codable, Equatable, Sendable {
     public let category: String
+    public let code: String?
     public let message: String
     public let recordIdentifier: String?
     public let featureType: String?
+    public let recordFieldKey: String?
     public let sourceLocation: String?
+    public let lineNumber: Int?
 
     public init(
         category: String,
+        code: String? = nil,
         message: String,
         recordIdentifier: String? = nil,
         featureType: String? = nil,
-        sourceLocation: String? = nil
+        recordFieldKey: String? = nil,
+        sourceLocation: String? = nil,
+        lineNumber: Int? = nil
     ) {
         self.category = category
+        self.code = code
         self.message = message
         self.recordIdentifier = recordIdentifier
         self.featureType = featureType
+        self.recordFieldKey = recordFieldKey
         self.sourceLocation = sourceLocation
+        self.lineNumber = lineNumber
     }
 }
 

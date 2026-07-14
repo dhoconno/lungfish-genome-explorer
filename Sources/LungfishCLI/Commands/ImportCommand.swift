@@ -1272,6 +1272,7 @@ extension ImportCommand {
                     bundleName: bundleName
                 ),
                 provenanceInputFiles: [inputURL],
+                warnings: buildInputs.warnings.map(\.bundleWarning),
                 referenceRecordStoreURL: buildInputs.recordStoreURL
             )
 

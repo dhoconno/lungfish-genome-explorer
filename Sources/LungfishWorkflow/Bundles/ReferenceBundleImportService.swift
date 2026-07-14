@@ -177,6 +177,7 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
                 isEnabled: provenanceWorkflowName != nil
             ),
             provenanceInputFiles: provenanceInputFiles ?? (provenanceWorkflowName == nil ? nil : [sourceURL]),
+            warnings: prepared.warnings.map(\.bundleWarning),
             referenceRecordStoreURL: prepared.recordStoreURL
         )
 

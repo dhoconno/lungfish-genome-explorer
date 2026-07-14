@@ -299,11 +299,17 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
 
     private static func collectValues(from record: GenBankRecord) -> CollectedValues {
         var collected = CollectedValues()
+        let reservedQualifierKeys: Set<String> = [
+            GenBankReader.rawFeatureTypeQualifierKey,
+            GenBankReader.rawLocationQualifierKey,
+        ]
         for field in record.recordFields.sorted(by: { $0.ordinal < $1.ordinal }) {
             collected.append(key: "record.\(field.key)", values: [field.value])
         }
         for annotation in record.annotations {
-            for key in annotation.qualifiers.keys.sorted(by: caseInsensitiveLessThan) {
+            for key in annotation.qualifiers.keys
+                .filter({ !reservedQualifierKeys.contains($0) })
+                .sorted(by: caseInsensitiveLessThan) {
                 collected.append(key: "feature.\(key)", values: annotation.qualifiers[key]?.values ?? [])
             }
         }

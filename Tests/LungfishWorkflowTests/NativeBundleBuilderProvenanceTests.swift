@@ -47,10 +47,20 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
             outputDirectory: root,
             source: SourceInfo(organism: "Test", assembly: "Test"),
             compressFASTA: false,
+            warnings: [BundleWarning(
+                category: "genbank.record-field.recovery",
+                code: "malformed_record_field",
+                message: "Malformed continuation for record field DBLINK",
+                recordIdentifier: "RECOVER",
+                recordFieldKey: "DBLINK",
+                lineNumber: 5
+            )],
             referenceRecordStoreURL: stagedStoreURL
         ))
 
         let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(manifest.warnings.count, 1)
+        XCTAssertEqual(manifest.warnings[0].recordFieldKey, "DBLINK")
         XCTAssertEqual(manifest.recordStore, ReferenceRecordStoreInfo(
             schemaVersion: 1,
             format: "genbank",
@@ -72,6 +82,21 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["reference_record_store"], .file(stagedStoreURL))
         XCTAssertEqual(envelope.options.defaults["reference_record_store"], .string("none"))
         XCTAssertEqual(envelope.options.resolvedDefaults["reference_record_store"], .file(stagedStoreURL))
+        XCTAssertEqual(envelope.options.explicit["warnings"], .array([
+            .dictionary([
+                "category": .string("genbank.record-field.recovery"),
+                "code": .string("malformed_record_field"),
+                "message": .string("Malformed continuation for record field DBLINK"),
+                "recordIdentifier": .string("RECOVER"),
+                "recordFieldKey": .string("DBLINK"),
+                "lineNumber": .integer(5),
+            ]),
+        ]))
+        let importStderr = try XCTUnwrap(envelope.steps.first?.stderr)
+        XCTAssertTrue(importStderr.contains("DBLINK"))
+        XCTAssertTrue(importStderr.contains("RECOVER"))
+        XCTAssertTrue(importStderr.contains("line 5"))
+        XCTAssertFalse(importStderr.contains("temporary/"))
     }
 
     func testRecordStoreProvenanceUsesDurableSourceOverrideWithoutStagingLeak() async throws {
@@ -153,6 +178,8 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
         XCTAssertTrue(envelope.steps.first?.inputs.contains {
             $0.path == durableSourceURL.path && $0.role == .input
         } == true)
+        XCTAssertNil(envelope.options.explicit["warnings"])
+        XCTAssertTrue(envelope.steps.allSatisfy { $0.stderr?.isEmpty != false })
     }
 
     func testRecordStoreIdentityMismatchRejectsBuildBeforePublication() async throws {

@@ -4,6 +4,38 @@
 
 import Foundation
 
+/// A recoverable scientific-import problem retained with the finished bundle.
+public struct BundleWarning: Codable, Sendable, Equatable {
+    public let category: String
+    public let code: String
+    public let message: String
+    public let recordIdentifier: String?
+    public let featureType: String?
+    public let recordFieldKey: String?
+    public let sourceLocation: String?
+    public let lineNumber: Int?
+
+    public init(
+        category: String,
+        code: String,
+        message: String,
+        recordIdentifier: String? = nil,
+        featureType: String? = nil,
+        recordFieldKey: String? = nil,
+        sourceLocation: String? = nil,
+        lineNumber: Int? = nil
+    ) {
+        self.category = category
+        self.code = code
+        self.message = message
+        self.recordIdentifier = recordIdentifier
+        self.featureType = featureType
+        self.recordFieldKey = recordFieldKey
+        self.sourceLocation = sourceLocation
+        self.lineNumber = lineNumber
+    }
+}
+
 /// Declares an indexed record-level metadata store embedded in a reference bundle.
 public struct ReferenceRecordStoreInfo: Codable, Sendable, Equatable {
     public static let supportedFormat = "genbank"
@@ -118,6 +150,9 @@ public struct BundleManifest: Codable, Sendable, Equatable {
     /// Optional indexed record-level metadata store, such as one produced from GenBank.
     public let recordStore: ReferenceRecordStoreInfo?
 
+    /// Recoverable source-import problems. Empty for lossless imports and legacy bundles.
+    public let warnings: [BundleWarning]
+
     /// Whether this bundle contains only variant data (no reference sequence).
     public var isVariantOnly: Bool { genome == nil }
 
@@ -167,6 +202,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
             && lhs.source == rhs.source
             && lhs.genome == rhs.genome
             && lhs.recordStore == rhs.recordStore
+            && lhs.warnings == rhs.warnings
             && lhs.annotations == rhs.annotations
             && lhs.variants == rhs.variants
             && lhs.tracks == rhs.tracks
@@ -194,6 +230,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         alignments: [AlignmentTrackInfo] = [],
         metadata: [MetadataGroup]? = nil,
         browserSummary: BundleBrowserSummary? = nil,
+        warnings: [BundleWarning] = [],
         recordStore: ReferenceRecordStoreInfo?
     ) {
         self.formatVersion = formatVersion
@@ -206,6 +243,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         self.source = source
         self.genome = genome
         self.recordStore = recordStore
+        self.warnings = warnings
         self.annotations = annotations
         self.variants = variants
         self.tracks = tracks
@@ -491,6 +529,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         case source
         case genome
         case recordStore = "record_store"
+        case warnings
         case annotations
         case variants
         case tracks
@@ -517,6 +556,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         source = try container.decode(SourceInfo.self, forKey: .source)
         genome = try container.decodeIfPresent(GenomeInfo.self, forKey: .genome)
         recordStore = try container.decodeIfPresent(ReferenceRecordStoreInfo.self, forKey: .recordStore)
+        warnings = try container.decodeIfPresent([BundleWarning].self, forKey: .warnings) ?? []
         annotations = try container.decode([AnnotationTrackInfo].self, forKey: .annotations)
         variants = try container.decode([VariantTrackInfo].self, forKey: .variants)
         tracks = try container.decode([SignalTrackInfo].self, forKey: .tracks)
@@ -571,6 +611,7 @@ extension BundleManifest {
         alignments: [AlignmentTrackInfo]? = nil,
         metadata: [MetadataGroup]?? = nil,
         browserSummary: BundleBrowserSummary?? = nil,
+        warnings: [BundleWarning]? = nil,
         recordStore: ReferenceRecordStoreInfo?? = nil
     ) -> BundleManifest {
         BundleManifest(
@@ -589,6 +630,7 @@ extension BundleManifest {
             alignments: alignments ?? self.alignments,
             metadata: metadata ?? self.metadata,
             browserSummary: browserSummary ?? self.browserSummary,
+            warnings: warnings ?? self.warnings,
             recordStore: recordStore ?? self.recordStore
         )
     }

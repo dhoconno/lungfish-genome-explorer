@@ -2,25 +2,47 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-public struct ReferenceImportWarning: Codable, Equatable, Sendable {
+public struct ReferenceImportWarning: Codable, Equatable, Hashable, Sendable {
     public let category: String
+    public let code: String
     public let message: String
     public let recordIdentifier: String?
     public let featureType: String?
+    public let recordFieldKey: String?
     public let sourceLocation: String?
+    public let lineNumber: Int?
 
     public init(
         category: String,
+        code: String = "recoverable_import_warning",
         message: String,
         recordIdentifier: String? = nil,
         featureType: String? = nil,
-        sourceLocation: String? = nil
+        recordFieldKey: String? = nil,
+        sourceLocation: String? = nil,
+        lineNumber: Int? = nil
     ) {
         self.category = category
+        self.code = code
         self.message = message
         self.recordIdentifier = recordIdentifier
         self.featureType = featureType
+        self.recordFieldKey = recordFieldKey
         self.sourceLocation = sourceLocation
+        self.lineNumber = lineNumber
+    }
+
+    public var bundleWarning: BundleWarning {
+        BundleWarning(
+            category: category,
+            code: code,
+            message: message,
+            recordIdentifier: recordIdentifier,
+            featureType: featureType,
+            recordFieldKey: recordFieldKey,
+            sourceLocation: sourceLocation,
+            lineNumber: lineNumber
+        )
     }
 }
 
@@ -141,21 +163,32 @@ public struct ReferenceSourcePreparer: Sendable {
         let organism = recovery.records.first?.definition
             ?? recovery.records.first?.sequence.description
             ?? bundleName
+        let mappedWarnings = recovery.warnings.map {
+            let isRecordFieldWarning = $0.recordFieldKey != nil
+            return ReferenceImportWarning(
+                category: isRecordFieldWarning
+                    ? "genbank.record-field.recovery"
+                    : "genbank.feature.recovery",
+                code: isRecordFieldWarning
+                    ? "malformed_record_field"
+                    : "invalid_feature_location",
+                message: $0.message,
+                recordIdentifier: $0.recordIdentifier,
+                featureType: $0.featureType,
+                recordFieldKey: $0.recordFieldKey,
+                sourceLocation: $0.sourceLocation,
+                lineNumber: $0.lineNumber
+            )
+        }
+        var seenWarnings: Set<ReferenceImportWarning> = []
+        let warnings = mappedWarnings.filter { seenWarnings.insert($0).inserted }
 
         return PreparedReferenceSource(
             fastaURL: fastaOutput,
             annotationInputs: annotationInputs,
             sourceInfo: sourceInfo(sourceURL: sourceURL, bundleName: bundleName, organism: organism),
             sequenceNames: sequences.map(\.name),
-            warnings: recovery.warnings.map {
-                ReferenceImportWarning(
-                    category: "genbank.annotation.skipped",
-                    message: $0.message,
-                    recordIdentifier: $0.recordIdentifier,
-                    featureType: $0.featureType,
-                    sourceLocation: $0.sourceLocation
-                )
-            },
+            warnings: warnings,
             recordStoreURL: recordStoreURL
         )
     }

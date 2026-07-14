@@ -103,6 +103,9 @@ public struct BuildConfiguration: Sendable {
     /// in their owning CLI/workflow layer.
     public let provenanceInputFiles: [URL]?
 
+    /// Recoverable scientific-import problems to persist in manifest and provenance.
+    public let warnings: [BundleWarning]
+
     /// Creates a new build configuration.
     public init(
         name: String,
@@ -118,6 +121,7 @@ public struct BuildConfiguration: Sendable {
         provenanceWorkflowName: String? = nil,
         provenanceCommand: [String]? = nil,
         provenanceInputFiles: [URL]? = nil,
+        warnings: [BundleWarning] = [],
         referenceRecordStoreURL: URL? = nil
     ) {
         self.name = name
@@ -133,6 +137,7 @@ public struct BuildConfiguration: Sendable {
         self.provenanceWorkflowName = provenanceWorkflowName
         self.provenanceCommand = provenanceCommand
         self.provenanceInputFiles = provenanceInputFiles
+        self.warnings = warnings
         self.referenceRecordStoreURL = referenceRecordStoreURL
     }
 }
@@ -541,7 +546,9 @@ private struct ReferenceBundleBuildExecutor: Sendable {
                     annotations: annotationInfos,
                     variants: variantInfos,
                     tracks: signalInfos,
-                    metadata: configuration.metadata
+                    metadata: configuration.metadata,
+                    warnings: configuration.warnings,
+                    recordStore: nil
                 )
 
                 try manifest.save(to: bundleURL)
