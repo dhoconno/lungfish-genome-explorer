@@ -267,6 +267,19 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         return rows
     }
 
+    /// Returns the number of indexed GenBank records without materializing row metadata.
+    public func recordCount() throws -> Int {
+        guard let database else { throw Error.openFailed("Database is closed") }
+        var statement: OpaquePointer?
+        try Self.prepare(database, sql: "SELECT COUNT(*) FROM records", statement: &statement)
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw Error.operationFailed(String(cString: sqlite3_errmsg(database)))
+        }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
     private struct CollectedValues {
         var orderedKeys: [String] = []
         var valuesByKey: [String: [String]] = [:]

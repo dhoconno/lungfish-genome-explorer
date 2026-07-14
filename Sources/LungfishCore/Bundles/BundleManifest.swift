@@ -6,6 +6,9 @@ import Foundation
 
 /// Declares an indexed record-level metadata store embedded in a reference bundle.
 public struct ReferenceRecordStoreInfo: Codable, Sendable, Equatable {
+    public static let supportedFormat = "genbank"
+    public static let supportedSchemaVersion = 1
+
     public let schemaVersion: Int
     public let format: String
     public let databasePath: String

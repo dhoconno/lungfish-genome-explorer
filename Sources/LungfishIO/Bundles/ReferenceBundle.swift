@@ -233,11 +233,32 @@ public final class ReferenceBundle: Sendable {
     /// ``GenBankRecordDatabase`` rather than being treated as absent.
     public func recordStoreDatabase() throws -> GenBankRecordDatabase? {
         guard let recordStore = manifest.recordStore else { return nil }
+        guard recordStore.format == ReferenceRecordStoreInfo.supportedFormat else {
+            throw ReferenceBundleError.validationFailed([.invalidValue(
+                "record_store.format",
+                recordStore.format,
+                ReferenceRecordStoreInfo.supportedFormat
+            )])
+        }
+        guard recordStore.schemaVersion == GenBankRecordDatabase.schemaVersion else {
+            throw ReferenceBundleError.validationFailed([.invalidValue(
+                "record_store.schema_version",
+                String(recordStore.schemaVersion),
+                String(GenBankRecordDatabase.schemaVersion)
+            )])
+        }
         let databaseURL = try validatedBundleMemberURL(
             path: recordStore.databasePath,
             field: "record_store.database_path"
         )
-        return try GenBankRecordDatabase(url: databaseURL)
+        let database = try GenBankRecordDatabase(url: databaseURL)
+        let actualRecordCount = try database.recordCount()
+        guard actualRecordCount == recordStore.recordCount else {
+            throw ReferenceBundleError.recordStoreReadFailed(
+                "Declared record count \(recordStore.recordCount) does not match database record count \(actualRecordCount)"
+            )
+        }
+        return database
     }
 
     // MARK: - Sequence Access
@@ -855,6 +876,9 @@ public enum ReferenceBundleError: Error, LocalizedError, Sendable {
     /// Failed to read alignment data.
     case alignmentReadFailed(String)
 
+    /// Failed to validate or read the declared record metadata store.
+    case recordStoreReadFailed(String)
+
     /// Alignment file path is stale and cannot be resolved.
     case alignmentFileNotFound(String)
 
@@ -890,6 +914,8 @@ public enum ReferenceBundleError: Error, LocalizedError, Sendable {
             return "Failed to read signal data: \(reason)"
         case .alignmentReadFailed(let reason):
             return "Failed to read alignment data: \(reason)"
+        case .recordStoreReadFailed(let reason):
+            return "Failed to read record store: \(reason)"
         case .alignmentFileNotFound(let path):
             return "Alignment file not found: '\(path)'"
         case .unsupportedTrackFormat(let trackId, let format, let reason):

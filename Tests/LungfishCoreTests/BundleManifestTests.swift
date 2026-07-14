@@ -684,6 +684,54 @@ final class BundleManifestTests: XCTestCase {
         })
     }
 
+    func testValidateRejectsUnsupportedReferenceRecordStoreFormat() {
+        let manifest = manifestWithRecordStore(
+            ReferenceRecordStoreInfo(
+                schemaVersion: 1,
+                format: "fasta",
+                databasePath: "metadata/records.sqlite",
+                recordCount: 1
+            )
+        )
+
+        XCTAssertTrue(manifest.validate().contains { error in
+            guard case .invalidValue(let field, let value, let expected) = error else { return false }
+            return field == "record_store.format" && value == "fasta" && expected == "genbank"
+        })
+    }
+
+    func testValidateRejectsUnsupportedReferenceRecordStoreSchemaVersion() {
+        let manifest = manifestWithRecordStore(
+            ReferenceRecordStoreInfo(
+                schemaVersion: 2,
+                format: "genbank",
+                databasePath: "metadata/records.sqlite",
+                recordCount: 1
+            )
+        )
+
+        XCTAssertTrue(manifest.validate().contains { error in
+            guard case .invalidValue(let field, let value, let expected) = error else { return false }
+            return field == "record_store.schema_version" && value == "2" && expected == "1"
+        })
+    }
+
+    func testValidateRejectsNegativeReferenceRecordCount() {
+        let manifest = manifestWithRecordStore(
+            ReferenceRecordStoreInfo(
+                schemaVersion: 1,
+                format: "genbank",
+                databasePath: "metadata/records.sqlite",
+                recordCount: -1
+            )
+        )
+
+        XCTAssertTrue(manifest.validate().contains { error in
+            guard case .invalidValue(let field, let value, let expected) = error else { return false }
+            return field == "record_store.record_count" && value == "-1" && expected == "zero or greater"
+        })
+    }
+
     func testValidatedBundleMemberURLRejectsSymlinkEscapes() throws {
         let bundleURL = tempDirectory.appendingPathComponent("symlink-test.lungfishref", isDirectory: true)
         let genomeDirectory = bundleURL.appendingPathComponent("genome", isDirectory: true)
@@ -1186,6 +1234,15 @@ final class BundleManifestTests: XCTestCase {
             annotations: [],
             variants: [],
             tracks: []
+        )
+    }
+
+    private func manifestWithRecordStore(_ recordStore: ReferenceRecordStoreInfo) -> BundleManifest {
+        BundleManifest(
+            name: "Record Store",
+            identifier: "test.record-store",
+            source: SourceInfo(organism: "Test", assembly: "Test"),
+            recordStore: recordStore
         )
     }
 
