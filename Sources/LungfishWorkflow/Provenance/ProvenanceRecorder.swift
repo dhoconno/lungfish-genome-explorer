@@ -96,6 +96,7 @@ public actor ProvenanceRecorder {
     ///   - containerImage: OCI image reference, if containerized
     ///   - containerDigest: SHA256 digest of the image
     ///   - command: Full argv as executed
+    ///   - durableReplayArgv: Durable argv suitable for replay after transient inputs are removed
     ///   - inputs: Input file records
     ///   - outputs: Output file records
     ///   - exitCode: Process exit code
@@ -113,6 +114,7 @@ public actor ProvenanceRecorder {
         containerImage: String? = nil,
         containerDigest: String? = nil,
         command: [String],
+        durableReplayArgv: [String]? = nil,
         inputs: [FileRecord],
         outputs: [FileRecord],
         exitCode: Int32,
@@ -135,6 +137,7 @@ public actor ProvenanceRecorder {
             containerImage: containerImage,
             containerDigest: containerDigest,
             command: command,
+            durableReplayArgv: durableReplayArgv,
             inputs: inputs,
             outputs: outputs,
             exitCode: exitCode,

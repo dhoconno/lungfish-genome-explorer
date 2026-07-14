@@ -101,15 +101,40 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
         exit 2
         """)
 
-        let bundleURL = try await NativeBundleBuilder(
+        let builder = NativeBundleBuilder(
             toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home)
-        ).build(configuration: BuildConfiguration(
+        )
+        do {
+            _ = try await builder.build(configuration: BuildConfiguration(
+                name: "Missing Replay",
+                identifier: "org.lungfish.test.missing-replay",
+                fastaURL: fastaURL,
+                outputDirectory: root,
+                source: SourceInfo(organism: "Test", assembly: "Test"),
+                compressFASTA: false,
+                provenanceInputFiles: [durableSourceURL],
+                referenceRecordStoreURL: stagedStoreURL
+            ))
+            XCTFail("Expected explicit replay command requirement")
+        } catch let error as BundleBuildError {
+            guard case .unsupportedProvenanceConfiguration = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+
+        let highLevelReplay = [
+            "lungfish-cli", "import", "fasta", durableSourceURL.path,
+            "--output-dir", root.path,
+        ]
+        let bundleURL = try await builder.build(configuration: BuildConfiguration(
             name: "Durable Store",
             identifier: "org.lungfish.test.durable-store",
             fastaURL: fastaURL,
             outputDirectory: root,
             source: SourceInfo(organism: "Test", assembly: "Test"),
             compressFASTA: false,
+            provenanceWorkflowName: "lungfish import fasta",
+            provenanceCommand: highLevelReplay,
             provenanceInputFiles: [durableSourceURL],
             referenceRecordStoreURL: stagedStoreURL
         ))
@@ -118,10 +143,16 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
         XCTAssertTrue(envelope.files.contains { $0.path == durableSourceURL.path && $0.role == .input })
         XCTAssertFalse(envelope.files.contains { $0.path.contains("/staging/") })
         XCTAssertFalse(envelope.steps.flatMap(\.inputs).contains { $0.path.contains("/staging/") })
-        XCTAssertFalse(envelope.argv.contains { $0.contains("/staging/") })
-        XCTAssertFalse(envelope.reproducibleCommand.contains("/staging/"))
-        XCTAssertEqual(envelope.options.explicit["reference_record_store"], .file(durableSourceURL))
-        XCTAssertEqual(envelope.options.resolvedDefaults["reference_record_store"], .file(durableSourceURL))
+        XCTAssertEqual(envelope.argv, highLevelReplay)
+        XCTAssertEqual(envelope.durableReplayArgv, highLevelReplay)
+        XCTAssertEqual(envelope.workflowName, "lungfish import fasta")
+        XCTAssertEqual(envelope.options.explicit["reference_source"], .file(durableSourceURL))
+        XCTAssertEqual(envelope.options.resolvedDefaults["reference_source"], .file(durableSourceURL))
+        XCTAssertNil(envelope.options.explicit["reference_record_store"])
+        XCTAssertNil(envelope.options.resolvedDefaults["reference_record_store"])
+        XCTAssertTrue(envelope.steps.first?.inputs.contains {
+            $0.path == durableSourceURL.path && $0.role == .input
+        } == true)
     }
 
     func testRecordStoreIdentityMismatchRejectsBuildBeforePublication() async throws {

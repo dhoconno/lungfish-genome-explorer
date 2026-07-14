@@ -357,6 +357,7 @@ public final class NativeBundleBuilder: ObservableObject {
             toolName: workflowName,
             toolVersion: WorkflowRun.currentAppVersion,
             command: command,
+            durableReplayArgv: command,
             inputs: inputRecords,
             outputs: outputRecords,
             exitCode: 0,
@@ -565,12 +566,11 @@ public final class NativeBundleBuilder: ObservableObject {
         for configuration: BuildConfiguration,
         bundleURL: URL
     ) -> [String] {
-        let replayFASTAURL = configuration.provenanceInputFiles?.first ?? configuration.fastaURL
         var command = [
             "NativeBundleBuilder.build",
             "--name", configuration.name,
             "--identifier", configuration.identifier,
-            "--fasta", replayFASTAURL.path,
+            "--fasta", configuration.fastaURL.path,
             "--output-directory", configuration.outputDirectory.path,
             "--bundle", bundleURL.path,
             "--compress-fasta", String(configuration.compressFASTA),
@@ -663,6 +663,12 @@ public final class NativeBundleBuilder: ObservableObject {
                 throw BundleBuildError.inputFileNotReadable(recordStoreURL)
             }
             _ = try GenBankRecordDatabase(url: recordStoreURL)
+            if configuration.provenanceInputFiles != nil,
+               configuration.provenanceCommand == nil {
+                throw BundleBuildError.unsupportedProvenanceConfiguration(
+                    "Transient prepared inputs require an explicit high-level provenance replay command."
+                )
+            }
         }
 
         logger.info("Input validation complete")
@@ -749,8 +755,13 @@ public final class NativeBundleBuilder: ObservableObject {
             ?? configuration.referenceRecordStoreURL
         guard let durableURL else { return nil }
 
-        let key = "reference_record_store"
         var explicit = provenanceParameters(for: configuration, bundleURL: bundleURL)
+        let key: String
+        if configuration.provenanceInputFiles != nil {
+            key = "reference_source"
+        } else {
+            key = "reference_record_store"
+        }
         explicit[key] = .file(durableURL)
         return ProvenanceOptions(
             explicit: explicit,
