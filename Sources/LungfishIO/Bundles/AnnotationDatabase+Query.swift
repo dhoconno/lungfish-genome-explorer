@@ -16,8 +16,8 @@ extension AnnotationDatabase {
         if allowedChromosomes?.isEmpty == true { return 0 }
         guard let db else { return 0 }
 
-        scopedQueryLock.lock()
-        defer { scopedQueryLock.unlock() }
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
         guard prepareChromosomeScope(allowedChromosomes, db: db) else { return 0 }
 
         let scopePredicate = allowedChromosomes == nil
@@ -35,8 +35,8 @@ extension AnnotationDatabase {
         if allowedChromosomes?.isEmpty == true { return [] }
         guard let db else { return [] }
 
-        scopedQueryLock.lock()
-        defer { scopedQueryLock.unlock() }
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
         guard prepareChromosomeScope(allowedChromosomes, db: db) else { return [] }
 
         let scopePredicate = allowedChromosomes == nil
@@ -65,6 +65,9 @@ extension AnnotationDatabase {
     /// - Returns: Array of matching annotation records
     public func query(nameFilter: String = "", types: Set<String> = [], limit: Int = 5000) -> [AnnotationDatabaseRecord] {
         guard let db else { return [] }
+
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
 
         var sql = """
         SELECT rowid, name, type, chromosome, start, end, strand, attributes,
@@ -127,8 +130,8 @@ extension AnnotationDatabase {
         if allowedChromosomes?.isEmpty == true { return [] }
         guard let db else { return [] }
 
-        scopedQueryLock.lock()
-        defer { scopedQueryLock.unlock() }
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
         guard prepareChromosomeScope(allowedChromosomes, db: db) else { return [] }
 
         var sql = """
@@ -250,6 +253,9 @@ extension AnnotationDatabase {
     public func queryCount(nameFilter: String = "", types: Set<String> = []) -> Int {
         guard let db else { return 0 }
 
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
+
         var sql = "SELECT COUNT(*) FROM annotations"
         var conditions: [String] = []
         var bindings: [String] = []
@@ -294,6 +300,9 @@ extension AnnotationDatabase {
         columnFilters: [ColumnFilterClause] = []
     ) -> Int {
         guard let db else { return 0 }
+
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
 
         var sql = "SELECT COUNT(*) FROM annotations"
         let queryParts = annotationTableQueryParts(
@@ -489,6 +498,9 @@ extension AnnotationDatabase {
     public func lookupAnnotation(name: String, chromosome: String, start: Int, end: Int) -> AnnotationDatabaseRecord? {
         guard let db else { return nil }
 
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
+
         // v4 schema: fixed column order
         let sql = """
         SELECT rowid, name, type, chromosome, start, end, strand, attributes,
@@ -526,6 +538,9 @@ extension AnnotationDatabase {
     public func queryByRegion(chromosome: String, start: Int, end: Int, limit: Int = 10000) -> [AnnotationDatabaseRecord] {
         guard let db else { return [] }
 
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
+
         // v4 schema: fixed column order
         let sql = """
         SELECT rowid, name, type, chromosome, start, end, strand, attributes,
@@ -559,6 +574,9 @@ extension AnnotationDatabase {
     /// Returns all chromosome names present in the annotations table.
     public func allChromosomes() -> [String] {
         guard let db else { return [] }
+
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
         let sql = "SELECT DISTINCT chromosome FROM annotations ORDER BY chromosome"
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }

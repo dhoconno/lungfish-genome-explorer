@@ -24,6 +24,9 @@ extension AnnotationDatabase {
         blockStarts: String? = nil
     ) throws -> Int64 {
         guard let db else { throw AnnotationDatabaseError.openFailed("Database is not open") }
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
+
         let sql = """
         INSERT INTO annotations (
             name, type, chromosome, start, end, strand, attributes,
@@ -86,6 +89,9 @@ extension AnnotationDatabase {
         geneName: String?
     ) throws -> Bool {
         guard let db else { return false }
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
+
         let sql = """
         UPDATE annotations
         SET name = ?, type = ?, chromosome = ?, start = ?, end = ?, strand = ?, attributes = ?, gene_name = ?
@@ -122,23 +128,47 @@ extension AnnotationDatabase {
     @discardableResult
     public func deleteAnnotations(rowIDs: [Int64]) throws -> Int {
         guard let db, !rowIDs.isEmpty else { return 0 }
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
+
         let sql = "DELETE FROM annotations WHERE rowid = ?"
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             throw AnnotationDatabaseError.createFailed(String(cString: sqlite3_errmsg(db)))
         }
-        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
-        var deleted = 0
-        for rowID in Set(rowIDs) {
-            sqlite3_reset(stmt)
-            sqlite3_clear_bindings(stmt)
-            sqlite3_bind_int64(stmt, 1, rowID)
-            if sqlite3_step(stmt) == SQLITE_DONE {
+        guard sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil) == SQLITE_OK else {
+            throw AnnotationDatabaseError.createFailed(
+                "Failed to begin annotation deletion transaction: \(String(cString: sqlite3_errmsg(db)))"
+            )
+        }
+        var transactionOpen = true
+        do {
+            var deleted = 0
+            for rowID in Set(rowIDs) {
+                sqlite3_reset(stmt)
+                sqlite3_clear_bindings(stmt)
+                sqlite3_bind_int64(stmt, 1, rowID)
+                guard sqlite3_step(stmt) == SQLITE_DONE else {
+                    throw AnnotationDatabaseError.createFailed(
+                        "Failed to delete annotation: \(String(cString: sqlite3_errmsg(db)))"
+                    )
+                }
                 deleted += Int(sqlite3_changes(db))
             }
+            guard sqlite3_exec(db, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+                throw AnnotationDatabaseError.createFailed(
+                    "Failed to commit annotation deletion transaction: \(String(cString: sqlite3_errmsg(db)))"
+                )
+            }
+            transactionOpen = false
+            return deleted
+        } catch {
+            if transactionOpen {
+                sqlite3_reset(stmt)
+                sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            }
+            throw error
         }
-        sqlite3_exec(db, "COMMIT", nil, nil, nil)
-        return deleted
     }
 }

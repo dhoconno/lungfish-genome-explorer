@@ -7,6 +7,23 @@ import SQLite3
 @testable import LungfishIO
 @testable import LungfishCore
 
+private final class AnnotationDatabaseFailureLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var messages: [String] = []
+
+    func append(_ message: String) {
+        lock.lock()
+        messages.append(message)
+        lock.unlock()
+    }
+
+    var snapshot: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return messages
+    }
+}
+
 final class AnnotationDatabaseTests: XCTestCase {
 
     private var tempDir: URL!
@@ -234,6 +251,113 @@ final class AnnotationDatabaseTests: XCTestCase {
         )
         XCTAssertTrue(db.queryForTable(chromosome: "record_gamma", allowedChromosomes: scope).isEmpty)
         XCTAssertEqual(db.queryForTable(allowedChromosomes: scope, limit: 2).map(\.name), ["alpha", "middle"])
+    }
+
+    func testScopedAndOrdinaryReadsAreSafeOnSharedConnection() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "alpha", type: "gene"),
+            bed14(chrom: "record_beta", start: 200, end: 250, name: "beta", type: "CDS"),
+            bed14(chrom: "record_gamma", start: 300, end: 350, name: "gamma", type: "exon"),
+        ]
+        let (db, _) = try createAndOpenDB(lines: lines)
+        let failures = AnnotationDatabaseFailureLog()
+        let group = DispatchGroup()
+        let queue = DispatchQueue(label: "annotation-db-read-concurrency", attributes: .concurrent)
+        let scope: Set<String> = ["record_alpha", "record_gamma"]
+
+        for iteration in 0..<200 {
+            group.enter()
+            queue.async {
+                defer { group.leave() }
+                if iteration.isMultiple(of: 2) {
+                    let records = db.queryForTable(allowedChromosomes: scope)
+                    if records.map(\.name) != ["alpha", "gamma"] {
+                        failures.append("scoped read returned \(records.map(\.name))")
+                    }
+                } else if db.query().count != 3 {
+                    failures.append("ordinary read returned an unexpected count")
+                }
+            }
+        }
+
+        XCTAssertEqual(group.wait(timeout: .now() + 10), .success)
+        XCTAssertTrue(failures.snapshot.isEmpty, failures.snapshot.joined(separator: "; "))
+    }
+
+    func testScopedReadsAndMutationsAreSafeOnSharedConnection() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "alpha", type: "gene"),
+            bed14(chrom: "record_beta", start: 200, end: 250, name: "beta", type: "CDS"),
+            bed14(chrom: "record_gamma", start: 300, end: 350, name: "gamma", type: "exon"),
+        ]
+        let bedURL = try createBEDFile(lines: lines, filename: "concurrent-mutation.bed")
+        let dbURL = tempDir.appendingPathComponent("concurrent-mutation.db")
+        _ = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
+        let db = try AnnotationDatabase(url: dbURL, readWrite: true)
+        let failures = AnnotationDatabaseFailureLog()
+        let group = DispatchGroup()
+        let queue = DispatchQueue(label: "annotation-db-mutation-concurrency", attributes: .concurrent)
+        let scope: Set<String> = ["record_alpha"]
+
+        for iteration in 0..<100 {
+            group.enter()
+            queue.async {
+                defer { group.leave() }
+                if iteration.isMultiple(of: 2) {
+                    do {
+                        _ = try db.insertAnnotation(
+                            name: "inserted_\(iteration)", type: "gene", chromosome: "record_alpha",
+                            start: 1_000 + iteration, end: 1_001 + iteration, strand: "+",
+                            attributes: nil, geneName: nil
+                        )
+                    } catch {
+                        failures.append("insert failed: \(error)")
+                    }
+                } else {
+                    let records = db.queryForTable(allowedChromosomes: scope)
+                    if records.isEmpty || records.contains(where: { $0.chromosome != "record_alpha" }) {
+                        failures.append("scoped read returned invalid records")
+                    }
+                }
+            }
+        }
+
+        XCTAssertEqual(group.wait(timeout: .now() + 10), .success)
+        XCTAssertTrue(failures.snapshot.isEmpty, failures.snapshot.joined(separator: "; "))
+        XCTAssertEqual(db.totalCount(), 53)
+        XCTAssertEqual(db.totalCount(allowedChromosomes: scope), 51)
+    }
+
+    func testDeleteAnnotationsRollsBackEveryRowWhenOneDeleteFails() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "keep_one", type: "gene"),
+            bed14(chrom: "record_alpha", start: 200, end: 250, name: "reject_delete", type: "gene"),
+            bed14(chrom: "record_alpha", start: 300, end: 350, name: "keep_two", type: "gene"),
+        ]
+        let bedURL = try createBEDFile(lines: lines, filename: "delete-rollback.bed")
+        let dbURL = tempDir.appendingPathComponent("delete-rollback.db")
+        var buildPlan = AnnotationDatabaseBuildPlan.default
+        buildPlan.schemaSQL += """
+
+        CREATE TRIGGER reject_one_annotation_delete
+        BEFORE DELETE ON annotations
+        WHEN OLD.name = 'reject_delete'
+        BEGIN
+            SELECT RAISE(FAIL, 'injected delete failure');
+        END;
+        """
+        _ = try AnnotationDatabase.createFromBED(
+            bedURL: bedURL,
+            outputURL: dbURL,
+            buildPlan: buildPlan
+        )
+        let db = try AnnotationDatabase(url: dbURL, readWrite: true)
+        let rowIDs = db.queryForTable(limit: 10).compactMap(\.rowID)
+
+        XCTAssertThrowsError(try db.deleteAnnotations(rowIDs: rowIDs)) { error in
+            XCTAssertTrue(String(describing: error).contains("injected delete failure"))
+        }
+        XCTAssertEqual(Set(db.queryForTable(limit: 10).map(\.name)), ["keep_one", "reject_delete", "keep_two"])
     }
 
     // MARK: - Tests: createFromBED with GenBank Types
