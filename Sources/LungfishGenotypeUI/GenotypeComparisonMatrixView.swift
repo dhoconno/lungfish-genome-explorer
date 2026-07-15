@@ -1598,6 +1598,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         tableView.tableColumns.compactMap { sampleColumnLookup[$0.identifier] }
     }
 
+    /// Read-only selection-detail input. Keeping this query here ensures sample-column
+    /// details use the exact rows currently admitted by the matrix filters.
+    var visibleSharedCallsForSelectionDetails: [ONTGenotypeSharedCall] {
+        visibleRows
+    }
+
     private func uniqueSamples(_ samples: [String]) -> [String] {
         var seen = Set<String>()
         return samples.filter { seen.insert($0).inserted }

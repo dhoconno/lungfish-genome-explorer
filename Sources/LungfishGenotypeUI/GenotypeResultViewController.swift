@@ -1105,7 +1105,12 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func wireCallbacks() {
         comparisonMatrix.onSharedCallSelected = { [weak self] sharedCall, sample, matrixTargets in
-            self?.showSharedCall(sharedCall, sample: sample, matrixTargets: matrixTargets)
+            guard let self else { return }
+            if matrixTargets.count > 1 {
+                self.showMatrixTargetSelection(matrixTargets)
+            } else {
+                self.showSharedCall(sharedCall, sample: sample, matrixTargets: matrixTargets)
+            }
         }
         comparisonMatrix.onMatrixTargetsSelected = { [weak self] targets in
             self?.showMatrixTargetSelection(targets)
@@ -2057,12 +2062,22 @@ public final class GenotypeResultViewController: NSViewController {
         sample: String? = nil,
         matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
     ) {
+        if let sample, sharedCall.support(for: sample) == nil {
+            showCellSelection(matrixTargets ?? [
+                .cell(locus: sharedCall.locus, genotype: sharedCall.genotype, sample: sample),
+            ])
+            return
+        }
         currentSharedCall = sharedCall
         currentSelectedSample = sample
         removeArrangedSubviews(from: detailStack)
 
-        detailStack.addArrangedSubview(sectionTitle("Selected Genotype"))
-        detailStack.addArrangedSubview(wrappingText(sharedCall.genotype, weight: .medium, maximumLines: 3))
+        let displayLabel = alleleDisplayLabel(for: sharedCall.genotype)
+        detailStack.addArrangedSubview(sectionTitle("Selected Allele"))
+        detailStack.addArrangedSubview(wrappingText(displayLabel, weight: .medium))
+        if displayLabel != sharedCall.genotype {
+            detailStack.addArrangedSubview(detailRows([("Reference Sequence", sharedCall.genotype)]))
+        }
         detailStack.addArrangedSubview(caption(sharedCallMeaning(for: sharedCall)))
         detailStack.addArrangedSubview(sectionTitle("Support Summary"))
         detailStack.addArrangedSubview(detailRows([
@@ -2077,12 +2092,20 @@ public final class GenotypeResultViewController: NSViewController {
         if let sample,
            let support = sharedCall.support(for: sample) {
             detailStack.addArrangedSubview(sectionTitle("Selected Cell"))
+            detailStack.addArrangedSubview(wrappingText("\(sample) — \(displayLabel)", weight: .medium))
             detailStack.addArrangedSubview(detailRows([
                 ("Sample", sample),
+                ("Allele", displayLabel),
                 ("Unique Reads", integer(support.passedUniqueReads)),
                 ("Alignments", integer(support.passedAlignments)),
                 ("Support", supportFractionLabel(genotype: sharedCall.genotype, sample: sample)),
             ]))
+        }
+
+        let referenceRows = genBankFieldRows(for: sharedCall.genotype)
+        if !referenceRows.isEmpty {
+            detailStack.addArrangedSubview(sectionTitle("GenBank Fields"))
+            detailStack.addArrangedSubview(detailRows(referenceRows))
         }
 
         if let aliases = sharedCall.aliasDisplay {
@@ -2119,6 +2142,18 @@ public final class GenotypeResultViewController: NSViewController {
             }
         }
 
+        let targets = matrixTargets ?? [
+            sample.map { .cell(locus: sharedCall.locus, genotype: sharedCall.genotype, sample: $0) }
+                ?? .row(locus: sharedCall.locus, genotype: sharedCall.genotype),
+        ]
+        let commentRows = matrixCommentDetailRows(
+            for: applicableCommentTargets(for: targets)
+        )
+        if !commentRows.isEmpty {
+            detailStack.addArrangedSubview(sectionTitle("Comments"))
+            detailStack.addArrangedSubview(detailRows(commentRows))
+        }
+
         publishSelectionState(selectionState(for: sharedCall, sample: sample, matrixTargets: matrixTargets))
     }
 
@@ -2134,10 +2169,281 @@ public final class GenotypeResultViewController: NSViewController {
         currentSharedCall = nil
         currentSelectedSample = nil
         let uniqueTargets = uniqueMatrixTargets(targets)
+        guard !uniqueTargets.isEmpty else {
+            showEmptySelection()
+            return
+        }
+        switch matrixSelectionKind(for: uniqueTargets) {
+        case .rows:
+            showAlleleRowSelection(uniqueTargets)
+        case .columns:
+            showSampleColumnSelection(uniqueTargets)
+        case .cells:
+            showCellSelection(uniqueTargets)
+        case .mixed:
+            showGenericMatrixTargetSelection(uniqueTargets)
+        }
+    }
+
+    private func showGenericMatrixTargetSelection(_ uniqueTargets: [GenotypeAnnotationSidecar.MatrixTarget]) {
         removeArrangedSubviews(from: detailStack)
         detailStack.addArrangedSubview(sectionTitle("Matrix Annotation Targets"))
-        detailStack.addArrangedSubview(detailRows(matrixTargetDetailRows(for: uniqueTargets)))
+        let rows = matrixTargetDetailRows(for: uniqueTargets) + matrixCommentDetailRows(for: uniqueTargets)
+        detailStack.addArrangedSubview(detailRows(rows))
         publishSelectionState(matrixTargetSelectionState(for: uniqueTargets))
+    }
+
+    private enum MatrixSelectionKind {
+        case rows
+        case columns
+        case cells
+        case mixed
+    }
+
+    private func matrixSelectionKind(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> MatrixSelectionKind {
+        var hasRows = false
+        var hasColumns = false
+        var hasCells = false
+        for target in targets {
+            switch target {
+            case .row: hasRows = true
+            case .column: hasColumns = true
+            case .cell: hasCells = true
+            }
+        }
+        let count = [hasRows, hasColumns, hasCells].filter { $0 }.count
+        guard count == 1 else { return .mixed }
+        if hasRows { return .rows }
+        if hasColumns { return .columns }
+        return .cells
+    }
+
+    private func showAlleleRowSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        let calls = sharedCalls(for: targets)
+        if calls.count == 1, let call = calls.first {
+            showSharedCall(call, matrixTargets: targets)
+            return
+        }
+        removeArrangedSubviews(from: detailStack)
+        detailStack.addArrangedSubview(sectionTitle("Selected Alleles: \(targets.count)"))
+        var stateRows: [(String, String)] = [("Selection Type", "Rows"), ("Selected Alleles", "\(targets.count)")]
+        for (index, call) in calls.enumerated() {
+            let label = alleleDisplayLabel(for: call.genotype)
+            detailStack.addArrangedSubview(wrappingText(label, weight: .medium))
+            var rows: [(String, String)] = []
+            if label != call.genotype {
+                rows.append(("Reference Sequence", call.genotype))
+            }
+            rows += [
+                ("Locus", call.locus),
+                ("Samples", "\(call.sampleCount)"),
+                ("Unique Reads", integer(call.totalUniqueReads)),
+                ("Alignments", integer(call.totalAlignments)),
+            ]
+            rows += genBankFieldRows(for: call.genotype)
+            detailStack.addArrangedSubview(detailRows(rows))
+            stateRows.append(("Allele \(index + 1)", label))
+            stateRows += rows
+        }
+        let comments = matrixCommentDetailRows(for: targets)
+        appendCommentsToDetail(comments)
+        stateRows += comments
+        publishSelectionState(GenotypeResultSelectionState(
+            title: "Selected Alleles: \(targets.count)",
+            subtitle: "Matrix rows",
+            detailRows: stateRows,
+            highlightTarget: nil,
+            matrixTargets: targets
+        ))
+    }
+
+    private func showSampleColumnSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        let samples = targets.compactMap { target -> String? in
+            guard case let .column(sample) = target else { return nil }
+            return sample
+        }.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        removeArrangedSubviews(from: detailStack)
+        detailStack.addArrangedSubview(sectionTitle(samples.count == 1 ? "Selected Sample" : "Selected Samples"))
+        var stateRows: [(String, String)] = [
+            ("Selection Type", samples.count == 1 ? "Column" : "Columns"),
+        ]
+        for (index, sample) in samples.enumerated() {
+            detailStack.addArrangedSubview(wrappingText(sample, weight: .medium))
+            let summary = sampleResultsByName[sample]
+            let rows: [(String, String)] = [
+                ("Sample", sample),
+                ("Retained Unique Reads", summary.map { integer($0.passedUniqueReads) } ?? "Unavailable"),
+                ("Alignments", summary.map { integer($0.passedAlignments) } ?? "Unavailable"),
+                ("QC", summary?.qcStatus.displayName ?? "Unavailable"),
+            ]
+            detailStack.addArrangedSubview(detailRows(rows))
+            stateRows.append((samples.count == 1 ? "Selected Sample" : "Sample \(index + 1)", sample))
+            stateRows += rows
+
+            let supported = comparisonMatrix.visibleSharedCallsForSelectionDetails
+                .compactMap { shared -> (ONTGenotypeSharedCall, ONTGenotypeSampleSupport)? in
+                    shared.support(for: sample).map { (shared, $0) }
+                }
+                .sorted { lhs, rhs in
+                    if lhs.0.locus != rhs.0.locus {
+                        return lhs.0.locus.localizedStandardCompare(rhs.0.locus) == .orderedAscending
+                    }
+                    if lhs.1.passedUniqueReads != rhs.1.passedUniqueReads {
+                        return lhs.1.passedUniqueReads > rhs.1.passedUniqueReads
+                    }
+                    return alleleDisplayLabel(for: lhs.0.genotype).localizedStandardCompare(
+                        alleleDisplayLabel(for: rhs.0.genotype)
+                    ) == .orderedAscending
+                }
+            if !supported.isEmpty {
+                detailStack.addArrangedSubview(sectionTitle("Supported Alleles"))
+            }
+            for (alleleIndex, item) in supported.enumerated() {
+                let label = alleleDisplayLabel(for: item.0.genotype)
+                detailStack.addArrangedSubview(wrappingText(label, weight: .medium))
+                let alleleRows = [
+                    ("Locus", item.0.locus),
+                    ("Unique Reads", integer(item.1.passedUniqueReads)),
+                    ("Alignments", integer(item.1.passedAlignments)),
+                    ("Support", supportFractionLabel(genotype: item.0.genotype, sample: sample)),
+                ]
+                detailStack.addArrangedSubview(detailRows(alleleRows))
+                stateRows.append(("Allele \(alleleIndex + 1)", label))
+                stateRows += alleleRows
+            }
+        }
+        let comments = matrixCommentDetailRows(for: targets)
+        appendCommentsToDetail(comments)
+        stateRows += comments
+        publishSelectionState(GenotypeResultSelectionState(
+            title: samples.count == 1 ? (samples.first ?? "Selected Sample") : "Selected Samples: \(samples.count)",
+            subtitle: samples.count == 1 ? "Sample column" : "Sample columns",
+            detailRows: stateRows,
+            highlightTarget: nil,
+            matrixTargets: targets
+        ))
+    }
+
+    private func showCellSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        currentSharedCall = nil
+        currentSelectedSample = nil
+        let cells = targets.compactMap { target -> (target: GenotypeAnnotationSidecar.MatrixTarget, locus: String, genotype: String, sample: String)? in
+            guard case let .cell(locus, genotype, sample) = target else { return nil }
+            return (target, locus, genotype, sample)
+        }.sorted { lhs, rhs in
+            let lhsLabel = alleleDisplayLabel(for: lhs.genotype)
+            let rhsLabel = alleleDisplayLabel(for: rhs.genotype)
+            if lhsLabel != rhsLabel {
+                return lhsLabel.localizedStandardCompare(rhsLabel) == .orderedAscending
+            }
+            return lhs.sample.localizedStandardCompare(rhs.sample) == .orderedAscending
+        }
+        removeArrangedSubviews(from: detailStack)
+        detailStack.addArrangedSubview(sectionTitle(cells.count == 1 ? "Selected Cell" : "Selected Cells: \(cells.count)"))
+        var stateRows: [(String, String)] = [
+            ("Selection Type", cells.count == 1 ? "Cell" : "Cells"),
+        ]
+        if cells.count == 1, let cell = cells.first {
+            stateRows.append(("Selected Sample", cell.sample))
+        }
+        for (index, cell) in cells.enumerated() {
+            let label = alleleDisplayLabel(for: cell.genotype)
+            detailStack.addArrangedSubview(wrappingText(label, weight: .medium))
+            detailStack.addArrangedSubview(wrappingText(cell.sample))
+            var rows: [(String, String)] = [("Sample", cell.sample), ("Allele", label)]
+            if label != cell.genotype {
+                rows.append(("Reference Sequence", cell.genotype))
+            }
+            rows.append(("Locus", cell.locus))
+            if let call = callsBySample[cell.sample]?.first(where: { $0.genotype == cell.genotype }) {
+                rows += [
+                    ("Unique Reads", integer(call.passedUniqueReads)),
+                    ("Alignments", integer(call.passedAlignments)),
+                    ("Support", supportFractionLabel(genotype: cell.genotype, sample: cell.sample)),
+                ]
+                rows += genBankFieldRows(for: cell.genotype)
+            } else {
+                rows.append(("Evidence", "No supporting reads"))
+            }
+            detailStack.addArrangedSubview(detailRows(rows))
+            if cells.count > 1 {
+                stateRows.append(("Cell \(index + 1)", "\(label) — \(cell.sample)"))
+            }
+            stateRows += rows
+        }
+        let commentTargets = applicableCommentTargets(for: targets)
+        let comments = matrixCommentDetailRows(for: commentTargets)
+        appendCommentsToDetail(comments)
+        stateRows += comments
+        publishSelectionState(GenotypeResultSelectionState(
+            title: cells.count == 1 ? (cells.first.map { "\(alleleDisplayLabel(for: $0.genotype)) — \($0.sample)" } ?? "Selected Cell") : "Selected Cells: \(cells.count)",
+            subtitle: "Matrix evidence",
+            detailRows: stateRows,
+            highlightTarget: nil,
+            matrixTargets: targets
+        ))
+    }
+
+    private func appendCommentsToDetail(_ rows: [(String, String)]) {
+        guard !rows.isEmpty else { return }
+        detailStack.addArrangedSubview(sectionTitle("Comments"))
+        detailStack.addArrangedSubview(detailRows(rows))
+    }
+
+    private func sharedCalls(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [ONTGenotypeSharedCall] {
+        guard let result else { return [] }
+        let lookup = result.locusSummaries.flatMap(\.sharedCalls)
+        return targets.compactMap { target in
+            guard case let .row(locus, genotype) = target else { return nil }
+            return lookup.first { $0.locus == locus && $0.genotype == genotype }
+        }.sorted { lhs, rhs in
+            if lhs.locus != rhs.locus {
+                return lhs.locus.localizedStandardCompare(rhs.locus) == .orderedAscending
+            }
+            return alleleDisplayLabel(for: lhs.genotype).localizedStandardCompare(
+                alleleDisplayLabel(for: rhs.genotype)
+            ) == .orderedAscending
+        }
+    }
+
+    private func referenceRecord(for genotype: String) -> [String: String]? {
+        result?.referenceMetadata?.recordsBySequenceName[genotype]
+    }
+
+    private func alleleDisplayLabel(for genotype: String) -> String {
+        guard let metadata = result?.referenceMetadata,
+              let key = metadata.alleleFieldKey,
+              let value = metadata.recordsBySequenceName[genotype]?[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return genotype
+        }
+        return value
+    }
+
+    private func genBankFieldRows(for genotype: String) -> [(String, String)] {
+        guard let metadata = result?.referenceMetadata,
+              let record = referenceRecord(for: genotype) else { return [] }
+        return metadata.fields.compactMap { field in
+            guard let value = record[field.key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else { return nil }
+            return (field.displayTitle, value)
+        }
+    }
+
+    private func applicableCommentTargets(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        var expanded = targets
+        for target in targets {
+            guard case let .cell(locus, genotype, sample) = target else { continue }
+            expanded.append(.row(locus: locus, genotype: genotype))
+            expanded.append(.column(sample: sample))
+        }
+        return uniqueMatrixTargets(expanded)
     }
 
     private func matrixTargetSelectionState(
@@ -2216,20 +2522,34 @@ public final class GenotypeResultViewController: NSViewController {
         sample: String?,
         matrixTargets providedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
     ) -> GenotypeResultSelectionState {
+        let displayLabel = alleleDisplayLabel(for: sharedCall.genotype)
         var rows: [(String, String)] = [
             ("Meaning", sharedCallMeaning(for: sharedCall)),
-            ("Locus", sharedCall.locus),
-            ("Samples", "\(sharedCall.sampleCount)"),
-            ("Unique Reads", integer(sharedCall.totalUniqueReads)),
-            ("Alignments", integer(sharedCall.totalAlignments)),
-            ("Support Metric", supportMetricLabel),
         ]
         if let sample {
-            rows.append(("Selected Sample", sample))
-            if let support = sharedCall.support(for: sample) {
-                rows.append(("Selected Unique", integer(support.passedUniqueReads)))
-                rows.append(("Selected Support", supportFractionLabel(genotype: sharedCall.genotype, sample: sample)))
-            }
+            rows += [("Sample", sample), ("Allele", displayLabel)]
+        }
+        if displayLabel != sharedCall.genotype {
+            rows.append(("Reference Sequence", sharedCall.genotype))
+        }
+        rows.append(("Locus", sharedCall.locus))
+        if let sample, let support = sharedCall.support(for: sample) {
+            rows += [
+                ("Unique Reads", integer(support.passedUniqueReads)),
+                ("Alignments", integer(support.passedAlignments)),
+                ("Support", supportFractionLabel(genotype: sharedCall.genotype, sample: sample)),
+                ("Support Metric", supportMetricLabel),
+                ("Aggregate Samples", "\(sharedCall.sampleCount)"),
+                ("Aggregate Unique Reads", integer(sharedCall.totalUniqueReads)),
+                ("Aggregate Alignments", integer(sharedCall.totalAlignments)),
+            ]
+        } else {
+            rows += [
+                ("Samples", "\(sharedCall.sampleCount)"),
+                ("Unique Reads", integer(sharedCall.totalUniqueReads)),
+                ("Alignments", integer(sharedCall.totalAlignments)),
+                ("Support Metric", supportMetricLabel),
+            ]
         }
         if let topSupport = sharedCall.topSupport {
             rows.append(("Top Sample", "\(topSupport.sample) - \(integer(topSupport.passedUniqueReads)) unique"))
@@ -2237,6 +2557,7 @@ public final class GenotypeResultViewController: NSViewController {
         if let aliases = sharedCall.aliasDisplay {
             rows.append(("Aliases", aliases))
         }
+        rows += genBankFieldRows(for: sharedCall.genotype)
         let matrixTargets = providedMatrixTargets ?? [
             sample.map {
                 GenotypeAnnotationSidecar.MatrixTarget.cell(
@@ -2247,7 +2568,7 @@ public final class GenotypeResultViewController: NSViewController {
             } ?? .row(locus: sharedCall.locus, genotype: sharedCall.genotype),
         ]
         rows.insert(("Selection Type", matrixTargetTypeLabel(for: matrixTargets)), at: 0)
-        rows += matrixCommentDetailRows(for: sharedCall, sample: sample, matrixTargets: matrixTargets)
+        rows += matrixCommentDetailRows(for: applicableCommentTargets(for: matrixTargets))
         let target = GenotypeResultHighlightTarget(
             genotype: sharedCall.genotype,
             locus: sharedCall.locus,
@@ -2255,39 +2576,13 @@ public final class GenotypeResultViewController: NSViewController {
         )
         let style = comparisonMatrix.highlightStyle(for: target)
         return GenotypeResultSelectionState(
-            title: sharedCall.genotype,
+            title: displayLabel,
             subtitle: "\(sharedCall.locus) - \(sharedCall.sampleCount) samples",
             detailRows: rows,
             highlightTarget: target,
             highlightStyle: style,
             matrixTargets: matrixTargets
         )
-    }
-
-    private func matrixCommentDetailRows(
-        for sharedCall: ONTGenotypeSharedCall,
-        sample: String?,
-        matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]
-    ) -> [(String, String)] {
-        guard let sidecar = annotationStore?.sidecar else { return [] }
-        var targets = matrixTargets
-        let rowTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
-            locus: sharedCall.locus,
-            genotype: sharedCall.genotype
-        )
-        if !targets.contains(rowTarget) {
-            targets.append(rowTarget)
-        }
-        if let sample {
-            let columnTarget = GenotypeAnnotationSidecar.MatrixTarget.column(sample: sample)
-            if !targets.contains(columnTarget) {
-                targets.append(columnTarget)
-            }
-        }
-        return sidecar.matrixComments.compactMap { comment in
-            guard targets.contains(comment.target) else { return nil }
-            return (matrixCommentLabel(for: comment.target), comment.body)
-        }
     }
 
     private func matrixCommentDetailRows(
@@ -5565,6 +5860,10 @@ extension GenotypeResultViewController {
     func testingSelectMatrixColumns(samples: [String]) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingSelectColumns(samples: samples)
+    }
+
+    func testingShowMatrixTargetSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        showMatrixTargetSelection(targets)
     }
 
     func testingClickMatrixCell(
