@@ -44,6 +44,7 @@ public final class GenotypeResultViewController: NSViewController {
         action: nil
     )
     private let contentHost = NSView()
+    private var contentHostTopConstraint: NSLayoutConstraint!
 
     private let splitView = TrackedDividerSplitView()
     private let sampleContainer = NSView()
@@ -117,6 +118,11 @@ public final class GenotypeResultViewController: NSViewController {
     private var aiHaplotypingStatus: String?
     private var outlineRowsBySample: [String: GenotypeOutlineView.Row] = [:]
     private var outlineRowOrder: [String] = []
+
+    private var isGenotypeOnlyResult: Bool {
+        guard let result else { return false }
+        return result.haplotypeAnalysis == nil && !result.calls.isEmpty
+    }
 
     public override func loadView() {
         let root = NSView()
@@ -440,6 +446,8 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func configure(result: ONTGenotypeResultBundleData) {
         self.result = result
+        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        applyViewportHeaderVisibility()
         liveHaplotypeAnalysis = nil
         cachedHaplotypeDefinitionContext = nil
         comparisonMatrixConfigured = false
@@ -466,6 +474,7 @@ public final class GenotypeResultViewController: NSViewController {
             author: NSUserName()
         )
         displayState.summaryViewMode = initialSummaryViewMode(for: result)
+        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
         if shouldEagerlyRecomputeHaplotypeAnalysis(for: result) {
             recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
         } else {
@@ -475,6 +484,9 @@ public final class GenotypeResultViewController: NSViewController {
         rebuildOutline()
         rebuildHaplotypeMatrix()
         rebuildCohortSummary()
+        if isGenotypeOnlyResult {
+            showEmptySelection()
+        }
         showLens(.summary)
     }
 
@@ -606,6 +618,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyDisplayState(_ state: GenotypeResultDisplayState) {
+        let state = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
         let previousViewMode = displayState.summaryViewMode
         let previousAncillary = displayState.showsAncillaryLoci
         let previousIncludedLoci = displayState.includedLoci
@@ -1067,15 +1080,27 @@ public final class GenotypeResultViewController: NSViewController {
         view.addSubview(lensControl)
         view.addSubview(contentHost)
 
+        contentHostTopConstraint = contentHost.topAnchor.constraint(
+            equalTo: view.topAnchor,
+            constant: isGenotypeOnlyResult ? 0 : 48
+        )
+        lensControl.isHidden = isGenotypeOnlyResult
+
         NSLayoutConstraint.activate([
             lensControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             lensControl.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
 
-            contentHost.topAnchor.constraint(equalTo: view.topAnchor, constant: 48),
+            contentHostTopConstraint,
             contentHost.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             contentHost.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             contentHost.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+    }
+
+    private func applyViewportHeaderVisibility() {
+        guard isViewLoaded else { return }
+        lensControl.isHidden = isGenotypeOnlyResult
+        contentHostTopConstraint.constant = isGenotypeOnlyResult ? 0 : 48
     }
 
     private func wireCallbacks() {
@@ -1102,6 +1127,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func showLens(_ lens: Lens, autoActivateReviewCohort: Bool = true) {
+        let lens: Lens = isGenotypeOnlyResult ? .summary : lens
         selectedLens = lens
         displayState.viewportLens = lens
         lensControl.selectedSegment = segmentIndex(for: lens)
@@ -1131,6 +1157,7 @@ public final class GenotypeResultViewController: NSViewController {
         if callEvidenceHost == nil {
             installCallEvidenceHost()
         }
+        callEvidenceHost?.isHidden = false
         // The Review lens is meant to walk the Needs Review queue, not
         // show every sample. Use the same built-in smart cohort shown in
         // the inspector so low-support and analyst-flagged samples are
@@ -1884,13 +1911,22 @@ public final class GenotypeResultViewController: NSViewController {
     private func applySummaryViewModeVisibility() {
         let isMatrixMode = displayState.summaryViewMode == .matrix
         let usesDefinitionMatrix = isMatrixMode && summaryMatrixUsesHaplotypeDefinitions()
-        let showsRawMatrix = isMatrixMode && !usesDefinitionMatrix && !displayState.showsAncillaryLoci
+        let showsRawMatrix = isMatrixMode
+            && !usesDefinitionMatrix
+            && (isGenotypeOnlyResult || !displayState.showsAncillaryLoci)
         outlineView.isHidden = showsRawMatrix
         haplotypeMatrixView.isHidden = true
         comparisonMatrix.isHidden = !showsRawMatrix
         cohortSummaryPanel.isHidden = false
         detailScrollView.isHidden = true
         detailContainer.isHidden = false
+
+        if isGenotypeOnlyResult && showsRawMatrix {
+            cohortSummaryPanel.isHidden = true
+            detailScrollView.isHidden = false
+            detailContainer.isHidden = false
+            callEvidenceHost?.isHidden = true
+        }
 
         if showsRawMatrix {
             ensureComparisonMatrixConfigured()
@@ -2089,7 +2125,7 @@ public final class GenotypeResultViewController: NSViewController {
         currentSharedCall = nil
         currentSelectedSample = nil
         removeArrangedSubviews(from: detailStack)
-        detailStack.addArrangedSubview(caption("Select a genotype row to review shared support."))
+        detailStack.addArrangedSubview(caption("Select a sample column or allele row to view details."))
         publishSelectionState(nil)
     }
 
@@ -5349,6 +5385,30 @@ extension GenotypeResultViewController {
 
     var testingSummaryViewMode: GenotypeSummaryViewMode {
         displayState.summaryViewMode
+    }
+
+    var testingPanelLayout: GenotypeResultPanelLayout {
+        displayState.layout
+    }
+
+    var testingLensControlIsHidden: Bool {
+        lensControl.isHidden
+    }
+
+    var testingContentHostTopInset: CGFloat {
+        contentHostTopConstraint.constant
+    }
+
+    var testingDetailScrollViewIsHidden: Bool {
+        detailScrollView.isHidden
+    }
+
+    var testingCohortSummaryIsHidden: Bool {
+        cohortSummaryPanel.isHidden
+    }
+
+    var testingDetailText: String {
+        textContent(in: detailStack).joined(separator: "\n")
     }
 
     var testingComparisonMatrixIsHidden: Bool {

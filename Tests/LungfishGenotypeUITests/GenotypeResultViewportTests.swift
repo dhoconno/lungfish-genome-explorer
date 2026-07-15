@@ -8,6 +8,129 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeResultViewportTests: XCTestCase {
+    func testGenotypeOnlyResultForcesSummaryMatrixListOverDetailViewport() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
+        ]))
+
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(
+            viewportLens: .review,
+            summaryViewMode: .outline,
+            layout: .listTrailing,
+            showsAncillaryLoci: true
+        ))
+
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertEqual(controller.testingPanelLayout, .listTop)
+        XCTAssertFalse(controller.testingSplitIsVertical)
+        XCTAssertTrue(controller.testingFirstPaneIsMatrix)
+        XCTAssertFalse(controller.testingComparisonMatrixIsHidden)
+        XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
+        XCTAssertTrue(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 0)
+    }
+
+    func testGenotypeOnlyResultDirectLensSelectionCannotEscapeSummary() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
+        ]))
+
+        controller.testingSelectLens(.audit)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+
+        controller.testingSelectLens(.review)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+    }
+
+    func testGenotypeOnlySummaryShowsScrollableEmptySelectionDetail() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
+        ]))
+
+        XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
+        XCTAssertTrue(controller.testingCohortSummaryIsHidden)
+        XCTAssertEqual(
+            controller.testingDetailText,
+            "Select a sample column or allele row to view details."
+        )
+        XCTAssertFalse(controller.testingDetailText.localizedCaseInsensitiveContains("low coverage"))
+        XCTAssertFalse(controller.testingDetailText.localizedCaseInsensitiveContains("below threshold"))
+    }
+
+    func testHaplotypedResultKeepsLensHeaderAndSideBySideLayout() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test-definitions",
+            definitionSetName: "Test definitions",
+            speciesName: "Test species",
+            samples: []
+        )
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42)],
+            haplotypeAnalysis: analysis
+        ))
+
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(
+            viewportLens: .review,
+            layout: .listTrailing
+        ))
+
+        XCTAssertFalse(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 48)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "review")
+        XCTAssertEqual(controller.testingPanelLayout, .listTrailing)
+        XCTAssertTrue(controller.testingSplitIsVertical)
+        XCTAssertFalse(controller.testingFirstPaneIsMatrix)
+    }
+
+    func testEmptyResultDoesNotUseGenotypeOnlyViewport() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: []))
+
+        controller.testingSelectLens(.audit)
+
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
+        XCTAssertFalse(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 48)
+    }
+
+    func testReconfigureFromGenotypeOnlyToHaplotypedRestoresLensHeader() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
+        ]))
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test-definitions",
+            definitionSetName: "Test definitions",
+            speciesName: "Test species",
+            samples: []
+        )
+
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42)],
+            haplotypeAnalysis: analysis
+        ))
+        controller.testingSelectLens(.review)
+
+        XCTAssertFalse(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 48)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "review")
+    }
+
     func testViewportPublishesSharedGenotypeSelectionForInspector() {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -92,6 +215,13 @@ final class GenotypeResultViewportTests: XCTestCase {
                 overallUniqueRetainedPercent: 2.326706
             )
         ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test-definitions",
+            definitionSetName: "Test definitions",
+            speciesName: "Test species",
+            samples: []
+        )
         controller.configure(result: makeResult(samples: [
             ONTGenotypeSampleResult(
                 sample: "LF2874",
@@ -101,7 +231,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 sampleUniqueRetainedPercent: nil,
                 calls: calls
             )
-        ], calls: calls))
+        ], calls: calls, haplotypeAnalysis: analysis))
         controller.testingApplyDisplayState(GenotypeResultDisplayState(layout: .listLeading))
 
         controller.view.layoutSubtreeIfNeeded()
