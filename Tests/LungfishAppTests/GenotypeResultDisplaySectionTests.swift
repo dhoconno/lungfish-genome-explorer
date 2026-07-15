@@ -125,6 +125,32 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(viewModel.showsViewportAndLayoutControls)
     }
 
+    func testGenotypeOnlyViewModelNormalizesInboundDisplayStateSynchronization() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.update(isAvailable: true, isGenotypeOnlyResult: true)
+
+        viewModel.updateDisplayState(GenotypeResultDisplayState(
+            viewportLens: .audit,
+            summaryViewMode: .outline,
+            layout: .listTrailing
+        ))
+
+        XCTAssertEqual(viewModel.displayState.viewportLens, .summary)
+        XCTAssertEqual(viewModel.displayState.summaryViewMode, .matrix)
+        XCTAssertEqual(viewModel.displayState.layout, .listTop)
+    }
+
+    func testGenotypeOnlyViewModelRejectsOutlineSummaryModeMutation() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.update(isAvailable: true, isGenotypeOnlyResult: true)
+
+        viewModel.setSummaryViewMode(.outline)
+
+        XCTAssertEqual(viewModel.displayState.viewportLens, .summary)
+        XCTAssertEqual(viewModel.displayState.summaryViewMode, .matrix)
+        XCTAssertEqual(viewModel.displayState.layout, .listTop)
+    }
+
     func testGenotypeSectionSetMinimumReadsUpdatesStateAndNotifies() {
         let vm = GenotypeResultDisplaySectionViewModel()
         var fired = 0
@@ -191,10 +217,11 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let bodyStart = try XCTUnwrap(source.range(of: "public var body: some View"))
         let bodyEnd = try XCTUnwrap(source[bodyStart.lowerBound...].range(of: "private var haplotypeGenotypeToggle"))
         let bodySource = String(source[bodyStart.lowerBound..<bodyEnd.lowerBound])
+        let guardedSource = try bracedBody(
+            following: "if viewModel.showsViewportAndLayoutControls",
+            in: bodySource
+        )
 
-        XCTAssertTrue(bodySource.contains("if viewModel.showsViewportAndLayoutControls"))
-        let guardStart = try XCTUnwrap(bodySource.range(of: "if viewModel.showsViewportAndLayoutControls"))
-        let guardedSource = bodySource[guardStart.lowerBound...]
         XCTAssertTrue(guardedSource.contains("viewControls"))
         XCTAssertTrue(guardedSource.contains("layoutControls"))
         XCTAssertTrue(source.contains("Label(lens.displayName, systemImage: lens.inspectorSystemImage)"))
@@ -202,6 +229,31 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(source.contains("Label(\"List | Detail\""))
         XCTAssertTrue(source.contains("Label(\"List Over Detail\""))
         XCTAssertTrue(source.contains(".pickerStyle(.radioGroup)"))
+    }
+
+    private func bracedBody(following marker: String, in source: String) throws -> String {
+        let markerRange = try XCTUnwrap(source.range(of: marker))
+        let openingBrace = try XCTUnwrap(source[markerRange.upperBound...].firstIndex(of: "{"))
+        var depth = 0
+        var index = openingBrace
+
+        while index < source.endIndex {
+            switch source[index] {
+            case "{":
+                depth += 1
+            case "}":
+                depth -= 1
+                if depth == 0 {
+                    let bodyStart = source.index(after: openingBrace)
+                    return String(source[bodyStart..<index])
+                }
+            default:
+                break
+            }
+            index = source.index(after: index)
+        }
+
+        throw NSError(domain: "GenotypeResultDisplaySectionTests", code: 1)
     }
 
     func testGenotypeDisplaySectionDoesNotExposeLiveReadThresholdControls() throws {

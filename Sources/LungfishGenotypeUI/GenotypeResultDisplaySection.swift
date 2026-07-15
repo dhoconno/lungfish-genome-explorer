@@ -68,7 +68,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         self.isAvailable = isAvailable
         self.hasHaplotypingResult = hasHaplotypingResult
         self.isGenotypeOnlyResult = isGenotypeOnlyResult
-        self.displayState = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        setNormalizedDisplayState(state)
         updateSelection(nil)
     }
 
@@ -79,7 +79,7 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     public func updateDisplayState(_ state: GenotypeResultDisplayState) {
-        displayState = state
+        setNormalizedDisplayState(state)
     }
 
     public func clear() {
@@ -95,20 +95,25 @@ public final class GenotypeResultDisplaySectionViewModel {
 
     func setLayout(_ layout: GenotypeResultPanelLayout) {
         displayState.layout = layout
-        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        setNormalizedDisplayState(displayState)
         notifyStateChanged()
     }
 
     func setViewportLens(_ lens: GenotypeResultViewportLens) {
         displayState.viewportLens = lens
-        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        setNormalizedDisplayState(displayState)
         notifyStateChanged()
     }
 
     public func setSummaryViewMode(_ mode: GenotypeSummaryViewMode) {
         displayState.viewportLens = .summary
         displayState.summaryViewMode = mode
+        setNormalizedDisplayState(displayState)
         notifyStateChanged()
+    }
+
+    private func setNormalizedDisplayState(_ state: GenotypeResultDisplayState) {
+        displayState = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
     }
 
     func toggleHaplotypeGenotypeSummaryView() {
