@@ -35,6 +35,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private struct CellEvidenceKey: Hashable {
+        let locus: String
         let genotype: String
         let sample: String
     }
@@ -507,17 +508,22 @@ public final class GenotypeResultViewController: NSViewController {
         sharedCallsByKey = Dictionary(uniqueKeysWithValues: result.locusSummaries
             .flatMap(\.sharedCalls)
             .map { (SharedCallKey(locus: $0.locus, genotype: $0.genotype), $0) })
-        sampleSupportByCellKey = Dictionary(uniqueKeysWithValues: result.calls.map { call in
-            (
-                CellEvidenceKey(genotype: call.genotype, sample: call.sample),
-                ONTGenotypeSampleSupport(
-                    sample: call.sample,
-                    passedAlignments: call.passedAlignments,
-                    passedUniqueReads: call.passedUniqueReads,
-                    sampleUniqueRetainedReads: call.sampleUniqueRetainedReads
-                )
+        sampleSupportByCellKey = [:]
+        sampleSupportByCellKey.reserveCapacity(result.calls.count)
+        for call in result.calls {
+            let key = CellEvidenceKey(
+                locus: call.locusGroup,
+                genotype: call.genotype,
+                sample: call.sample
             )
-        })
+            guard sampleSupportByCellKey[key] == nil else { continue }
+            sampleSupportByCellKey[key] = ONTGenotypeSampleSupport(
+                sample: call.sample,
+                passedAlignments: call.passedAlignments,
+                passedUniqueReads: call.passedUniqueReads,
+                sampleUniqueRetainedReads: call.sampleUniqueRetainedReads
+            )
+        }
         callIndexBySample = callsBySample.mapValues { callIndex(for: $0) }
         sampleResultsByName = Dictionary(uniqueKeysWithValues: result.samples.map { ($0.sample, $0) })
         observedLociIndex = GenotypeObservedLociIndex.build(from: result)
@@ -2413,7 +2419,7 @@ public final class GenotypeResultViewController: NSViewController {
             }
             rows.append(("Locus", cell.locus))
             if let support = sampleSupportByCellKey[
-                CellEvidenceKey(genotype: cell.genotype, sample: cell.sample)
+                CellEvidenceKey(locus: cell.locus, genotype: cell.genotype, sample: cell.sample)
             ] {
                 let fraction = comparisonMatrix.cachedSupportFraction(
                     locus: cell.locus, genotype: cell.genotype, sample: cell.sample

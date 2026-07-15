@@ -1694,6 +1694,25 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(rows.contains { $0.0 == "Alignments" && $0.1 == "Unavailable" })
     }
 
+    func testDuplicateCellEvidenceRowsKeepFirstRecordWithoutCrashing() {
+        let genotype = "01_Mafa_A1_DUPLICATE"
+        let first = makeCall(sample: "AnimalA", genotype: genotype, reads: 17)
+        let duplicate = makeCall(sample: "AnimalA", genotype: genotype, reads: 91)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+
+        controller.configure(result: makeResult(samples: [], calls: [first, duplicate]))
+        controller.testingShowMatrixTargetSelection([
+            .cell(locus: "MHC-A", genotype: genotype, sample: "AnimalA"),
+        ])
+
+        let rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertTrue(rows.contains { $0 == ("Locus", "MHC-A") })
+        XCTAssertTrue(rows.contains { $0 == ("Unique Reads", "17") })
+        XCTAssertTrue(rows.contains { $0 == ("Alignments", "17") })
+        XCTAssertFalse(rows.contains { $0 == ("Unique Reads", "91") })
+    }
+
     func testSelectedAlleleTieUsesRawSequenceOrdinalOrder() {
         let first = "01_Mafa_A1_Z"
         let second = "02_Mafa_A1_A"
@@ -1810,9 +1829,9 @@ final class GenotypeResultViewportTests: XCTestCase {
         ))
 
         let targets: [GenotypeAnnotationSidecar.MatrixTarget] = [
-            .cell(locus: "NHP01222", genotype: "NHP01222", sample: "AnimalA"),
-            .cell(locus: "NHP99999", genotype: "NHP99999", sample: "AnimalA"),
-            .cell(locus: "NHP99999", genotype: "NHP99999", sample: "AnimalB"),
+            .cell(locus: "MHC-NHP01222", genotype: "NHP01222", sample: "AnimalA"),
+            .cell(locus: "MHC-NHP99999", genotype: "NHP99999", sample: "AnimalA"),
+            .cell(locus: "MHC-NHP99999", genotype: "NHP99999", sample: "AnimalB"),
         ]
         controller.testingShowMatrixTargetSelection(targets)
 
