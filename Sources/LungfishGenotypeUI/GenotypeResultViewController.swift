@@ -651,12 +651,8 @@ public final class GenotypeResultViewController: NSViewController {
             rebuildCohortSummary()
         }
         applyLayoutPreference()
-        if let currentSharedCall {
-            showSharedCall(
-                currentSharedCall,
-                sample: currentSelectedSample,
-                matrixTargets: currentSelectionState?.matrixTargets
-            )
+        if currentSelectionState != nil || currentSharedCall != nil {
+            refreshCurrentSelectionDetails()
         }
     }
 
@@ -2263,7 +2259,10 @@ public final class GenotypeResultViewController: NSViewController {
         let samples = targets.compactMap { target -> String? in
             guard case let .column(sample) = target else { return nil }
             return sample
-        }.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        }.sorted {
+            let order = $0.localizedStandardCompare($1)
+            return order == .orderedSame ? $0 < $1 : order == .orderedAscending
+        }
         removeArrangedSubviews(from: detailStack)
         detailStack.addArrangedSubview(sectionTitle(samples.count == 1 ? "Selected Sample" : "Selected Samples"))
         var stateRows: [(String, String)] = [
@@ -2284,36 +2283,46 @@ public final class GenotypeResultViewController: NSViewController {
 
             guard samples.count == 1 else { continue }
 
-            let supported = comparisonMatrix.visibleSharedCallsForSelectionDetails
-                .compactMap { shared -> (ONTGenotypeSharedCall, ONTGenotypeSampleSupport)? in
-                    shared.support(for: sample).map { (shared, $0) }
-                }
+            let supported = comparisonMatrix.visibleSampleAlleleDetails(sample: sample)
                 .sorted { lhs, rhs in
-                    if lhs.0.locus != rhs.0.locus {
-                        return lhs.0.locus.localizedStandardCompare(rhs.0.locus) == .orderedAscending
+                    let locusOrder = lhs.sharedCall.locus.localizedStandardCompare(rhs.sharedCall.locus)
+                    if locusOrder != .orderedSame {
+                        return locusOrder == .orderedAscending
                     }
-                    if lhs.1.passedUniqueReads != rhs.1.passedUniqueReads {
-                        return lhs.1.passedUniqueReads > rhs.1.passedUniqueReads
+                    if lhs.sharedCall.locus != rhs.sharedCall.locus {
+                        return lhs.sharedCall.locus < rhs.sharedCall.locus
                     }
-                    return alleleDisplayLabel(for: lhs.0.genotype).localizedStandardCompare(
-                        alleleDisplayLabel(for: rhs.0.genotype)
-                    ) == .orderedAscending
+                    if lhs.support.passedUniqueReads != rhs.support.passedUniqueReads {
+                        return lhs.support.passedUniqueReads > rhs.support.passedUniqueReads
+                    }
+                    let labelOrder = alleleDisplayLabel(for: lhs.sharedCall.genotype).localizedStandardCompare(
+                        alleleDisplayLabel(for: rhs.sharedCall.genotype)
+                    )
+                    if labelOrder != .orderedSame { return labelOrder == .orderedAscending }
+                    return lhs.sharedCall.genotype < rhs.sharedCall.genotype
                 }
             if !supported.isEmpty {
                 detailStack.addArrangedSubview(sectionTitle("Supported Alleles"))
             }
+            var renderedEntries: [String] = []
+            renderedEntries.reserveCapacity(supported.count)
             for (alleleIndex, item) in supported.enumerated() {
-                let label = alleleDisplayLabel(for: item.0.genotype)
-                detailStack.addArrangedSubview(wrappingText(label, weight: .medium))
+                let label = alleleDisplayLabel(for: item.sharedCall.genotype)
+                let supportLabel = item.fraction.map(percent) ?? "Unavailable"
                 let alleleRows = [
-                    ("Locus", item.0.locus),
-                    ("Unique Reads", integer(item.1.passedUniqueReads)),
-                    ("Alignments", integer(item.1.passedAlignments)),
-                    ("Support", supportFractionLabel(genotype: item.0.genotype, sample: sample)),
+                    ("Locus", item.sharedCall.locus),
+                    ("Unique Reads", integer(item.support.passedUniqueReads)),
+                    ("Alignments", integer(item.support.passedAlignments)),
+                    ("Support", supportLabel),
                 ]
-                detailStack.addArrangedSubview(detailRows(alleleRows))
+                renderedEntries.append(
+                    "\(label)\nLocus: \(item.sharedCall.locus)  •  Unique Reads: \(integer(item.support.passedUniqueReads))  •  Alignments: \(integer(item.support.passedAlignments))  •  Support: \(supportLabel)"
+                )
                 stateRows.append(("Allele \(alleleIndex + 1)", label))
                 stateRows += alleleRows
+            }
+            if !renderedEntries.isEmpty {
+                detailStack.addArrangedSubview(wrappingText(renderedEntries.joined(separator: "\n\n")))
             }
         }
         let comments = matrixCommentDetailRows(for: targets)
@@ -2337,10 +2346,16 @@ public final class GenotypeResultViewController: NSViewController {
         }.sorted { lhs, rhs in
             let lhsLabel = alleleDisplayLabel(for: lhs.genotype)
             let rhsLabel = alleleDisplayLabel(for: rhs.genotype)
-            if lhsLabel != rhsLabel {
-                return lhsLabel.localizedStandardCompare(rhsLabel) == .orderedAscending
+            let labelOrder = lhsLabel.localizedStandardCompare(rhsLabel)
+            if labelOrder != .orderedSame {
+                return labelOrder == .orderedAscending
             }
-            return lhs.sample.localizedStandardCompare(rhs.sample) == .orderedAscending
+            let locusOrder = lhs.locus.localizedStandardCompare(rhs.locus)
+            if locusOrder != .orderedSame { return locusOrder == .orderedAscending }
+            if lhs.locus != rhs.locus { return lhs.locus < rhs.locus }
+            if lhs.genotype != rhs.genotype { return lhs.genotype < rhs.genotype }
+            let sampleOrder = lhs.sample.localizedStandardCompare(rhs.sample)
+            return sampleOrder == .orderedSame ? lhs.sample < rhs.sample : sampleOrder == .orderedAscending
         }
         removeArrangedSubviews(from: detailStack)
         detailStack.addArrangedSubview(sectionTitle(cells.count == 1 ? "Selected Cell" : "Selected Cells: \(cells.count)"))
@@ -2403,12 +2418,16 @@ public final class GenotypeResultViewController: NSViewController {
             guard case let .row(locus, genotype) = target else { return nil }
             return lookup.first { $0.locus == locus && $0.genotype == genotype }
         }.sorted { lhs, rhs in
-            if lhs.locus != rhs.locus {
-                return lhs.locus.localizedStandardCompare(rhs.locus) == .orderedAscending
+            let locusOrder = lhs.locus.localizedStandardCompare(rhs.locus)
+            if locusOrder != .orderedSame {
+                return locusOrder == .orderedAscending
             }
-            return alleleDisplayLabel(for: lhs.genotype).localizedStandardCompare(
+            if lhs.locus != rhs.locus { return lhs.locus < rhs.locus }
+            let labelOrder = alleleDisplayLabel(for: lhs.genotype).localizedStandardCompare(
                 alleleDisplayLabel(for: rhs.genotype)
-            ) == .orderedAscending
+            )
+            if labelOrder != .orderedSame { return labelOrder == .orderedAscending }
+            return lhs.genotype < rhs.genotype
         }
     }
 
@@ -5708,6 +5727,10 @@ extension GenotypeResultViewController {
 
     var testingDetailText: String {
         textContent(in: detailStack).joined(separator: "\n")
+    }
+
+    var testingDetailArrangedSubviewCount: Int {
+        detailStack.arrangedSubviews.count
     }
 
     var testingComparisonMatrixIsHidden: Bool {

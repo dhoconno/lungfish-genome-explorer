@@ -3,6 +3,12 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 
+struct GenotypeVisibleSampleAlleleDetail {
+    let sharedCall: ONTGenotypeSharedCall
+    let support: ONTGenotypeSampleSupport
+    let fraction: Double?
+}
+
 /// Enforces the vertical document bounds for every AppKit scroll request while
 /// preserving the requested horizontal position. `NSScrollView` normally
 /// performs this constraint for wheel events, but a direct/provisional clip
@@ -1017,7 +1023,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             visibleRows.sort { compare($0, $1, key: key, ascending: descriptor.ascending) }
         }
         reloadAllTables()
-        publishPendingColumnSelectionChange()
+        let publishedPendingSelection = publishPendingColumnSelectionChange()
         if let selectedGenotype {
             guard let newIndex = visibleRows.firstIndex(where: {
                 $0.genotype == selectedGenotype && (selectedRowLocus == nil || $0.locus == selectedRowLocus)
@@ -1041,6 +1047,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             deselectAllRows()
             onSelectionCleared?()
         }
+        if !publishedPendingSelection,
+           selectedGenotype == nil,
+           !selectedMatrixTargets.isEmpty {
+            onMatrixTargetsSelected?(selectedMatrixTargets)
+        }
         onDisplaySummaryChanged?(visibleRows.count, totalRowCount, hiddenCellCount)
     }
 
@@ -1062,15 +1073,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
     }
 
-    private func publishPendingColumnSelectionChange() {
+    @discardableResult
+    private func publishPendingColumnSelectionChange() -> Bool {
         if pendingColumnSelectionCleared {
             pendingColumnSelectionCleared = false
             pendingColumnSelectionTargets = nil
             onSelectionCleared?()
+            return true
         } else if let targets = pendingColumnSelectionTargets {
             pendingColumnSelectionTargets = nil
             onMatrixTargetsSelected?(targets)
+            return true
         }
+        return false
     }
 
     private func rowMatches(
@@ -1598,10 +1613,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         tableView.tableColumns.compactMap { sampleColumnLookup[$0.identifier] }
     }
 
-    /// Read-only selection-detail input. Keeping this query here ensures sample-column
-    /// details use the exact rows currently admitted by the matrix filters.
-    var visibleSharedCallsForSelectionDetails: [ONTGenotypeSharedCall] {
-        visibleRows
+    func visibleSampleAlleleDetails(sample: String) -> [GenotypeVisibleSampleAlleleDetail] {
+        visibleRows.compactMap { row in
+            let rowKey = RowKey(locus: row.locus, genotype: row.genotype)
+            guard let support = supportByRowAndSample[rowKey]?[sample] else { return nil }
+            let fraction = supportFractionByCell[
+                CellKey(locus: row.locus, genotype: row.genotype, sample: sample)
+            ]
+            return GenotypeVisibleSampleAlleleDetail(
+                sharedCall: row,
+                support: support,
+                fraction: fraction
+            )
+        }
     }
 
     private func uniqueSamples(_ samples: [String]) -> [String] {

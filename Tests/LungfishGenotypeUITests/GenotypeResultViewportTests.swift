@@ -1443,6 +1443,106 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(rows.contains { $0.0 == "Support" && $0.1 == "100.0%" })
     }
 
+    func testSelectedColumnDetailsRefreshWhenRowFilterChanges() {
+        let first = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
+        let second = makeCall(sample: "AnimalA", genotype: "NHP99999", reads: 41)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [], calls: [first, second], referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        XCTAssertTrue(controller.testingDetailText.contains("Mafa-B*002:01"))
+
+        controller.testingSetComparisonFilter("Mafa-A1")
+
+        XCTAssertTrue(controller.testingDetailText.contains("Mafa-A1*001:01"))
+        XCTAssertFalse(controller.testingDetailText.contains("Mafa-B*002:01"))
+    }
+
+    func testSelectedColumnSupportRefreshesWhenDenominatorChanges() {
+        let selected = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_SELECTED", reads: 25)
+        let other = makeCall(sample: "AnimalA", genotype: "02_Mafa_A1_OTHER", reads: 75)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [ONTGenotypeSampleResult(
+                sample: "AnimalA", passedAlignments: 200, passedUniqueReads: 200,
+                sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [selected, other]
+            )],
+            calls: [selected, other]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "25.0%") })
+
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(
+            supportDenominator: .sampleRetained
+        ))
+
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "12.5%") })
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "25.0%") })
+    }
+
+    func testSelectedLargeColumnPublishesEveryAlleleWithBoundedDetailSubviews() {
+        let alleleCount = 1_001
+        let calls = (0..<alleleCount).map { index in
+            makeCall(
+                sample: "AnimalA",
+                genotype: String(format: "%04d_Mafa_A1_%04d", index, index),
+                reads: 1
+            )
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: calls))
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+
+        XCTAssertEqual(
+            controller.testingCurrentSelectionDetailRows.filter { $0.0.hasPrefix("Allele ") }.count,
+            alleleCount
+        )
+        XCTAssertLessThanOrEqual(controller.testingDetailArrangedSubviewCount, 12)
+        XCTAssertTrue(controller.testingDetailText.contains(calls.first!.genotype))
+        XCTAssertTrue(controller.testingDetailText.contains(calls.last!.genotype))
+    }
+
+    func testSelectedAlleleTieUsesRawSequenceOrdinalOrder() {
+        let first = "01_Mafa_A1_Z"
+        let second = "02_Mafa_A1_A"
+        let fields = [
+            GenBankRecordDatabase.FieldDefinition(
+                key: "feature.allele", displayTitle: "Allele", valueType: "text",
+                sourceCategory: "feature", preferredOrder: 0
+            ),
+        ]
+        let metadata = ONTGenotypeReferenceMetadata(
+            fields: fields,
+            recordsBySequenceName: [
+                first: ["feature.allele": "Mafa-A1*same"],
+                second: ["feature.allele": "Mafa-A1*same"],
+            ],
+            alleleFieldKey: "feature.allele"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: first, reads: 10), makeCall(sample: "AnimalA", genotype: second, reads: 10)],
+            referenceMetadata: metadata
+        ))
+
+        controller.testingShowMatrixTargetSelection([
+            .row(locus: "MHC-A", genotype: second),
+            .row(locus: "MHC-A", genotype: first),
+        ])
+
+        XCTAssertEqual(
+            controller.testingCurrentSelectionDetailRows.filter { $0.0 == "Reference Sequence" }.map(\.1),
+            [first, second]
+        )
+    }
+
     func testSelectedMultipleRowsShowEveryAlleleAggregateAndGenBankValue() {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -1522,16 +1622,31 @@ final class GenotypeResultViewportTests: XCTestCase {
             samples: [], calls: [first, second], referenceMetadata: makeGenBankReferenceMetadata()
         ))
 
-        controller.testingSelectMatrixRows(genotypes: ["NHP01222", "NHP99999"], sample: "AnimalA")
-        controller.testingClickMatrixCell(genotype: "NHP99999", sample: "AnimalB", modifiers: .command)
+        let targets: [GenotypeAnnotationSidecar.MatrixTarget] = [
+            .cell(locus: "NHP01222", genotype: "NHP01222", sample: "AnimalA"),
+            .cell(locus: "NHP99999", genotype: "NHP99999", sample: "AnimalA"),
+            .cell(locus: "NHP99999", genotype: "NHP99999", sample: "AnimalB"),
+        ]
+        controller.testingShowMatrixTargetSelection(targets)
 
-        let text = controller.testingDetailText
-        XCTAssertTrue(text.contains("Mafa-A1*001:01"))
-        XCTAssertTrue(text.contains("AnimalA"))
-        XCTAssertTrue(text.contains("73"))
-        XCTAssertTrue(text.contains("Mafa-B*002:01"))
-        XCTAssertTrue(text.contains("AnimalB"))
-        XCTAssertTrue(text.contains("41"))
+        XCTAssertEqual(Set(controller.testingCurrentSelectionMatrixTargets), Set(targets))
+        let rows = controller.testingCurrentSelectionDetailRows
+        let entries = rows.split { $0.0.hasPrefix("Cell ") }
+        XCTAssertTrue(entries.contains { entry in
+            entry.contains { $0 == ("Allele", "Mafa-A1*001:01") }
+                && entry.contains { $0 == ("Sample", "AnimalA") }
+                && entry.contains { $0 == ("Unique Reads", "73") }
+        })
+        XCTAssertTrue(entries.contains { entry in
+            entry.contains { $0 == ("Allele", "Mafa-B*002:01") }
+                && entry.contains { $0 == ("Sample", "AnimalA") }
+                && entry.contains { $0 == ("Evidence", "No supporting reads") }
+        })
+        XCTAssertTrue(entries.contains { entry in
+            entry.contains { $0 == ("Allele", "Mafa-B*002:01") }
+                && entry.contains { $0 == ("Sample", "AnimalB") }
+                && entry.contains { $0 == ("Unique Reads", "41") }
+        })
     }
 
     func testSelectedGenBankRowPublishesFullAlleleTitle() throws {
