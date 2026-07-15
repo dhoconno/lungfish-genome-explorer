@@ -572,6 +572,54 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingOutlineSelectedLocus, "MHC-B")
     }
 
+    func testRedrawOnlyDisplayChangePreservesOutlineSelectionState() throws {
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test.definition",
+            definitionSetName: "Test definition",
+            speciesName: "Test species",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M3B",
+                            haplotype2: "M4B",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 2,
+                            observedGenotypes: ["B1", "B2"]
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [], calls: [], haplotypeAnalysis: analysis
+        ))
+        var selection: GenotypeResultSelectionState?
+        controller.onSelectionStateChanged = { selection = $0 }
+        controller.testingSelectCellEvidence(animalId: "DW472", locus: "MHC-B")
+        let initial = try XCTUnwrap(selection)
+        XCTAssertEqual(initial.animalId, "DW472")
+        XCTAssertTrue(initial.matrixTargets.isEmpty)
+
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(
+            viewportLens: .review,
+            layout: .listTrailing
+        ))
+        controller.notifySelectionStateIfAvailable()
+
+        let retained = try XCTUnwrap(selection)
+        XCTAssertEqual(retained.animalId, initial.animalId)
+        XCTAssertEqual(retained.title, initial.title)
+        XCTAssertEqual(retained.matrixTargets, initial.matrixTargets)
+    }
+
     func testDisplayStateCanSwitchViewportToHaplotypes() {
         let controller = GenotypeResultViewController()
         _ = controller.view
