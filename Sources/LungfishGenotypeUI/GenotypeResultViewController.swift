@@ -29,6 +29,16 @@ public struct GenotypeAIHaplotypingUIRequest: Equatable, Sendable {
 public final class GenotypeResultViewController: NSViewController {
     typealias Lens = GenotypeResultViewportLens
 
+    private struct SharedCallKey: Hashable {
+        let locus: String
+        let genotype: String
+    }
+
+    private struct CellEvidenceKey: Hashable {
+        let genotype: String
+        let sample: String
+    }
+
     public var onSelectionStateChanged: ((GenotypeResultSelectionState?) -> Void)?
     public var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
@@ -80,6 +90,8 @@ public final class GenotypeResultViewController: NSViewController {
     private var quickFilterSearchText: String = ""
     private var quickFilterState = GenotypeQuickFilterBarView.FilterState()
     private var callsBySample: [String: [ONTGenotypeCall]] = [:]
+    private var sharedCallsByKey: [SharedCallKey: ONTGenotypeSharedCall] = [:]
+    private var sampleSupportByCellKey: [CellEvidenceKey: ONTGenotypeSampleSupport] = [:]
     private var callIndexBySample: [String: CallIndex] = [:]
     private var sampleResultsByName: [String: ONTGenotypeSampleResult] = [:]
     private var diagnosticDisplayGenotypeByIdentifier: [String: String] = [:]
@@ -492,6 +504,20 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func rebuildResultIndexes(for result: ONTGenotypeResultBundleData) {
         callsBySample = Dictionary(grouping: result.calls, by: \.sample)
+        sharedCallsByKey = Dictionary(uniqueKeysWithValues: result.locusSummaries
+            .flatMap(\.sharedCalls)
+            .map { (SharedCallKey(locus: $0.locus, genotype: $0.genotype), $0) })
+        sampleSupportByCellKey = Dictionary(uniqueKeysWithValues: result.calls.map { call in
+            (
+                CellEvidenceKey(genotype: call.genotype, sample: call.sample),
+                ONTGenotypeSampleSupport(
+                    sample: call.sample,
+                    passedAlignments: call.passedAlignments,
+                    passedUniqueReads: call.passedUniqueReads,
+                    sampleUniqueRetainedReads: call.sampleUniqueRetainedReads
+                )
+            )
+        })
         callIndexBySample = callsBySample.mapValues { callIndex(for: $0) }
         sampleResultsByName = Dictionary(uniqueKeysWithValues: result.samples.map { ($0.sample, $0) })
         observedLociIndex = GenotypeObservedLociIndex.build(from: result)
@@ -2231,9 +2257,10 @@ public final class GenotypeResultViewController: NSViewController {
         removeArrangedSubviews(from: detailStack)
         detailStack.addArrangedSubview(sectionTitle("Selected Alleles: \(targets.count)"))
         var stateRows: [(String, String)] = [("Selection Type", "Rows"), ("Selected Alleles", "\(targets.count)")]
+        var renderedEntries: [String] = []
+        renderedEntries.reserveCapacity(calls.count)
         for (index, call) in calls.enumerated() {
             let label = alleleDisplayLabel(for: call.genotype)
-            detailStack.addArrangedSubview(wrappingText(label, weight: .medium))
             var rows: [(String, String)] = []
             if label != call.genotype {
                 rows.append(("Reference Sequence", call.genotype))
@@ -2245,9 +2272,12 @@ public final class GenotypeResultViewController: NSViewController {
                 ("Alignments", integer(call.totalAlignments)),
             ]
             rows += genBankFieldRows(for: call.genotype)
-            detailStack.addArrangedSubview(detailRows(rows))
+            renderedEntries.append(compactSelectionEntry(label: label, rows: rows))
             stateRows.append(("Allele \(index + 1)", label))
             stateRows += rows
+        }
+        if !renderedEntries.isEmpty {
+            detailStack.addArrangedSubview(wrappingText(renderedEntries.joined(separator: "\n\n")))
         }
         let comments = matrixCommentDetailRows(for: targets)
         appendCommentsToDetail(comments)
@@ -2277,12 +2307,14 @@ public final class GenotypeResultViewController: NSViewController {
         for (index, sample) in samples.enumerated() {
             detailStack.addArrangedSubview(wrappingText(sample, weight: .medium))
             let summary = sampleResultsByName[sample]
-            let rows: [(String, String)] = [
-                ("Sample", sample),
-                ("Retained Unique Reads", summary.map { integer($0.passedUniqueReads) } ?? "Unavailable"),
-                ("Alignments", summary.map { integer($0.passedAlignments) } ?? "Unavailable"),
-                ("QC", summary?.qcStatus.displayName ?? "Unavailable"),
-            ]
+            var rows: [(String, String)] = [("Sample", sample)]
+            if let summary {
+                rows += [
+                    ("Retained Unique Reads", integer(summary.passedUniqueReads)),
+                    ("Alignments", integer(summary.passedAlignments)),
+                    ("QC", summary.qcStatus.displayName),
+                ]
+            }
             detailStack.addArrangedSubview(detailRows(rows))
             stateRows.append((samples.count == 1 ? "Selected Sample" : "Sample \(index + 1)", sample))
             stateRows += rows
@@ -2371,30 +2403,44 @@ public final class GenotypeResultViewController: NSViewController {
         if cells.count == 1, let cell = cells.first {
             stateRows.append(("Selected Sample", cell.sample))
         }
+        var renderedEntries: [String] = []
+        renderedEntries.reserveCapacity(cells.count)
         for (index, cell) in cells.enumerated() {
             let label = alleleDisplayLabel(for: cell.genotype)
-            detailStack.addArrangedSubview(wrappingText(label, weight: .medium))
-            detailStack.addArrangedSubview(wrappingText(cell.sample))
             var rows: [(String, String)] = [("Sample", cell.sample), ("Allele", label)]
             if label != cell.genotype {
                 rows.append(("Reference Sequence", cell.genotype))
             }
             rows.append(("Locus", cell.locus))
-            if let call = callsBySample[cell.sample]?.first(where: { $0.genotype == cell.genotype }) {
+            if let support = sampleSupportByCellKey[
+                CellEvidenceKey(genotype: cell.genotype, sample: cell.sample)
+            ] {
+                let fraction = comparisonMatrix.cachedSupportFraction(
+                    locus: cell.locus, genotype: cell.genotype, sample: cell.sample
+                )
                 rows += [
-                    ("Unique Reads", integer(call.passedUniqueReads)),
-                    ("Alignments", integer(call.passedAlignments)),
-                    ("Support", supportFractionLabel(genotype: cell.genotype, sample: cell.sample)),
+                    ("Unique Reads", integer(support.passedUniqueReads)),
+                    ("Alignments", integer(support.passedAlignments)),
+                    ("Support", fraction.map(percent) ?? "Unavailable"),
                 ]
                 rows += genBankFieldRows(for: cell.genotype)
             } else {
                 rows.append(("Evidence", "No supporting reads"))
             }
-            detailStack.addArrangedSubview(detailRows(rows))
+            if cells.count == 1 {
+                detailStack.addArrangedSubview(wrappingText(label, weight: .medium))
+                detailStack.addArrangedSubview(wrappingText(cell.sample))
+                detailStack.addArrangedSubview(detailRows(rows))
+            } else {
+                renderedEntries.append(compactSelectionEntry(label: label, rows: rows))
+            }
             if cells.count > 1 {
                 stateRows.append(("Cell \(index + 1)", "\(label) — \(cell.sample)"))
             }
             stateRows += rows
+        }
+        if cells.count > 1, !renderedEntries.isEmpty {
+            detailStack.addArrangedSubview(wrappingText(renderedEntries.joined(separator: "\n\n")))
         }
         let commentTargets = applicableCommentTargets(for: targets)
         let comments = matrixCommentDetailRows(for: commentTargets)
@@ -2415,14 +2461,16 @@ public final class GenotypeResultViewController: NSViewController {
         detailStack.addArrangedSubview(detailRows(rows))
     }
 
+    private func compactSelectionEntry(label: String, rows: [(String, String)]) -> String {
+        ([label] + rows.map { "\($0.0): \($0.1)" }).joined(separator: "\n")
+    }
+
     private func sharedCalls(
         for targets: [GenotypeAnnotationSidecar.MatrixTarget]
     ) -> [ONTGenotypeSharedCall] {
-        guard let result else { return [] }
-        let lookup = result.locusSummaries.flatMap(\.sharedCalls)
         return targets.compactMap { target in
             guard case let .row(locus, genotype) = target else { return nil }
-            return lookup.first { $0.locus == locus && $0.genotype == genotype }
+            return sharedCallsByKey[SharedCallKey(locus: locus, genotype: genotype)]
         }.sorted { lhs, rhs in
             let locusOrder = lhs.locus.localizedStandardCompare(rhs.locus)
             if locusOrder != .orderedSame {

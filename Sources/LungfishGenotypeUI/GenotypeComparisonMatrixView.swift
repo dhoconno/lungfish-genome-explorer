@@ -1023,36 +1023,71 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             visibleRows.sort { compare($0, $1, key: key, ascending: descriptor.ascending) }
         }
         reloadAllTables()
-        let publishedPendingSelection = publishPendingColumnSelectionChange()
-        if let selectedGenotype {
-            guard let newIndex = visibleRows.firstIndex(where: {
-                $0.genotype == selectedGenotype && (selectedRowLocus == nil || $0.locus == selectedRowLocus)
-            }) else {
-                self.selectedGenotype = nil
-                selectedSampleName = nil
-                selectedRowLocus = nil
-                deselectAllRows()
-                onSelectionCleared?()
-                onDisplaySummaryChanged?(visibleRows.count, totalRowCount, hiddenCellCount)
-                return
-            }
-            if tableView.selectedRow != newIndex {
-                selectRowIndexes(IndexSet(integer: newIndex), byExtendingSelection: false)
-                scrollRowToVisibleInBothTables(newIndex)
-            } else {
-                onSharedCallSelected?(visibleRows[newIndex], selectedSampleName, selectedMatrixTargets)
-            }
-        } else if tableView.selectedRowIndexes.contains(where: { $0 >= visibleRows.count })
-            || pinnedTableView.selectedRowIndexes.contains(where: { $0 >= visibleRows.count }) {
-            deselectAllRows()
-            onSelectionCleared?()
-        }
-        if !publishedPendingSelection,
-           selectedGenotype == nil,
-           !selectedMatrixTargets.isEmpty {
-            onMatrixTargetsSelected?(selectedMatrixTargets)
-        }
+        reconcileSelectionAfterFilter()
         onDisplaySummaryChanged?(visibleRows.count, totalRowCount, hiddenCellCount)
+    }
+
+    private func reconcileSelectionAfterFilter() {
+        let hadPendingClear = pendingColumnSelectionCleared
+        let hadPendingTargets = pendingColumnSelectionTargets != nil
+        pendingColumnSelectionCleared = false
+        pendingColumnSelectionTargets = nil
+        guard !selectedMatrixTargets.isEmpty || hadPendingClear || hadPendingTargets else { return }
+        let visibleRowsSet = Set(visibleRows.map { RowKey(locus: $0.locus, genotype: $0.genotype) })
+        let visibleSamples = Set(visibleSampleNames)
+        let previousTargets = selectedMatrixTargets
+        let survivors = selectedMatrixTargets.filter { target in
+            switch target {
+            case let .row(locus, genotype):
+                return visibleRowsSet.contains(RowKey(locus: locus, genotype: genotype))
+            case let .column(sample):
+                return visibleSamples.contains(sample)
+            case let .cell(locus, genotype, sample):
+                return visibleRowsSet.contains(RowKey(locus: locus, genotype: genotype))
+                    && visibleSamples.contains(sample)
+            }
+        }
+        guard !survivors.isEmpty else {
+            selectedMatrixTargets = []
+            selectedColumnSamples = []
+            columnSelectionAnchorSample = nil
+            directSelectionAnchor = nil
+            selectedGenotype = nil
+            selectedRowLocus = nil
+            selectedSampleName = nil
+            deselectAllRows()
+            reloadSelectionTransition(from: previousTargets, to: [])
+            setHeaderViewsNeedDisplay()
+            onSelectionCleared?()
+            return
+        }
+        selectedMatrixTargets = survivors
+        let survivingColumnSamples: [String] = survivors.compactMap {
+            guard case let .column(sample) = $0 else { return nil }
+            return sample
+        }
+        selectedColumnSamples = survivingColumnSamples.count == survivors.count
+            ? survivingColumnSamples
+            : []
+        if let anchor = directSelectionAnchor, !survivors.contains(anchor) {
+            directSelectionAnchor = survivors.last
+        }
+        if let anchor = columnSelectionAnchorSample, !selectedColumnSamples.contains(anchor) {
+            columnSelectionAnchorSample = selectedColumnSamples.last
+        }
+        let firstRowTarget = firstRowOrCellTarget(in: survivors)
+        selectedRowLocus = firstRowTarget?.locus
+        selectedGenotype = firstRowTarget?.genotype
+        selectedSampleName = firstRowTarget?.sample
+        let indexes = rowIndexes(for: survivors)
+        if indexes.isEmpty {
+            deselectAllRows()
+        } else {
+            selectRowIndexes(indexes, byExtendingSelection: false)
+        }
+        reloadSelectionTransition(from: previousTargets, to: survivors)
+        setHeaderViewsNeedDisplay()
+        onMatrixTargetsSelected?(survivors)
     }
 
     private func pruneSelectedColumnsForVisibleSamples() {
@@ -1071,21 +1106,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         } else {
             pendingColumnSelectionTargets = selectedMatrixTargets
         }
-    }
-
-    @discardableResult
-    private func publishPendingColumnSelectionChange() -> Bool {
-        if pendingColumnSelectionCleared {
-            pendingColumnSelectionCleared = false
-            pendingColumnSelectionTargets = nil
-            onSelectionCleared?()
-            return true
-        } else if let targets = pendingColumnSelectionTargets {
-            pendingColumnSelectionTargets = nil
-            onMatrixTargetsSelected?(targets)
-            return true
-        }
-        return false
     }
 
     private func rowMatches(
@@ -1615,17 +1635,28 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     func visibleSampleAlleleDetails(sample: String) -> [GenotypeVisibleSampleAlleleDetail] {
         visibleRows.compactMap { row in
-            let rowKey = RowKey(locus: row.locus, genotype: row.genotype)
-            guard let support = supportByRowAndSample[rowKey]?[sample] else { return nil }
-            let fraction = supportFractionByCell[
-                CellKey(locus: row.locus, genotype: row.genotype, sample: sample)
-            ]
-            return GenotypeVisibleSampleAlleleDetail(
-                sharedCall: row,
-                support: support,
-                fraction: fraction
-            )
+            sampleAlleleDetail(sharedCall: row, sample: sample)
         }
+    }
+
+    func sampleAlleleDetail(
+        sharedCall: ONTGenotypeSharedCall,
+        sample: String
+    ) -> GenotypeVisibleSampleAlleleDetail? {
+        let rowKey = RowKey(locus: sharedCall.locus, genotype: sharedCall.genotype)
+        guard let support = supportByRowAndSample[rowKey]?[sample] else { return nil }
+        let fraction = supportFractionByCell[
+            CellKey(locus: sharedCall.locus, genotype: sharedCall.genotype, sample: sample)
+        ]
+        return GenotypeVisibleSampleAlleleDetail(
+            sharedCall: sharedCall,
+            support: support,
+            fraction: fraction
+        )
+    }
+
+    func cachedSupportFraction(locus: String, genotype: String, sample: String) -> Double? {
+        supportFractionByCell[CellKey(locus: locus, genotype: genotype, sample: sample)]
     }
 
     private func uniqueSamples(_ samples: [String]) -> [String] {
