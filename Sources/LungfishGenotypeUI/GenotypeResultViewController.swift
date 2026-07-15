@@ -2282,6 +2282,8 @@ public final class GenotypeResultViewController: NSViewController {
             stateRows.append((samples.count == 1 ? "Selected Sample" : "Sample \(index + 1)", sample))
             stateRows += rows
 
+            guard samples.count == 1 else { continue }
+
             let supported = comparisonMatrix.visibleSharedCallsForSelectionDetails
                 .compactMap { shared -> (ONTGenotypeSharedCall, ONTGenotypeSampleSupport)? in
                     shared.support(for: sample).map { (shared, $0) }

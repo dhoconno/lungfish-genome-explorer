@@ -1551,11 +1551,17 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(selection).highlightTarget?.genotype, "NHP01222")
     }
 
-    func testSelectedMultipleColumnsShowCompactSummaryForEachSample() {
+    func testSelectedMultipleColumnsShowCompactSummaryForEachSample() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMultiSampleSelection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let call = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(
+            bundleURL: bundleURL,
             samples: [
                 ONTGenotypeSampleResult(sample: "AnimalA", passedAlignments: 73, passedUniqueReads: 73, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [call]),
                 ONTGenotypeSampleResult(sample: "AnimalB", passedAlignments: 0, passedUniqueReads: 0, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: []),
@@ -1564,13 +1570,24 @@ final class GenotypeResultViewportTests: XCTestCase {
         ))
 
         controller.testingSelectMatrixColumns(samples: ["AnimalA", "AnimalB"])
+        controller.addMatrixComment(.init(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            body: "Selected cohort note"
+        ))
 
         let text = controller.testingDetailText
         XCTAssertTrue(text.contains("Selected Samples"))
         XCTAssertTrue(text.contains("AnimalA"))
         XCTAssertTrue(text.contains("AnimalB"))
+        XCTAssertFalse(text.contains("Supported Alleles"))
+        XCTAssertFalse(text.contains("Mafa-A1*001:01"))
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Sample 1", "AnimalA") })
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Sample 2", "AnimalB") })
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0.hasPrefix("Allele ") })
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == "Support" })
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("Column Comment", "Selected cohort note")
+        })
     }
 
     func testSelectedCellIncludesApplicableRowColumnAndCellComments() throws {
