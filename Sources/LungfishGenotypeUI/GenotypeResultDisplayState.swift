@@ -175,6 +175,15 @@ public struct GenotypeResultDisplayState: Equatable {
         hideLowSupport ? minimumSupportPercent : 0
     }
 
+    public func normalized(forGenotypeOnlyResult isGenotypeOnlyResult: Bool) -> Self {
+        guard isGenotypeOnlyResult else { return self }
+        var normalized = self
+        normalized.viewportLens = .summary
+        normalized.summaryViewMode = .matrix
+        normalized.layout = .listTop
+        return normalized
+    }
+
     /// The effective row-visibility threshold. `0` means no row filtering.
     public var activeMinimumReads: Int {
         MinimumReadsThreshold(value: minimumReads).active

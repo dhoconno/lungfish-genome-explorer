@@ -28,6 +28,8 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var totalRowCount = 0
     public var hiddenCellCount = 0
     public var hasHaplotypingResult = false
+    public var isGenotypeOnlyResult = false
+    public var showsViewportAndLayoutControls: Bool { !isGenotypeOnlyResult }
     public var isExpanded = true
     public var genotypeResultSelection: GenotypeResultSelectionState?
     public var genotypeHighlightColor: Color = .blue
@@ -60,11 +62,13 @@ public final class GenotypeResultDisplaySectionViewModel {
     public func update(
         isAvailable: Bool,
         state: GenotypeResultDisplayState = GenotypeResultDisplayState(),
-        hasHaplotypingResult: Bool = false
+        hasHaplotypingResult: Bool = false,
+        isGenotypeOnlyResult: Bool = false
     ) {
         self.isAvailable = isAvailable
-        self.displayState = state
         self.hasHaplotypingResult = hasHaplotypingResult
+        self.isGenotypeOnlyResult = isGenotypeOnlyResult
+        self.displayState = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
         updateSelection(nil)
     }
 
@@ -85,16 +89,19 @@ public final class GenotypeResultDisplaySectionViewModel {
         totalRowCount = 0
         hiddenCellCount = 0
         hasHaplotypingResult = false
+        isGenotypeOnlyResult = false
         updateSelection(nil)
     }
 
     func setLayout(_ layout: GenotypeResultPanelLayout) {
         displayState.layout = layout
+        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
         notifyStateChanged()
     }
 
     func setViewportLens(_ lens: GenotypeResultViewportLens) {
         displayState.viewportLens = lens
+        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
         notifyStateChanged()
     }
 
@@ -400,8 +407,10 @@ public struct GenotypeResultDisplaySection: View {
                         haplotypeGenotypeToggle
                     }
                     Divider()
-                    viewControls
-                    layoutControls
+                    if viewModel.showsViewportAndLayoutControls {
+                        viewControls
+                        layoutControls
+                    }
                     thresholdGuidance
                     matrixFilterControls
                     colorControls

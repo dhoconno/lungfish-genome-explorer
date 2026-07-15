@@ -33,6 +33,98 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertEqual(GenotypeResultDisplayState().minimumSupportPercent, 0)
     }
 
+    func testGenotypeOnlyDisplayStateNormalizesToSummaryMatrixAndListOverDetail() {
+        let state = GenotypeResultDisplayState(
+            viewportLens: .audit,
+            summaryViewMode: .outline,
+            layout: .listTrailing,
+            hideLowSupport: true,
+            minimumSupportPercent: 12.5,
+            supportDenominator: .sampleRetained,
+            cellColorMode: .highlights,
+            hideFilteredHighlights: false,
+            showsAncillaryLoci: true,
+            includedLoci: ["MHC-A"],
+            minimumReads: 500,
+            matrixMinimumReads: 10,
+            matrixMinimumPercent: 20,
+            matrixPercentDenominator: .sampleRetained,
+            matrixRowFilterText: "MHC-A",
+            matrixSampleFilterText: "AnimalA",
+            cohortFlagThreshold: 4_000
+        )
+
+        let normalized = state.normalized(forGenotypeOnlyResult: true)
+        var expected = state
+        expected.viewportLens = .summary
+        expected.summaryViewMode = .matrix
+        expected.layout = .listTop
+
+        XCTAssertEqual(normalized, expected)
+    }
+
+    func testNonGenotypeOnlyDisplayStateNormalizationReturnsExactInput() {
+        let state = GenotypeResultDisplayState(
+            viewportLens: .audit,
+            summaryViewMode: .outline,
+            layout: .listTrailing,
+            hideLowSupport: true,
+            minimumSupportPercent: 12.5,
+            supportDenominator: .sampleRetained,
+            cellColorMode: .highlights,
+            hideFilteredHighlights: false,
+            showsAncillaryLoci: true,
+            includedLoci: ["MHC-A"],
+            minimumReads: 500,
+            matrixMinimumReads: 10,
+            matrixMinimumPercent: 20,
+            matrixPercentDenominator: .sampleRetained,
+            matrixRowFilterText: "MHC-A",
+            matrixSampleFilterText: "AnimalA",
+            cohortFlagThreshold: 4_000
+        )
+
+        XCTAssertEqual(state.normalized(forGenotypeOnlyResult: false), state)
+    }
+
+    func testGenotypeOnlyViewModelHidesControlsAndEnforcesNormalizedState() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        let state = GenotypeResultDisplayState(
+            viewportLens: .audit,
+            summaryViewMode: .outline,
+            layout: .listTrailing
+        )
+
+        viewModel.update(isAvailable: true, state: state, isGenotypeOnlyResult: true)
+
+        XCTAssertTrue(viewModel.isGenotypeOnlyResult)
+        XCTAssertFalse(viewModel.showsViewportAndLayoutControls)
+        XCTAssertEqual(viewModel.displayState.viewportLens, .summary)
+        XCTAssertEqual(viewModel.displayState.summaryViewMode, .matrix)
+        XCTAssertEqual(viewModel.displayState.layout, .listTop)
+
+        viewModel.setViewportLens(.review)
+        viewModel.setLayout(.listLeading)
+
+        XCTAssertEqual(viewModel.displayState.viewportLens, .summary)
+        XCTAssertEqual(viewModel.displayState.summaryViewMode, .matrix)
+        XCTAssertEqual(viewModel.displayState.layout, .listTop)
+
+        viewModel.clear()
+
+        XCTAssertFalse(viewModel.isGenotypeOnlyResult)
+        XCTAssertTrue(viewModel.showsViewportAndLayoutControls)
+    }
+
+    func testHaplotypedViewModelShowsViewportAndLayoutControls() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+
+        viewModel.update(isAvailable: true, hasHaplotypingResult: true)
+
+        XCTAssertFalse(viewModel.isGenotypeOnlyResult)
+        XCTAssertTrue(viewModel.showsViewportAndLayoutControls)
+    }
+
     func testGenotypeSectionSetMinimumReadsUpdatesStateAndNotifies() {
         let vm = GenotypeResultDisplaySectionViewModel()
         var fired = 0
@@ -87,6 +179,29 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(layoutSource.contains("Label(\"List | Detail\""))
         XCTAssertTrue(layoutSource.contains("Label(\"List Over Detail\""))
         XCTAssertTrue(layoutSource.contains(".pickerStyle(.radioGroup)"))
+    }
+
+    func testViewportAndLayoutControlsAreGuardedForGenotypeOnlyResults() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let bodyStart = try XCTUnwrap(source.range(of: "public var body: some View"))
+        let bodyEnd = try XCTUnwrap(source[bodyStart.lowerBound...].range(of: "private var haplotypeGenotypeToggle"))
+        let bodySource = String(source[bodyStart.lowerBound..<bodyEnd.lowerBound])
+
+        XCTAssertTrue(bodySource.contains("if viewModel.showsViewportAndLayoutControls"))
+        let guardStart = try XCTUnwrap(bodySource.range(of: "if viewModel.showsViewportAndLayoutControls"))
+        let guardedSource = bodySource[guardStart.lowerBound...]
+        XCTAssertTrue(guardedSource.contains("viewControls"))
+        XCTAssertTrue(guardedSource.contains("layoutControls"))
+        XCTAssertTrue(source.contains("Label(lens.displayName, systemImage: lens.inspectorSystemImage)"))
+        XCTAssertTrue(source.contains("Label(\"Detail | List\""))
+        XCTAssertTrue(source.contains("Label(\"List | Detail\""))
+        XCTAssertTrue(source.contains("Label(\"List Over Detail\""))
+        XCTAssertTrue(source.contains(".pickerStyle(.radioGroup)"))
     }
 
     func testGenotypeDisplaySectionDoesNotExposeLiveReadThresholdControls() throws {
