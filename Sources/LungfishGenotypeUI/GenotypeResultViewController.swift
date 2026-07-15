@@ -1127,6 +1127,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func showLens(_ lens: Lens, autoActivateReviewCohort: Bool = true) {
+        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
         let lens: Lens = isGenotypeOnlyResult ? .summary : lens
         selectedLens = lens
         displayState.viewportLens = lens
@@ -5448,6 +5449,10 @@ extension GenotypeResultViewController {
 
     func testingApplyDisplayState(_ state: GenotypeResultDisplayState) {
         applyDisplayState(state)
+    }
+
+    func testingSetUnappliedDisplayState(_ state: GenotypeResultDisplayState) {
+        displayState = state
     }
 
     func testingSaveHaplotypeDefinition(_ definition: GenotypeHaplotypeDefinitionSet) throws {

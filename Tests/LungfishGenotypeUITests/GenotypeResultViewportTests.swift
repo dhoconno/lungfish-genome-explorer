@@ -39,12 +39,30 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.configure(result: makeResult(samples: [], calls: [
             makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
         ]))
+        controller.testingSetUnappliedDisplayState(GenotypeResultDisplayState(
+            viewportLens: .audit,
+            summaryViewMode: .outline,
+            layout: .listTrailing
+        ))
 
         controller.testingSelectLens(.audit)
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertEqual(controller.testingPanelLayout, .listTop)
+        XCTAssertFalse(controller.testingSplitIsVertical)
+        XCTAssertTrue(controller.testingFirstPaneIsMatrix)
 
+        controller.testingSetUnappliedDisplayState(GenotypeResultDisplayState(
+            viewportLens: .review,
+            summaryViewMode: .outline,
+            layout: .listLeading
+        ))
         controller.testingSelectLens(.review)
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertEqual(controller.testingPanelLayout, .listTop)
+        XCTAssertFalse(controller.testingSplitIsVertical)
+        XCTAssertTrue(controller.testingFirstPaneIsMatrix)
     }
 
     func testGenotypeOnlySummaryShowsScrollableEmptySelectionDetail() {
@@ -60,6 +78,31 @@ final class GenotypeResultViewportTests: XCTestCase {
             controller.testingDetailText,
             "Select a sample column or allele row to view details."
         )
+        XCTAssertFalse(controller.testingDetailText.localizedCaseInsensitiveContains("low coverage"))
+        XCTAssertFalse(controller.testingDetailText.localizedCaseInsensitiveContains("below threshold"))
+    }
+
+    func testClearingGenotypeOnlyMatrixSelectionRestoresEmptyDetailPrompt() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
+        ]))
+
+        controller.testingClickMatrixColumnChiclet(sample: "AnimalA")
+        XCTAssertNotEqual(
+            controller.testingDetailText,
+            "Select a sample column or allele row to view details."
+        )
+
+        controller.testingClickMatrixColumnChiclet(sample: "AnimalA", modifiers: .command)
+
+        XCTAssertEqual(
+            controller.testingDetailText,
+            "Select a sample column or allele row to view details."
+        )
+        XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
+        XCTAssertTrue(controller.testingCohortSummaryIsHidden)
         XCTAssertFalse(controller.testingDetailText.localizedCaseInsensitiveContains("low coverage"))
         XCTAssertFalse(controller.testingDetailText.localizedCaseInsensitiveContains("below threshold"))
     }
