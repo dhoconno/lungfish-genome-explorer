@@ -1474,11 +1474,14 @@ final class GenotypeResultViewportTests: XCTestCase {
         ))
         controller.testingSelectMatrixColumn(sample: "AnimalA")
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "25.0%") })
+        var selectionPublicationCount = 0
+        controller.onSelectionStateChanged = { _ in selectionPublicationCount += 1 }
 
         controller.testingApplyDisplayState(GenotypeResultDisplayState(
             supportDenominator: .sampleRetained
         ))
 
+        XCTAssertEqual(selectionPublicationCount, 1)
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "12.5%") })
         XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "25.0%") })
     }

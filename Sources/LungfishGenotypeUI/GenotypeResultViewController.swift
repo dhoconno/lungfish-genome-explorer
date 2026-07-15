@@ -619,6 +619,10 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func applyDisplayState(_ state: GenotypeResultDisplayState) {
         let state = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        let previousDisplayState = displayState
+        let matrixWillRefreshActiveSelection = comparisonMatrixConfigured
+            && (currentSelectionState != nil || currentSharedCall != nil)
+            && state.requiresMatrixFilterPass(comparedTo: previousDisplayState)
         let previousViewMode = displayState.summaryViewMode
         let previousAncillary = displayState.showsAncillaryLoci
         let previousIncludedLoci = displayState.includedLoci
@@ -651,7 +655,8 @@ public final class GenotypeResultViewController: NSViewController {
             rebuildCohortSummary()
         }
         applyLayoutPreference()
-        if currentSelectionState != nil || currentSharedCall != nil {
+        if !matrixWillRefreshActiveSelection,
+           (currentSelectionState != nil || currentSharedCall != nil) {
             refreshCurrentSelectionDetails()
         }
     }
