@@ -275,10 +275,14 @@ final class GenotypeResultViewportTests: XCTestCase {
                 calls: calls
             )
         ], calls: calls, haplotypeAnalysis: analysis))
-        controller.testingApplyDisplayState(GenotypeResultDisplayState(layout: .listLeading))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(
+            summaryViewMode: .matrix,
+            layout: .listLeading
+        ))
 
         controller.view.layoutSubtreeIfNeeded()
 
+        XCTAssertFalse(controller.testingComparisonMatrixIsHidden)
         XCTAssertLessThanOrEqual(controller.view.fittingSize.width, 900)
         XCTAssertGreaterThanOrEqual(controller.testingSamplePaneWidth, 300)
         XCTAssertLessThanOrEqual(controller.testingDetailPaneWidth, 520)
@@ -2686,6 +2690,12 @@ final class GenotypeResultViewportTests: XCTestCase {
         ))
 
         XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+        XCTAssertFalse(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 48)
+
+        controller.testingSelectLens(.review)
+
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "review")
     }
 
     func testHaplotypedBundleRemembersGenotypeMatrixSummaryPreference() throws {

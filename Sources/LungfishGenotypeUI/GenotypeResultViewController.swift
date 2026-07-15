@@ -2514,6 +2514,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func applyAIHaplotypingCompleted(result updatedResult: ONTGenotypeResultBundleData) {
         result = updatedResult
+        applyViewportHeaderVisibility()
         liveHaplotypeAnalysis = nil
         comparisonMatrixConfigured = false
         rebuildResultIndexes(for: updatedResult)
