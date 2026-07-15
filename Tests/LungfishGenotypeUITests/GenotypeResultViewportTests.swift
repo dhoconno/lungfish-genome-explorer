@@ -1702,6 +1702,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         _ = controller.view
 
         controller.configure(result: makeResult(samples: [], calls: [first, duplicate]))
+        _ = controller.testingVisibleGenotypes
         controller.testingShowMatrixTargetSelection([
             .cell(locus: "MHC-A", genotype: genotype, sample: "AnimalA"),
         ])
@@ -1710,6 +1711,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(rows.contains { $0 == ("Locus", "MHC-A") })
         XCTAssertTrue(rows.contains { $0 == ("Unique Reads", "17") })
         XCTAssertTrue(rows.contains { $0 == ("Alignments", "17") })
+        XCTAssertTrue(rows.contains { $0 == ("Support", "15.7%") })
         XCTAssertFalse(rows.contains { $0 == ("Unique Reads", "91") })
     }
 

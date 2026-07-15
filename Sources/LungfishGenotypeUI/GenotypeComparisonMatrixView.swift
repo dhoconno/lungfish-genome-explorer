@@ -1162,10 +1162,16 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                       denominator > 0 else {
                     continue
                 }
-                fractions[
-                    CellKey(locus: context.locus, genotype: context.call.genotype, sample: context.call.sample)
-                ] =
-                    Double(context.call.passedUniqueReads) / Double(denominator)
+                let key = CellKey(
+                    locus: context.locus,
+                    genotype: context.call.genotype,
+                    sample: context.call.sample
+                )
+                insertFirstSupportFraction(
+                    Double(context.call.passedUniqueReads) / Double(denominator),
+                    for: key,
+                    into: &fractions
+                )
             }
             return fractions
         case .sampleRetained:
@@ -1179,11 +1185,24 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                       denominator > 0 else {
                     continue
                 }
-                fractions[CellKey(locus: call.locusGroup, genotype: call.genotype, sample: call.sample)] =
-                    Double(call.passedUniqueReads) / Double(denominator)
+                let key = CellKey(locus: call.locusGroup, genotype: call.genotype, sample: call.sample)
+                insertFirstSupportFraction(
+                    Double(call.passedUniqueReads) / Double(denominator),
+                    for: key,
+                    into: &fractions
+                )
             }
             return fractions
         }
+    }
+
+    private func insertFirstSupportFraction(
+        _ fraction: Double,
+        for key: CellKey,
+        into fractions: inout [CellKey: Double]
+    ) {
+        guard fractions[key] == nil else { return }
+        fractions[key] = fraction
     }
 
     private func compare(
