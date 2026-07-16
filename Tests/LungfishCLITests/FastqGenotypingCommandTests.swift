@@ -48,6 +48,46 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertTrue(command.force)
     }
 
+    func testONTFluidigmSamplesProvenanceDescribesDirectoryInputAndOutputs() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ont-fluidigm-cli-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputDirectory = root.appendingPathComponent("barcode12", isDirectory: true)
+        let outputDirectory = root.appendingPathComponent("split", isDirectory: true)
+        let bundleURL = outputDirectory.appendingPathComponent("MCM01.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let inputFASTQURL = inputDirectory.appendingPathComponent("reads.fastq.gz")
+        let barcodeURL = root.appendingPathComponent("samples.csv")
+        let manifestURL = outputDirectory.appendingPathComponent("ont-fluidigm-samples-manifest.json")
+        let outputFASTQURL = bundleURL.appendingPathComponent("MCM01.fastq.gz")
+        try Data("input".utf8).write(to: inputFASTQURL)
+        try Data("sample,barcode\\nMCM01,ACGT\\n".utf8).write(to: barcodeURL)
+        try Data("{}".utf8).write(to: manifestURL)
+        try Data("output".utf8).write(to: outputFASTQURL)
+
+        let records = FastqONTFluidigmSamplesSubcommand.provenanceRecords(
+            inputURL: inputDirectory,
+            barcodeURL: barcodeURL,
+            outputDirectory: outputDirectory,
+            manifestURL: manifestURL,
+            outputBundleURLs: [bundleURL],
+            outputPayloads: [outputFASTQURL]
+        )
+
+        let inputDirectoryRecord = try XCTUnwrap(records.inputs.first { $0.path == inputDirectory.path })
+        let outputDirectoryRecord = try XCTUnwrap(records.outputs.first { $0.path == outputDirectory.path })
+        let bundleRecord = try XCTUnwrap(records.outputs.first { $0.path == bundleURL.path })
+        XCTAssertNotNil(inputDirectoryRecord.sha256)
+        XCTAssertGreaterThan(inputDirectoryRecord.sizeBytes ?? 0, 0)
+        XCTAssertNotNil(outputDirectoryRecord.sha256)
+        XCTAssertGreaterThan(outputDirectoryRecord.sizeBytes ?? 0, 0)
+        XCTAssertNotNil(bundleRecord.sha256)
+        XCTAssertGreaterThan(bundleRecord.sizeBytes ?? 0, 0)
+    }
+
     func testONTPacBioBarcodeDemuxCommandParsesRequiredInputs() throws {
         let command = try FastqONTPacBioBarcodeDemuxSubcommand.parse([
             "/tmp/fastq_pass/barcode13",

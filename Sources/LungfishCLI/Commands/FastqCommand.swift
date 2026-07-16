@@ -2728,18 +2728,14 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
 
         let outputPayloads = result.outputBundleURLs
             .compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
-        let outputs = [
-            directoryOutputRecord(result.outputDirectory),
-            ProvenanceRecorder.fileRecord(url: result.manifestURL, format: .json, role: .output),
-        ] + result.outputBundleURLs.map {
-            directoryOutputRecord($0)
-        } + outputPayloads.map {
-            ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
-        }
-        let inputRecords = [
-            ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input),
-            ProvenanceRecorder.fileRecord(url: barcodeURL, format: .text, role: .input),
-        ]
+        let records = Self.provenanceRecords(
+            inputURL: inputURL,
+            barcodeURL: barcodeURL,
+            outputDirectory: result.outputDirectory,
+            manifestURL: result.manifestURL,
+            outputBundleURLs: result.outputBundleURLs,
+            outputPayloads: outputPayloads
+        )
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish fastq ont-fluidigm-samples",
             parameters: [
@@ -2777,8 +2773,8 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
             toolVersion: WorkflowRun.currentAppVersion,
             command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             stepCommand: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
-            inputs: inputRecords,
-            outputs: outputs,
+            inputs: records.inputs,
+            outputs: records.outputs,
             exitCode: 0,
             wallTime: Date().timeIntervalSince(startedAt),
             stderr: nil,
@@ -2802,14 +2798,27 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
 
-    private func directoryOutputRecord(_ url: URL) -> FileRecord {
-        FileRecord(
-            path: url.standardizedFileURL.path,
-            sha256: nil,
-            sizeBytes: nil,
-            format: .unknown,
-            role: .output
-        )
+    static func provenanceRecords(
+        inputURL: URL,
+        barcodeURL: URL,
+        outputDirectory: URL,
+        manifestURL: URL,
+        outputBundleURLs: [URL],
+        outputPayloads: [URL]
+    ) -> (inputs: [FileRecord], outputs: [FileRecord]) {
+        let inputs = [
+            ProvenanceRecorder.fileOrDirectoryRecord(url: inputURL, format: .fastq, role: .input),
+            ProvenanceRecorder.fileRecord(url: barcodeURL, format: .text, role: .input),
+        ]
+        let outputs = [
+            ProvenanceRecorder.fileOrDirectoryRecord(url: outputDirectory, format: .unknown, role: .output),
+            ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output),
+        ] + outputBundleURLs.map {
+            ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .unknown, role: .output)
+        } + outputPayloads.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
+        }
+        return (inputs, outputs)
     }
 
     private func emitProgress(_ fraction: Double, _ message: String) {
