@@ -94,11 +94,14 @@ git commit -m "fix: record Fluidigm directory provenance"
 **Files:**
 - Modify: `Lungfish.xcodeproj/project.pbxproj:414,442,508,530`
 - Modify: `Sources/LungfishApp/Resources/HelpBook/Lungfish.help/Contents/Info.plist:16`
+- Modify: `Sources/LungfishCore/AppVersion.swift:6`
+- Modify: `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json:4`
+- Modify: `Tests/LungfishCoreTests/AppVersionTests.swift:5-8`
 - Create: `docs/release-notes/v0.5.0-beta9.md`
 
 - [ ] **Step 1: Update active version identifiers**
 
-Change every active `0.5.0-beta8` version to `0.5.0-beta9`. Retain beta8 only as `Previous release: v0.5.0-beta8` in the new notes.
+Change every active `0.5.0-beta8` version to `0.5.0-beta9`, including the canonical core version, managed-tool lock, and its version test. Retain beta8 only as `Previous release: v0.5.0-beta8` in the new notes.
 
 - [ ] **Step 2: Write factual release notes**
 
