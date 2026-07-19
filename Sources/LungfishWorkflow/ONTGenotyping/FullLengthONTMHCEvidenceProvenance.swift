@@ -3,6 +3,7 @@ import Foundation
 public enum FullLengthONTMHCArtifactRole: String, Codable, Sendable, Equatable {
     case referenceFASTA
     case sourceClusterFASTA
+    case snapshotClusterFASTA
     case namespacedClusterFASTA
     case commandInput
     case commandOutput
@@ -16,6 +17,7 @@ public enum FullLengthONTMHCArtifactPhase: String, Codable, Sendable, Equatable 
     case input
     case temporary
     case staging
+    case planned
     case final
     case diagnostic
 }
@@ -40,7 +42,7 @@ public struct FullLengthONTMHCArtifactDescriptor: Codable, Sendable, Equatable {
         self.phase = phase
     }
 
-    private init(
+    init(
         path: String,
         sha256: String,
         byteSize: UInt64,
@@ -113,6 +115,29 @@ public struct FullLengthONTMHCInProcessTransformationRecord: Sendable, Equatable
 public struct FullLengthONTMHCArtifactPublicationMapping: Sendable, Equatable {
     public let stagedDescriptor: FullLengthONTMHCArtifactDescriptor
     public let finalDescriptor: FullLengthONTMHCArtifactDescriptor
+    public let isPublished: Bool
+
+    public init(
+        stagedDescriptor: FullLengthONTMHCArtifactDescriptor,
+        finalDescriptor: FullLengthONTMHCArtifactDescriptor,
+        isPublished: Bool = true
+    ) {
+        self.stagedDescriptor = stagedDescriptor
+        self.finalDescriptor = finalDescriptor
+        self.isPublished = isPublished
+    }
+}
+
+public struct FullLengthONTMHCArtifactDescriptorCaptureError: Sendable, Equatable {
+    public let path: String
+    public let role: FullLengthONTMHCArtifactRole
+    public let message: String
+
+    public init(path: String, role: FullLengthONTMHCArtifactRole, message: String) {
+        self.path = path
+        self.role = role
+        self.message = message
+    }
 }
 
 public enum FullLengthONTMHCCleanupKind: String, Codable, Sendable, Equatable {
@@ -150,6 +175,7 @@ extension FullLengthONTMHCCohortAlignmentCommandRecord {
             outputs: outputs,
             inputDescriptors: inputDescriptors,
             outputDescriptors: outputDescriptors,
+            descriptorCaptureErrors: descriptorCaptureErrors,
             stdoutLogDescriptor: stdoutLogDescriptor,
             stderrLogDescriptor: stderrLogDescriptor,
             exitStatus: exitStatus,

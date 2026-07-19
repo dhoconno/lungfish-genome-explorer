@@ -212,15 +212,18 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
             $0.stagedDescriptor.phase == .staging && $0.finalDescriptor.phase == .final
         })
 
-        let transformation = try XCTUnwrap(result.transformationRecords.first)
+        let transformation = try XCTUnwrap(result.transformationRecords.first {
+            $0.workflowName == "lungfish-in-process:namespace-mhc-cluster-fasta"
+        })
         XCTAssertEqual(transformation.workflowName, "lungfish-in-process:namespace-mhc-cluster-fasta")
         XCTAssertEqual(transformation.argv, [
             "lungfish-in-process", "namespace-mhc-cluster-fasta",
             "--sample-id", "S1", "--separator", "|", "--line-width", "80",
-            result.sampleMappings[0].originalClustersFASTAURL.path,
+            transformation.inputs[0].path,
             result.sampleMappings[0].namespacedClustersFASTAURL.path,
         ])
-        XCTAssertEqual(transformation.inputs.first?.path, result.sampleMappings[0].originalClustersFASTAURL.path)
+        XCTAssertEqual(transformation.inputs.first?.role, .snapshotClusterFASTA)
+        XCTAssertTrue(transformation.inputs.first?.path.contains(result.temporaryWorkDirectoryURL.path) == true)
         XCTAssertEqual(transformation.outputs.first?.path, result.sampleMappings[0].namespacedClustersFASTAURL.path)
     }
 
@@ -345,6 +348,37 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.baiURL.path))
     }
 
+    func testDirectorySnapshotSkipsReplacedEvidencePairWhilePreservingUnrelatedEntries() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let existingURL = fixture.root.appendingPathComponent("existing-alignments", isDirectory: true)
+        let stagingURL = fixture.root.appendingPathComponent("staged-alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: existingURL, withIntermediateDirectories: true)
+        let oldBAMURL = existingURL.appendingPathComponent("genotyping-evidence.bam")
+        let oldBAIURL = existingURL.appendingPathComponent("genotyping-evidence.bam.bai")
+        let unrelatedURL = existingURL.appendingPathComponent("reciprocal-evidence.bam")
+        XCTAssertTrue(FileManager.default.createFile(atPath: oldBAMURL.path, contents: Data()))
+        try FileHandle(forWritingTo: oldBAMURL).truncate(atOffset: 64 * 1_024 * 1_024)
+        try Data("old-index".utf8).write(to: oldBAIURL)
+        try Data("unrelated".utf8).write(to: unrelatedURL)
+
+        try FullLengthONTMHCAlignmentDirectorySnapshotter().snapshot(
+            existingDirectoryURL: existingURL,
+            to: stagingURL
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: stagingURL.appendingPathComponent(oldBAMURL.lastPathComponent).path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: stagingURL.appendingPathComponent(oldBAIURL.lastPathComponent).path
+        ))
+        XCTAssertEqual(
+            try String(contentsOf: stagingURL.appendingPathComponent(unrelatedURL.lastPathComponent), encoding: .utf8),
+            "unrelated"
+        )
+    }
+
     func testFailureBeforePublicationRetainsTemporaryFilesAndPublishesNoPair() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -415,6 +449,7 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         try Data().write(to: fixture.toolsURL.appendingPathComponent("allow-existing-final"))
 
         var publicationDiagnostics: URL?
+        var failure: FullLengthONTMHCCohortAlignmentBuildError?
         do {
             _ = try await fixture.build(
                 samples: [fixture.sample("S1", clusters: ["c1"])],
@@ -423,6 +458,7 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
             XCTFail("Expected atomic publication failure")
         } catch let error as FullLengthONTMHCCohortAlignmentBuildError {
             publicationDiagnostics = error.retainedPublicationDirectoryURL
+            failure = error
         }
 
         XCTAssertEqual(try String(contentsOf: fixture.finalBAMURL, encoding: .utf8), "old-bam")
@@ -439,6 +475,24 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: publicationDiagnostics!.appendingPathComponent("genotyping-evidence.bam.bai").path
         ))
+        let retainedFailure = try XCTUnwrap(failure)
+        XCTAssertFalse(retainedFailure.artifactDescriptors.contains { $0.phase == .final })
+        XCTAssertEqual(retainedFailure.plannedPublicationMappings.count, 2)
+        XCTAssertTrue(retainedFailure.plannedPublicationMappings.allSatisfy {
+            !$0.isPublished
+                && $0.stagedDescriptor.phase == .staging
+                && $0.finalDescriptor.phase == .planned
+                && FileManager.default.fileExists(atPath: $0.stagedDescriptor.path)
+        })
+        for mapping in retainedFailure.plannedPublicationMappings {
+            let stagedURL = URL(fileURLWithPath: mapping.stagedDescriptor.path)
+            XCTAssertEqual(mapping.stagedDescriptor.sha256, try ProvenanceFileHasher.sha256(of: stagedURL))
+            XCTAssertEqual(mapping.stagedDescriptor.byteSize, try ProvenanceFileHasher.fileSize(of: stagedURL))
+            let plannedURL = URL(fileURLWithPath: mapping.finalDescriptor.path)
+            if FileManager.default.fileExists(atPath: plannedURL.path) {
+                XCTAssertNotEqual(mapping.finalDescriptor.sha256, try ProvenanceFileHasher.sha256(of: plannedURL))
+            }
+        }
         XCTAssertEqual(try fixture.commands().last?.dropFirst().first, "idxstats")
     }
 
@@ -503,14 +557,15 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         let unrelatedURL = alignmentsDirectoryURL.appendingPathComponent("reciprocal-evidence.bam")
         try Data("unrelated-original".utf8).write(to: unrelatedURL)
 
-        let publisher = DarwinAtomicAlignmentDirectoryPublisher()
-        let heldLock = try publisher.acquirePublicationLock(artifactsDirectoryURL: artifactsDirectoryURL)
+        let heldLock = try CrossProcessPublicationLockHolder(
+            artifactsDirectoryURL: artifactsDirectoryURL
+        )
         defer { heldLock.release() }
 
         await XCTAssertThrowsErrorAsync {
             _ = try await fixture.build(
                 samples: [fixture.sample("S1", clusters: ["c1"])],
-                publisher: publisher
+                publisher: DarwinAtomicAlignmentDirectoryPublisher()
             )
         }
 
@@ -574,6 +629,30 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: retained?.path ?? ""))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalBAMURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalBAIURL.path))
+    }
+
+    func testUnsafeDeclaredOutputRetainsCompletedCommandRecordAndDescriptorCaptureError() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.setUnsafeOutput(command: "view")
+
+        do {
+            _ = try await fixture.build(samples: [fixture.sample("S1", clusters: ["c1"])])
+            XCTFail("Expected unsafe output failure")
+        } catch let error as FullLengthONTMHCCohortAlignmentBuildError {
+            let record = try XCTUnwrap(error.commandRecords.last)
+            XCTAssertEqual(record.arguments.first, "view")
+            XCTAssertEqual(record.exitStatus, 0)
+            XCTAssertFalse(record.wasCancelled)
+            XCTAssertFalse(record.argv.isEmpty)
+            XCTAssertGreaterThanOrEqual(record.wallTime, 0)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: record.stdoutLogDescriptor.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: record.stderrLogDescriptor.path))
+            let captureError = try XCTUnwrap(record.descriptorCaptureErrors.first)
+            XCTAssertTrue(captureError.path.hasSuffix("S1.unsorted.bam"))
+            XCTAssertEqual(captureError.role, .commandOutput)
+            XCTAssertTrue(captureError.message.contains("regular file"))
+        }
     }
 
     func testRejectsUnsafeOrDuplicateSampleIDsAndDuplicateNamespacedTargets() async throws {
@@ -644,6 +723,37 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         XCTAssertEqual(try fixture.commands(), [])
     }
 
+    func testStagingReplacementBeforeExchangeFailsWithoutTouchingExternalDirectory() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let externalDirectoryURL = fixture.root.appendingPathComponent("external-swap-target", isDirectory: true)
+        let sentinelURL = externalDirectoryURL.appendingPathComponent("sentinel.txt")
+        try FileManager.default.createDirectory(at: externalDirectoryURL, withIntermediateDirectories: true)
+        try Data("external-sentinel".utf8).write(to: sentinelURL)
+
+        do {
+            _ = try await fixture.build(
+                samples: [fixture.sample("S1", clusters: ["c1"])],
+                prepublicationObserver: { result in
+                    guard let stagedPath = result.publicationMappings.first?.stagedDescriptor.path else { return }
+                    let stagingURL = URL(fileURLWithPath: stagedPath).deletingLastPathComponent()
+                    try? FileManager.default.removeItem(at: stagingURL)
+                    try? FileManager.default.createSymbolicLink(
+                        at: stagingURL,
+                        withDestinationURL: externalDirectoryURL
+                    )
+                }
+            )
+            XCTFail("Expected staging identity failure")
+        } catch let error as FullLengthONTMHCCohortAlignmentBuildError {
+            XCTAssertTrue(error.message.contains("identity changed"))
+        }
+
+        XCTAssertEqual(try String(contentsOf: sentinelURL, encoding: .utf8), "external-sentinel")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalBAMURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalBAIURL.path))
+    }
+
     func testRejectsOverlappingWorkAndOutputDirectories() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -674,6 +784,61 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         }
 
         XCTAssertEqual(try fixture.commands(), [])
+    }
+
+    func testImmutableSourceSnapshotDrivesNamespacedOutputAfterOriginalMutation() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let sourceURL = fixture.root.appendingPathComponent("large-mutating-source.fa")
+        let sequence = String(repeating: "ACGT", count: 1_024)
+        let declaredRecords = (0..<256).map {
+            FullLengthONTMHCClusterFASTARecord(
+                name: "cluster-\($0)",
+                sequence: sequence,
+                readCount: 1
+            )
+        }
+        try declaredRecords.map { ">\($0.name)\n\($0.sequence)\n" }
+            .joined()
+            .write(to: sourceURL, atomically: false, encoding: .utf8)
+        let sample = FullLengthONTMHCSampleAlignmentInput(
+            sampleID: "S1",
+            originalClustersFASTAURL: sourceURL,
+            clusterRecords: declaredRecords
+        )
+        let originalHash = try ProvenanceFileHasher.sha256(of: sourceURL)
+
+        let result = try await fixture.build(
+            samples: [sample],
+            keepIntermediates: true,
+            sourceSnapshotObserver: { _, _ in
+                try? ">cluster-0\nTGCA\n".write(
+                    to: sourceURL,
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+        )
+
+        let namespacedHandle = try FileHandle(forReadingFrom: result.sampleMappings[0].namespacedClustersFASTAURL)
+        defer { try? namespacedHandle.close() }
+        let prefix = try XCTUnwrap(try namespacedHandle.read(upToCount: 32))
+        XCTAssertTrue(String(decoding: prefix, as: UTF8.self).hasPrefix(">S1|cluster-0\nACGT"))
+        XCTAssertGreaterThan(try namespacedHandle.seekToEnd(), 1_000_000)
+        XCTAssertNotEqual(try ProvenanceFileHasher.sha256(of: sourceURL), originalHash)
+        let snapshotTransformation = try XCTUnwrap(result.transformationRecords.first {
+            $0.workflowName == "lungfish-in-process:snapshot-mhc-cluster-fasta"
+        })
+        XCTAssertEqual(snapshotTransformation.inputs.first?.sha256, originalHash)
+        XCTAssertEqual(snapshotTransformation.outputs.first?.sha256, originalHash)
+        XCTAssertEqual(snapshotTransformation.inputs.first?.path, sample.originalClustersFASTAURL.path)
+        XCTAssertTrue(snapshotTransformation.outputs.first?.path.contains(result.temporaryWorkDirectoryURL.path) == true)
+        XCTAssertEqual(
+            result.transformationRecords.first {
+                $0.workflowName == "lungfish-in-process:namespace-mhc-cluster-fasta"
+            }?.inputs.first,
+            snapshotTransformation.outputs.first
+        )
     }
 
     func testRejectsUnsafeClusterIdentifiersAndInvalidOrEmptyIUPACSequences() async throws {
@@ -757,18 +922,20 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         workDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
         artifactDescriptorProvider: (any FullLengthONTMHCArtifactDescriptorProviding)? = nil,
         prepublicationObserver: (@Sendable (FullLengthONTMHCCohortAlignmentResult) -> Void)? = nil,
+        sourceSnapshotObserver: (@Sendable (String, URL) -> Void)? = nil,
         outputDirectoryURL: URL? = nil,
         workDirectoryURL: URL? = nil
     ) async throws -> FullLengthONTMHCCohortAlignmentResult {
         let builder: FullLengthONTMHCCohortAlignmentBuilder
-        if artifactDescriptorProvider != nil || prepublicationObserver != nil {
+        if artifactDescriptorProvider != nil || prepublicationObserver != nil || sourceSnapshotObserver != nil {
             builder = FullLengthONTMHCCohortAlignmentBuilder(
                 executableDirectoryURL: toolsURL,
                 alignmentDirectoryPublisher: publisher,
                 workDirectoryCleaner: workDirectoryCleaner,
                 artifactDescriptorProvider: artifactDescriptorProvider
                     ?? DefaultFullLengthONTMHCArtifactDescriptorProvider(),
-                prepublicationObserver: prepublicationObserver ?? { _ in }
+                prepublicationObserver: prepublicationObserver ?? { _ in },
+                sourceSnapshotObserver: sourceSnapshotObserver ?? { _, _ in }
             )
         } else {
             builder = FullLengthONTMHCCohortAlignmentBuilder(
@@ -803,6 +970,10 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
 
     func setSleepingCommand(command: String) throws {
         try command.write(to: toolsURL.appendingPathComponent("sleep-command"), atomically: true, encoding: .utf8)
+    }
+
+    func setUnsafeOutput(command: String) throws {
+        try command.write(to: toolsURL.appendingPathComponent("unsafe-output-command"), atomically: true, encoding: .utf8)
     }
 
     func commands() throws -> [[String]] {
@@ -863,13 +1034,17 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
     if [ -f "$tool_dir/missing-output-command" ] && [ "$(cat "$tool_dir/missing-output-command")" = "$command" ]; then
       missing=1
     fi
+    unsafe=''
+    if [ -f "$tool_dir/unsafe-output-command" ] && [ "$(cat "$tool_dir/unsafe-output-command")" = "$command" ]; then
+      unsafe=1
+    fi
     shift
     case "$command" in
       view)
         [ "$1" = "-b" ] && shift
         [ "$1" = "-o" ] || exit 90
         output=$2; input=$3
-        [ -n "$missing" ] || cp "$input" "$output"
+        if [ -n "$unsafe" ]; then ln -s /dev/null "$output"; elif [ -z "$missing" ]; then cp "$input" "$output"; fi
         ;;
       addreplacerg)
         shift; rg_id=$1; shift
@@ -1079,6 +1254,45 @@ private struct FailingWorkDirectoryCleaner: FullLengthONTMHCWorkDirectoryCleanin
     private struct CleanupFailure: Error, LocalizedError {
         var errorDescription: String? { "forced work-directory cleanup failure" }
     }
+}
+
+private final class CrossProcessPublicationLockHolder {
+    private let process: Process
+    private let releaseURL: URL
+    private var released = false
+
+    init(artifactsDirectoryURL: URL) throws {
+        let lockURL = artifactsDirectoryURL.appendingPathComponent(".alignments-publication.lock")
+        let readyURL = artifactsDirectoryURL.appendingPathComponent(".child-lock-ready")
+        releaseURL = artifactsDirectoryURL.appendingPathComponent(".child-lock-release")
+        process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        process.arguments = [
+            "-MFcntl=:flock", "-e",
+            #"open(my $lock, ">>", $ARGV[0]) or exit 2; flock($lock, LOCK_EX) or exit 3; open(my $ready, ">", $ARGV[1]) or exit 4; print $ready "ready\n"; close($ready); while (!-e $ARGV[2]) { select(undef, undef, undef, 0.01); } flock($lock, LOCK_UN);"#,
+            lockURL.path,
+            readyURL.path,
+            releaseURL.path,
+        ]
+        try process.run()
+        for _ in 0..<500 where !FileManager.default.fileExists(atPath: readyURL.path) {
+            guard process.isRunning else { break }
+            usleep(10_000)
+        }
+        guard process.isRunning, FileManager.default.fileExists(atPath: readyURL.path) else {
+            process.waitUntilExit()
+            throw POSIXError(.EWOULDBLOCK)
+        }
+    }
+
+    func release() {
+        guard !released else { return }
+        released = true
+        FileManager.default.createFile(atPath: releaseURL.path, contents: Data())
+        process.waitUntilExit()
+    }
+
+    deinit { release() }
 }
 
 private func recursiveFiles(at root: URL) throws -> [URL] {

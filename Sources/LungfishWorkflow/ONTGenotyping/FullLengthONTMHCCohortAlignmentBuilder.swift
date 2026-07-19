@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import LungfishIO
 
 public struct FullLengthONTMHCSampleAlignmentInput: Sendable, Equatable {
     public let sampleID: String
@@ -74,6 +75,7 @@ public struct FullLengthONTMHCCohortAlignmentCommandRecord: Sendable, Equatable 
     public let outputs: [URL]
     public let inputDescriptors: [FullLengthONTMHCArtifactDescriptor]
     public let outputDescriptors: [FullLengthONTMHCArtifactDescriptor]
+    public let descriptorCaptureErrors: [FullLengthONTMHCArtifactDescriptorCaptureError]
     public let stdoutLogDescriptor: FullLengthONTMHCArtifactDescriptor
     public let stderrLogDescriptor: FullLengthONTMHCArtifactDescriptor
     public let exitStatus: Int32
@@ -124,6 +126,7 @@ public struct FullLengthONTMHCCohortAlignmentBuildError: Error, LocalizedError, 
     public let toolVersionDiscoveryRecords: [FullLengthONTMHCCohortAlignmentCommandRecord]
     public let runtimeIdentity: ProvenanceRuntimeIdentity
     public let artifactDescriptors: [FullLengthONTMHCArtifactDescriptor]
+    public let plannedPublicationMappings: [FullLengthONTMHCArtifactPublicationMapping]
     public let transformationRecords: [FullLengthONTMHCInProcessTransformationRecord]
     public let wasCancelled: Bool
 
@@ -195,6 +198,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
     private let workDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning
     private let artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding
     private let prepublicationObserver: @Sendable (FullLengthONTMHCCohortAlignmentResult) -> Void
+    private let sourceSnapshotObserver: @Sendable (String, URL) -> Void
     private let fileManager: FileManager
 
     public init(
@@ -208,6 +212,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         self.workDirectoryCleaner = workDirectoryCleaner
         self.artifactDescriptorProvider = DefaultFullLengthONTMHCArtifactDescriptorProvider()
         self.prepublicationObserver = { _ in }
+        self.sourceSnapshotObserver = { _, _ in }
         self.fileManager = fileManager
     }
 
@@ -217,13 +222,15 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         workDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
         fileManager: FileManager = .default,
         artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding,
-        prepublicationObserver: @escaping @Sendable (FullLengthONTMHCCohortAlignmentResult) -> Void = { _ in }
+        prepublicationObserver: @escaping @Sendable (FullLengthONTMHCCohortAlignmentResult) -> Void = { _ in },
+        sourceSnapshotObserver: @escaping @Sendable (String, URL) -> Void = { _, _ in }
     ) {
         self.executableDirectoryURL = executableDirectoryURL?.standardizedFileURL
         self.alignmentDirectoryPublisher = alignmentDirectoryPublisher
         self.workDirectoryCleaner = workDirectoryCleaner
         self.artifactDescriptorProvider = artifactDescriptorProvider
         self.prepublicationObserver = prepublicationObserver
+        self.sourceSnapshotObserver = sourceSnapshotObserver
         self.fileManager = fileManager
     }
 
@@ -240,6 +247,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         var toolVersionDiscoveryRecords: [FullLengthONTMHCCohortAlignmentCommandRecord] = []
         var artifactDescriptors: [FullLengthONTMHCArtifactDescriptor] = []
         var transformationRecords: [FullLengthONTMHCInProcessTransformationRecord] = []
+        var plannedPublicationMappings: [FullLengthONTMHCArtifactPublicationMapping] = []
         let runtimeIdentity = ProvenanceRuntimeIdentity()
 
         do {
@@ -276,13 +284,6 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 role: .referenceFASTA,
                 phase: .input
             ))
-            artifactDescriptors.append(contentsOf: try samples.map {
-                try artifactDescriptorProvider.descriptor(
-                    for: $0.originalClustersFASTAURL,
-                    role: .sourceClusterFASTA,
-                    phase: .input
-                )
-            })
             let rawMinimap2VersionRecord = try await executeToolVersionDiscovery(
                 executableURL: minimap2URL,
                 temporaryWorkDirectoryURL: temporaryWorkDirectoryURL,
@@ -319,12 +320,23 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 )
                 try fileManager.createDirectory(at: sampleDirectory, withIntermediateDirectories: true)
                 let namespacedFASTAURL = sampleDirectory.appendingPathComponent("\(sample.sampleID).namespaced-clusters.fa")
+                let snapshotFASTAURL = sampleDirectory.appendingPathComponent(
+                    "\(sample.sampleID).source-snapshot.\(sample.originalClustersFASTAURL.lastPathComponent)"
+                )
                 let samURL = sampleDirectory.appendingPathComponent("\(sample.sampleID).sam")
                 let unsortedBAMURL = sampleDirectory.appendingPathComponent("\(sample.sampleID).unsorted.bam")
                 let readGroupBAMURL = sampleDirectory.appendingPathComponent("\(sample.sampleID).rg.bam")
                 let sortedBAMURL = sampleDirectory.appendingPathComponent("\(sample.sampleID).sorted.bam")
+                let snapshot = try FullLengthONTMHCFASTAInputSnapshotter().snapshot(
+                    sourceURL: sample.originalClustersFASTAURL,
+                    to: snapshotFASTAURL
+                )
+                transformationRecords.append(snapshot.transformation)
+                artifactDescriptors.append(contentsOf: snapshot.transformation.capturedArtifactDescriptors)
+                sourceSnapshotObserver(sample.sampleID, snapshot.url)
                 let namespacing = try writeNamespacedFASTA(
                     sample: sample,
+                    snapshot: snapshot,
                     to: namespacedFASTAURL,
                     namespacedTargets: &namespacedTargets
                 )
@@ -409,16 +421,28 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 artifactsDirectoryURL: artifactsDirectoryURL
             )
             defer { publicationLock.release() }
+            try safety.revalidatePathContext(pathContext)
+            if fileManager.fileExists(atPath: alignmentDirectoryURL.path) {
+                try safety.requireDirectoryNoFollow(
+                    alignmentDirectoryURL,
+                    role: "alignment publication directory"
+                )
+                try safety.requireSafeDirectoryTree(
+                    alignmentDirectoryURL,
+                    role: "alignment publication directory"
+                )
+            }
             let stagingDirectoryURL = artifactsDirectoryURL.appendingPathComponent(
                 ".alignments-replacement-\(UUID().uuidString)",
                 isDirectory: true
             )
             publicationDirectoryURL = stagingDirectoryURL
-            if fileManager.fileExists(atPath: alignmentDirectoryURL.path) {
-                try fileManager.copyItem(at: alignmentDirectoryURL, to: stagingDirectoryURL)
-            } else {
-                try fileManager.createDirectory(at: stagingDirectoryURL, withIntermediateDirectories: false)
-            }
+            try FullLengthONTMHCAlignmentDirectorySnapshotter(fileManager: fileManager).snapshot(
+                existingDirectoryURL: fileManager.fileExists(atPath: alignmentDirectoryURL.path)
+                    ? alignmentDirectoryURL
+                    : nil,
+                to: stagingDirectoryURL
+            )
             try safety.requireDirectoryNoFollow(stagingDirectoryURL, role: "alignment publication staging directory")
             try safety.requireContained(
                 stagingDirectoryURL,
@@ -426,12 +450,19 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 role: "alignment publication staging directory"
             )
             try safety.requireSafeDirectoryTree(stagingDirectoryURL, role: "alignment publication staging directory")
+            let publicationPathIdentityContext = try safety.capturePublicationPathIdentities(
+                stagingDirectoryURL: stagingDirectoryURL,
+                pathContext: pathContext
+            )
+            let publicationPathIdentityValidator: @Sendable () throws -> Void = {
+                try safety.revalidatePublicationPathIdentities(
+                    publicationPathIdentityContext,
+                    stagingDirectoryURL: stagingDirectoryURL,
+                    pathContext: pathContext
+                )
+            }
             let stagedBAMURL = stagingDirectoryURL.appendingPathComponent("genotyping-evidence.bam")
             let stagedBAIURL = stagingDirectoryURL.appendingPathComponent("genotyping-evidence.bam.bai")
-            for previousStagedArtifact in [stagedBAMURL, stagedBAIURL]
-                where fileManager.fileExists(atPath: previousStagedArtifact.path) {
-                try fileManager.removeItem(at: previousStagedArtifact)
-            }
 
             try await run(
                 executableURL: samtoolsURL,
@@ -439,7 +470,8 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 inputs: [mergedBAMURL],
                 outputs: [stagedBAMURL],
                 workingDirectoryURL: temporaryWorkDirectoryURL,
-                commandRecords: &commandRecords
+                commandRecords: &commandRecords,
+                pathIdentityValidator: publicationPathIdentityValidator
             )
             try await run(
                 executableURL: samtoolsURL,
@@ -447,7 +479,8 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 inputs: [stagedBAMURL],
                 outputs: [stagedBAIURL],
                 workingDirectoryURL: temporaryWorkDirectoryURL,
-                commandRecords: &commandRecords
+                commandRecords: &commandRecords,
+                pathIdentityValidator: publicationPathIdentityValidator
             )
             try await run(
                 executableURL: samtoolsURL,
@@ -455,7 +488,8 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 inputs: [stagedBAMURL],
                 outputs: [],
                 workingDirectoryURL: temporaryWorkDirectoryURL,
-                commandRecords: &commandRecords
+                commandRecords: &commandRecords,
+                pathIdentityValidator: publicationPathIdentityValidator
             )
             try await run(
                 executableURL: samtoolsURL,
@@ -463,14 +497,17 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 inputs: [stagedBAMURL, stagedBAIURL],
                 outputs: [],
                 workingDirectoryURL: temporaryWorkDirectoryURL,
-                commandRecords: &commandRecords
+                commandRecords: &commandRecords,
+                pathIdentityValidator: publicationPathIdentityValidator
             )
 
+            try publicationPathIdentityValidator()
             let stagedBAMDescriptor = try artifactDescriptorProvider.descriptor(
                 for: stagedBAMURL,
                 role: .evidenceBAM,
                 phase: .staging
             )
+            try publicationPathIdentityValidator()
             let stagedBAIDescriptor = try artifactDescriptorProvider.descriptor(
                 for: stagedBAIURL,
                 role: .evidenceBAI,
@@ -491,6 +528,28 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 phase: .final
             )
             let finalArtifactDescriptors = [finalBAMDescriptor, finalBAIDescriptor]
+            let plannedFinalBAMDescriptor = stagedBAMDescriptor.relocated(
+                to: finalBAMURL,
+                role: .evidenceBAM,
+                phase: .planned
+            )
+            let plannedFinalBAIDescriptor = stagedBAIDescriptor.relocated(
+                to: finalBAIURL,
+                role: .evidenceBAI,
+                phase: .planned
+            )
+            plannedPublicationMappings = [
+                FullLengthONTMHCArtifactPublicationMapping(
+                    stagedDescriptor: stagedBAMDescriptor,
+                    finalDescriptor: plannedFinalBAMDescriptor,
+                    isPublished: false
+                ),
+                FullLengthONTMHCArtifactPublicationMapping(
+                    stagedDescriptor: stagedBAIDescriptor,
+                    finalDescriptor: plannedFinalBAIDescriptor,
+                    isPublished: false
+                ),
+            ]
             let publicationMappings = [
                 FullLengthONTMHCArtifactPublicationMapping(
                     stagedDescriptor: stagedBAMDescriptor,
@@ -501,7 +560,6 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                     finalDescriptor: finalBAIDescriptor
                 ),
             ]
-            artifactDescriptors.append(contentsOf: finalArtifactDescriptors)
             let versionByExecutablePath = Dictionary(
                 uniqueKeysWithValues: toolVersions.map {
                     ($0.discoveryCommand.executableURL.standardizedFileURL.path, $0.version)
@@ -511,7 +569,8 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 $0.replacingToolVersion(with: versionByExecutablePath[$0.executableURL.standardizedFileURL.path])
             }
             artifactDescriptors.append(contentsOf: versionedCommandRecords.flatMap(\.capturedArtifactDescriptors))
-            let temporaryArtifactDescriptors = artifactDescriptors.filter { $0.phase == .temporary }
+            let publishedArtifactDescriptors = artifactDescriptors + finalArtifactDescriptors
+            let temporaryArtifactDescriptors = publishedArtifactDescriptors.filter { $0.phase == .temporary }
             var precomputedResult = FullLengthONTMHCCohortAlignmentResult(
                 bamURL: finalBAMURL,
                 baiURL: finalBAIURL,
@@ -524,7 +583,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 toolVersions: toolVersions,
                 toolVersionDiscoveryRecords: toolVersionDiscoveryRecords,
                 runtimeIdentity: runtimeIdentity,
-                artifactDescriptors: artifactDescriptors,
+                artifactDescriptors: publishedArtifactDescriptors,
                 finalArtifactDescriptors: finalArtifactDescriptors,
                 temporaryArtifactDescriptors: temporaryArtifactDescriptors,
                 publicationMappings: publicationMappings,
@@ -534,6 +593,9 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
 
             try Task.checkCancellation()
             prepublicationObserver(precomputedResult)
+            try Task.checkCancellation()
+            try publicationPathIdentityValidator()
+            try Task.checkCancellation()
             let publication = try alignmentDirectoryPublisher.publish(
                 stagedDirectoryURL: stagingDirectoryURL,
                 finalDirectoryURL: alignmentDirectoryURL
@@ -604,6 +666,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 toolVersionDiscoveryRecords: toolVersionDiscoveryRecords,
                 runtimeIdentity: runtimeIdentity,
                 artifactDescriptors: retainedArtifactDescriptors,
+                plannedPublicationMappings: plannedPublicationMappings,
                 transformationRecords: transformationRecords,
                 wasCancelled: wasCancelled
             )
@@ -612,6 +675,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
 
     private func writeNamespacedFASTA(
         sample: FullLengthONTMHCSampleAlignmentInput,
+        snapshot: FullLengthONTMHCFASTAInputSnapshot,
         to url: URL,
         namespacedTargets: inout Set<String>
     ) throws -> (
@@ -619,30 +683,66 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         transformation: FullLengthONTMHCInProcessTransformationRecord
     ) {
         let startedAt = Date()
-        let inputDescriptor = try artifactDescriptorProvider.descriptor(
-            for: sample.originalClustersFASTAURL,
-            role: .sourceClusterFASTA,
-            phase: .input
-        )
         guard fileManager.createFile(atPath: url.path, contents: Data()) else {
             throw BuildFailure("Could not create namespaced cluster FASTA at \(url.path).")
         }
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
         var mappings: [FullLengthONTMHCTargetNamespaceMapping] = []
-        for record in sample.clusterRecords {
-            let targetID = "\(sample.sampleID)|\(record.name)"
+        var currentName: String?
+        var currentSequence = ""
+        var recordIndex = 0
+        let safety = FullLengthONTMHCAlignmentSafety(fileManager: fileManager)
+
+        func flushCurrentRecord() throws {
+            guard let currentName else { return }
+            try safety.validateClusterRecord(name: currentName, sequence: currentSequence)
+            guard recordIndex < sample.clusterRecords.count else {
+                throw FullLengthONTMHCAlignmentSafetyError(
+                    "Source FASTA and declared cluster records differ for sample '\(sample.sampleID)'."
+                )
+            }
+            let declared = sample.clusterRecords[recordIndex]
+            guard currentName == declared.name, currentSequence == declared.sequence else {
+                throw FullLengthONTMHCAlignmentSafetyError(
+                    "Source FASTA and declared cluster records differ for sample '\(sample.sampleID)'."
+                )
+            }
+            let targetID = "\(sample.sampleID)|\(currentName)"
             guard namespacedTargets.insert(targetID).inserted else {
                 throw BuildFailure("Namespaced target collision for '\(targetID)'.")
             }
-            mappings.append(.init(originalClusterID: record.name, namespacedTargetID: targetID))
+            mappings.append(.init(originalClusterID: currentName, namespacedTargetID: targetID))
             try handle.write(contentsOf: Data(">\(targetID)\n".utf8))
-            let bytes = Array(record.sequence.utf8)
+            let bytes = Array(currentSequence.utf8)
             for start in stride(from: 0, to: bytes.count, by: 80) {
                 let end = min(start + 80, bytes.count)
                 try handle.write(contentsOf: Data(bytes[start..<end]))
                 try handle.write(contentsOf: Data("\n".utf8))
             }
+            recordIndex += 1
+        }
+
+        try snapshot.url.forEachLineAutoDecompressing { line in
+            if line.hasPrefix(">") {
+                try flushCurrentRecord()
+                currentName = String(line.dropFirst())
+                currentSequence = ""
+            } else {
+                guard currentName != nil else {
+                    if line.isEmpty { return }
+                    throw FullLengthONTMHCAlignmentSafetyError(
+                        "FASTA sequence appears before the first header in \(snapshot.url.path)."
+                    )
+                }
+                currentSequence += line
+            }
+        }
+        try flushCurrentRecord()
+        guard recordIndex == sample.clusterRecords.count, recordIndex > 0 else {
+            throw FullLengthONTMHCAlignmentSafetyError(
+                "Source FASTA and declared cluster records differ for sample '\(sample.sampleID)'."
+            )
         }
         try handle.synchronize()
         try handle.close()
@@ -660,17 +760,17 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 "--sample-id", sample.sampleID,
                 "--separator", "|",
                 "--line-width", "80",
-                sample.originalClustersFASTAURL.path,
+                snapshot.url.path,
                 url.path,
             ],
             resolvedOptions: [
                 "sampleID": sample.sampleID,
                 "separator": "|",
                 "lineWidth": "80",
-                "sourceFASTAIsAuthoritative": "true",
+                "snapshotFASTAIsAuthoritative": "true",
                 "sequenceAlphabet": "IUPAC-DNA",
             ],
-            inputs: [inputDescriptor],
+            inputs: [snapshot.descriptor],
             outputs: [outputDescriptor],
             exitStatus: 0,
             startedAt: startedAt,
@@ -703,7 +803,8 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         outputs: [URL],
         stdoutURL: URL? = nil,
         workingDirectoryURL: URL,
-        commandRecords: inout [FullLengthONTMHCCohortAlignmentCommandRecord]
+        commandRecords: inout [FullLengthONTMHCCohortAlignmentCommandRecord],
+        pathIdentityValidator: (@Sendable () throws -> Void)? = nil
     ) async throws {
         try Task.checkCancellation()
         let runner = FullLengthONTMHCAlignmentProcessRunner(fileManager: fileManager)
@@ -716,13 +817,22 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             workingDirectoryURL: workingDirectoryURL,
             logsDirectoryURL: workingDirectoryURL.appendingPathComponent("logs", isDirectory: true),
             toolVersion: nil,
-            temporaryRootURL: workingDirectoryURL
+            temporaryRootURL: workingDirectoryURL,
+            pathIdentityValidator: pathIdentityValidator
         ))
         commandRecords.append(record)
         if record.wasCancelled { throw CancellationError() }
         guard record.exitStatus == 0 else {
             throw BuildFailure(
                 "\(executableURL.lastPathComponent) failed with exit status \(record.exitStatus): \(record.stderr)"
+            )
+        }
+        guard record.descriptorCaptureErrors.isEmpty else {
+            let details = record.descriptorCaptureErrors.map {
+                "\($0.path): \($0.message)"
+            }.joined(separator: "; ")
+            throw BuildFailure(
+                "\(executableURL.lastPathComponent) output validation failed after exit status 0: \(details)"
             )
         }
         for output in outputs {
@@ -752,7 +862,8 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             workingDirectoryURL: temporaryWorkDirectoryURL,
             logsDirectoryURL: logsDirectoryURL,
             toolVersion: nil,
-            temporaryRootURL: temporaryWorkDirectoryURL
+            temporaryRootURL: temporaryWorkDirectoryURL,
+            pathIdentityValidator: nil
         ))
     }
 

@@ -7,9 +7,23 @@ struct FullLengthONTMHCAlignmentPathContext: Sendable {
     let workDirectoryURL: URL
     let artifactsDirectoryURL: URL
     let alignmentDirectoryURL: URL
+    let outputDirectoryIdentity: FullLengthONTMHCPathIdentity
+    let workDirectoryIdentity: FullLengthONTMHCPathIdentity
+    let artifactsDirectoryIdentity: FullLengthONTMHCPathIdentity
 }
 
-struct FullLengthONTMHCAlignmentSafety {
+struct FullLengthONTMHCPublicationPathIdentityContext: Sendable {
+    let stagingDirectoryIdentity: FullLengthONTMHCPathIdentity
+}
+
+struct FullLengthONTMHCPathIdentity: Sendable, Equatable {
+    let canonicalPath: String
+    let device: UInt64
+    let inode: UInt64
+    let type: mode_t
+}
+
+struct FullLengthONTMHCAlignmentSafety: @unchecked Sendable {
     private let fileManager: FileManager
 
     init(fileManager: FileManager = .default) {
@@ -31,7 +45,7 @@ struct FullLengthONTMHCAlignmentSafety {
             )
         }
 
-        let artifactsDirectoryURL = outputDirectoryURL.appendingPathComponent("artifacts", isDirectory: true)
+        let artifactsDirectoryURL = canonicalOutput.appendingPathComponent("artifacts", isDirectory: true)
         try ensureDirectoryNoFollow(artifactsDirectoryURL, role: "artifacts directory")
         try requireContained(artifactsDirectoryURL, within: canonicalOutput, role: "artifacts directory")
 
@@ -46,7 +60,61 @@ struct FullLengthONTMHCAlignmentSafety {
             outputDirectoryURL: canonicalOutput,
             workDirectoryURL: canonicalWork,
             artifactsDirectoryURL: artifactsDirectoryURL.standardizedFileURL,
-            alignmentDirectoryURL: alignmentDirectoryURL.standardizedFileURL
+            alignmentDirectoryURL: alignmentDirectoryURL.standardizedFileURL,
+            outputDirectoryIdentity: try pathIdentityNoFollow(canonicalOutput, role: "output bundle"),
+            workDirectoryIdentity: try pathIdentityNoFollow(canonicalWork, role: "work directory"),
+            artifactsDirectoryIdentity: try pathIdentityNoFollow(artifactsDirectoryURL, role: "artifacts directory")
+        )
+    }
+
+    func capturePublicationPathIdentities(
+        stagingDirectoryURL: URL,
+        pathContext: FullLengthONTMHCAlignmentPathContext
+    ) throws -> FullLengthONTMHCPublicationPathIdentityContext {
+        try revalidatePathContext(pathContext)
+        return .init(stagingDirectoryIdentity: try pathIdentityNoFollow(
+            stagingDirectoryURL,
+            role: "alignment publication staging directory"
+        ))
+    }
+
+    func revalidatePublicationPathIdentities(
+        _ publicationContext: FullLengthONTMHCPublicationPathIdentityContext,
+        stagingDirectoryURL: URL,
+        pathContext: FullLengthONTMHCAlignmentPathContext
+    ) throws {
+        try revalidatePathContext(pathContext)
+        try requireUnchangedIdentity(
+            publicationContext.stagingDirectoryIdentity,
+            at: stagingDirectoryURL,
+            role: "alignment publication staging directory"
+        )
+        try requireContained(
+            stagingDirectoryURL,
+            within: pathContext.outputDirectoryURL,
+            role: "alignment publication staging directory"
+        )
+        try requireSafeDirectoryTree(
+            stagingDirectoryURL,
+            role: "alignment publication staging directory"
+        )
+    }
+
+    func revalidatePathContext(_ pathContext: FullLengthONTMHCAlignmentPathContext) throws {
+        try requireUnchangedIdentity(
+            pathContext.outputDirectoryIdentity,
+            at: pathContext.outputDirectoryURL,
+            role: "output bundle"
+        )
+        try requireUnchangedIdentity(
+            pathContext.workDirectoryIdentity,
+            at: pathContext.workDirectoryURL,
+            role: "work directory"
+        )
+        try requireUnchangedIdentity(
+            pathContext.artifactsDirectoryIdentity,
+            at: pathContext.artifactsDirectoryURL,
+            role: "artifacts directory"
         )
     }
 
@@ -124,20 +192,9 @@ struct FullLengthONTMHCAlignmentSafety {
                 throw FullLengthONTMHCAlignmentSafetyError("Sample '\(sample.sampleID)' has no cluster records.")
             }
 
-            let sourceRecords = try parseStrictFASTA(sample.originalClustersFASTAURL)
-            guard sourceRecords.count == sample.clusterRecords.count else {
-                throw FullLengthONTMHCAlignmentSafetyError(
-                    "Source FASTA and declared cluster records differ for sample '\(sample.sampleID)'."
-                )
-            }
-            for (source, declared) in zip(sourceRecords, sample.clusterRecords) {
+            for declared in sample.clusterRecords {
                 try validateClusterRecord(name: declared.name, sequence: declared.sequence)
-                guard source.name == declared.name, source.sequence == declared.sequence else {
-                    throw FullLengthONTMHCAlignmentSafetyError(
-                        "Source FASTA and declared cluster records differ for sample '\(sample.sampleID)'."
-                    )
-                }
-                let namespacedID = "\(sample.sampleID)|\(source.name)"
+                let namespacedID = "\(sample.sampleID)|\(declared.name)"
                 guard namespacedIDs.insert(namespacedID).inserted else {
                     throw FullLengthONTMHCAlignmentSafetyError(
                         "Namespaced target collision for '\(namespacedID)'."
@@ -163,47 +220,6 @@ struct FullLengthONTMHCAlignmentSafety {
                 "Cluster '\(name)' contains non-IUPAC nucleotide characters."
             )
         }
-    }
-
-    private func parseStrictFASTA(
-        _ url: URL
-    ) throws -> [(name: String, sequence: String)] {
-        var records: [(name: String, sequence: String)] = []
-        var currentName: String?
-        var sequence = ""
-
-        func flush() throws {
-            guard let currentName else { return }
-            try validateClusterRecord(name: currentName, sequence: sequence)
-            records.append((currentName, sequence))
-        }
-
-        try url.forEachLineAutoDecompressing { line in
-            if line.hasPrefix(">") {
-                try flush()
-                let header = String(line.dropFirst())
-                guard Self.isSafeIdentifier(header, allowColon: true) else {
-                    throw FullLengthONTMHCAlignmentSafetyError(
-                        "FASTA header '\(header)' is not an ASCII SAM/FASTA-safe identifier."
-                    )
-                }
-                currentName = header
-                sequence = ""
-            } else {
-                guard currentName != nil else {
-                    if line.isEmpty { return }
-                    throw FullLengthONTMHCAlignmentSafetyError(
-                        "FASTA sequence appears before the first header in \(url.path)."
-                    )
-                }
-                sequence += line
-            }
-        }
-        try flush()
-        guard !records.isEmpty else {
-            throw FullLengthONTMHCAlignmentSafetyError("Cluster FASTA is empty: \(url.path)")
-        }
-        return records
     }
 
     private func ensureDirectoryNoFollow(_ url: URL, role: String) throws {
@@ -232,6 +248,35 @@ struct FullLengthONTMHCAlignmentSafety {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
         return (info.st_mode & S_IFMT, info.st_size)
+    }
+
+    private func pathIdentityNoFollow(_ url: URL, role: String) throws -> FullLengthONTMHCPathIdentity {
+        var info = stat()
+        guard Darwin.lstat(url.path, &info) == 0 else {
+            if errno == ENOENT {
+                throw FullLengthONTMHCAlignmentSafetyError("Missing \(role): \(url.path)")
+            }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return .init(
+            canonicalPath: url.resolvingSymlinksInPath().standardizedFileURL.path,
+            device: UInt64(info.st_dev),
+            inode: UInt64(info.st_ino),
+            type: info.st_mode & S_IFMT
+        )
+    }
+
+    private func requireUnchangedIdentity(
+        _ expected: FullLengthONTMHCPathIdentity,
+        at url: URL,
+        role: String
+    ) throws {
+        let observed = try pathIdentityNoFollow(url, role: role)
+        guard observed == expected else {
+            throw FullLengthONTMHCAlignmentSafetyError(
+                "\(role.capitalized) identity changed after validation: \(url.path)"
+            )
+        }
     }
 
     private func pathsOverlap(_ lhs: URL, _ rhs: URL) -> Bool {

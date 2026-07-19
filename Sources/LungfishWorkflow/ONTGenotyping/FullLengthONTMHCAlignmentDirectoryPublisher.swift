@@ -1,6 +1,36 @@
 import Darwin
 import Foundation
 
+struct FullLengthONTMHCAlignmentDirectorySnapshotter {
+    static let replacedArtifactNames: Set<String> = [
+        "genotyping-evidence.bam",
+        "genotyping-evidence.bam.bai",
+    ]
+
+    private let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
+    func snapshot(existingDirectoryURL: URL?, to stagingDirectoryURL: URL) throws {
+        try fileManager.createDirectory(
+            at: stagingDirectoryURL,
+            withIntermediateDirectories: false
+        )
+        guard let existingDirectoryURL else { return }
+        for entry in try fileManager.contentsOfDirectory(
+            at: existingDirectoryURL,
+            includingPropertiesForKeys: nil
+        ) where !Self.replacedArtifactNames.contains(entry.lastPathComponent) {
+            try fileManager.copyItem(
+                at: entry,
+                to: stagingDirectoryURL.appendingPathComponent(entry.lastPathComponent)
+            )
+        }
+    }
+}
+
 public protocol FullLengthONTMHCAlignmentPublicationLock: AnyObject, Sendable {
     var lockURL: URL { get }
     func release()

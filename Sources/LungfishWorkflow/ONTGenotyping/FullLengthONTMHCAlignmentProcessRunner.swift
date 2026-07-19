@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct FullLengthONTMHCAlignmentProcessRequest: Sendable {
@@ -10,6 +11,7 @@ struct FullLengthONTMHCAlignmentProcessRequest: Sendable {
     let logsDirectoryURL: URL
     let toolVersion: String?
     let temporaryRootURL: URL
+    let pathIdentityValidator: (@Sendable () throws -> Void)?
 }
 
 struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
@@ -26,6 +28,7 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
     ) async throws -> FullLengthONTMHCCohortAlignmentCommandRecord {
         try Task.checkCancellation()
         try fileManager.createDirectory(at: request.logsDirectoryURL, withIntermediateDirectories: true)
+        try request.pathIdentityValidator?()
 
         let identifier = UUID().uuidString
         let baseName = "\(request.executableURL.lastPathComponent)-\(identifier)"
@@ -71,13 +74,33 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
                                 role: .commandStderrLog,
                                 phase: .diagnostic
                             )
-                            let outputDescriptors: [FullLengthONTMHCArtifactDescriptor] = try request.outputs.compactMap { url in
-                                guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-                                return try Self.descriptor(
-                                    for: url,
+                            var outputDescriptors: [FullLengthONTMHCArtifactDescriptor] = []
+                            var descriptorCaptureErrors: [FullLengthONTMHCArtifactDescriptorCaptureError] = []
+                            do {
+                                try request.pathIdentityValidator?()
+                                for url in request.outputs where Self.entryExistsNoFollow(url) {
+                                    do {
+                                        outputDescriptors.append(try Self.descriptor(
+                                            for: url,
+                                            role: .commandOutput,
+                                            temporaryRootURL: request.temporaryRootURL
+                                        ))
+                                    } catch {
+                                        descriptorCaptureErrors.append(.init(
+                                            path: url.standardizedFileURL.path,
+                                            role: .commandOutput,
+                                            message: (error as? LocalizedError)?.errorDescription
+                                                ?? error.localizedDescription
+                                        ))
+                                    }
+                                }
+                            } catch {
+                                descriptorCaptureErrors.append(.init(
+                                    path: request.temporaryRootURL.standardizedFileURL.path,
                                     role: .commandOutput,
-                                    temporaryRootURL: request.temporaryRootURL
-                                )
+                                    message: (error as? LocalizedError)?.errorDescription
+                                        ?? error.localizedDescription
+                                ))
                             }
                             let stdoutText: String
                             let stderrText: String
@@ -97,6 +120,7 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
                                 outputs: request.outputs,
                                 inputDescriptors: inputDescriptors,
                                 outputDescriptors: outputDescriptors,
+                                descriptorCaptureErrors: descriptorCaptureErrors,
                                 stdoutLogDescriptor: stdoutDescriptor,
                                 stderrLogDescriptor: stderrDescriptor,
                                 exitStatus: status,
@@ -164,6 +188,11 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
             phase = .input
         }
         return try FullLengthONTMHCArtifactDescriptor(url: url, role: role, phase: phase)
+    }
+
+    private static func entryExistsNoFollow(_ url: URL) -> Bool {
+        var info = stat()
+        return Darwin.lstat(url.path, &info) == 0
     }
 
     private static func contains(_ root: URL, _ candidate: URL) -> Bool {
