@@ -6,9 +6,12 @@ public enum FullLengthONTMHCCandidateReferenceResolution: Equatable, Sendable {
     case unresolvedLocus(referenceName: String, sequenceLength: Int)
     case ambiguousReferenceClass(referenceName: String, locus: String, sequenceLength: Int)
 
+    /// Exact reference identity expected in the reciprocal BAM's RNAME field.
+    /// Resolved catalog records use their FASTA sequence ID, not the biological
+    /// allele label used for provisional naming and localized ranking.
     public var referenceName: String {
         switch self {
-        case .resolved(let record): record.alleleName
+        case .resolved(let record): record.sequenceID
         case .unresolvedLocus(let referenceName, _): referenceName
         case .ambiguousReferenceClass(let referenceName, _, _): referenceName
         }
@@ -126,15 +129,18 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         let shorterCoverage: Double
         let identity: Double
         let failure: Failure?
+        let failedMetrics: [String: Double]
 
         var resolvedReference: MHCReferenceRecord? { input.reference.resolvedRecord }
-        var localizedReferenceName: String { input.reference.referenceName }
+        var localizedReferenceName: String {
+            resolvedReference?.alleleName ?? input.reference.referenceName
+        }
     }
 
     private enum Failure: Sendable {
-        case insufficientAlignedBases(actual: Double, minimum: Double)
-        case insufficientCoverage(actual: Double, minimum: Double)
-        case insufficientIdentity(actual: Double, minimum: Double)
+        case insufficientAlignedBases
+        case insufficientCoverage
+        case insufficientIdentity
         case unresolvedLocus
         case ambiguousReferenceClass
 
@@ -148,18 +154,6 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             }
         }
 
-        var failedMetrics: [String: Double] {
-            switch self {
-            case .insufficientAlignedBases(let actual, let minimum):
-                ["aligned_bases": actual, "minimum_aligned_bases": minimum]
-            case .insufficientCoverage(let actual, let minimum):
-                ["shorter_coverage": actual, "minimum_shorter_coverage": minimum]
-            case .insufficientIdentity(let actual, let minimum):
-                ["identity": actual, "minimum_identity": minimum]
-            case .unresolvedLocus, .ambiguousReferenceClass:
-                [:]
-            }
-        }
     }
 
     public let thresholds: ONTMHCCandidateThresholds
@@ -240,7 +234,7 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             cluster: cluster,
             support: support,
             reason: failure.reason,
-            failedMetrics: failure.failedMetrics,
+            failedMetrics: closest.failedMetrics,
             evidence: analyzed.map(\.input.evidence)
         ))
     }
@@ -280,7 +274,7 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             guard !observation.readGroupID.isEmpty else {
                 throw invalidObservation(cluster, index, "readGroupID", "empty")
             }
-            guard observation.aggregatedSampleReadCount >= 0 else {
+            guard observation.aggregatedSampleReadCount > 0 else {
                 throw invalidObservation(
                     cluster,
                     index,
@@ -294,12 +288,12 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
                 throw invalidObservation(cluster, index, "sourceClusterIDs", "empty or duplicate source ID")
             }
             guard Set(observation.sourceClusterReadCounts.keys) == Set(observation.sourceClusterIDs),
-                  observation.sourceClusterReadCounts.values.allSatisfy({ $0 >= 0 }) else {
+                  observation.sourceClusterReadCounts.values.allSatisfy({ $0 > 0 }) else {
                 throw invalidObservation(
                     cluster,
                     index,
                     "sourceClusterReadCounts",
-                    "keys differ from sourceClusterIDs or a count is negative"
+                    "keys differ from sourceClusterIDs or a count is not positive"
                 )
             }
             var sourceReadTotal = 0
@@ -371,6 +365,12 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         guard alignment.evidence.cigar == alignment.cigar else {
             throw invalidAlignment(cluster, index, "evidence.cigar", alignment.evidence.cigar)
         }
+        guard alignment.evidence.queryName == cluster.stableClusterID else {
+            throw invalidAlignment(cluster, index, "evidence.queryName", alignment.evidence.queryName)
+        }
+        guard alignment.evidence.referenceName == alignment.reference.referenceName else {
+            throw invalidAlignment(cluster, index, "evidence.referenceName", alignment.evidence.referenceName)
+        }
 
         let metrics: FullLengthONTMHCSAMMetrics
         do {
@@ -415,16 +415,27 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             throw invalidAlignment(cluster, index, "derivedMetrics", "non-finite")
         }
 
+        var failedMetrics: [String: Double] = [:]
+        if metrics.comparableBases < thresholds.minimumAlignedBases {
+            failedMetrics["aligned_bases"] = Double(metrics.comparableBases)
+            failedMetrics["minimum_aligned_bases"] = Double(thresholds.minimumAlignedBases)
+        }
+        if shorterCoverage < thresholds.minimumShorterCoverage {
+            failedMetrics["shorter_coverage"] = shorterCoverage
+            failedMetrics["minimum_shorter_coverage"] = thresholds.minimumShorterCoverage
+        }
+        if identity < thresholds.minimumIdentity {
+            failedMetrics["identity"] = identity
+            failedMetrics["minimum_identity"] = thresholds.minimumIdentity
+        }
+
         let failure: Failure?
         if metrics.comparableBases < thresholds.minimumAlignedBases {
-            failure = .insufficientAlignedBases(
-                actual: Double(metrics.comparableBases),
-                minimum: Double(thresholds.minimumAlignedBases)
-            )
+            failure = .insufficientAlignedBases
         } else if shorterCoverage < thresholds.minimumShorterCoverage {
-            failure = .insufficientCoverage(actual: shorterCoverage, minimum: thresholds.minimumShorterCoverage)
+            failure = .insufficientCoverage
         } else if identity < thresholds.minimumIdentity {
-            failure = .insufficientIdentity(actual: identity, minimum: thresholds.minimumIdentity)
+            failure = .insufficientIdentity
         } else {
             switch alignment.reference {
             case .resolved(let record) where record.locus.isEmpty || record.alleleName.isEmpty:
@@ -445,7 +456,8 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             nonIntronIndelBases: nonIntronIndelBases.partialValue,
             shorterCoverage: shorterCoverage,
             identity: identity,
-            failure: failure
+            failure: failure,
+            failedMetrics: failedMetrics
         )
     }
 
@@ -568,8 +580,17 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         cluster: FullLengthONTMHCCandidateCluster,
         alignmentIndex: Int
     ) throws -> Int {
+        struct Operation {
+            let length: Int
+            let code: Character
+
+            var isComparable: Bool {
+                code == "=" || code == "X" || code == "M"
+            }
+        }
+
         var token = ""
-        var total = 0
+        var operations: [Operation] = []
         for character in cigar {
             if character.isNumber {
                 token.append(character)
@@ -578,17 +599,28 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             guard let length = Int(token) else {
                 throw invalidAlignment(cluster, alignmentIndex, "cigar", cigar)
             }
-            if character == "I", length >= minimumLength {
-                let sum = total.addingReportingOverflow(length)
-                guard !sum.overflow else {
-                    throw FullLengthONTMHCCandidateClassifierError.arithmeticOverflow(
-                        stableClusterID: cluster.stableClusterID,
-                        field: "longGapBases"
-                    )
-                }
-                total = sum.partialValue
-            }
+            operations.append(Operation(length: length, code: character))
             token = ""
+        }
+
+        var total = 0
+        for index in operations.indices where operations[index].code == "I" {
+            let operation = operations[index]
+            guard operation.length >= minimumLength,
+                  index > operations.startIndex,
+                  index < operations.index(before: operations.endIndex),
+                  operations[operations.index(before: index)].isComparable,
+                  operations[operations.index(after: index)].isComparable else {
+                continue
+            }
+            let sum = total.addingReportingOverflow(operation.length)
+            guard !sum.overflow else {
+                throw FullLengthONTMHCCandidateClassifierError.arithmeticOverflow(
+                    stableClusterID: cluster.stableClusterID,
+                    field: "longGapBases"
+                )
+            }
+            total = sum.partialValue
         }
         return total
     }

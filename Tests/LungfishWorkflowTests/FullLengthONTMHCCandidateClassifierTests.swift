@@ -53,12 +53,46 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(candidate.identity, 1)
     }
 
+    func testMultipleInternalIntronSizedInsertionsFormExtensionAndPreserveIndelMetrics() throws {
+        let cluster = makeCluster(
+            sequenceLength: 1_110,
+            alignments: [alignment(reference: cdnaReference, cigar: "300=50I300=60I400=")]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected cDNA extension candidate")
+        }
+        XCTAssertEqual(candidate.classification, .extension)
+        XCTAssertEqual(candidate.insertedBases, 110)
+        XCTAssertEqual(candidate.deletedBases, 0)
+        XCTAssertEqual(candidate.longGapBases, 110)
+    }
+
+    func testTerminalLongInsertionsAreKnownCDNAAllelesRatherThanExtensions() throws {
+        for cigar in ["50I1000=", "1000=50I"] {
+            let cluster = makeCluster(
+                sequenceLength: 1_050,
+                alignments: [alignment(reference: cdnaReference, cigar: cigar)]
+            )
+
+            XCTAssertEqual(
+                try FullLengthONTMHCCandidateClassifier().classify(cluster),
+                .known(referenceAllele: cdnaReference.alleleName),
+                cigar
+            )
+        }
+    }
+
     func testSNPCountAloneNamesNovelCandidate() throws {
         for (snpCount, cigar) in [(1, "599=1X600="), (5, "595=5X600=")] {
             let cluster = makeCluster(
                 stableClusterID: "cluster-\(snpCount)",
                 fastaRecordID: "cluster-\(snpCount)",
-                alignments: [alignment(reference: genomicReference, cigar: cigar)]
+                alignments: [alignment(
+                    reference: genomicReference,
+                    cigar: cigar,
+                    queryName: "cluster-\(snpCount)"
+                )]
             )
 
             guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
@@ -72,7 +106,6 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
     }
 
     func testSupportUsesDistinctSamplesRatherThanObservationCount() throws {
-        let alignment = alignment(reference: genomicReference, cigar: "595=5X600=")
         let duplicateSample = makeCluster(
             observations: [
                 observation(
@@ -83,7 +116,7 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
                 ),
                 observation(sampleID: "sample-1", readGroupID: "rg-1b", reads: 7),
             ],
-            alignments: [alignment]
+            alignments: [alignment(reference: genomicReference, cigar: "595=5X600=")]
         )
         let shared = makeCluster(
             stableClusterID: "cluster-shared",
@@ -93,7 +126,11 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
                 observation(stableClusterID: "cluster-shared", sampleID: "sample-1", readGroupID: "rg-1", reads: 13),
                 observation(stableClusterID: "cluster-shared", sampleID: "sample-1", readGroupID: "rg-1b", reads: 17),
             ],
-            alignments: [alignment]
+            alignments: [alignment(
+                reference: genomicReference,
+                cigar: "595=5X600=",
+                queryName: "cluster-shared"
+            )]
         )
 
         guard case .candidate(let singleton) = try FullLengthONTMHCCandidateClassifier().classify(duplicateSample),
@@ -111,16 +148,80 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(sharedCandidate.supportingSampleIDs, ["sample-1", "sample-2"])
     }
 
+    func testRejectsNonpositiveOrInconsistentSupportInsteadOfPromotingSampleEligibility() throws {
+        let classifier = FullLengthONTMHCCandidateClassifier()
+        let valid = observation(sampleID: "sample-1", readGroupID: "rg-1", reads: 5)
+        let invalidObservations = [
+            observation(sampleID: "sample-2", readGroupID: "rg-zero", reads: 0),
+            ONTMHCCandidateObservation(
+                stableClusterID: "cluster-1",
+                sampleID: "sample-2",
+                readGroupID: "rg-empty-source",
+                sourceClusterIDs: [""],
+                sourceClusterReadCounts: ["": 5],
+                aggregatedSampleReadCount: 5,
+                evidence: [evidence(
+                    queryName: "cluster-1",
+                    referenceName: "source",
+                    readGroupID: "rg-empty-source"
+                )]
+            ),
+            ONTMHCCandidateObservation(
+                stableClusterID: "cluster-1",
+                sampleID: "sample-2",
+                readGroupID: "rg-zero-source-count",
+                sourceClusterIDs: ["source-2", "source-3"],
+                sourceClusterReadCounts: ["source-2": 5, "source-3": 0],
+                aggregatedSampleReadCount: 5,
+                evidence: [evidence(
+                    queryName: "cluster-1",
+                    referenceName: "source",
+                    readGroupID: "rg-zero-source-count"
+                )]
+            ),
+            ONTMHCCandidateObservation(
+                stableClusterID: "cluster-1",
+                sampleID: "sample-2",
+                readGroupID: "rg-inconsistent",
+                sourceClusterIDs: ["source-2"],
+                sourceClusterReadCounts: ["source-2": 4],
+                aggregatedSampleReadCount: 5,
+                evidence: [evidence(
+                    queryName: "cluster-1",
+                    referenceName: "source",
+                    readGroupID: "rg-inconsistent"
+                )]
+            ),
+        ]
+
+        for invalid in invalidObservations {
+            XCTAssertThrowsError(try classifier.classify(makeCluster(
+                observations: [valid, invalid],
+                alignments: [alignment(reference: genomicReference, cigar: "1X1199=")]
+            ))) { error in
+                XCTAssertTrue(error is FullLengthONTMHCCandidateClassifierError)
+            }
+        }
+    }
+
     func testProvisionalLabelCollisionPreservesSeparateStableClusterRecords() throws {
         let first = makeCluster(
             stableClusterID: "cluster-a",
             fastaRecordID: "cluster-a",
-            alignments: [alignment(reference: genomicReference, cigar: "595=5X600=")]
+            alignments: [alignment(
+                reference: genomicReference,
+                cigar: "595=5X600=",
+                queryName: "cluster-a"
+            )]
         )
         let second = makeCluster(
             stableClusterID: "cluster-b",
             fastaRecordID: "cluster-b",
-            alignments: [alignment(reference: genomicReference, cigar: "595=5X600=")]
+            alignments: [alignment(
+                reference: genomicReference,
+                cigar: "595=5X600=",
+                queryName: "cluster-b"
+            )]
         )
 
         let results = try FullLengthONTMHCCandidateClassifier().classify([second, first])
@@ -218,6 +319,55 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
                 XCTAssertNotNil(record.failedMetrics[failedMetric], label)
             } else {
                 XCTAssertTrue(record.failedMetrics.isEmpty, label)
+            }
+        }
+    }
+
+    func testUnnameableProjectionIncludesEveryFailedThresholdMetric() throws {
+        let cluster = makeCluster(
+            sequenceLength: 2_000,
+            alignments: [alignment(
+                resolution: .unresolvedLocus(referenceName: "long-ref", sequenceLength: 2_000),
+                cigar: "800X100="
+            )]
+        )
+
+        guard case .unnameable(let record) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected un-nameable result")
+        }
+        XCTAssertEqual(record.reason, .insufficientAlignedBases)
+        XCTAssertEqual(record.failedMetrics["aligned_bases"], 900)
+        XCTAssertEqual(record.failedMetrics["minimum_aligned_bases"], 1_000)
+        XCTAssertEqual(record.failedMetrics["shorter_coverage"], 0.45)
+        XCTAssertEqual(record.failedMetrics["minimum_shorter_coverage"], 0.70)
+        XCTAssertEqual(
+            try XCTUnwrap(record.failedMetrics["identity"]),
+            100.0 / 900.0,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(record.failedMetrics["minimum_identity"], 0.75)
+    }
+
+    func testRejectsReciprocalEvidenceQueryAndReferenceIdentityMismatches() throws {
+        let queryMismatch = alignment(
+            reference: genomicReference,
+            cigar: "1X1199=",
+            queryName: "another-cluster"
+        )
+        let referenceMismatch = alignment(
+            resolution: .resolved(genomicReference),
+            cigar: "1X1199=",
+            referenceName: "another-reference"
+        )
+
+        for alignment in [queryMismatch, referenceMismatch] {
+            XCTAssertThrowsError(try FullLengthONTMHCCandidateClassifier().classify(
+                makeCluster(alignments: [alignment])
+            )) { error in
+                guard case .invalidAlignment(_, _, let field, _) = error as? FullLengthONTMHCCandidateClassifierError else {
+                    return XCTFail("Expected typed invalid-alignment error, got \(error)")
+                }
+                XCTAssertTrue(["evidence.queryName", "evidence.referenceName"].contains(field))
             }
         }
     }
@@ -360,11 +510,7 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
             sampleID: sampleID,
             readGroupID: readGroupID,
             sourceClusterIDs: sourceClusterIDs,
-            sourceClusterReadCounts: Dictionary(
-                uniqueKeysWithValues: sourceClusterIDs.enumerated().map { index, sourceID in
-                    (sourceID, index == 0 ? reads : 0)
-                }
-            ),
+            sourceClusterReadCounts: positiveReadCounts(total: reads, sourceClusterIDs: sourceClusterIDs),
             aggregatedSampleReadCount: reads,
             evidence: [evidence(queryName: stableClusterID, referenceName: "sample-1|source-1", readGroupID: readGroupID)]
         )
@@ -374,13 +520,15 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         reference: MHCReferenceRecord,
         cigar: String,
         mapq: Int = 60,
-        score: Int = 2_000
+        score: Int = 2_000,
+        queryName: String = "cluster-1"
     ) -> FullLengthONTMHCCandidateAlignment {
         alignment(
             resolution: .resolved(reference),
             cigar: cigar,
             mapq: mapq,
             score: score,
+            queryName: queryName,
             referenceName: reference.sequenceID
         )
     }
@@ -390,6 +538,7 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         cigar: String,
         mapq: Int = 60,
         score: Int = 2_000,
+        queryName: String = "cluster-1",
         referenceName: String? = nil
     ) -> FullLengthONTMHCCandidateAlignment {
         FullLengthONTMHCCandidateAlignment(
@@ -399,12 +548,21 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
             mappingQuality: mapq,
             alignmentScore: score,
             evidence: evidence(
-                queryName: "cluster-1",
+                queryName: queryName,
                 referenceName: referenceName ?? resolution.referenceName,
                 readGroupID: nil,
                 cigar: cigar
             )
         )
+    }
+
+    private func positiveReadCounts(total: Int, sourceClusterIDs: [String]) -> [String: Int] {
+        guard !sourceClusterIDs.isEmpty else { return [:] }
+        let quotient = total / sourceClusterIDs.count
+        let remainder = total % sourceClusterIDs.count
+        return Dictionary(uniqueKeysWithValues: sourceClusterIDs.enumerated().map { index, sourceID in
+            (sourceID, quotient + (index < remainder ? 1 : 0))
+        })
     }
 
     private func evidence(
