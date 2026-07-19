@@ -168,7 +168,8 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             provenancePath: result.provenanceURL.path,
             referenceFASTAPath: result.referenceFASTAURL.path,
             genotypingEvidenceBAMPath: result.genotypingEvidenceBAMURL?.path,
-            genotypingEvidenceBAIPath: result.genotypingEvidenceBAIURL?.path
+            genotypingEvidenceBAIPath: result.genotypingEvidenceBAIURL?.path,
+            cleanupWarnings: result.cleanupWarnings
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -191,4 +192,5 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let referenceFASTAPath: String
     let genotypingEvidenceBAMPath: String?
     let genotypingEvidenceBAIPath: String?
+    let cleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning]
 }

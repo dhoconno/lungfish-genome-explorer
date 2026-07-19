@@ -27,6 +27,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         XCTAssertNil(result.genotypingEvidenceBAMURL)
         XCTAssertNil(result.genotypingEvidenceBAIURL)
+        XCTAssertEqual(result.cleanupWarnings, [])
     }
 
     func testBatchSchedulerUsesThreeSampleJobsAndThreeSavontThreadsOnFourteenCoreBatch() {
@@ -418,6 +419,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             .appendingPathComponent("artifacts/alignments/genotyping-evidence.bam.bai")
         XCTAssertEqual(result.genotypingEvidenceBAMURL, evidenceBAMURL)
         XCTAssertEqual(result.genotypingEvidenceBAIURL, evidenceBAIURL)
+        XCTAssertEqual(result.cleanupWarnings, [])
         XCTAssertTrue(FileManager.default.fileExists(atPath: evidenceBAMURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: evidenceBAIURL.path))
 
@@ -439,6 +441,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: workflowDirectory.path),
             "Regenerable full-length ONT MHC workflow intermediates should be removed after provenance is written."
+        )
+        let cohortWorkDirectory = outputDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent(".\(outputDirectory.lastPathComponent).cohort-alignment-work")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: cohortWorkDirectory.path),
+            "Regenerable cohort alignment intermediates should be removed after provenance is written."
         )
         let savontDirectory = outputDirectory
             .appendingPathComponent("samples", isDirectory: true)
@@ -675,6 +684,67 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let retainedBAMs = try FileManager.default.subpathsOfDirectory(atPath: cohortWorkDirectory.path)
             .filter { $0.hasSuffix(".bam") }
         XCTAssertFalse(retainedBAMs.isEmpty, "Final-view failure must retain per-sample BAM diagnostics.")
+    }
+
+    func testPostPublicationWorkflowCleanupFailureReturnsSuccessWithRetainedPathWarning() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-workflow-cleanup-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            postPublicationWorkDirectoryCleaner: SelectiveFailingPostPublicationCleaner(
+                target: .workflowIntermediates
+            )
+        )
+
+        let result = try await pipeline.run(request)
+
+        let workflowDirectory = request.outputDirectory.appendingPathComponent("workflow", isDirectory: true)
+        let warning = try XCTUnwrap(result.cleanupWarnings.first)
+        XCTAssertEqual(result.cleanupWarnings.count, 1)
+        XCTAssertEqual(warning.kind, .workflowIntermediates)
+        XCTAssertEqual(warning.path, workflowDirectory.standardizedFileURL.path)
+        XCTAssertTrue(warning.error.contains("injected workflow intermediates cleanup failure"))
+        XCTAssertTrue(warning.publishedArtifactsRemainValid)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: warning.path))
+
+        let cohortWorkDirectory = request.outputDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent(".\(request.outputDirectory.lastPathComponent).cohort-alignment-work")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: cohortWorkDirectory.path),
+            "Cohort cleanup must still complete when workflow cleanup fails."
+        )
+        try assertSuccessfulPublishedEvidence(result: result, request: request)
+    }
+
+    func testPostPublicationCohortCleanupFailureStillRemovesWorkflowIntermediates() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-cohort-cleanup-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            postPublicationWorkDirectoryCleaner: SelectiveFailingPostPublicationCleaner(
+                target: .cohortAlignmentTemporaryWorkDirectory
+            )
+        )
+
+        let result = try await pipeline.run(request)
+
+        let warning = try XCTUnwrap(result.cleanupWarnings.first)
+        XCTAssertEqual(result.cleanupWarnings.count, 1)
+        XCTAssertEqual(warning.kind, .cohortAlignmentTemporaryWorkDirectory)
+        XCTAssertTrue(warning.path.contains("full-length-ont-mhc-cohort-alignment-"))
+        XCTAssertTrue(warning.error.contains("injected cohort alignment temporary work directory cleanup failure"))
+        XCTAssertTrue(warning.publishedArtifactsRemainValid)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: warning.path))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: request.outputDirectory.appendingPathComponent("workflow", isDirectory: true).path
+            ),
+            "Workflow cleanup must still complete when cohort cleanup fails."
+        )
+        try assertSuccessfulPublishedEvidence(result: result, request: request)
     }
 
     func testRunKeepsWorkflowIntermediatesAndRecordsCheckpointOptionsInProvenance() async throws {
@@ -1880,7 +1950,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         savontScript: String? = nil,
         minimap2Script: String? = nil,
         blastnScript: String? = nil,
-        failFinalBAMView: Bool = false
+        failFinalBAMView: Bool = false,
+        postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner()
     ) throws -> (
         FullLengthONTMHCGenotypingRunRequest,
         FullLengthONTMHCGenotypingPipeline
@@ -1919,9 +1990,27 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 rootPrefix: condaRoot,
                 bundledMicromambaProvider: { bundledMicromamba },
                 bundledMicromambaVersionProvider: { "test-micromamba" }
-            )
+            ),
+            postPublicationWorkDirectoryCleaner: postPublicationWorkDirectoryCleaner
         )
         return (request, pipeline)
+    }
+
+    private func assertSuccessfulPublishedEvidence(
+        result: FullLengthONTMHCGenotypingResult,
+        request: FullLengthONTMHCGenotypingRunRequest
+    ) throws {
+        let bamURL = try XCTUnwrap(result.genotypingEvidenceBAMURL)
+        let baiURL = try XCTUnwrap(result.genotypingEvidenceBAIURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bamURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: baiURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.manifestURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.provenanceURL.path))
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: request.outputDirectory)
+        let evidence = try XCTUnwrap(manifest.mhcCandidateArtifacts?.genotypingEvidence)
+        XCTAssertEqual(evidence.bam.sha256, try ProvenanceFileHasher.sha256(of: bamURL))
+        XCTAssertEqual(evidence.bai.sha256, try ProvenanceFileHasher.sha256(of: baiURL))
+        XCTAssertNotNil(try ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
     }
 
     private func makeFakeFullLengthCondaRoot(
@@ -2208,5 +2297,36 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             return nil
         }
         return arguments[index + 1]
+    }
+}
+
+private struct SelectiveFailingPostPublicationCleaner: FullLengthONTMHCWorkDirectoryCleaning {
+    enum Target: Sendable {
+        case workflowIntermediates
+        case cohortAlignmentTemporaryWorkDirectory
+    }
+
+    let target: Target
+
+    func removeWorkDirectory(at url: URL) throws {
+        let shouldFail: Bool
+        let label: String
+        switch target {
+        case .workflowIntermediates:
+            shouldFail = url.lastPathComponent == "workflow"
+            label = "workflow intermediates"
+        case .cohortAlignmentTemporaryWorkDirectory:
+            shouldFail = url.lastPathComponent.hasPrefix("full-length-ont-mhc-cohort-alignment-")
+            label = "cohort alignment temporary work directory"
+        }
+        if shouldFail {
+            throw InjectedPostPublicationCleanupFailure(label: label)
+        }
+        try DefaultFullLengthONTMHCWorkDirectoryCleaner().removeWorkDirectory(at: url)
+    }
+
+    private struct InjectedPostPublicationCleanupFailure: Error, LocalizedError {
+        let label: String
+        var errorDescription: String? { "injected \(label) cleanup failure" }
     }
 }

@@ -317,6 +317,32 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
     }
 }
 
+public enum FullLengthONTMHCGenotypingCleanupWarningKind: String, Sendable, Codable, Equatable {
+    case retiredCohortPublicationDirectory
+    case cohortAlignmentTemporaryWorkDirectory
+    case cohortAlignmentWorkDirectory
+    case workflowIntermediates
+}
+
+public struct FullLengthONTMHCGenotypingCleanupWarning: Sendable, Codable, Equatable {
+    public let kind: FullLengthONTMHCGenotypingCleanupWarningKind
+    public let path: String
+    public let error: String
+    public let publishedArtifactsRemainValid: Bool
+
+    public init(
+        kind: FullLengthONTMHCGenotypingCleanupWarningKind,
+        path: String,
+        error: String,
+        publishedArtifactsRemainValid: Bool
+    ) {
+        self.kind = kind
+        self.path = path
+        self.error = error
+        self.publishedArtifactsRemainValid = publishedArtifactsRemainValid
+    }
+}
+
 public struct FullLengthONTMHCGenotypingResult: Sendable, Codable, Equatable {
     public let outputDirectory: URL
     public let reportCSVURL: URL
@@ -332,6 +358,71 @@ public struct FullLengthONTMHCGenotypingResult: Sendable, Codable, Equatable {
     public let referenceFASTAURL: URL
     public let genotypingEvidenceBAMURL: URL?
     public let genotypingEvidenceBAIURL: URL?
+    public let cleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning]
+}
+
+extension FullLengthONTMHCGenotypingResult {
+    private enum CodingKeys: String, CodingKey {
+        case outputDirectory
+        case reportCSVURL
+        case sampleSummaryCSVURL
+        case statsJSONURL
+        case workbookURL
+        case primaryWorkbookURL
+        case haplotypeAnalysisURL
+        case unmatchedClustersFASTAURL
+        case deduplicatedUnmatchedClustersFASTAURL
+        case cdnaClustersFASTAURL
+        case provenanceURL
+        case referenceFASTAURL
+        case genotypingEvidenceBAMURL
+        case genotypingEvidenceBAIURL
+        case cleanupWarnings
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        outputDirectory = try container.decode(URL.self, forKey: .outputDirectory)
+        reportCSVURL = try container.decode(URL.self, forKey: .reportCSVURL)
+        sampleSummaryCSVURL = try container.decode(URL.self, forKey: .sampleSummaryCSVURL)
+        statsJSONURL = try container.decode(URL.self, forKey: .statsJSONURL)
+        workbookURL = try container.decode(URL.self, forKey: .workbookURL)
+        primaryWorkbookURL = try container.decode(URL.self, forKey: .primaryWorkbookURL)
+        haplotypeAnalysisURL = try container.decodeIfPresent(URL.self, forKey: .haplotypeAnalysisURL)
+        unmatchedClustersFASTAURL = try container.decode(URL.self, forKey: .unmatchedClustersFASTAURL)
+        deduplicatedUnmatchedClustersFASTAURL = try container.decode(
+            URL.self,
+            forKey: .deduplicatedUnmatchedClustersFASTAURL
+        )
+        cdnaClustersFASTAURL = try container.decode(URL.self, forKey: .cdnaClustersFASTAURL)
+        provenanceURL = try container.decode(URL.self, forKey: .provenanceURL)
+        referenceFASTAURL = try container.decode(URL.self, forKey: .referenceFASTAURL)
+        genotypingEvidenceBAMURL = try container.decodeIfPresent(URL.self, forKey: .genotypingEvidenceBAMURL)
+        genotypingEvidenceBAIURL = try container.decodeIfPresent(URL.self, forKey: .genotypingEvidenceBAIURL)
+        cleanupWarnings = try container.decodeIfPresent(
+            [FullLengthONTMHCGenotypingCleanupWarning].self,
+            forKey: .cleanupWarnings
+        ) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(outputDirectory, forKey: .outputDirectory)
+        try container.encode(reportCSVURL, forKey: .reportCSVURL)
+        try container.encode(sampleSummaryCSVURL, forKey: .sampleSummaryCSVURL)
+        try container.encode(statsJSONURL, forKey: .statsJSONURL)
+        try container.encode(workbookURL, forKey: .workbookURL)
+        try container.encode(primaryWorkbookURL, forKey: .primaryWorkbookURL)
+        try container.encodeIfPresent(haplotypeAnalysisURL, forKey: .haplotypeAnalysisURL)
+        try container.encode(unmatchedClustersFASTAURL, forKey: .unmatchedClustersFASTAURL)
+        try container.encode(deduplicatedUnmatchedClustersFASTAURL, forKey: .deduplicatedUnmatchedClustersFASTAURL)
+        try container.encode(cdnaClustersFASTAURL, forKey: .cdnaClustersFASTAURL)
+        try container.encode(provenanceURL, forKey: .provenanceURL)
+        try container.encode(referenceFASTAURL, forKey: .referenceFASTAURL)
+        try container.encodeIfPresent(genotypingEvidenceBAMURL, forKey: .genotypingEvidenceBAMURL)
+        try container.encodeIfPresent(genotypingEvidenceBAIURL, forKey: .genotypingEvidenceBAIURL)
+        try container.encode(cleanupWarnings, forKey: .cleanupWarnings)
+    }
 }
 
 public enum FullLengthONTMHCGenotypingError: Error, LocalizedError, Sendable, Equatable {
@@ -425,13 +516,16 @@ private enum FullLengthONTMHCSavontSampleStatus: String, Sendable, Codable, Equa
 public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private let nativeToolRunner: NativeToolRunner
     private let condaManager: CondaManager
+    private let postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning
 
     public init(
         nativeToolRunner: NativeToolRunner = .shared,
-        condaManager: CondaManager = .shared
+        condaManager: CondaManager = .shared,
+        postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner()
     ) {
         self.nativeToolRunner = nativeToolRunner
         self.condaManager = condaManager
+        self.postPublicationWorkDirectoryCleaner = postPublicationWorkDirectoryCleaner
     }
 
     public func run(
@@ -552,7 +646,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         let cohortAlignmentBuilder = FullLengthONTMHCCohortAlignmentBuilder(
             minimap2ExecutableURL: minimap2ExecutableURL,
-            samtoolsExecutableURL: samtoolsExecutableURL
+            samtoolsExecutableURL: samtoolsExecutableURL,
+            workDirectoryCleaner: postPublicationWorkDirectoryCleaner
         )
         let cohortWorkDirectory = request.outputDirectory
             .deletingLastPathComponent()
@@ -730,19 +825,41 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             try? removePublishedRunMetadata(request)
             throw error
         }
-        let cohortCleanupDiagnostic = cohortAlignmentBuilder.cleanupTemporaryWorkDirectory(
-            for: cohortAlignmentResult
-        )
-        if !request.keepIntermediates,
-           cohortCleanupDiagnostic == nil,
-           (try? FileManager.default.contentsOfDirectory(atPath: cohortWorkDirectory.path).isEmpty) == true {
-            try? FileManager.default.removeItem(at: cohortWorkDirectory)
-        }
+        var cleanupWarnings = cohortAlignmentResult.cleanupDiagnostics.map(cleanupWarning)
         if request.keepIntermediates {
             progress.emit(0.98, "Preserving full-length ONT MHC workflow intermediates.")
         } else {
             progress.emit(0.98, "Removing regenerable full-length ONT MHC workflow intermediates.")
-            try removeGeneratedWorkflowIntermediates(workDirectory)
+            let cohortCleanupDiagnostic = cohortAlignmentBuilder.cleanupTemporaryWorkDirectory(
+                for: cohortAlignmentResult
+            )
+            if let cohortCleanupDiagnostic {
+                cleanupWarnings.append(cleanupWarning(cohortCleanupDiagnostic))
+            } else {
+                do {
+                    if FileManager.default.fileExists(atPath: cohortWorkDirectory.path),
+                       try FileManager.default.contentsOfDirectory(atPath: cohortWorkDirectory.path).isEmpty {
+                        try postPublicationWorkDirectoryCleaner.removeWorkDirectory(at: cohortWorkDirectory)
+                    }
+                } catch {
+                    cleanupWarnings.append(FullLengthONTMHCGenotypingCleanupWarning(
+                        kind: .cohortAlignmentWorkDirectory,
+                        path: cohortWorkDirectory.standardizedFileURL.path,
+                        error: cleanupErrorDescription(error),
+                        publishedArtifactsRemainValid: true
+                    ))
+                }
+            }
+            do {
+                try removeGeneratedWorkflowIntermediates(workDirectory)
+            } catch {
+                cleanupWarnings.append(FullLengthONTMHCGenotypingCleanupWarning(
+                    kind: .workflowIntermediates,
+                    path: workDirectory.standardizedFileURL.path,
+                    error: cleanupErrorDescription(error),
+                    publishedArtifactsRemainValid: true
+                ))
+            }
         }
 
         progress.emit(1.0, "Full-length ONT MHC genotyping complete.")
@@ -760,7 +877,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             provenanceURL: request.provenanceURL,
             referenceFASTAURL: referenceFASTAURL,
             genotypingEvidenceBAMURL: cohortAlignmentResult.bamURL,
-            genotypingEvidenceBAIURL: cohortAlignmentResult.baiURL
+            genotypingEvidenceBAIURL: cohortAlignmentResult.baiURL,
+            cleanupWarnings: cleanupWarnings
         )
     }
 
@@ -2829,9 +2947,31 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         }
     }
 
+    private func cleanupWarning(
+        _ diagnostic: FullLengthONTMHCCleanupDiagnostic
+    ) -> FullLengthONTMHCGenotypingCleanupWarning {
+        let kind: FullLengthONTMHCGenotypingCleanupWarningKind
+        switch diagnostic.kind {
+        case .retiredPublicationDirectory:
+            kind = .retiredCohortPublicationDirectory
+        case .temporaryWorkDirectory:
+            kind = .cohortAlignmentTemporaryWorkDirectory
+        }
+        return FullLengthONTMHCGenotypingCleanupWarning(
+            kind: kind,
+            path: diagnostic.retainedDirectoryURL.standardizedFileURL.path,
+            error: diagnostic.message,
+            publishedArtifactsRemainValid: diagnostic.publishedArtifactsRemainValid
+        )
+    }
+
+    private func cleanupErrorDescription(_ error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
     private func removeGeneratedWorkflowIntermediates(_ workDirectory: URL) throws {
         if FileManager.default.fileExists(atPath: workDirectory.path) {
-            try FileManager.default.removeItem(at: workDirectory)
+            try postPublicationWorkDirectoryCleaner.removeWorkDirectory(at: workDirectory)
         }
     }
 

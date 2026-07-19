@@ -17,7 +17,15 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
             provenancePath: "/tmp/provenance.json",
             referenceFASTAPath: "/tmp/reference.fasta",
             genotypingEvidenceBAMPath: "/tmp/result.lungfishgenotype/artifacts/alignments/genotyping-evidence.bam",
-            genotypingEvidenceBAIPath: "/tmp/result.lungfishgenotype/artifacts/alignments/genotyping-evidence.bam.bai"
+            genotypingEvidenceBAIPath: "/tmp/result.lungfishgenotype/artifacts/alignments/genotyping-evidence.bam.bai",
+            cleanupWarnings: [
+                FullLengthONTMHCGenotypingCleanupWarning(
+                    kind: .workflowIntermediates,
+                    path: "/tmp/result.lungfishgenotype/workflow",
+                    error: "injected cleanup failure",
+                    publishedArtifactsRemainValid: true
+                )
+            ]
         )
 
         let object = try XCTUnwrap(
@@ -32,6 +40,12 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
             object["genotypingEvidenceBAIPath"] as? String,
             "/tmp/result.lungfishgenotype/artifacts/alignments/genotyping-evidence.bam.bai"
         )
+        let warnings = try XCTUnwrap(object["cleanupWarnings"] as? [[String: Any]])
+        XCTAssertEqual(warnings.count, 1)
+        XCTAssertEqual(warnings[0]["kind"] as? String, "workflowIntermediates")
+        XCTAssertEqual(warnings[0]["path"] as? String, "/tmp/result.lungfishgenotype/workflow")
+        XCTAssertEqual(warnings[0]["error"] as? String, "injected cleanup failure")
+        XCTAssertEqual(warnings[0]["publishedArtifactsRemainValid"] as? Bool, true)
     }
 
     func testFullLengthONTMHCCommandDoesNotRequireGuideSequences() throws {
