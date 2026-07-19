@@ -166,7 +166,9 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             unmatchedClustersFASTAPath: result.unmatchedClustersFASTAURL.path,
             cdnaClustersFASTAPath: result.cdnaClustersFASTAURL.path,
             provenancePath: result.provenanceURL.path,
-            referenceFASTAPath: result.referenceFASTAURL.path
+            referenceFASTAPath: result.referenceFASTAURL.path,
+            genotypingEvidenceBAMPath: result.genotypingEvidenceBAMURL?.path,
+            genotypingEvidenceBAIPath: result.genotypingEvidenceBAIURL?.path
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -175,7 +177,7 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
     }
 }
 
-private struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
+struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let outputDirectory: String
     let reportCSVPath: String
     let sampleSummaryCSVPath: String
@@ -187,4 +189,6 @@ private struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let cdnaClustersFASTAPath: String
     let provenancePath: String
     let referenceFASTAPath: String
+    let genotypingEvidenceBAMPath: String?
+    let genotypingEvidenceBAIPath: String?
 }

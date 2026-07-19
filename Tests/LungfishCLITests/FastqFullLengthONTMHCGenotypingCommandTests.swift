@@ -3,6 +3,37 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
+    func testFullLengthONTMHCPayloadIncludesFinalCohortEvidencePaths() throws {
+        let payload = FastqFullLengthONTMHCGenotypingPayload(
+            outputDirectory: "/tmp/result.lungfishgenotype",
+            reportCSVPath: "/tmp/report.csv",
+            sampleSummaryCSVPath: "/tmp/samples.csv",
+            statsJSONPath: "/tmp/stats.json",
+            workbookPath: "/tmp/current.xlsx",
+            primaryWorkbookPath: "/tmp/primary.xlsx",
+            haplotypeAnalysisPath: nil,
+            unmatchedClustersFASTAPath: "/tmp/unmatched.fasta",
+            cdnaClustersFASTAPath: "/tmp/cdna.fasta",
+            provenancePath: "/tmp/provenance.json",
+            referenceFASTAPath: "/tmp/reference.fasta",
+            genotypingEvidenceBAMPath: "/tmp/result.lungfishgenotype/artifacts/alignments/genotyping-evidence.bam",
+            genotypingEvidenceBAIPath: "/tmp/result.lungfishgenotype/artifacts/alignments/genotyping-evidence.bam.bai"
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(payload)) as? [String: Any]
+        )
+
+        XCTAssertEqual(
+            object["genotypingEvidenceBAMPath"] as? String,
+            "/tmp/result.lungfishgenotype/artifacts/alignments/genotyping-evidence.bam"
+        )
+        XCTAssertEqual(
+            object["genotypingEvidenceBAIPath"] as? String,
+            "/tmp/result.lungfishgenotype/artifacts/alignments/genotyping-evidence.bam.bai"
+        )
+    }
+
     func testFullLengthONTMHCCommandDoesNotRequireGuideSequences() throws {
         let command = try FastqFullLengthONTMHCGenotypingSubcommand.parse([
             "/tmp/sample.lungfishfastq",

@@ -4,6 +4,31 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
+    func testGenotypingResultDecodesLegacyPayloadWithoutCohortEvidencePaths() throws {
+        let data = Data(
+            #"""
+            {
+              "outputDirectory": "file:///tmp/legacy.lungfishgenotype/",
+              "reportCSVURL": "file:///tmp/legacy.csv",
+              "sampleSummaryCSVURL": "file:///tmp/legacy-samples.csv",
+              "statsJSONURL": "file:///tmp/legacy-stats.json",
+              "workbookURL": "file:///tmp/current.xlsx",
+              "primaryWorkbookURL": "file:///tmp/primary.xlsx",
+              "unmatchedClustersFASTAURL": "file:///tmp/unmatched.fasta",
+              "deduplicatedUnmatchedClustersFASTAURL": "file:///tmp/deduplicated.fasta",
+              "cdnaClustersFASTAURL": "file:///tmp/cdna.fasta",
+              "provenanceURL": "file:///tmp/provenance.json",
+              "referenceFASTAURL": "file:///tmp/reference.fasta"
+            }
+            """#.utf8
+        )
+
+        let result = try JSONDecoder().decode(FullLengthONTMHCGenotypingResult.self, from: data)
+
+        XCTAssertNil(result.genotypingEvidenceBAMURL)
+        XCTAssertNil(result.genotypingEvidenceBAIURL)
+    }
+
     func testBatchSchedulerUsesThreeSampleJobsAndThreeSavontThreadsOnFourteenCoreBatch() {
         let plan = FullLengthONTMHCSampleExecutionPlan.automatic(
             totalThreads: 14,
@@ -387,6 +412,29 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         let result = try await pipeline.run(request)
 
+        let evidenceBAMURL = outputDirectory
+            .appendingPathComponent("artifacts/alignments/genotyping-evidence.bam")
+        let evidenceBAIURL = outputDirectory
+            .appendingPathComponent("artifacts/alignments/genotyping-evidence.bam.bai")
+        XCTAssertEqual(result.genotypingEvidenceBAMURL, evidenceBAMURL)
+        XCTAssertEqual(result.genotypingEvidenceBAIURL, evidenceBAIURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: evidenceBAMURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: evidenceBAIURL.path))
+
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        let evidence = try XCTUnwrap(manifest.mhcCandidateArtifacts?.genotypingEvidence)
+        XCTAssertEqual(evidence.bam.path, "artifacts/alignments/genotyping-evidence.bam")
+        XCTAssertEqual(evidence.bai.path, "artifacts/alignments/genotyping-evidence.bam.bai")
+        XCTAssertEqual(evidence.bam.sha256, try ProvenanceFileHasher.sha256(of: evidenceBAMURL))
+        XCTAssertEqual(evidence.bai.sha256, try ProvenanceFileHasher.sha256(of: evidenceBAIURL))
+        XCTAssertEqual(evidence.bam.sizeBytes, Int64(try ProvenanceFileHasher.fileSize(of: evidenceBAMURL)))
+        XCTAssertEqual(evidence.bai.sizeBytes, Int64(try ProvenanceFileHasher.fileSize(of: evidenceBAIURL)))
+        XCTAssertNil(manifest.mhcCandidateArtifacts?.reciprocalEvidence)
+        XCTAssertNil(manifest.mhcCandidateArtifacts?.candidateJSON)
+
+        let report = try String(contentsOf: request.reportCSVURL, encoding: .utf8)
+        XCTAssertTrue(report.contains("DL46,allele1,7,7,1,7"))
+
         let workflowDirectory = outputDirectory.appendingPathComponent("workflow", isDirectory: true)
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: workflowDirectory.path),
@@ -404,6 +452,18 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: rawDirectory.appendingPathComponent("feature-table.tsv").path))
 
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        let mergeStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "samtools" && $0.argv.dropFirst().first == "merge"
+        })
+        XCTAssertTrue(mergeStep.argv.contains("-f"))
+        let viewStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "samtools" && Array($0.argv.dropFirst().prefix(2)) == ["view", "-h"]
+        })
+        XCTAssertEqual(viewStep.inputs.map(\.path), [evidenceBAMURL.path])
+        XCTAssertEqual(viewStep.argv.last, evidenceBAMURL.path)
+        XCTAssertEqual(viewStep.toolVersion, "samtools 1.21-fake")
+        XCTAssertTrue(envelope.outputs.contains { $0.path == evidenceBAMURL.path })
+        XCTAssertTrue(envelope.outputs.contains { $0.path == evidenceBAIURL.path })
         XCTAssertFalse(
             envelope.outputs.contains { $0.path.contains("/workflow/") },
             "Regenerable workflow intermediates must not be top-level durable provenance outputs."
@@ -418,6 +478,9 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "Expected deduplicated unmatched FASTA in provenance outputs. Outputs: \(envelope.outputs.map(\.path))"
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.deduplicatedUnmatchedClustersFASTAURL.path))
+        let durablePerSampleBAMs = try FileManager.default.subpathsOfDirectory(atPath: outputDirectory.path)
+            .filter { $0.hasSuffix(".bam") && $0 != "artifacts/alignments/genotyping-evidence.bam" }
+        XCTAssertEqual(durablePerSampleBAMs, [])
 
         let workbookXML = try Self.unzippedText(path: "xl/workbook.xml", from: result.workbookURL)
         XCTAssertEqual(
@@ -547,6 +610,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             .appendingPathComponent(".full-length-ont-mhc/checkpoints/samples", isDirectory: true)
             .appendingPathComponent("DL46.json")
         XCTAssertTrue(FileManager.default.fileExists(atPath: checkpointURL.path))
+        let checkpointObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: checkpointURL)) as? [String: Any]
+        )
+        let checkpointResult = try XCTUnwrap(checkpointObject["result"] as? [String: Any])
+        XCTAssertEqual((checkpointResult["genotypeRows"] as? [[String: Any]])?.count, 0)
+        XCTAssertNotNil(checkpointResult["clustersFASTAURL"])
+        XCTAssertNotNil(checkpointResult["clusterRecords"])
 
         let failingSavontScript = #"""
         #!/bin/sh
@@ -568,8 +638,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
         let savontSteps = envelope.steps.filter { $0.toolName == "savont" }
         XCTAssertEqual(savontSteps.count, 1)
-        let minimapSteps = envelope.steps.filter { $0.toolName == "minimap2" }
-        XCTAssertEqual(minimapSteps.count, 1)
+        let minimapMappingSteps = envelope.steps.filter {
+            $0.toolName == "minimap2" && $0.argv.contains("-a")
+        }
+        XCTAssertEqual(minimapMappingSteps.count, 1, "Checkpoint reuse must remap retained clusters.")
         let reuseStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName == "lungfish full-length ONT MHC sample checkpoint reuse"
         })
@@ -577,6 +649,32 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(reuseStep.outputs.contains {
             $0.path.hasSuffix("/samples/DL46/savont/DL46.savont-clusters.fasta")
         })
+    }
+
+    func testFinalBAMViewFailureLeavesNoSuccessfulMetadataAndRetainsDiagnosticBAMs() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-final-view-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            failFinalBAMView: true
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected final BAM view failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("forced final BAM view failure"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.manifestURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.provenanceURL.path))
+        let cohortWorkDirectory = request.outputDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent(".\(request.outputDirectory.lastPathComponent).cohort-alignment-work")
+        let retainedBAMs = try FileManager.default.subpathsOfDirectory(atPath: cohortWorkDirectory.path)
+            .filter { $0.hasSuffix(".bam") }
+        XCTAssertFalse(retainedBAMs.isEmpty, "Final-view failure must retain per-sample BAM diagnostics.")
     }
 
     func testRunKeepsWorkflowIntermediatesAndRecordsCheckpointOptionsInProvenance() async throws {
@@ -1781,7 +1879,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         root: URL,
         savontScript: String? = nil,
         minimap2Script: String? = nil,
-        blastnScript: String? = nil
+        blastnScript: String? = nil,
+        failFinalBAMView: Bool = false
     ) throws -> (
         FullLengthONTMHCGenotypingRunRequest,
         FullLengthONTMHCGenotypingPipeline
@@ -1794,6 +1893,11 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             minimap2Script: minimap2Script,
             blastnScript: blastnScript
         )
+        if failFinalBAMView {
+            try Data().write(
+                to: condaRoot.appendingPathComponent("envs/samtools/bin/fail-final-view")
+            )
+        }
         let inputFASTQ = root.appendingPathComponent("DL46.fastq")
         let referenceFASTA = root.appendingPathComponent("reference.fasta")
         let outputDirectory = root.appendingPathComponent("full-length.lungfishgenotype", isDirectory: true)
@@ -1824,7 +1928,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         at root: URL,
         savontScript: String? = nil,
         minimap2Script: String? = nil,
-        blastnScript: String? = nil
+        blastnScript: String? = nil,
+        samtoolsScript: String? = nil
     ) throws -> URL {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -1937,10 +2042,90 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
               echo "minimap2 2.28"
               exit 0
             fi
-            printf '@SQ\tSN:final_consensus_0_depth_7_ReadCount-7\tLN:8\n'
-            printf 'allele1\t0\tfinal_consensus_0_depth_7_ReadCount-7\t1\t60\t8=\t*\t0\t0\tACGTACGT\t*\n'
+            previous=""
+            current=""
+            for arg in "$@"; do previous="$current"; current="$arg"; done
+            target_fasta="$previous"
+            reference_fasta="$current"
+            allele=$(awk '/^>/{sub(/^>/, ""); print $1; exit}' "$reference_fasta")
+            target=$(awk '/^>/{sub(/^>/, ""); print $1; exit}' "$target_fasta")
+            printf '@SQ\tSN:%s\tLN:8\n' "$target"
+            printf '%s\t0\t%s\t1\t60\t8=\t*\t0\t0\tACGTACGT\t*\n' "$allele" "$target"
             """#,
             to: minimap2Bin.appendingPathComponent("minimap2")
+        )
+
+        let samtoolsBin = root.appendingPathComponent("envs/samtools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: samtoolsBin, withIntermediateDirectories: true)
+        try writeExecutable(
+            samtoolsScript ?? #"""
+            #!/bin/sh
+            set -eu
+            if [ "${1:-}" = "--version" ]; then
+              echo "samtools 1.21-fake"
+              exit 0
+            fi
+            command="$1"
+            shift
+            case "$command" in
+              view)
+                if [ "${1:-}" = "-h" ]; then
+                  if [ -f "$(dirname "$0")/fail-final-view" ]; then
+                    echo "forced final BAM view failure" >&2
+                    exit 42
+                  fi
+                  cat "$2"
+                  exit 0
+                fi
+                [ "${1:-}" = "-b" ] && shift
+                [ "${1:-}" = "-o" ] || exit 90
+                output="$2"
+                input="$3"
+                cp "$input" "$output"
+                ;;
+              addreplacerg)
+                [ "${1:-}" = "-r" ] || exit 91
+                rg_id="${2#ID:}"
+                shift 2
+                [ "${1:-}" = "-r" ] || exit 92
+                rg_sm="${2#SM:}"
+                shift 2
+                [ "${1:-}" = "-o" ] || exit 93
+                output="$2"
+                input="$3"
+                awk -v id="$rg_id" -v sm="$rg_sm" 'BEGIN {printf "@RG\tID:%s\tSM:%s\n", id, sm} /^@/ {print; next} {print $0 "\tRG:Z:" id}' "$input" > "$output"
+                ;;
+              sort)
+                [ "${1:-}" = "-o" ] || exit 94
+                cp "$3" "$2"
+                ;;
+              merge)
+                [ "${1:-}" = "-f" ] || exit 95
+                shift
+                [ "${1:-}" = "-o" ] || exit 96
+                output="$2"
+                shift 2
+                : > "$output"
+                for input in "$@"; do cat "$input" >> "$output"; done
+                ;;
+              index)
+                printf 'index for %s\n' "$1" > "$2"
+                ;;
+              quickcheck)
+                [ -f "$1" ] || exit 97
+                ;;
+              idxstats)
+                [ -f "$1" ] || exit 98
+                [ -f "$1.bai" ] || exit 99
+                printf 'cohort-target\t8\t1\t0\n'
+                ;;
+              *)
+                echo "unsupported samtools invocation: $command $*" >&2
+                exit 100
+                ;;
+            esac
+            """#,
+            to: samtoolsBin.appendingPathComponent("samtools")
         )
 
         let blastBin = root.appendingPathComponent("envs/blast/bin", isDirectory: true)

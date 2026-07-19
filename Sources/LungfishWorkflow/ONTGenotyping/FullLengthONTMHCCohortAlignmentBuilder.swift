@@ -25,6 +25,8 @@ public struct FullLengthONTMHCCohortAlignmentBuildRequest: Sendable, Equatable {
     public let outputDirectoryURL: URL
     public let workDirectoryURL: URL
     public let keepIntermediates: Bool
+    public let deferTemporaryWorkDirectoryCleanup: Bool
+    public let allowEmptyCohort: Bool
 
     public init(
         samples: [FullLengthONTMHCSampleAlignmentInput],
@@ -32,7 +34,9 @@ public struct FullLengthONTMHCCohortAlignmentBuildRequest: Sendable, Equatable {
         threads: Int,
         outputDirectoryURL: URL,
         workDirectoryURL: URL,
-        keepIntermediates: Bool
+        keepIntermediates: Bool,
+        deferTemporaryWorkDirectoryCleanup: Bool = false,
+        allowEmptyCohort: Bool = false
     ) {
         self.samples = samples
         self.referenceAlleleFASTAURL = referenceAlleleFASTAURL.standardizedFileURL
@@ -40,6 +44,8 @@ public struct FullLengthONTMHCCohortAlignmentBuildRequest: Sendable, Equatable {
         self.outputDirectoryURL = outputDirectoryURL.standardizedFileURL
         self.workDirectoryURL = workDirectoryURL.standardizedFileURL
         self.keepIntermediates = keepIntermediates
+        self.deferTemporaryWorkDirectoryCleanup = deferTemporaryWorkDirectoryCleanup
+        self.allowEmptyCohort = allowEmptyCohort
     }
 }
 
@@ -105,6 +111,7 @@ public struct FullLengthONTMHCCohortAlignmentResult: Sendable, Equatable {
     public let publicationMappings: [FullLengthONTMHCArtifactPublicationMapping]
     public let transformationRecords: [FullLengthONTMHCInProcessTransformationRecord]
     public private(set) var cleanupDiagnostics: [FullLengthONTMHCCleanupDiagnostic]
+    public let requiresTemporaryWorkDirectoryCleanup: Bool
 
     mutating func attachCleanup(
         retainedPublicationDirectoryURL: URL?,
@@ -115,6 +122,11 @@ public struct FullLengthONTMHCCohortAlignmentResult: Sendable, Equatable {
         self.publicationCleanupError = publicationCleanupError
         cleanupDiagnostics = diagnostics
     }
+}
+
+public struct FullLengthONTMHCBAMViewResult: Sendable, Equatable {
+    public let samText: String
+    public let commandRecord: FullLengthONTMHCCohortAlignmentCommandRecord
 }
 
 public struct FullLengthONTMHCCohortAlignmentBuildError: Error, LocalizedError, Sendable {
@@ -194,6 +206,8 @@ public struct DarwinAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignment
 
 public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
     private let executableDirectoryURL: URL?
+    private let minimap2ExecutableURL: URL?
+    private let samtoolsExecutableURL: URL?
     private let alignmentDirectoryPublisher: any FullLengthONTMHCAlignmentDirectoryPublishing
     private let workDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning
     private let artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding
@@ -208,6 +222,26 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         fileManager: FileManager = .default
     ) {
         self.executableDirectoryURL = executableDirectoryURL?.standardizedFileURL
+        self.minimap2ExecutableURL = nil
+        self.samtoolsExecutableURL = nil
+        self.alignmentDirectoryPublisher = alignmentDirectoryPublisher
+        self.workDirectoryCleaner = workDirectoryCleaner
+        self.artifactDescriptorProvider = DefaultFullLengthONTMHCArtifactDescriptorProvider()
+        self.prepublicationObserver = { _ in }
+        self.sourceSnapshotObserver = { _, _ in }
+        self.fileManager = fileManager
+    }
+
+    public init(
+        minimap2ExecutableURL: URL,
+        samtoolsExecutableURL: URL,
+        alignmentDirectoryPublisher: any FullLengthONTMHCAlignmentDirectoryPublishing = DarwinAtomicAlignmentDirectoryPublisher(),
+        workDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
+        fileManager: FileManager = .default
+    ) {
+        self.executableDirectoryURL = nil
+        self.minimap2ExecutableURL = minimap2ExecutableURL.standardizedFileURL
+        self.samtoolsExecutableURL = samtoolsExecutableURL.standardizedFileURL
         self.alignmentDirectoryPublisher = alignmentDirectoryPublisher
         self.workDirectoryCleaner = workDirectoryCleaner
         self.artifactDescriptorProvider = DefaultFullLengthONTMHCArtifactDescriptorProvider()
@@ -226,6 +260,8 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         sourceSnapshotObserver: @escaping @Sendable (String, URL) -> Void = { _, _ in }
     ) {
         self.executableDirectoryURL = executableDirectoryURL?.standardizedFileURL
+        self.minimap2ExecutableURL = nil
+        self.samtoolsExecutableURL = nil
         self.alignmentDirectoryPublisher = alignmentDirectoryPublisher
         self.workDirectoryCleaner = workDirectoryCleaner
         self.artifactDescriptorProvider = artifactDescriptorProvider
@@ -256,10 +292,19 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 outputDirectoryURL: request.outputDirectoryURL,
                 workDirectoryURL: request.workDirectoryURL
             )
-            let samples = try safety.validateScientificInputs(
-                samples: request.samples,
-                referenceAlleleFASTAURL: request.referenceAlleleFASTAURL
-            )
+            let samples: [FullLengthONTMHCSampleAlignmentInput]
+            if request.samples.isEmpty && request.allowEmptyCohort {
+                try safety.requireRegularFileNoFollow(
+                    request.referenceAlleleFASTAURL,
+                    role: "reference allele FASTA"
+                )
+                samples = []
+            } else {
+                samples = try safety.validateScientificInputs(
+                    samples: request.samples,
+                    referenceAlleleFASTAURL: request.referenceAlleleFASTAURL
+                )
+            }
             try fileManager.createDirectory(
                 at: temporaryWorkDirectoryURL,
                 withIntermediateDirectories: true
@@ -406,14 +451,59 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             }
 
             let mergedBAMURL = temporaryWorkDirectoryURL.appendingPathComponent("cohort.merged.bam")
-            try await run(
-                executableURL: samtoolsURL,
-                arguments: ["merge", "-f", "-o", mergedBAMURL.path] + mappings.map { $0.sortedBAMURL.path },
-                inputs: mappings.map(\.sortedBAMURL),
-                outputs: [mergedBAMURL],
-                workingDirectoryURL: temporaryWorkDirectoryURL,
-                commandRecords: &commandRecords
-            )
+            if mappings.isEmpty {
+                let emptySAMURL = temporaryWorkDirectoryURL.appendingPathComponent("empty-cohort.sam")
+                let transformationStartedAt = Date()
+                try "@HD\tVN:1.6\tSO:unsorted\n".write(
+                    to: emptySAMURL,
+                    atomically: true,
+                    encoding: .utf8
+                )
+                let emptySAMDescriptor = try artifactDescriptorProvider.descriptor(
+                    for: emptySAMURL,
+                    role: .commandInput,
+                    phase: .temporary
+                )
+                let transformationCompletedAt = Date()
+                transformationRecords.append(FullLengthONTMHCInProcessTransformationRecord(
+                    workflowName: "lungfish-in-process:create-empty-mhc-cohort-sam",
+                    workflowVersion: WorkflowRun.currentAppVersion,
+                    argv: [
+                        "lungfish-in-process", "create-empty-mhc-cohort-sam",
+                        "--sam-version", "1.6",
+                        emptySAMURL.path,
+                    ],
+                    resolvedOptions: [
+                        "samVersion": "1.6",
+                        "sortOrder": "unsorted",
+                        "reason": "no-clusters",
+                    ],
+                    inputs: [],
+                    outputs: [emptySAMDescriptor],
+                    exitStatus: 0,
+                    startedAt: transformationStartedAt,
+                    completedAt: transformationCompletedAt,
+                    wallTime: transformationCompletedAt.timeIntervalSince(transformationStartedAt)
+                ))
+                artifactDescriptors.append(emptySAMDescriptor)
+                try await run(
+                    executableURL: samtoolsURL,
+                    arguments: ["view", "-b", "-o", mergedBAMURL.path, emptySAMURL.path],
+                    inputs: [emptySAMURL],
+                    outputs: [mergedBAMURL],
+                    workingDirectoryURL: temporaryWorkDirectoryURL,
+                    commandRecords: &commandRecords
+                )
+            } else {
+                try await run(
+                    executableURL: samtoolsURL,
+                    arguments: ["merge", "-f", "-o", mergedBAMURL.path] + mappings.map { $0.sortedBAMURL.path },
+                    inputs: mappings.map(\.sortedBAMURL),
+                    outputs: [mergedBAMURL],
+                    workingDirectoryURL: temporaryWorkDirectoryURL,
+                    commandRecords: &commandRecords
+                )
+            }
 
             let artifactsDirectoryURL = pathContext.artifactsDirectoryURL
             let alignmentDirectoryURL = pathContext.alignmentDirectoryURL
@@ -588,7 +678,9 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 temporaryArtifactDescriptors: temporaryArtifactDescriptors,
                 publicationMappings: publicationMappings,
                 transformationRecords: transformationRecords,
-                cleanupDiagnostics: []
+                cleanupDiagnostics: [],
+                requiresTemporaryWorkDirectoryCleanup: !request.keepIntermediates
+                    && request.deferTemporaryWorkDirectoryCleanup
             )
 
             try Task.checkCancellation()
@@ -619,7 +711,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                     ))
                 }
             }
-            if !request.keepIntermediates {
+            if !request.keepIntermediates && !request.deferTemporaryWorkDirectoryCleanup {
                 do {
                     try workDirectoryCleaner.removeWorkDirectory(at: temporaryWorkDirectoryURL)
                 } catch {
@@ -669,6 +761,59 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 plannedPublicationMappings: plannedPublicationMappings,
                 transformationRecords: transformationRecords,
                 wasCancelled: wasCancelled
+            )
+        }
+    }
+
+    public func viewHeaderAndAlignments(
+        in bamURL: URL,
+        temporaryWorkDirectoryURL: URL,
+        samtoolsVersion: String
+    ) async throws -> FullLengthONTMHCBAMViewResult {
+        let samtoolsURL = try executableURL(named: "samtools")
+        let outputURL = temporaryWorkDirectoryURL.appendingPathComponent(
+            "final-genotyping-evidence-view-\(UUID().uuidString).sam"
+        )
+        let runner = FullLengthONTMHCAlignmentProcessRunner(fileManager: fileManager)
+        let record = try await runner.execute(.init(
+            executableURL: samtoolsURL,
+            arguments: ["view", "-h", bamURL.standardizedFileURL.path],
+            inputs: [bamURL.standardizedFileURL],
+            outputs: [],
+            stdoutURL: outputURL,
+            workingDirectoryURL: temporaryWorkDirectoryURL,
+            logsDirectoryURL: temporaryWorkDirectoryURL.appendingPathComponent("logs", isDirectory: true),
+            toolVersion: samtoolsVersion,
+            temporaryRootURL: temporaryWorkDirectoryURL,
+            pathIdentityValidator: nil
+        ))
+        guard record.exitStatus == 0 else {
+            throw BuildFailure(
+                "samtools failed with exit status \(record.exitStatus): \(record.stderr)"
+            )
+        }
+        return FullLengthONTMHCBAMViewResult(
+            samText: try String(contentsOf: outputURL, encoding: .utf8),
+            commandRecord: record
+        )
+    }
+
+    public func cleanupTemporaryWorkDirectory(
+        for result: FullLengthONTMHCCohortAlignmentResult
+    ) -> FullLengthONTMHCCleanupDiagnostic? {
+        guard result.requiresTemporaryWorkDirectoryCleanup,
+              fileManager.fileExists(atPath: result.temporaryWorkDirectoryURL.path) else {
+            return nil
+        }
+        do {
+            try workDirectoryCleaner.removeWorkDirectory(at: result.temporaryWorkDirectoryURL)
+            return nil
+        } catch {
+            return FullLengthONTMHCCleanupDiagnostic(
+                kind: .temporaryWorkDirectory,
+                retainedDirectoryURL: result.temporaryWorkDirectoryURL,
+                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                publishedArtifactsRemainValid: true
             )
         }
     }
@@ -781,6 +926,21 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
     }
 
     private func executableURL(named name: String) throws -> URL {
+        let explicitlyResolvedURL: URL?
+        switch name {
+        case "minimap2":
+            explicitlyResolvedURL = minimap2ExecutableURL
+        case "samtools":
+            explicitlyResolvedURL = samtoolsExecutableURL
+        default:
+            explicitlyResolvedURL = nil
+        }
+        if let explicitlyResolvedURL {
+            guard fileManager.isExecutableFile(atPath: explicitlyResolvedURL.path) else {
+                throw BuildFailure("Executable '\(name)' is missing at \(explicitlyResolvedURL.path).")
+            }
+            return explicitlyResolvedURL
+        }
         if let executableDirectoryURL {
             let candidate = executableDirectoryURL.appendingPathComponent(name)
             guard fileManager.isExecutableFile(atPath: candidate.path) else {
