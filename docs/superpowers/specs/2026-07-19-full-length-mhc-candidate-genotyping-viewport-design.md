@@ -27,6 +27,7 @@ Excel remains a required curation surface. The initial workbook and `current.xls
 - Preserve un-nameable clusters as explicit scientific artifacts.
 - Preserve legacy result-bundle behavior and avoid changing other Lungfish result surfaces.
 - Record complete reproducibility provenance for every new scientific artifact and transformation.
+- Keep candidate generation, BAM analysis, classification, and scientific export runnable and testable through `lungfish-cli`, independently of the GUI viewport.
 
 ### Non-goals
 
@@ -36,6 +37,7 @@ Excel remains a required curation surface. The initial workbook and `current.xls
 - Implementing the broader allele-curation and reference-promotion system described by earlier MHC curation designs.
 - Reprocessing existing `.lungfishgenotype` bundles in place. The new data may require a fresh full-length analysis.
 - Automatically modifying the reference library used by the analysis.
+- Performing candidate discovery, alignment parsing, or classification inside the GUI presentation layer.
 
 ## Terminology
 
@@ -76,6 +78,14 @@ The source relationships are:
 5. The annotation sidecar stores per-bundle display visibility and tint preferences; it does not alter candidate classification.
 
 The design uses JSON instead of a new SQLite database because candidate populations are cohort-sized, read-mostly, atomically published once per analysis, and directly compatible with the existing Codable result manifest. The annotated reference library remains in its existing SQLite record store. Candidate migration to SQLite is deferred until an interactive, large-scale curation workload requires transactions or indexed ad hoc queries.
+
+### CLI-first analytical boundary
+
+`lungfish-cli fastq full-length-ont-mhc-genotype` is the authoritative entry point for fresh exemplar analyses. Reusable scientific code remains in the workflow, I/O, and model layers so the CLI can generate every BAM, FASTA, JSON, CSV, and initial Excel artifact without launching the app.
+
+The GUI is a consumer of a completed `.lungfishgenotype` bundle. It loads the known-call CSV, candidate JSON/FASTA references, bundle manifest, annotation sidecar, and evidence locators. It must not remap sequences, parse BAM alignments to rediscover candidates, choose closest references, or independently reclassify `_nov`, `_ext`, or un-nameable records. This keeps scientific generation and interpretation testable headlessly while limiting viewport work to projection, filtering, tinting, evidence navigation, and the explicit `current.xlsx` refresh.
+
+Any pure parser or classifier needed by both CLI tests and bundle validation belongs below the app target. The app may validate declared files and checksums, but it may not create a competing scientific interpretation of them.
 
 ## Durable Bundle Artifacts
 
@@ -471,18 +481,36 @@ No adjacent Lungfish feature or result surface is changed without separate user 
 
 ### Real-data validation
 
-Run a fresh debug-named analysis using the four source samples and annotated MHC reference recorded by:
+Run a fresh debug-named analysis through the debug `lungfish-cli` executable, not through GUI workflow controls, using exactly these four sample bundles:
+
+```text
+/Volumes/iWES_WNPRC/32355/32355.lungfish/32355/CR1178.lungfishfastq
+/Volumes/iWES_WNPRC/32355/32355.lungfish/32355/CR1178b.lungfishfastq
+/Volumes/iWES_WNPRC/32355/32355.lungfish/32355/CR1182.lungfishfastq
+/Volumes/iWES_WNPRC/32355/32355.lungfish/32355/CR1182b.lungfishfastq
+```
+
+Use this annotated reference bundle:
+
+```text
+/Volumes/iWES_WNPRC/32355/32355.lungfish/Reference Sequences/IPD-MHC_NHKIR_classI_Mafa.lungfishref
+```
+
+The July 19 analysis provenance supplies the exemplar resolved options: 14 threads, 2,000-base minimum length, 4,000-base maximum length, SAVONT quality-value cutoff 90, SAVONT minimum cluster size 3, minimum unmatched reads 5, and cDNA threshold 2,000. The implementation plan must turn these into an explicit, copyable debug CLI command whose executable path and output path are resolved at execution time and whose provenance preserves the exact final argv.
+
+Write the validation result to a separate debug-named bundle. Do not modify or overwrite this source comparison bundle:
 
 ```text
 /Volumes/iWES_WNPRC/32355/32355.lungfish/Analyses/Full-length ONT MHC genotyping results/2026-07-19.lungfishgenotype
 ```
 
-Write the validation result to a separate debug-named bundle. Do not modify or overwrite the July 19 bundle.
+Use the CLI output and retained evidence artifacts to refine and verify parsing/classification. Only after the headless output is scientifically coherent should **Lungfish Debug** open that same completed bundle to validate the viewport and explicit workbook-update behavior.
 
 Validate:
 
 - merged cohort BAM filtering by all four sample IDs;
 - reciprocal BAM and index integrity;
+- successful headless generation of all scientific and initial workbook artifacts before the GUI opens the bundle;
 - candidate/support counts against deduplicated unmatched sequence evidence;
 - representative `_nov` labels and SNP counts;
 - representative `_ext` labels with complete cDNA identity and intron-gap evidence;
