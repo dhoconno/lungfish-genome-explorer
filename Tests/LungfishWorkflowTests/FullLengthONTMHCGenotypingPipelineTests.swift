@@ -947,55 +947,55 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(closest.isReverse, true)
     }
 
-    func testClusterGenotyperTreatsZeroSNPIndelOnlyHitAsExtension() throws {
+    func testClusterGenotyperTreatsZeroSNPIndelOnlyGenomicHitAsExistingGenotype() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("full-length-ont-mhc-closest-extension-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("full-length-ont-mhc-zero-snp-indel-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let clusters = root.appendingPathComponent("clusters.fasta")
         let reference = root.appendingPathComponent("reference.fasta")
         try """
-        >ClusterExtension_ReadCount-11
+        >ClusterExisting_ReadCount-11
         ACGTACGTAA
         """.write(to: clusters, atomically: true, encoding: .utf8)
         try """
-        >Mamu-cDNA*001
-        ACGTACGT
+        >Mamu-A1*001
+        ACGTACGTA
         """.write(to: reference, atomically: true, encoding: .utf8)
         let sam = """
-        @SQ\tSN:ClusterExtension_ReadCount-11\tLN:10
-        Mamu-cDNA*001\t0\tClusterExtension_ReadCount-11\t1\t60\t8=2I\t*\t0\t0\tACGTACGTAA\t*
+        @SQ\tSN:ClusterExisting_ReadCount-11\tLN:10
+        Mamu-A1*001\t0\tClusterExisting_ReadCount-11\t1\t60\t4=2I4=1D\t*\t0\t0\tACGTACGTAA\t*
         """
+
+        let metrics = try FullLengthONTMHCSAMMetrics(cigar: "4=2I4=1D", nm: nil)
+        XCTAssertEqual(metrics.snps, 0)
 
         let summary = try FullLengthONTMHCClusterGenotyper.genotypeSummary(
             sampleID: "DL48",
             clustersFASTAURL: clusters,
             referenceFASTAURL: reference,
             samText: sam,
-            cdnaThreshold: 2_000,
+            cdnaThreshold: 5,
             minUnmatchedReads: 5
         )
 
-        XCTAssertEqual(summary.rows, [])
-        XCTAssertEqual(summary.unmatchedClusters.map(\.name), ["ClusterExtension_ReadCount-11"])
-        XCTAssertEqual(summary.closestMatches, [
-            FullLengthONTMHCClosestMatch(
+        XCTAssertEqual(summary.rows, [
+            FullLengthONTMHCClusterGenotypeRow(
                 sample: "DL48",
-                cluster: "ClusterExtension_ReadCount-11",
+                cluster: "ClusterExisting_ReadCount-11",
                 clusterReads: 11,
-                closestReference: "Mamu-cDNA*001",
-                matchClass: .extension,
-                closestMatchID: "Mamu-cDNA*001_extension",
-                nucleotidesDifferent: 0,
-                snpDifferences: 0,
-                indelBases: 2,
+                allele: "Mamu-A1*001",
+                alleleLength: 9,
                 alignedBases: 8,
-                score: -12,
-                trimStart: 1,
-                trimEnd: 8,
-                isReverse: false
+                score: -22
             ),
         ])
+        XCTAssertEqual(summary.unmatchedClusters, [])
+        XCTAssertEqual(summary.cdnaMatchedClusters, [])
+        XCTAssertEqual(summary.closestMatches, [])
+        XCTAssertFalse(summary.rows.map(\.allele).contains { allele in
+            allele.contains("_extension") || allele.contains("_ext") || allele.contains("_0nt_nov")
+        })
     }
 
     func testUnmatchedNormalizerTrimsAndReverseComplementsBeforeIDAssignment() {

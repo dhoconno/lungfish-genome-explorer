@@ -165,17 +165,20 @@ public enum FullLengthONTMHCClusterGenotyper {
             let cluster = fields[2]
             let cigar = fields[5]
             guard cluster != "*", flag & 4 == 0, cigar != "*", position > 0 else { continue }
-            let parsed = parseCIGAR(cigar)
-            guard parsed.targetSpan > 0 else { continue }
-            let score = parsed.matchedBases - 10 * parsed.indelBases - 100 * parsed.snps
+            let nm = fields.dropFirst(11)
+                .first { $0.hasPrefix("NM:i:") }
+                .flatMap { Int($0.dropFirst(5)) }
+            let metrics = try FullLengthONTMHCSAMMetrics(cigar: cigar, nm: nm)
+            guard metrics.referenceSpan > 0 else { continue }
+            let score = metrics.matches - 10 * metrics.nonIntronIndelBases - 100 * metrics.snps
             clusterHits[cluster, default: []].append(Hit(
                 allele: allele,
-                snps: parsed.snps,
-                matchedBases: parsed.matchedBases,
-                indelBases: parsed.indelBases,
+                snps: metrics.snps,
+                matchedBases: metrics.matches,
+                indelBases: metrics.nonIntronIndelBases,
                 score: score,
                 targetStart: position,
-                targetEnd: position + parsed.targetSpan - 1,
+                targetEnd: position + metrics.referenceSpan - 1,
                 isReverse: flag & 16 != 0
             ))
         }
@@ -186,9 +189,9 @@ public enum FullLengthONTMHCClusterGenotyper {
         var seen = Set<String>()
         for cluster in clusterHits.keys.sorted(by: localizedStandardLessThan) {
             guard let hits = clusterHits[cluster] else { continue }
-            let exactHits = hits.filter { $0.snps == 0 && $0.indelBases == 0 }
-            guard let bestScore = exactHits.map(\.score).max() else { continue }
-            for hit in exactHits where hit.score == bestScore {
+            let knownGenotypeHits = hits.filter { $0.snps == 0 }
+            guard let bestScore = knownGenotypeHits.map(\.score).max() else { continue }
+            for hit in knownGenotypeHits where hit.score == bestScore {
                 let key = "\(cluster)\u{0}\(hit.allele)"
                 guard seen.insert(key).inserted else { continue }
                 matchedClusters.insert(cluster)
@@ -312,43 +315,6 @@ public enum FullLengthONTMHCClusterGenotyper {
         let suffix = name[range.upperBound...]
         let digits = suffix.prefix(while: \.isNumber)
         return Int(digits) ?? 0
-    }
-
-    static func parseCIGAR(_ cigar: String) -> (snps: Int, matchedBases: Int, indelBases: Int, targetSpan: Int) {
-        var snps = 0
-        var matched = 0
-        var indels = 0
-        var targetSpan = 0
-        var number = ""
-        for character in cigar {
-            if character.isNumber {
-                number.append(character)
-                continue
-            }
-            guard let count = Int(number) else {
-                number = ""
-                continue
-            }
-            switch character {
-            case "X":
-                snps += count
-                targetSpan += count
-            case "=", "M":
-                matched += count
-                targetSpan += count
-            case "I", "D":
-                indels += count
-                if character == "D" {
-                    targetSpan += count
-                }
-            case "N":
-                targetSpan += count
-            default:
-                break
-            }
-            number = ""
-        }
-        return (snps, matched, indels, targetSpan)
     }
 
     private static func localizedStandardLessThan(_ lhs: String, _ rhs: String) -> Bool {
