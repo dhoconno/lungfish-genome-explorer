@@ -53,6 +53,8 @@ final class AppDebugLaunchConfigurationTests: XCTestCase {
         )
 
         XCTAssertTrue(script.contains("install -m 755 \"$CLI_SOURCE\" \"$MACOS_DIR/lungfish-cli\""))
+        XCTAssertTrue(script.contains("if [ ! -x \"$CLI_SOURCE\" ]; then"))
+        XCTAssertTrue(script.contains("Error: bundled CLI executable not found at $CLI_SOURCE"))
         XCTAssertTrue(script.contains("[ ! -x \"$MACOS_DIR/lungfish-cli\" ]"))
         XCTAssertTrue(script.contains("Error: bundled CLI executable not found"))
     }
