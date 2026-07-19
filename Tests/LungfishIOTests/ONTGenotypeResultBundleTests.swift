@@ -62,6 +62,46 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertNotNil(encodedObject["candidate_json"])
     }
 
+    func testRoundTripsManifestWithMHCCandidateArtifacts() throws {
+        let artifacts = ONTMHCCandidateArtifactManifest(
+            schemaVersion: 1,
+            genotypingEvidence: ONTMHCBAMArtifactPair(
+                bam: ONTMHCArtifactReference(
+                    path: "artifacts/candidates/genotyping-evidence.bam",
+                    sha256: String(repeating: "a", count: 64),
+                    sizeBytes: 12_345
+                ),
+                bai: ONTMHCArtifactReference(
+                    path: "artifacts/candidates/genotyping-evidence.bam.bai",
+                    sha256: String(repeating: "b", count: 64),
+                    sizeBytes: 678
+                )
+            ),
+            reciprocalEvidence: nil,
+            candidateJSON: nil,
+            candidateFASTA: nil,
+            unnameableJSON: nil,
+            unnameableFASTA: nil
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "candidates",
+            analysisName: "Candidates",
+            primaryWorkbookPath: "candidates.xlsx",
+            longSummaryCSVPath: "candidates-genotypes.csv",
+            sampleSummaryCSVPath: "candidates-samples.csv",
+            statsJSONPath: "candidates-stats.json",
+            provenancePath: "provenance.json",
+            mhcCandidateArtifacts: artifacts
+        )
+
+        let data = try JSONEncoder().encode(manifest)
+        let decoded = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+        let encodedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(decoded.mhcCandidateArtifacts, artifacts)
+        XCTAssertNotNil(encodedObject["mhcCandidateArtifacts"])
+    }
+
     func testLoadManifestRejectsDeclaredMHCBAMPairWithoutIndex() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
@@ -95,7 +135,15 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
         try data.write(to: ONTGenotypeResultBundle.manifestURL(in: bundleURL))
 
-        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadManifest(from: bundleURL))
+        do {
+            _ = try ONTGenotypeResultBundle.loadManifest(from: bundleURL)
+            XCTFail("Expected a declared BAM pair without bai to fail decoding")
+        } catch let DecodingError.keyNotFound(key, context) {
+            XCTAssertEqual(key.stringValue, "bai")
+            XCTAssertTrue(context.codingPath.contains { $0.stringValue == "genotyping_evidence" })
+        } catch {
+            XCTFail("Expected a missing bai decoding error, got \(error)")
+        }
     }
 
     func testWritesAndLoadsPrimaryWorkbookManifest() throws {
