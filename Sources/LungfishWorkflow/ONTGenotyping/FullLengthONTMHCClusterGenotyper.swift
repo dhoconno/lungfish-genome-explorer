@@ -128,7 +128,7 @@ public struct FullLengthONTMHCReportRow: Codable, Equatable, Sendable {
 }
 
 public enum FullLengthONTMHCClusterGenotyper {
-    private struct Hit {
+    struct Hit {
         let allele: String
         let snps: Int
         let matchedBases: Int
@@ -137,6 +137,167 @@ public enum FullLengthONTMHCClusterGenotyper {
         let targetStart: Int
         let targetEnd: Int
         let isReverse: Bool
+    }
+
+    struct StreamingAccumulator {
+        let sampleID: String
+        let clusterRecords: [FullLengthONTMHCClusterFASTARecord]
+        let referenceLengths: [String: Int]
+        let cdnaThreshold: Int
+        let minUnmatchedReads: Int
+
+        private var bestKnownScoreByCluster: [String: Int] = [:]
+        private var bestKnownHitsByCluster: [String: [String: Hit]] = [:]
+        private var closestHitByCluster: [String: Hit] = [:]
+
+        init(
+            sampleID: String,
+            clusterRecords: [FullLengthONTMHCClusterFASTARecord],
+            referenceLengths: [String: Int],
+            cdnaThreshold: Int,
+            minUnmatchedReads: Int
+        ) {
+            self.sampleID = sampleID
+            self.clusterRecords = clusterRecords
+            self.referenceLengths = referenceLengths
+            self.cdnaThreshold = cdnaThreshold
+            self.minUnmatchedReads = minUnmatchedReads
+        }
+
+        mutating func consume(
+            allele: String,
+            cluster: String,
+            flag: Int,
+            position: Int,
+            metrics: FullLengthONTMHCSAMMetrics
+        ) throws {
+            guard let alleleLength = referenceLengths[allele], alleleLength > 0 else {
+                throw StreamingAccumulatorError.unknownOrEmptyAllele(allele)
+            }
+            let score = try alignmentScore(for: metrics)
+            let targetOffset = try FullLengthONTMHCSAMMetrics.subtracting(
+                metrics.referenceSpan,
+                1,
+                metric: .targetEnd,
+                operation: .subtract
+            )
+            let targetEnd = try FullLengthONTMHCSAMMetrics.adding(
+                position,
+                targetOffset,
+                metric: .targetEnd,
+                operation: .add
+            )
+            let hit = Hit(
+                allele: allele,
+                snps: metrics.snps,
+                matchedBases: metrics.matches,
+                indelBases: metrics.nonIntronIndelBases,
+                score: score,
+                targetStart: position,
+                targetEnd: targetEnd,
+                isReverse: flag & 16 != 0
+            )
+
+            if let current = closestHitByCluster[cluster] {
+                if isBetterClosestHit(hit, than: current) {
+                    closestHitByCluster[cluster] = hit
+                }
+            } else {
+                closestHitByCluster[cluster] = hit
+            }
+
+            let isKnownGenotype = hit.snps == 0
+                && (hit.indelBases == 0 || alleleLength >= cdnaThreshold)
+            guard isKnownGenotype else { return }
+
+            if let currentBestScore = bestKnownScoreByCluster[cluster] {
+                if score > currentBestScore {
+                    bestKnownScoreByCluster[cluster] = score
+                    bestKnownHitsByCluster[cluster] = [allele: hit]
+                } else if score == currentBestScore,
+                          bestKnownHitsByCluster[cluster]?[allele] == nil {
+                    bestKnownHitsByCluster[cluster, default: [:]][allele] = hit
+                }
+            } else {
+                bestKnownScoreByCluster[cluster] = score
+                bestKnownHitsByCluster[cluster] = [allele: hit]
+            }
+        }
+
+        func summary() -> FullLengthONTMHCClusterGenotypingSummary {
+            let clusterRecordByName = Dictionary(
+                uniqueKeysWithValues: clusterRecords.map { ($0.name, $0) }
+            )
+            let matchedClusters = Set(bestKnownHitsByCluster.keys)
+            var cdnaClusters = Set<String>()
+            var rows: [FullLengthONTMHCClusterGenotypeRow] = []
+
+            for cluster in bestKnownHitsByCluster.keys.sorted(by: localizedStandardLessThan) {
+                guard let hitsByAllele = bestKnownHitsByCluster[cluster] else { continue }
+                for hit in hitsByAllele.values {
+                    guard let alleleLength = referenceLengths[hit.allele], alleleLength > 0 else {
+                        continue
+                    }
+                    if alleleLength < cdnaThreshold {
+                        cdnaClusters.insert(cluster)
+                    }
+                    rows.append(FullLengthONTMHCClusterGenotypeRow(
+                        sample: sampleID,
+                        cluster: cluster,
+                        clusterReads: parseReadCount(cluster),
+                        allele: hit.allele,
+                        alleleLength: alleleLength,
+                        alignedBases: hit.matchedBases,
+                        score: hit.score
+                    ))
+                }
+            }
+
+            let unmatched = clusterRecords.filter {
+                !matchedClusters.contains($0.name) && $0.readCount >= minUnmatchedReads
+            }
+            let closestMatches = unmatched.compactMap { record in
+                closestHitByCluster[record.name].map {
+                    closestMatch(sampleID: sampleID, cluster: record, hit: $0)
+                }
+            }
+            let cdna = cdnaClusters.sorted(by: localizedStandardLessThan)
+                .compactMap { clusterRecordByName[$0] }
+
+            return FullLengthONTMHCClusterGenotypingSummary(
+                rows: rows.sorted {
+                    if $0.sample != $1.sample {
+                        return $0.sample.localizedStandardCompare($1.sample) == .orderedAscending
+                    }
+                    if $0.cluster != $1.cluster {
+                        return $0.cluster.localizedStandardCompare($1.cluster) == .orderedAscending
+                    }
+                    return $0.allele.localizedStandardCompare($1.allele) == .orderedAscending
+                },
+                unmatchedClusters: unmatched,
+                cdnaMatchedClusters: cdna,
+                closestMatches: closestMatches.sorted {
+                    if $0.sample != $1.sample {
+                        return $0.sample.localizedStandardCompare($1.sample) == .orderedAscending
+                    }
+                    if $0.closestMatchID != $1.closestMatchID {
+                        return $0.closestMatchID.localizedStandardCompare($1.closestMatchID) == .orderedAscending
+                    }
+                    return $0.cluster.localizedStandardCompare($1.cluster) == .orderedAscending
+                }
+            )
+        }
+    }
+
+    enum StreamingAccumulatorError: Error, LocalizedError {
+        case unknownOrEmptyAllele(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unknownOrEmptyAllele(let allele):
+                return "Cannot genotype unknown or empty allele '\(allele)'."
+            }
+        }
     }
 
     public static func genotypeSummary(
@@ -273,6 +434,14 @@ public enum FullLengthONTMHCClusterGenotyper {
             if lhs.score != rhs.score { return lhs.score > rhs.score }
             return lhs.allele.localizedStandardCompare(rhs.allele) == .orderedAscending
         }.first
+    }
+
+    private static func isBetterClosestHit(_ candidate: Hit, than current: Hit) -> Bool {
+        if candidate.snps != current.snps { return candidate.snps < current.snps }
+        if candidate.indelBases != current.indelBases { return candidate.indelBases < current.indelBases }
+        if candidate.matchedBases != current.matchedBases { return candidate.matchedBases > current.matchedBases }
+        if candidate.score != current.score { return candidate.score > current.score }
+        return candidate.allele.localizedStandardCompare(current.allele) == .orderedAscending
     }
 
     private static func closestMatch(

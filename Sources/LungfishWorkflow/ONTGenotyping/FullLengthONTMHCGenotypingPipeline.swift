@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -513,10 +514,51 @@ private enum FullLengthONTMHCSavontSampleStatus: String, Sendable, Codable, Equa
     case handledSavontFailure = "handled-savont-failure"
 }
 
+enum FullLengthONTMHCMetadataPublicationEvent: Sendable, Equatable {
+    case runLockAcquired(lockURL: URL)
+    case provenanceWrittenBeforeManifestPublication(
+        stagedManifestURL: URL,
+        finalManifestURL: URL,
+        provenanceURL: URL
+    )
+}
+
+private struct FullLengthONTMHCSuccessManifestPublicationPlan: Sendable {
+    let stagedURL: URL
+    let finalURL: URL
+    let stagedDescriptor: ProvenanceFileDescriptor
+    let finalDescriptor: ProvenanceFileDescriptor
+    let startedAt: Date
+    let completedAt: Date
+
+    var provenanceStep: ProvenanceStep {
+        let argv = [
+            "lungfish-internal", "plan-success-manifest-publication",
+            "--mode", "create",
+            stagedURL.path,
+            finalURL.path,
+        ]
+        return ProvenanceStep(
+            toolName: "lungfish-internal plan-success-manifest-publication",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: argv,
+            durableReplayArgv: argv,
+            reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+            inputs: [stagedDescriptor],
+            outputs: [finalDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    }
+}
+
 public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private let nativeToolRunner: NativeToolRunner
     private let condaManager: CondaManager
     private let postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning
+    private let metadataPublicationObserver: @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void
 
     public init(
         nativeToolRunner: NativeToolRunner = .shared,
@@ -526,6 +568,19 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         self.nativeToolRunner = nativeToolRunner
         self.condaManager = condaManager
         self.postPublicationWorkDirectoryCleaner = postPublicationWorkDirectoryCleaner
+        self.metadataPublicationObserver = { _ in }
+    }
+
+    init(
+        nativeToolRunner: NativeToolRunner,
+        condaManager: CondaManager,
+        postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning,
+        metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void
+    ) {
+        self.nativeToolRunner = nativeToolRunner
+        self.condaManager = condaManager
+        self.postPublicationWorkDirectoryCleaner = postPublicationWorkDirectoryCleaner
+        self.metadataPublicationObserver = metadataPublicationObserver
     }
 
     public func run(
@@ -543,6 +598,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             requestedSampleJobs: request.sampleJobs,
             requestedSavontThreadsPerSample: request.savontThreadsPerSample
         )
+
+        let runLock = try DarwinFullLengthONTMHCRunLock.acquire(
+            outputDirectoryURL: request.outputDirectory
+        )
+        defer { runLock.release() }
+        try metadataPublicationObserver(.runLockAcquired(lockURL: runLock.lockURL))
 
         try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
         let workDirectory = request.outputDirectory.appendingPathComponent("workflow", isDirectory: true)
@@ -680,7 +741,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         let summariesBySample = try genotypeSummariesFromFinalCohortBAM(
             orderedResults: orderedResults,
-            samText: bamView.samText,
+            samURL: bamView.samURL,
+            cohortAlignmentResult: cohortAlignmentResult,
             referenceFASTAURL: referenceFASTAURL,
             request: request
         )
@@ -801,14 +863,17 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             cohortAlignmentResult,
             bundleDirectoryURL: request.outputDirectory
         )
-        let completedAt = Date()
+        let manifestCreatedAt = Date()
+        var manifestPublicationPlan: FullLengthONTMHCSuccessManifestPublicationPlan?
         do {
-            try writeManifest(
+            let plan = try stageManifest(
                 request: request,
                 workbookRevision: workbookCopy.revision,
                 evidenceArtifactPair: evidenceArtifactPair,
-                createdAt: completedAt
+                createdAt: manifestCreatedAt
             )
+            manifestPublicationPlan = plan
+            let provenanceCompletedAt = Date()
             try writeProvenance(
                 request: request,
                 referenceFASTAURL: referenceFASTAURL,
@@ -818,11 +883,23 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 steps: pipelineSteps,
                 cohortAlignmentResult: cohortAlignmentResult,
                 bamViewRecord: bamView.commandRecord,
+                manifestPublicationPlan: plan,
                 startedAt: startedAt,
-                completedAt: completedAt
+                completedAt: provenanceCompletedAt
             )
+            try metadataPublicationObserver(.provenanceWrittenBeforeManifestPublication(
+                stagedManifestURL: plan.stagedURL,
+                finalManifestURL: plan.finalURL,
+                provenanceURL: request.provenanceURL
+            ))
+            try Task.checkCancellation()
+            try publishSuccessManifest(plan)
+            manifestPublicationPlan = nil
         } catch {
-            try? removePublishedRunMetadata(request)
+            if let stagedURL = manifestPublicationPlan?.stagedURL,
+               FileManager.default.fileExists(atPath: stagedURL.path) {
+                try? FileManager.default.removeItem(at: stagedURL)
+            }
             throw error
         }
         var cleanupWarnings = cohortAlignmentResult.cleanupDiagnostics.map(cleanupWarning)
@@ -1132,87 +1209,29 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
 
     private func genotypeSummariesFromFinalCohortBAM(
         orderedResults: [FullLengthONTMHCSampleResult],
-        samText: String,
+        samURL: URL,
+        cohortAlignmentResult: FullLengthONTMHCCohortAlignmentResult,
         referenceFASTAURL: URL,
         request: FullLengthONTMHCGenotypingRunRequest
     ) throws -> [String: FullLengthONTMHCClusterGenotypingSummary] {
-        let knownSamples = Set(orderedResults.map(\.sample))
-        var readGroupSamples: [String: String] = [:]
-        var alignmentLinesBySample: [String: [String]] = [:]
-
-        for rawLine in samText.split(whereSeparator: \.isNewline).map(String.init) {
-            if rawLine.hasPrefix("@RG\t") {
-                let tags = rawLine.split(separator: "\t").dropFirst().reduce(into: [String: String]()) {
-                    values, field in
-                    let parts = field.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-                    guard parts.count == 2 else { return }
-                    values[String(parts[0])] = String(parts[1])
-                }
-                guard let readGroupID = tags["ID"],
-                      let sample = tags["SM"],
-                      knownSamples.contains(sample) else {
-                    throw FullLengthONTMHCGenotypingError.reportFailed(
-                        "Final cohort BAM contains an invalid or unknown @RG sample declaration."
-                    )
-                }
-                if let existing = readGroupSamples[readGroupID], existing != sample {
-                    throw FullLengthONTMHCGenotypingError.reportFailed(
-                        "Final cohort BAM reuses read group \(readGroupID) for multiple samples."
-                    )
-                }
-                readGroupSamples[readGroupID] = sample
-                continue
+        let readGroupBySample = Dictionary(
+            uniqueKeysWithValues: cohortAlignmentResult.sampleMappings.map {
+                ($0.sampleID, $0.readGroupID)
             }
-            guard !rawLine.hasPrefix("@") else { continue }
-            var fields = rawLine.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            guard fields.count >= 11 else { continue }
-            guard let flag = Int(fields[1]) else { continue }
-            if flag & 4 != 0 || fields[2] == "*" { continue }
-            let namespacedTarget = fields[2]
-            let targetParts = namespacedTarget.split(
-                separator: "|",
-                maxSplits: 1,
-                omittingEmptySubsequences: false
-            )
-            guard targetParts.count == 2 else {
-                throw FullLengthONTMHCGenotypingError.reportFailed(
-                    "Final cohort BAM target is not namespaced: \(namespacedTarget)."
+        )
+        return try FullLengthONTMHCFinalBAMParser().genotypeSummaries(
+            samURL: samURL,
+            referenceFASTAURL: referenceFASTAURL,
+            samples: orderedResults.map { result in
+                FullLengthONTMHCFinalBAMSampleContext(
+                    sampleID: result.sample,
+                    readGroupID: readGroupBySample[result.sample],
+                    clusterRecords: result.clusterRecords
                 )
-            }
-            let targetSample = String(targetParts[0])
-            let cluster = String(targetParts[1])
-            guard knownSamples.contains(targetSample), !cluster.isEmpty else {
-                throw FullLengthONTMHCGenotypingError.reportFailed(
-                    "Final cohort BAM target references an unknown sample: \(namespacedTarget)."
-                )
-            }
-            let readGroupIDs = fields.dropFirst(11).compactMap { field -> String? in
-                guard field.hasPrefix("RG:Z:") else { return nil }
-                return String(field.dropFirst(5))
-            }
-            guard readGroupIDs.count == 1,
-                  let readGroupID = readGroupIDs.first,
-                  let readGroupSample = readGroupSamples[readGroupID],
-                  readGroupSample == targetSample else {
-                throw FullLengthONTMHCGenotypingError.reportFailed(
-                    "Final cohort BAM alignment has missing or inconsistent RG/sample evidence for \(namespacedTarget)."
-                )
-            }
-            fields[2] = cluster
-            alignmentLinesBySample[targetSample, default: []].append(fields.joined(separator: "\t"))
-        }
-
-        return try Dictionary(uniqueKeysWithValues: orderedResults.map { result in
-            let summary = try FullLengthONTMHCClusterGenotyper.genotypeSummary(
-                sampleID: result.sample,
-                clustersFASTAURL: result.clustersFASTAURL,
-                referenceFASTAURL: referenceFASTAURL,
-                samText: alignmentLinesBySample[result.sample, default: []].joined(separator: "\n"),
-                cdnaThreshold: request.cdnaThreshold,
-                minUnmatchedReads: request.minUnmatchedReads
-            )
-            return (result.sample, summary)
-        })
+            },
+            cdnaThreshold: request.cdnaThreshold,
+            minUnmatchedReads: request.minUnmatchedReads
+        )
     }
 
     private func saveSampleCheckpoint(
@@ -2525,12 +2544,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         return FullLengthONTMHCWorkbookCopyResult(revision: revision, step: step)
     }
 
-    private func writeManifest(
+    private func stageManifest(
         request: FullLengthONTMHCGenotypingRunRequest,
         workbookRevision: ONTGenotypeWorkbookRevision,
         evidenceArtifactPair: ONTMHCBAMArtifactPair,
         createdAt: Date
-    ) throws {
+    ) throws -> FullLengthONTMHCSuccessManifestPublicationPlan {
+        let startedAt = Date()
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
         let manifest = ONTGenotypeResultBundleManifest(
             kind: "full-length-ont-mhc-genotype",
@@ -2563,7 +2583,65 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 unnameableFASTA: nil
             )
         )
-        try ONTGenotypeResultBundle.writeManifest(manifest, to: request.outputDirectory)
+        let stagedURL = request.outputDirectory.appendingPathComponent(
+            ".\(ONTGenotypeResultBundleManifest.filename).staging-\(UUID().uuidString)"
+        ).standardizedFileURL
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(manifest).write(to: stagedURL, options: .atomic)
+        let checksum = try ProvenanceFileHasher.sha256(of: stagedURL)
+        let fileSize = try ProvenanceFileHasher.fileSize(of: stagedURL)
+        let finalURL = request.manifestURL.standardizedFileURL
+        let stagedDescriptor = ProvenanceFileDescriptor(
+            path: stagedURL.path,
+            checksumSHA256: checksum,
+            fileSize: fileSize,
+            format: .json,
+            role: .input
+        )
+        let finalDescriptor = ProvenanceFileDescriptor(
+            path: finalURL.path,
+            checksumSHA256: checksum,
+            fileSize: fileSize,
+            format: .json,
+            role: .output,
+            originPath: stagedURL.path
+        )
+        return FullLengthONTMHCSuccessManifestPublicationPlan(
+            stagedURL: stagedURL,
+            finalURL: finalURL,
+            stagedDescriptor: stagedDescriptor,
+            finalDescriptor: finalDescriptor,
+            startedAt: startedAt,
+            completedAt: Date()
+        )
+    }
+
+    private func publishSuccessManifest(
+        _ plan: FullLengthONTMHCSuccessManifestPublicationPlan
+    ) throws {
+        guard !FileManager.default.fileExists(atPath: plan.finalURL.path) else {
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Success manifest destination unexpectedly exists before last-step publication: \(plan.finalURL.path)"
+            )
+        }
+        guard try ProvenanceFileHasher.sha256(of: plan.stagedURL) == plan.stagedDescriptor.checksumSHA256,
+              try ProvenanceFileHasher.fileSize(of: plan.stagedURL) == plan.stagedDescriptor.fileSize else {
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Staged success manifest no longer matches its provenance descriptor."
+            )
+        }
+        let status = plan.stagedURL.path.withCString { stagedPath in
+            plan.finalURL.path.withCString { finalPath in
+                renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, UInt32(RENAME_EXCL))
+            }
+        }
+        guard status == 0 else {
+            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Could not atomically publish success manifest last: \(POSIXError(code).localizedDescription)"
+            )
+        }
     }
 
     private func validatedEvidenceArtifactPair(
@@ -2612,13 +2690,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     }
 
     private func invalidatePublishedRunMetadata(_ request: FullLengthONTMHCGenotypingRunRequest) throws {
-        try removePublishedRunMetadata(request)
-    }
-
-    private func removePublishedRunMetadata(_ request: FullLengthONTMHCGenotypingRunRequest) throws {
-        for url in [request.manifestURL, request.provenanceURL]
-            where FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
+        if FileManager.default.fileExists(atPath: request.manifestURL.path) {
+            try FileManager.default.removeItem(at: request.manifestURL)
         }
     }
 
@@ -2631,6 +2704,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         steps: [FullLengthONTMHCProvenanceStep],
         cohortAlignmentResult: FullLengthONTMHCCohortAlignmentResult,
         bamViewRecord: FullLengthONTMHCCohortAlignmentCommandRecord,
+        manifestPublicationPlan: FullLengthONTMHCSuccessManifestPublicationPlan,
         startedAt: Date,
         completedAt: Date
     ) throws {
@@ -2780,7 +2854,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         .output(request.statsJSONURL, format: .json, role: .report)
         .output(request.workbookURL, format: .unknown, role: .report)
         .output(request.currentWorkbookURL, format: .unknown, role: .report)
-        .output(request.manifestURL, format: .json, role: .output)
+        .relocatedOutput(manifestPublicationPlan.finalDescriptor)
         .output(request.unmatchedClustersFASTAURL, format: .fasta, role: .output)
         .output(request.deduplicatedUnmatchedClustersFASTAURL, format: .fasta, role: .output)
         .output(request.cdnaClustersFASTAURL, format: .fasta, role: .output)
@@ -2802,6 +2876,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             cohortAlignmentResult,
             bamViewRecord: bamViewRecord
         )
+        allProvenanceSteps.append(manifestPublicationPlan.provenanceStep)
         allProvenanceSteps.sort {
             ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast)
         }
@@ -2844,34 +2919,32 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 completedAt: transformation.completedAt
             ))
         }
-        if let firstMapping = result.publicationMappings.first,
-           let finalDirectory = result.publicationMappings.first?.finalDescriptor.path {
-            let stagedDirectory = URL(fileURLWithPath: firstMapping.stagedDescriptor.path)
-                .deletingLastPathComponent().path
-            let destinationDirectory = URL(fileURLWithPath: finalDirectory)
-                .deletingLastPathComponent().path
-            let completedAt = result.commandRecords.last?.completedAt ?? Date()
-            steps.append(ProvenanceStep(
-                toolName: "lungfish-in-process:publish-mhc-cohort-evidence",
-                toolVersion: WorkflowRun.currentAppVersion,
-                argv: [
-                    "lungfish-in-process", "publish-mhc-cohort-evidence",
-                    "--atomic-directory-exchange",
-                    stagedDirectory,
-                    destinationDirectory,
-                ],
-                inputs: result.publicationMappings.map {
-                    provenanceDescriptor($0.stagedDescriptor, forcedRole: .input)
-                },
-                outputs: result.publicationMappings.map {
-                    provenanceDescriptor($0.finalDescriptor, forcedRole: $0.finalDescriptor.role == .evidenceBAI ? .index : .output)
-                },
-                exitStatus: 0,
-                wallTimeSeconds: 0,
-                startedAt: completedAt,
-                completedAt: completedAt
-            ))
+        guard let publication = result.publicationRecord else {
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Cohort alignment publication completed without its actual atomic publication record."
+            )
         }
+        steps.append(ProvenanceStep(
+            toolName: publication.toolName,
+            toolVersion: publication.toolVersion,
+            argv: publication.argv,
+            durableReplayArgv: publication.argv,
+            reproducibleCommand: publication.argv.map(shellEscape).joined(separator: " "),
+            inputs: result.publicationMappings.map {
+                provenanceDescriptor($0.stagedDescriptor, forcedRole: .input)
+            },
+            outputs: result.publicationMappings.map {
+                provenanceDescriptor(
+                    $0.finalDescriptor,
+                    forcedRole: $0.finalDescriptor.role == .evidenceBAI ? .index : .output
+                )
+            },
+            exitStatus: Int(publication.exitStatus),
+            wallTimeSeconds: publication.wallTime,
+            stderr: publication.errorMessage,
+            startedAt: publication.startedAt,
+            completedAt: publication.completedAt
+        ))
         return steps
     }
 

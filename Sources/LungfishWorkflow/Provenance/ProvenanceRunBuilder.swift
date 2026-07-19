@@ -34,6 +34,7 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
     case invalidTimeRange(String)
     case incompleteFileDescriptor(String)
     case localDescriptorRequiresURL(String)
+    case invalidRelocatedFileDescriptor(String)
 
     public var errorDescription: String? {
         switch self {
@@ -51,6 +52,8 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
             return "Successful provenance file descriptor is missing checksum or file size: \(path)"
         case .localDescriptorRequiresURL(let path):
             return "Local provenance file descriptor must be added from a URL so checksum and size are computed from disk: \(path)"
+        case .invalidRelocatedFileDescriptor(let path):
+            return "Relocated provenance output does not match its staged origin file: \(path)"
         }
     }
 }
@@ -173,6 +176,14 @@ public struct ProvenanceRunBuilder: Sendable {
         return replacing(outputs: outputs + [descriptor])
     }
 
+    /// Adds a local output that will be atomically relocated from the descriptor's
+    /// `originPath` after provenance is written. The origin must exist and match
+    /// the descriptor's recorded checksum and size at the time it is added.
+    public func relocatedOutput(_ descriptor: ProvenanceFileDescriptor) throws -> Self {
+        try validateRelocatedOutputDescriptor(descriptor)
+        return replacing(outputs: outputs + [descriptor])
+    }
+
     public func runtime(_ runtimeIdentity: ProvenanceRuntimeIdentity) -> Self {
         replacing(runtimeIdentity: runtimeIdentity)
     }
@@ -278,6 +289,29 @@ public struct ProvenanceRunBuilder: Sendable {
         }
 
         throw ProvenanceBuilderError.localDescriptorRequiresURL(descriptor.path)
+    }
+
+    private func validateRelocatedOutputDescriptor(_ descriptor: ProvenanceFileDescriptor) throws {
+        guard !descriptor.path.isEmpty,
+              !descriptor.path.contains("://"),
+              let originPath = descriptor.originPath,
+              !originPath.isEmpty,
+              !originPath.contains("://"),
+              let checksum = descriptor.checksumSHA256,
+              let fileSize = descriptor.fileSize else {
+            throw ProvenanceBuilderError.invalidRelocatedFileDescriptor(descriptor.path)
+        }
+
+        let originURL = URL(fileURLWithPath: originPath)
+        do {
+            guard FileManager.default.fileExists(atPath: originURL.path),
+                  try ProvenanceFileHasher.sha256(of: originURL) == checksum,
+                  try ProvenanceFileHasher.fileSize(of: originURL) == fileSize else {
+                throw ProvenanceBuilderError.invalidRelocatedFileDescriptor(descriptor.path)
+            }
+        } catch {
+            throw ProvenanceBuilderError.invalidRelocatedFileDescriptor(descriptor.path)
+        }
     }
 
     private func primaryOutput() -> ProvenanceFileDescriptor? {

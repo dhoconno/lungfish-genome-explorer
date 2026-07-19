@@ -227,6 +227,68 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         XCTAssertEqual(transformation.outputs.first?.path, result.sampleMappings[0].namespacedClustersFASTAURL.path)
     }
 
+    func testPublicationRecordCapturesActualCreateAndReplaceAtomicOperations() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let created = try await fixture.build(samples: [fixture.sample("S1", clusters: ["c1"])])
+        let createRecord = try XCTUnwrap(created.publicationRecord)
+
+        XCTAssertEqual(createRecord.mode, .create)
+        XCTAssertEqual(createRecord.argv, [
+            "lungfish-internal", "publish-alignment-directory",
+            "--mode", "create",
+            createRecord.sourceDirectoryURL.path,
+            createRecord.finalDirectoryURL.path,
+        ])
+        XCTAssertEqual(createRecord.finalDirectoryURL, created.bamURL.deletingLastPathComponent())
+        XCTAssertEqual(createRecord.exitStatus, 0)
+        XCTAssertNil(createRecord.errorMessage)
+        XCTAssertEqual(
+            createRecord.wallTime,
+            createRecord.completedAt.timeIntervalSince(createRecord.startedAt),
+            accuracy: 0.000_001
+        )
+
+        try Data().write(to: fixture.toolsURL.appendingPathComponent("allow-existing-final"))
+        let replaced = try await fixture.build(samples: [fixture.sample("S1", clusters: ["c1"])])
+        let replaceRecord = try XCTUnwrap(replaced.publicationRecord)
+
+        XCTAssertEqual(replaceRecord.mode, .replace)
+        XCTAssertEqual(replaceRecord.argv[0...3], [
+            "lungfish-internal", "publish-alignment-directory", "--mode", "replace",
+        ])
+        XCTAssertEqual(replaceRecord.exitStatus, 0)
+        XCTAssertNil(replaceRecord.errorMessage)
+    }
+
+    func testFailedAtomicPublicationRetainsActualFailedRecord() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "failed-mhc-publication-record-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let missingSource = root.appendingPathComponent("missing", isDirectory: true)
+        let final = root.appendingPathComponent("final", isDirectory: true)
+
+        XCTAssertThrowsError(
+            try DarwinAtomicAlignmentDirectoryPublisher().publish(
+                stagedDirectoryURL: missingSource,
+                finalDirectoryURL: final
+            )
+        ) { error in
+            guard let failure = error as? FullLengthONTMHCAlignmentDirectoryPublicationError else {
+                return XCTFail("Expected typed publication failure, got \(error)")
+            }
+            XCTAssertEqual(failure.record.mode, .create)
+            XCTAssertEqual(failure.record.exitStatus, -1)
+            XCTAssertNotNil(failure.record.errorMessage)
+            XCTAssertEqual(failure.record.sourceDirectoryURL, missingSource.standardizedFileURL)
+            XCTAssertEqual(failure.record.finalDirectoryURL, final.standardizedFileURL)
+        }
+    }
+
     func testFinalDescriptorsArePreparedBeforeAtomicExchangeWithoutPostPublicationReads() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -269,7 +331,13 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         )
 
         XCTAssertTrue(boundary.publishObservedCompleteMetadata)
-        XCTAssertEqual(boundary.precomputedResult, result)
+        let precomputedResult = try XCTUnwrap(boundary.precomputedResult)
+        XCTAssertNil(precomputedResult.publicationRecord)
+        XCTAssertNotNil(result.publicationRecord)
+        XCTAssertEqual(precomputedResult.bamURL, result.bamURL)
+        XCTAssertEqual(precomputedResult.baiURL, result.baiURL)
+        XCTAssertEqual(precomputedResult.finalArtifactDescriptors, result.finalArtifactDescriptors)
+        XCTAssertEqual(precomputedResult.publicationMappings, result.publicationMappings)
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.bamURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.baiURL.path))
     }
@@ -476,6 +544,13 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
             atPath: publicationDiagnostics!.appendingPathComponent("genotyping-evidence.bam.bai").path
         ))
         let retainedFailure = try XCTUnwrap(failure)
+        let failedPublication = try XCTUnwrap(retainedFailure.publicationRecord)
+        XCTAssertEqual(failedPublication.mode, .replace)
+        XCTAssertEqual(failedPublication.exitStatus, -1)
+        XCTAssertEqual(Array(failedPublication.argv.prefix(4)), [
+            "lungfish-internal", "publish-alignment-directory", "--mode", "replace",
+        ])
+        XCTAssertNotNil(failedPublication.errorMessage)
         XCTAssertFalse(retainedFailure.artifactDescriptors.contains { $0.phase == .final })
         XCTAssertEqual(retainedFailure.plannedPublicationMappings.count, 2)
         XCTAssertTrue(retainedFailure.plannedPublicationMappings.allSatisfy {
@@ -629,6 +704,34 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: retained?.path ?? ""))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalBAMURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.finalBAIURL.path))
+    }
+
+    func testCancelledFinalBAMViewDoesNotAcceptCancelledCommandRecord() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let result = try await fixture.build(
+            samples: [fixture.sample("S1", clusters: ["c1"])],
+            keepIntermediates: true
+        )
+        try fixture.setSleepingCommand(command: "final-view")
+        let builder = FullLengthONTMHCCohortAlignmentBuilder(executableDirectoryURL: fixture.toolsURL)
+        let viewTask = Task {
+            try await builder.viewHeaderAndAlignments(
+                in: result.bamURL,
+                temporaryWorkDirectoryURL: result.temporaryWorkDirectoryURL,
+                samtoolsVersion: "samtools 1.21-fake"
+            )
+        }
+        let childPIDURL = fixture.toolsURL.appendingPathComponent("sleeping-child.pid")
+        try await waitForFile(childPIDURL)
+        viewTask.cancel()
+
+        do {
+            _ = try await viewTask.value
+            XCTFail("Expected final BAM view cancellation")
+        } catch is CancellationError {
+            // Expected: a command record marked cancelled must never be accepted as SAM evidence.
+        }
     }
 
     func testUnsafeDeclaredOutputRetainsCompletedCommandRecordAndDescriptorCaptureError() async throws {
@@ -1022,7 +1125,9 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
     for arg in "$@"; do printf '\t%s' "$arg" >> "$tool_dir/commands.log"; done
     printf '\n' >> "$tool_dir/commands.log"
     command=$1
-    if [ -f "$tool_dir/sleep-command" ] && [ "$(cat "$tool_dir/sleep-command")" = "$command" ]; then
+    sleep_selector=''
+    [ -f "$tool_dir/sleep-command" ] && sleep_selector=$(cat "$tool_dir/sleep-command")
+    if [ "$sleep_selector" = "$command" ] || { [ "$sleep_selector" = "final-view" ] && [ "$command" = "view" ] && [ "${2:-}" = "-h" ]; }; then
       printf '%s\n' "$$" > "$tool_dir/sleeping-child.pid"
       exec /bin/sleep 30
     fi
@@ -1041,6 +1146,10 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
     shift
     case "$command" in
       view)
+        if [ "$1" = "-h" ]; then
+          cat "$2"
+          exit 0
+        fi
         [ "$1" = "-b" ] && shift
         [ "$1" = "-o" ] || exit 90
         output=$2; input=$3

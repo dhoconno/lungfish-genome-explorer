@@ -471,6 +471,24 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(viewStep.inputs.map(\.path), [evidenceBAMURL.path])
         XCTAssertEqual(viewStep.argv.last, evidenceBAMURL.path)
         XCTAssertEqual(viewStep.toolVersion, "samtools 1.21-fake")
+        let publicationStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-internal publish-alignment-directory"
+        })
+        XCTAssertEqual(Array(publicationStep.argv.prefix(4)), [
+            "lungfish-internal", "publish-alignment-directory", "--mode", "create",
+        ])
+        XCTAssertTrue(publicationStep.argv[4].contains(".alignments-replacement-"))
+        XCTAssertEqual(publicationStep.argv[5], evidenceBAMURL.deletingLastPathComponent().path)
+        XCTAssertEqual(publicationStep.exitStatus, 0)
+        XCTAssertEqual(publicationStep.inputs.count, 2)
+        XCTAssertEqual(publicationStep.outputs.map(\.path).sorted(), [
+            evidenceBAIURL.path,
+            evidenceBAMURL.path,
+        ].sorted())
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(publicationStep.wallTimeSeconds), 0)
+        XCTAssertNotNil(publicationStep.startedAt)
+        XCTAssertNotNil(publicationStep.completedAt)
+        XCTAssertFalse(publicationStep.argv.contains("--atomic-directory-exchange"))
         XCTAssertTrue(envelope.outputs.contains { $0.path == evidenceBAMURL.path })
         XCTAssertTrue(envelope.outputs.contains { $0.path == evidenceBAIURL.path })
         XCTAssertFalse(
@@ -686,6 +704,125 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(retainedBAMs.isEmpty, "Final-view failure must retain per-sample BAM diagnostics.")
     }
 
+    func testInjectedFailureAfterProvenanceLeavesNoVisibleSuccessManifest() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-manifest-crash-window-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let observation = MetadataPublicationObservation(failAfterProvenance: true)
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: observation.observe
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected injected metadata publication failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("injected post-provenance failure"), error.localizedDescription)
+        }
+
+        XCTAssertTrue(observation.observedProvenanceBoundary)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.manifestURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.provenanceURL.path))
+        let stagedManifestURL = try XCTUnwrap(observation.stagedManifestURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedManifestURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: request.outputDirectory.appendingPathComponent("artifacts/alignments/genotyping-evidence.bam").path
+        ))
+    }
+
+    func testConcurrentSameOutputRunIsRejectedBeforeTouchingPriorResult() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-run-lock-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gate = RunLockBoundaryGate()
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: gate.observe
+        )
+        try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
+        let priorManifest = Data("prior-manifest".utf8)
+        let priorProvenance = Data("prior-provenance".utf8)
+        let priorReport = Data("prior-report".utf8)
+        try priorManifest.write(to: request.manifestURL)
+        try priorProvenance.write(to: request.provenanceURL)
+        try priorReport.write(to: request.reportCSVURL)
+
+        let firstRun = Task {
+            try await pipeline.run(request)
+        }
+        XCTAssertEqual(gate.waitUntilLockAcquired(), .success)
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected competing same-output run to be rejected")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("run lock is already held"), error.localizedDescription)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: request.manifestURL), priorManifest)
+        XCTAssertEqual(try Data(contentsOf: request.provenanceURL), priorProvenance)
+        XCTAssertEqual(try Data(contentsOf: request.reportCSVURL), priorReport)
+        gate.releaseFirstRun()
+        do {
+            _ = try await firstRun.value
+            XCTFail("Expected gated first run to stop before mutation")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("injected stop after run lock"), error.localizedDescription)
+        }
+    }
+
+    func testManifestIsPublishedLastAndProvenanceMapsUniqueStagingDescriptorToFinalPath() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-manifest-last-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let observation = MetadataPublicationObservation(failAfterProvenance: false)
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: observation.observe
+        )
+
+        let result = try await pipeline.run(request)
+
+        XCTAssertTrue(observation.observedProvenanceBoundary)
+        XCTAssertTrue(observation.manifestWasAbsentAtProvenanceBoundary)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.manifestURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.provenanceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.genotypingEvidenceBAMURL!.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.genotypingEvidenceBAIURL!.path))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        let mappingStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-internal plan-success-manifest-publication"
+        })
+        let staged = try XCTUnwrap(mappingStep.inputs.first)
+        let published = try XCTUnwrap(mappingStep.outputs.first)
+        XCTAssertTrue(staged.path.contains(".genotype-result.json.staging-"))
+        XCTAssertEqual(published.path, request.manifestURL.path)
+        XCTAssertEqual(staged.checksumSHA256, published.checksumSHA256)
+        XCTAssertEqual(staged.fileSize, published.fileSize)
+        XCTAssertEqual(published.checksumSHA256, try ProvenanceFileHasher.sha256(of: request.manifestURL))
+        XCTAssertEqual(published.fileSize, try ProvenanceFileHasher.fileSize(of: request.manifestURL))
+
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: request.outputDirectory)
+        for relativePath in [
+            manifest.primaryWorkbookPath,
+            manifest.currentWorkbookPath,
+            manifest.longSummaryCSVPath,
+            manifest.sampleSummaryCSVPath,
+            manifest.statsJSONPath,
+            manifest.provenancePath,
+            manifest.mhcCandidateArtifacts?.genotypingEvidence?.bam.path,
+            manifest.mhcCandidateArtifacts?.genotypingEvidence?.bai.path,
+        ].compactMap({ $0 }) {
+            XCTAssertTrue(
+                FileManager.default.fileExists(
+                    atPath: request.outputDirectory.appendingPathComponent(relativePath).path
+                ),
+                "Manifest published before referenced output existed: \(relativePath)"
+            )
+        }
+    }
+
     func testPostPublicationWorkflowCleanupFailureReturnsSuccessWithRetainedPathWarning() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-workflow-cleanup-failure-\(UUID().uuidString)", isDirectory: true)
@@ -830,7 +967,11 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
           echo "minimap2 2.28"
           exit 0
         fi
-        printf '@SQ\tSN:final_consensus_0_depth_7_ReadCount-7\tLN:8\n'
+        previous=""
+        current=""
+        for arg in "$@"; do previous="$current"; current="$arg"; done
+        target=$(awk '/^>/{sub(/^>/, ""); print $1; exit}' "$previous")
+        printf '@SQ\tSN:%s\tLN:8\n' "$target"
         """#
         let blastnScript = #"""
         #!/bin/sh
@@ -1951,7 +2092,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         minimap2Script: String? = nil,
         blastnScript: String? = nil,
         failFinalBAMView: Bool = false,
-        postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner()
+        postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
+        metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void = { _ in }
     ) throws -> (
         FullLengthONTMHCGenotypingRunRequest,
         FullLengthONTMHCGenotypingPipeline
@@ -1991,7 +2133,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 bundledMicromambaProvider: { bundledMicromamba },
                 bundledMicromambaVersionProvider: { "test-micromamba" }
             ),
-            postPublicationWorkDirectoryCleaner: postPublicationWorkDirectoryCleaner
+            postPublicationWorkDirectoryCleaner: postPublicationWorkDirectoryCleaner,
+            metadataPublicationObserver: metadataPublicationObserver
         )
         return (request, pipeline)
     }
@@ -2328,5 +2471,74 @@ private struct SelectiveFailingPostPublicationCleaner: FullLengthONTMHCWorkDirec
     private struct InjectedPostPublicationCleanupFailure: Error, LocalizedError {
         let label: String
         var errorDescription: String? { "injected \(label) cleanup failure" }
+    }
+}
+
+private final class MetadataPublicationObservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private let failAfterProvenance: Bool
+    private var didObserveProvenanceBoundary = false
+    private var manifestAbsentAtBoundary = false
+    private var capturedStagedManifestURL: URL?
+
+    init(failAfterProvenance: Bool) {
+        self.failAfterProvenance = failAfterProvenance
+    }
+
+    var observedProvenanceBoundary: Bool {
+        lock.withLock { didObserveProvenanceBoundary }
+    }
+
+    var manifestWasAbsentAtProvenanceBoundary: Bool {
+        lock.withLock { manifestAbsentAtBoundary }
+    }
+
+    var stagedManifestURL: URL? {
+        lock.withLock { capturedStagedManifestURL }
+    }
+
+    func observe(_ event: FullLengthONTMHCMetadataPublicationEvent) throws {
+        guard case .provenanceWrittenBeforeManifestPublication(
+            let stagedManifestURL,
+            let finalManifestURL,
+            let provenanceURL
+        ) = event else { return }
+        lock.withLock {
+            didObserveProvenanceBoundary = true
+            manifestAbsentAtBoundary = !FileManager.default.fileExists(atPath: finalManifestURL.path)
+                && FileManager.default.fileExists(atPath: provenanceURL.path)
+            capturedStagedManifestURL = stagedManifestURL
+        }
+        if failAfterProvenance {
+            throw InjectedMetadataPublicationFailure()
+        }
+    }
+
+    private struct InjectedMetadataPublicationFailure: Error, LocalizedError {
+        var errorDescription: String? { "injected post-provenance failure" }
+    }
+}
+
+private final class RunLockBoundaryGate: @unchecked Sendable {
+    private let acquired = DispatchSemaphore(value: 0)
+    private let release = DispatchSemaphore(value: 0)
+
+    func observe(_ event: FullLengthONTMHCMetadataPublicationEvent) throws {
+        guard case .runLockAcquired = event else { return }
+        acquired.signal()
+        release.wait()
+        throw InjectedRunLockStop()
+    }
+
+    func waitUntilLockAcquired() -> DispatchTimeoutResult {
+        acquired.wait(timeout: .now() + 10)
+    }
+
+    func releaseFirstRun() {
+        release.signal()
+    }
+
+    private struct InjectedRunLockStop: Error, LocalizedError {
+        var errorDescription: String? { "injected stop after run lock" }
     }
 }

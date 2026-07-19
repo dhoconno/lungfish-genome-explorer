@@ -362,6 +362,79 @@ struct ProvenanceBuilderTests {
         }
     }
 
+    @Test("Relocated output accepts a verified staging file while the final path is absent")
+    func relocatedOutputAcceptsVerifiedStagingFile() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stagedURL = directory.appendingPathComponent(".result.json.staging")
+        let finalURL = directory.appendingPathComponent("result.json")
+        try Data("{\"complete\":true}\n".utf8).write(to: stagedURL, options: .atomic)
+        let stagedDescriptor = try ProvenanceFileDescriptor.file(
+            url: stagedURL,
+            format: .json,
+            role: .input
+        )
+        let finalDescriptor = ProvenanceFileDescriptor(
+            path: finalURL.path,
+            checksumSHA256: stagedDescriptor.checksumSHA256,
+            fileSize: stagedDescriptor.fileSize,
+            format: .json,
+            role: .output,
+            originPath: stagedURL.path
+        )
+        let builder = ProvenanceRunBuilder(
+            workflowName: "atomic.publication",
+            workflowVersion: "2026.07",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.07"
+        )
+
+        #expect(throws: ProvenanceBuilderError.localDescriptorRequiresURL(finalURL.path)) {
+            _ = try builder.output(finalDescriptor)
+        }
+
+        let envelope = try builder
+            .argv(["lungfish-cli", "publish", stagedURL.path, finalURL.path])
+            .runtime(ProvenanceRuntimeIdentity.fixture())
+            .relocatedOutput(finalDescriptor)
+            .complete(
+                exitStatus: 0,
+                startedAt: Date(timeIntervalSince1970: 10),
+                endedAt: Date(timeIntervalSince1970: 11)
+            )
+
+        #expect(!FileManager.default.fileExists(atPath: finalURL.path))
+        #expect(envelope.output == finalDescriptor)
+        #expect(envelope.outputs == [finalDescriptor])
+    }
+
+    @Test("Relocated output rejects staging content that does not match its descriptor")
+    func relocatedOutputRejectsMismatchedStagingFile() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stagedURL = directory.appendingPathComponent(".result.json.staging")
+        let finalURL = directory.appendingPathComponent("result.json")
+        try Data("{\"complete\":false}\n".utf8).write(to: stagedURL, options: .atomic)
+        let finalDescriptor = ProvenanceFileDescriptor(
+            path: finalURL.path,
+            checksumSHA256: String(repeating: "0", count: 64),
+            fileSize: 20,
+            format: .json,
+            role: .output,
+            originPath: stagedURL.path
+        )
+        let builder = ProvenanceRunBuilder(
+            workflowName: "atomic.publication",
+            workflowVersion: "2026.07",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.07"
+        )
+
+        #expect(throws: ProvenanceBuilderError.invalidRelocatedFileDescriptor(finalURL.path)) {
+            _ = try builder.relocatedOutput(finalDescriptor)
+        }
+    }
+
     @Test("Successful hidden incomplete step output is rejected")
     func successfulHiddenIncompleteStepOutputIsRejected() throws {
         let directory = try makeTempDirectory()

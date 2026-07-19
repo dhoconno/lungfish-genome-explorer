@@ -109,6 +109,7 @@ public struct FullLengthONTMHCCohortAlignmentResult: Sendable, Equatable {
     public let finalArtifactDescriptors: [FullLengthONTMHCArtifactDescriptor]
     public let temporaryArtifactDescriptors: [FullLengthONTMHCArtifactDescriptor]
     public let publicationMappings: [FullLengthONTMHCArtifactPublicationMapping]
+    public private(set) var publicationRecord: FullLengthONTMHCAlignmentDirectoryPublicationRecord?
     public let transformationRecords: [FullLengthONTMHCInProcessTransformationRecord]
     public private(set) var cleanupDiagnostics: [FullLengthONTMHCCleanupDiagnostic]
     public let requiresTemporaryWorkDirectoryCleanup: Bool
@@ -122,10 +123,16 @@ public struct FullLengthONTMHCCohortAlignmentResult: Sendable, Equatable {
         self.publicationCleanupError = publicationCleanupError
         cleanupDiagnostics = diagnostics
     }
+
+    mutating func attachPublicationRecord(
+        _ record: FullLengthONTMHCAlignmentDirectoryPublicationRecord
+    ) {
+        publicationRecord = record
+    }
 }
 
 public struct FullLengthONTMHCBAMViewResult: Sendable, Equatable {
-    public let samText: String
+    public let samURL: URL
     public let commandRecord: FullLengthONTMHCCohortAlignmentCommandRecord
 }
 
@@ -139,6 +146,7 @@ public struct FullLengthONTMHCCohortAlignmentBuildError: Error, LocalizedError, 
     public let runtimeIdentity: ProvenanceRuntimeIdentity
     public let artifactDescriptors: [FullLengthONTMHCArtifactDescriptor]
     public let plannedPublicationMappings: [FullLengthONTMHCArtifactPublicationMapping]
+    public let publicationRecord: FullLengthONTMHCAlignmentDirectoryPublicationRecord?
     public let transformationRecords: [FullLengthONTMHCInProcessTransformationRecord]
     public let wasCancelled: Bool
 
@@ -147,9 +155,14 @@ public struct FullLengthONTMHCCohortAlignmentBuildError: Error, LocalizedError, 
 
 public struct FullLengthONTMHCAlignmentDirectoryPublication: Sendable, Equatable {
     public let retiredDirectoryURL: URL?
+    public let record: FullLengthONTMHCAlignmentDirectoryPublicationRecord
 
-    public init(retiredDirectoryURL: URL?) {
+    public init(
+        retiredDirectoryURL: URL?,
+        record: FullLengthONTMHCAlignmentDirectoryPublicationRecord
+    ) {
         self.retiredDirectoryURL = retiredDirectoryURL
+        self.record = record
     }
 }
 
@@ -187,19 +200,34 @@ public struct DarwinAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignment
         stagedDirectoryURL: URL,
         finalDirectoryURL: URL
     ) throws -> FullLengthONTMHCAlignmentDirectoryPublication {
-        let finalExists = FileManager.default.fileExists(atPath: finalDirectoryURL.path)
+        let sourceURL = stagedDirectoryURL.standardizedFileURL
+        let destinationURL = finalDirectoryURL.standardizedFileURL
+        let startedAt = Date()
+        let finalExists = FileManager.default.fileExists(atPath: destinationURL.path)
+        let mode: FullLengthONTMHCAlignmentDirectoryPublicationMode = finalExists ? .replace : .create
         let flags = UInt32(finalExists ? RENAME_SWAP : RENAME_EXCL)
-        let status = stagedDirectoryURL.path.withCString { stagedPath in
-            finalDirectoryURL.path.withCString { finalPath in
+        let status = sourceURL.path.withCString { stagedPath in
+            destinationURL.path.withCString { finalPath in
                 renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags)
             }
         }
+        let code = status == 0 ? nil : (POSIXErrorCode(rawValue: errno) ?? .EIO)
+        let completedAt = Date()
+        let record = FullLengthONTMHCAlignmentDirectoryPublicationRecord(
+            mode: mode,
+            sourceDirectoryURL: sourceURL,
+            finalDirectoryURL: destinationURL,
+            exitStatus: status,
+            errorMessage: code.map { POSIXError($0).localizedDescription },
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
         guard status == 0 else {
-            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
-            throw POSIXError(code)
+            throw FullLengthONTMHCAlignmentDirectoryPublicationError(record: record)
         }
         return FullLengthONTMHCAlignmentDirectoryPublication(
-            retiredDirectoryURL: finalExists ? stagedDirectoryURL : nil
+            retiredDirectoryURL: finalExists ? sourceURL : nil,
+            record: record
         )
     }
 }
@@ -284,6 +312,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         var artifactDescriptors: [FullLengthONTMHCArtifactDescriptor] = []
         var transformationRecords: [FullLengthONTMHCInProcessTransformationRecord] = []
         var plannedPublicationMappings: [FullLengthONTMHCArtifactPublicationMapping] = []
+        var publicationRecord: FullLengthONTMHCAlignmentDirectoryPublicationRecord?
         let runtimeIdentity = ProvenanceRuntimeIdentity()
 
         do {
@@ -677,6 +706,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 finalArtifactDescriptors: finalArtifactDescriptors,
                 temporaryArtifactDescriptors: temporaryArtifactDescriptors,
                 publicationMappings: publicationMappings,
+                publicationRecord: nil,
                 transformationRecords: transformationRecords,
                 cleanupDiagnostics: [],
                 requiresTemporaryWorkDirectoryCleanup: !request.keepIntermediates
@@ -688,11 +718,35 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             try Task.checkCancellation()
             try publicationPathIdentityValidator()
             try Task.checkCancellation()
-            let publication = try alignmentDirectoryPublisher.publish(
-                stagedDirectoryURL: stagingDirectoryURL,
-                finalDirectoryURL: alignmentDirectoryURL
-            )
+            let publicationStartedAt = Date()
+            let publicationMode: FullLengthONTMHCAlignmentDirectoryPublicationMode = fileManager
+                .fileExists(atPath: alignmentDirectoryURL.path) ? .replace : .create
+            let publication: FullLengthONTMHCAlignmentDirectoryPublication
+            do {
+                publication = try alignmentDirectoryPublisher.publish(
+                    stagedDirectoryURL: stagingDirectoryURL,
+                    finalDirectoryURL: alignmentDirectoryURL
+                )
+                publicationRecord = publication.record
+            } catch let error as FullLengthONTMHCAlignmentDirectoryPublicationError {
+                publicationRecord = error.record
+                throw error
+            } catch {
+                let record = FullLengthONTMHCAlignmentDirectoryPublicationRecord(
+                    mode: publicationMode,
+                    sourceDirectoryURL: stagingDirectoryURL,
+                    finalDirectoryURL: alignmentDirectoryURL,
+                    exitStatus: -1,
+                    errorMessage: (error as? LocalizedError)?.errorDescription
+                        ?? error.localizedDescription,
+                    startedAt: publicationStartedAt,
+                    completedAt: Date()
+                )
+                publicationRecord = record
+                throw FullLengthONTMHCAlignmentDirectoryPublicationError(record: record)
+            }
             publicationDirectoryURL = nil
+            precomputedResult.attachPublicationRecord(publication.record)
             var retainedPublicationDirectoryURL: URL?
             var publicationCleanupError: String?
             var cleanupDiagnostics: [FullLengthONTMHCCleanupDiagnostic] = []
@@ -759,6 +813,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 runtimeIdentity: runtimeIdentity,
                 artifactDescriptors: retainedArtifactDescriptors,
                 plannedPublicationMappings: plannedPublicationMappings,
+                publicationRecord: publicationRecord,
                 transformationRecords: transformationRecords,
                 wasCancelled: wasCancelled
             )
@@ -787,13 +842,18 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             temporaryRootURL: temporaryWorkDirectoryURL,
             pathIdentityValidator: nil
         ))
+        if record.wasCancelled {
+            throw CancellationError()
+        }
+        try Task.checkCancellation()
         guard record.exitStatus == 0 else {
             throw BuildFailure(
                 "samtools failed with exit status \(record.exitStatus): \(record.stderr)"
             )
         }
+        try Task.checkCancellation()
         return FullLengthONTMHCBAMViewResult(
-            samText: try String(contentsOf: outputURL, encoding: .utf8),
+            samURL: outputURL.standardizedFileURL,
             commandRecord: record
         )
     }
