@@ -847,6 +847,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         ])
         XCTAssertEqual(summary.unmatchedClusters.map(\.name), ["Cluster2_ReadCount-6"])
         XCTAssertEqual(summary.unmatchedClusters.map(\.readCount), [6])
+        XCTAssertEqual(summary.cdnaMatchedClusters.map(\.name), ["Cluster1_ReadCount-12"])
 
         let reportRows = FullLengthONTMHCClusterReportBuilder.reportRows(
             genotypeRows: summary.rows,
@@ -960,22 +961,24 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         """.write(to: clusters, atomically: true, encoding: .utf8)
         try """
         >Mamu-A1*001
-        ACGTACGTA
+        ACGTACGT
         """.write(to: reference, atomically: true, encoding: .utf8)
         let sam = """
         @SQ\tSN:ClusterExisting_ReadCount-11\tLN:10
-        Mamu-A1*001\t0\tClusterExisting_ReadCount-11\t1\t60\t4=2I4=1D\t*\t0\t0\tACGTACGTAA\t*
+        Mamu-A1*001\t0\tClusterExisting_ReadCount-11\t1\t60\t4=2D4=\t*\t0\t0\tACGTACGT\t*
         """
 
-        let metrics = try FullLengthONTMHCSAMMetrics(cigar: "4=2I4=1D", nm: nil)
+        let metrics = try FullLengthONTMHCSAMMetrics(cigar: "4=2D4=", nm: nil)
         XCTAssertEqual(metrics.snps, 0)
+        XCTAssertEqual(metrics.querySpan, 8)
+        XCTAssertEqual(metrics.referenceSpan, 10)
 
         let summary = try FullLengthONTMHCClusterGenotyper.genotypeSummary(
             sampleID: "DL48",
             clustersFASTAURL: clusters,
             referenceFASTAURL: reference,
             samText: sam,
-            cdnaThreshold: 5,
+            cdnaThreshold: 8,
             minUnmatchedReads: 5
         )
 
@@ -985,9 +988,9 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 cluster: "ClusterExisting_ReadCount-11",
                 clusterReads: 11,
                 allele: "Mamu-A1*001",
-                alleleLength: 9,
+                alleleLength: 8,
                 alignedBases: 8,
-                score: -22
+                score: -12
             ),
         ])
         XCTAssertEqual(summary.unmatchedClusters, [])
@@ -1015,7 +1018,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         """.write(to: reference, atomically: true, encoding: .utf8)
         let sam = """
         @SQ\tSN:ClusterCDNAExtension_ReadCount-11\tLN:10
-        Mamu-cDNA*001\t0\tClusterCDNAExtension_ReadCount-11\t1\t60\t8=2I\t*\t0\t0\tACGTACGTAA\t*
+        Mamu-cDNA*001\t0\tClusterCDNAExtension_ReadCount-11\t1\t60\t4=2D4=\t*\t0\t0\tACGTACGT\t*
         """
 
         let summary = try FullLengthONTMHCClusterGenotyper.genotypeSummary(
@@ -1030,6 +1033,104 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(summary.rows, [])
         XCTAssertEqual(summary.unmatchedClusters.map(\.name), ["ClusterCDNAExtension_ReadCount-11"])
         XCTAssertEqual(summary.cdnaMatchedClusters, [])
+    }
+
+    func testClusterGenotyperReconcilesProductionShapedMAndNM() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-m-nm-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let clusters = root.appendingPathComponent("clusters.fasta")
+        let reference = root.appendingPathComponent("reference.fasta")
+        try ">ClusterM_ReadCount-11\nACGTACGTAA\n".write(to: clusters, atomically: true, encoding: .utf8)
+        try ">Mamu-A1*001\nACGTACGT\n".write(to: reference, atomically: true, encoding: .utf8)
+        let sam = """
+        @SQ\tSN:ClusterM_ReadCount-11\tLN:10
+        Mamu-A1*001\t0\tClusterM_ReadCount-11\t1\t60\t8M2D\t*\t0\t0\tACGTACGT\t*\tNM:i:2
+        """
+
+        let summary = try FullLengthONTMHCClusterGenotyper.genotypeSummary(
+            sampleID: "DL48",
+            clustersFASTAURL: clusters,
+            referenceFASTAURL: reference,
+            samText: sam,
+            cdnaThreshold: 8,
+            minUnmatchedReads: 5
+        )
+
+        XCTAssertEqual(summary.rows.map(\.allele), ["Mamu-A1*001"])
+        XCTAssertEqual(summary.rows.map(\.score), [-12])
+        XCTAssertEqual(summary.unmatchedClusters, [])
+    }
+
+    func testClusterGenotyperRejectsMalformedNMTag() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-invalid-nm-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let clusters = root.appendingPathComponent("clusters.fasta")
+        let reference = root.appendingPathComponent("reference.fasta")
+        try ">ClusterM_ReadCount-11\nACGTACGTAA\n".write(to: clusters, atomically: true, encoding: .utf8)
+        try ">Mamu-A1*001\nACGTACGT\n".write(to: reference, atomically: true, encoding: .utf8)
+        let sam = """
+        Mamu-A1*001\t0\tClusterM_ReadCount-11\t1\t60\t8M2D\t*\t0\t0\tACGTACGT\t*\tNM:i:not-a-number
+        """
+
+        XCTAssertThrowsError(
+            try FullLengthONTMHCClusterGenotyper.genotypeSummary(
+                sampleID: "DL48",
+                clustersFASTAURL: clusters,
+                referenceFASTAURL: reference,
+                samText: sam
+            )
+        ) { error in
+            XCTAssertEqual(error as? FullLengthONTMHCSAMMetricsError, .invalidNM("not-a-number"))
+        }
+    }
+
+    func testClusterGenotyperRejectsScoreAndTargetEndOverflow() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-overflow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let clusters = root.appendingPathComponent("clusters.fasta")
+        let reference = root.appendingPathComponent("reference.fasta")
+        try ">ClusterOverflow_ReadCount-11\nAC\n".write(to: clusters, atomically: true, encoding: .utf8)
+        try ">Mamu-A1*001\nA\n".write(to: reference, atomically: true, encoding: .utf8)
+
+        let scoreOverflowSAM = """
+        Mamu-A1*001\t0\tClusterOverflow_ReadCount-11\t1\t60\t\(Int.max)X\t*\t0\t0\tA\t*
+        """
+        XCTAssertThrowsError(
+            try FullLengthONTMHCClusterGenotyper.genotypeSummary(
+                sampleID: "DL48",
+                clustersFASTAURL: clusters,
+                referenceFASTAURL: reference,
+                samText: scoreOverflowSAM
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? FullLengthONTMHCSAMMetricsError,
+                .arithmeticOverflow(metric: .alignmentScore, operation: .multiply(100))
+            )
+        }
+
+        let targetEndOverflowSAM = """
+        Mamu-A1*001\t0\tClusterOverflow_ReadCount-11\t\(Int.max)\t60\t2=\t*\t0\t0\tA\t*
+        """
+        XCTAssertThrowsError(
+            try FullLengthONTMHCClusterGenotyper.genotypeSummary(
+                sampleID: "DL48",
+                clustersFASTAURL: clusters,
+                referenceFASTAURL: reference,
+                samText: targetEndOverflowSAM
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? FullLengthONTMHCSAMMetricsError,
+                .arithmeticOverflow(metric: .targetEnd, operation: .add)
+            )
+        }
     }
 
     func testUnmatchedNormalizerTrimsAndReverseComplementsBeforeIDAssignment() {

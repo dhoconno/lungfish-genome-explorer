@@ -165,12 +165,31 @@ public enum FullLengthONTMHCClusterGenotyper {
             let cluster = fields[2]
             let cigar = fields[5]
             guard cluster != "*", flag & 4 == 0, cigar != "*", position > 0 else { continue }
-            let nm = fields.dropFirst(11)
-                .first { $0.hasPrefix("NM:i:") }
-                .flatMap { Int($0.dropFirst(5)) }
+            let nm: Int?
+            if let nmField = fields.dropFirst(11).first(where: { $0.hasPrefix("NM:i:") }) {
+                let rawNM = String(nmField.dropFirst(5))
+                guard let parsedNM = Int(rawNM) else {
+                    throw FullLengthONTMHCSAMMetricsError.invalidNM(rawNM)
+                }
+                nm = parsedNM
+            } else {
+                nm = nil
+            }
             let metrics = try FullLengthONTMHCSAMMetrics(cigar: cigar, nm: nm)
             guard metrics.referenceSpan > 0 else { continue }
-            let score = metrics.matches - 10 * metrics.nonIntronIndelBases - 100 * metrics.snps
+            let score = try alignmentScore(for: metrics)
+            let targetOffset = try FullLengthONTMHCSAMMetrics.subtracting(
+                metrics.referenceSpan,
+                1,
+                metric: .targetEnd,
+                operation: .subtract
+            )
+            let targetEnd = try FullLengthONTMHCSAMMetrics.adding(
+                position,
+                targetOffset,
+                metric: .targetEnd,
+                operation: .add
+            )
             clusterHits[cluster, default: []].append(Hit(
                 allele: allele,
                 snps: metrics.snps,
@@ -178,7 +197,7 @@ public enum FullLengthONTMHCClusterGenotyper {
                 indelBases: metrics.nonIntronIndelBases,
                 score: score,
                 targetStart: position,
-                targetEnd: position + metrics.referenceSpan - 1,
+                targetEnd: targetEnd,
                 isReverse: flag & 16 != 0
             ))
         }
@@ -319,6 +338,33 @@ public enum FullLengthONTMHCClusterGenotyper {
         let suffix = name[range.upperBound...]
         let digits = suffix.prefix(while: \.isNumber)
         return Int(digits) ?? 0
+    }
+
+    private static func alignmentScore(for metrics: FullLengthONTMHCSAMMetrics) throws -> Int {
+        let indelPenalty = try FullLengthONTMHCSAMMetrics.multiplying(
+            metrics.nonIntronIndelBases,
+            10,
+            metric: .alignmentScore,
+            operation: .multiply(10)
+        )
+        let snpPenalty = try FullLengthONTMHCSAMMetrics.multiplying(
+            metrics.snps,
+            100,
+            metric: .alignmentScore,
+            operation: .multiply(100)
+        )
+        let scoreAfterIndels = try FullLengthONTMHCSAMMetrics.subtracting(
+            metrics.matches,
+            indelPenalty,
+            metric: .alignmentScore,
+            operation: .subtract
+        )
+        return try FullLengthONTMHCSAMMetrics.subtracting(
+            scoreAfterIndels,
+            snpPenalty,
+            metric: .alignmentScore,
+            operation: .subtract
+        )
     }
 
     private static func localizedStandardLessThan(_ lhs: String, _ rhs: String) -> Bool {

@@ -76,6 +76,46 @@ final class FullLengthONTMHCSAMMetricsTests: XCTestCase {
         XCTAssertEqual(metrics.insertedBases, 3)
     }
 
+    func testNearIntMaxSingleOperationDoesNotOverflow() throws {
+        let metrics = try FullLengthONTMHCSAMMetrics(cigar: "\(Int.max)=", nm: nil)
+
+        XCTAssertEqual(metrics.matches, Int.max)
+        XCTAssertEqual(metrics.comparableBases, Int.max)
+        XCTAssertEqual(metrics.referenceSpan, Int.max)
+        XCTAssertEqual(metrics.querySpan, Int.max)
+    }
+
+    func testRejectsNumericTokenOverflow() {
+        let overflowingLength = "\(Int.max)0"
+
+        assertMetricsError(
+            cigar: "\(overflowingLength)=",
+            nm: nil,
+            equals: .invalidOperationLength(overflowingLength)
+        )
+    }
+
+    func testRejectsCumulativeOperationOverflow() {
+        assertMetricsError(
+            cigar: "\(Int.max)=1=",
+            nm: nil,
+            equals: .arithmeticOverflow(metric: .matches, operation: .accumulateCIGAROperator("="))
+        )
+    }
+
+    func testRejectsDerivedSpanOverflow() {
+        assertMetricsError(
+            cigar: "\(Int.max)=1D",
+            nm: nil,
+            equals: .arithmeticOverflow(metric: .referenceSpan, operation: .add)
+        )
+        assertMetricsError(
+            cigar: "\(Int.max)=1I",
+            nm: nil,
+            equals: .arithmeticOverflow(metric: .querySpan, operation: .add)
+        )
+    }
+
     private func assertMetricsError(
         cigar: String,
         nm: Int?,
