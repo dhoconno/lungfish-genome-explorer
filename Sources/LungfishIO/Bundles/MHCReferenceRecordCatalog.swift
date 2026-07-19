@@ -50,7 +50,10 @@ public enum MHCReferenceRecordCatalogError: Error, LocalizedError, Equatable, Se
     case recordStoreQueryFailed(path: String, reason: String)
     case duplicateSequenceID(String)
     case conflictingMoleculeClasses(sequenceID: String, values: [String])
+    case unsupportedMoleculeTypeValues(sequenceID: String, values: [String])
     case conflictingAlleles(sequenceID: String, values: [String])
+    case invalidAlleleAnnotations(sequenceID: String, values: [String])
+    case ambiguousFASTAAlleles(sequenceID: String, candidates: [String])
     case conflictingLoci(sequenceID: String, alleleLocus: String, annotatedGenes: [String])
     case unresolvedAlleleOrLocus(sequenceID: String)
 
@@ -72,8 +75,14 @@ public enum MHCReferenceRecordCatalogError: Error, LocalizedError, Equatable, Se
             return "The MHC reference FASTA contains duplicate sequence ID '\(sequenceID)', so metadata cannot be joined unambiguously."
         case .conflictingMoleculeClasses(let sequenceID, let values):
             return "Reference sequence '\(sequenceID)' has conflicting molecule-class annotations: \(values.joined(separator: ", "))."
+        case .unsupportedMoleculeTypeValues(let sequenceID, let values):
+            return "Reference sequence '\(sequenceID)' has unsupported nonempty molecule-class annotations: \(values.joined(separator: ", ")). Use a recognized genomic DNA, mRNA, or cDNA value."
         case .conflictingAlleles(let sequenceID, let values):
             return "Reference sequence '\(sequenceID)' has conflicting allele annotations: \(values.joined(separator: ", "))."
+        case .invalidAlleleAnnotations(let sequenceID, let values):
+            return "Reference sequence '\(sequenceID)' has malformed nonempty MHC allele annotations: \(values.joined(separator: ", "))."
+        case .ambiguousFASTAAlleles(let sequenceID, let candidates):
+            return "Reference sequence '\(sequenceID)' has multiple valid MHC allele names in its FASTA description: \(candidates.joined(separator: ", "))."
         case .conflictingLoci(let sequenceID, let alleleLocus, let annotatedGenes):
             return "Reference sequence '\(sequenceID)' resolves to allele locus '\(alleleLocus)' but has conflicting gene annotations: \(annotatedGenes.joined(separator: ", "))."
         case .unresolvedAlleleOrLocus(let sequenceID):
@@ -305,41 +314,82 @@ private extension MHCReferenceRecordCatalog {
         annotatedValues: [String]
     ) throws -> String {
         let distinctAnnotated = uniqueSortedValues(annotatedValues)
+        let invalidAnnotated = distinctAnnotated.filter { !isValidMHCAlleleName($0) }
+        if !invalidAnnotated.isEmpty {
+            throw MHCReferenceRecordCatalogError.invalidAlleleAnnotations(
+                sequenceID: sequenceID,
+                values: invalidAnnotated
+            )
+        }
         if distinctAnnotated.count > 1 {
             throw MHCReferenceRecordCatalogError.conflictingAlleles(
                 sequenceID: sequenceID,
                 values: distinctAnnotated
             )
         }
-        if let annotated = distinctAnnotated.first, locus(from: annotated) != nil {
+        if let annotated = distinctAnnotated.first {
             return annotated
         }
-        guard let fallback = alleleName(fromFASTAHeaderDescription: description),
-              locus(from: fallback) != nil else {
+        let fallbackCandidates = alleleNames(fromFASTAHeaderDescription: description)
+        if fallbackCandidates.count > 1 {
+            throw MHCReferenceRecordCatalogError.ambiguousFASTAAlleles(
+                sequenceID: sequenceID,
+                candidates: fallbackCandidates
+            )
+        }
+        guard let fallback = fallbackCandidates.first else {
             throw MHCReferenceRecordCatalogError.unresolvedAlleleOrLocus(sequenceID: sequenceID)
         }
         return fallback
     }
 
-    static func alleleName(fromFASTAHeaderDescription description: String?) -> String? {
-        guard let description else { return nil }
+    static func alleleNames(fromFASTAHeaderDescription description: String?) -> [String] {
+        guard let description else { return [] }
         let separators = CharacterSet.whitespacesAndNewlines
             .union(CharacterSet(charactersIn: ",;"))
+        var candidates = Set<String>()
         for rawToken in description.components(separatedBy: separators) where !rawToken.isEmpty {
             let token = rawToken.trimmingCharacters(in: CharacterSet(charactersIn: "()[]{}.'\""))
-            if locus(from: token) != nil {
-                return token
+            if isValidMHCAlleleName(token) {
+                candidates.insert(token)
             }
         }
-        return nil
+        return candidates.sorted()
     }
 
     static func locus(from alleleName: String) -> String? {
-        guard let star = alleleName.firstIndex(of: "*") else { return nil }
-        let prefix = alleleName[..<star].trimmingCharacters(in: .whitespacesAndNewlines)
-        let suffix = alleleName[alleleName.index(after: star)...].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prefix.isEmpty, !suffix.isEmpty else { return nil }
-        return String(prefix)
+        guard isValidMHCAlleleName(alleleName),
+              let star = alleleName.firstIndex(of: "*") else { return nil }
+        return String(alleleName[..<star])
+    }
+
+    static func isValidMHCAlleleName(_ value: String) -> Bool {
+        let starParts = value.split(separator: "*", omittingEmptySubsequences: false)
+        guard starParts.count == 2 else { return false }
+
+        let locusParts = starParts[0].split(separator: "-", omittingEmptySubsequences: false)
+        guard locusParts.count == 2,
+              locusParts.allSatisfy({
+                  guard let first = $0.first, isASCIIAlpha(first) else { return false }
+                  return $0.allSatisfy(isASCIIAlphaNumeric)
+              }) else {
+            return false
+        }
+
+        let designation = starParts[1]
+        guard !designation.isEmpty else { return false }
+        var numericEnd = designation.endIndex
+        while numericEnd > designation.startIndex {
+            let previous = designation.index(before: numericEnd)
+            guard isASCIIAlpha(designation[previous]) else { break }
+            numericEnd = previous
+        }
+        let numericFields = designation[..<numericEnd].split(separator: ":", omittingEmptySubsequences: false)
+        guard !numericFields.isEmpty,
+              numericFields.allSatisfy({ !$0.isEmpty && $0.allSatisfy(isASCIIDigit) }) else {
+            return false
+        }
+        return designation[numericEnd...].allSatisfy(isASCIIAlpha)
     }
 
     static func validateAnnotatedGenes(
@@ -368,6 +418,13 @@ private extension MHCReferenceRecordCatalog {
         cdnaThreshold: Int
     ) throws -> (moleculeClass: MHCReferenceMoleculeClass, evidence: MHCReferenceClassEvidence) {
         let sortedValues = uniqueSortedValues(annotatedValues)
+        let unsupportedValues = sortedValues.filter { moleculeClass(fromAnnotatedValue: $0) == nil }
+        if !unsupportedValues.isEmpty {
+            throw MHCReferenceRecordCatalogError.unsupportedMoleculeTypeValues(
+                sequenceID: sequenceID,
+                values: unsupportedValues
+            )
+        }
         let recognized = Set(sortedValues.compactMap(moleculeClass(fromAnnotatedValue:)))
         if recognized.count > 1 {
             throw MHCReferenceRecordCatalogError.conflictingMoleculeClasses(
@@ -403,5 +460,23 @@ private extension MHCReferenceRecordCatalog {
     static func uniqueSortedValues(_ values: [String]) -> [String] {
         Array(Set(values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }))
             .sorted()
+    }
+
+    static func isASCIIAlphaNumeric(_ character: Character) -> Bool {
+        isASCIIAlpha(character) || isASCIIDigit(character)
+    }
+
+    static func isASCIIAlpha(_ character: Character) -> Bool {
+        guard character.unicodeScalars.count == 1, let value = character.unicodeScalars.first?.value else {
+            return false
+        }
+        return (65...90).contains(value) || (97...122).contains(value)
+    }
+
+    static func isASCIIDigit(_ character: Character) -> Bool {
+        guard character.unicodeScalars.count == 1, let value = character.unicodeScalars.first?.value else {
+            return false
+        }
+        return (48...57).contains(value)
     }
 }

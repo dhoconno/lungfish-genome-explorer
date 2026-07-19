@@ -155,6 +155,126 @@ final class MHCReferenceRecordCatalogTests: XCTestCase {
         }
     }
 
+    func testUnknownAnnotatedMoleculeTypeDoesNotFallBackToLength() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >NHP-unknown-mol Mafa-A1*001:01, A1 locus allele.
+            AAAAAAAAAA
+            """,
+            annotations: [
+                .init(
+                    sequenceID: "NHP-unknown-mol",
+                    sequenceLength: 10,
+                    fields: [
+                        "feature.allele": ["Mafa-A1*001:01"],
+                        "feature.gene": ["A1"],
+                        "feature.mol_type": ["synthetic construct"],
+                    ]
+                )
+            ]
+        )
+
+        XCTAssertThrowsError(try MHCReferenceRecordCatalog.load(from: bundleURL, cdnaThreshold: 20)) { error in
+            guard case let MHCReferenceRecordCatalogError.unsupportedMoleculeTypeValues(sequenceID, values) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(sequenceID, "NHP-unknown-mol")
+            XCTAssertEqual(values, ["synthetic construct"])
+        }
+    }
+
+    func testRecognizedAndUnknownMoleculeTypesDoNotSilentlyUseRecognizedValue() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >NHP-mixed-mol Mafa-A1*001:01, A1 locus allele.
+            AAAAAAAAAA
+            """,
+            annotations: [
+                .init(
+                    sequenceID: "NHP-mixed-mol",
+                    sequenceLength: 10,
+                    fields: [
+                        "feature.allele": ["Mafa-A1*001:01"],
+                        "feature.gene": ["A1"],
+                        "feature.mol_type": ["mRNA", "not classified"],
+                    ]
+                )
+            ]
+        )
+
+        XCTAssertThrowsError(try MHCReferenceRecordCatalog.load(from: bundleURL, cdnaThreshold: 20)) { error in
+            guard case let MHCReferenceRecordCatalogError.unsupportedMoleculeTypeValues(sequenceID, values) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(sequenceID, "NHP-mixed-mol")
+            XCTAssertEqual(values, ["not classified"])
+        }
+    }
+
+    func testMalformedAnnotatedAlleleDoesNotFallBackToValidHeaderAllele() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >NHP-malformed Mafa-A1*001:01, valid fallback must not mask malformed metadata.
+            AAAAAAAAAA
+            """,
+            annotations: [
+                .init(
+                    sequenceID: "NHP-malformed",
+                    sequenceLength: 10,
+                    fields: [
+                        "feature.allele": ["123-456*789"],
+                        "feature.gene": ["A1"],
+                        "feature.mol_type": ["mRNA"],
+                    ]
+                )
+            ]
+        )
+
+        XCTAssertThrowsError(try MHCReferenceRecordCatalog.load(from: bundleURL)) { error in
+            guard case let MHCReferenceRecordCatalogError.invalidAlleleAnnotations(sequenceID, values) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(sequenceID, "NHP-malformed")
+            XCTAssertEqual(values, ["123-456*789"])
+        }
+    }
+
+    func testAmbiguousFASTAHeaderAllelesThrowInsteadOfChoosingFirstToken() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >NHP-ambiguous Mafa-A1*001:01 compared with Mafa-B*002:01.
+            AAAAAAAAAA
+            """,
+            annotations: nil
+        )
+
+        XCTAssertThrowsError(try MHCReferenceRecordCatalog.load(from: bundleURL)) { error in
+            guard case let MHCReferenceRecordCatalogError.ambiguousFASTAAlleles(sequenceID, candidates) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(sequenceID, "NHP-ambiguous")
+            XCTAssertEqual(candidates, ["Mafa-A1*001:01", "Mafa-B*002:01"])
+        }
+    }
+
+    func testRealisticNullAlleleSuffixIsAcceptedFromFASTAHeader() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >NHP-null Mafa-B*086:01:02:01N, B locus allele.
+            AAAAAAAAAA
+            """,
+            annotations: nil
+        )
+
+        let record = try XCTUnwrap(
+            MHCReferenceRecordCatalog.load(from: bundleURL)
+                .record(sequenceID: "NHP-null")
+        )
+
+        XCTAssertEqual(record.alleleName, "Mafa-B*086:01:02:01N")
+        XCTAssertEqual(record.locus, "Mafa-B")
+    }
+
     func testNoResolvableAlleleOrLocusThrowsTypedActionableError() throws {
         let bundleURL = try makeBundle(
             fasta: """
