@@ -3,6 +3,101 @@ import XCTest
 @testable import LungfishIO
 
 final class ONTGenotypeResultBundleTests: XCTestCase {
+    func testDecodesLegacyManifestWithoutMHCCandidateArtifacts() throws {
+        let data = Data(
+            """
+            {
+              "schemaVersion": 1,
+              "kind": "ont-barcode-genotype",
+              "outputName": "legacy",
+              "analysisName": "Legacy",
+              "primaryWorkbookPath": "legacy.xlsx",
+              "longSummaryCSVPath": "legacy-genotypes.csv",
+              "sampleSummaryCSVPath": "legacy-samples.csv",
+              "statsJSONPath": "legacy-stats.json",
+              "provenancePath": "provenance.json"
+            }
+            """.utf8
+        )
+
+        let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+
+        XCTAssertNil(manifest.mhcCandidateArtifacts)
+    }
+
+    func testRoundTripsMHCCandidateArtifactManifestWithChecksummedBAMPair() throws {
+        let pair = ONTMHCBAMArtifactPair(
+            bam: ONTMHCArtifactReference(
+                path: "artifacts/candidates/genotyping-evidence.bam",
+                sha256: String(repeating: "a", count: 64),
+                sizeBytes: 12_345
+            ),
+            bai: ONTMHCArtifactReference(
+                path: "artifacts/candidates/genotyping-evidence.bam.bai",
+                sha256: String(repeating: "b", count: 64),
+                sizeBytes: 678
+            )
+        )
+        let artifactManifest = ONTMHCCandidateArtifactManifest(
+            schemaVersion: 1,
+            genotypingEvidence: pair,
+            reciprocalEvidence: nil,
+            candidateJSON: ONTMHCArtifactReference(
+                path: "artifacts/candidates/candidates.json",
+                sha256: String(repeating: "c", count: 64),
+                sizeBytes: 1_024
+            ),
+            candidateFASTA: nil,
+            unnameableJSON: nil,
+            unnameableFASTA: nil
+        )
+
+        let data = try JSONEncoder().encode(artifactManifest)
+        let decoded = try JSONDecoder().decode(ONTMHCCandidateArtifactManifest.self, from: data)
+        let encodedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(decoded, artifactManifest)
+        XCTAssertNotNil(encodedObject["schema_version"])
+        XCTAssertNotNil(encodedObject["genotyping_evidence"])
+        XCTAssertNotNil(encodedObject["candidate_json"])
+    }
+
+    func testLoadManifestRejectsDeclaredMHCBAMPairWithoutIndex() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("invalid.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let data = Data(
+            """
+            {
+              "schemaVersion": 1,
+              "kind": "ont-barcode-genotype",
+              "outputName": "invalid",
+              "analysisName": "Invalid",
+              "primaryWorkbookPath": "invalid.xlsx",
+              "longSummaryCSVPath": "invalid-genotypes.csv",
+              "sampleSummaryCSVPath": "invalid-samples.csv",
+              "statsJSONPath": "invalid-stats.json",
+              "provenancePath": "provenance.json",
+              "mhcCandidateArtifacts": {
+                "schema_version": 1,
+                "genotyping_evidence": {
+                  "bam": {
+                    "path": "artifacts/candidates/genotyping-evidence.bam",
+                    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "size_bytes": 12345
+                  }
+                }
+              }
+            }
+            """.utf8
+        )
+        try data.write(to: ONTGenotypeResultBundle.manifestURL(in: bundleURL))
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadManifest(from: bundleURL))
+    }
+
     func testWritesAndLoadsPrimaryWorkbookManifest() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)

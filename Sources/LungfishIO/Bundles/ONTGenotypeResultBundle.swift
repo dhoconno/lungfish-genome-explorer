@@ -149,7 +149,231 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let presetID: String?
     public let presetVersion: String?
     public let createdAt: String?
+    public let mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest?
 
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        currentWorkbookPath: String? = nil,
+        workbookRevisions: [ONTGenotypeWorkbookRevision]? = nil,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil,
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest?
+    ) {
+        self.schemaVersion = schemaVersion
+        self.kind = kind
+        self.outputName = outputName
+        self.analysisName = analysisName
+        self.primaryWorkbookPath = primaryWorkbookPath
+        self.currentWorkbookPath = currentWorkbookPath
+        self.workbookRevisions = workbookRevisions
+        self.longSummaryCSVPath = longSummaryCSVPath
+        self.sampleSummaryCSVPath = sampleSummaryCSVPath
+        self.statsJSONPath = statsJSONPath
+        self.provenancePath = provenancePath
+        self.deduplicatedUnmatchedClustersFASTAPath = deduplicatedUnmatchedClustersFASTAPath
+        self.haplotypeAnalysisPath = haplotypeAnalysisPath
+        self.activeHaplotypeAnalysisRevisionID = activeHaplotypeAnalysisRevisionID
+        self.haplotypeAnalysisRevisions = haplotypeAnalysisRevisions
+        self.haplotypeDefinitionSetID = haplotypeDefinitionSetID
+        self.haplotypeAssayID = haplotypeAssayID
+        self.presetID = presetID
+        self.presetVersion = presetVersion
+        self.createdAt = createdAt
+        self.mhcCandidateArtifacts = mhcCandidateArtifacts
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        currentWorkbookPath: String? = nil,
+        workbookRevisions: [ONTGenotypeWorkbookRevision]? = nil,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest?
+    ) {
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            currentWorkbookPath: currentWorkbookPath,
+            workbookRevisions: workbookRevisions,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: nil,
+            haplotypeAnalysisRevisions: nil,
+            mhcCandidateArtifacts: mhcCandidateArtifacts
+        )
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil,
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest?
+    ) {
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            currentWorkbookPath: nil,
+            workbookRevisions: nil,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: mhcCandidateArtifacts
+        )
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest?
+    ) {
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: nil,
+            haplotypeAnalysisRevisions: nil,
+            mhcCandidateArtifacts: mhcCandidateArtifacts
+        )
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest?
+    ) {
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: nil,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: nil,
+            haplotypeAnalysisRevisions: nil,
+            mhcCandidateArtifacts: mhcCandidateArtifacts
+        )
+    }
+}
+
+extension ONTGenotypeResultBundleManifest {
     public init(
         schemaVersion: Int = 1,
         kind: String = "ont-barcode-genotype",
@@ -172,26 +396,29 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         activeHaplotypeAnalysisRevisionID: String? = nil,
         haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil
     ) {
-        self.schemaVersion = schemaVersion
-        self.kind = kind
-        self.outputName = outputName
-        self.analysisName = analysisName
-        self.primaryWorkbookPath = primaryWorkbookPath
-        self.currentWorkbookPath = currentWorkbookPath
-        self.workbookRevisions = workbookRevisions
-        self.longSummaryCSVPath = longSummaryCSVPath
-        self.sampleSummaryCSVPath = sampleSummaryCSVPath
-        self.statsJSONPath = statsJSONPath
-        self.provenancePath = provenancePath
-        self.deduplicatedUnmatchedClustersFASTAPath = deduplicatedUnmatchedClustersFASTAPath
-        self.haplotypeAnalysisPath = haplotypeAnalysisPath
-        self.activeHaplotypeAnalysisRevisionID = activeHaplotypeAnalysisRevisionID
-        self.haplotypeAnalysisRevisions = haplotypeAnalysisRevisions
-        self.haplotypeDefinitionSetID = haplotypeDefinitionSetID
-        self.haplotypeAssayID = haplotypeAssayID
-        self.presetID = presetID
-        self.presetVersion = presetVersion
-        self.createdAt = createdAt
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            currentWorkbookPath: currentWorkbookPath,
+            workbookRevisions: workbookRevisions,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: nil
+        )
     }
 
     public init(
@@ -233,8 +460,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             presetID: presetID,
             presetVersion: presetVersion,
             createdAt: createdAt,
-            activeHaplotypeAnalysisRevisionID: nil,
-            haplotypeAnalysisRevisions: nil
+            mhcCandidateArtifacts: nil
         )
     }
 
@@ -264,8 +490,6 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             outputName: outputName,
             analysisName: analysisName,
             primaryWorkbookPath: primaryWorkbookPath,
-            currentWorkbookPath: nil,
-            workbookRevisions: nil,
             longSummaryCSVPath: longSummaryCSVPath,
             sampleSummaryCSVPath: sampleSummaryCSVPath,
             statsJSONPath: statsJSONPath,
@@ -278,7 +502,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             presetVersion: presetVersion,
             createdAt: createdAt,
             activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
-            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions
+            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: nil
         )
     }
 
@@ -317,8 +542,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             presetID: presetID,
             presetVersion: presetVersion,
             createdAt: createdAt,
-            activeHaplotypeAnalysisRevisionID: nil,
-            haplotypeAnalysisRevisions: nil
+            mhcCandidateArtifacts: nil
         )
     }
 
@@ -349,15 +573,13 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             sampleSummaryCSVPath: sampleSummaryCSVPath,
             statsJSONPath: statsJSONPath,
             provenancePath: provenancePath,
-            deduplicatedUnmatchedClustersFASTAPath: nil,
             haplotypeAnalysisPath: haplotypeAnalysisPath,
             haplotypeDefinitionSetID: haplotypeDefinitionSetID,
             haplotypeAssayID: haplotypeAssayID,
             presetID: presetID,
             presetVersion: presetVersion,
             createdAt: createdAt,
-            activeHaplotypeAnalysisRevisionID: nil,
-            haplotypeAnalysisRevisions: nil
+            mhcCandidateArtifacts: nil
         )
     }
 }
