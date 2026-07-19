@@ -998,6 +998,40 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         })
     }
 
+    func testClusterGenotyperLeavesZeroSNPIndelOnlyCDNAHitUnmatched() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-cdna-indel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let clusters = root.appendingPathComponent("clusters.fasta")
+        let reference = root.appendingPathComponent("reference.fasta")
+        try """
+        >ClusterCDNAExtension_ReadCount-11
+        ACGTACGTAA
+        """.write(to: clusters, atomically: true, encoding: .utf8)
+        try """
+        >Mamu-cDNA*001
+        ACGTACGT
+        """.write(to: reference, atomically: true, encoding: .utf8)
+        let sam = """
+        @SQ\tSN:ClusterCDNAExtension_ReadCount-11\tLN:10
+        Mamu-cDNA*001\t0\tClusterCDNAExtension_ReadCount-11\t1\t60\t8=2I\t*\t0\t0\tACGTACGTAA\t*
+        """
+
+        let summary = try FullLengthONTMHCClusterGenotyper.genotypeSummary(
+            sampleID: "DL48",
+            clustersFASTAURL: clusters,
+            referenceFASTAURL: reference,
+            samText: sam,
+            cdnaThreshold: 2_000,
+            minUnmatchedReads: 5
+        )
+
+        XCTAssertEqual(summary.rows, [])
+        XCTAssertEqual(summary.unmatchedClusters.map(\.name), ["ClusterCDNAExtension_ReadCount-11"])
+        XCTAssertEqual(summary.cdnaMatchedClusters, [])
+    }
+
     func testUnmatchedNormalizerTrimsAndReverseComplementsBeforeIDAssignment() {
         let record = FullLengthONTMHCClusterFASTARecord(
             name: "ClusterReverse_ReadCount-9",

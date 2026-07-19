@@ -189,7 +189,11 @@ public enum FullLengthONTMHCClusterGenotyper {
         var seen = Set<String>()
         for cluster in clusterHits.keys.sorted(by: localizedStandardLessThan) {
             guard let hits = clusterHits[cluster] else { continue }
-            let knownGenotypeHits = hits.filter { $0.snps == 0 }
+            let knownGenotypeHits = hits.filter { hit in
+                guard hit.snps == 0 else { return false }
+                guard hit.indelBases > 0 else { return true }
+                return (referenceLengths[hit.allele] ?? 0) >= cdnaThreshold
+            }
             guard let bestScore = knownGenotypeHits.map(\.score).max() else { continue }
             for hit in knownGenotypeHits where hit.score == bestScore {
                 let key = "\(cluster)\u{0}\(hit.allele)"
