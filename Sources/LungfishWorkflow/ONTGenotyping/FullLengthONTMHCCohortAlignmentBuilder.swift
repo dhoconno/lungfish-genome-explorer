@@ -92,8 +92,8 @@ public struct FullLengthONTMHCCohortAlignmentResult: Sendable, Equatable {
     public let commandRecords: [FullLengthONTMHCCohortAlignmentCommandRecord]
     public let temporaryWorkDirectoryURL: URL
     public let mergedBAMURL: URL
-    public let retainedPublicationDirectoryURL: URL?
-    public let publicationCleanupError: String?
+    public private(set) var retainedPublicationDirectoryURL: URL?
+    public private(set) var publicationCleanupError: String?
     public let toolVersions: [FullLengthONTMHCToolVersionRecord]
     public let toolVersionDiscoveryRecords: [FullLengthONTMHCCohortAlignmentCommandRecord]
     public let runtimeIdentity: ProvenanceRuntimeIdentity
@@ -102,7 +102,17 @@ public struct FullLengthONTMHCCohortAlignmentResult: Sendable, Equatable {
     public let temporaryArtifactDescriptors: [FullLengthONTMHCArtifactDescriptor]
     public let publicationMappings: [FullLengthONTMHCArtifactPublicationMapping]
     public let transformationRecords: [FullLengthONTMHCInProcessTransformationRecord]
-    public let cleanupDiagnostics: [FullLengthONTMHCCleanupDiagnostic]
+    public private(set) var cleanupDiagnostics: [FullLengthONTMHCCleanupDiagnostic]
+
+    mutating func attachCleanup(
+        retainedPublicationDirectoryURL: URL?,
+        publicationCleanupError: String?,
+        diagnostics: [FullLengthONTMHCCleanupDiagnostic]
+    ) {
+        self.retainedPublicationDirectoryURL = retainedPublicationDirectoryURL
+        self.publicationCleanupError = publicationCleanupError
+        cleanupDiagnostics = diagnostics
+    }
 }
 
 public struct FullLengthONTMHCCohortAlignmentBuildError: Error, LocalizedError, Sendable {
@@ -184,6 +194,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
     private let alignmentDirectoryPublisher: any FullLengthONTMHCAlignmentDirectoryPublishing
     private let workDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning
     private let artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding
+    private let prepublicationObserver: @Sendable (FullLengthONTMHCCohortAlignmentResult) -> Void
     private let fileManager: FileManager
 
     public init(
@@ -196,6 +207,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         self.alignmentDirectoryPublisher = alignmentDirectoryPublisher
         self.workDirectoryCleaner = workDirectoryCleaner
         self.artifactDescriptorProvider = DefaultFullLengthONTMHCArtifactDescriptorProvider()
+        self.prepublicationObserver = { _ in }
         self.fileManager = fileManager
     }
 
@@ -204,12 +216,14 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         alignmentDirectoryPublisher: any FullLengthONTMHCAlignmentDirectoryPublishing = DarwinAtomicAlignmentDirectoryPublisher(),
         workDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
         fileManager: FileManager = .default,
-        artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding
+        artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding,
+        prepublicationObserver: @escaping @Sendable (FullLengthONTMHCCohortAlignmentResult) -> Void = { _ in }
     ) {
         self.executableDirectoryURL = executableDirectoryURL?.standardizedFileURL
         self.alignmentDirectoryPublisher = alignmentDirectoryPublisher
         self.workDirectoryCleaner = workDirectoryCleaner
         self.artifactDescriptorProvider = artifactDescriptorProvider
+        self.prepublicationObserver = prepublicationObserver
         self.fileManager = fileManager
     }
 
@@ -466,23 +480,6 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
 
             let finalBAMURL = alignmentDirectoryURL.appendingPathComponent("genotyping-evidence.bam")
             let finalBAIURL = alignmentDirectoryURL.appendingPathComponent("genotyping-evidence.bam.bai")
-            let versionByExecutablePath = Dictionary(
-                uniqueKeysWithValues: toolVersions.map {
-                    ($0.discoveryCommand.executableURL.standardizedFileURL.path, $0.version)
-                }
-            )
-            let versionedCommandRecords = commandRecords.map {
-                $0.replacingToolVersion(with: versionByExecutablePath[$0.executableURL.standardizedFileURL.path])
-            }
-            artifactDescriptors.append(contentsOf: versionedCommandRecords.flatMap(\.capturedArtifactDescriptors))
-            let temporaryArtifactDescriptors = artifactDescriptors.filter { $0.phase == .temporary }
-
-            try Task.checkCancellation()
-            let publication = try alignmentDirectoryPublisher.publish(
-                stagedDirectoryURL: stagingDirectoryURL,
-                finalDirectoryURL: alignmentDirectoryURL
-            )
-            publicationDirectoryURL = nil
             let finalBAMDescriptor = stagedBAMDescriptor.relocated(
                 to: finalBAMURL,
                 role: .evidenceBAM,
@@ -505,6 +502,43 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 ),
             ]
             artifactDescriptors.append(contentsOf: finalArtifactDescriptors)
+            let versionByExecutablePath = Dictionary(
+                uniqueKeysWithValues: toolVersions.map {
+                    ($0.discoveryCommand.executableURL.standardizedFileURL.path, $0.version)
+                }
+            )
+            let versionedCommandRecords = commandRecords.map {
+                $0.replacingToolVersion(with: versionByExecutablePath[$0.executableURL.standardizedFileURL.path])
+            }
+            artifactDescriptors.append(contentsOf: versionedCommandRecords.flatMap(\.capturedArtifactDescriptors))
+            let temporaryArtifactDescriptors = artifactDescriptors.filter { $0.phase == .temporary }
+            var precomputedResult = FullLengthONTMHCCohortAlignmentResult(
+                bamURL: finalBAMURL,
+                baiURL: finalBAIURL,
+                sampleMappings: mappings,
+                commandRecords: versionedCommandRecords,
+                temporaryWorkDirectoryURL: temporaryWorkDirectoryURL,
+                mergedBAMURL: mergedBAMURL,
+                retainedPublicationDirectoryURL: nil,
+                publicationCleanupError: nil,
+                toolVersions: toolVersions,
+                toolVersionDiscoveryRecords: toolVersionDiscoveryRecords,
+                runtimeIdentity: runtimeIdentity,
+                artifactDescriptors: artifactDescriptors,
+                finalArtifactDescriptors: finalArtifactDescriptors,
+                temporaryArtifactDescriptors: temporaryArtifactDescriptors,
+                publicationMappings: publicationMappings,
+                transformationRecords: transformationRecords,
+                cleanupDiagnostics: []
+            )
+
+            try Task.checkCancellation()
+            prepublicationObserver(precomputedResult)
+            let publication = try alignmentDirectoryPublisher.publish(
+                stagedDirectoryURL: stagingDirectoryURL,
+                finalDirectoryURL: alignmentDirectoryURL
+            )
+            publicationDirectoryURL = nil
             var retainedPublicationDirectoryURL: URL?
             var publicationCleanupError: String?
             var cleanupDiagnostics: [FullLengthONTMHCCleanupDiagnostic] = []
@@ -536,25 +570,12 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 }
             }
 
-            return FullLengthONTMHCCohortAlignmentResult(
-                bamURL: finalBAMURL,
-                baiURL: finalBAIURL,
-                sampleMappings: mappings,
-                commandRecords: versionedCommandRecords,
-                temporaryWorkDirectoryURL: temporaryWorkDirectoryURL,
-                mergedBAMURL: mergedBAMURL,
+            precomputedResult.attachCleanup(
                 retainedPublicationDirectoryURL: retainedPublicationDirectoryURL,
                 publicationCleanupError: publicationCleanupError,
-                toolVersions: toolVersions,
-                toolVersionDiscoveryRecords: toolVersionDiscoveryRecords,
-                runtimeIdentity: runtimeIdentity,
-                artifactDescriptors: artifactDescriptors,
-                finalArtifactDescriptors: finalArtifactDescriptors,
-                temporaryArtifactDescriptors: temporaryArtifactDescriptors,
-                publicationMappings: publicationMappings,
-                transformationRecords: transformationRecords,
-                cleanupDiagnostics: cleanupDiagnostics
+                diagnostics: cleanupDiagnostics
             )
+            return precomputedResult
         } catch {
             if let error = error as? FullLengthONTMHCCohortAlignmentBuildError {
                 throw error

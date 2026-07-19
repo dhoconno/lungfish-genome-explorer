@@ -253,6 +253,24 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         )
     }
 
+    func testCompletePublicationMetadataIsPrecomputedWhenAtomicExchangeBegins() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let boundary = PrecomputedPublicationBoundaryState()
+        let publisher = MetadataRequiringAlignmentDirectoryPublisher(boundary: boundary)
+
+        let result = try await fixture.build(
+            samples: [fixture.sample("S1", clusters: ["c1"])],
+            publisher: publisher,
+            prepublicationObserver: { boundary.capture($0) }
+        )
+
+        XCTAssertTrue(boundary.publishObservedCompleteMetadata)
+        XCTAssertEqual(boundary.precomputedResult, result)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.bamURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.baiURL.path))
+    }
+
     func testFailedVersionDiscoveryRetainsExactCommandRecordAndLogs() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -738,16 +756,19 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         publisher: any FullLengthONTMHCAlignmentDirectoryPublishing = DarwinAtomicAlignmentDirectoryPublisher(),
         workDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
         artifactDescriptorProvider: (any FullLengthONTMHCArtifactDescriptorProviding)? = nil,
+        prepublicationObserver: (@Sendable (FullLengthONTMHCCohortAlignmentResult) -> Void)? = nil,
         outputDirectoryURL: URL? = nil,
         workDirectoryURL: URL? = nil
     ) async throws -> FullLengthONTMHCCohortAlignmentResult {
         let builder: FullLengthONTMHCCohortAlignmentBuilder
-        if let artifactDescriptorProvider {
+        if artifactDescriptorProvider != nil || prepublicationObserver != nil {
             builder = FullLengthONTMHCCohortAlignmentBuilder(
                 executableDirectoryURL: toolsURL,
                 alignmentDirectoryPublisher: publisher,
                 workDirectoryCleaner: workDirectoryCleaner,
                 artifactDescriptorProvider: artifactDescriptorProvider
+                    ?? DefaultFullLengthONTMHCArtifactDescriptorProvider(),
+                prepublicationObserver: prepublicationObserver ?? { _ in }
             )
         } else {
             builder = FullLengthONTMHCCohortAlignmentBuilder(
@@ -952,6 +973,72 @@ private struct BoundaryTrackingAlignmentDirectoryPublisher: FullLengthONTMHCAlig
         )
         boundary.markPublished()
         return publication
+    }
+}
+
+private final class PrecomputedPublicationBoundaryState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var capturedResult: FullLengthONTMHCCohortAlignmentResult?
+    private var observedCompleteMetadata = false
+
+    var precomputedResult: FullLengthONTMHCCohortAlignmentResult? {
+        lock.withLock { capturedResult }
+    }
+
+    var publishObservedCompleteMetadata: Bool {
+        lock.withLock { observedCompleteMetadata }
+    }
+
+    func capture(_ result: FullLengthONTMHCCohortAlignmentResult) {
+        lock.withLock { capturedResult = result }
+    }
+
+    func requireCompleteMetadataBeforePublish(
+        stagedDirectoryURL: URL,
+        finalDirectoryURL: URL
+    ) throws {
+        try lock.withLock {
+            guard let result = capturedResult,
+                  result.finalArtifactDescriptors.count == 2,
+                  result.publicationMappings.count == 2,
+                  result.cleanupDiagnostics.isEmpty,
+                  result.retainedPublicationDirectoryURL == nil,
+                  result.publicationCleanupError == nil,
+                  result.publicationMappings.allSatisfy({ mapping in
+                      mapping.stagedDescriptor.phase == .staging
+                          && mapping.stagedDescriptor.path.hasPrefix(stagedDirectoryURL.path + "/")
+                          && mapping.finalDescriptor.phase == .final
+                          && mapping.finalDescriptor.path.hasPrefix(finalDirectoryURL.path + "/")
+                          && mapping.finalDescriptor.sha256 == mapping.stagedDescriptor.sha256
+                          && mapping.finalDescriptor.byteSize == mapping.stagedDescriptor.byteSize
+                          && result.artifactDescriptors.contains(mapping.finalDescriptor)
+                  }),
+                  !FileManager.default.fileExists(atPath: result.bamURL.path),
+                  !FileManager.default.fileExists(atPath: result.baiURL.path) else {
+                throw MissingPrecomputedPublicationMetadata()
+            }
+            observedCompleteMetadata = true
+        }
+    }
+
+    private struct MissingPrecomputedPublicationMetadata: Error {}
+}
+
+private struct MetadataRequiringAlignmentDirectoryPublisher: FullLengthONTMHCAlignmentDirectoryPublishing {
+    let boundary: PrecomputedPublicationBoundaryState
+
+    func publish(
+        stagedDirectoryURL: URL,
+        finalDirectoryURL: URL
+    ) throws -> FullLengthONTMHCAlignmentDirectoryPublication {
+        try boundary.requireCompleteMetadataBeforePublish(
+            stagedDirectoryURL: stagedDirectoryURL,
+            finalDirectoryURL: finalDirectoryURL
+        )
+        return try DarwinAtomicAlignmentDirectoryPublisher().publish(
+            stagedDirectoryURL: stagedDirectoryURL,
+            finalDirectoryURL: finalDirectoryURL
+        )
     }
 }
 
