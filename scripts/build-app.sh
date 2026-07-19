@@ -176,9 +176,15 @@ mkdir -p "$FRAMEWORKS_DIR"
 cp "$BUILD_DIR/Lungfish" "$MACOS_DIR/"
 
 CLI_SOURCE="$BUILD_DIR/lungfish-cli"
-if [ -f "$CLI_SOURCE" ]; then
-    echo -e "${GREEN}Copying bundled CLI...${NC}"
-    /usr/bin/install -m 755 "$CLI_SOURCE" "$MACOS_DIR/lungfish-cli"
+if [ ! -x "$CLI_SOURCE" ]; then
+    echo -e "${RED}Error: bundled CLI executable not found at $CLI_SOURCE${NC}" >&2
+    exit 1
+fi
+echo -e "${GREEN}Copying bundled CLI...${NC}"
+/usr/bin/install -m 755 "$CLI_SOURCE" "$MACOS_DIR/lungfish-cli"
+if [ ! -x "$MACOS_DIR/lungfish-cli" ]; then
+    echo -e "${RED}Error: bundled CLI executable not found at $MACOS_DIR/lungfish-cli${NC}" >&2
+    exit 1
 fi
 
 echo -e "${GREEN}Copying SwiftPM resource bundles...${NC}"

@@ -46,6 +46,17 @@ final class AppDebugLaunchConfigurationTests: XCTestCase {
         XCTAssertTrue(script.contains("plutil -replace CFBundleDisplayName -string \"$BUNDLE_DISPLAY_NAME\""))
     }
 
+    func testBuildAppRequiresBundledCLIExecutable() throws {
+        let script = try String(
+            contentsOf: Self.packageRoot().appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(script.contains("install -m 755 \"$CLI_SOURCE\" \"$MACOS_DIR/lungfish-cli\""))
+        XCTAssertTrue(script.contains("[ ! -x \"$MACOS_DIR/lungfish-cli\" ]"))
+        XCTAssertTrue(script.contains("Error: bundled CLI executable not found"))
+    }
+
     func testDebugCaptureScriptUsesCurrentProductName() throws {
         let script = try String(
             contentsOf: Self.packageRoot().appendingPathComponent("scripts/debug-capture.sh"),
