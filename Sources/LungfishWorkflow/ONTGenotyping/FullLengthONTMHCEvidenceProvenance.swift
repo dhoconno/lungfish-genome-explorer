@@ -39,6 +39,52 @@ public struct FullLengthONTMHCArtifactDescriptor: Codable, Sendable, Equatable {
         self.role = role
         self.phase = phase
     }
+
+    private init(
+        path: String,
+        sha256: String,
+        byteSize: UInt64,
+        role: FullLengthONTMHCArtifactRole,
+        phase: FullLengthONTMHCArtifactPhase
+    ) {
+        self.path = path
+        self.sha256 = sha256
+        self.byteSize = byteSize
+        self.role = role
+        self.phase = phase
+    }
+
+    func relocated(
+        to url: URL,
+        role: FullLengthONTMHCArtifactRole,
+        phase: FullLengthONTMHCArtifactPhase
+    ) -> Self {
+        .init(
+            path: url.standardizedFileURL.path,
+            sha256: sha256,
+            byteSize: byteSize,
+            role: role,
+            phase: phase
+        )
+    }
+}
+
+protocol FullLengthONTMHCArtifactDescriptorProviding: Sendable {
+    func descriptor(
+        for url: URL,
+        role: FullLengthONTMHCArtifactRole,
+        phase: FullLengthONTMHCArtifactPhase
+    ) throws -> FullLengthONTMHCArtifactDescriptor
+}
+
+struct DefaultFullLengthONTMHCArtifactDescriptorProvider: FullLengthONTMHCArtifactDescriptorProviding {
+    func descriptor(
+        for url: URL,
+        role: FullLengthONTMHCArtifactRole,
+        phase: FullLengthONTMHCArtifactPhase
+    ) throws -> FullLengthONTMHCArtifactDescriptor {
+        try FullLengthONTMHCArtifactDescriptor(url: url, role: role, phase: phase)
+    }
 }
 
 public struct FullLengthONTMHCToolVersionRecord: Sendable, Equatable {

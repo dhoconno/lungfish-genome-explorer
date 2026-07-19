@@ -224,6 +224,35 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         XCTAssertEqual(transformation.outputs.first?.path, result.sampleMappings[0].namespacedClustersFASTAURL.path)
     }
 
+    func testFinalDescriptorsArePreparedBeforeAtomicExchangeWithoutPostPublicationReads() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let boundary = PublicationBoundaryState()
+        let descriptorProvider = RejectingPostPublicationArtifactDescriptorProvider(boundary: boundary)
+        let publisher = BoundaryTrackingAlignmentDirectoryPublisher(boundary: boundary)
+
+        let result = try await fixture.build(
+            samples: [fixture.sample("S1", clusters: ["c1"])],
+            publisher: publisher,
+            artifactDescriptorProvider: descriptorProvider
+        )
+
+        XCTAssertTrue(boundary.wasPublished)
+        XCTAssertEqual(boundary.postPublicationDescriptorAttempts, 0)
+        XCTAssertEqual(result.publicationMappings.count, 2)
+        for mapping in result.publicationMappings {
+            XCTAssertEqual(mapping.finalDescriptor.sha256, mapping.stagedDescriptor.sha256)
+            XCTAssertEqual(mapping.finalDescriptor.byteSize, mapping.stagedDescriptor.byteSize)
+            XCTAssertEqual(mapping.finalDescriptor.role, mapping.stagedDescriptor.role)
+            XCTAssertEqual(mapping.finalDescriptor.phase, .final)
+            XCTAssertEqual(mapping.stagedDescriptor.phase, .staging)
+        }
+        XCTAssertEqual(
+            result.publicationMappings.map(\.finalDescriptor.path),
+            [result.bamURL.path, result.baiURL.path]
+        )
+    }
+
     func testFailedVersionDiscoveryRetainsExactCommandRecordAndLogs() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -708,14 +737,26 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         keepIntermediates: Bool = false,
         publisher: any FullLengthONTMHCAlignmentDirectoryPublishing = DarwinAtomicAlignmentDirectoryPublisher(),
         workDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
+        artifactDescriptorProvider: (any FullLengthONTMHCArtifactDescriptorProviding)? = nil,
         outputDirectoryURL: URL? = nil,
         workDirectoryURL: URL? = nil
     ) async throws -> FullLengthONTMHCCohortAlignmentResult {
-        try await FullLengthONTMHCCohortAlignmentBuilder(
-            executableDirectoryURL: toolsURL,
-            alignmentDirectoryPublisher: publisher,
-            workDirectoryCleaner: workDirectoryCleaner
-        ).build(
+        let builder: FullLengthONTMHCCohortAlignmentBuilder
+        if let artifactDescriptorProvider {
+            builder = FullLengthONTMHCCohortAlignmentBuilder(
+                executableDirectoryURL: toolsURL,
+                alignmentDirectoryPublisher: publisher,
+                workDirectoryCleaner: workDirectoryCleaner,
+                artifactDescriptorProvider: artifactDescriptorProvider
+            )
+        } else {
+            builder = FullLengthONTMHCCohortAlignmentBuilder(
+                executableDirectoryURL: toolsURL,
+                alignmentDirectoryPublisher: publisher,
+                workDirectoryCleaner: workDirectoryCleaner
+            )
+        }
+        return try await builder.build(
             .init(
                 samples: samples,
                 referenceAlleleFASTAURL: referenceURL,
@@ -855,6 +896,63 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
     esac
     exit 0
     """#
+}
+
+private final class PublicationBoundaryState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var published = false
+    private var descriptorAttemptsAfterPublication = 0
+
+    var wasPublished: Bool { lock.withLock { published } }
+    var postPublicationDescriptorAttempts: Int { lock.withLock { descriptorAttemptsAfterPublication } }
+
+    func markPublished() {
+        lock.withLock { published = true }
+    }
+
+    func recordDescriptorAttempt() throws {
+        let attemptedAfterPublication = lock.withLock { () -> Bool in
+            guard published else { return false }
+            descriptorAttemptsAfterPublication += 1
+            return true
+        }
+        if attemptedAfterPublication { throw PostPublicationDescriptorFailure() }
+    }
+
+    private struct PostPublicationDescriptorFailure: Error {}
+}
+
+private struct RejectingPostPublicationArtifactDescriptorProvider: FullLengthONTMHCArtifactDescriptorProviding {
+    let boundary: PublicationBoundaryState
+
+    func descriptor(
+        for url: URL,
+        role: FullLengthONTMHCArtifactRole,
+        phase: FullLengthONTMHCArtifactPhase
+    ) throws -> FullLengthONTMHCArtifactDescriptor {
+        try boundary.recordDescriptorAttempt()
+        return try DefaultFullLengthONTMHCArtifactDescriptorProvider().descriptor(
+            for: url,
+            role: role,
+            phase: phase
+        )
+    }
+}
+
+private struct BoundaryTrackingAlignmentDirectoryPublisher: FullLengthONTMHCAlignmentDirectoryPublishing {
+    let boundary: PublicationBoundaryState
+
+    func publish(
+        stagedDirectoryURL: URL,
+        finalDirectoryURL: URL
+    ) throws -> FullLengthONTMHCAlignmentDirectoryPublication {
+        let publication = try DarwinAtomicAlignmentDirectoryPublisher().publish(
+            stagedDirectoryURL: stagedDirectoryURL,
+            finalDirectoryURL: finalDirectoryURL
+        )
+        boundary.markPublished()
+        return publication
+    }
 }
 
 private struct FailingAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignmentDirectoryPublishing {
