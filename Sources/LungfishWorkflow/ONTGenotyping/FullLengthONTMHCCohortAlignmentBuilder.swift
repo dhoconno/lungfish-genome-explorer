@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 public struct FullLengthONTMHCSampleAlignmentInput: Sendable, Equatable {
     public let sampleID: String
@@ -86,25 +87,78 @@ public struct FullLengthONTMHCCohortAlignmentResult: Sendable, Equatable {
     public let commandRecords: [FullLengthONTMHCCohortAlignmentCommandRecord]
     public let temporaryWorkDirectoryURL: URL
     public let mergedBAMURL: URL
+    public let retainedPublicationDirectoryURL: URL?
+    public let publicationCleanupError: String?
 }
 
 public struct FullLengthONTMHCCohortAlignmentBuildError: Error, LocalizedError, Sendable {
     public let message: String
     public let retainedWorkDirectoryURL: URL
+    public let retainedPublicationDirectoryURL: URL?
     public let commandRecords: [FullLengthONTMHCCohortAlignmentCommandRecord]
 
     public var errorDescription: String? { message }
 }
 
+public struct FullLengthONTMHCAlignmentDirectoryPublication: Sendable, Equatable {
+    public let retiredDirectoryURL: URL?
+
+    public init(retiredDirectoryURL: URL?) {
+        self.retiredDirectoryURL = retiredDirectoryURL
+    }
+}
+
+public protocol FullLengthONTMHCAlignmentDirectoryPublishing: Sendable {
+    func publish(
+        stagedDirectoryURL: URL,
+        finalDirectoryURL: URL
+    ) throws -> FullLengthONTMHCAlignmentDirectoryPublication
+
+    func cleanupRetiredDirectory(at url: URL) throws
+}
+
+public extension FullLengthONTMHCAlignmentDirectoryPublishing {
+    func cleanupRetiredDirectory(at url: URL) throws {
+        try FileManager.default.removeItem(at: url)
+    }
+}
+
+public struct DarwinAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignmentDirectoryPublishing {
+    public init() {}
+
+    public func publish(
+        stagedDirectoryURL: URL,
+        finalDirectoryURL: URL
+    ) throws -> FullLengthONTMHCAlignmentDirectoryPublication {
+        let finalExists = FileManager.default.fileExists(atPath: finalDirectoryURL.path)
+        let flags = UInt32(finalExists ? RENAME_SWAP : RENAME_EXCL)
+        let status = stagedDirectoryURL.path.withCString { stagedPath in
+            finalDirectoryURL.path.withCString { finalPath in
+                renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags)
+            }
+        }
+        guard status == 0 else {
+            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+            throw POSIXError(code)
+        }
+        return FullLengthONTMHCAlignmentDirectoryPublication(
+            retiredDirectoryURL: finalExists ? stagedDirectoryURL : nil
+        )
+    }
+}
+
 public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
     private let executableDirectoryURL: URL?
+    private let alignmentDirectoryPublisher: any FullLengthONTMHCAlignmentDirectoryPublishing
     private let fileManager: FileManager
 
     public init(
         executableDirectoryURL: URL? = nil,
+        alignmentDirectoryPublisher: any FullLengthONTMHCAlignmentDirectoryPublishing = DarwinAtomicAlignmentDirectoryPublisher(),
         fileManager: FileManager = .default
     ) {
         self.executableDirectoryURL = executableDirectoryURL?.standardizedFileURL
+        self.alignmentDirectoryPublisher = alignmentDirectoryPublisher
         self.fileManager = fileManager
     }
 
@@ -116,6 +170,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             isDirectory: true
         )
         var commandRecords: [FullLengthONTMHCCohortAlignmentCommandRecord] = []
+        var publicationDirectoryURL: URL?
 
         do {
             try fileManager.createDirectory(
@@ -221,18 +276,28 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 commandRecords: &commandRecords
             )
 
-            let alignmentDirectoryURL = request.outputDirectoryURL.appendingPathComponent(
-                "artifacts/alignments",
+            let artifactsDirectoryURL = request.outputDirectoryURL.appendingPathComponent(
+                "artifacts",
                 isDirectory: true
             )
-            try fileManager.createDirectory(at: alignmentDirectoryURL, withIntermediateDirectories: true)
-            let stagingDirectoryURL = alignmentDirectoryURL.appendingPathComponent(
-                ".genotyping-evidence-staging-\(UUID().uuidString)",
+            try fileManager.createDirectory(at: artifactsDirectoryURL, withIntermediateDirectories: true)
+            let alignmentDirectoryURL = artifactsDirectoryURL.appendingPathComponent("alignments", isDirectory: true)
+            let stagingDirectoryURL = artifactsDirectoryURL.appendingPathComponent(
+                ".alignments-replacement-\(UUID().uuidString)",
                 isDirectory: true
             )
-            try fileManager.createDirectory(at: stagingDirectoryURL, withIntermediateDirectories: false)
+            if fileManager.fileExists(atPath: alignmentDirectoryURL.path) {
+                try fileManager.copyItem(at: alignmentDirectoryURL, to: stagingDirectoryURL)
+            } else {
+                try fileManager.createDirectory(at: stagingDirectoryURL, withIntermediateDirectories: false)
+            }
+            publicationDirectoryURL = stagingDirectoryURL
             let stagedBAMURL = stagingDirectoryURL.appendingPathComponent("genotyping-evidence.bam")
             let stagedBAIURL = stagingDirectoryURL.appendingPathComponent("genotyping-evidence.bam.bai")
+            for previousStagedArtifact in [stagedBAMURL, stagedBAIURL]
+                where fileManager.fileExists(atPath: previousStagedArtifact.path) {
+                try fileManager.removeItem(at: previousStagedArtifact)
+            }
 
             try run(
                 executableURL: samtoolsURL,
@@ -269,14 +334,22 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
 
             let finalBAMURL = alignmentDirectoryURL.appendingPathComponent("genotyping-evidence.bam")
             let finalBAIURL = alignmentDirectoryURL.appendingPathComponent("genotyping-evidence.bam.bai")
-            try publishPair(
-                stagedBAMURL: stagedBAMURL,
-                stagedBAIURL: stagedBAIURL,
-                finalBAMURL: finalBAMURL,
-                finalBAIURL: finalBAIURL,
-                transactionDirectoryURL: stagingDirectoryURL
+            let publication = try alignmentDirectoryPublisher.publish(
+                stagedDirectoryURL: stagingDirectoryURL,
+                finalDirectoryURL: alignmentDirectoryURL
             )
-            try? fileManager.removeItem(at: stagingDirectoryURL)
+            publicationDirectoryURL = nil
+            var retainedPublicationDirectoryURL: URL?
+            var publicationCleanupError: String?
+            if let retiredDirectoryURL = publication.retiredDirectoryURL {
+                do {
+                    try alignmentDirectoryPublisher.cleanupRetiredDirectory(at: retiredDirectoryURL)
+                } catch {
+                    retainedPublicationDirectoryURL = retiredDirectoryURL
+                    publicationCleanupError = (error as? LocalizedError)?.errorDescription
+                        ?? error.localizedDescription
+                }
+            }
             if !request.keepIntermediates {
                 try? fileManager.removeItem(at: temporaryWorkDirectoryURL)
             }
@@ -287,7 +360,9 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
                 sampleMappings: mappings,
                 commandRecords: commandRecords,
                 temporaryWorkDirectoryURL: temporaryWorkDirectoryURL,
-                mergedBAMURL: mergedBAMURL
+                mergedBAMURL: mergedBAMURL,
+                retainedPublicationDirectoryURL: retainedPublicationDirectoryURL,
+                publicationCleanupError: publicationCleanupError
             )
         } catch {
             if let error = error as? FullLengthONTMHCCohortAlignmentBuildError {
@@ -296,6 +371,7 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             throw FullLengthONTMHCCohortAlignmentBuildError(
                 message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
                 retainedWorkDirectoryURL: temporaryWorkDirectoryURL,
+                retainedPublicationDirectoryURL: publicationDirectoryURL,
                 commandRecords: commandRecords
             )
         }
@@ -502,45 +578,6 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
         )
     }
 
-    private func publishPair(
-        stagedBAMURL: URL,
-        stagedBAIURL: URL,
-        finalBAMURL: URL,
-        finalBAIURL: URL,
-        transactionDirectoryURL: URL
-    ) throws {
-        let backupBAMURL = transactionDirectoryURL.appendingPathComponent("previous-genotyping-evidence.bam")
-        let backupBAIURL = transactionDirectoryURL.appendingPathComponent("previous-genotyping-evidence.bam.bai")
-        var backedUpBAM = false
-        var backedUpBAI = false
-        var installedBAM = false
-        do {
-            if fileManager.fileExists(atPath: finalBAMURL.path) {
-                try fileManager.moveItem(at: finalBAMURL, to: backupBAMURL)
-                backedUpBAM = true
-            }
-            if fileManager.fileExists(atPath: finalBAIURL.path) {
-                try fileManager.moveItem(at: finalBAIURL, to: backupBAIURL)
-                backedUpBAI = true
-            }
-            try fileManager.moveItem(at: stagedBAMURL, to: finalBAMURL)
-            installedBAM = true
-            try fileManager.moveItem(at: stagedBAIURL, to: finalBAIURL)
-        } catch {
-            if installedBAM { try? fileManager.removeItem(at: finalBAMURL) }
-            var rollbackMessages: [String] = []
-            if backedUpBAM {
-                do { try fileManager.moveItem(at: backupBAMURL, to: finalBAMURL) }
-                catch { rollbackMessages.append("BAM rollback failed: \(error.localizedDescription)") }
-            }
-            if backedUpBAI {
-                do { try fileManager.moveItem(at: backupBAIURL, to: finalBAIURL) }
-                catch { rollbackMessages.append("BAI rollback failed: \(error.localizedDescription)") }
-            }
-            let suffix = rollbackMessages.isEmpty ? "" : " " + rollbackMessages.joined(separator: " ")
-            throw BuildFailure("Could not publish cohort BAM/index pair: \(error.localizedDescription).\(suffix)")
-        }
-    }
 }
 
 private struct BuildFailure: Error, LocalizedError {

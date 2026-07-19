@@ -59,6 +59,25 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
             "sort", "-o", result.sampleMappings[0].sortedBAMURL.path,
             result.sampleMappings[0].readGroupBAMURL.path,
         ])
+        XCTAssertEqual(Array(commands[4].dropFirst()), [
+            "-a", "-x", "splice", "--eqx", "-t", "4", "-N", "100", "--secondary=yes",
+            result.sampleMappings[1].namespacedClustersFASTAURL.path,
+            fixture.referenceURL.path,
+        ])
+        XCTAssertEqual(Array(commands[5].dropFirst()), [
+            "view", "-b", "-o",
+            result.sampleMappings[1].unsortedBAMURL.path,
+            result.sampleMappings[1].samURL.path,
+        ])
+        XCTAssertEqual(Array(commands[6].dropFirst()), [
+            "addreplacerg", "-r", "ID:sample-B", "-r", "SM:sample-B", "-o",
+            result.sampleMappings[1].readGroupBAMURL.path,
+            result.sampleMappings[1].unsortedBAMURL.path,
+        ])
+        XCTAssertEqual(Array(commands[7].dropFirst()), [
+            "sort", "-o", result.sampleMappings[1].sortedBAMURL.path,
+            result.sampleMappings[1].readGroupBAMURL.path,
+        ])
 
         let merge = Array(commands[8].dropFirst())
         XCTAssertEqual(merge, [
@@ -66,9 +85,52 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
             result.sampleMappings[0].sortedBAMURL.path,
             result.sampleMappings[1].sortedBAMURL.path,
         ])
-        XCTAssertEqual(result.commandRecords.map(\.argv), commands.map { command in
-            [fixture.toolsURL.appendingPathComponent(command[0]).path] + command.dropFirst()
-        })
+        let stagedBAMURL = result.commandRecords[9].outputs[0]
+        XCTAssertEqual(Array(commands[9].dropFirst()), [
+            "sort", "-o", stagedBAMURL.path, result.mergedBAMURL.path,
+        ])
+        XCTAssertEqual(
+            result.commandRecords[4].argv,
+            [
+                fixture.toolsURL.appendingPathComponent("minimap2").path,
+                "-a", "-x", "splice", "--eqx", "-t", "4", "-N", "100", "--secondary=yes",
+                result.sampleMappings[1].namespacedClustersFASTAURL.path,
+                fixture.referenceURL.path,
+            ]
+        )
+        XCTAssertEqual(
+            result.commandRecords[5].argv,
+            [
+                fixture.toolsURL.appendingPathComponent("samtools").path,
+                "view", "-b", "-o",
+                result.sampleMappings[1].unsortedBAMURL.path,
+                result.sampleMappings[1].samURL.path,
+            ]
+        )
+        XCTAssertEqual(
+            result.commandRecords[6].argv,
+            [
+                fixture.toolsURL.appendingPathComponent("samtools").path,
+                "addreplacerg", "-r", "ID:sample-B", "-r", "SM:sample-B", "-o",
+                result.sampleMappings[1].readGroupBAMURL.path,
+                result.sampleMappings[1].unsortedBAMURL.path,
+            ]
+        )
+        XCTAssertEqual(
+            result.commandRecords[7].argv,
+            [
+                fixture.toolsURL.appendingPathComponent("samtools").path,
+                "sort", "-o", result.sampleMappings[1].sortedBAMURL.path,
+                result.sampleMappings[1].readGroupBAMURL.path,
+            ]
+        )
+        XCTAssertEqual(
+            result.commandRecords[9].argv,
+            [
+                fixture.toolsURL.appendingPathComponent("samtools").path,
+                "sort", "-o", stagedBAMURL.path, result.mergedBAMURL.path,
+            ]
+        )
     }
 
     func testBuildStagesAndValidatesBothFilesBeforePublishingFinalNames() async throws {
@@ -85,11 +147,29 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         let cohortSort = Array(commands[5].dropFirst())
         let stagedBAM = cohortSort[2]
         XCTAssertNotEqual(stagedBAM, result.bamURL.path)
-        XCTAssertTrue(stagedBAM.contains(".genotyping-evidence-staging-"))
+        XCTAssertTrue(stagedBAM.contains(".alignments-replacement-"))
         XCTAssertEqual(Array(commands[6].dropFirst()), ["index", stagedBAM, stagedBAM + ".bai"])
         XCTAssertEqual(Array(commands[7].dropFirst()), ["quickcheck", stagedBAM])
         XCTAssertEqual(Array(commands[8].dropFirst()), ["idxstats", stagedBAM])
         XCTAssertEqual(result.commandRecords.suffix(2).map(\.arguments.first), ["quickcheck", "idxstats"])
+    }
+
+    func testSuccessfulAtomicDirectoryPublicationPreservesUnrelatedAlignmentArtifacts() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let reciprocalBAMURL = fixture.finalBAMURL.deletingLastPathComponent()
+            .appendingPathComponent("reciprocal-evidence.bam")
+        try FileManager.default.createDirectory(
+            at: reciprocalBAMURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("reciprocal-bam".utf8).write(to: reciprocalBAMURL)
+
+        let result = try await fixture.build(samples: [fixture.sample("S1", clusters: ["c1"])])
+
+        XCTAssertEqual(try String(contentsOf: reciprocalBAMURL, encoding: .utf8), "reciprocal-bam")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.bamURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.baiURL.path))
     }
 
     func testFailureBeforePublicationRetainsTemporaryFilesAndPublishesNoPair() async throws {
@@ -148,6 +228,75 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
 
         XCTAssertEqual(try String(contentsOf: fixture.finalBAMURL, encoding: .utf8), "old-bam")
         XCTAssertEqual(try String(contentsOf: fixture.finalBAIURL, encoding: .utf8), "old-bai")
+    }
+
+    func testAtomicDirectoryPublicationFailureLeavesExistingPairUnmixedAndRetainsDiagnostics() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.finalBAMURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("old-bam".utf8).write(to: fixture.finalBAMURL)
+        try Data("old-bai".utf8).write(to: fixture.finalBAIURL)
+        try Data().write(to: fixture.toolsURL.appendingPathComponent("allow-existing-final"))
+
+        var publicationDiagnostics: URL?
+        do {
+            _ = try await fixture.build(
+                samples: [fixture.sample("S1", clusters: ["c1"])],
+                publisher: FailingAtomicAlignmentDirectoryPublisher()
+            )
+            XCTFail("Expected atomic publication failure")
+        } catch let error as FullLengthONTMHCCohortAlignmentBuildError {
+            publicationDiagnostics = error.retainedPublicationDirectoryURL
+        }
+
+        XCTAssertEqual(try String(contentsOf: fixture.finalBAMURL, encoding: .utf8), "old-bam")
+        XCTAssertEqual(try String(contentsOf: fixture.finalBAIURL, encoding: .utf8), "old-bai")
+        XCTAssertNotNil(publicationDiagnostics)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: publicationDiagnostics!.path))
+        XCTAssertNotEqual(
+            try String(
+                contentsOf: publicationDiagnostics!.appendingPathComponent("genotyping-evidence.bam"),
+                encoding: .utf8
+            ),
+            "old-bam"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: publicationDiagnostics!.appendingPathComponent("genotyping-evidence.bam.bai").path
+        ))
+        XCTAssertEqual(try fixture.commands().last?.dropFirst().first, "idxstats")
+    }
+
+    func testRetiredDirectoryCleanupFailureKeepsPublishedPairAndReportsDiagnostic() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.finalBAMURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("old-bam".utf8).write(to: fixture.finalBAMURL)
+        try Data("old-bai".utf8).write(to: fixture.finalBAIURL)
+        try Data().write(to: fixture.toolsURL.appendingPathComponent("allow-existing-final"))
+
+        let result = try await fixture.build(
+            samples: [fixture.sample("S1", clusters: ["c1"])],
+            publisher: CleanupFailingAtomicAlignmentDirectoryPublisher()
+        )
+
+        XCTAssertNotEqual(try String(contentsOf: result.bamURL, encoding: .utf8), "old-bam")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.baiURL.path))
+        let retiredDirectoryURL = try XCTUnwrap(result.retainedPublicationDirectoryURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retiredDirectoryURL.path))
+        XCTAssertEqual(
+            try String(
+                contentsOf: retiredDirectoryURL.appendingPathComponent("genotyping-evidence.bam"),
+                encoding: .utf8
+            ),
+            "old-bam"
+        )
+        XCTAssertEqual(result.publicationCleanupError, "forced retired-directory cleanup failure")
     }
 
     func testMissingDeclaredOutputFailsEvenWhenToolExitsZero() async throws {
@@ -230,9 +379,13 @@ private final class Fixture {
 
     func build(
         samples: [FullLengthONTMHCSampleAlignmentInput],
-        keepIntermediates: Bool = false
+        keepIntermediates: Bool = false,
+        publisher: any FullLengthONTMHCAlignmentDirectoryPublishing = DarwinAtomicAlignmentDirectoryPublisher()
     ) async throws -> FullLengthONTMHCCohortAlignmentResult {
-        try await FullLengthONTMHCCohortAlignmentBuilder(executableDirectoryURL: toolsURL).build(
+        try await FullLengthONTMHCCohortAlignmentBuilder(
+            executableDirectoryURL: toolsURL,
+            alignmentDirectoryPublisher: publisher
+        ).build(
             .init(
                 samples: samples,
                 referenceAlleleFASTAURL: referenceURL,
@@ -344,6 +497,35 @@ private final class Fixture {
     esac
     exit 0
     """#
+}
+
+private struct FailingAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignmentDirectoryPublishing {
+    func publish(
+        stagedDirectoryURL: URL,
+        finalDirectoryURL: URL
+    ) throws -> FullLengthONTMHCAlignmentDirectoryPublication {
+        throw CocoaError(.fileWriteUnknown)
+    }
+}
+
+private struct CleanupFailingAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignmentDirectoryPublishing {
+    func publish(
+        stagedDirectoryURL: URL,
+        finalDirectoryURL: URL
+    ) throws -> FullLengthONTMHCAlignmentDirectoryPublication {
+        try DarwinAtomicAlignmentDirectoryPublisher().publish(
+            stagedDirectoryURL: stagedDirectoryURL,
+            finalDirectoryURL: finalDirectoryURL
+        )
+    }
+
+    func cleanupRetiredDirectory(at url: URL) throws {
+        throw CleanupFailure()
+    }
+
+    private struct CleanupFailure: Error, LocalizedError {
+        var errorDescription: String? { "forced retired-directory cleanup failure" }
+    }
 }
 
 private func recursiveFiles(at root: URL) throws -> [URL] {
