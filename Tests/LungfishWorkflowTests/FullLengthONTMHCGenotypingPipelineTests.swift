@@ -772,6 +772,84 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         }
     }
 
+    func testRunCreatesMissingMultiLevelOutputParentsBeforeAcquiringSiblingLock() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-missing-output-parents-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outputDirectory = root
+            .appendingPathComponent("new", isDirectory: true)
+            .appendingPathComponent("nested", isDirectory: true)
+            .appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        let observation = OutputParentPreparationObservation(outputDirectory: outputDirectory)
+        let (baseRequest, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: observation.observe
+        )
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: baseRequest.inputFASTQURLs,
+            referenceSourceURL: baseRequest.referenceSourceURL,
+            outputDirectory: outputDirectory,
+            outputName: baseRequest.outputName,
+            threads: baseRequest.threads,
+            minimumLength: baseRequest.minimumLength,
+            maximumLength: baseRequest.maximumLength
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputDirectory.deletingLastPathComponent().path))
+
+        let result = try await pipeline.run(request)
+
+        XCTAssertEqual(result.outputDirectory, outputDirectory.standardizedFileURL)
+        XCTAssertTrue(observation.observedLockBoundary)
+        XCTAssertTrue(observation.parentExistedAtLockBoundary)
+        XCTAssertTrue(observation.resultWasAbsentAtLockBoundary)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.manifestURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: DarwinFullLengthONTMHCRunLock.lockURL(for: outputDirectory).path
+        ))
+    }
+
+    func testRunRejectsSymlinkedMissingOutputParentChainWithoutResultMutation() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-unsafe-output-parent-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (baseRequest, pipeline) = try makeFakeFullLengthRun(root: root)
+        let safeParent = root.appendingPathComponent("new", isDirectory: true)
+        let external = root.appendingPathComponent("external", isDirectory: true)
+        let symlink = safeParent.appendingPathComponent("redirect", isDirectory: true)
+        try FileManager.default.createDirectory(at: safeParent, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+        let sentinel = external.appendingPathComponent("sentinel.txt")
+        try Data("untouched".utf8).write(to: sentinel)
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: external)
+        let outputDirectory = symlink
+            .appendingPathComponent("missing", isDirectory: true)
+            .appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: baseRequest.inputFASTQURLs,
+            referenceSourceURL: baseRequest.referenceSourceURL,
+            outputDirectory: outputDirectory,
+            outputName: baseRequest.outputName,
+            threads: baseRequest.threads,
+            minimumLength: baseRequest.minimumLength,
+            maximumLength: baseRequest.maximumLength
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected symlinked output parent chain rejection")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("output parent"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("symlink"), error.localizedDescription)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: external.appendingPathComponent("missing").path))
+        XCTAssertEqual(try Data(contentsOf: sentinel), Data("untouched".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: DarwinFullLengthONTMHCRunLock.lockURL(for: outputDirectory).path
+        ))
+    }
+
     func testManifestIsPublishedLastAndProvenanceMapsUniqueStagingDescriptorToFinalPath() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-manifest-last-\(UUID().uuidString)", isDirectory: true)
@@ -2540,5 +2618,40 @@ private final class RunLockBoundaryGate: @unchecked Sendable {
 
     private struct InjectedRunLockStop: Error, LocalizedError {
         var errorDescription: String? { "injected stop after run lock" }
+    }
+}
+
+private final class OutputParentPreparationObservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private let outputDirectory: URL
+    private var observed = false
+    private var parentExisted = false
+    private var resultWasAbsent = false
+
+    init(outputDirectory: URL) {
+        self.outputDirectory = outputDirectory.standardizedFileURL
+    }
+
+    var observedLockBoundary: Bool {
+        lock.withLock { observed }
+    }
+
+    var parentExistedAtLockBoundary: Bool {
+        lock.withLock { parentExisted }
+    }
+
+    var resultWasAbsentAtLockBoundary: Bool {
+        lock.withLock { resultWasAbsent }
+    }
+
+    func observe(_ event: FullLengthONTMHCMetadataPublicationEvent) {
+        guard case .runLockAcquired = event else { return }
+        lock.withLock {
+            observed = true
+            parentExisted = FileManager.default.fileExists(
+                atPath: outputDirectory.deletingLastPathComponent().path
+            )
+            resultWasAbsent = !FileManager.default.fileExists(atPath: outputDirectory.path)
+        }
     }
 }

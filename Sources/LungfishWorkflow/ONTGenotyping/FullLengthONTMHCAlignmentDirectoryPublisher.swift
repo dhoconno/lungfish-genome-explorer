@@ -190,7 +190,7 @@ protocol FullLengthONTMHCRunLock: AnyObject, Sendable {
 enum FullLengthONTMHCRunLockError: Error, LocalizedError, Sendable, Equatable {
     case lockHeld(String)
     case unsafeLockFile(String)
-    case missingParentDirectory(String)
+    case unsafeParentDirectory(String)
     case systemFailure(path: String, code: Int32)
 
     var errorDescription: String? {
@@ -199,8 +199,8 @@ enum FullLengthONTMHCRunLockError: Error, LocalizedError, Sendable, Equatable {
             return "Full-length ONT MHC run lock is already held: \(path)"
         case .unsafeLockFile(let path):
             return "Full-length ONT MHC run lock must be a real regular file: \(path)"
-        case .missingParentDirectory(let path):
-            return "Full-length ONT MHC output parent directory must exist before locking: \(path)"
+        case .unsafeParentDirectory(let path):
+            return "Full-length ONT MHC output parent hierarchy contains a symlink or special file: \(path)"
         case .systemFailure(let path, let code):
             return "Could not acquire full-length ONT MHC run lock at \(path) (errno \(code))."
         }
@@ -227,18 +227,13 @@ final class DarwinFullLengthONTMHCRunLock: FullLengthONTMHCRunLock, @unchecked S
 
     static func acquire(outputDirectoryURL: URL) throws -> DarwinFullLengthONTMHCRunLock {
         let outputURL = outputDirectoryURL.standardizedFileURL
-        let parentURL = outputURL.deletingLastPathComponent()
-        do {
-            try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(
-                parentURL,
-                role: "full-length ONT MHC output parent directory"
-            )
-        } catch {
-            throw FullLengthONTMHCRunLockError.missingParentDirectory(parentURL.path)
-        }
+        let parentDescriptor = try prepareOutputParentHierarchy(for: outputURL)
+        defer { Darwin.close(parentDescriptor) }
         let lockURL = lockURL(for: outputURL)
         let flags = O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC
-        let descriptor = Darwin.open(lockURL.path, flags, S_IRUSR | S_IWUSR)
+        let descriptor = lockURL.lastPathComponent.withCString {
+            Darwin.openat(parentDescriptor, $0, flags, S_IRUSR | S_IWUSR)
+        }
         guard descriptor >= 0 else {
             if errno == ELOOP {
                 throw FullLengthONTMHCRunLockError.unsafeLockFile(lockURL.path)
@@ -260,6 +255,106 @@ final class DarwinFullLengthONTMHCRunLock: FullLengthONTMHCRunLock, @unchecked S
             throw FullLengthONTMHCRunLockError.systemFailure(path: lockURL.path, code: code)
         }
         return DarwinFullLengthONTMHCRunLock(lockURL: lockURL, descriptor: descriptor)
+    }
+
+    private static func prepareOutputParentHierarchy(for outputURL: URL) throws -> Int32 {
+        let requestedParentURL = outputURL.deletingLastPathComponent().standardizedFileURL
+        var existingAncestorURL = requestedParentURL
+        var missingComponents: [String] = []
+
+        while true {
+            var info = stat()
+            if Darwin.lstat(existingAncestorURL.path, &info) == 0 {
+                guard info.st_mode & S_IFMT == S_IFDIR else {
+                    throw FullLengthONTMHCRunLockError.unsafeParentDirectory(existingAncestorURL.path)
+                }
+                break
+            }
+            let code = errno
+            guard code == ENOENT else {
+                throw FullLengthONTMHCRunLockError.systemFailure(
+                    path: existingAncestorURL.path,
+                    code: code
+                )
+            }
+            let component = existingAncestorURL.lastPathComponent
+            let ancestor = existingAncestorURL.deletingLastPathComponent().standardizedFileURL
+            guard !component.isEmpty, ancestor.path != existingAncestorURL.path else {
+                throw FullLengthONTMHCRunLockError.unsafeParentDirectory(requestedParentURL.path)
+            }
+            missingComponents.insert(component, at: 0)
+            existingAncestorURL = ancestor
+        }
+
+        let canonicalAncestorURL = existingAncestorURL.resolvingSymlinksInPath().standardizedFileURL
+        let directoryFlags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        var currentDescriptor = Darwin.open(canonicalAncestorURL.path, directoryFlags)
+        guard currentDescriptor >= 0 else {
+            let code = errno
+            if code == ELOOP || code == ENOTDIR {
+                throw FullLengthONTMHCRunLockError.unsafeParentDirectory(existingAncestorURL.path)
+            }
+            throw FullLengthONTMHCRunLockError.systemFailure(
+                path: existingAncestorURL.path,
+                code: code
+            )
+        }
+
+        var canonicalParentURL = canonicalAncestorURL
+        do {
+            for component in missingComponents {
+                let createStatus = component.withCString {
+                    Darwin.mkdirat(
+                        currentDescriptor,
+                        $0,
+                        S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH
+                    )
+                }
+                if createStatus != 0, errno != EEXIST {
+                    throw FullLengthONTMHCRunLockError.systemFailure(
+                        path: canonicalParentURL.appendingPathComponent(component).path,
+                        code: errno
+                    )
+                }
+
+                let nextDescriptor = component.withCString {
+                    Darwin.openat(currentDescriptor, $0, directoryFlags)
+                }
+                guard nextDescriptor >= 0 else {
+                    let code = errno
+                    let unsafeURL = canonicalParentURL.appendingPathComponent(component)
+                    if code == ELOOP || code == ENOTDIR {
+                        throw FullLengthONTMHCRunLockError.unsafeParentDirectory(unsafeURL.path)
+                    }
+                    throw FullLengthONTMHCRunLockError.systemFailure(
+                        path: unsafeURL.path,
+                        code: code
+                    )
+                }
+                Darwin.close(currentDescriptor)
+                currentDescriptor = nextDescriptor
+                canonicalParentURL.appendPathComponent(component, isDirectory: true)
+            }
+
+            let resolvedRequestedParent = requestedParentURL.resolvingSymlinksInPath().standardizedFileURL
+            guard resolvedRequestedParent.path == canonicalParentURL.standardizedFileURL.path else {
+                throw FullLengthONTMHCRunLockError.unsafeParentDirectory(requestedParentURL.path)
+            }
+            var descriptorInfo = stat()
+            var pathInfo = stat()
+            guard Darwin.fstat(currentDescriptor, &descriptorInfo) == 0,
+                  descriptorInfo.st_mode & S_IFMT == S_IFDIR,
+                  Darwin.lstat(requestedParentURL.path, &pathInfo) == 0,
+                  pathInfo.st_mode & S_IFMT == S_IFDIR,
+                  pathInfo.st_dev == descriptorInfo.st_dev,
+                  pathInfo.st_ino == descriptorInfo.st_ino else {
+                throw FullLengthONTMHCRunLockError.unsafeParentDirectory(requestedParentURL.path)
+            }
+            return currentDescriptor
+        } catch {
+            Darwin.close(currentDescriptor)
+            throw error
+        }
     }
 
     func release() {
