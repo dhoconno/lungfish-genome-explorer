@@ -1114,6 +1114,17 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let orderedAlleles = try FullLengthONTMHCClusterGenotyper
             .readFASTARecords(from: referenceFASTAURL)
             .map(\.name)
+        let workbookProjection = try FullLengthONTMHCWorkbookProjection(
+            candidateDocument: JSONDecoder().decode(
+                ONTMHCCandidateAllelesDocument.self,
+                from: Data(contentsOf: candidateArtifactResult.candidateJSONURL)
+            ),
+            unnameableDocument: JSONDecoder().decode(
+                ONTMHCUnnameableClustersDocument.self,
+                from: Data(contentsOf: candidateArtifactResult.unnameableJSONURL)
+            ),
+            sampleOrder: sampleSummaries.map(\.sample)
+        )
         try writeWorkbook(
             request: request,
             reportRows: reportRows,
@@ -1122,6 +1133,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             unmatchedClosestMatchRows: unmatchedClosestMatchRows,
             orderedAlleles: orderedAlleles,
             haplotypeAnalysis: haplotypeAnalysis,
+            projection: workbookProjection,
             to: request.workbookURL
         )
         let workbookCopy = try createInitialCurrentWorkbookCopy(for: request)
@@ -3229,6 +3241,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         unmatchedClosestMatchRows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow],
         orderedAlleles: [String],
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        projection: FullLengthONTMHCWorkbookProjection,
         to url: URL
     ) throws {
         try FullLengthONTMHCXLSXPackageWriter.write(
@@ -3264,36 +3277,46 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 ),
                 .init(
                     name: "Unmatched Clusters",
-                    rows: FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.detailRows(unmatchedClosestMatchRows)
+                    rows: projection.enrichingLegacyUnmatchedRows(
+                        FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.detailRows(unmatchedClosestMatchRows)
+                    )
                 ),
                 .init(
                     name: "Unmatched Shared Pivot",
-                    rows: FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.pivotRows(
-                        unmatchedClosestMatchRows,
-                        sampleOrder: sampleSummaries.map(\.sample)
+                    rows: projection.enrichingLegacyUnmatchedRows(
+                        FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.pivotRows(
+                            unmatchedClosestMatchRows,
+                            sampleOrder: sampleSummaries.map(\.sample)
+                        )
                     )
                 ),
                 .init(
                     name: "MHC-like Unmatched Clusters",
-                    rows: FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.mhcLikeDetailRows(
-                        unmatchedClosestMatchRows
+                    rows: projection.enrichingLegacyUnmatchedRows(
+                        FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.mhcLikeDetailRows(
+                            unmatchedClosestMatchRows
+                        )
                     )
                 ),
                 .init(
                     name: "MHC-like Unmatched Pivot",
-                    rows: FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.mhcLikePivotRows(
-                        unmatchedClosestMatchRows,
-                        sampleOrder: sampleSummaries.map(\.sample)
+                    rows: projection.enrichingLegacyUnmatchedRows(
+                        FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.mhcLikePivotRows(
+                            unmatchedClosestMatchRows,
+                            sampleOrder: sampleSummaries.map(\.sample)
+                        )
                     )
                 ),
                 .init(
                     name: "Unified Genotype Pivot",
-                    rows: FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildRows(
+                    cells: FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildCells(
                         reportRows: reportRows,
-                        unmatchedRows: unmatchedClosestMatchRows,
+                        projection: projection,
                         sampleOrder: sampleSummaries.map(\.sample)
                     )
                 ),
+                .init(name: "Candidate Alleles", cells: projection.candidateWorksheetRows),
+                .init(name: "Un-nameable Clusters", cells: projection.unnameableWorksheetRows),
             ],
             to: url
         )
@@ -3330,7 +3353,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ["Unmatched Shared Pivot worksheet", "One row per unique unmatched sequence with occurrence count, total supporting reads, closest-match summary, and per-sample read counts."],
             ["MHC-like Unmatched Clusters worksheet", "One row per unmatched cluster with either genotyping SAM closest-match evidence or accepted local BLAST rescue evidence."],
             ["MHC-like Unmatched Pivot worksheet", "One row per unique MHC-like unmatched sequence with occurrence count, total supporting reads, best evidence summary, and per-sample read counts."],
-            ["Unified Genotype Pivot worksheet", "One sample-by-call pivot combining known reference genotype calls and normalized novel MHC-like unmatched sequences."],
+            ["Unified Genotype Pivot worksheet", "One sample-by-call pivot combining known reference genotype calls with every classified _nov and _ext candidate. Stable cluster IDs keep distinct sequences on separate rows even when provisional names collide."],
+            ["Candidate Alleles worksheet", "One machine-readable row per classified candidate. Every singleton/shared _nov and _ext candidate is retained; color is limited to the provisional-name cell and classification/support columns remain authoritative."],
+            ["Un-nameable Clusters worksheet", "One machine-readable row per unmatched cluster that cannot receive a provisional allele name, including the reason, support, FASTA identity, evidence locator, and per-sample reads."],
         ]
     }
 
@@ -5199,16 +5224,44 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
 }
 
 enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
+    static func buildCells(
+        reportRows: [FullLengthONTMHCReportRow],
+        projection: FullLengthONTMHCWorkbookProjection,
+        sampleOrder: [String]
+    ) -> [[FullLengthONTMHCWorkbookCell]] {
+        let tintsByStableID = Dictionary(uniqueKeysWithValues: projection.candidateRows.map {
+            ($0.stableClusterID, $0.tintCategory)
+        })
+        return buildRows(
+            reportRows: reportRows,
+            projection: projection,
+            sampleOrder: sampleOrder
+        ).enumerated().map { rowIndex, row in
+            let tint = rowIndex == 0 || row.count < 3 ? nil : tintsByStableID[row[1]]
+            return row.enumerated().map { columnIndex, value in
+                FullLengthONTMHCWorkbookCell(value, tint: columnIndex == 2 ? tint : nil)
+            }
+        }
+    }
+
     static func buildRows(
         reportRows: [FullLengthONTMHCReportRow],
-        unmatchedRows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow],
+        projection: FullLengthONTMHCWorkbookProjection,
         sampleOrder: [String]
     ) -> [[String]] {
-        let sampleNames = completeSampleOrder(sampleOrder, reportRows: reportRows, unmatchedRows: unmatchedRows)
+        let sampleNames = completeSampleOrder(
+            sampleOrder,
+            reportRows: reportRows,
+            candidateRows: projection.candidateRows
+        )
         var rows = [[
             "call_type",
             "call_id",
             "display_name",
+            "stable_cluster_id",
+            "locus",
+            "classification",
+            "support_class",
             "closest_reference",
             "match_class",
             "occurrence_count",
@@ -5226,6 +5279,10 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
                 "known-allele",
                 genotype,
                 genotype,
+                "",
+                "",
+                "known",
+                "",
                 genotype,
                 "exact",
                 String(counts.values.filter { $0 > 0 }.count),
@@ -5237,41 +5294,22 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
             })
         }
 
-        let novelRows = unmatchedRows.filter { $0.closestMatch != nil || $0.rescueMatch != nil }
-        let groupedNovel = Dictionary(grouping: novelRows) {
-            FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.unmatchedSequenceID(for: $0.sequence)
-        }
-        let orderedNovelIDs = groupedNovel.keys.sorted { lhs, rhs in
-            let left = groupedNovel[lhs] ?? []
-            let right = groupedNovel[rhs] ?? []
-            let leftReads = left.reduce(0) { $0 + $1.clusterReads }
-            let rightReads = right.reduce(0) { $0 + $1.clusterReads }
-            if leftReads != rightReads { return leftReads > rightReads }
-            if left.count != right.count { return left.count > right.count }
-            return lhs.localizedStandardCompare(rhs) == .orderedAscending
-        }
-        for sequenceID in orderedNovelIDs {
-            guard let group = groupedNovel[sequenceID] else { continue }
-            let readsBySample = group.reduce(into: [String: Int]()) { totals, row in
-                totals[row.sample, default: 0] += row.clusterReads
-            }
-            let representative = group.sorted(by: novelSort).first
-            let closestReference = representative?.closestMatch?.closestReference
-                ?? representative?.rescueMatch?.closestReference
-                ?? ""
-            let matchClass = representative?.closestMatch?.matchClass.rawValue
-                ?? (representative?.rescueMatch == nil ? "" : "blast-rescue")
+        for candidate in projection.candidateRows {
             rows.append([
-                "novel-unmatched",
-                sequenceID,
-                "Novel:\(sequenceID)",
-                closestReference,
-                matchClass,
-                String(group.count),
-                String(readsBySample.values.filter { $0 > 0 }.count),
-                String(group.reduce(0) { $0 + $1.clusterReads }),
+                "candidate-\(candidate.classification)",
+                candidate.stableClusterID,
+                candidate.provisionalName,
+                candidate.stableClusterID,
+                candidate.locus,
+                candidate.classification,
+                candidate.supportClass,
+                candidate.closestReferenceName,
+                candidate.classification,
+                String(candidate.occurrenceCount),
+                String(candidate.independentSampleCount),
+                String(candidate.totalClusterReads),
             ] + sampleNames.map { sample in
-                guard let count = readsBySample[sample], count > 0 else { return "" }
+                guard let count = candidate.readsBySample[sample], count > 0 else { return "" }
                 return String(count)
             })
         }
@@ -5282,29 +5320,18 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
     private static func completeSampleOrder(
         _ sampleOrder: [String],
         reportRows: [FullLengthONTMHCReportRow],
-        unmatchedRows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow]
+        candidateRows: [FullLengthONTMHCCandidateWorkbookRow]
     ) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
         for sample in sampleOrder where seen.insert(sample).inserted {
             result.append(sample)
         }
-        let missing = Set(reportRows.map(\.sample) + unmatchedRows.map(\.sample))
+        let missing = Set(reportRows.map(\.sample) + candidateRows.flatMap { Array($0.readsBySample.keys) })
             .subtracting(seen)
             .sorted(by: localizedStandardLessThan)
         result.append(contentsOf: missing)
         return result
-    }
-
-    private static func novelSort(
-        _ lhs: FullLengthONTMHCUnmatchedClosestMatchWorkbookRow,
-        _ rhs: FullLengthONTMHCUnmatchedClosestMatchWorkbookRow
-    ) -> Bool {
-        if lhs.clusterReads != rhs.clusterReads { return lhs.clusterReads > rhs.clusterReads }
-        if lhs.sample != rhs.sample {
-            return lhs.sample.localizedStandardCompare(rhs.sample) == .orderedAscending
-        }
-        return lhs.cluster.localizedStandardCompare(rhs.cluster) == .orderedAscending
     }
 
     private static func localizedStandardLessThan(_ lhs: String, _ rhs: String) -> Bool {
@@ -5602,11 +5629,16 @@ private func isDirectory(_ url: URL) -> Bool {
 enum FullLengthONTMHCXLSXPackageWriter {
     struct Sheet: Sendable, Equatable {
         let name: String
-        let rows: [[String]]
+        let cells: [[FullLengthONTMHCWorkbookCell]]
 
         init(name: String, rows: [[String]]) {
             self.name = name
-            self.rows = rows
+            cells = rows.map { row in row.map { FullLengthONTMHCWorkbookCell($0) } }
+        }
+
+        init(name: String, cells: [[FullLengthONTMHCWorkbookCell]]) {
+            self.name = name
+            self.cells = cells
         }
     }
 
@@ -5638,8 +5670,13 @@ enum FullLengthONTMHCXLSXPackageWriter {
             atomically: true,
             encoding: .utf8
         )
+        try fullLengthONTMHCWorkbookStylesXML.write(
+            to: xl.appendingPathComponent("styles.xml"),
+            atomically: true,
+            encoding: .utf8
+        )
         for (index, sheet) in sheets.enumerated() {
-            try worksheetXML(rows: sheet.rows).write(
+            try worksheetXML(rows: sheet.cells).write(
                 to: worksheets.appendingPathComponent("sheet\(index + 1).xml"),
                 atomically: true,
                 encoding: .utf8
@@ -5677,6 +5714,7 @@ private func contentTypesXML(sheetCount: Int) -> String {
       <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
       <Default Extension="xml" ContentType="application/xml"/>
       <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+      <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
     \(sheets)
     </Types>
     """
@@ -5704,30 +5742,107 @@ private func workbookRelsXML(sheetCount: Int) -> String {
     <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
     \(rels)
+      <Relationship Id="rId\(sheetCount + 1)" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
     </Relationships>
     """
 }
 
-private func worksheetXML(rows: [[String]]) -> String {
+private let fullLengthONTMHCWorkbookStylesXML = """
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2">
+    <font><sz val="11"/><name val="Aptos"/></font>
+    <font><b/><sz val="11"/><name val="Aptos"/></font>
+  </fonts>
+  <fills count="6">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFE0B2"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFCC80"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFB2DFDB"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFBBDEFB"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="6">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+    <xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/>
+    <xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/>
+    <xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/>
+    <xf numFmtId="0" fontId="0" fillId="5" borderId="0" xfId="0" applyFill="1"/>
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>
+"""
+
+private func worksheetXML(rows: [[FullLengthONTMHCWorkbookCell]]) -> String {
     let rowCount = max(rows.count, 1)
     let columnCount = max(rows.map(\.count).max() ?? 1, 1)
     let dimension = "A1:\(xlsxColumn(columnCount))\(rowCount)"
+    let widths = (0..<columnCount).map { columnIndex -> String in
+        let length = rows.compactMap { row -> Int? in
+            guard row.indices.contains(columnIndex) else { return nil }
+            return workbookCellDisplayText(row[columnIndex]).count
+        }.max() ?? 0
+        let width = min(48, max(8, length + 2))
+        return "<col min=\"\(columnIndex + 1)\" max=\"\(columnIndex + 1)\" width=\"\(width)\" customWidth=\"1\"/>"
+    }.joined()
     let body = rows.enumerated().map { rowIndex, row in
-        let cells = row.enumerated().map { columnIndex, value in
+        let cells = row.enumerated().map { columnIndex, cell in
             let ref = "\(xlsxColumn(columnIndex + 1))\(rowIndex + 1)"
-            return "<c r=\"\(ref)\" t=\"inlineStr\"><is><t>\(xmlEscape(value))</t></is></c>"
+            let style = workbookCellStyle(cell, isHeader: rowIndex == 0).map { " s=\"\($0)\"" } ?? ""
+            switch cell.value {
+            case .text(let value):
+                return "<c r=\"\(ref)\"\(style) t=\"inlineStr\"><is><t xml:space=\"preserve\">\(xmlEscape(value))</t></is></c>"
+            case .integer(let value):
+                return "<c r=\"\(ref)\"\(style)><v>\(value)</v></c>"
+            case .decimal(let value):
+                return "<c r=\"\(ref)\"\(style)><v>\(workbookDecimal(value))</v></c>"
+            case .blank:
+                return "<c r=\"\(ref)\"\(style)/>"
+            }
         }.joined()
         return "<row r=\"\(rowIndex + 1)\">\(cells)</row>"
     }.joined(separator: "\n")
+    let filter = rows.isEmpty ? "" : "<autoFilter ref=\"A1:\(xlsxColumn(columnCount))\(rowCount)\"/>"
     return """
     <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
       <dimension ref="\(dimension)"/>
+      <sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+      <cols>\(widths)</cols>
       <sheetData>
     \(body)
       </sheetData>
+      \(filter)
     </worksheet>
     """
+}
+
+private func workbookCellStyle(_ cell: FullLengthONTMHCWorkbookCell, isHeader: Bool) -> Int? {
+    if isHeader { return 1 }
+    switch cell.tint {
+    case .sharedNovel: return 2
+    case .singletonNovel: return 3
+    case .sharedExtension: return 4
+    case .singletonExtension: return 5
+    case nil: return nil
+    }
+}
+
+private func workbookCellDisplayText(_ cell: FullLengthONTMHCWorkbookCell) -> String {
+    switch cell.value {
+    case .text(let value): value
+    case .integer(let value): String(value)
+    case .decimal(let value): workbookDecimal(value)
+    case .blank: ""
+    }
+}
+
+private func workbookDecimal(_ value: Double) -> String {
+    guard value.isFinite else { return "" }
+    return String(format: "%.12g", locale: Locale(identifier: "en_US_POSIX"), value)
 }
 
 private func xlsxColumn(_ oneBasedIndex: Int) -> String {

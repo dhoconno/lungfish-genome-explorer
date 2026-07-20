@@ -556,6 +556,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 "MHC-like Unmatched Clusters",
                 "MHC-like Unmatched Pivot",
                 "Unified Genotype Pivot",
+                "Candidate Alleles",
+                "Un-nameable Clusters",
             ]
         )
         XCTAssertFalse(workbookXML.contains("Cluster Alignments"))
@@ -587,6 +589,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         let pivotSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet4.xml", from: result.workbookURL)
         XCTAssertTrue(pivotSheetXML.contains("Client ID"))
+        let candidateSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet10.xml", from: result.workbookURL)
+        XCTAssertTrue(candidateSheetXML.contains("Stable Cluster ID"))
+        XCTAssertTrue(candidateSheetXML.contains("Provisional Name"))
+        let unnameableSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet11.xml", from: result.workbookURL)
+        XCTAssertTrue(unnameableSheetXML.contains("Stable Cluster ID"))
+        XCTAssertTrue(unnameableSheetXML.contains("Reason"))
+        XCTAssertTrue(try Self.unzippedText(path: "xl/styles.xml", from: result.workbookURL).contains("FFFFE0B2"))
     }
 
     func testRunRetriesStrictNoClusterSampleWithHiddenQV90MinClusterOneFallback() async throws {
@@ -2393,7 +2402,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         )
     }
 
-    func testUnifiedPivotCombinesKnownAllelesAndNovelUnmatchedClusters() {
+    func testUnifiedPivotPreservesKnownAllelesWhenCandidateProjectionIsEmpty() throws {
         let reportRows = [
             FullLengthONTMHCReportRow(
                 sample: "DL47",
@@ -2420,36 +2429,33 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 overallUniqueRetainedPercent: 10.7
             ),
         ]
-        let closest = FullLengthONTMHCClosestMatch(
-            sample: "DL47",
-            cluster: "ClusterNovel_ReadCount-9",
-            clusterReads: 9,
-            closestReference: "Mamu-A1*002",
-            matchClass: .snpDifferent,
-            closestMatchID: "Mamu-A1*002_2SNP",
-            nucleotidesDifferent: 2,
-            snpDifferences: 2,
-            indelBases: 0,
-            alignedBases: 2_900,
-            score: 2_700,
-            trimStart: 1,
-            trimEnd: 2_902,
-            isReverse: false
-        )
-        let unmatched = [
-            FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
-                sample: "DL47",
-                cluster: "ClusterNovel_ReadCount-9",
-                clusterReads: 9,
-                sequence: "ACGT",
-                closestMatch: closest
+        let emptyFASTA = ONTMHCArtifactReference(path: "empty.fasta", sha256: String(repeating: "0", count: 64), sizeBytes: 0)
+        let projection = try FullLengthONTMHCWorkbookProjection(
+            candidateDocument: ONTMHCCandidateAllelesDocument(
+                schemaVersion: 1,
+                createdAt: "2026-07-19T00:00:00Z",
+                thresholds: .defaults,
+                inputs: [],
+                evidence: [],
+                sequenceFASTA: emptyFASTA,
+                candidates: [],
+                observations: []
             ),
-        ]
+            unnameableDocument: ONTMHCUnnameableClustersDocument(
+                schemaVersion: 1,
+                createdAt: "2026-07-19T00:00:00Z",
+                thresholds: .defaults,
+                sequenceFASTA: emptyFASTA,
+                clusters: [],
+                observations: []
+            ),
+            sampleOrder: ["DL47", "DL48"]
+        )
 
         XCTAssertEqual(
             FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildRows(
                 reportRows: reportRows,
-                unmatchedRows: unmatched,
+                projection: projection,
                 sampleOrder: ["DL47", "DL48"]
             ),
             [
@@ -2457,6 +2463,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                     "call_type",
                     "call_id",
                     "display_name",
+                    "stable_cluster_id",
+                    "locus",
+                    "classification",
+                    "support_class",
                     "closest_reference",
                     "match_class",
                     "occurrence_count",
@@ -2465,8 +2475,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                     "DL47",
                     "DL48",
                 ],
-                ["known-allele", "Mamu-A1*001", "Mamu-A1*001", "Mamu-A1*001", "exact", "2", "2", "32", "12", "20"],
-                ["novel-unmatched", "1dff3e84-fe78-57e0-a73b-69bbddcf4012", "Novel:1dff3e84-fe78-57e0-a73b-69bbddcf4012", "Mamu-A1*002", "snp-different", "1", "1", "9", "9", ""],
+                ["known-allele", "Mamu-A1*001", "Mamu-A1*001", "", "", "known", "", "Mamu-A1*001", "exact", "2", "2", "32", "12", "20"],
             ]
         )
     }
