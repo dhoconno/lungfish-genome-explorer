@@ -481,8 +481,7 @@ extension InspectorViewController {
             guard result.bundleURL.standardizedFileURL == state.bundleURL?.standardizedFileURL else { return nil }
             return result
         }
-        let result = cachedResult ?? state.bundleURL.flatMap { try? ONTGenotypeResultBundle.loadResult(from: $0) }
-        if let result {
+        if let result = cachedResult {
             loadedGenotypeResult = result
             let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
                 result: result,

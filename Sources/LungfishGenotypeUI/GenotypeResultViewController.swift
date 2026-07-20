@@ -28,6 +28,7 @@ public struct GenotypeAIHaplotypingUIRequest: Equatable, Sendable {
 @MainActor
 public final class GenotypeResultViewController: NSViewController {
     typealias Lens = GenotypeResultViewportLens
+    typealias GenotypeResultLoader = @Sendable (URL) async throws -> ONTGenotypeResultBundleData
 
     public var onSelectionStateChanged: ((GenotypeResultSelectionState?) -> Void)?
     public var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
@@ -36,6 +37,9 @@ public final class GenotypeResultViewController: NSViewController {
     public var onCurrentWorkbookUpdateRequested: ((URL, [GenotypeWorkbookHaplotypeCall], [String]) -> Void)?
     public var onAIHaplotypingRequested: ((URL, GenotypeAIHaplotypingUIRequest) -> Void)?
     public var windowStateScope: WindowStateScope?
+    var genotypeResultLoader: GenotypeResultLoader = { bundleURL in
+        try await ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)
+    }
 
     private let summaryStrip = NSStackView()
     private let lensControl = NSSegmentedControl(
@@ -115,6 +119,8 @@ public final class GenotypeResultViewController: NSViewController {
     private var currentWorkbookNeedsRefresh = false
     private var currentWorkbookUpdateStatus: String?
     private var currentWorkbookAnnotationAutoUpdateTask: Task<Void, Never>?
+    private var currentWorkbookResultReloadTask: Task<Void, Never>?
+    private var resultConfigurationGeneration: UInt64 = 0
     private var aiHaplotypingStatus: String?
     private var outlineRowsBySample: [String: GenotypeOutlineView.Row] = [:]
     private var outlineRowOrder: [String] = []
@@ -441,6 +447,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func configure(result: ONTGenotypeResultBundleData) {
+        invalidateCurrentWorkbookResultReload()
         self.result = result
         liveHaplotypeAnalysis = nil
         cachedHaplotypeDefinitionContext = nil
@@ -2664,7 +2671,7 @@ public final class GenotypeResultViewController: NSViewController {
         rebuildArtifactLens()
         do {
             let annotationURL = annotationStore?.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
-            let updatedManifest = try GenotypeWorkbookRevisionService().applyHaplotypeOverrides(
+            _ = try GenotypeWorkbookRevisionService().applyHaplotypeOverrides(
                 calls,
                 annotationSidecarURL: annotationURL,
                 into: result.bundleURL,
@@ -2673,15 +2680,7 @@ public final class GenotypeResultViewController: NSViewController {
                     includedLoci: includedLoci
                 )
             )
-            if let updated = try? ONTGenotypeResultBundle.loadResult(from: result.bundleURL, manifest: updatedManifest) {
-                applyCurrentWorkbookUpdatedResult(updated)
-            }
-            currentWorkbookNeedsRefresh = false
-            currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
-            rebuildArtifactLens()
-            if let sidecar = annotationStore?.sidecar {
-                onAnnotationSidecarChanged?(sidecar)
-            }
+            reloadCurrentWorkbookResult(from: result.bundleURL)
         } catch {
             currentWorkbookUpdateStatus = error.localizedDescription
             rebuildArtifactLens()
@@ -2690,6 +2689,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyCurrentWorkbookUpdateCompleted(result updatedResult: ONTGenotypeResultBundleData) {
+        invalidateCurrentWorkbookResultReload()
         applyCurrentWorkbookUpdatedResult(updatedResult)
         currentWorkbookNeedsRefresh = false
         currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
@@ -2700,8 +2700,55 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyCurrentWorkbookUpdateFailed(_ error: Error) {
+        invalidateCurrentWorkbookResultReload()
         currentWorkbookUpdateStatus = "current.xlsx update failed — see Operations Panel."
         rebuildArtifactLens()
+    }
+
+    private func invalidateCurrentWorkbookResultReload() {
+        currentWorkbookResultReloadTask?.cancel()
+        currentWorkbookResultReloadTask = nil
+        resultConfigurationGeneration &+= 1
+    }
+
+    private func reloadCurrentWorkbookResult(from bundleURL: URL) {
+        currentWorkbookResultReloadTask?.cancel()
+        resultConfigurationGeneration &+= 1
+        let expectedBundleURL = bundleURL.standardizedFileURL
+        let expectedGeneration = resultConfigurationGeneration
+        let loader = genotypeResultLoader
+        currentWorkbookResultReloadTask = Task { @MainActor [weak self] in
+            do {
+                let updatedResult = try await loader(expectedBundleURL)
+                try Task.checkCancellation()
+                guard let self,
+                      self.resultConfigurationGeneration == expectedGeneration,
+                      self.result?.bundleURL.standardizedFileURL == expectedBundleURL,
+                      updatedResult.bundleURL.standardizedFileURL == expectedBundleURL else {
+                    return
+                }
+                self.currentWorkbookResultReloadTask = nil
+                self.applyCurrentWorkbookUpdatedResult(updatedResult)
+                self.currentWorkbookNeedsRefresh = false
+                self.currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
+                self.rebuildArtifactLens()
+                if let sidecar = self.annotationStore?.sidecar {
+                    self.onAnnotationSidecarChanged?(sidecar)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard let self,
+                      self.resultConfigurationGeneration == expectedGeneration,
+                      self.result?.bundleURL.standardizedFileURL == expectedBundleURL else {
+                    return
+                }
+                self.currentWorkbookResultReloadTask = nil
+                self.currentWorkbookUpdateStatus = error.localizedDescription
+                self.rebuildArtifactLens()
+                self.presentSheetAlert(error: error)
+            }
+        }
     }
 
     private func applyCurrentWorkbookUpdatedResult(_ updatedResult: ONTGenotypeResultBundleData) {
@@ -5743,6 +5790,19 @@ extension GenotypeResultViewController {
 
     func testingCurrentWorkbookHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
         currentWorkbookEffectiveHaplotypeCalls()
+    }
+
+    func testingReloadCurrentWorkbookResult() {
+        guard let bundleURL = result?.bundleURL else { return }
+        reloadCurrentWorkbookResult(from: bundleURL)
+    }
+
+    var testingResultBundleURL: URL? {
+        result?.bundleURL.standardizedFileURL
+    }
+
+    var testingResultTotalInputReads: Int? {
+        result?.stats.totalInputReads
     }
 
     private func textContent(in view: NSView) -> [String] {

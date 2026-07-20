@@ -93,7 +93,7 @@ final class GenotypeAIHaplotypingExecutionService {
                 detail: "Loading genotype bundle"
             )
 
-            let result = try ONTGenotypeResultBundle.loadResult(from: bundle)
+            let result = try await ONTGenotypeResultBundle.loadResultAsync(from: bundle)
             let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundle)
             let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundle)
             let activeResult = GenotypeHaplotypeAnalysisResolver.resultByResolvingActiveAnalysis(

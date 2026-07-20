@@ -4779,6 +4779,69 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA")?.fillColor?.hexString, "#00AAFF")
     }
 
+    func testCurrentWorkbookFallbackReloadAppliesAsyncResult() async {
+        let bundleURL = URL(fileURLWithPath: "/tmp/current-workbook-async.lungfishgenotype")
+        let original = makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            stats: ONTGenotypeRunStats(totalInputReads: 10, retainedUniqueReads: 5)
+        )
+        let updated = makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            stats: ONTGenotypeRunStats(totalInputReads: 20, retainedUniqueReads: 9)
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: original)
+        controller.genotypeResultLoader = { _ in updated }
+
+        controller.testingReloadCurrentWorkbookResult()
+        for _ in 0..<20 where controller.testingResultTotalInputReads != 20 {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(controller.testingResultTotalInputReads, 20)
+    }
+
+    func testCurrentWorkbookFallbackReloadIgnoresCancelledStaleResult() async {
+        let firstBundleURL = URL(fileURLWithPath: "/tmp/current-workbook-first.lungfishgenotype")
+        let secondBundleURL = URL(fileURLWithPath: "/tmp/current-workbook-second.lungfishgenotype")
+        let first = makeResult(bundleURL: firstBundleURL, samples: [], calls: [])
+        let staleUpdate = makeResult(
+            bundleURL: firstBundleURL,
+            samples: [],
+            calls: [],
+            stats: ONTGenotypeRunStats(totalInputReads: 99, retainedUniqueReads: 50)
+        )
+        let replacement = makeResult(
+            bundleURL: secondBundleURL,
+            samples: [],
+            calls: [],
+            stats: ONTGenotypeRunStats(totalInputReads: 2, retainedUniqueReads: 1)
+        )
+        let loader = DeferredGenotypeResultLoader()
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: first)
+        controller.genotypeResultLoader = { url in
+            await loader.load(url)
+        }
+
+        controller.testingReloadCurrentWorkbookResult()
+        await loader.waitUntilStarted()
+        controller.configure(result: replacement)
+        await loader.resume(returning: staleUpdate)
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(controller.testingResultBundleURL, secondBundleURL.standardizedFileURL)
+        XCTAssertEqual(controller.testingResultTotalInputReads, 2)
+    }
+
     func testMatrixColumnSelectionPublishesColumnTarget() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -5552,6 +5615,29 @@ final class GenotypeResultViewportTests: XCTestCase {
                 )
             ]
         )
+    }
+}
+
+private actor DeferredGenotypeResultLoader {
+    private var hasStarted = false
+    private var continuation: CheckedContinuation<ONTGenotypeResultBundleData, Never>?
+
+    func load(_ url: URL) async -> ONTGenotypeResultBundleData {
+        hasStarted = true
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        while !hasStarted {
+            await Task.yield()
+        }
+    }
+
+    func resume(returning result: ONTGenotypeResultBundleData) {
+        continuation?.resume(returning: result)
+        continuation = nil
     }
 }
 

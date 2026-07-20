@@ -295,6 +295,31 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertTrue(source.contains("sanitizedErrorCategory"))
     }
 
+    func testMainActorGenotypeBundleConsumersDoNotUseSynchronousResultLoader() throws {
+        let serviceSource = try loadSource(
+            at: "Sources/LungfishApp/Services/GenotypeAIHaplotypingExecutionService.swift"
+        )
+        XCTAssertTrue(serviceSource.contains("try await ONTGenotypeResultBundle.loadResultAsync(from: bundle)"))
+        XCTAssertFalse(serviceSource.contains("ONTGenotypeResultBundle.loadResult(from: bundle)"))
+
+        let inspectorSource = try loadSource(
+            at: "Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift"
+        )
+        let sidecarUpdate = try XCTUnwrap(
+            inspectorSource.range(of: "func updateGenotypeAnnotationSidecar")
+        )
+        let sidecarUpdateTail = String(inspectorSource[sidecarUpdate.lowerBound...])
+        let nextMethod = try XCTUnwrap(sidecarUpdateTail.range(of: "private func genotypeSummaryRows"))
+        let sidecarUpdateBody = String(sidecarUpdateTail[..<nextMethod.lowerBound])
+        XCTAssertFalse(sidecarUpdateBody.contains("ONTGenotypeResultBundle.loadResult"))
+
+        let viewportSource = try loadSource(
+            at: "Sources/LungfishGenotypeUI/GenotypeResultViewController.swift"
+        )
+        XCTAssertTrue(viewportSource.contains("ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)"))
+        XCTAssertFalse(viewportSource.contains("ONTGenotypeResultBundle.loadResult(from:"))
+    }
+
     func testExternalOpenReferenceBundleWiresInspectorCallbacksAndProvenanceTarget() throws {
         let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
             name: "External Open Reference",
