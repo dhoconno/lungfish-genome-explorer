@@ -209,6 +209,12 @@ public final class NativeBundleBuilder: ObservableObject {
 
             try checkCancellation()
 
+            let recordStoreInfo = try embedReferenceRecordStore(
+                from: configuration.referenceRecordStoreURL,
+                in: stagingBundleURL,
+                chromosomes: genomeInfo.chromosomes
+            )
+
             // Step 8: Generate manifest
             try await executeStep(.generatingManifest, progressHandler: progressHandler) {
                 let manifest = BundleManifest(
@@ -219,7 +225,9 @@ public final class NativeBundleBuilder: ObservableObject {
                     annotations: annotationInfos,
                     variants: variantInfos,
                     tracks: signalInfos,
-                    metadata: configuration.metadata
+                    metadata: configuration.metadata,
+                    warnings: configuration.warnings,
+                    recordStore: recordStoreInfo
                 )
 
                 try manifest.save(to: stagingBundleURL)
@@ -320,6 +328,9 @@ public final class NativeBundleBuilder: ObservableObject {
         if !configuration.annotationFiles.isEmpty {
             parameters["annotation_ids"] = .array(configuration.annotationFiles.map { .string($0.id) })
         }
+        if !configuration.warnings.isEmpty {
+            parameters["warnings"] = .array(configuration.warnings.map(warningParameter))
+        }
 
         return parameters
     }
@@ -350,11 +361,12 @@ public final class NativeBundleBuilder: ObservableObject {
             toolName: workflowName,
             toolVersion: WorkflowRun.currentAppVersion,
             command: command,
+            durableReplayArgv: command,
             inputs: inputRecords,
             outputs: outputRecords,
             exitCode: 0,
             wallTime: wallTime,
-            stderr: nil
+            stderr: warningsStderr(configuration.warnings)
         )
         var previousNativeStepID: UUID?
         for step in nativeToolSteps {
@@ -391,7 +403,11 @@ public final class NativeBundleBuilder: ObservableObject {
         try await ProvenanceRecorder.shared.save(
             runID: runID,
             to: stagingBundleURL,
-            bundleLayoutRoot: publishedBundleURL
+            bundleLayoutRoot: publishedBundleURL,
+            options: recordStoreProvenanceOptions(
+                configuration: configuration,
+                bundleURL: publishedBundleURL
+            )
         )
     }
 
@@ -431,7 +447,8 @@ public final class NativeBundleBuilder: ObservableObject {
             ([configuration.fastaURL]
                 + configuration.annotationFiles.map(\.url)
                 + configuration.variantFiles.map(\.url)
-                + configuration.signalFiles.map(\.url))
+                + configuration.signalFiles.map(\.url)
+                + [configuration.referenceRecordStoreURL].compactMap { $0 })
                 .map { $0.standardizedFileURL.path }
         )
         var resolved: [URL] = []
@@ -454,6 +471,9 @@ public final class NativeBundleBuilder: ObservableObject {
         urls.append(contentsOf: configuration.annotationFiles.map(\.url))
         urls.append(contentsOf: configuration.variantFiles.map(\.url))
         urls.append(contentsOf: configuration.signalFiles.map(\.url))
+        if let referenceRecordStoreURL = configuration.referenceRecordStoreURL {
+            urls.append(referenceRecordStoreURL)
+        }
         return uniqueExistingFileURLs(urls)
     }
 
@@ -566,6 +586,12 @@ public final class NativeBundleBuilder: ObservableObject {
         for variant in configuration.variantFiles {
             command.append(contentsOf: ["--variant", variant.url.path])
         }
+
+        if let recordStoreURL = configuration.referenceRecordStoreURL,
+           configuration.provenanceInputFiles == nil {
+            command.append(contentsOf: ["--record-store", recordStoreURL.path])
+        }
+
         for signal in configuration.signalFiles {
             command.append(contentsOf: ["--signal", signal.url.path])
         }
@@ -633,6 +659,22 @@ public final class NativeBundleBuilder: ObservableObject {
             }
         }
 
+        if let recordStoreURL = configuration.referenceRecordStoreURL {
+            guard fileManager.fileExists(atPath: recordStoreURL.path) else {
+                throw BundleBuildError.inputFileNotFound(recordStoreURL)
+            }
+            guard fileManager.isReadableFile(atPath: recordStoreURL.path) else {
+                throw BundleBuildError.inputFileNotReadable(recordStoreURL)
+            }
+            _ = try GenBankRecordDatabase(url: recordStoreURL)
+            if configuration.provenanceInputFiles != nil,
+               configuration.provenanceCommand == nil {
+                throw BundleBuildError.unsupportedProvenanceConfiguration(
+                    "Transient prepared inputs require an explicit high-level provenance replay command."
+                )
+            }
+        }
+
         logger.info("Input validation complete")
     }
 
@@ -650,7 +692,8 @@ public final class NativeBundleBuilder: ObservableObject {
             bundleURL.appendingPathComponent("genome"),
             bundleURL.appendingPathComponent("annotations"),
             bundleURL.appendingPathComponent("variants"),
-            bundleURL.appendingPathComponent("tracks")
+            bundleURL.appendingPathComponent("tracks"),
+            bundleURL.appendingPathComponent("metadata")
         ]
 
         for dir in directories {
@@ -658,6 +701,112 @@ public final class NativeBundleBuilder: ObservableObject {
         }
 
         logger.info("Bundle structure created")
+    }
+
+    private func embedReferenceRecordStore(
+        from sourceURL: URL?,
+        in bundleURL: URL,
+        chromosomes: [ChromosomeInfo]
+    ) throws -> ReferenceRecordStoreInfo? {
+        guard let sourceURL else { return nil }
+        let sourceDatabase = try GenBankRecordDatabase(url: sourceURL)
+        let rows = try sourceDatabase.records()
+        var identityErrors: [String] = []
+        if rows.count != chromosomes.count {
+            identityErrors.append(
+                "Record store count \(rows.count) does not match FASTA sequence count \(chromosomes.count)."
+            )
+        }
+        for (index, pair) in zip(rows, chromosomes).enumerated() {
+            let (row, chromosome) = pair
+            if row.sourceOrdinal != index {
+                identityErrors.append(
+                    "Record store source order \(row.sourceOrdinal) does not match FASTA order \(index)."
+                )
+            }
+            if row.sequenceName != chromosome.name {
+                identityErrors.append(
+                    "Record store sequence name '\(row.sequenceName)' does not match FASTA sequence name '\(chromosome.name)' at order \(index)."
+                )
+            }
+            if Int64(row.sequenceLength) != chromosome.length {
+                identityErrors.append(
+                    "Record store sequence length \(row.sequenceLength) does not match FASTA length \(chromosome.length) for '\(chromosome.name)'."
+                )
+            }
+        }
+        guard identityErrors.isEmpty else {
+            throw BundleBuildError.validationFailed(identityErrors)
+        }
+        let relativePath = "metadata/genbank_records.sqlite"
+        let destinationURL = bundleURL.appendingPathComponent(relativePath)
+        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        let database = try GenBankRecordDatabase(url: destinationURL)
+        return ReferenceRecordStoreInfo(
+            schemaVersion: GenBankRecordDatabase.schemaVersion,
+            format: ReferenceRecordStoreInfo.supportedFormat,
+            databasePath: relativePath,
+            recordCount: try database.recordCount()
+        )
+    }
+
+    private func recordStoreProvenanceOptions(
+        configuration: BuildConfiguration,
+        bundleURL: URL
+    ) -> ProvenanceOptions? {
+        guard configuration.referenceRecordStoreURL != nil || !configuration.warnings.isEmpty else { return nil }
+        var explicit = provenanceParameters(for: configuration, bundleURL: bundleURL)
+        var defaults: [String: ParameterValue] = [:]
+        var resolvedDefaults: [String: ParameterValue] = [:]
+        guard configuration.referenceRecordStoreURL != nil else {
+            return ProvenanceOptions(explicit: explicit, defaults: defaults, resolvedDefaults: resolvedDefaults)
+        }
+        let durableURL = configuration.provenanceInputFiles?.first
+            ?? configuration.referenceRecordStoreURL
+        guard let durableURL else { return nil }
+
+        let key: String
+        if configuration.provenanceInputFiles != nil {
+            key = "reference_source"
+        } else {
+            key = "reference_record_store"
+        }
+        explicit[key] = .file(durableURL)
+        defaults[key] = .string("none")
+        resolvedDefaults[key] = .file(durableURL)
+        return ProvenanceOptions(
+            explicit: explicit,
+            defaults: defaults,
+            resolvedDefaults: resolvedDefaults
+        )
+    }
+
+    private func warningParameter(_ warning: BundleWarning) -> ParameterValue {
+        var fields: [String: ParameterValue] = [
+            "category": .string(warning.category),
+            "code": .string(warning.code),
+            "message": .string(warning.message),
+        ]
+        if let value = warning.recordIdentifier { fields["recordIdentifier"] = .string(value) }
+        if let value = warning.featureType { fields["featureType"] = .string(value) }
+        if let value = warning.recordFieldKey { fields["recordFieldKey"] = .string(value) }
+        if let value = warning.sourceLocation { fields["sourceLocation"] = .string(value) }
+        if let value = warning.lineNumber { fields["lineNumber"] = .integer(value) }
+        return .dictionary(fields)
+    }
+
+    private func warningsStderr(_ warnings: [BundleWarning]) -> String? {
+        guard !warnings.isEmpty else { return nil }
+        return warnings.map { warning in
+            var context: [String] = []
+            if let value = warning.recordIdentifier { context.append("record \(value)") }
+            if let value = warning.recordFieldKey { context.append("field \(value)") }
+            if let value = warning.featureType { context.append("feature \(value)") }
+            if let value = warning.sourceLocation { context.append("location \(value)") }
+            if let value = warning.lineNumber { context.append("line \(value)") }
+            let suffix = context.isEmpty ? "" : " [\(context.joined(separator: ", "))]"
+            return "\(warning.category)/\(warning.code): \(warning.message)\(suffix)"
+        }.joined(separator: "\n")
     }
 
     private func prepareOutputDestination(for publishedBundleURL: URL) throws {
@@ -1313,7 +1462,7 @@ public final class NativeBundleBuilder: ObservableObject {
         logger.info("Converting GenBank file to BED12+: \(sourceURL.lastPathComponent)")
 
         let reader = try GenBankReader(url: sourceURL)
-        let records = try await reader.readAll()
+        let records = try await reader.readAllRecoveringAnnotations().records
 
         // Collect all BED lines with sort keys, then sort by chromosome + start
         struct BEDEntry {

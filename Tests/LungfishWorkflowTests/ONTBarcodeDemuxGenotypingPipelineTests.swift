@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
 
@@ -146,6 +147,12 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         ).run(request)
 
         XCTAssertEqual(result.provenanceURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
+        let genotypeManifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        let embeddedRecordStore = try XCTUnwrap(genotypeManifest.referenceRecordStore)
+        XCTAssertEqual(embeddedRecordStore.databasePath, "metadata/genbank_records.sqlite")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: outputDirectory.appendingPathComponent(embeddedRecordStore.databasePath).path
+        ))
 
         let provenance = try jsonObject(at: request.provenanceURL)
         XCTAssertEqual(provenance["toolName"] as? String, "lungfish fastq genotype")
@@ -197,6 +204,12 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 && record["sha256"] as? String != nil
                 && record["sizeBytes"] as? Int != nil
         }, "\(outputs)")
+        let embeddedRecordStoreURL = outputDirectory.appendingPathComponent(embeddedRecordStore.databasePath)
+        XCTAssertTrue(outputs.contains { record in
+            record["path"] as? String == embeddedRecordStoreURL.path
+                && record["sha256"] as? String == embeddedRecordStore.sha256
+                && record["sizeBytes"] as? Int != nil
+        }, "\(outputs)")
         XCTAssertFalse(outputs.contains { ($0["path"] as? String)?.hasSuffix(".bam") == true }, "\(outputs)")
         XCTAssertFalse(outputs.contains { ($0["path"] as? String)?.hasSuffix(".bam.bai") == true }, "\(outputs)")
         XCTAssertTrue(inputs.contains { record in
@@ -242,6 +255,11 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             descriptor.path == result.workbookURL.path
                 && descriptor.checksumSHA256 != nil
                 && descriptor.fileSize != nil
+        }, "\(canonicalEnvelope.outputs)")
+        XCTAssertTrue(canonicalEnvelope.outputs.contains { descriptor in
+            descriptor.path == embeddedRecordStoreURL.path
+                && descriptor.checksumSHA256 == embeddedRecordStore.sha256
+                && descriptor.fileSize == UInt64(embeddedRecordStore.sizeBytes)
         }, "\(canonicalEnvelope.outputs)")
         XCTAssertFalse(canonicalEnvelope.outputs.contains { $0.path.hasSuffix(".bam") }, "\(canonicalEnvelope.outputs)")
         XCTAssertFalse(canonicalEnvelope.outputs.contains { $0.path.hasSuffix(".bam.bai") }, "\(canonicalEnvelope.outputs)")
@@ -2378,6 +2396,37 @@ print(json.dumps(payload))
             atomically: true,
             encoding: .utf8
         )
+        let embeddedReferenceURL = bundleURL.appendingPathComponent("reference.lungfishref", isDirectory: true)
+        let embeddedDatabaseURL = embeddedReferenceURL.appendingPathComponent("metadata/genbank_records.sqlite")
+        try FileManager.default.createDirectory(
+            at: embeddedDatabaseURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let record = GenBankRecord(
+            sequence: try Sequence(name: "allele1", alphabet: .dna, bases: "ACGT"),
+            annotations: [
+                SequenceAnnotation(
+                    type: .gene,
+                    name: "Mafa-A1*001:01",
+                    start: 0,
+                    end: 4,
+                    qualifiers: ["allele": AnnotationQualifier("Mafa-A1*001:01")]
+                ),
+            ],
+            locus: LocusInfo(name: "allele1", length: 4, moleculeType: .dna, topology: .linear)
+        )
+        let created = try GenBankRecordDatabase.create(records: [record], at: embeddedDatabaseURL)
+        try BundleManifest(
+            name: "Annotated MHC Reference",
+            identifier: "test.annotated-mhc-reference",
+            source: SourceInfo(organism: "Macaca fascicularis", assembly: "test"),
+            recordStore: ReferenceRecordStoreInfo(
+                schemaVersion: GenBankRecordDatabase.schemaVersion,
+                format: ReferenceRecordStoreInfo.supportedFormat,
+                databasePath: "metadata/genbank_records.sqlite",
+                recordCount: created.recordCount
+            )
+        ).save(to: embeddedReferenceURL)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(definition).write(to: definitionURL, options: .atomic)
@@ -2385,6 +2434,7 @@ print(json.dumps(payload))
             MHCAmpliconReferenceBundleManifest(
                 name: name,
                 referenceFastaPath: "reference.fa",
+                referenceBundlePath: "reference.lungfishref",
                 haplotypeDefinitionPaths: [definitionRelativePath],
                 defaultHaplotypeDefinitionID: definition.id,
                 metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 1),

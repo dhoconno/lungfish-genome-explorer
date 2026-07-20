@@ -2,6 +2,7 @@ import Foundation
 import Darwin
 import SQLite3
 import XCTest
+import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
 
@@ -19,6 +20,11 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let databaseURL = metadataDirectory.appendingPathComponent("genbank_records.sqlite")
         try ">NHP00344 Mafa-E*02:01:01\nACGTACGT\n".write(
             to: fastaURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try "NHP00344\t8\t26\t8\t9\n".write(
+            to: genomeDirectory.appendingPathComponent("reference.fasta.fai"),
             atomically: true,
             encoding: .utf8
         )
@@ -55,6 +61,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         CREATE TABLE records (id INTEGER PRIMARY KEY, sequence_name TEXT NOT NULL UNIQUE, sequence_length INTEGER NOT NULL, source_ordinal INTEGER NOT NULL);
         CREATE TABLE field_definitions (key TEXT PRIMARY KEY, display_title TEXT NOT NULL, value_type TEXT NOT NULL, source_category TEXT NOT NULL, preferred_order INTEGER NOT NULL);
         CREATE TABLE field_values (record_id INTEGER NOT NULL, field_key TEXT NOT NULL, value_ordinal INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY (record_id, field_key, value_ordinal));
+        CREATE INDEX idx_field_values_key_value ON field_values(field_key, value COLLATE NOCASE);
+        CREATE INDEX idx_field_values_record_key ON field_values(record_id, field_key);
         INSERT INTO metadata VALUES ('schema_version', '1');
         INSERT INTO records VALUES (1, 'NHP00344', 8, 0);
         INSERT INTO field_definitions VALUES ('feature.allele', 'Allele', 'text', 'feature', 0);
@@ -88,7 +96,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let resultManifestObject = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: request.manifestURL)) as? [String: Any]
         )
-        let embeddedStore = try XCTUnwrap(resultManifestObject["reference_record_store"] as? [String: Any])
+        let embeddedStore = try XCTUnwrap(resultManifestObject["referenceRecordStore"] as? [String: Any])
         XCTAssertEqual(embeddedStore["database_path"] as? String, "metadata/genbank_records.sqlite")
     }
 
@@ -107,6 +115,11 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         try ">record-1 fallback-description\nACGTACGT\n".write(
             to: fastaURL, atomically: true, encoding: .utf8
         )
+        try "record-1\t8\t31\t8\t9\n".write(
+            to: genomeDirectory.appendingPathComponent("reference.fasta.fai"),
+            atomically: true,
+            encoding: .utf8
+        )
         let manifest = BundleManifest(
             name: "Annotated MHC Reference",
             identifier: "org.lungfish.tests.annotated-mhc",
@@ -124,16 +137,29 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         var manifestObject = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
         )
-        manifestObject["record_store"] = ["database_path": "metadata/records.sqlite"]
+        manifestObject["record_store"] = [
+            "database_path": "metadata/records.sqlite",
+            "format": "genbank",
+            "schema_version": 1,
+            "record_count": 1,
+        ]
         try JSONSerialization.data(withJSONObject: manifestObject, options: [.prettyPrinted, .sortedKeys])
             .write(to: manifestURL, options: .atomic)
         var database: OpaquePointer?
         XCTAssertEqual(sqlite3_open(databaseURL.path, &database), SQLITE_OK)
         guard let database else { return XCTFail("Could not create SQLite record store") }
         let schemaAndRows = """
+        CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE records (id INTEGER PRIMARY KEY, sequence_name TEXT NOT NULL UNIQUE, sequence_length INTEGER NOT NULL, source_ordinal INTEGER NOT NULL);
+        CREATE TABLE field_definitions (key TEXT PRIMARY KEY, display_title TEXT NOT NULL, value_type TEXT NOT NULL, source_category TEXT NOT NULL, preferred_order INTEGER NOT NULL);
         CREATE TABLE field_values (record_id INTEGER NOT NULL, field_key TEXT NOT NULL, value_ordinal INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY (record_id, field_key, value_ordinal));
+        CREATE INDEX idx_field_values_key_value ON field_values(field_key, value COLLATE NOCASE);
+        CREATE INDEX idx_field_values_record_key ON field_values(record_id, field_key);
+        INSERT INTO metadata VALUES ('schema_version', '1');
         INSERT INTO records VALUES (1, 'record-1', 8, 0);
+        INSERT INTO field_definitions VALUES ('feature.allele', 'Allele', 'text', 'feature', 0);
+        INSERT INTO field_definitions VALUES ('feature.gene', 'Gene', 'text', 'feature', 1);
+        INSERT INTO field_definitions VALUES ('feature.mol_type', 'Mol Type', 'text', 'feature', 2);
         INSERT INTO field_values VALUES (1, 'feature.allele', 0, 'Mafa-A1*018:01:01:01');
         INSERT INTO field_values VALUES (1, 'feature.gene', 0, 'A1');
         INSERT INTO field_values VALUES (1, 'feature.mol_type', 0, 'genomic DNA');
@@ -803,15 +829,55 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let condaRoot = CoreToolLocator.condaRoot(homeDirectory: homeDirectory)
         let bundledMicromamba = try makeFakeFullLengthCondaRoot(at: condaRoot)
         let inputFASTQ = root.appendingPathComponent("DL46.fastq")
-        let referenceFASTA = root.appendingPathComponent("reference.fasta")
+        let referenceBundle = root.appendingPathComponent("reference.lungfishref", isDirectory: true)
+        let referenceFASTA = referenceBundle.appendingPathComponent("genome/sequence.fa")
+        let referenceDatabase = referenceBundle.appendingPathComponent("metadata/genbank_records.sqlite")
         let outputDirectory = root.appendingPathComponent("full-length.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try "@read-1\nACGTACGT\n+\nIIIIIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: referenceFASTA.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: referenceDatabase.deletingLastPathComponent(), withIntermediateDirectories: true)
         try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "allele1\t8\t9\t8\t9\n".write(
+            to: referenceBundle.appendingPathComponent("genome/sequence.fa.fai"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let genBankRecord = GenBankRecord(
+            sequence: try Sequence(name: "allele1", alphabet: .dna, bases: "ACGTACGT"),
+            annotations: [
+                SequenceAnnotation(
+                    type: .gene,
+                    name: "Mafa-A1*001:01",
+                    start: 0,
+                    end: 8,
+                    qualifiers: ["allele": AnnotationQualifier("Mafa-A1*001:01")]
+                ),
+            ],
+            locus: LocusInfo(name: "allele1", length: 8, moleculeType: .dna, topology: .linear)
+        )
+        let createdRecordStore = try GenBankRecordDatabase.create(records: [genBankRecord], at: referenceDatabase)
+        try BundleManifest(
+            name: "Annotated MHC",
+            identifier: "test.full-length.annotated-mhc",
+            source: SourceInfo(organism: "Macaca fascicularis", assembly: "test"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 8,
+                chromosomes: [ChromosomeInfo(name: "allele1", length: 8, offset: 9, lineBases: 8, lineWidth: 9)]
+            ),
+            recordStore: ReferenceRecordStoreInfo(
+                schemaVersion: GenBankRecordDatabase.schemaVersion,
+                format: ReferenceRecordStoreInfo.supportedFormat,
+                databasePath: "metadata/genbank_records.sqlite",
+                recordCount: createdRecordStore.recordCount
+            )
+        ).save(to: referenceBundle)
 
         let request = FullLengthONTMHCGenotypingRunRequest(
             inputFASTQURLs: [inputFASTQ],
-            referenceSourceURL: referenceFASTA,
+            referenceSourceURL: referenceBundle,
             outputDirectory: outputDirectory,
             outputName: "full-length",
             threads: 2,
@@ -840,6 +906,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: evidenceBAIURL.path))
 
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        XCTAssertNotNil(manifest.referenceRecordStore)
         let evidence = try XCTUnwrap(manifest.mhcCandidateArtifacts?.genotypingEvidence)
         XCTAssertEqual(evidence.bam.path, "artifacts/alignments/genotyping-evidence.bam")
         XCTAssertEqual(evidence.bai.path, "artifacts/alignments/genotyping-evidence.bam.bai")
@@ -936,6 +1003,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(publicationStep.argv.contains("--atomic-directory-exchange"))
         XCTAssertTrue(envelope.outputs.contains { $0.path == evidenceBAMURL.path })
         XCTAssertTrue(envelope.outputs.contains { $0.path == evidenceBAIURL.path })
+        XCTAssertTrue(
+            envelope.outputs.contains { $0.path.hasSuffix("/metadata/genbank_records.sqlite") },
+            "Embedded reference metadata must be a durable provenance output."
+        )
         XCTAssertFalse(
             envelope.outputs.contains { $0.path.contains("/workflow/") },
             "Regenerable workflow intermediates must not be top-level durable provenance outputs."

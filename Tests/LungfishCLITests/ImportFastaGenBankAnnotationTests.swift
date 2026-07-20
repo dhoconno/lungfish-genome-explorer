@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class ImportFastaGenBankAnnotationTests: XCTestCase {
 
@@ -39,12 +40,18 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
             .appendingPathComponent(ReferenceSequenceFolder.folderName, isDirectory: true)
             .appendingPathComponent("MN908947.3.lungfishref", isDirectory: true)
         let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertTrue(manifest.warnings.isEmpty)
 
         let annotation: AnnotationTrackInfo = try XCTUnwrap(manifest.annotations.first)
         XCTAssertEqual(annotation.id, "imported_annotations")
         XCTAssertEqual(annotation.databasePath, "annotations/imported_annotations.db")
         XCTAssertEqual(annotation.path, "annotations/imported_annotations.gff3")
         XCTAssertEqual(annotation.featureCount, 3)
+
+        let recordStore = try XCTUnwrap(manifest.recordStore)
+        XCTAssertEqual(recordStore.recordCount, 1)
+        let recordStoreURL = bundleURL.appendingPathComponent(recordStore.databasePath)
+        XCTAssertEqual(try GenBankRecordDatabase(url: recordStoreURL).recordCount(), 1)
 
         let gffURL = bundleURL.appendingPathComponent(annotation.path)
         XCTAssertTrue(FileManager.default.fileExists(atPath: gffURL.path))
@@ -83,12 +90,33 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         XCTAssertTrue(outputs.contains {
             ($0["path"] as? String)?.hasSuffix("annotations/imported_annotations.gff3") == true
         })
+        let recordStoreOutput = try XCTUnwrap(outputs.first {
+            ($0["path"] as? String) == recordStoreURL.path
+        })
+        XCTAssertEqual(
+            recordStoreOutput["sha256"] as? String,
+            try ProvenanceFileHasher.sha256(of: recordStoreURL)
+        )
+        XCTAssertEqual(
+            (recordStoreOutput["sizeBytes"] as? NSNumber)?.uint64Value,
+            try ProvenanceFileHasher.fileSize(of: recordStoreURL)
+        )
         XCTAssertFalse(outputs.contains {
             ($0["path"] as? String)?.contains("/.tmp/") == true
+        })
+        XCTAssertFalse(outputs.contains {
+            ($0["path"] as? String)?.contains("lungfish-cli-ref-import-") == true
+        })
+        XCTAssertFalse(outputs.contains {
+            guard let path = $0["path"] as? String else { return false }
+            return path.hasSuffix("genbank_records.sqlite") && path != recordStoreURL.path
         })
         XCTAssertTrue(outputs.allSatisfy {
             $0["sha256"] != nil && $0["sizeBytes"] != nil
         })
+        let canonical = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        XCTAssertNil(canonical.options.explicit["warnings"])
+        XCTAssertTrue(canonical.steps.allSatisfy { $0.stderr?.isEmpty != false })
     }
 
     func testCompressedGenBankReferenceImportMaterializesAnnotationTrackGFF3() async throws {
@@ -116,6 +144,10 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         XCTAssertEqual(annotation.path, "annotations/imported_annotations.gff3")
         XCTAssertEqual(annotation.databasePath, "annotations/imported_annotations.db")
         XCTAssertEqual(annotation.featureCount, 3)
+        let recordStore = try XCTUnwrap(manifest.recordStore)
+        XCTAssertEqual(try GenBankRecordDatabase(
+            url: bundleURL.appendingPathComponent(recordStore.databasePath)
+        ).recordCount(), 1)
 
         let gff = try String(
             contentsOf: bundleURL.appendingPathComponent(annotation.path),
@@ -124,6 +156,50 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         XCTAssertTrue(gff.contains("\tgene\t"))
         XCTAssertTrue(gff.contains("\tCDS\t"))
         XCTAssertTrue(gff.contains("\tmat_peptide\t"))
+    }
+
+    func testCompressedGenBankImportRecoversRecordsWhenOneAnnotationIsMalformed() async throws {
+        let uncompressedURL = tempDir.appendingPathComponent("mixed.gb")
+        try Self.mixedValidityGenBank.write(to: uncompressedURL, atomically: true, encoding: .utf8)
+        let inputURL = tempDir.appendingPathComponent("mixed.gb.gz")
+        try gzip(sourceURL: uncompressedURL, destinationURL: inputURL)
+        let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        let command = try ImportCommand.FASTASubcommand.parse([
+            inputURL.path,
+            "--output-dir", projectURL.path,
+            "--name", "mixed",
+            "--quiet",
+        ])
+        try await command.run()
+
+        let bundleURL = projectURL
+            .appendingPathComponent(ReferenceSequenceFolder.folderName, isDirectory: true)
+            .appendingPathComponent("mixed.lungfishref", isDirectory: true)
+        let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(manifest.genome?.chromosomes.map(\.name), ["record1", "record2"])
+        let recordStore = try XCTUnwrap(manifest.recordStore)
+        XCTAssertEqual(try GenBankRecordDatabase(
+            url: bundleURL.appendingPathComponent(recordStore.databasePath)
+        ).recordCount(), 2)
+        XCTAssertEqual(manifest.annotations.first?.featureCount, 1)
+        XCTAssertEqual(Set(manifest.warnings.map(\.code)), [
+            "invalid_feature_location", "malformed_record_field",
+        ])
+        let recordWarning = try XCTUnwrap(manifest.warnings.first { $0.recordFieldKey == "DBLINK" })
+        XCTAssertEqual(recordWarning.category, "genbank.record-field.recovery")
+        XCTAssertEqual(recordWarning.recordIdentifier, "record1")
+        XCTAssertNotNil(recordWarning.lineNumber)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        guard case .array(let warningParameters)? = provenance.options.explicit["warnings"] else {
+            return XCTFail("Expected structured provenance warnings")
+        }
+        XCTAssertEqual(warningParameters.count, 2)
+        let warningText = String(decoding: try JSONEncoder().encode(provenance), as: UTF8.self)
+        XCTAssertTrue(warningText.contains("DBLINK"))
+        XCTAssertTrue(warningText.contains("record1"))
+        XCTAssertFalse(warningText.contains("lungfish-cli-ref-import-"))
     }
 
     private func gzip(sourceURL: URL, destinationURL: URL) throws {
@@ -163,6 +239,31 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
     ORIGIN
             1 atgcatgcat gcatgcatgc atgcatgcat gcatgcatgc atgcatgcat gcatgcatgc
            61 atgcatgcat gcatgcatgc atgcatgcat gcatgcatgc atgcatgcat gcatgcatgc
+    //
+    """
+
+    private static let mixedValidityGenBank = """
+    LOCUS       record1                  12 bp    DNA     linear   UNK 01-JAN-2024
+    DEFINITION  First synthetic record.
+    ACCESSION   record1
+    VERSION     record1.1
+    DBLINK      INSDC: OMITTED
+               malformed continuation indentation
+    FEATURES             Location/Qualifiers
+         gene            1..6
+                         /gene="valid"
+    ORIGIN
+            1 atgcatgcatgc
+    //
+    LOCUS       record2                  12 bp    DNA     linear   UNK 01-JAN-2024
+    DEFINITION  Second synthetic record.
+    ACCESSION   record2
+    VERSION     record2.1
+    FEATURES             Location/Qualifiers
+         CDS             invalid..location
+                         /product="skipped"
+    ORIGIN
+            1 atgcatgcatgc
     //
     """
 }

@@ -402,6 +402,34 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         hideEmptyColumns()
     }
 
+    /// Rebuilds columns from the current ``columnSpecs`` and refreshes shared
+    /// flexible-sizing and header-chooser integration.
+    ///
+    /// Hidden state and user widths are preserved for stable identifiers. Dynamic
+    /// subclasses should update the state backing ``columnSpecs`` before calling.
+    public func rebuildStandardColumns() {
+        var previousState: [String: (width: CGFloat, isHidden: Bool)] = [:]
+        let existingStandardColumns = tableView.tableColumns.filter {
+            !MetadataColumnController.isMetadataColumn($0.identifier)
+        }
+        for column in existingStandardColumns {
+            previousState[column.identifier.rawValue] = (column.width, column.isHidden)
+        }
+
+        for column in existingStandardColumns {
+            tableView.removeTableColumn(column)
+        }
+        addFixedColumns()
+
+        for column in tableView.tableColumns {
+            guard let state = previousState[column.identifier.rawValue] else { continue }
+            column.width = state.width
+            column.isHidden = state.isHidden
+        }
+        metadataColumns.standardColumnNames = standardColumnNames
+        metadataColumns.refreshAfterStandardColumnsChanged()
+    }
+
     // MARK: - Empty Column Hiding
 
     /// Returns `true` if the given column has at least one non-nil / non-empty data value

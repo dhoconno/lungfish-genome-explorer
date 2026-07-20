@@ -68,7 +68,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             haplotypeAnalysis: nil,
             mhcCandidates: nil,
             mhcUnnameableClusters: nil,
-            integrityWarnings: []
+            integrityWarnings: [],
+            referenceMetadata: nil
         )
         let invalid = ONTGenotypeResultBundleData(
             bundleURL: candidate.bundleURL,
@@ -84,7 +85,8 @@ final class GenotypeResultViewportTests: XCTestCase {
                 code: .candidateArtifactChecksumMismatch,
                 detail: "candidate JSON checksum did not match",
                 path: "artifacts/candidates/candidates.json"
-            )]
+            )],
+            referenceMetadata: nil
         )
         let viewModel = GenotypeResultDisplaySectionViewModel()
 
@@ -125,7 +127,8 @@ final class GenotypeResultViewportTests: XCTestCase {
                 code: .candidateArtifactChecksumMismatch,
                 detail: "candidate JSON checksum did not match",
                 path: "artifacts/candidates/candidates.json"
-            )]
+            )],
+            referenceMetadata: nil
         )
         let viewModel = GenotypeResultDisplaySectionViewModel()
 
@@ -274,6 +277,32 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(details["Genotyping Alignment Query"], "cluster-b|AnimalA")
         XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0.localizedCaseInsensitiveContains("sequence bases") })
         XCTAssertEqual(controller.testingCandidateSelectionCallbackCounts, .init(known: 0, candidate: 1))
+    }
+
+    func testSampleAlleleDetailsPreserveCandidateClusterIdentity() {
+        let result = makeCandidateResult(
+            calls: [],
+            candidates: [
+                makeCandidate(id: "cluster-a", name: "Collision_nov", classification: .novel, support: .shared, samples: ["AnimalA", "AnimalB"]),
+                makeCandidate(id: "cluster-b", name: "Collision_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalA", reads: 5),
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalB", reads: 7),
+                makeCandidateObservation(cluster: "cluster-b", sample: "AnimalA", reads: 11),
+            ]
+        )
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: result)
+
+        let details = matrix.visibleSampleAlleleDetails(sample: "AnimalA")
+
+        XCTAssertEqual(Set(details.map(\.rowID)), [
+            .candidate(stableClusterID: "cluster-a"),
+            .candidate(stableClusterID: "cluster-b"),
+        ])
+        XCTAssertEqual(Set(details.compactMap(\.stableClusterID)), ["cluster-a", "cluster-b"])
+        XCTAssertEqual(Set(details.map { $0.support.passedUniqueReads }), [5, 11])
     }
 
     func testCandidateVisibilityPersistsBeforeRedrawWithoutMutatingCurrentWorkbook() async throws {
@@ -817,7 +846,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             haplotypeAnalysis: nil,
             mhcCandidates: fullLengthResult.mhcCandidates,
             mhcUnnameableClusters: nil,
-            integrityWarnings: []
+            integrityWarnings: [],
+            referenceMetadata: nil
         )
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
         sidecar.settings.mhcCandidateDisplay = ONTMHCCandidateDisplaySettings(showKnown: false)
@@ -985,7 +1015,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             haplotypeAnalysis: nil,
             mhcCandidates: candidateResult.mhcCandidates,
             mhcUnnameableClusters: nil,
-            integrityWarnings: []
+            integrityWarnings: [],
+            referenceMetadata: nil
         )
         matrix.configure(result: legacyResult, sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z"))
         XCTAssertEqual(matrix.testingVisibleRows.map(\.population), [.known])
@@ -1004,7 +1035,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             haplotypeAnalysis: nil,
             mhcCandidates: nil,
             mhcUnnameableClusters: nil,
-            integrityWarnings: [.init(code: .candidateArtifactMalformedJSON, detail: "invalid")]
+            integrityWarnings: [.init(code: .candidateArtifactMalformedJSON, detail: "invalid")],
+            referenceMetadata: nil
         )
         var invalidSidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
         invalidSidecar.settings.mhcCandidateDisplay = ONTMHCCandidateDisplaySettings(showKnown: false)
@@ -1018,6 +1050,172 @@ final class GenotypeResultViewportTests: XCTestCase {
             matrix.testingPinnedTableAccessibilityLabel,
             "Shared genotype calls, loci, and summary statistics"
         )
+    }
+
+    func testGenotypeOnlyResultForcesSummaryMatrixListOverDetailViewport() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
+        ]))
+
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(
+            viewportLens: .review,
+            summaryViewMode: .outline,
+            layout: .listTrailing,
+            showsAncillaryLoci: true
+        ))
+
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertEqual(controller.testingPanelLayout, .listTop)
+        XCTAssertFalse(controller.testingSplitIsVertical)
+        XCTAssertTrue(controller.testingFirstPaneIsMatrix)
+        XCTAssertFalse(controller.testingComparisonMatrixIsHidden)
+        XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
+        XCTAssertTrue(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 0)
+    }
+
+    func testGenotypeOnlyResultDirectLensSelectionCannotEscapeSummary() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
+        ]))
+        controller.testingSetUnappliedDisplayState(GenotypeResultDisplayState(
+            viewportLens: .audit,
+            summaryViewMode: .outline,
+            layout: .listTrailing
+        ))
+
+        controller.testingSelectLens(.audit)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertEqual(controller.testingPanelLayout, .listTop)
+        XCTAssertFalse(controller.testingSplitIsVertical)
+        XCTAssertTrue(controller.testingFirstPaneIsMatrix)
+
+        controller.testingSetUnappliedDisplayState(GenotypeResultDisplayState(
+            viewportLens: .review,
+            summaryViewMode: .outline,
+            layout: .listLeading
+        ))
+        controller.testingSelectLens(.review)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertEqual(controller.testingPanelLayout, .listTop)
+        XCTAssertFalse(controller.testingSplitIsVertical)
+        XCTAssertTrue(controller.testingFirstPaneIsMatrix)
+    }
+
+    func testGenotypeOnlySummaryShowsScrollableEmptySelectionDetail() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
+        ]))
+
+        XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
+        XCTAssertTrue(controller.testingCohortSummaryIsHidden)
+        XCTAssertEqual(
+            controller.testingDetailText,
+            "Select a sample column or allele row to view details."
+        )
+        XCTAssertFalse(controller.testingDetailText.localizedCaseInsensitiveContains("low coverage"))
+        XCTAssertFalse(controller.testingDetailText.localizedCaseInsensitiveContains("below threshold"))
+    }
+
+    func testClearingGenotypeOnlyMatrixSelectionRestoresEmptyDetailPrompt() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
+        ]))
+
+        controller.testingClickMatrixColumnChiclet(sample: "AnimalA")
+        XCTAssertNotEqual(
+            controller.testingDetailText,
+            "Select a sample column or allele row to view details."
+        )
+
+        controller.testingClickMatrixColumnChiclet(sample: "AnimalA", modifiers: .command)
+
+        XCTAssertEqual(
+            controller.testingDetailText,
+            "Select a sample column or allele row to view details."
+        )
+        XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
+        XCTAssertTrue(controller.testingCohortSummaryIsHidden)
+        XCTAssertFalse(controller.testingDetailText.localizedCaseInsensitiveContains("low coverage"))
+        XCTAssertFalse(controller.testingDetailText.localizedCaseInsensitiveContains("below threshold"))
+    }
+
+    func testHaplotypedResultKeepsLensHeaderAndSideBySideLayout() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test-definitions",
+            definitionSetName: "Test definitions",
+            speciesName: "Test species",
+            samples: []
+        )
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42)],
+            haplotypeAnalysis: analysis
+        ))
+
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(
+            viewportLens: .review,
+            layout: .listTrailing
+        ))
+
+        XCTAssertFalse(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 48)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "review")
+        XCTAssertEqual(controller.testingPanelLayout, .listTrailing)
+        XCTAssertTrue(controller.testingSplitIsVertical)
+        XCTAssertFalse(controller.testingFirstPaneIsMatrix)
+    }
+
+    func testEmptyResultDoesNotUseGenotypeOnlyViewport() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: []))
+
+        controller.testingSelectLens(.audit)
+
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
+        XCTAssertFalse(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 48)
+    }
+
+    func testReconfigureFromGenotypeOnlyToHaplotypedRestoresLensHeader() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
+        ]))
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test-definitions",
+            definitionSetName: "Test definitions",
+            speciesName: "Test species",
+            samples: []
+        )
+
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42)],
+            haplotypeAnalysis: analysis
+        ))
+        controller.testingSelectLens(.review)
+
+        XCTAssertFalse(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 48)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "review")
     }
 
     func testViewportPublishesSharedGenotypeSelectionForInspector() {
@@ -1104,6 +1302,13 @@ final class GenotypeResultViewportTests: XCTestCase {
                 overallUniqueRetainedPercent: 2.326706
             )
         ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test-definitions",
+            definitionSetName: "Test definitions",
+            speciesName: "Test species",
+            samples: []
+        )
         controller.configure(result: makeResult(samples: [
             ONTGenotypeSampleResult(
                 sample: "LF2874",
@@ -1113,11 +1318,15 @@ final class GenotypeResultViewportTests: XCTestCase {
                 sampleUniqueRetainedPercent: nil,
                 calls: calls
             )
-        ], calls: calls))
-        controller.testingApplyDisplayState(GenotypeResultDisplayState(layout: .listLeading))
+        ], calls: calls, haplotypeAnalysis: analysis))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(
+            summaryViewMode: .matrix,
+            layout: .listLeading
+        ))
 
         controller.view.layoutSubtreeIfNeeded()
 
+        XCTAssertFalse(controller.testingComparisonMatrixIsHidden)
         XCTAssertLessThanOrEqual(controller.view.fittingSize.width, 900)
         XCTAssertGreaterThanOrEqual(controller.testingSamplePaneWidth, 300)
         XCTAssertLessThanOrEqual(controller.testingDetailPaneWidth, 520)
@@ -1133,6 +1342,17 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         controller.testingSelectLens(.audit)
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
+    }
+
+    func testResultViewportOmitsSummaryStatisticsStripForEveryLens() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: []))
+
+        for lens in GenotypeResultViewController.Lens.allCases {
+            controller.testingSelectLens(lens)
+            XCTAssertFalse(controller.testingHasSummaryStatisticsStrip)
+        }
     }
 
     func testAnchorLensShowsDerivedAnchorSummaryAndCaveat() {
@@ -1394,6 +1614,54 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(controller.testingOutlineSelectedSample, "DW472")
         XCTAssertEqual(controller.testingOutlineSelectedLocus, "MHC-B")
+    }
+
+    func testRedrawOnlyDisplayChangePreservesOutlineSelectionState() throws {
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test.definition",
+            definitionSetName: "Test definition",
+            speciesName: "Test species",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M3B",
+                            haplotype2: "M4B",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 2,
+                            observedGenotypes: ["B1", "B2"]
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [], calls: [], haplotypeAnalysis: analysis
+        ))
+        var selection: GenotypeResultSelectionState?
+        controller.onSelectionStateChanged = { selection = $0 }
+        controller.testingSelectCellEvidence(animalId: "DW472", locus: "MHC-B")
+        let initial = try XCTUnwrap(selection)
+        XCTAssertEqual(initial.animalId, "DW472")
+        XCTAssertTrue(initial.matrixTargets.isEmpty)
+
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(
+            viewportLens: .review,
+            layout: .listTrailing
+        ))
+        controller.notifySelectionStateIfAvailable()
+
+        let retained = try XCTUnwrap(selection)
+        XCTAssertEqual(retained.animalId, initial.animalId)
+        XCTAssertEqual(retained.title, initial.title)
+        XCTAssertEqual(retained.matrixTargets, initial.matrixTargets)
     }
 
     func testDisplayStateCanSwitchViewportToHaplotypes() {
@@ -2118,6 +2386,620 @@ final class GenotypeResultViewportTests: XCTestCase {
 
     // MARK: - Sample column windowing
 
+    func testGenBankMatrixDefaultsToAlleleAndOffersEveryReferenceField() {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)],
+            referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+
+        XCTAssertFalse(matrix.testingPinnedColumnTitles.contains("Genotype"))
+        XCTAssertTrue(matrix.testingPinnedColumnTitles.contains("Allele"))
+        XCTAssertEqual(matrix.testingReferenceValue(genotype: "NHP01222", fieldKey: "feature.allele"), "Mafa-A1*001:01")
+        XCTAssertEqual(
+            matrix.testingAvailableReferenceColumnTitles,
+            ["Allele", "Organism", "Product", "Definition"]
+        )
+    }
+
+    func testGenBankMatrixCanToggleAnyReferenceFieldAndFiltersHiddenFields() {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: makeResult(
+            samples: [],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73),
+                makeCall(sample: "AnimalA", genotype: "NHP99999", reads: 41),
+            ],
+            referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+
+        matrix.testingSetReferenceColumnVisible(fieldKey: "feature.product", visible: true)
+        XCTAssertTrue(matrix.testingPinnedColumnTitles.contains("Product"))
+
+        matrix.testingSetFilter("class I A1 antigen")
+        XCTAssertEqual(matrix.testingVisibleGenotypes, ["NHP01222"])
+    }
+
+    func testGenBankMatrixSortsMissingReferenceValuesDeterministically() {
+        let metadata = makeGenBankReferenceMetadata()
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: makeResult(
+            samples: [],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: "NHP-Z", reads: 10),
+                makeCall(sample: "AnimalA", genotype: "NHP-A", reads: 10),
+            ],
+            referenceMetadata: ONTGenotypeReferenceMetadata(
+                fields: metadata.fields,
+                recordsBySequenceName: ["NHP-Z": [:], "NHP-A": [:]],
+                alleleFieldKey: metadata.alleleFieldKey
+            )
+        ))
+
+        XCTAssertEqual(matrix.testingVisibleGenotypes, ["NHP-A", "NHP-Z"])
+    }
+
+    func testFASTAMatrixKeepsGenotypeColumnVisible() {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "FASTA_001", reads: 20)]
+        ))
+
+        XCTAssertTrue(matrix.testingPinnedColumnTitles.contains("Genotype"))
+        XCTAssertTrue(matrix.testingAvailableReferenceColumnTitles.isEmpty)
+    }
+
+    func testSelectedGenBankRowShowsAlleleLabelReferenceAndEveryField() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)],
+            referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+
+        controller.testingSelectMatrixRows(genotypes: ["NHP01222"], sample: nil)
+
+        let text = controller.testingDetailText
+        XCTAssertTrue(text.contains("Selected Allele"))
+        XCTAssertTrue(text.contains("Mafa-A1*001:01"))
+        XCTAssertTrue(text.contains("Reference Sequence\nNHP01222"))
+        XCTAssertTrue(text.contains("GenBank Fields"))
+        for value in [
+            "Macaca fascicularis",
+            "MHC class I A1 antigen",
+            "Mafa-A1 complete coding sequence",
+        ] {
+            XCTAssertTrue(text.contains(value), "Missing GenBank value: \(value)")
+        }
+        let rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertTrue(rows.contains { $0 == ("Reference Sequence", "NHP01222") })
+        XCTAssertTrue(rows.contains { $0 == ("Allele", "Mafa-A1*001:01") })
+        XCTAssertTrue(rows.contains { $0 == ("Organism", "Macaca fascicularis") })
+        XCTAssertTrue(rows.contains { $0 == ("Product", "MHC class I A1 antigen") })
+        XCTAssertTrue(rows.contains { $0 == ("Definition", "Mafa-A1 complete coding sequence") })
+    }
+
+    func testSelectedFASTARowFallsBackToGenotypeWithoutGenBankSection() {
+        let genotype = "01_Mafa_A1_001_01_FULL_FASTA_LABEL"
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 20)]
+        ))
+
+        controller.testingSelectMatrixRows(genotypes: [genotype], sample: nil)
+
+        XCTAssertTrue(controller.testingDetailText.contains(genotype))
+        XCTAssertFalse(controller.testingDetailText.contains("GenBank Fields"))
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == "Reference Sequence" })
+    }
+
+    func testSelectedColumnShowsSampleMetricsAndOnlyVisibleSupportedAlleles() {
+        let retained = ONTGenotypeCall(
+            sample: "AnimalA", genotype: "NHP01222", passedAlignments: 45, passedUniqueReads: 30,
+            sampleTotalReads: nil, sampleUniqueRetainedReads: 40, sampleUniqueRetainedPercent: nil,
+            overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil
+        )
+        let filtered = ONTGenotypeCall(
+            sample: "AnimalA", genotype: "NHP99999", passedAlignments: 12, passedUniqueReads: 10,
+            sampleTotalReads: nil, sampleUniqueRetainedReads: 40, sampleUniqueRetainedPercent: nil,
+            overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [ONTGenotypeSampleResult(
+                sample: "AnimalA", passedAlignments: 57, passedUniqueReads: 40,
+                sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [retained, filtered]
+            )],
+            calls: [retained, filtered],
+            referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+        controller.testingSetComparisonFilter("Mafa-A1")
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+
+        let text = controller.testingDetailText
+        XCTAssertTrue(text.contains("Selected Sample"))
+        XCTAssertTrue(text.contains("AnimalA"))
+        XCTAssertTrue(text.contains("Mafa-A1*001:01"))
+        XCTAssertFalse(text.contains("Mafa-B*002:01"))
+        let rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertTrue(rows.contains { $0 == ("Retained Unique Reads", "40") })
+        XCTAssertTrue(rows.contains { $0 == ("Alignments", "57") })
+        XCTAssertTrue(rows.contains { $0 == ("QC", "Low Support") })
+        XCTAssertTrue(rows.contains { $0.0 == "Support" && $0.1 == "100.0%" })
+    }
+
+    func testSelectedColumnDetailsRefreshWhenRowFilterChanges() {
+        let first = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
+        let second = makeCall(sample: "AnimalA", genotype: "NHP99999", reads: 41)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [], calls: [first, second], referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        XCTAssertTrue(controller.testingDetailText.contains("Mafa-B*002:01"))
+
+        controller.testingSetComparisonFilter("Mafa-A1")
+
+        XCTAssertTrue(controller.testingDetailText.contains("Mafa-A1*001:01"))
+        XCTAssertFalse(controller.testingDetailText.contains("Mafa-B*002:01"))
+    }
+
+    func testMultiRowSelectionPrunesHiddenNonAnchorAndAnchorRows() {
+        let first = "01_Mafa_A1_KEEP_A"
+        let second = "02_Mafa_A1_KEEP_B"
+        let third = "03_Mafa_A1_DROP"
+        let calls = [first, second, third].map { makeCall(sample: "AnimalA", genotype: $0, reads: 10) }
+
+        let nonAnchorController = GenotypeResultViewController()
+        _ = nonAnchorController.view
+        nonAnchorController.configure(result: makeResult(samples: [], calls: calls))
+        nonAnchorController.testingSelectMatrixRows(genotypes: [first, third, second], sample: nil)
+        nonAnchorController.testingSetComparisonFilter("KEEP")
+        XCTAssertEqual(Set(nonAnchorController.testingCurrentSelectionMatrixTargets), Set([
+            .row(locus: "MHC-A", genotype: first), .row(locus: "MHC-A", genotype: second),
+        ]))
+        XCTAssertFalse(nonAnchorController.testingDetailText.contains(third))
+
+        let anchorController = GenotypeResultViewController()
+        _ = anchorController.view
+        anchorController.configure(result: makeResult(samples: [], calls: calls))
+        anchorController.testingSelectMatrixRows(genotypes: [first, second, third], sample: nil)
+        anchorController.testingSetComparisonFilter("KEEP")
+        XCTAssertEqual(Set(anchorController.testingCurrentSelectionMatrixTargets), Set([
+            .row(locus: "MHC-A", genotype: first), .row(locus: "MHC-A", genotype: second),
+        ]))
+        XCTAssertTrue(anchorController.testingDetailText.contains(first))
+        XCTAssertTrue(anchorController.testingDetailText.contains(second))
+    }
+
+    func testMultiCellSelectionPrunesRowsAndSamplesWhileKeepingVisibleEmptyCells() {
+        let first = "01_Mafa_A1_KEEP"
+        let second = "02_Mafa_A1_DROP"
+        let callA = makeCall(sample: "AnimalA", genotype: first, reads: 10)
+        let callB = makeCall(sample: "AnimalB", genotype: second, reads: 20)
+        let samples = [
+            ONTGenotypeSampleResult(sample: "AnimalA", passedAlignments: 10, passedUniqueReads: 10, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [callA]),
+            ONTGenotypeSampleResult(sample: "AnimalB", passedAlignments: 20, passedUniqueReads: 20, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [callB]),
+        ]
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: samples, calls: [callA, callB]))
+        controller.testingClickMatrixCell(genotype: first, sample: "AnimalA")
+        controller.testingClickMatrixCell(genotype: second, sample: "AnimalB", modifiers: .command)
+        controller.testingClickMatrixCell(genotype: first, sample: "AnimalB", modifiers: .command)
+
+        controller.testingSetComparisonFilter("KEEP")
+        XCTAssertEqual(Set(controller.testingCurrentSelectionMatrixTargets), Set([
+            .cell(locus: "MHC-A", genotype: first, sample: "AnimalA"),
+            .cell(locus: "MHC-A", genotype: first, sample: "AnimalB"),
+        ]))
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Evidence", "No supporting reads") })
+
+        controller.testingSetComparisonFilter("")
+        controller.testingClickMatrixCell(genotype: first, sample: "AnimalA")
+        controller.testingClickMatrixCell(genotype: second, sample: "AnimalB", modifiers: .command)
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(matrixSampleFilterText: "AnimalB"))
+        XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, [
+            .cell(locus: "MHC-A", genotype: second, sample: "AnimalB"),
+        ])
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Unique Reads", "20") })
+    }
+
+    func testMixedSelectionPrunesEveryTargetKindAcrossSequentialFilters() {
+        let keep = "01_Mafa_A1_KEEP"
+        let drop = "02_Mafa_A1_DROP"
+        let calls = [
+            makeCall(sample: "AnimalA", genotype: keep, reads: 10),
+            makeCall(sample: "AnimalB", genotype: keep, reads: 20),
+            makeCall(sample: "AnimalA", genotype: drop, reads: 30),
+            makeCall(sample: "AnimalB", genotype: drop, reads: 40),
+        ]
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: calls))
+        controller.testingClickMatrixSelectAllChiclet()
+        controller.testingClickMatrixCell(genotype: keep, sample: "AnimalA", modifiers: .command)
+        controller.testingClickMatrixCell(genotype: keep, sample: "AnimalB", modifiers: .command)
+
+        controller.testingSetComparisonFilter("KEEP")
+        XCTAssertEqual(Set(controller.testingCurrentSelectionMatrixTargets), Set([
+            .row(locus: "MHC-A", genotype: keep),
+            .cell(locus: "MHC-A", genotype: keep, sample: "AnimalA"),
+            .cell(locus: "MHC-A", genotype: keep, sample: "AnimalB"),
+            .column(sample: "AnimalA"),
+            .column(sample: "AnimalB"),
+        ]))
+
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(matrixSampleFilterText: "AnimalB"))
+        XCTAssertEqual(Set(controller.testingCurrentSelectionMatrixTargets), Set([
+            .row(locus: "MHC-A", genotype: keep),
+            .cell(locus: "MHC-A", genotype: keep, sample: "AnimalB"),
+            .column(sample: "AnimalB"),
+        ]))
+    }
+
+    func testSelectedColumnSupportRefreshesWhenDenominatorChanges() {
+        let selected = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_SELECTED", reads: 25)
+        let other = makeCall(sample: "AnimalA", genotype: "02_Mafa_A1_OTHER", reads: 75)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [ONTGenotypeSampleResult(
+                sample: "AnimalA", passedAlignments: 200, passedUniqueReads: 200,
+                sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [selected, other]
+            )],
+            calls: [selected, other]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "25.0%") })
+        var selectionPublicationCount = 0
+        controller.onSelectionStateChanged = { _ in selectionPublicationCount += 1 }
+
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(
+            supportDenominator: .sampleRetained
+        ))
+
+        XCTAssertEqual(selectionPublicationCount, 1)
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "12.5%") })
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "25.0%") })
+    }
+
+    func testSelectedLargeColumnPublishesEveryAlleleWithBoundedDetailSubviews() {
+        let alleleCount = 1_001
+        let calls = (0..<alleleCount).map { index in
+            makeCall(
+                sample: "AnimalA",
+                genotype: String(format: "%04d_Mafa_A1_%04d", index, index),
+                reads: 1
+            )
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: calls))
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+
+        XCTAssertEqual(
+            controller.testingCurrentSelectionDetailRows.filter { $0.0.hasPrefix("Allele ") }.count,
+            alleleCount
+        )
+        XCTAssertLessThanOrEqual(controller.testingDetailArrangedSubviewCount, 12)
+        XCTAssertTrue(controller.testingDetailText.contains(calls.first!.genotype))
+        XCTAssertTrue(controller.testingDetailText.contains(calls.last!.genotype))
+    }
+
+    func testSelectedLargeMultiRowAndCellDetailsStayBounded() {
+        let count = 1_001
+        let calls = (0..<count).map { index in
+            makeCall(sample: "AnimalA", genotype: String(format: "%04d_Mafa_A1_%04d", index, index), reads: index + 1)
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: calls))
+        let rowTargets = calls.reversed().map {
+            GenotypeAnnotationSidecar.MatrixTarget.row(locus: "MHC-A", genotype: $0.genotype)
+        }
+        controller.testingShowMatrixTargetSelection(rowTargets)
+        XCTAssertEqual(controller.testingCurrentSelectionDetailRows.filter { $0.0.hasPrefix("Allele ") }.count, count)
+        XCTAssertLessThanOrEqual(controller.testingDetailArrangedSubviewCount, 6)
+        XCTAssertTrue(controller.testingDetailText.contains(calls.first!.genotype))
+        XCTAssertTrue(controller.testingDetailText.contains(calls.last!.genotype))
+
+        let cellTargets = calls.reversed().map {
+            GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-A", genotype: $0.genotype, sample: "AnimalA")
+        }
+        controller.testingShowMatrixTargetSelection(cellTargets)
+        XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets.count, count)
+        XCTAssertEqual(controller.testingCurrentSelectionDetailRows.filter { $0.0.hasPrefix("Cell ") }.count, count)
+        XCTAssertEqual(controller.testingCurrentSelectionDetailRows.filter { $0.0 == "Unique Reads" }.count, count)
+        XCTAssertLessThanOrEqual(controller.testingDetailArrangedSubviewCount, 6)
+        XCTAssertTrue(controller.testingDetailText.contains(calls.first!.genotype))
+        XCTAssertTrue(controller.testingDetailText.contains(calls.last!.genotype))
+    }
+
+    func testSelectedColumnOmitsUnavailableSummaryMetricsWhenSampleSummaryMissing() {
+        let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_ONLY", reads: 42)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [call]))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        let rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertTrue(rows.contains { $0 == ("Sample", "AnimalA") })
+        XCTAssertTrue(rows.contains { $0 == ("Unique Reads", "42") })
+        XCTAssertFalse(rows.contains { ["Retained Unique Reads", "QC"].contains($0.0) })
+        XCTAssertFalse(rows.contains { $0.0 == "Alignments" && $0.1 == "Unavailable" })
+    }
+
+    func testDuplicateCellEvidenceRowsKeepFirstRecordWithoutCrashing() {
+        let genotype = "01_Mafa_A1_DUPLICATE"
+        let first = makeCall(sample: "AnimalA", genotype: genotype, reads: 17)
+        let duplicate = makeCall(sample: "AnimalA", genotype: genotype, reads: 91)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+
+        controller.configure(result: makeResult(samples: [], calls: [first, duplicate]))
+        _ = controller.testingVisibleGenotypes
+        controller.testingShowMatrixTargetSelection([
+            .cell(locus: "MHC-A", genotype: genotype, sample: "AnimalA"),
+        ])
+
+        let rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertTrue(rows.contains { $0 == ("Locus", "MHC-A") })
+        XCTAssertTrue(rows.contains { $0 == ("Unique Reads", "17") })
+        XCTAssertTrue(rows.contains { $0 == ("Alignments", "17") })
+        XCTAssertTrue(rows.contains { $0 == ("Support", "15.7%") })
+        XCTAssertFalse(rows.contains { $0 == ("Unique Reads", "91") })
+    }
+
+    func testSelectedAlleleTieUsesRawSequenceOrdinalOrder() {
+        let first = "01_Mafa_A1_Z"
+        let second = "02_Mafa_A1_A"
+        let fields = [
+            GenBankRecordDatabase.FieldDefinition(
+                key: "feature.allele", displayTitle: "Allele", valueType: "text",
+                sourceCategory: "feature", preferredOrder: 0
+            ),
+        ]
+        let metadata = ONTGenotypeReferenceMetadata(
+            fields: fields,
+            recordsBySequenceName: [
+                first: ["feature.allele": "Mafa-A1*same"],
+                second: ["feature.allele": "Mafa-A1*same"],
+            ],
+            alleleFieldKey: "feature.allele"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: first, reads: 10), makeCall(sample: "AnimalA", genotype: second, reads: 10)],
+            referenceMetadata: metadata
+        ))
+
+        controller.testingShowMatrixTargetSelection([
+            .row(locus: "MHC-A", genotype: second),
+            .row(locus: "MHC-A", genotype: first),
+        ])
+
+        XCTAssertEqual(
+            controller.testingCurrentSelectionDetailRows.filter { $0.0 == "Reference Sequence" }.map(\.1),
+            [first, second]
+        )
+    }
+
+    func testSelectedMultipleRowsShowEveryAlleleAggregateAndGenBankValue() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73),
+            makeCall(sample: "AnimalA", genotype: "NHP99999", reads: 41),
+        ]
+        controller.configure(result: makeResult(
+            samples: [], calls: calls, referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+
+        controller.testingSelectMatrixRows(genotypes: ["NHP01222", "NHP99999"], sample: nil)
+
+        let text = controller.testingDetailText
+        XCTAssertTrue(text.contains("Selected Alleles: 2"))
+        XCTAssertTrue(text.contains("Mafa-A1*001:01"))
+        XCTAssertTrue(text.contains("Mafa-B*002:01"))
+        XCTAssertTrue(text.contains("73"))
+        XCTAssertTrue(text.contains("41"))
+        XCTAssertTrue(text.contains("MHC class I A1 antigen"))
+        XCTAssertTrue(text.contains("MHC class I B antigen"))
+    }
+
+    func testSelectedSupportedCellShowsEvidenceAndReferenceFields() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let call = ONTGenotypeCall(
+            sample: "AnimalA", genotype: "NHP01222", passedAlignments: 91, passedUniqueReads: 73,
+            sampleTotalReads: nil, sampleUniqueRetainedReads: 100, sampleUniqueRetainedPercent: nil,
+            overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil
+        )
+        controller.configure(result: makeResult(
+            samples: [ONTGenotypeSampleResult(
+                sample: "AnimalA", passedAlignments: 91, passedUniqueReads: 73,
+                sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [call]
+            )],
+            calls: [call], referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+
+        controller.testingSelectMatrixCell(genotype: "NHP01222", sample: "AnimalA")
+
+        let rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertTrue(rows.contains { $0 == ("Sample", "AnimalA") })
+        XCTAssertTrue(rows.contains { $0 == ("Allele", "Mafa-A1*001:01") })
+        XCTAssertTrue(rows.contains { $0 == ("Reference Sequence", "NHP01222") })
+        XCTAssertTrue(rows.contains { $0 == ("Unique Reads", "73") })
+        XCTAssertTrue(rows.contains { $0 == ("Alignments", "91") })
+        XCTAssertTrue(rows.contains { $0 == ("Support", "100.0%") })
+        XCTAssertTrue(rows.contains { $0 == ("Product", "MHC class I A1 antigen") })
+    }
+
+    func testSelectedEmptyCellShowsNoSupportingReadsWithoutZeroCounts() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let call = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
+        controller.configure(result: makeResult(
+            samples: [
+                ONTGenotypeSampleResult(sample: "AnimalA", passedAlignments: 73, passedUniqueReads: 73, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [call]),
+                ONTGenotypeSampleResult(sample: "AnimalB", passedAlignments: 0, passedUniqueReads: 0, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: []),
+            ],
+            calls: [call], referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+
+        controller.testingSelectMatrixCell(genotype: "NHP01222", sample: "AnimalB")
+
+        let rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertTrue(rows.contains { $0 == ("Evidence", "No supporting reads") })
+        XCTAssertFalse(rows.contains { ["Unique Reads", "Alignments", "Support", "Selected Unique", "Selected Support"].contains($0.0) })
+    }
+
+    func testSelectedMultipleCellsShowEveryAlleleSamplePairAndExactEvidence() {
+        let first = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
+        let second = makeCall(sample: "AnimalB", genotype: "NHP99999", reads: 41)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [], calls: [first, second], referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+
+        let targets: [GenotypeAnnotationSidecar.MatrixTarget] = [
+            .cell(locus: "MHC-NHP01222", genotype: "NHP01222", sample: "AnimalA"),
+            .cell(locus: "MHC-NHP99999", genotype: "NHP99999", sample: "AnimalA"),
+            .cell(locus: "MHC-NHP99999", genotype: "NHP99999", sample: "AnimalB"),
+        ]
+        controller.testingShowMatrixTargetSelection(targets)
+
+        XCTAssertEqual(Set(controller.testingCurrentSelectionMatrixTargets), Set(targets))
+        let rows = controller.testingCurrentSelectionDetailRows
+        let entries = rows.split { $0.0.hasPrefix("Cell ") }
+        XCTAssertTrue(entries.contains { entry in
+            entry.contains { $0 == ("Allele", "Mafa-A1*001:01") }
+                && entry.contains { $0 == ("Sample", "AnimalA") }
+                && entry.contains { $0 == ("Unique Reads", "73") }
+        })
+        XCTAssertTrue(entries.contains { entry in
+            entry.contains { $0 == ("Allele", "Mafa-B*002:01") }
+                && entry.contains { $0 == ("Sample", "AnimalA") }
+                && entry.contains { $0 == ("Evidence", "No supporting reads") }
+        })
+        XCTAssertTrue(entries.contains { entry in
+            entry.contains { $0 == ("Allele", "Mafa-B*002:01") }
+                && entry.contains { $0 == ("Sample", "AnimalB") }
+                && entry.contains { $0 == ("Unique Reads", "41") }
+        })
+    }
+
+    func testSelectedGenBankRowPublishesFullAlleleTitle() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        var selection: GenotypeResultSelectionState?
+        controller.onSelectionStateChanged = { selection = $0 }
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)],
+            referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+
+        controller.testingSelectMatrixRows(genotypes: ["NHP01222"], sample: nil)
+
+        XCTAssertEqual(try XCTUnwrap(selection).title, "Mafa-A1*001:01")
+        XCTAssertEqual(try XCTUnwrap(selection).highlightTarget?.genotype, "NHP01222")
+    }
+
+    func testSelectedMultipleColumnsShowCompactSummaryForEachSample() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMultiSampleSelection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let call = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                ONTGenotypeSampleResult(sample: "AnimalA", passedAlignments: 73, passedUniqueReads: 73, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [call]),
+                ONTGenotypeSampleResult(sample: "AnimalB", passedAlignments: 0, passedUniqueReads: 0, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: []),
+            ],
+            calls: [call], referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+
+        controller.testingSelectMatrixColumns(samples: ["AnimalA", "AnimalB"])
+        controller.addMatrixComment(.init(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            body: "Selected cohort note"
+        ))
+
+        let text = controller.testingDetailText
+        XCTAssertTrue(text.contains("Selected Samples"))
+        XCTAssertTrue(text.contains("AnimalA"))
+        XCTAssertTrue(text.contains("AnimalB"))
+        XCTAssertFalse(text.contains("Supported Alleles"))
+        XCTAssertFalse(text.contains("Mafa-A1*001:01"))
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Sample 1", "AnimalA") })
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Sample 2", "AnimalB") })
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0.hasPrefix("Allele ") })
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == "Support" })
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("Column Comment", "Selected cohort note")
+        })
+    }
+
+    func testSelectedCellIncludesApplicableRowColumnAndCellComments() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeSelectionComments-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let call = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [ONTGenotypeSampleResult(sample: "AnimalA", passedAlignments: 73, passedUniqueReads: 73, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [call])],
+            calls: [call], referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+        controller.testingSelectMatrixRows(genotypes: ["NHP01222"], sample: nil)
+        controller.addMatrixComment(.init(targets: controller.testingCurrentSelectionMatrixTargets, body: "Row note"))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.addMatrixComment(.init(targets: controller.testingCurrentSelectionMatrixTargets, body: "Column note"))
+        controller.testingSelectMatrixCell(genotype: "NHP01222", sample: "AnimalA")
+        controller.addMatrixComment(.init(targets: controller.testingCurrentSelectionMatrixTargets, body: "Cell note"))
+
+        let rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertTrue(rows.contains { $0 == ("Row Comment", "Row note") })
+        XCTAssertTrue(rows.contains { $0 == ("Column Comment", "Column note") })
+        XCTAssertTrue(rows.contains { $0 == ("Cell Comment", "Cell note") })
+    }
+
+    func testMixedMatrixTargetsUseGenericMixedSummary() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [], calls: [makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)]
+        ))
+
+        controller.testingShowMatrixTargetSelection([
+            .row(locus: "NHP01222", genotype: "NHP01222"),
+            .column(sample: "AnimalA"),
+        ])
+
+        XCTAssertTrue(controller.testingDetailText.contains("Matrix Annotation Targets"))
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Selection Type", "Mixed") })
+    }
+
     private func makeManySampleMatrix(sampleCount: Int) -> GenotypeComparisonMatrixView {
         let matrix = GenotypeComparisonMatrixView()
         let genotype = "12_M3_B_075_01"
@@ -2175,7 +3057,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         matrix.layoutSubtreeIfNeeded()
         XCTAssertEqual(matrix.testingSampleMatrixBottomChromeHeight, 0)
         let sampleScrollView = try XCTUnwrap(
-            matrix.subviews.compactMap { $0 as? NSScrollView }.first { $0.hasHorizontalScroller }
+            matrix.subviews.compactMap { $0 as? NSScrollView }.first { $0.hasVerticalScroller }
         )
         sampleScrollView.setFrameSize(NSSize(width: 99, height: sampleScrollView.frame.height))
         sampleScrollView.tile()
@@ -2213,8 +3095,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         matrix.layoutSubtreeIfNeeded()
 
         let scrollViews = matrix.subviews.compactMap { $0 as? NSScrollView }
-        let pinnedScrollView = try XCTUnwrap(scrollViews.first { !$0.hasHorizontalScroller })
-        let sampleScrollView = try XCTUnwrap(scrollViews.first { $0.hasHorizontalScroller })
+        let pinnedScrollView = try XCTUnwrap(scrollViews.first { !$0.hasVerticalScroller })
+        let sampleScrollView = try XCTUnwrap(scrollViews.first { $0.hasVerticalScroller })
 
         XCTAssertEqual(pinnedScrollView.verticalScrollElasticity, .none)
         XCTAssertEqual(sampleScrollView.verticalScrollElasticity, .none)
@@ -2226,8 +3108,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         matrix.layoutSubtreeIfNeeded()
 
         let scrollViews = matrix.subviews.compactMap { $0 as? NSScrollView }
-        let pinnedScrollView = try XCTUnwrap(scrollViews.first { !$0.hasHorizontalScroller })
-        let sampleScrollView = try XCTUnwrap(scrollViews.first { $0.hasHorizontalScroller })
+        let pinnedScrollView = try XCTUnwrap(scrollViews.first { !$0.hasVerticalScroller })
+        let sampleScrollView = try XCTUnwrap(scrollViews.first { $0.hasVerticalScroller })
 
         sampleScrollView.contentView.scroll(to: NSPoint(x: 37, y: -1_000))
         let sampleBounds = sampleScrollView.contentView.bounds
@@ -2267,46 +3149,16 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
-    func testComparisonMatrixCapsSampleColumnsAtSixtyByDefault() {
+    func testComparisonMatrixShowsEverySampleColumnByDefault() {
         let matrix = makeManySampleMatrix(sampleCount: 150)
-        XCTAssertEqual(matrix.testingSampleColumnCount, 60)
-        XCTAssertTrue(matrix.testingIsColumnWindowActive)
-    }
-
-    func testComparisonMatrixShowAllInstantiatesEveryColumn() {
-        let matrix = makeManySampleMatrix(sampleCount: 150)
-        matrix.showAllSampleColumns()
         XCTAssertEqual(matrix.testingSampleColumnCount, 150)
         XCTAssertFalse(matrix.testingIsColumnWindowActive)
     }
 
-    func testComparisonMatrixShowAllPreservesExistingSampleSort() throws {
+    func testComparisonMatrixDoesNotShowSampleLimitBanner() {
         let matrix = makeManySampleMatrix(sampleCount: 150)
-        let key = try XCTUnwrap(matrix.testingSortKey(forSample: "SAMPLE_010"))
-        matrix.testingSetSortDescriptor(key: key, ascending: false)
-        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, key)
-
-        matrix.showAllSampleColumns()
-
-        XCTAssertEqual(matrix.testingSampleColumnCount, 150)
-        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, key)
-    }
-
-    /// The reveal banner is visible while windowed, and tapping its "Show all"
-    /// action instantiates every column and hides the banner.
-    func testComparisonMatrixShowAllBannerRevealsColumnsAndHides() {
-        let matrix = makeManySampleMatrix(sampleCount: 150)
-        XCTAssertTrue(matrix.testingColumnWindowBannerVisible)
-
-        matrix.testingTapShowAllBanner()
-
         XCTAssertEqual(matrix.testingSampleColumnCount, 150)
         XCTAssertFalse(matrix.testingIsColumnWindowActive)
-        XCTAssertFalse(matrix.testingColumnWindowBannerVisible)
-    }
-
-    func testComparisonMatrixShowAllBannerHiddenForSmallCohort() {
-        let matrix = makeManySampleMatrix(sampleCount: 40)
         XCTAssertFalse(matrix.testingColumnWindowBannerVisible)
     }
 
@@ -2316,15 +3168,23 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(matrix.testingIsColumnWindowActive)
     }
 
-    /// Anti-leak (critical): with 150 samples and the window showing 60 columns,
-    /// the FULL logical sample set (used by selection/support) AND scientific
-    /// export must still see all 150 samples.
-    func testComparisonMatrixExportSeesFullSampleSetWhileWindowed() {
+    func testComparisonMatrixPinnedPaneCanResizeAndRemembersWidth() {
+        let matrix = makeManySampleMatrix(sampleCount: 4)
+        matrix.frame = NSRect(x: 0, y: 0, width: 1_000, height: 400)
+        matrix.testingSetPinnedPaneWidth(430)
+        XCTAssertEqual(matrix.testingPinnedPaneWidth, 430, accuracy: 1)
+
+        let restored = makeManySampleMatrix(sampleCount: 4)
+        restored.frame = NSRect(x: 0, y: 0, width: 1_000, height: 400)
+        restored.layoutSubtreeIfNeeded()
+        XCTAssertEqual(restored.testingPinnedPaneWidth, 430, accuracy: 1)
+    }
+
+    func testComparisonMatrixExportSeesEveryVisibleSample() {
         let matrix = makeManySampleMatrix(sampleCount: 150)
 
-        // Window caps instantiated columns to 60...
-        XCTAssertEqual(matrix.testingSampleColumnCount, 60)
-        // ...but the full logical set is intact.
+        XCTAssertEqual(matrix.testingSampleColumnCount, 150)
+        // The full logical set is intact.
         XCTAssertEqual(matrix.testingActiveSampleNames.count, 150)
         XCTAssertEqual(matrix.testingVisibleSampleNames.count, 150)
 
@@ -3475,6 +4335,12 @@ final class GenotypeResultViewportTests: XCTestCase {
         ))
 
         XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+        XCTAssertFalse(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 48)
+
+        controller.testingSelectLens(.review)
+
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "review")
     }
 
     func testHaplotypedBundleRemembersGenotypeMatrixSummaryPreference() throws {
@@ -6512,7 +7378,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
         haplotypeDefinitionSetID: String? = nil,
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
-        stats: ONTGenotypeRunStats = ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60)
+        stats: ONTGenotypeRunStats = ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60),
+        referenceMetadata: ONTGenotypeReferenceMetadata? = nil
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
@@ -6538,7 +7405,38 @@ final class GenotypeResultViewportTests: XCTestCase {
             stats: stats,
             calls: calls,
             samples: samples,
-            haplotypeAnalysis: haplotypeAnalysis
+            haplotypeAnalysis: haplotypeAnalysis,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            integrityWarnings: [],
+            referenceMetadata: referenceMetadata
+        )
+    }
+
+    private func makeGenBankReferenceMetadata() -> ONTGenotypeReferenceMetadata {
+        let fields = [
+            GenBankRecordDatabase.FieldDefinition(key: "feature.allele", displayTitle: "Allele", valueType: "text", sourceCategory: "feature", preferredOrder: 0),
+            GenBankRecordDatabase.FieldDefinition(key: "source.organism", displayTitle: "Organism", valueType: "text", sourceCategory: "source", preferredOrder: 1),
+            GenBankRecordDatabase.FieldDefinition(key: "feature.product", displayTitle: "Product", valueType: "text", sourceCategory: "feature", preferredOrder: 2),
+            GenBankRecordDatabase.FieldDefinition(key: "record.definition", displayTitle: "Definition", valueType: "text", sourceCategory: "record", preferredOrder: 3),
+        ]
+        return ONTGenotypeReferenceMetadata(
+            fields: fields,
+            recordsBySequenceName: [
+                "NHP01222": [
+                    "feature.allele": "Mafa-A1*001:01",
+                    "source.organism": "Macaca fascicularis",
+                    "feature.product": "MHC class I A1 antigen",
+                    "record.definition": "Mafa-A1 complete coding sequence",
+                ],
+                "NHP99999": [
+                    "feature.allele": "Mafa-B*002:01",
+                    "source.organism": "Macaca fascicularis",
+                    "feature.product": "MHC class I B antigen",
+                    "record.definition": "Mafa-B complete coding sequence",
+                ],
+            ],
+            alleleFieldKey: "feature.allele"
         )
     }
 
@@ -6611,7 +7509,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             haplotypeAnalysis: nil,
             mhcCandidates: document,
             mhcUnnameableClusters: nil,
-            integrityWarnings: []
+            integrityWarnings: [],
+            referenceMetadata: nil
         )
     }
 

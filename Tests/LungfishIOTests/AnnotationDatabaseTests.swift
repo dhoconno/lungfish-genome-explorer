@@ -7,6 +7,23 @@ import SQLite3
 @testable import LungfishIO
 @testable import LungfishCore
 
+private final class AnnotationDatabaseFailureLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var messages: [String] = []
+
+    func append(_ message: String) {
+        lock.lock()
+        messages.append(message)
+        lock.unlock()
+    }
+
+    var snapshot: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return messages
+    }
+}
+
 final class AnnotationDatabaseTests: XCTestCase {
 
     private var tempDir: URL!
@@ -176,6 +193,247 @@ final class AnnotationDatabaseTests: XCTestCase {
             .init(key: "name", op: "~", value: "slash\\literal"),
         ])
         XCTAssertEqual(backslashMatches.map(\.name), ["slash\\literal"])
+    }
+
+    // MARK: - Tests: Multi-chromosome query scope
+
+    func testMultiChromosomeScopeAcrossTableCountAndTypes() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 300, end: 350, name: "zeta", type: "gene"),
+            bed14(chrom: "record_beta", start: 100, end: 150, name: "alpha", type: "CDS"),
+            bed14(chrom: "record_gamma", start: 200, end: 250, name: "middle", type: "exon"),
+        ]
+        let (db, _) = try createAndOpenDB(lines: lines)
+
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: nil).map(\.name), ["alpha", "middle", "zeta"])
+        XCTAssertEqual(db.totalCount(allowedChromosomes: nil), 3)
+        XCTAssertEqual(db.allTypes(allowedChromosomes: nil), ["CDS", "exon", "gene"])
+
+        let emptyScope: Set<String> = []
+        XCTAssertTrue(db.queryForTable(allowedChromosomes: emptyScope).isEmpty)
+        XCTAssertEqual(db.totalCount(allowedChromosomes: emptyScope), 0)
+        XCTAssertTrue(db.allTypes(allowedChromosomes: emptyScope).isEmpty)
+
+        let twoRecords: Set<String> = ["record_alpha", "record_gamma"]
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: twoRecords).map(\.name), ["middle", "zeta"])
+        XCTAssertEqual(db.totalCount(allowedChromosomes: twoRecords), 2)
+        XCTAssertEqual(db.allTypes(allowedChromosomes: twoRecords), ["exon", "gene"])
+    }
+
+    func testMultiChromosomeScopeSupportsMoreThanSQLiteBindingLimit() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "alpha", type: "gene"),
+            bed14(chrom: "record_beta", start: 200, end: 250, name: "beta", type: "CDS"),
+            bed14(chrom: "record_gamma", start: 300, end: 350, name: "gamma", type: "exon"),
+        ]
+        let (db, _) = try createAndOpenDB(lines: lines)
+        var scope = Set((0..<1_200).map { "synthetic_record_\($0)" })
+        scope.formUnion(["record_alpha", "record_gamma"])
+
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: scope).map(\.name), ["alpha", "gamma"])
+        XCTAssertEqual(db.totalCount(allowedChromosomes: scope), 2)
+        XCTAssertEqual(db.allTypes(allowedChromosomes: scope), ["exon", "gene"])
+    }
+
+    func testMultiChromosomeScopeCombinesWithChromosomeFiltersAndPreservesLimitOrder() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 300, end: 350, name: "zeta", type: "gene"),
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "alpha", type: "gene"),
+            bed14(chrom: "record_beta", start: 200, end: 250, name: "middle", type: "gene"),
+            bed14(chrom: "record_gamma", start: 400, end: 450, name: "omega", type: "CDS"),
+        ]
+        let (db, _) = try createAndOpenDB(lines: lines)
+        let scope: Set<String> = ["record_alpha", "record_beta"]
+
+        XCTAssertEqual(
+            db.queryForTable(chromosome: "record_alpha", allowedChromosomes: scope).map(\.name),
+            ["alpha", "zeta"]
+        )
+        XCTAssertTrue(db.queryForTable(chromosome: "record_gamma", allowedChromosomes: scope).isEmpty)
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: scope, limit: 2).map(\.name), ["alpha", "middle"])
+    }
+
+    func testScopedAndOrdinaryReadsAreSafeOnSharedConnection() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "alpha", type: "gene"),
+            bed14(chrom: "record_beta", start: 200, end: 250, name: "beta", type: "CDS"),
+            bed14(chrom: "record_gamma", start: 300, end: 350, name: "gamma", type: "exon"),
+        ]
+        let (db, _) = try createAndOpenDB(lines: lines)
+        let failures = AnnotationDatabaseFailureLog()
+        let group = DispatchGroup()
+        let queue = DispatchQueue(label: "annotation-db-read-concurrency", attributes: .concurrent)
+        let scope: Set<String> = ["record_alpha", "record_gamma"]
+
+        for iteration in 0..<200 {
+            group.enter()
+            queue.async {
+                defer { group.leave() }
+                if iteration.isMultiple(of: 2) {
+                    let records = db.queryForTable(allowedChromosomes: scope)
+                    if records.map(\.name) != ["alpha", "gamma"] {
+                        failures.append("scoped read returned \(records.map(\.name))")
+                    }
+                } else if db.query().count != 3 {
+                    failures.append("ordinary read returned an unexpected count")
+                }
+            }
+        }
+
+        XCTAssertEqual(group.wait(timeout: .now() + 10), .success)
+        XCTAssertTrue(failures.snapshot.isEmpty, failures.snapshot.joined(separator: "; "))
+    }
+
+    func testScopedReadsAndMutationsAreSafeOnSharedConnection() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "alpha", type: "gene"),
+            bed14(chrom: "record_beta", start: 200, end: 250, name: "beta", type: "CDS"),
+            bed14(chrom: "record_gamma", start: 300, end: 350, name: "gamma", type: "exon"),
+        ]
+        let bedURL = try createBEDFile(lines: lines, filename: "concurrent-mutation.bed")
+        let dbURL = tempDir.appendingPathComponent("concurrent-mutation.db")
+        _ = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
+        let db = try AnnotationDatabase(url: dbURL, readWrite: true)
+        let failures = AnnotationDatabaseFailureLog()
+        let group = DispatchGroup()
+        let queue = DispatchQueue(label: "annotation-db-mutation-concurrency", attributes: .concurrent)
+        let scope: Set<String> = ["record_alpha"]
+
+        for iteration in 0..<100 {
+            group.enter()
+            queue.async {
+                defer { group.leave() }
+                if iteration.isMultiple(of: 2) {
+                    do {
+                        _ = try db.insertAnnotation(
+                            name: "inserted_\(iteration)", type: "gene", chromosome: "record_alpha",
+                            start: 1_000 + iteration, end: 1_001 + iteration, strand: "+",
+                            attributes: nil, geneName: nil
+                        )
+                    } catch {
+                        failures.append("insert failed: \(error)")
+                    }
+                } else {
+                    let records = db.queryForTable(allowedChromosomes: scope)
+                    if records.isEmpty || records.contains(where: { $0.chromosome != "record_alpha" }) {
+                        failures.append("scoped read returned invalid records")
+                    }
+                }
+            }
+        }
+
+        XCTAssertEqual(group.wait(timeout: .now() + 10), .success)
+        XCTAssertTrue(failures.snapshot.isEmpty, failures.snapshot.joined(separator: "; "))
+        XCTAssertEqual(db.totalCount(), 53)
+        XCTAssertEqual(db.totalCount(allowedChromosomes: scope), 51)
+    }
+
+    #if DEBUG
+    func testScopedQueryHoldsConnectionLockThroughScopePreparationAndExecution() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "alpha", type: "gene"),
+            bed14(chrom: "record_beta", start: 200, end: 250, name: "beta", type: "CDS"),
+        ]
+        let bedURL = try createBEDFile(lines: lines, filename: "scope-lock-barrier.bed")
+        let dbURL = tempDir.appendingPathComponent("scope-lock-barrier.db")
+        _ = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
+        let db = try AnnotationDatabase(url: dbURL, readWrite: true)
+        let hookEntered = DispatchSemaphore(value: 0)
+        let releaseHook = DispatchSemaphore(value: 0)
+        let scopedComplete = DispatchSemaphore(value: 0)
+        let mutationStarted = DispatchSemaphore(value: 0)
+        let mutationComplete = DispatchSemaphore(value: 0)
+        let failures = AnnotationDatabaseFailureLog()
+
+        db.setScopePreparationTestHook {
+            hookEntered.signal()
+            _ = releaseHook.wait(timeout: .now() + 10)
+        }
+
+        DispatchQueue.global().async {
+            let records = db.queryForTable(allowedChromosomes: ["record_alpha"])
+            if records.map(\.name) != ["alpha"] {
+                failures.append("scoped query returned \(records.map(\.name))")
+            }
+            scopedComplete.signal()
+        }
+        guard hookEntered.wait(timeout: .now() + 10) == .success else {
+            releaseHook.signal()
+            return XCTFail("Scoped query did not reach the in-lock preparation hook")
+        }
+
+        DispatchQueue.global().async {
+            mutationStarted.signal()
+            do {
+                _ = try db.insertAnnotation(
+                    name: "inserted", type: "gene", chromosome: "record_beta",
+                    start: 300, end: 350, strand: "+", attributes: nil, geneName: nil
+                )
+            } catch {
+                failures.append("mutation failed: \(error)")
+            }
+            mutationComplete.signal()
+        }
+        XCTAssertEqual(mutationStarted.wait(timeout: .now() + 10), .success)
+        let prematureMutationCompletion = mutationComplete.wait(timeout: .now() + 0.1)
+        XCTAssertEqual(
+            prematureMutationCompletion,
+            .timedOut,
+            "Mutation completed while scoped query still held its connection-local scope transaction"
+        )
+
+        releaseHook.signal()
+        XCTAssertEqual(scopedComplete.wait(timeout: .now() + 10), .success)
+        if prematureMutationCompletion == .timedOut {
+            XCTAssertEqual(mutationComplete.wait(timeout: .now() + 10), .success)
+        }
+        db.setScopePreparationTestHook(nil)
+
+        XCTAssertTrue(failures.snapshot.isEmpty, failures.snapshot.joined(separator: "; "))
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: ["record_alpha"]).map(\.name), ["alpha"])
+        XCTAssertEqual(db.queryForTable(allowedChromosomes: ["record_beta"]).map(\.name), ["beta", "inserted"])
+    }
+    #endif
+
+    func testDeleteAnnotationsRollsBackEveryRowWhenOneDeleteFails() throws {
+        let lines = [
+            bed14(chrom: "record_alpha", start: 100, end: 150, name: "keep_one", type: "gene"),
+            bed14(chrom: "record_alpha", start: 200, end: 250, name: "reject_delete", type: "gene"),
+            bed14(chrom: "record_alpha", start: 300, end: 350, name: "keep_two", type: "gene"),
+        ]
+        let bedURL = try createBEDFile(lines: lines, filename: "delete-rollback.bed")
+        let dbURL = tempDir.appendingPathComponent("delete-rollback.db")
+        var buildPlan = AnnotationDatabaseBuildPlan.default
+        buildPlan.schemaSQL += """
+
+        CREATE TABLE annotation_delete_attempts (attempt_count INTEGER NOT NULL);
+        INSERT INTO annotation_delete_attempts (attempt_count) VALUES (0);
+
+        CREATE TRIGGER reject_second_annotation_delete
+        BEFORE DELETE ON annotations
+        BEGIN
+            UPDATE annotation_delete_attempts SET attempt_count = attempt_count + 1;
+            SELECT CASE
+                WHEN (SELECT attempt_count FROM annotation_delete_attempts) = 2
+                THEN RAISE(FAIL, 'injected delete failure after one successful delete')
+            END;
+        END;
+        """
+        _ = try AnnotationDatabase.createFromBED(
+            bedURL: bedURL,
+            outputURL: dbURL,
+            buildPlan: buildPlan
+        )
+        let db = try AnnotationDatabase(url: dbURL, readWrite: true)
+        let records = db.queryForTable(limit: 10)
+        XCTAssertEqual(records.map(\.name), ["keep_one", "keep_two", "reject_delete"])
+        let rowIDs = records.compactMap(\.rowID)
+
+        XCTAssertThrowsError(try db.deleteAnnotations(rowIDs: rowIDs)) { error in
+            XCTAssertTrue(String(describing: error).contains("after one successful delete"))
+        }
+        XCTAssertNotNil(db.lookupAnnotation(name: "keep_one", chromosome: "record_alpha", start: 100, end: 150))
+        XCTAssertEqual(Set(db.queryForTable(limit: 10).map(\.name)), ["keep_one", "reject_delete", "keep_two"])
     }
 
     // MARK: - Tests: createFromBED with GenBank Types

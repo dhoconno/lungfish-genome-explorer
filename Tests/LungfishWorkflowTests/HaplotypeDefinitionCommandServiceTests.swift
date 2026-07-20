@@ -453,7 +453,12 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         XCTAssertEqual(manifest.metrics.referenceCount, 2)
         XCTAssertEqual(manifest.metrics.haplotypeDefinitionCount, 1)
         XCTAssertEqual(try MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: outputURL)?.id, definitionID)
-        XCTAssertEqual(MHCAmpliconReferenceBundle.referenceFASTAURL(in: outputURL)?.lastPathComponent, "reference.fa")
+        XCTAssertEqual(manifest.schemaVersion, 2)
+        XCTAssertEqual(
+            MHCAmpliconReferenceBundle.referenceFASTAURL(in: outputURL)?.lastPathComponent,
+            "sequence.fa.gz"
+        )
+        XCTAssertNotNil(MHCAmpliconReferenceBundle.referenceBundleURL(in: outputURL))
 
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
         XCTAssertEqual(provenance.workflowName, "lungfish haplotypes bundle-create")
@@ -465,6 +470,31 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
             return fields["definitionID"] == .string(definitionID)
                 && fields["scope"] == .string(HaplotypeDefinitionScope.project.rawValue)
         })
+
+        _ = try service.saveDefinition(
+            definition,
+            inMHCReferenceBundle: outputURL,
+            changeNote: "Schema-v2 edit",
+            argv: ["lungfish-cli", "haplotypes", "bundle-edit", outputURL.path]
+        )
+        let editedManifest = try MHCAmpliconReferenceBundle.loadManifest(from: outputURL)
+        XCTAssertEqual(editedManifest.schemaVersion, 2)
+        XCTAssertEqual(editedManifest.referenceBundlePath, manifest.referenceBundlePath)
+        XCTAssertEqual(editedManifest.warnings, manifest.warnings)
+        XCTAssertNoThrow(try MHCAmpliconReferenceBundle.validate(at: outputURL))
+
+        XCTAssertThrowsError(
+            try service.replaceReferenceFASTA(
+                inMHCReferenceBundle: outputURL,
+                with: referenceURL,
+                argv: ["lungfish-cli", "haplotypes", "bundle-replace-reference", referenceURL.path]
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? HaplotypeDefinitionCommandServiceError,
+                .annotatedReferenceReplacementRequiresReimport
+            )
+        }
     }
 
     private func makeDefinition(id: String, displayName: String) -> GenotypeHaplotypeDefinitionSet {

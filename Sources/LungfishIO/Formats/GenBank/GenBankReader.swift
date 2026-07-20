@@ -5,6 +5,41 @@
 import Foundation
 import LungfishCore
 
+public struct GenBankParseWarning: Codable, Equatable, Sendable {
+    public let message: String
+    public let recordIdentifier: String?
+    public let featureType: String?
+    public let recordFieldKey: String?
+    public let sourceLocation: String?
+    public let lineNumber: Int?
+
+    public init(
+        message: String,
+        recordIdentifier: String? = nil,
+        featureType: String? = nil,
+        recordFieldKey: String? = nil,
+        sourceLocation: String? = nil,
+        lineNumber: Int? = nil
+    ) {
+        self.message = message
+        self.recordIdentifier = recordIdentifier
+        self.featureType = featureType
+        self.recordFieldKey = recordFieldKey
+        self.sourceLocation = sourceLocation
+        self.lineNumber = lineNumber
+    }
+}
+
+public struct GenBankRecoveryResult: Sendable {
+    public let records: [GenBankRecord]
+    public let warnings: [GenBankParseWarning]
+
+    public init(records: [GenBankRecord], warnings: [GenBankParseWarning]) {
+        self.records = records
+        self.warnings = warnings
+    }
+}
+
 /// A parser for GenBank flat file format (.gb, .gbk, .genbank).
 ///
 /// GenBankReader provides both streaming and batch access to GenBank files.
@@ -95,6 +130,31 @@ public final class GenBankReader: Sendable {
             records.append(record)
         }
         return records
+    }
+
+    /// Reads all records while treating malformed individual features as warnings.
+    /// Sequence and record parsing remain strict so callers never receive a silently
+    /// fabricated reference when the biological sequence itself is invalid.
+    public func readAllRecoveringAnnotations() async throws -> GenBankRecoveryResult {
+        try readAllRecoveringAnnotationsSync()
+    }
+
+    /// Synchronous variant of ``readAllRecoveringAnnotations()``.
+    public func readAllRecoveringAnnotationsSync() throws -> GenBankRecoveryResult {
+        var records: [GenBankRecord] = []
+        var warnings: [GenBankParseWarning] = []
+        let scanner = try GenBankRecordScanner(url: url) { [self] lines in
+            let (record, _) = try parseRecord(
+                lines: lines,
+                startIndex: 0,
+                featureWarningHandler: { warnings.append($0) }
+            )
+            return record
+        }
+        while let record = try scanner.nextRecord() {
+            records.append(record)
+        }
+        return GenBankRecoveryResult(records: records, warnings: warnings)
     }
 
     /// Returns an async stream of GenBank records.
@@ -251,7 +311,11 @@ public final class GenBankReader: Sendable {
         }
     }
 
-    private func parseRecord(lines: [String], startIndex: Int) throws -> (GenBankRecord?, Int) {
+    private func parseRecord(
+        lines: [String],
+        startIndex: Int,
+        featureWarningHandler: ((GenBankParseWarning) -> Void)? = nil
+    ) throws -> (GenBankRecord?, Int) {
         var lineIndex = startIndex
         var locus: LocusInfo?
         var definition: String?
@@ -259,6 +323,71 @@ public final class GenBankReader: Sendable {
         var version: String?
         var features: [SequenceAnnotation] = []
         var sequenceBases = ""
+        var recordFields: [GenBankRecordField] = []
+        var nextFieldOrdinal = 0
+        var currentFieldKey: String?
+        var currentFieldStartIndex: Int?
+        var currentCommentLabelKey: String?
+        var currentReferenceOrdinal: Int?
+        var referenceCount = 0
+
+        func appendRecordField(key: String, value: String) {
+            recordFields.append(GenBankRecordField(key: key, value: value, ordinal: nextFieldOrdinal))
+            nextFieldOrdinal += 1
+        }
+
+        func appendToLastRecordField(key: String, value: String) {
+            guard !value.isEmpty else { return }
+            guard let index = recordFields.lastIndex(where: {
+                $0.key.caseInsensitiveCompare(key) == .orderedSame
+            }) else {
+                appendRecordField(key: key, value: value)
+                return
+            }
+            let existing = recordFields[index]
+            recordFields[index] = GenBankRecordField(
+                key: existing.key,
+                value: existing.value.isEmpty ? value : existing.value + " " + value,
+                ordinal: existing.ordinal
+            )
+        }
+
+        func omitMalformedField(key: String, lineNumber: Int) throws {
+            if let currentFieldStartIndex {
+                recordFields.removeSubrange(currentFieldStartIndex...)
+            }
+            guard let featureWarningHandler else {
+                throw GenBankError.invalidFormat("Malformed continuation for record field \(key)", line: lineNumber)
+            }
+            featureWarningHandler(GenBankParseWarning(
+                message: "Malformed continuation for record field \(key)",
+                recordIdentifier: locus?.name,
+                recordFieldKey: key,
+                lineNumber: lineNumber
+            ))
+            currentFieldKey = nil
+            currentFieldStartIndex = nil
+            currentCommentLabelKey = nil
+        }
+
+        func labeledCommentValue(_ value: String) -> (key: String, value: String)? {
+            let delimiter: Range<String.Index>
+            if let doubleColon = value.range(of: "::") {
+                delimiter = doubleColon
+            } else if let colon = value.firstIndex(of: ":") {
+                delimiter = colon..<value.index(after: colon)
+            } else {
+                return nil
+            }
+            let label = String(value[..<delimiter.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let labeledValue = String(value[delimiter.upperBound...]).trimmingCharacters(in: .whitespaces)
+            guard !label.isEmpty, !labeledValue.isEmpty else { return nil }
+            return ("COMMENT.\(label)", labeledValue)
+        }
+
+        func isStructuredCommentBoundary(_ value: String) -> Bool {
+            value.hasPrefix("##") && (value.hasSuffix("-START##") || value.hasSuffix("-END##"))
+        }
 
         // Track current section
         enum Section {
@@ -267,9 +396,6 @@ public final class GenBankReader: Sendable {
             case origin
         }
         var currentSection: Section = .header
-
-        // For multi-line values
-        var currentDefinition = ""
 
         while lineIndex < lines.count {
             let line = lines[lineIndex]
@@ -284,28 +410,29 @@ public final class GenBankReader: Sendable {
             // Check for section transitions and keywords
             if line.hasPrefix("LOCUS") {
                 locus = try parseLocus(line: line, lineNumber: lineIndex + 1)
+                if let locus {
+                    currentFieldStartIndex = recordFields.count
+                    appendRecordField(key: "LOCUS", value: String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces))
+                    appendRecordField(key: "LOCUS.NAME", value: locus.name)
+                    appendRecordField(key: "LOCUS.LENGTH", value: String(locus.length))
+                    appendRecordField(key: "LOCUS.MOLECULE_TYPE", value: locus.moleculeType.rawValue)
+                    appendRecordField(key: "LOCUS.TOPOLOGY", value: locus.topology.rawValue)
+                    if let division = locus.division { appendRecordField(key: "LOCUS.DIVISION", value: division) }
+                    if let date = locus.date { appendRecordField(key: "LOCUS.DATE", value: date) }
+                }
+                currentFieldKey = "LOCUS"
+                currentCommentLabelKey = nil
+                currentReferenceOrdinal = nil
                 currentSection = .header
-            } else if line.hasPrefix("DEFINITION") {
-                currentDefinition = String(line.dropFirst(12)).trimmingCharacters(in: .whitespaces)
-            } else if line.hasPrefix("            ") && currentSection == .header && !currentDefinition.isEmpty && definition == nil {
-                // Continuation of DEFINITION
-                currentDefinition += " " + trimmedLine
-            } else if line.hasPrefix("ACCESSION") {
-                // Finalize definition if we were building it
-                if !currentDefinition.isEmpty && definition == nil {
-                    definition = currentDefinition
-                }
-                accession = parseSimpleField(line: line, keyword: "ACCESSION")
-            } else if line.hasPrefix("VERSION") {
-                version = parseSimpleField(line: line, keyword: "VERSION")
             } else if line.hasPrefix("FEATURES") {
-                // Finalize definition if we were building it
-                if !currentDefinition.isEmpty && definition == nil {
-                    definition = currentDefinition
-                }
                 currentSection = .features
                 // Parse the features table, passing locus name for per-sequence annotation filtering
-                let (parsedFeatures, nextIndex) = try parseFeatures(lines: lines, startIndex: lineIndex + 1, locusName: locus?.name)
+                let (parsedFeatures, nextIndex) = try parseFeatures(
+                    lines: lines,
+                    startIndex: lineIndex + 1,
+                    locusName: locus?.name,
+                    warningHandler: featureWarningHandler
+                )
                 features = parsedFeatures
                 lineIndex = nextIndex
                 continue
@@ -314,15 +441,92 @@ public final class GenBankReader: Sendable {
             } else if currentSection == .origin {
                 // Parse sequence line: "        1 atgcatgcat gcatgcatgc ..."
                 sequenceBases += parseOriginLine(line: line)
+            } else if currentSection == .header {
+                let leadingSpaceCount = line.prefix { $0 == " " }.count
+                let keywordArea = String(line.prefix(12)).trimmingCharacters(in: .whitespaces)
+
+                if leadingSpaceCount == 0 {
+                    let tokenEnd = line.firstIndex(where: { $0 == " " || $0 == "\t" }) ?? line.endIndex
+                    let key = String(line[..<tokenEnd])
+                    let value = String(line[tokenEnd...]).trimmingCharacters(in: .whitespaces)
+                    guard !key.isEmpty, key == key.uppercased() else {
+                        lineIndex += 1
+                        continue
+                    }
+
+                    currentFieldStartIndex = recordFields.count
+                    let storedValue = key == "COMMENT" && isStructuredCommentBoundary(value) ? "" : value
+                    appendRecordField(key: key, value: storedValue)
+                    currentFieldKey = key
+                    currentCommentLabelKey = nil
+                    if key == "REFERENCE" {
+                        referenceCount += 1
+                        currentReferenceOrdinal = referenceCount
+                    } else {
+                        currentReferenceOrdinal = nil
+                    }
+
+                    if key == "COMMENT", !isStructuredCommentBoundary(value), let labeled = labeledCommentValue(value) {
+                        appendRecordField(key: labeled.key, value: labeled.value)
+                        currentCommentLabelKey = labeled.key
+                    }
+                } else if leadingSpaceCount < 12 {
+                    let subfield = keywordArea
+                    let isNamedSubfield = !subfield.isEmpty && subfield == subfield.uppercased()
+                    guard isNamedSubfield else {
+                        if let currentFieldKey {
+                            try omitMalformedField(key: currentFieldKey, lineNumber: lineIndex + 1)
+                        }
+                        lineIndex += 1
+                        continue
+                    }
+
+                    let value = String(line.dropFirst(min(12, line.count))).trimmingCharacters(in: .whitespaces)
+                    let key: String
+                    if subfield == "ORGANISM" {
+                        key = "ORGANISM"
+                    } else if let currentReferenceOrdinal {
+                        key = "REFERENCE.\(currentReferenceOrdinal).\(subfield)"
+                    } else {
+                        key = subfield
+                    }
+                    currentFieldStartIndex = recordFields.count
+                    appendRecordField(key: key, value: value)
+                    currentFieldKey = key
+                    currentCommentLabelKey = nil
+                } else if let continuationKey = currentFieldKey {
+                    if continuationKey == "DBLINK" {
+                        appendRecordField(key: continuationKey, value: trimmedLine)
+                    } else if continuationKey == "COMMENT" {
+                        if isStructuredCommentBoundary(trimmedLine) {
+                            currentCommentLabelKey = nil
+                        } else if let labeled = labeledCommentValue(trimmedLine) {
+                            appendToLastRecordField(key: continuationKey, value: trimmedLine)
+                            appendRecordField(key: labeled.key, value: labeled.value)
+                            currentCommentLabelKey = labeled.key
+                        } else {
+                            appendToLastRecordField(key: continuationKey, value: trimmedLine)
+                            if let currentCommentLabelKey {
+                                appendToLastRecordField(key: currentCommentLabelKey, value: trimmedLine)
+                            }
+                        }
+                    } else if continuationKey == "ORGANISM" || continuationKey == "TAXONOMY" {
+                        appendToLastRecordField(key: "TAXONOMY", value: trimmedLine)
+                        currentFieldKey = "TAXONOMY"
+                    } else {
+                        appendToLastRecordField(key: continuationKey, value: trimmedLine)
+                    }
+                }
             }
 
             lineIndex += 1
         }
 
-        // Finalize definition if we were building it
-        if !currentDefinition.isEmpty && definition == nil {
-            definition = currentDefinition
-        }
+        definition = recordFields.first(where: { $0.key.caseInsensitiveCompare("DEFINITION") == .orderedSame })?.value
+        accession = recordFields.first(where: { $0.key.caseInsensitiveCompare("ACCESSION") == .orderedSame })?.value
+            .split(separator: " ").first.map(String.init)
+        version = recordFields.first(where: { $0.key.caseInsensitiveCompare("VERSION") == .orderedSame })?.value
+            .split(separator: " ").first.map(String.init)
 
         // Build the record if we have minimum required data
         guard let locusInfo = locus else {
@@ -358,14 +562,52 @@ public final class GenBankReader: Sendable {
 
         let record = GenBankRecord(
             sequence: sequence,
-            annotations: features,
+            annotations: annotationsWithResolvedAlleleNames(features),
             locus: locusInfo,
             definition: definition,
             accession: accession,
-            version: version
+            version: version,
+            recordFields: recordFields
         )
 
         return (record, lineIndex)
+    }
+
+    /// Uses the most specific allele designation available for feature display names.
+    ///
+    /// IPD records commonly place the full allele only on the gene/CDS features,
+    /// while sibling exons carry an abbreviated `gene` qualifier. When the record
+    /// contains exactly one allele, that value unambiguously names every non-source
+    /// feature in the record. Records containing multiple alleles inherit nothing,
+    /// but features with their own allele qualifier still use that full value.
+    private func annotationsWithResolvedAlleleNames(
+        _ annotations: [SequenceAnnotation]
+    ) -> [SequenceAnnotation] {
+        var recordAlleles: [String] = []
+        var seenAlleles: Set<String> = []
+
+        for annotation in annotations {
+            for value in annotation.qualifierValues("allele") {
+                let allele = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !allele.isEmpty, seenAlleles.insert(allele).inserted else { continue }
+                recordAlleles.append(allele)
+            }
+        }
+
+        let inheritedAllele = recordAlleles.count == 1 ? recordAlleles[0] : nil
+        return annotations.map { annotation in
+            guard annotation.type != .source else { return annotation }
+
+            let directAllele = annotation.qualifierValues("allele")
+                .lazy
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
+            guard let displayName = directAllele ?? inheritedAllele else { return annotation }
+
+            var resolved = annotation
+            resolved.name = displayName
+            return resolved
+        }
     }
 
     // MARK: - LOCUS Parsing
@@ -428,19 +670,14 @@ public final class GenBankReader: Sendable {
         )
     }
 
-    // MARK: - Simple Field Parsing
-
-    private func parseSimpleField(line: String, keyword: String) -> String? {
-        let startIndex = line.index(line.startIndex, offsetBy: min(12, line.count))
-        guard startIndex < line.endIndex else { return nil }
-        let value = String(line[startIndex...]).trimmingCharacters(in: .whitespaces)
-        // Take only the first word for ACCESSION/VERSION
-        return value.split(separator: " ").first.map(String.init) ?? value
-    }
-
     // MARK: - Features Parsing
 
-    private func parseFeatures(lines: [String], startIndex: Int, locusName: String?) throws -> ([SequenceAnnotation], Int) {
+    private func parseFeatures(
+        lines: [String],
+        startIndex: Int,
+        locusName: String?,
+        warningHandler: ((GenBankParseWarning) -> Void)?
+    ) throws -> ([SequenceAnnotation], Int) {
         var features: [SequenceAnnotation] = []
         var lineIndex = startIndex
 
@@ -450,6 +687,14 @@ public final class GenBankReader: Sendable {
         var currentQualifiers: [(String, String?)] = []
         var currentQualifierKey: String?
         var currentQualifierValue: String?
+
+        func resetCurrentFeature() {
+            currentFeatureType = nil
+            currentLocation = nil
+            currentQualifiers = []
+            currentQualifierKey = nil
+            currentQualifierValue = nil
+        }
 
         func finalizeCurrentFeature() throws {
             guard let featureType = currentFeatureType,
@@ -462,8 +707,22 @@ public final class GenBankReader: Sendable {
                 currentQualifiers.append((key, currentQualifierValue))
             }
 
-            // Parse the location
-            let (intervals, strand) = try parseLocation(locationStr, lineNumber: lineIndex)
+            let intervals: [AnnotationInterval]
+            let strand: Strand
+            do {
+                (intervals, strand) = try parseLocation(locationStr, lineNumber: lineIndex)
+            } catch {
+                guard let warningHandler else { throw error }
+                warningHandler(GenBankParseWarning(
+                    message: error.localizedDescription,
+                    recordIdentifier: locusName,
+                    featureType: featureType,
+                    sourceLocation: locationStr,
+                    lineNumber: lineIndex
+                ))
+                resetCurrentFeature()
+                return
+            }
 
             // Convert qualifiers to dictionary
             var qualifierDict: [String: AnnotationQualifier] = [:]
@@ -506,12 +765,7 @@ public final class GenBankReader: Sendable {
             )
             features.append(annotation)
 
-            // Reset state
-            currentFeatureType = nil
-            currentLocation = nil
-            currentQualifiers = []
-            currentQualifierKey = nil
-            currentQualifierValue = nil
+            resetCurrentFeature()
         }
 
         while lineIndex < lines.count {
@@ -793,6 +1047,18 @@ public final class GenBankReader: Sendable {
 
 // MARK: - GenBankRecord
 
+public struct GenBankRecordField: Sendable, Equatable {
+    public let key: String
+    public let value: String
+    public let ordinal: Int
+
+    public init(key: String, value: String, ordinal: Int) {
+        self.key = key
+        self.value = value
+        self.ordinal = ordinal
+    }
+}
+
 /// A complete GenBank record containing sequence data and annotations.
 public struct GenBankRecord: Sendable {
     /// The biological sequence
@@ -813,13 +1079,17 @@ public struct GenBankRecord: Sendable {
     /// VERSION string (accession.version format)
     public let version: String?
 
+    /// Ordered record-level fields from the GenBank header.
+    public let recordFields: [GenBankRecordField]
+
     public init(
         sequence: Sequence,
         annotations: [SequenceAnnotation],
         locus: LocusInfo,
         definition: String? = nil,
         accession: String? = nil,
-        version: String? = nil
+        version: String? = nil,
+        recordFields: [GenBankRecordField] = []
     ) {
         self.sequence = sequence
         self.annotations = annotations
@@ -827,6 +1097,14 @@ public struct GenBankRecord: Sendable {
         self.definition = definition
         self.accession = accession
         self.version = version
+        self.recordFields = recordFields
+    }
+
+    public func values(forRecordField key: String) -> [String] {
+        recordFields
+            .filter { $0.key.caseInsensitiveCompare(key) == .orderedSame }
+            .sorted { $0.ordinal < $1.ordinal }
+            .map(\.value)
     }
 }
 

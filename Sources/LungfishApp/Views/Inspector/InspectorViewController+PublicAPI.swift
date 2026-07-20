@@ -190,6 +190,14 @@ extension InspectorViewController {
                 loci: loci.isEmpty ? "No loci" : loci
             )
         }
+        let warningRows = manifest.warnings.map { warning in
+            let context = [
+                warning.recordIdentifier.map { "Record: \($0)" },
+                warning.featureType.map { "Feature: \($0)" },
+                warning.sourceLocation.map { "Location: \($0)" },
+            ].compactMap { $0 }.joined(separator: " • ")
+            return MHCReferenceBundleWarningRow(message: warning.message, context: context)
+        }
 
         var artifactRows: [MHCReferenceBundleArtifactRow] = [
             MHCReferenceBundleArtifactRow(label: "Bundle Folder", fileURL: bundleURL),
@@ -198,6 +206,27 @@ extension InspectorViewController {
             artifactRows.append(
                 MHCReferenceBundleArtifactRow(label: "Reference FASTA", fileURL: referenceURL)
             )
+        }
+        if let referenceBundleURL = MHCAmpliconReferenceBundle.referenceBundleURL(in: bundleURL) {
+            artifactRows.append(
+                MHCReferenceBundleArtifactRow(label: "Annotated Reference Bundle", fileURL: referenceBundleURL)
+            )
+            if let embeddedManifest = try? BundleManifest.load(from: referenceBundleURL) {
+                for annotation in embeddedManifest.annotations {
+                    guard let databasePath = annotation.databasePath,
+                          let databaseURL = try? BundleManifest.validatedBundleMemberURL(
+                            for: databasePath,
+                            in: referenceBundleURL,
+                            field: "annotations[\(annotation.id)].databasePath"
+                          ) else { continue }
+                    artifactRows.append(
+                        MHCReferenceBundleArtifactRow(
+                            label: "Annotation Database — \(annotation.name)",
+                            fileURL: databaseURL
+                        )
+                    )
+                }
+            }
         }
         for url in MHCAmpliconReferenceBundle.haplotypeDefinitionURLs(in: bundleURL) {
             artifactRows.append(
@@ -225,6 +254,7 @@ extension InspectorViewController {
             defaultDefinitionID: manifest.defaultHaplotypeDefinitionID,
             createdAt: manifest.createdAt,
             definitionRows: definitionRows,
+            warningRows: warningRows,
             artifactRows: artifactRows,
             bundleURL: bundleURL,
             provenancePath: manifest.provenancePath
@@ -374,10 +404,12 @@ extension InspectorViewController {
         state.defaultIncludedHaplotypeLoci = defaultIncludedLoci
         state.includedHaplotypeLoci = selectedIncludedLoci
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
+        let isGenotypeOnlyResult = result.haplotypeAnalysis == nil && !result.calls.isEmpty
         viewModel.genotypeResultDisplaySectionViewModel.update(
             isAvailable: true,
             state: currentDisplay,
-            hasHaplotypingResult: result.haplotypeAnalysis != nil
+            hasHaplotypingResult: result.haplotypeAnalysis != nil,
+            isGenotypeOnlyResult: isGenotypeOnlyResult
         )
         viewModel.genotypeResultDisplaySectionViewModel.updateMHCCandidatePresentation(from: result)
         updateProvenanceTarget(

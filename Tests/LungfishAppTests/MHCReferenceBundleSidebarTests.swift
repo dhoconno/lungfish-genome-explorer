@@ -77,7 +77,18 @@ final class MHCReferenceBundleSidebarTests: XCTestCase {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("MHCReferenceInspector-\(UUID().uuidString)", isDirectory: true)
         let bundleURL = tempRoot.appendingPathComponent("MCM.lungfishmhcref", isDirectory: true)
-        try Self.writeMHCReferenceBundle(at: bundleURL, name: "MCM")
+        try Self.writeMHCReferenceBundle(
+            at: bundleURL,
+            name: "MCM",
+            warnings: [
+                MHCReferenceBundleWarning(
+                    category: "genbank.annotation.skipped",
+                    message: "Skipped malformed CDS",
+                    recordIdentifier: "M1",
+                    featureType: "CDS"
+                )
+            ]
+        )
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
         let inspector = InspectorViewController()
@@ -94,6 +105,7 @@ final class MHCReferenceBundleSidebarTests: XCTestCase {
         XCTAssertEqual(state.haplotypeDefinitionCount, 1)
         XCTAssertEqual(state.defaultDefinitionID, "mcm-mhc")
         XCTAssertEqual(state.bundleURL?.standardizedFileURL, bundleURL.standardizedFileURL)
+        XCTAssertEqual(state.warningRows.map(\.message), ["Skipped malformed CDS"])
         XCTAssertTrue(
             state.definitionRows.contains { $0.displayName.contains("MCM MHC") && $0.loci.contains("MHC-B") },
             "Embedded haplotype definition should surface its species name and loci."
@@ -114,7 +126,11 @@ final class MHCReferenceBundleSidebarTests: XCTestCase {
     /// Writes a minimal valid `.lungfishmhcref` directory bundle (manifest +
     /// reference.fa + one haplotype definition), mirroring
     /// `MHCAmpliconReferenceBundleTests`.
-    static func writeMHCReferenceBundle(at bundleURL: URL, name: String) throws {
+    static func writeMHCReferenceBundle(
+        at bundleURL: URL,
+        name: String,
+        warnings: [MHCReferenceBundleWarning] = []
+    ) throws {
         let haplotypeURL = bundleURL.appendingPathComponent("haplotypes/\(name.lowercased()).json")
         try FileManager.default.createDirectory(
             at: haplotypeURL.deletingLastPathComponent(),
@@ -154,6 +170,7 @@ final class MHCReferenceBundleSidebarTests: XCTestCase {
             defaultHaplotypeDefinitionID: definition.id,
             metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 1),
             provenancePath: ".lungfish-provenance.json",
+            warnings: warnings,
             createdAt: "2026-05-30T00:00:00Z"
         )
         try MHCAmpliconReferenceBundle.writeManifest(manifest, to: bundleURL)

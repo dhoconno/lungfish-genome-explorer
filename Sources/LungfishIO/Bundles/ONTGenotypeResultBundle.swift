@@ -1,6 +1,85 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
+
+public struct ONTGenotypeReferenceRecordStoreInfo: Codable, Equatable, Sendable {
+    public static let supportedFormat = "genbank"
+
+    public let databasePath: String
+    public let format: String
+    public let schemaVersion: Int
+    public let recordCount: Int
+    public let fieldCount: Int
+    public let sha256: String
+    public let sizeBytes: Int64
+
+    public init(
+        databasePath: String,
+        format: String = Self.supportedFormat,
+        schemaVersion: Int = GenBankRecordDatabase.schemaVersion,
+        recordCount: Int,
+        fieldCount: Int,
+        sha256: String,
+        sizeBytes: Int64
+    ) {
+        self.databasePath = databasePath
+        self.format = format
+        self.schemaVersion = schemaVersion
+        self.recordCount = recordCount
+        self.fieldCount = fieldCount
+        self.sha256 = sha256
+        self.sizeBytes = sizeBytes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case databasePath = "database_path"
+        case format
+        case schemaVersion = "schema_version"
+        case recordCount = "record_count"
+        case fieldCount = "field_count"
+        case sha256
+        case sizeBytes = "size_bytes"
+    }
+}
+
+public struct ONTGenotypeReferenceMetadata: Codable, Equatable, Sendable {
+    public let fields: [GenBankRecordDatabase.FieldDefinition]
+    public let recordsBySequenceName: [String: [String: String]]
+    public let alleleFieldKey: String?
+
+    public init(
+        fields: [GenBankRecordDatabase.FieldDefinition],
+        recordsBySequenceName: [String: [String: String]],
+        alleleFieldKey: String?
+    ) {
+        self.fields = fields
+        self.recordsBySequenceName = recordsBySequenceName
+        self.alleleFieldKey = alleleFieldKey
+    }
+}
+
+public enum ONTGenotypeReferenceRecordStoreError: Error, LocalizedError, Equatable, Sendable {
+    case unsupportedFormat(String)
+    case unsupportedSchemaVersion(Int)
+    case missingFile(String)
+    case sizeMismatch(expected: Int64, actual: Int64)
+    case checksumMismatch(expected: String, actual: String)
+    case recordCountMismatch(expected: Int, actual: Int)
+    case fieldCountMismatch(expected: Int, actual: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unsupportedFormat(let value): return "Unsupported genotype reference record-store format: \(value)"
+        case .unsupportedSchemaVersion(let value): return "Unsupported genotype reference record-store schema version: \(value)"
+        case .missingFile(let path): return "Missing genotype reference record store: \(path)"
+        case .sizeMismatch(let expected, let actual): return "Genotype reference record-store size mismatch (expected \(expected), found \(actual))"
+        case .checksumMismatch(let expected, let actual): return "Genotype reference record-store checksum mismatch (expected \(expected), found \(actual))"
+        case .recordCountMismatch(let expected, let actual): return "Genotype reference record count mismatch (expected \(expected), found \(actual))"
+        case .fieldCountMismatch(let expected, let actual): return "Genotype reference field count mismatch (expected \(expected), found \(actual))"
+        }
+    }
+}
 
 public enum ONTGenotypeWorkbookRevisionRole: String, Codable, CaseIterable, Equatable, Sendable {
     case initialCurrentCopy = "initial-current-copy"
@@ -152,6 +231,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let presetVersion: String?
     public let createdAt: String?
     public let mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest?
+    public let referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?
 
     public init(
         schemaVersion: Int = 1,
@@ -174,7 +254,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         createdAt: String? = nil,
         activeHaplotypeAnalysisRevisionID: String? = nil,
         haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
-        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.kind = kind
@@ -197,181 +278,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         self.presetVersion = presetVersion
         self.createdAt = createdAt
         self.mhcCandidateArtifacts = mhcCandidateArtifacts
-    }
-
-    public init(
-        schemaVersion: Int = 1,
-        kind: String = "ont-barcode-genotype",
-        outputName: String,
-        analysisName: String,
-        primaryWorkbookPath: String,
-        currentWorkbookPath: String? = nil,
-        workbookRevisions: [ONTGenotypeWorkbookRevision]? = nil,
-        longSummaryCSVPath: String,
-        sampleSummaryCSVPath: String,
-        statsJSONPath: String,
-        provenancePath: String,
-        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
-        haplotypeAnalysisPath: String? = nil,
-        haplotypeDefinitionSetID: String? = nil,
-        haplotypeAssayID: String? = nil,
-        presetID: String? = nil,
-        presetVersion: String? = nil,
-        createdAt: String? = nil,
-        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil
-    ) {
-        self.init(
-            schemaVersion: schemaVersion,
-            kind: kind,
-            outputName: outputName,
-            analysisName: analysisName,
-            primaryWorkbookPath: primaryWorkbookPath,
-            currentWorkbookPath: currentWorkbookPath,
-            workbookRevisions: workbookRevisions,
-            longSummaryCSVPath: longSummaryCSVPath,
-            sampleSummaryCSVPath: sampleSummaryCSVPath,
-            statsJSONPath: statsJSONPath,
-            provenancePath: provenancePath,
-            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
-            haplotypeAnalysisPath: haplotypeAnalysisPath,
-            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
-            haplotypeAssayID: haplotypeAssayID,
-            presetID: presetID,
-            presetVersion: presetVersion,
-            createdAt: createdAt,
-            activeHaplotypeAnalysisRevisionID: nil,
-            haplotypeAnalysisRevisions: nil,
-            mhcCandidateArtifacts: mhcCandidateArtifacts
-        )
-    }
-
-    public init(
-        schemaVersion: Int = 1,
-        kind: String = "ont-barcode-genotype",
-        outputName: String,
-        analysisName: String,
-        primaryWorkbookPath: String,
-        longSummaryCSVPath: String,
-        sampleSummaryCSVPath: String,
-        statsJSONPath: String,
-        provenancePath: String,
-        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
-        haplotypeAnalysisPath: String? = nil,
-        haplotypeDefinitionSetID: String? = nil,
-        haplotypeAssayID: String? = nil,
-        presetID: String? = nil,
-        presetVersion: String? = nil,
-        createdAt: String? = nil,
-        activeHaplotypeAnalysisRevisionID: String? = nil,
-        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
-        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil
-    ) {
-        self.init(
-            schemaVersion: schemaVersion,
-            kind: kind,
-            outputName: outputName,
-            analysisName: analysisName,
-            primaryWorkbookPath: primaryWorkbookPath,
-            currentWorkbookPath: nil,
-            workbookRevisions: nil,
-            longSummaryCSVPath: longSummaryCSVPath,
-            sampleSummaryCSVPath: sampleSummaryCSVPath,
-            statsJSONPath: statsJSONPath,
-            provenancePath: provenancePath,
-            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
-            haplotypeAnalysisPath: haplotypeAnalysisPath,
-            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
-            haplotypeAssayID: haplotypeAssayID,
-            presetID: presetID,
-            presetVersion: presetVersion,
-            createdAt: createdAt,
-            activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
-            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions,
-            mhcCandidateArtifacts: mhcCandidateArtifacts
-        )
-    }
-
-    public init(
-        schemaVersion: Int = 1,
-        kind: String = "ont-barcode-genotype",
-        outputName: String,
-        analysisName: String,
-        primaryWorkbookPath: String,
-        longSummaryCSVPath: String,
-        sampleSummaryCSVPath: String,
-        statsJSONPath: String,
-        provenancePath: String,
-        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
-        haplotypeAnalysisPath: String? = nil,
-        haplotypeDefinitionSetID: String? = nil,
-        haplotypeAssayID: String? = nil,
-        presetID: String? = nil,
-        presetVersion: String? = nil,
-        createdAt: String? = nil,
-        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil
-    ) {
-        self.init(
-            schemaVersion: schemaVersion,
-            kind: kind,
-            outputName: outputName,
-            analysisName: analysisName,
-            primaryWorkbookPath: primaryWorkbookPath,
-            longSummaryCSVPath: longSummaryCSVPath,
-            sampleSummaryCSVPath: sampleSummaryCSVPath,
-            statsJSONPath: statsJSONPath,
-            provenancePath: provenancePath,
-            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
-            haplotypeAnalysisPath: haplotypeAnalysisPath,
-            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
-            haplotypeAssayID: haplotypeAssayID,
-            presetID: presetID,
-            presetVersion: presetVersion,
-            createdAt: createdAt,
-            activeHaplotypeAnalysisRevisionID: nil,
-            haplotypeAnalysisRevisions: nil,
-            mhcCandidateArtifacts: mhcCandidateArtifacts
-        )
-    }
-
-    public init(
-        schemaVersion: Int = 1,
-        kind: String = "ont-barcode-genotype",
-        outputName: String,
-        analysisName: String,
-        primaryWorkbookPath: String,
-        longSummaryCSVPath: String,
-        sampleSummaryCSVPath: String,
-        statsJSONPath: String,
-        provenancePath: String,
-        haplotypeAnalysisPath: String? = nil,
-        haplotypeDefinitionSetID: String? = nil,
-        haplotypeAssayID: String? = nil,
-        presetID: String? = nil,
-        presetVersion: String? = nil,
-        createdAt: String? = nil,
-        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil
-    ) {
-        self.init(
-            schemaVersion: schemaVersion,
-            kind: kind,
-            outputName: outputName,
-            analysisName: analysisName,
-            primaryWorkbookPath: primaryWorkbookPath,
-            longSummaryCSVPath: longSummaryCSVPath,
-            sampleSummaryCSVPath: sampleSummaryCSVPath,
-            statsJSONPath: statsJSONPath,
-            provenancePath: provenancePath,
-            deduplicatedUnmatchedClustersFASTAPath: nil,
-            haplotypeAnalysisPath: haplotypeAnalysisPath,
-            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
-            haplotypeAssayID: haplotypeAssayID,
-            presetID: presetID,
-            presetVersion: presetVersion,
-            createdAt: createdAt,
-            activeHaplotypeAnalysisRevisionID: nil,
-            haplotypeAnalysisRevisions: nil,
-            mhcCandidateArtifacts: mhcCandidateArtifacts
-        )
+        self.referenceRecordStore = referenceRecordStore
     }
 }
 
@@ -996,6 +903,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     public let mhcCandidates: ONTMHCCandidateAllelesDocument?
     public let mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?
     public let integrityWarnings: [ONTGenotypeIntegrityWarning]
+    public let referenceMetadata: ONTGenotypeReferenceMetadata?
 
     public init(
         bundleURL: URL,
@@ -1016,7 +924,8 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
             haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: nil,
             mhcUnnameableClusters: nil,
-            integrityWarnings: []
+            integrityWarnings: [],
+            referenceMetadata: nil
         )
     }
 
@@ -1030,7 +939,8 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         mhcCandidates: ONTMHCCandidateAllelesDocument?,
         mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?,
-        integrityWarnings: [ONTGenotypeIntegrityWarning]
+        integrityWarnings: [ONTGenotypeIntegrityWarning],
+        referenceMetadata: ONTGenotypeReferenceMetadata?
     ) {
         self.bundleURL = bundleURL.standardizedFileURL
         self.manifest = manifest
@@ -1042,6 +952,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         self.mhcCandidates = mhcCandidates
         self.mhcUnnameableClusters = mhcUnnameableClusters
         self.integrityWarnings = integrityWarnings
+        self.referenceMetadata = referenceMetadata
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1055,6 +966,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         case mhcCandidates
         case mhcUnnameableClusters
         case integrityWarnings
+        case referenceMetadata
     }
 
     public init(from decoder: Decoder) throws {
@@ -1075,7 +987,11 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
             integrityWarnings: try container.decodeIfPresent(
                 [ONTGenotypeIntegrityWarning].self,
                 forKey: .integrityWarnings
-            ) ?? []
+            ) ?? [],
+            referenceMetadata: try container.decodeIfPresent(
+                ONTGenotypeReferenceMetadata.self,
+                forKey: .referenceMetadata
+            )
         )
     }
 
@@ -1091,6 +1007,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         try container.encodeIfPresent(mhcCandidates, forKey: .mhcCandidates)
         try container.encodeIfPresent(mhcUnnameableClusters, forKey: .mhcUnnameableClusters)
         try container.encode(integrityWarnings, forKey: .integrityWarnings)
+        try container.encodeIfPresent(referenceMetadata, forKey: .referenceMetadata)
     }
 
     public var sampleCount: Int {
@@ -1598,17 +1515,19 @@ public enum ONTGenotypeResultBundle {
         )
     }
 
-    /// Synchronous manifest-aware variant for CLI and tests. AppKit callers
-    /// should use `loadResultAsync(from:)` so evidence hashing stays off-main.
+    /// Loads result artifacts against an in-memory manifest before that manifest
+    /// is durably published. Workflow writers use this while deriving analyses
+    /// that must be completed before `genotype-result.json` is published last.
+    /// Readers of an already-published bundle should use `loadResult(from:)` or
+    /// `loadResultAsync(from:)` so transaction recovery and stable-read checks run.
     public static func loadResult(
         from bundleURL: URL,
         manifest: ONTGenotypeResultBundleManifest
     ) throws -> ONTGenotypeResultBundleData {
-        try loadStableResult(
+        try loadResult(
             from: bundleURL,
+            manifest: manifest,
             candidateArtifactByteBudget: maximumCollectedCandidateArtifactBytes,
-            requiredManifest: manifest,
-            stableReadObserver: nil
         )
     }
 
@@ -1773,6 +1692,10 @@ public enum ONTGenotypeResultBundle {
             bundleURL: bundleURL,
             parsedArtifactByteBudget: candidateArtifactByteBudget
         )
+        let referenceMetadata = try loadReferenceMetadataIfPresent(
+            manifest.referenceRecordStore,
+            from: bundleURL
+        )
 
         let calls = callRows.compactMap(makeCall(row:)).filter { isAssignedSample($0.sample) }
         let callsBySample = Dictionary(grouping: calls, by: \.sample)
@@ -1804,7 +1727,63 @@ public enum ONTGenotypeResultBundle {
             haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: mhcProjection.candidates,
             mhcUnnameableClusters: mhcProjection.unnameable,
-            integrityWarnings: mhcProjection.warnings
+            integrityWarnings: mhcProjection.warnings,
+            referenceMetadata: referenceMetadata
+        )
+    }
+
+    private static func loadReferenceMetadataIfPresent(
+        _ info: ONTGenotypeReferenceRecordStoreInfo?,
+        from bundleURL: URL
+    ) throws -> ONTGenotypeReferenceMetadata? {
+        guard let info else { return nil }
+        guard info.format == ONTGenotypeReferenceRecordStoreInfo.supportedFormat else {
+            throw ONTGenotypeReferenceRecordStoreError.unsupportedFormat(info.format)
+        }
+        guard info.schemaVersion == GenBankRecordDatabase.schemaVersion else {
+            throw ONTGenotypeReferenceRecordStoreError.unsupportedSchemaVersion(info.schemaVersion)
+        }
+        let databaseURL = try BundleManifest.validatedBundleMemberURL(
+            for: info.databasePath,
+            in: bundleURL,
+            field: "reference_record_store.database_path"
+        )
+        guard FileManager.default.fileExists(atPath: databaseURL.path) else {
+            throw ONTGenotypeReferenceRecordStoreError.missingFile(databaseURL.path)
+        }
+        let data = try Data(contentsOf: databaseURL, options: .mappedIfSafe)
+        let actualSize = Int64(data.count)
+        guard actualSize == info.sizeBytes else {
+            throw ONTGenotypeReferenceRecordStoreError.sizeMismatch(expected: info.sizeBytes, actual: actualSize)
+        }
+        let actualSHA256 = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        guard actualSHA256 == info.sha256.lowercased() else {
+            throw ONTGenotypeReferenceRecordStoreError.checksumMismatch(
+                expected: info.sha256,
+                actual: actualSHA256
+            )
+        }
+        let database = try GenBankRecordDatabase(url: databaseURL)
+        let actualRecordCount = try database.recordCount()
+        guard actualRecordCount == info.recordCount else {
+            throw ONTGenotypeReferenceRecordStoreError.recordCountMismatch(
+                expected: info.recordCount,
+                actual: actualRecordCount
+            )
+        }
+        let actualFieldCount = try database.fieldCount()
+        guard actualFieldCount == info.fieldCount else {
+            throw ONTGenotypeReferenceRecordStoreError.fieldCountMismatch(
+                expected: info.fieldCount,
+                actual: actualFieldCount
+            )
+        }
+        let fields = try database.fieldDefinitions()
+        let rows = try database.records()
+        return ONTGenotypeReferenceMetadata(
+            fields: fields,
+            recordsBySequenceName: Dictionary(uniqueKeysWithValues: rows.map { ($0.sequenceName, $0.values) }),
+            alleleFieldKey: fields.first(where: { $0.key == "feature.allele" })?.key
         )
     }
 

@@ -2321,6 +2321,7 @@ public struct GenotypeWorkbookRevisionService {
             sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
             statsJSONPath: manifest.statsJSONPath,
             provenancePath: manifest.provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: manifest.deduplicatedUnmatchedClustersFASTAPath,
             haplotypeAnalysisPath: manifest.haplotypeAnalysisPath,
             haplotypeDefinitionSetID: manifest.haplotypeDefinitionSetID,
             haplotypeAssayID: manifest.haplotypeAssayID,
@@ -2329,7 +2330,8 @@ public struct GenotypeWorkbookRevisionService {
             createdAt: manifest.createdAt,
             activeHaplotypeAnalysisRevisionID: manifest.activeHaplotypeAnalysisRevisionID,
             haplotypeAnalysisRevisions: manifest.haplotypeAnalysisRevisions,
-            mhcCandidateArtifacts: manifest.mhcCandidateArtifacts
+            mhcCandidateArtifacts: manifest.mhcCandidateArtifacts,
+            referenceRecordStore: manifest.referenceRecordStore
         )
     }
 

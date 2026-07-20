@@ -273,6 +273,7 @@ public struct AIHaplotypingRevisionPublisher {
             sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
             statsJSONPath: manifest.statsJSONPath,
             provenancePath: manifest.provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: manifest.deduplicatedUnmatchedClustersFASTAPath,
             haplotypeAnalysisPath: revision.path,
             haplotypeDefinitionSetID: manifest.haplotypeDefinitionSetID,
             haplotypeAssayID: manifest.haplotypeAssayID,
@@ -280,7 +281,9 @@ public struct AIHaplotypingRevisionPublisher {
             presetVersion: manifest.presetVersion,
             createdAt: manifest.createdAt,
             activeHaplotypeAnalysisRevisionID: revision.id,
-            haplotypeAnalysisRevisions: (manifest.haplotypeAnalysisRevisions ?? []) + [revision]
+            haplotypeAnalysisRevisions: (manifest.haplotypeAnalysisRevisions ?? []) + [revision],
+            mhcCandidateArtifacts: manifest.mhcCandidateArtifacts,
+            referenceRecordStore: manifest.referenceRecordStore
         )
     }
 

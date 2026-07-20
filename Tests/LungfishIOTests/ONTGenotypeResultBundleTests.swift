@@ -635,6 +635,87 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         }
     }
 
+    func testManifestRoundTripsAndLoadsEmbeddedGenBankReferenceMetadata() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("annotated.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let workbookURL = bundleURL.appendingPathComponent("annotated.xlsx")
+        try Data("workbook".utf8).write(to: workbookURL)
+        let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: "annotated")
+
+        let info = try writeAnnotatedReferenceRecordStore(in: bundleURL)
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "annotated",
+            analysisName: "annotated",
+            primaryWorkbookPath: workbookURL.lastPathComponent,
+            longSummaryCSVPath: artifacts.genotypeCSV.lastPathComponent,
+            sampleSummaryCSVPath: artifacts.sampleCSV.lastPathComponent,
+            statsJSONPath: artifacts.statsJSON.lastPathComponent,
+            provenancePath: artifacts.provenance.lastPathComponent,
+            referenceRecordStore: info
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+
+        XCTAssertEqual(try ONTGenotypeResultBundle.loadManifest(from: bundleURL).referenceRecordStore, info)
+        let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+        XCTAssertEqual(result.referenceMetadata?.alleleFieldKey, "feature.allele")
+        XCTAssertEqual(
+            result.referenceMetadata?.recordsBySequenceName["NHP01222"]?["feature.allele"],
+            "Mafa-A1*006:01:02"
+        )
+        XCTAssertEqual(
+            result.referenceMetadata?.fields.first(where: { $0.key == "feature.allele" })?.displayTitle,
+            "Allele"
+        )
+    }
+
+    func testLoadsCandidateArtifactsAndReferenceMetadataFromSameBundle() throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+        let info = try writeAnnotatedReferenceRecordStore(in: fixture.bundleURL)
+        let original = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let manifest = ONTGenotypeResultBundleManifest(
+            schemaVersion: original.schemaVersion,
+            kind: original.kind,
+            outputName: original.outputName,
+            analysisName: original.analysisName,
+            primaryWorkbookPath: original.primaryWorkbookPath,
+            currentWorkbookPath: original.currentWorkbookPath,
+            workbookRevisions: original.workbookRevisions,
+            longSummaryCSVPath: original.longSummaryCSVPath,
+            sampleSummaryCSVPath: original.sampleSummaryCSVPath,
+            statsJSONPath: original.statsJSONPath,
+            provenancePath: original.provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: original.deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: original.haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: original.haplotypeDefinitionSetID,
+            haplotypeAssayID: original.haplotypeAssayID,
+            presetID: original.presetID,
+            presetVersion: original.presetVersion,
+            createdAt: original.createdAt,
+            activeHaplotypeAnalysisRevisionID: original.activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions: original.haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: original.mhcCandidateArtifacts,
+            referenceRecordStore: info
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: fixture.bundleURL)
+
+        let roundTripped = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        XCTAssertEqual(roundTripped.mhcCandidateArtifacts, original.mhcCandidateArtifacts)
+        XCTAssertEqual(roundTripped.referenceRecordStore, info)
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        XCTAssertNotNil(result.mhcCandidates)
+        XCTAssertNotNil(result.mhcUnnameableClusters)
+        XCTAssertTrue(result.integrityWarnings.isEmpty)
+        XCTAssertEqual(
+            result.referenceMetadata?.recordsBySequenceName["NHP01222"]?["feature.allele"],
+            "Mafa-A1*006:01:02"
+        )
+    }
+
     func testWritesAndLoadsPrimaryWorkbookManifest() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
@@ -1404,6 +1485,39 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         }
         """.write(to: statsJSONURL, atomically: true, encoding: .utf8)
         return (genotypeCSVURL, sampleCSVURL, statsJSONURL, provenanceURL)
+    }
+
+    private func writeAnnotatedReferenceRecordStore(
+        in bundleURL: URL
+    ) throws -> ONTGenotypeReferenceRecordStoreInfo {
+        let databaseURL = bundleURL.appendingPathComponent("metadata/genbank_records.sqlite")
+        let record = GenBankRecord(
+            sequence: try Sequence(name: "NHP01222", alphabet: .dna, bases: "ACGT"),
+            annotations: [
+                SequenceAnnotation(
+                    type: .gene,
+                    name: "Mafa-A1*006:01:02",
+                    start: 0,
+                    end: 4,
+                    qualifiers: [
+                        "gene": AnnotationQualifier("A1"),
+                        "allele": AnnotationQualifier("Mafa-A1*006:01:02"),
+                    ]
+                ),
+            ],
+            locus: LocusInfo(name: "NHP01222", length: 4, moleculeType: .dna, topology: .linear),
+            definition: "Mafa-A1*006:01:02, A1 locus allele.",
+            accession: "NHP01222"
+        )
+        let created = try GenBankRecordDatabase.create(records: [record], at: databaseURL)
+        let bytes = try Data(contentsOf: databaseURL)
+        return ONTGenotypeReferenceRecordStoreInfo(
+            databasePath: "metadata/genbank_records.sqlite",
+            recordCount: created.recordCount,
+            fieldCount: created.fieldCount,
+            sha256: SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(),
+            sizeBytes: Int64(bytes.count)
+        )
     }
 
     private final class CandidateBundleFixture {

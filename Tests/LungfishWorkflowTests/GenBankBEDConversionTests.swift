@@ -193,6 +193,57 @@ final class GenBankBEDConversionTests: XCTestCase {
                       "Should contain product qualifier")
     }
 
+    func testGenBankToBEDUsesUnambiguousFullAlleleAsAnnotationName() async throws {
+        let genBank = """
+        LOCUS       AlleleRecord             120 bp    DNA     linear   SYN 01-JAN-2024
+        DEFINITION  Species-A1*001:02, A1 locus allele.
+        ACCESSION   AR000001
+        VERSION     AR000001.1
+        FEATURES             Location/Qualifiers
+             source          1..120
+                             /organism="Test"
+                             /mol_type="mRNA"
+             gene            1..120
+                             /gene="A1"
+                             /allele="Species-A1*001:02"
+             exon            1..40
+                             /gene="A1"
+                             /number=1
+             CDS             1..120
+                             /gene="A1"
+                             /allele="Species-A1*001:02"
+                             /product="class I antigen"
+        ORIGIN
+                1 atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg
+        //
+        """
+
+        let gbURL = try createTempGenBankFile(content: genBank)
+        defer { try? FileManager.default.removeItem(at: gbURL) }
+
+        let parsedRecords = try await GenBankReader(url: gbURL).readAll()
+        let parsedFeatureNames = Set(
+            parsedRecords[0].annotations
+                .filter { $0.type != .source }
+                .map(\.name)
+        )
+        XCTAssertEqual(parsedFeatureNames, ["Species-A1*001:02"])
+
+        let bedURL = gbURL.deletingPathExtension().appendingPathExtension("bed")
+        defer { try? FileManager.default.removeItem(at: bedURL) }
+
+        let builder = NativeBundleBuilder()
+        _ = try await builder.convertGenBankToBED(from: gbURL, to: bedURL)
+
+        let lines = try parseBEDLines(from: bedURL)
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertEqual(
+            Set(lines.map { $0[3] }),
+            ["Species-A1*001:02"],
+            "Every feature in a single-allele record should display the full allele rather than the abbreviated gene"
+        )
+    }
+
     // MARK: - BED12 Block Tests (join locations)
 
     func testGenBankToBEDHandlesJoinLocations() async throws {

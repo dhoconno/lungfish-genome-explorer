@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 struct FastqMHCReferenceBundleSubcommand: AsyncParsableCommand {
@@ -9,7 +10,10 @@ struct FastqMHCReferenceBundleSubcommand: AsyncParsableCommand {
         abstract: "Create a .lungfishmhcref bundle for MHC amplicon genotyping"
     )
 
-    @Option(name: .customLong("reference-fasta"), help: "MHC amplicon reference FASTA")
+    @Option(
+        name: .customLong("reference-fasta"),
+        help: "MHC amplicon reference in FASTA, GenBank, or EMBL format"
+    )
     var referenceFASTA: String
 
     @Option(name: .customLong("haplotype-definition"), help: "Haplotype definition JSON file to embed in the bundle")
@@ -40,6 +44,9 @@ struct FastqMHCReferenceBundleSubcommand: AsyncParsableCommand {
                 FileHandle.standardError.write(Data(Self.progressLine(fraction: fraction, message: message).utf8))
             }
         )
+        for warning in result.warnings {
+            FileHandle.standardError.write(Data(Self.warningLine(warning).utf8))
+        }
         FileHandle.standardError.write(Data("MHC reference bundle written to \(result.bundleURL.path)\n".utf8))
     }
 
@@ -87,5 +94,14 @@ struct FastqMHCReferenceBundleSubcommand: AsyncParsableCommand {
     static func progressLine(fraction: Double, message: String) -> String {
         let percent = Int((max(0, min(1, fraction)) * 100).rounded())
         return String(format: "[%3d%%] %@\n", percent, message)
+    }
+
+    static func warningLine(_ warning: MHCReferenceBundleWarning) -> String {
+        var context: [String] = []
+        if let value = warning.recordIdentifier { context.append("record \(value)") }
+        if let value = warning.featureType { context.append("feature \(value)") }
+        if let value = warning.sourceLocation { context.append("location \(value)") }
+        let suffix = context.isEmpty ? "" : " [\(context.joined(separator: ", "))]"
+        return "warning: \(warning.message)\(suffix)\n"
     }
 }

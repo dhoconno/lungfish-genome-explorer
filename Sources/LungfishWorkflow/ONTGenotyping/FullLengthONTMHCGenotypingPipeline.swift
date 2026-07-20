@@ -1499,6 +1499,23 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         ))
         let workbookCopy = try createInitialCurrentWorkbookCopy(for: request)
         pipelineSteps.append(workbookCopy.step)
+        let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
+            fromReferenceBundle: request.referenceSourceURL,
+            toResultBundle: request.outputDirectory
+        )
+        if let snapshot = referenceRecordStoreSnapshot {
+            pipelineSteps.append(FullLengthONTMHCProvenanceStep(
+                toolName: "lungfish genotype reference metadata snapshot",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: ["copy", snapshot.sourceURL.path, snapshot.destinationURL.path],
+                inputs: [snapshot.sourceURL],
+                outputs: [snapshot.destinationURL],
+                exitStatus: 0,
+                stderr: nil,
+                startedAt: snapshot.startedAt,
+                completedAt: snapshot.completedAt
+            ))
+        }
         try rewriteCheckpointPaths(
             in: request.outputDirectory,
             replacing: request.outputDirectory.standardizedFileURL.path,
@@ -1512,6 +1529,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 workbookRevision: workbookCopy.revision,
                 evidenceArtifactPair: evidenceArtifactPair,
                 candidateArtifacts: candidateArtifactResult.manifest,
+                referenceRecordStore: referenceRecordStoreSnapshot?.info,
                 createdAt: manifestCreatedAt
             )
             manifestPublicationPlan = plan
@@ -4223,6 +4241,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         workbookRevision: ONTGenotypeWorkbookRevision,
         evidenceArtifactPair: ONTMHCBAMArtifactPair,
         candidateArtifacts: ONTMHCCandidateArtifactManifest,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?,
         createdAt: Date
     ) throws -> FullLengthONTMHCSuccessManifestPublicationPlan {
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
@@ -4247,7 +4266,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             haplotypeDefinitionSetID: request.haplotypeDefinitionSetID,
             haplotypeAssayID: resolvedHaplotypeDefinitionSet?.assayID,
             createdAt: ISO8601DateFormatter().string(from: createdAt),
-            mhcCandidateArtifacts: candidateArtifacts
+            mhcCandidateArtifacts: candidateArtifacts,
+            referenceRecordStore: referenceRecordStore
         )
         let stagedURL = request.outputDirectory.appendingPathComponent(
             ".\(ONTGenotypeResultBundleManifest.filename).staging-\(UUID().uuidString)"

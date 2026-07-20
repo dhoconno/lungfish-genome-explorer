@@ -155,7 +155,7 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
 
         progressHandler?(0.02, "Preparing reference input...")
 
-        let prepared = try await prepareBuildInputs(
+        let prepared = try await ReferenceSourcePreparer().prepare(
             sourceURL: sourceURL,
             bundleName: bundleName,
             tempDirectory: tempDirectory
@@ -176,7 +176,9 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
                 bundleName: bundleName,
                 isEnabled: provenanceWorkflowName != nil
             ),
-            provenanceInputFiles: provenanceInputFiles ?? (provenanceWorkflowName == nil ? nil : [sourceURL])
+            provenanceInputFiles: provenanceInputFiles ?? (provenanceWorkflowName == nil ? nil : [sourceURL]),
+            warnings: prepared.warnings.map(\.bundleWarning),
+            referenceRecordStoreURL: prepared.recordStoreURL
         )
 
         let builder = await NativeBundleBuilder()
@@ -193,131 +195,6 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
     }
 
     // MARK: - Internal Helpers
-
-    private struct PreparedBuildInputs {
-        let fastaURL: URL
-        let annotationInputs: [AnnotationInput]
-        let sourceInfo: SourceInfo
-    }
-
-    private enum PreparedSourceKind {
-        case fasta
-        case genbank
-    }
-
-    private func prepareBuildInputs(
-        sourceURL: URL,
-        bundleName: String,
-        tempDirectory: URL
-    ) async throws -> PreparedBuildInputs {
-        let ext = Self.normalizedExtension(for: sourceURL)
-
-        let kind: PreparedSourceKind
-        if ["gb", "gbk", "genbank", "gbff", "embl"].contains(ext) {
-            kind = .genbank
-        } else if ["fa", "fasta", "fna", "fsa", "fas", "faa", "ffn", "frn"].contains(ext) {
-            kind = .fasta
-        } else {
-            throw ReferenceBundleImportError.unsupportedFormat(sourceURL)
-        }
-
-        switch kind {
-        case .fasta:
-            return try prepareFastaInputs(sourceURL: sourceURL, bundleName: bundleName, tempDirectory: tempDirectory)
-        case .genbank:
-            return try await prepareGenBankInputs(sourceURL: sourceURL, bundleName: bundleName, tempDirectory: tempDirectory)
-        }
-    }
-
-    private func prepareFastaInputs(
-        sourceURL: URL,
-        bundleName: String,
-        tempDirectory: URL
-    ) throws -> PreparedBuildInputs {
-        let fastaInput: URL
-        if Self.compressionExtensions.contains(sourceURL.pathExtension.lowercased()) {
-            let decompressed = tempDirectory.appendingPathComponent("input.fa")
-            try decompressInput(sourceURL: sourceURL, outputURL: decompressed)
-            fastaInput = decompressed
-        } else {
-            fastaInput = sourceURL
-        }
-
-        let sourceInfo = SourceInfo(
-            organism: bundleName,
-            assembly: bundleName,
-            database: "Imported File",
-            sourceURL: sourceURL,
-            downloadDate: Date(),
-            notes: "Imported from \(sourceURL.lastPathComponent)"
-        )
-
-        return PreparedBuildInputs(
-            fastaURL: fastaInput,
-            annotationInputs: [],
-            sourceInfo: sourceInfo
-        )
-    }
-
-    private func prepareGenBankInputs(
-        sourceURL: URL,
-        bundleName: String,
-        tempDirectory: URL
-    ) async throws -> PreparedBuildInputs {
-        let genBankInput: URL
-        if Self.compressionExtensions.contains(sourceURL.pathExtension.lowercased()) {
-            let decompressed = tempDirectory.appendingPathComponent("input.gb")
-            try decompressInput(sourceURL: sourceURL, outputURL: decompressed)
-            genBankInput = decompressed
-        } else {
-            genBankInput = sourceURL
-        }
-
-        let reader = try GenBankReader(url: genBankInput)
-        let records = try await reader.readAll()
-        guard !records.isEmpty else {
-            throw ReferenceBundleImportError.noSequencesFound(sourceURL)
-        }
-
-        let sequences = records.map(\.sequence)
-        guard !sequences.isEmpty else {
-            throw ReferenceBundleImportError.noSequencesFound(sourceURL)
-        }
-
-        let fastaOutput = tempDirectory.appendingPathComponent("input.fa")
-        try FASTAWriter(url: fastaOutput).write(sequences)
-
-        let hasAnnotations = records.contains { !$0.annotations.isEmpty }
-        let annotationInputs: [AnnotationInput] = hasAnnotations ? [
-            AnnotationInput(
-                url: genBankInput,
-                name: "Imported Annotations",
-                description: "Converted from \(sourceURL.lastPathComponent)",
-                id: "imported_annotations",
-                annotationType: .gene
-            )
-        ] : []
-
-        let firstRecord = records.first
-        let organism = firstRecord?.definition
-            ?? firstRecord?.sequence.description
-            ?? bundleName
-
-        let sourceInfo = SourceInfo(
-            organism: organism,
-            assembly: bundleName,
-            database: "Imported File",
-            sourceURL: sourceURL,
-            downloadDate: Date(),
-            notes: "Imported from \(sourceURL.lastPathComponent)"
-        )
-
-        return PreparedBuildInputs(
-            fastaURL: fastaOutput,
-            annotationInputs: annotationInputs,
-            sourceInfo: sourceInfo
-        )
-    }
 
     private func makeUniqueBundleName(base: String, in directory: URL) -> String {
         var candidate = base
@@ -373,58 +250,4 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
         ]
     }
 
-    private func decompressInput(sourceURL: URL, outputURL: URL) throws {
-        let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: outputURL.path) {
-            try? fileManager.removeItem(at: outputURL)
-        }
-        fileManager.createFile(atPath: outputURL.path, contents: nil)
-
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-
-        let wrapper = sourceURL.pathExtension.lowercased()
-        let executable: String
-        let arguments: [String]
-        switch wrapper {
-        case "gz", "gzip", "bgz":
-            executable = "/usr/bin/gzip"
-            arguments = ["-dc", sourceURL.path]
-        case "bz2":
-            executable = "/usr/bin/bzip2"
-            arguments = ["-dc", sourceURL.path]
-        case "xz":
-            executable = "/usr/bin/xz"
-            arguments = ["-dc", sourceURL.path]
-        case "zst", "zstd":
-            executable = "/usr/bin/env"
-            arguments = ["zstd", "-dc", sourceURL.path]
-        default:
-            throw ReferenceBundleImportError.decompressionFailed("Unsupported wrapper '.\(wrapper)'")
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = outputHandle
-
-        let stderrPipe = Pipe()
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-        } catch {
-            throw ReferenceBundleImportError.decompressionFailed(error.localizedDescription)
-        }
-
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let fallback = "decompressor exited with code \(process.terminationStatus)"
-            let message = stderr?.isEmpty == false ? stderr! : fallback
-            throw ReferenceBundleImportError.decompressionFailed(message)
-        }
-    }
 }

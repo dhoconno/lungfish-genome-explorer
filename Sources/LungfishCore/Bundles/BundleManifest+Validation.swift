@@ -41,6 +41,35 @@ extension BundleManifest {
             }
         }
 
+        if let recordStore {
+            appendPathValidationError(
+                path: recordStore.databasePath,
+                field: "record_store.database_path",
+                to: &errors
+            )
+            if recordStore.format != ReferenceRecordStoreInfo.supportedFormat {
+                errors.append(.invalidValue(
+                    "record_store.format",
+                    recordStore.format,
+                    ReferenceRecordStoreInfo.supportedFormat
+                ))
+            }
+            if recordStore.schemaVersion != ReferenceRecordStoreInfo.supportedSchemaVersion {
+                errors.append(.invalidValue(
+                    "record_store.schema_version",
+                    String(recordStore.schemaVersion),
+                    String(ReferenceRecordStoreInfo.supportedSchemaVersion)
+                ))
+            }
+            if recordStore.recordCount < 0 {
+                errors.append(.invalidValue(
+                    "record_store.record_count",
+                    String(recordStore.recordCount),
+                    "zero or greater"
+                ))
+            }
+        }
+
         // Check for duplicate track IDs. Iteration order (annotations -> variants
         // -> tracks -> alignments) is preserved so the first reported duplicate is
         // deterministic.
@@ -184,6 +213,8 @@ public enum BundleValidationError: Error, LocalizedError, Sendable {
     case invalidFileFormat(String, String)
     /// Bundle member path is absolute, escapes the bundle, or targets reserved control metadata.
     case invalidPath(String, String)
+    /// A declared value is outside the supported scientific data contract.
+    case invalidValue(String, String, String)
 
     public var errorDescription: String? {
         switch self {
@@ -197,6 +228,8 @@ public enum BundleValidationError: Error, LocalizedError, Sendable {
             return "File '\(path)' has invalid format (expected \(expected))"
         case .invalidPath(let field, let path):
             return "Manifest path '\(field)' is not a safe bundle-relative path: '\(path)'"
+        case .invalidValue(let field, let value, let expected):
+            return "Manifest field '\(field)' has unsupported value '\(value)' (expected \(expected))"
         }
     }
 }

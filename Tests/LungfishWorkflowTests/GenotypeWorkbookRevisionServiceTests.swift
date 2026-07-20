@@ -1794,7 +1794,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertEqual(try Data(contentsOf: outside), outsideBefore)
     }
 
-    func testWorkbookRevisionPreservesMHCCandidateArtifactManifest() throws {
+    func testWorkbookRevisionPreservesScientificArtifactManifestFields() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeBundle(in: root, outputName: "candidate-preservation", includeCurrent: true)
@@ -1812,6 +1812,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             unnameableJSON: reference,
             unnameableFASTA: reference
         )
+        let unmatchedClustersPath = "artifacts/candidates/deduplicated-unmatched-clusters.fasta"
         let manifest = ONTGenotypeResultBundleManifest(
             schemaVersion: fixture.manifest.schemaVersion,
             kind: fixture.manifest.kind,
@@ -1824,7 +1825,9 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             sampleSummaryCSVPath: fixture.manifest.sampleSummaryCSVPath,
             statsJSONPath: fixture.manifest.statsJSONPath,
             provenancePath: fixture.manifest.provenancePath,
-            mhcCandidateArtifacts: candidateArtifacts
+            deduplicatedUnmatchedClustersFASTAPath: unmatchedClustersPath,
+            mhcCandidateArtifacts: candidateArtifacts,
+            referenceRecordStore: fixture.manifest.referenceRecordStore
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: fixture.bundleURL)
         let replacement = root.appendingPathComponent("replacement.xlsx")
@@ -1834,6 +1837,8 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             .importRevisedWorkbook(from: replacement, into: fixture.bundleURL)
 
         XCTAssertEqual(updated.mhcCandidateArtifacts, candidateArtifacts)
+        XCTAssertEqual(updated.deduplicatedUnmatchedClustersFASTAPath, unmatchedClustersPath)
+        XCTAssertEqual(updated.referenceRecordStore, fixture.manifest.referenceRecordStore)
     }
 
     func testApplyHaplotypeOverridesPatchesCurrentWorkbookAndRecordsSidecarProvenance() throws {
@@ -2006,6 +2011,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertEqual(try Data(contentsOf: currentWorkbookURL), workbookData("collaborator edit"))
         XCTAssertEqual(updatedManifest.primaryWorkbookPath, fixture.manifest.primaryWorkbookPath)
         XCTAssertEqual(updatedManifest.currentWorkbookPath, "artifacts/workbooks/current.xlsx")
+        XCTAssertEqual(updatedManifest.referenceRecordStore, fixture.manifest.referenceRecordStore)
 
         let snapshot = try XCTUnwrap(updatedManifest.workbookRevisions?.first { revision in
             revision.path.hasPrefix("artifacts/workbooks/revisions/")
@@ -2242,7 +2248,14 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             longSummaryCSVPath: artifacts.genotypeCSV.lastPathComponent,
             sampleSummaryCSVPath: artifacts.sampleCSV.lastPathComponent,
             statsJSONPath: artifacts.statsJSON.lastPathComponent,
-            provenancePath: artifacts.provenance.lastPathComponent
+            provenancePath: artifacts.provenance.lastPathComponent,
+            referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo(
+                databasePath: "reference/records.sqlite",
+                recordCount: 2,
+                fieldCount: 4,
+                sha256: String(repeating: "b", count: 64),
+                sizeBytes: 512
+            )
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
         return (bundleURL, manifest)

@@ -28,6 +28,8 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var totalRowCount = 0
     public var hiddenCellCount = 0
     public var hasHaplotypingResult = false
+    public var isGenotypeOnlyResult = false
+    public var showsViewportAndLayoutControls: Bool { !isGenotypeOnlyResult }
     public var isExpanded = true
     public var genotypeResultSelection: GenotypeResultSelectionState?
     public var genotypeHighlightColor: Color = .blue
@@ -63,11 +65,13 @@ public final class GenotypeResultDisplaySectionViewModel {
     public func update(
         isAvailable: Bool,
         state: GenotypeResultDisplayState = GenotypeResultDisplayState(),
-        hasHaplotypingResult: Bool = false
+        hasHaplotypingResult: Bool = false,
+        isGenotypeOnlyResult: Bool = false
     ) {
         self.isAvailable = isAvailable
-        self.displayState = state
         self.hasHaplotypingResult = hasHaplotypingResult
+        self.isGenotypeOnlyResult = isGenotypeOnlyResult
+        setNormalizedDisplayState(state)
         updateSelection(nil)
     }
 
@@ -78,7 +82,7 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     public func updateDisplayState(_ state: GenotypeResultDisplayState) {
-        displayState = state
+        setNormalizedDisplayState(state)
     }
 
     public func clear() {
@@ -91,6 +95,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         mhcCandidateControlsAvailable = false
         mhcCandidateIntegrityWarnings = []
         mhcCandidatePersistenceWarning = nil
+        isGenotypeOnlyResult = false
         updateSelection(nil)
     }
 
@@ -161,18 +166,25 @@ public final class GenotypeResultDisplaySectionViewModel {
 
     func setLayout(_ layout: GenotypeResultPanelLayout) {
         displayState.layout = layout
+        setNormalizedDisplayState(displayState)
         notifyStateChanged()
     }
 
     func setViewportLens(_ lens: GenotypeResultViewportLens) {
         displayState.viewportLens = lens
+        setNormalizedDisplayState(displayState)
         notifyStateChanged()
     }
 
     public func setSummaryViewMode(_ mode: GenotypeSummaryViewMode) {
         displayState.viewportLens = .summary
         displayState.summaryViewMode = mode
+        setNormalizedDisplayState(displayState)
         notifyStateChanged()
+    }
+
+    private func setNormalizedDisplayState(_ state: GenotypeResultDisplayState) {
+        displayState = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
     }
 
     func toggleHaplotypeGenotypeSummaryView() {
@@ -481,8 +493,10 @@ public struct GenotypeResultDisplaySection: View {
                         haplotypeGenotypeToggle
                     }
                     Divider()
-                    viewControls
-                    layoutControls
+                    if viewModel.showsViewportAndLayoutControls {
+                        viewControls
+                        layoutControls
+                    }
                     thresholdGuidance
                     matrixFilterControls
                     colorControls

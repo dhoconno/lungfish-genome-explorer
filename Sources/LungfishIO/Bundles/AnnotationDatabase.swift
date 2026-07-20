@@ -54,6 +54,19 @@ public final class AnnotationDatabase: @unchecked Sendable {
     ]
 
     var db: OpaquePointer?
+    /// Serializes every operation using the shared SQLite connection. The lock
+    /// also keeps transactions and connection-local temporary state atomic.
+    let connectionLock = NSLock()
+    #if DEBUG
+    /// Test-only synchronization seam invoked while `connectionLock` is held.
+    private(set) var scopePreparationTestHook: (@Sendable () -> Void)?
+
+    func setScopePreparationTestHook(_ hook: (@Sendable () -> Void)?) {
+        connectionLock.lock()
+        scopePreparationTestHook = hook
+        connectionLock.unlock()
+    }
+    #endif
     private let url: URL
     public var databaseURL: URL { url }
 
@@ -73,7 +86,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
     /// - Throws: If the database cannot be opened
     public init(url: URL, readWrite: Bool) throws {
         self.url = url
-        let flags = (readWrite ? SQLITE_OPEN_READWRITE : SQLITE_OPEN_READONLY) | SQLITE_OPEN_NOMUTEX
+        let flags = (readWrite ? SQLITE_OPEN_READWRITE : SQLITE_OPEN_READONLY) | SQLITE_OPEN_FULLMUTEX
         let rc = sqlite3_open_v2(url.path, &db, flags, nil)
         guard rc == SQLITE_OK else {
             let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"

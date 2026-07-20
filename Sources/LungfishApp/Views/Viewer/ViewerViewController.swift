@@ -238,6 +238,9 @@ public class ViewerViewController: NSViewController {
     /// The annotation table drawer view.
     var annotationDrawerView: AnnotationTableDrawerView?
 
+    /// Record-table scope retained even while the annotation drawer is lazy.
+    var annotationRecordScope: Set<String>?
+
     /// Bottom constraint for the annotation drawer (animated on toggle).
     var annotationDrawerBottomConstraint: NSLayoutConstraint?
 
