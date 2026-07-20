@@ -839,6 +839,31 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
     }
 
+    func testResultPublicationRejectsSpecialFilesystemEntriesInsteadOfSkippingThem() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-special-payload-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .candidateArtifactsStaged(let outputDirectoryURL) = event else { return }
+                let fifoURL = outputDirectoryURL.appendingPathComponent("unsupported.fifo")
+                guard Darwin.mkfifo(fifoURL.path, S_IRUSR | S_IWUSR) == 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected special staged payload rejection")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("unsupported filesystem entry"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("unsupported.fifo"), error.localizedDescription)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
+    }
+
     func testCancellationImmediatelyAfterCandidateArtifactsLeavesPriorBundleByteForByteUnchanged() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-post-candidate-cancel-\(UUID().uuidString)", isDirectory: true)
@@ -959,6 +984,86 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("regular file"), error.localizedDescription)
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: request.manifestURL.path))
+    }
+
+    func testCheckpointImportRejectsIntermediateSampleDirectorySymlinkWithoutExternalMutation() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-checkpoint-intermediate-symlink-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (baseRequest, pipeline) = try makeFakeFullLengthRun(root: root)
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: baseRequest.inputFASTQURLs,
+            referenceSourceURL: baseRequest.referenceSourceURL,
+            outputDirectory: baseRequest.outputDirectory,
+            outputName: baseRequest.outputName,
+            threads: baseRequest.threads,
+            minimumLength: baseRequest.minimumLength,
+            maximumLength: baseRequest.maximumLength,
+            reuseCompatibleCheckpoints: true
+        )
+        _ = try await pipeline.run(request)
+        let sampleDirectory = request.outputDirectory.appendingPathComponent("samples/DL46", isDirectory: true)
+        let externalDirectory = root.appendingPathComponent("external-sample", isDirectory: true)
+        try FileManager.default.moveItem(at: sampleDirectory, to: externalDirectory)
+        try FileManager.default.createSymbolicLink(at: sampleDirectory, withDestinationURL: externalDirectory)
+        let externalBefore = try directoryFileSnapshot(externalDirectory)
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected intermediate sample symlink rejection")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("checkpoint"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("symlink"), error.localizedDescription)
+        }
+        XCTAssertEqual(try directoryFileSnapshot(externalDirectory), externalBefore)
+        var info = stat()
+        XCTAssertEqual(Darwin.lstat(sampleDirectory.path, &info), 0)
+        XCTAssertEqual(info.st_mode & S_IFMT, S_IFLNK)
+    }
+
+    func testRunRejectsExistingFinalOutputSymlinkWithoutExternalMutation() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-final-symlink-rejection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(root: root)
+        let externalDirectory = root.appendingPathComponent("external-output", isDirectory: true)
+        try FileManager.default.createDirectory(at: externalDirectory, withIntermediateDirectories: true)
+        let sentinel = externalDirectory.appendingPathComponent("sentinel.txt")
+        try Data("untouched".utf8).write(to: sentinel)
+        try FileManager.default.createSymbolicLink(
+            at: request.outputDirectory,
+            withDestinationURL: externalDirectory
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected final output symlink rejection")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("final output"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("directory"), error.localizedDescription)
+        }
+        XCTAssertEqual(try Data(contentsOf: sentinel), Data("untouched".utf8))
+        var info = stat()
+        XCTAssertEqual(Darwin.lstat(request.outputDirectory.path, &info), 0)
+        XCTAssertEqual(info.st_mode & S_IFMT, S_IFLNK)
+    }
+
+    func testRunRejectsExistingFinalOutputFileWithoutMutation() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-final-file-rejection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(root: root)
+        let sentinel = Data("existing-file".utf8)
+        try sentinel.write(to: request.outputDirectory)
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected final output file rejection")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("final output"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("directory"), error.localizedDescription)
+        }
+        XCTAssertEqual(try Data(contentsOf: request.outputDirectory), sentinel)
     }
 
     func testConcurrentSameOutputRunIsRejectedBeforeTouchingPriorResult() async throws {
@@ -1136,6 +1241,11 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertNotNil(resultPublicationStep.startedAt)
         XCTAssertNotNil(resultPublicationStep.completedAt)
         XCTAssertGreaterThanOrEqual(resultPublicationStep.wallTimeSeconds ?? -1, 0)
+        XCTAssertEqual(
+            try XCTUnwrap(envelope.wallTimeSeconds),
+            try XCTUnwrap(resultPublicationStep.completedAt).timeIntervalSince(envelope.createdAt),
+            accuracy: 0.000_001
+        )
         XCTAssertFalse(resultPublicationStep.inputs.isEmpty)
         XCTAssertEqual(resultPublicationStep.inputs.count, resultPublicationStep.outputs.count)
         for (stagedPayload, finalPayload) in zip(
@@ -1211,6 +1321,64 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "Cohort cleanup must still complete when workflow cleanup fails."
         )
         try assertSuccessfulPublishedEvidence(result: result, request: request)
+    }
+
+    func testAtomicPublicationFailureWritesCompleteCommandProvenanceReceipt() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-publication-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .provenanceWrittenBeforeManifestPublication(
+                    _, let finalManifestURL, _
+                ) = event else { return }
+                try FileManager.default.createDirectory(
+                    at: finalManifestURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: false
+                )
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected atomic publication conflict")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("atomically publish"), error.localizedDescription)
+        }
+
+        let receiptURL = root.appendingPathComponent(
+            ".\(request.outputDirectory.lastPathComponent).publication-failure.json"
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: receiptURL)
+        )
+        XCTAssertEqual(envelope.workflowName, "lungfish fastq full-length-ont-mhc-genotype result-bundle-publication")
+        XCTAssertEqual(envelope.workflowVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(envelope.toolName, "lungfish-internal publish-result-bundle")
+        XCTAssertEqual(envelope.toolVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(envelope.argv.first, "lungfish-internal")
+        XCTAssertTrue(envelope.argv.contains("renameatx_np"))
+        XCTAssertTrue(envelope.reproducibleCommand.contains("publish-result-bundle"))
+        XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty)
+        XCTAssertEqual(envelope.options.explicit["publicationStatus"]?.stringValue, "failed")
+        XCTAssertFalse(envelope.files.isEmpty)
+        XCTAssertFalse(envelope.outputs.isEmpty)
+        XCTAssertTrue(envelope.files.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+        XCTAssertTrue(envelope.outputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+        XCTAssertNotEqual(envelope.exitStatus, 0)
+        XCTAssertFalse((envelope.stderr ?? "").isEmpty)
+        XCTAssertEqual(envelope.steps.count, 1)
+        let step = try XCTUnwrap(envelope.steps.first)
+        XCTAssertEqual(step.argv, envelope.argv)
+        XCTAssertEqual(step.exitStatus, envelope.exitStatus)
+        XCTAssertEqual(step.startedAt, envelope.createdAt)
+        XCTAssertEqual(
+            try XCTUnwrap(envelope.wallTimeSeconds),
+            try XCTUnwrap(step.completedAt).timeIntervalSince(envelope.createdAt),
+            accuracy: 0.000_001
+        )
     }
 
     func testPostPublicationCohortCleanupFailureStillRemovesWorkflowIntermediates() async throws {
@@ -1870,6 +2038,92 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(reportRows[0].genotype, "Mamu-A1*004:01:01:01")
         XCTAssertEqual(reportRows[0].passedAlignments, 34)
         XCTAssertEqual(reportRows[0].passedUniqueReads, 34)
+    }
+
+    func testReciprocalKnownTiesCountSourceReadsOnceAndWorkbookPreservesReferenceIdentity() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-reciprocal-known-ties-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sequence = String(repeating: "A", count: 1_200)
+        let savont = """
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ]; then echo "savont 0.5.0"; exit 0; fi
+        shift
+        input="$1"
+        shift
+        output=""
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "-o" ]; then output="$2"; shift 2; else shift; fi
+        done
+        mkdir -p "$output/temp"
+        cat > "$output/final_asvs.fasta" <<'EOF'
+        >final_consensus_0_depth_7
+        \(sequence)
+        EOF
+        printf 'savont log for %s\n' "$input" > "$output/savont.log"
+        printf 'feature table\n' > "$output/feature-table.tsv"
+        printf 'final clusters\n' > "$output/final_clusters.tsv"
+        printf 'read mappings\n' > "$output/temp/read_to_asv_mappings.tsv"
+        """
+        let minimap2 = #"""
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ]; then
+          echo "minimap2 2.28"
+          exit 0
+        fi
+        previous=""
+        current=""
+        reciprocal="false"
+        for arg in "$@"; do
+          previous="$current"
+          current="$arg"
+          if [ "$arg" = "asm20" ]; then reciprocal="true"; fi
+        done
+        query=$(awk '/^>/{sub(/^>/, ""); print $1; exit}' "$current")
+        if [ "$reciprocal" = "true" ]; then
+          printf '@SQ\tSN:ref-a\tLN:1200\n@SQ\tSN:ref-b\tLN:1200\n'
+          if [ -n "$query" ]; then
+            printf '%s\t0\tref-a\t1\t60\t1200=\t*\t0\t0\t*\t*\tNM:i:0\tAS:i:1200\n' "$query"
+            printf '%s\t0\tref-b\t1\t60\t1200=\t*\t0\t0\t*\t*\tNM:i:0\tAS:i:1200\n' "$query"
+          fi
+        else
+          target=$(awk '/^>/{sub(/^>/, ""); print $1; exit}' "$previous")
+          printf '@SQ\tSN:%s\tLN:1200\n' "$target"
+        fi
+        """#
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            savontScript: savont,
+            minimap2Script: minimap2
+        )
+        try Data(">ref-a\n\(sequence)\n>ref-b\n\(sequence)\n".utf8).write(to: request.referenceSourceURL)
+
+        let result = try await pipeline.run(request)
+
+        let stats = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: result.statsJSONURL)) as? [String: Any]
+        )
+        XCTAssertEqual(stats["passedAlignments"] as? Int, 7)
+        XCTAssertEqual(stats["retainedUniqueReads"] as? Int, 7)
+        XCTAssertEqual(stats["assignedUniqueRetainedReads"] as? Int, 7)
+
+        let sampleSummary = try String(contentsOf: result.sampleSummaryCSVURL, encoding: .utf8)
+        XCTAssertTrue(sampleSummary.contains("DL46,7,7,1,7,"), sampleSummary)
+        let report = try String(contentsOf: result.reportCSVURL, encoding: .utf8)
+        XCTAssertTrue(report.contains("DL46,ref-a,7,7,"), report)
+        XCTAssertTrue(report.contains("DL46,ref-b,7,7,"), report)
+
+        let genotypeSheet = try Self.unzippedText(
+            path: "xl/worksheets/sheet3.xml",
+            from: result.primaryWorkbookURL
+        )
+        XCTAssertTrue(genotypeSheet.contains("reference_sequence_id"), genotypeSheet)
+        XCTAssertTrue(genotypeSheet.contains("ref-a"), genotypeSheet)
+        XCTAssertTrue(genotypeSheet.contains("ref-b"), genotypeSheet)
+        XCTAssertTrue(genotypeSheet.contains("cigar"), genotypeSheet)
+        XCTAssertTrue(genotypeSheet.contains("evidence_bam_path"), genotypeSheet)
     }
 
     func testFullLengthPivotWorkbookRowsMatchMiSeqFullSequencingFormatAndSorting() {

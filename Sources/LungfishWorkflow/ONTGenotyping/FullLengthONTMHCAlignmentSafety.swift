@@ -136,6 +136,108 @@ struct FullLengthONTMHCAlignmentSafety: @unchecked Sendable {
         }
     }
 
+    func requireOptionalDirectoryEntryNoFollow(_ url: URL, role: String) throws -> Bool {
+        guard try entryExistsNoFollow(url) else { return false }
+        try requireDirectoryNoFollow(url, role: role)
+        return true
+    }
+
+    func openRegularFileNoFollow(
+        _ url: URL,
+        within trustedRootURL: URL,
+        role: String
+    ) throws -> Int32 {
+        let root = trustedRootURL.standardizedFileURL
+        let candidate = url.standardizedFileURL
+        let rootComponents = root.pathComponents
+        let candidateComponents = candidate.pathComponents
+        guard candidateComponents.count > rootComponents.count,
+              Array(candidateComponents.prefix(rootComponents.count)) == rootComponents else {
+            throw FullLengthONTMHCAlignmentSafetyError(
+                "\(role.capitalized) escapes its trusted root: \(candidate.path)"
+            )
+        }
+        let relativeComponents = candidateComponents.dropFirst(rootComponents.count)
+        guard relativeComponents.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            throw FullLengthONTMHCAlignmentSafetyError("Unsafe component in \(role): \(candidate.path)")
+        }
+
+        var currentDescriptor = Darwin.open(
+            root.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard currentDescriptor >= 0 else {
+            throw descriptorTraversalError(role: role, path: root.path, code: errno)
+        }
+        do {
+            for component in relativeComponents.dropLast() {
+                let nextDescriptor = component.withCString {
+                    Darwin.openat(
+                        currentDescriptor,
+                        $0,
+                        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                    )
+                }
+                guard nextDescriptor >= 0 else {
+                    throw descriptorTraversalError(
+                        role: role,
+                        path: candidate.path,
+                        code: errno
+                    )
+                }
+                Darwin.close(currentDescriptor)
+                currentDescriptor = nextDescriptor
+            }
+            guard let leaf = relativeComponents.last else {
+                throw FullLengthONTMHCAlignmentSafetyError("Missing leaf for \(role): \(candidate.path)")
+            }
+            var preOpenInfo = stat()
+            let preOpenStatus = leaf.withCString {
+                Darwin.fstatat(currentDescriptor, $0, &preOpenInfo, AT_SYMLINK_NOFOLLOW)
+            }
+            guard preOpenStatus == 0,
+                  preOpenInfo.st_mode & S_IFMT == S_IFREG else {
+                throw FullLengthONTMHCAlignmentSafetyError(
+                    "Expected \(role) to be a real regular file reached without symlinks or special files: \(candidate.path)"
+                )
+            }
+            let leafDescriptor = leaf.withCString {
+                Darwin.openat(
+                    currentDescriptor,
+                    $0,
+                    O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+            guard leafDescriptor >= 0 else {
+                throw descriptorTraversalError(role: role, path: candidate.path, code: errno)
+            }
+            var info = stat()
+            guard Darwin.fstat(leafDescriptor, &info) == 0,
+                  info.st_mode & S_IFMT == S_IFREG else {
+                Darwin.close(leafDescriptor)
+                throw FullLengthONTMHCAlignmentSafetyError(
+                    "Expected \(role) to be a real regular file reached without symlinks or special files: \(candidate.path)"
+                )
+            }
+            Darwin.close(currentDescriptor)
+            return leafDescriptor
+        } catch {
+            Darwin.close(currentDescriptor)
+            throw error
+        }
+    }
+
+    private func descriptorTraversalError(
+        role: String,
+        path: String,
+        code: Int32
+    ) -> FullLengthONTMHCAlignmentSafetyError {
+        let detail = POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO).localizedDescription
+        return FullLengthONTMHCAlignmentSafetyError(
+            "Could not traverse \(role) without symlinks or special files: \(path) (\(detail))"
+        )
+    }
+
     func requireContained(_ url: URL, within root: URL, role: String) throws {
         let canonicalRoot = root.resolvingSymlinksInPath().standardizedFileURL
         let canonicalURL = url.resolvingSymlinksInPath().standardizedFileURL

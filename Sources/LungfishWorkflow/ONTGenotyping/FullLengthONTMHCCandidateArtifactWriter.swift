@@ -944,7 +944,9 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
     func artifactReference(_ url: URL, finalRelativePath: String) throws -> ONTMHCArtifactReference {
         return ONTMHCArtifactReference(
             path: finalRelativePath,
-            sha256: try ProvenanceFileHasher.sha256(of: url),
+            sha256: try ProvenanceFileHasher.sha256(of: url) {
+                try Task.checkCancellation()
+            },
             sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: url))
         )
     }

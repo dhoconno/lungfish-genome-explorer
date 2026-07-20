@@ -23,11 +23,19 @@ public enum ProvenanceFileHasher {
     private static let chunkSize = 1_048_576
 
     public static func sha256(of url: URL) throws -> String {
+        try sha256(of: url, cancellationCheck: {})
+    }
+
+    public static func sha256(
+        of url: URL,
+        cancellationCheck: () throws -> Void
+    ) throws -> String {
         let fileHandle = try FileHandle(forReadingFrom: url)
         defer { try? fileHandle.close() }
 
         var hasher = SHA256()
-        while autoreleasepool(invoking: {
+        while try autoreleasepool(invoking: {
+            try cancellationCheck()
             let chunk = fileHandle.readData(ofLength: chunkSize)
             guard !chunk.isEmpty else { return false }
             hasher.update(data: chunk)
