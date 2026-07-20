@@ -31,6 +31,8 @@ struct FullLengthONTMHCCandidateSequenceObservation: Sendable, Equatable {
 struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     let observations: [FullLengthONTMHCCandidateSequenceObservation]
     let referenceAlleleFASTAURL: URL
+    let referenceCatalogInputURLs: [URL]
+    let referenceCDNAThreshold: Int
     let referenceRecords: [MHCReferenceRecord]
     let genotypingEvidence: ONTMHCBAMArtifactPair?
     let threads: Int
@@ -41,6 +43,8 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     init(
         observations: [FullLengthONTMHCCandidateSequenceObservation],
         referenceAlleleFASTAURL: URL,
+        referenceCatalogInputURLs: [URL] = [],
+        referenceCDNAThreshold: Int = 2_000,
         referenceRecords: [MHCReferenceRecord],
         genotypingEvidence: ONTMHCBAMArtifactPair?,
         threads: Int,
@@ -50,6 +54,14 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     ) {
         self.observations = observations
         self.referenceAlleleFASTAURL = referenceAlleleFASTAURL.standardizedFileURL
+        let requestedCatalogInputs = referenceCatalogInputURLs.isEmpty
+            ? [referenceAlleleFASTAURL]
+            : referenceCatalogInputURLs
+        var seenCatalogInputs = Set<String>()
+        self.referenceCatalogInputURLs = requestedCatalogInputs
+            .map(\.standardizedFileURL)
+            .filter { seenCatalogInputs.insert($0.path).inserted }
+        self.referenceCDNAThreshold = max(1, referenceCDNAThreshold)
         self.referenceRecords = referenceRecords
         self.genotypingEvidence = genotypingEvidence
         self.threads = max(1, threads)
@@ -304,6 +316,13 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             role: .referenceFASTA,
             phase: .input
         )
+        let referenceCatalogDescriptors = try request.referenceCatalogInputURLs.map { url in
+            try FullLengthONTMHCArtifactDescriptor(
+                url: url,
+                role: url == request.referenceAlleleFASTAURL ? .referenceFASTA : .commandInput,
+                phase: .input
+            )
+        }
         let referenceImportStartedAt = Date()
         let referenceImportCompletedAt = Date()
         transformations.append(.init(
@@ -312,13 +331,15 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             argv: [
                 "lungfish-in-process", "import-mhc-reference-catalog",
                 "--record-count", String(request.referenceRecords.count),
+                "--cdna-threshold", String(request.referenceCDNAThreshold),
                 request.referenceAlleleFASTAURL.path,
             ],
             resolvedOptions: [
                 "recordCount": String(request.referenceRecords.count),
+                "cdnaThreshold": String(request.referenceCDNAThreshold),
                 "moleculeClassSource": "reference-metadata-with-length-fallback",
             ],
-            inputs: [referenceDescriptor],
+            inputs: referenceCatalogDescriptors,
             outputs: [],
             exitStatus: 0,
             startedAt: referenceImportStartedAt,

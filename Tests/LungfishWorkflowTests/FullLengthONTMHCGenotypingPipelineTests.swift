@@ -5,6 +5,38 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
+    func testLungfishReferenceBundleUsesMHCMetadataCatalog() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-reference-catalog-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("reference.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let fasta = bundle.appendingPathComponent("genome.fasta")
+        try ">record-1 Mafa-A1*018:01:01:01\nACGT\n".write(to: fasta, atomically: true, encoding: .utf8)
+        try #"{"genome":{"path":"genome.fasta"}}"#.write(
+            to: bundle.appendingPathComponent("manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let records = try FullLengthONTMHCGenotypingPipeline().mhcReferenceRecords(
+            sourceURL: bundle,
+            fastaURL: fasta,
+            cdnaThreshold: 2_000
+        )
+
+        XCTAssertEqual(records.map(\.alleleName), ["Mafa-A1*018:01:01:01"])
+        XCTAssertEqual(records.map(\.locus), ["Mafa-A1"])
+        XCTAssertEqual(records.map(\.classEvidence), [.lengthThresholdFallback])
+        XCTAssertEqual(
+            try FullLengthONTMHCGenotypingPipeline().mhcReferenceCatalogInputURLs(
+                sourceURL: bundle,
+                fastaURL: fasta
+            ),
+            [fasta, bundle.appendingPathComponent("manifest.json")]
+        )
+    }
+
     func testGenotypingResultDecodesLegacyPayloadWithoutCohortEvidencePaths() throws {
         let data = Data(
             #"""
@@ -1233,6 +1265,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateMinimumIdentity"]?.numberValue, 0.75)
         XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateMinimumShorterCoverage"]?.numberValue, 0.70)
         XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateMinimumIntronGapBases"]?.integerValue, 20)
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSharedNovelTint"]?.stringValue, "FFFFE0B2")
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSingletonNovelTint"]?.stringValue, "FFFFCC80")
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSharedExtensionTint"]?.stringValue, "FFB2DFDB")
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSingletonExtensionTint"]?.stringValue, "FFBBDEFB")
         XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateNovelDistanceMetric"]?.stringValue, "SNP-substitutions-only")
         XCTAssertEqual(
             envelope.options.resolvedDefaults["mhcResultBundleAtomicPublication"]?.stringValue,
@@ -1249,7 +1285,61 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "lungfish-in-process:render-mhc-unnameable-json",
             "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
             "lungfish-in-process:materialize-mhc-candidate-staging-generation",
+            "lungfish-internal mhc-candidate-workbook-project",
         ]))
+        let auditedCandidateSteps = envelope.steps.filter { step in
+            step.toolName.hasPrefix("lungfish-in-process:")
+                || step.toolName == "lungfish-internal mhc-candidate-workbook-project"
+                || step.toolName == "lungfish-internal publish-result-bundle"
+                || step.toolName == "lungfish-internal publish-success-manifest"
+                || (step.toolName == "minimap2" && step.argv.contains("asm20"))
+                || (step.toolName == "samtools"
+                    && (step.reproducibleCommand.contains("unmatched-to-reference.bam")
+                        || step.reproducibleCommand.contains("reciprocal")))
+        }
+        for step in auditedCandidateSteps {
+            XCTAssertFalse(step.toolName.isEmpty)
+            XCTAssertFalse(step.toolVersion.isEmpty, step.toolName)
+            XCTAssertNotEqual(step.toolVersion, "unknown", step.toolName)
+            XCTAssertFalse(step.argv.isEmpty, step.toolName)
+            XCTAssertFalse(step.reproducibleCommand.isEmpty, step.toolName)
+            XCTAssertNotNil(step.exitStatus, step.toolName)
+            XCTAssertGreaterThanOrEqual(step.wallTimeSeconds ?? -1, 0, step.toolName)
+            XCTAssertNotNil(step.startedAt, step.toolName)
+            XCTAssertNotNil(step.completedAt, step.toolName)
+            for descriptor in step.inputs + step.outputs {
+                XCTAssertNotNil(descriptor.checksumSHA256, "\(step.toolName): \(descriptor.path)")
+                XCTAssertNotNil(descriptor.fileSize, "\(step.toolName): \(descriptor.path)")
+            }
+        }
+        XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty)
+        XCTAssertFalse(envelope.runtimeIdentity.operatingSystemVersion.isEmpty)
+        XCTAssertFalse(envelope.runtimeIdentity.architecture.isEmpty)
+        XCTAssertTrue(envelope.outputs.allSatisfy {
+            !$0.path.contains(".run-staging-") && !$0.path.contains(".candidate-artifact-work")
+        }, envelope.outputs.map(\.path).joined(separator: "\n"))
+        let workbookProjectionStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-internal mhc-candidate-workbook-project"
+        })
+        XCTAssertEqual(Array(workbookProjectionStep.argv.prefix(2)), [
+            "lungfish-internal", "mhc-candidate-workbook-project",
+        ])
+        XCTAssertEqual(workbookProjectionStep.toolVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(workbookProjectionStep.exitStatus, 0)
+        XCTAssertNotNil(workbookProjectionStep.startedAt)
+        XCTAssertNotNil(workbookProjectionStep.completedAt)
+        XCTAssertGreaterThanOrEqual(workbookProjectionStep.wallTimeSeconds ?? -1, 0)
+        XCTAssertEqual(Set(workbookProjectionStep.inputs.map(\.path)), Set([
+            try XCTUnwrap(result.candidateAllelesJSONURL).path,
+            try XCTUnwrap(result.unnameableClustersJSONURL).path,
+        ]))
+        XCTAssertEqual(workbookProjectionStep.outputs.map(\.path), [result.primaryWorkbookURL.path])
+        for descriptor in workbookProjectionStep.inputs + workbookProjectionStep.outputs {
+            XCTAssertNotNil(descriptor.checksumSHA256)
+            XCTAssertNotNil(descriptor.fileSize)
+            XCTAssertFalse(descriptor.path.contains(".run-staging-"), descriptor.path)
+            XCTAssertFalse(descriptor.path.contains(".candidate-artifact-work"), descriptor.path)
+        }
         let candidatePublicationStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName == "lungfish-in-process:materialize-mhc-candidate-staging-generation"
         })
@@ -1267,7 +1357,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(resultPublicationStep.wallTimeSeconds ?? -1, 0)
         XCTAssertEqual(
             try XCTUnwrap(envelope.wallTimeSeconds),
-            try XCTUnwrap(resultPublicationStep.completedAt).timeIntervalSince(envelope.createdAt),
+            try XCTUnwrap(envelope.steps.compactMap(\.completedAt).max()).timeIntervalSince(envelope.createdAt),
             accuracy: 0.000_001
         )
         XCTAssertFalse(resultPublicationStep.inputs.isEmpty)
@@ -1283,9 +1373,19 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             XCTAssertTrue(FileManager.default.fileExists(atPath: finalPayload.path))
             XCTAssertEqual(finalPayload.checksumSHA256, try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: finalPayload.path)))
         }
+        XCTAssertFalse(envelope.steps.contains {
+            $0.toolName.contains("plan-success-manifest-publication")
+        }, "A planned manifest move must not be recorded as a successful executed step.")
         let mappingStep = try XCTUnwrap(envelope.steps.first {
-            $0.toolName == "lungfish-internal plan-success-manifest-publication"
+            $0.toolName == "lungfish-internal publish-success-manifest"
         })
+        XCTAssertEqual(mappingStep.exitStatus, 0)
+        XCTAssertEqual(Array(mappingStep.argv.prefix(4)), [
+            "lungfish-internal", "publish-success-manifest", "--atomic-mechanism", "renameatx_np",
+        ])
+        XCTAssertNotNil(mappingStep.startedAt)
+        XCTAssertNotNil(mappingStep.completedAt)
+        XCTAssertGreaterThanOrEqual(mappingStep.wallTimeSeconds ?? -1, 0)
         let staged = try XCTUnwrap(mappingStep.inputs.first)
         let published = try XCTUnwrap(mappingStep.outputs.first)
         XCTAssertTrue(staged.path.contains(".genotype-result.json.staging-"))

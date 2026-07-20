@@ -50,6 +50,15 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let transformations = Dictionary(uniqueKeysWithValues: result.transformationRecords.map {
             ($0.workflowName, $0)
         })
+        let referenceImport = try XCTUnwrap(
+            transformations["lungfish-in-process:import-mhc-reference-catalog"]
+        )
+        XCTAssertEqual(Set(referenceImport.inputs.map(\.path)), Set([
+            fixture.referenceFASTAURL.path,
+            fixture.referenceMetadataURL.path,
+        ]))
+        XCTAssertEqual(referenceImport.resolvedOptions["cdnaThreshold"], "2000")
+        XCTAssertTrue(referenceImport.argv.contains("--cdna-threshold"))
         XCTAssertEqual(Set(transformations.keys), [
             "lungfish-in-process:import-mhc-reference-catalog",
             "lungfish-in-process:construct-stable-unmatched-cluster-fasta",
@@ -371,6 +380,7 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
         let workURL: URL
         let toolsURL: URL
         let referenceFASTAURL: URL
+        let referenceMetadataURL: URL
         var additionalSAM = ""
 
         let novelSequence = String(repeating: "A", count: 1_200)
@@ -404,10 +414,12 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             workURL = rootURL.appendingPathComponent("work", isDirectory: true)
             toolsURL = rootURL.appendingPathComponent("tools", isDirectory: true)
             referenceFASTAURL = rootURL.appendingPathComponent("reference.fa")
+            referenceMetadataURL = rootURL.appendingPathComponent("reference-manifest.json")
             try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: workURL, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: toolsURL, withIntermediateDirectories: true)
             try Data(">ref-genomic\n\(String(repeating: "A", count: 1_200))\n>ref-cdna\n\(String(repeating: "C", count: 1_000))\n".utf8).write(to: referenceFASTAURL)
+            try Data("{\"reference_metadata\":true}\n".utf8).write(to: referenceMetadataURL)
             try writeExecutable(Self.minimapScript, to: toolsURL.appendingPathComponent("minimap2"))
             try writeExecutable(Self.samtoolsScript, to: toolsURL.appendingPathComponent("samtools"))
         }
@@ -431,6 +443,7 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             return try await writer.stage(.init(
                 observations: observations,
                 referenceAlleleFASTAURL: referenceFASTAURL,
+                referenceCatalogInputURLs: [referenceFASTAURL, referenceMetadataURL],
                 referenceRecords: [
                     .init(sequenceID: "ref-genomic", alleleName: "Mafa-A1*018:01:01:01", locus: "Mafa-A1", moleculeClass: .genomicDNA, classEvidence: .annotatedMetadata, sequenceLength: 1_200),
                     .init(sequenceID: "ref-cdna", alleleName: "Mafa-B*001:01", locus: "Mafa-B", moleculeClass: .cDNA, classEvidence: .annotatedMetadata, sequenceLength: 1_000),

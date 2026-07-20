@@ -164,17 +164,29 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             primaryWorkbookPath: result.primaryWorkbookURL.path,
             haplotypeAnalysisPath: result.haplotypeAnalysisURL?.path,
             unmatchedClustersFASTAPath: result.unmatchedClustersFASTAURL.path,
+            deduplicatedUnmatchedClustersFASTAPath: result.deduplicatedUnmatchedClustersFASTAURL.path,
             cdnaClustersFASTAPath: result.cdnaClustersFASTAURL.path,
             provenancePath: result.provenanceURL.path,
+            manifestPath: ONTGenotypeResultBundle.manifestURL(in: result.outputDirectory).path,
             referenceFASTAPath: result.referenceFASTAURL.path,
             genotypingEvidenceBAMPath: result.genotypingEvidenceBAMURL?.path,
             genotypingEvidenceBAIPath: result.genotypingEvidenceBAIURL?.path,
+            reciprocalEvidenceBAMPath: result.reciprocalEvidenceBAMURL?.path,
+            reciprocalEvidenceBAIPath: result.reciprocalEvidenceBAIURL?.path,
+            candidateAllelesJSONPath: result.candidateAllelesJSONURL?.path,
+            candidateAllelesFASTAPath: result.candidateAllelesFASTAURL?.path,
+            unnameableClustersJSONPath: result.unnameableClustersJSONURL?.path,
+            unnameableClustersFASTAPath: result.unnameableClustersFASTAURL?.path,
             cleanupWarnings: result.cleanupWarnings
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        FileHandle.standardOutput.write(try encoder.encode(payload))
-        FileHandle.standardOutput.write(Data("\n".utf8))
+        if globalOptions.outputFormat == .json {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            FileHandle.standardOutput.write(try encoder.encode(payload))
+            FileHandle.standardOutput.write(Data("\n".utf8))
+        } else if !globalOptions.quiet {
+            FileHandle.standardOutput.write(Data(payload.textOutput.utf8))
+        }
     }
 }
 
@@ -187,10 +199,51 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let primaryWorkbookPath: String
     let haplotypeAnalysisPath: String?
     let unmatchedClustersFASTAPath: String
+    let deduplicatedUnmatchedClustersFASTAPath: String
     let cdnaClustersFASTAPath: String
     let provenancePath: String
+    let manifestPath: String
     let referenceFASTAPath: String
     let genotypingEvidenceBAMPath: String?
     let genotypingEvidenceBAIPath: String?
+    let reciprocalEvidenceBAMPath: String?
+    let reciprocalEvidenceBAIPath: String?
+    let candidateAllelesJSONPath: String?
+    let candidateAllelesFASTAPath: String?
+    let unnameableClustersJSONPath: String?
+    let unnameableClustersFASTAPath: String?
     let cleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning]
+
+    var textOutput: String {
+        let values: [(String, String?)] = [
+            ("Bundle", outputDirectory),
+            ("Genotype report", reportCSVPath),
+            ("Sample summary", sampleSummaryCSVPath),
+            ("Statistics", statsJSONPath),
+            ("Current workbook", workbookPath),
+            ("Initial workbook", primaryWorkbookPath),
+            ("Haplotype analysis", haplotypeAnalysisPath),
+            ("Unmatched clusters", unmatchedClustersFASTAPath),
+            ("Canonical deduplicated unmatched clusters", deduplicatedUnmatchedClustersFASTAPath),
+            ("cDNA clusters", cdnaClustersFASTAPath),
+            ("Provenance", provenancePath),
+            ("Manifest", manifestPath),
+            ("Reference FASTA", referenceFASTAPath),
+            ("Genotyping evidence BAM", genotypingEvidenceBAMPath),
+            ("Genotyping evidence BAI", genotypingEvidenceBAIPath),
+            ("Reciprocal evidence BAM", reciprocalEvidenceBAMPath),
+            ("Reciprocal evidence BAI", reciprocalEvidenceBAIPath),
+            ("Candidate alleles JSON", candidateAllelesJSONPath),
+            ("Candidate alleles FASTA", candidateAllelesFASTAPath),
+            ("Un-nameable clusters JSON", unnameableClustersJSONPath),
+            ("Un-nameable clusters FASTA", unnameableClustersFASTAPath),
+        ]
+        var lines = values.compactMap { label, path in
+            path.map { "\(label): \($0)" }
+        }
+        lines.append(contentsOf: cleanupWarnings.map {
+            "Cleanup warning (\($0.kind.rawValue)): \($0.path): \($0.error)"
+        })
+        return lines.joined(separator: "\n") + "\n"
+    }
 }

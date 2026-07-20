@@ -13,11 +13,19 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
             primaryWorkbookPath: "/tmp/primary.xlsx",
             haplotypeAnalysisPath: nil,
             unmatchedClustersFASTAPath: "/tmp/unmatched.fasta",
+            deduplicatedUnmatchedClustersFASTAPath: "/tmp/result.lungfishgenotype/deduplicated_unmatched_clusters.fasta",
             cdnaClustersFASTAPath: "/tmp/cdna.fasta",
             provenancePath: "/tmp/provenance.json",
+            manifestPath: "/tmp/result.lungfishgenotype/genotype-result.json",
             referenceFASTAPath: "/tmp/reference.fasta",
             genotypingEvidenceBAMPath: "/tmp/result.lungfishgenotype/artifacts/alignments/genotyping-evidence.bam",
             genotypingEvidenceBAIPath: "/tmp/result.lungfishgenotype/artifacts/alignments/genotyping-evidence.bam.bai",
+            reciprocalEvidenceBAMPath: "/tmp/result.lungfishgenotype/artifacts/alignments/unmatched-to-reference.bam",
+            reciprocalEvidenceBAIPath: "/tmp/result.lungfishgenotype/artifacts/alignments/unmatched-to-reference.bam.bai",
+            candidateAllelesJSONPath: "/tmp/result.lungfishgenotype/candidate-alleles.json",
+            candidateAllelesFASTAPath: "/tmp/result.lungfishgenotype/candidate_alleles.fasta",
+            unnameableClustersJSONPath: "/tmp/result.lungfishgenotype/unnameable-unmatched-clusters.json",
+            unnameableClustersFASTAPath: "/tmp/result.lungfishgenotype/unnameable_unmatched_clusters.fasta",
             cleanupWarnings: [
                 FullLengthONTMHCGenotypingCleanupWarning(
                     kind: .workflowIntermediates,
@@ -40,6 +48,20 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
             object["genotypingEvidenceBAIPath"] as? String,
             "/tmp/result.lungfishgenotype/artifacts/alignments/genotyping-evidence.bam.bai"
         )
+        let expectedPublishedPaths: [String: String] = [
+            "deduplicatedUnmatchedClustersFASTAPath": "/tmp/result.lungfishgenotype/deduplicated_unmatched_clusters.fasta",
+            "manifestPath": "/tmp/result.lungfishgenotype/genotype-result.json",
+            "reciprocalEvidenceBAMPath": "/tmp/result.lungfishgenotype/artifacts/alignments/unmatched-to-reference.bam",
+            "reciprocalEvidenceBAIPath": "/tmp/result.lungfishgenotype/artifacts/alignments/unmatched-to-reference.bam.bai",
+            "candidateAllelesJSONPath": "/tmp/result.lungfishgenotype/candidate-alleles.json",
+            "candidateAllelesFASTAPath": "/tmp/result.lungfishgenotype/candidate_alleles.fasta",
+            "unnameableClustersJSONPath": "/tmp/result.lungfishgenotype/unnameable-unmatched-clusters.json",
+            "unnameableClustersFASTAPath": "/tmp/result.lungfishgenotype/unnameable_unmatched_clusters.fasta",
+        ]
+        for (key, path) in expectedPublishedPaths {
+            XCTAssertEqual(object[key] as? String, path, "Missing final published CLI path for \(key)")
+            XCTAssertTrue(payload.textOutput.contains(path), "Missing final published text path for \(key)")
+        }
         let warnings = try XCTUnwrap(object["cleanupWarnings"] as? [[String: Any]])
         XCTAssertEqual(warnings.count, 1)
         XCTAssertEqual(warnings[0]["kind"] as? String, "workflowIntermediates")

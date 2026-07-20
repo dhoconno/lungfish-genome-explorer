@@ -533,6 +533,29 @@ private struct FullLengthONTMHCSavontPreset: Sendable, Equatable {
     )
 }
 
+private enum FullLengthONTMHCWorkbookTintDefaults {
+    static let sharedNovel = "FFFFE0B2"
+    static let singletonNovel = "FFFFCC80"
+    static let sharedExtension = "FFB2DFDB"
+    static let singletonExtension = "FFBBDEFB"
+}
+
+private struct FullLengthONTMHCReferenceInputManifest: Decodable {
+    let recordStore: RecordStore?
+
+    enum CodingKeys: String, CodingKey {
+        case recordStore = "record_store"
+    }
+
+    struct RecordStore: Decodable {
+        let databasePath: String
+
+        enum CodingKeys: String, CodingKey {
+            case databasePath = "database_path"
+        }
+    }
+}
+
 private enum FullLengthONTMHCSavontSampleStatus: String, Sendable, Codable, Equatable {
     case called
     case noCall = "no-call"
@@ -558,30 +581,6 @@ private struct FullLengthONTMHCSuccessManifestPublicationPlan: Sendable {
     let finalURL: URL
     let stagedDescriptor: ProvenanceFileDescriptor
     let finalDescriptor: ProvenanceFileDescriptor
-    let startedAt: Date
-    let completedAt: Date
-
-    var provenanceStep: ProvenanceStep {
-        let argv = [
-            "lungfish-internal", "plan-success-manifest-publication",
-            "--mode", "create",
-            stagedURL.path,
-            finalURL.path,
-        ]
-        return ProvenanceStep(
-            toolName: "lungfish-internal plan-success-manifest-publication",
-            toolVersion: WorkflowRun.currentAppVersion,
-            argv: argv,
-            durableReplayArgv: argv,
-            reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
-            inputs: [stagedDescriptor],
-            outputs: [finalDescriptor],
-            exitStatus: 0,
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
-            startedAt: startedAt,
-            completedAt: completedAt
-        )
-    }
 }
 
 private struct FullLengthONTMHCResultBundlePublicationRecord: Sendable {
@@ -731,7 +730,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                         "full-length-ont-mhc-genotyping-provenance.json"
                     )
                 )
-                try publishRelocatedSuccessManifest(in: finalOutputURL)
+                let manifestPublicationStep = try publishRelocatedSuccessManifest(in: finalOutputURL)
+                try appendExecutedPublicationReceipt(
+                    manifestPublicationStep,
+                    provenanceURL: finalOutputURL.appendingPathComponent(
+                        "full-length-ont-mhc-genotyping-provenance.json"
+                    )
+                )
             } catch {
                 do {
                     try rollbackPublishedResultBundle(
@@ -1029,6 +1034,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 )
             },
             referenceAlleleFASTAURL: referenceFASTAURL,
+            referenceCatalogInputURLs: try mhcReferenceCatalogInputURLs(
+                sourceURL: request.referenceSourceURL,
+                fastaURL: referenceFASTAURL
+            ),
+            referenceCDNAThreshold: request.cdnaThreshold,
             referenceRecords: candidateReferenceRecords,
             genotypingEvidence: evidenceArtifactPair,
             threads: request.threads,
@@ -1114,6 +1124,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let orderedAlleles = try FullLengthONTMHCClusterGenotyper
             .readFASTARecords(from: referenceFASTAURL)
             .map(\.name)
+        let workbookProjectionStartedAt = Date()
         let workbookProjection = try FullLengthONTMHCWorkbookProjection(
             candidateDocument: JSONDecoder().decode(
                 ONTMHCCandidateAllelesDocument.self,
@@ -1136,6 +1147,30 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             projection: workbookProjection,
             to: request.workbookURL
         )
+        let workbookProjectionCompletedAt = Date()
+        pipelineSteps.append(FullLengthONTMHCProvenanceStep(
+            toolName: "lungfish-internal mhc-candidate-workbook-project",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-internal", "mhc-candidate-workbook-project",
+                "--candidate-json", candidateArtifactResult.candidateJSONURL.path,
+                "--unnameable-json", candidateArtifactResult.unnameableJSONURL.path,
+                "--workbook", request.workbookURL.path,
+                "--shared-novel-tint", FullLengthONTMHCWorkbookTintDefaults.sharedNovel,
+                "--singleton-novel-tint", FullLengthONTMHCWorkbookTintDefaults.singletonNovel,
+                "--shared-extension-tint", FullLengthONTMHCWorkbookTintDefaults.sharedExtension,
+                "--singleton-extension-tint", FullLengthONTMHCWorkbookTintDefaults.singletonExtension,
+            ],
+            inputs: [
+                candidateArtifactResult.candidateJSONURL,
+                candidateArtifactResult.unnameableJSONURL,
+            ],
+            outputs: [request.workbookURL],
+            exitStatus: 0,
+            stderr: nil,
+            startedAt: workbookProjectionStartedAt,
+            completedAt: workbookProjectionCompletedAt
+        ))
         let workbookCopy = try createInitialCurrentWorkbookCopy(for: request)
         pipelineSteps.append(workbookCopy.step)
         try rewriteCheckpointPaths(
@@ -1647,15 +1682,21 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         _ record: FullLengthONTMHCResultBundlePublicationRecord,
         provenanceURL: URL
     ) throws {
+        try appendExecutedPublicationReceipt(record.provenanceStep, provenanceURL: provenanceURL)
+    }
+
+    private func appendExecutedPublicationReceipt(
+        _ publicationStep: ProvenanceStep,
+        provenanceURL: URL
+    ) throws {
         guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL) else {
             throw FullLengthONTMHCGenotypingError.reportFailed(
                 "Published result bundle is missing its staged provenance receipt."
             )
         }
-        let publicationStep = record.provenanceStep
         guard let receiptCompletedAt = publicationStep.completedAt else {
             throw FullLengthONTMHCGenotypingError.reportFailed(
-                "Result bundle publication receipt is missing its completion time."
+                "Executed publication receipt is missing its completion time."
             )
         }
         let updated = ProvenanceEnvelope(
@@ -1686,7 +1727,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         try ProvenanceWriter(signingProvider: nil).write(updated, toSidecar: provenanceURL)
     }
 
-    private func publishRelocatedSuccessManifest(in finalOutputURL: URL) throws {
+    private func publishRelocatedSuccessManifest(in finalOutputURL: URL) throws -> ProvenanceStep {
         let entries = try FileManager.default.contentsOfDirectory(
             at: finalOutputURL,
             includingPropertiesForKeys: nil
@@ -1703,7 +1744,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             try Task.checkCancellation()
         }
         let size = try ProvenanceFileHasher.fileSize(of: stagedURL)
-        try publishSuccessManifest(.init(
+        return try publishSuccessManifest(.init(
             stagedURL: stagedURL,
             finalURL: finalURL,
             stagedDescriptor: .init(
@@ -1718,9 +1759,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 fileSize: size,
                 role: .output,
                 originPath: stagedURL.path
-            ),
-            startedAt: Date(),
-            completedAt: Date()
+            )
         ))
     }
 
@@ -1856,12 +1895,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         return fastaURL.standardizedFileURL
     }
 
-    private func mhcReferenceRecords(
+    func mhcReferenceRecords(
         sourceURL: URL,
         fastaURL: URL,
         cdnaThreshold: Int
     ) throws -> [MHCReferenceRecord] {
-        if MHCAmpliconReferenceBundle.isBundleURL(sourceURL) {
+        if sourceURL.pathExtension.lowercased() == "lungfishref" {
             return try MHCReferenceRecordCatalog.load(
                 from: sourceURL,
                 cdnaThreshold: cdnaThreshold
@@ -1882,6 +1921,33 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 sequenceLength: record.sequence.count
             )
         }
+    }
+
+    func mhcReferenceCatalogInputURLs(
+        sourceURL: URL,
+        fastaURL: URL
+    ) throws -> [URL] {
+        let source = sourceURL.standardizedFileURL
+        let fasta = fastaURL.standardizedFileURL
+        if source.pathExtension.lowercased() == "lungfishref" {
+            let manifestURL = source.appendingPathComponent("manifest.json").standardizedFileURL
+            let data = try Data(contentsOf: manifestURL)
+            let manifest = try JSONDecoder().decode(FullLengthONTMHCReferenceInputManifest.self, from: data)
+            var inputs = [fasta, manifestURL]
+            if let databasePath = manifest.recordStore?.databasePath,
+               !databasePath.isEmpty {
+                inputs.append(try BundleManifest.validatedBundleMemberURL(
+                    for: databasePath,
+                    in: source,
+                    field: "record_store.database_path"
+                ).standardizedFileURL)
+            }
+            return inputs
+        }
+        if MHCAmpliconReferenceBundle.isBundleURL(source) {
+            return [fasta, MHCAmpliconReferenceBundle.manifestURL(in: source).standardizedFileURL]
+        }
+        return [fasta]
     }
 
     private func materializeFASTQ(
@@ -3546,7 +3612,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         candidateArtifacts: ONTMHCCandidateArtifactManifest,
         createdAt: Date
     ) throws -> FullLengthONTMHCSuccessManifestPublicationPlan {
-        let startedAt = Date()
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
         let manifest = ONTGenotypeResultBundleManifest(
             kind: "full-length-ont-mhc-genotype",
@@ -3601,15 +3666,14 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             stagedURL: stagedURL,
             finalURL: finalURL,
             stagedDescriptor: stagedDescriptor,
-            finalDescriptor: finalDescriptor,
-            startedAt: startedAt,
-            completedAt: Date()
+            finalDescriptor: finalDescriptor
         )
     }
 
     private func publishSuccessManifest(
         _ plan: FullLengthONTMHCSuccessManifestPublicationPlan
-    ) throws {
+    ) throws -> ProvenanceStep {
+        let startedAt = Date()
         guard !FileManager.default.fileExists(atPath: plan.finalURL.path) else {
             throw FullLengthONTMHCGenotypingError.reportFailed(
                 "Success manifest destination unexpectedly exists before last-step publication: \(plan.finalURL.path)"
@@ -3634,6 +3698,29 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "Could not atomically publish success manifest last: \(POSIXError(code).localizedDescription)"
             )
         }
+        let completedAt = Date()
+        let receiptFormatter = ISO8601DateFormatter()
+        let receiptStartedAt = receiptFormatter.date(from: receiptFormatter.string(from: startedAt)) ?? startedAt
+        let receiptCompletedAt = receiptFormatter.date(from: receiptFormatter.string(from: completedAt)) ?? completedAt
+        let argv = [
+            "lungfish-internal", "publish-success-manifest",
+            "--atomic-mechanism", "renameatx_np",
+            plan.stagedURL.path,
+            plan.finalURL.path,
+        ]
+        return ProvenanceStep(
+            toolName: "lungfish-internal publish-success-manifest",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: argv,
+            durableReplayArgv: argv,
+            reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+            inputs: [plan.stagedDescriptor],
+            outputs: [plan.finalDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: receiptCompletedAt.timeIntervalSince(receiptStartedAt),
+            startedAt: receiptStartedAt,
+            completedAt: receiptCompletedAt
+        )
     }
 
     private func validatedEvidenceArtifactPair(
@@ -3741,6 +3828,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "mhcResultBundleAtomicPublication": .string("adjacent-directory-renameatx_np"),
             "minimap2CondaEnvironment": .string("minimap2"),
             "samtoolsCondaEnvironment": .string("samtools"),
+            "mhcWorkbookSharedNovelTint": .string(FullLengthONTMHCWorkbookTintDefaults.sharedNovel),
+            "mhcWorkbookSingletonNovelTint": .string(FullLengthONTMHCWorkbookTintDefaults.singletonNovel),
+            "mhcWorkbookSharedExtensionTint": .string(FullLengthONTMHCWorkbookTintDefaults.sharedExtension),
+            "mhcWorkbookSingletonExtensionTint": .string(FullLengthONTMHCWorkbookTintDefaults.singletonExtension),
         ]
         let resolved: [String: ParameterValue] = [
             "threads": .integer(request.threads),
@@ -3791,6 +3882,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "mhcResultBundleAtomicPublication": .string("adjacent-directory-renameatx_np"),
             "minimap2CondaEnvironment": .string("minimap2"),
             "samtoolsCondaEnvironment": .string("samtools"),
+            "mhcWorkbookSharedNovelTint": .string(FullLengthONTMHCWorkbookTintDefaults.sharedNovel),
+            "mhcWorkbookSingletonNovelTint": .string(FullLengthONTMHCWorkbookTintDefaults.singletonNovel),
+            "mhcWorkbookSharedExtensionTint": .string(FullLengthONTMHCWorkbookTintDefaults.sharedExtension),
+            "mhcWorkbookSingletonExtensionTint": .string(FullLengthONTMHCWorkbookTintDefaults.singletonExtension),
         ]
         var explicit = resolved
         explicit["requestedSampleJobs"] = request.sampleJobs.map(ParameterValue.integer) ?? .string("auto")
@@ -3914,7 +4009,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         allProvenanceSteps += candidateArtifactResult.transformationRecords.map {
             provenanceStep(for: $0)
         }
-        allProvenanceSteps.append(manifestPublicationPlan.provenanceStep)
         allProvenanceSteps.sort {
             ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast)
         }
@@ -3922,10 +4016,40 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             builder = builder.step(step)
         }
 
-        let envelope = try builder.complete(
+        let builtEnvelope = try builder.complete(
             exitStatus: 0,
             startedAt: startedAt,
             endedAt: completedAt
+        )
+        let durableOutputs = builtEnvelope.outputs.filter { descriptor in
+            !descriptor.path.contains(".cohort-alignment-work")
+                && !descriptor.path.contains(".candidate-artifact-work")
+                && !descriptor.path.contains("/.alignments-replacement-")
+        }
+        let envelope = ProvenanceEnvelope(
+            schemaVersion: builtEnvelope.schemaVersion,
+            id: builtEnvelope.id,
+            createdAt: builtEnvelope.createdAt,
+            workflowName: builtEnvelope.workflowName,
+            workflowVersion: builtEnvelope.workflowVersion,
+            toolName: builtEnvelope.toolName,
+            toolVersion: builtEnvelope.toolVersion,
+            githubReleaseVersion: builtEnvelope.githubReleaseVersion,
+            tool: builtEnvelope.tool,
+            argv: builtEnvelope.argv,
+            durableReplayArgv: builtEnvelope.durableReplayArgv,
+            reproducibleCommand: builtEnvelope.reproducibleCommand,
+            options: builtEnvelope.options,
+            runtimeIdentity: builtEnvelope.runtimeIdentity,
+            files: builtEnvelope.files,
+            output: durableOutputs.first,
+            outputs: durableOutputs,
+            steps: builtEnvelope.steps,
+            wallTimeSeconds: builtEnvelope.wallTimeSeconds,
+            exitStatus: builtEnvelope.exitStatus,
+            stderr: builtEnvelope.stderr,
+            signatures: builtEnvelope.signatures,
+            legacyWorkflowRun: builtEnvelope.legacyRun
         )
         try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: request.provenanceURL)
     }
@@ -5761,10 +5885,10 @@ private let fullLengthONTMHCWorkbookStylesXML = """
   <fills count="6">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFFFE0B2"/><bgColor indexed="64"/></patternFill></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFFFCC80"/><bgColor indexed="64"/></patternFill></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFB2DFDB"/><bgColor indexed="64"/></patternFill></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFBBDEFB"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="\(FullLengthONTMHCWorkbookTintDefaults.sharedNovel)"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="\(FullLengthONTMHCWorkbookTintDefaults.singletonNovel)"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="\(FullLengthONTMHCWorkbookTintDefaults.sharedExtension)"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="\(FullLengthONTMHCWorkbookTintDefaults.singletonExtension)"/><bgColor indexed="64"/></patternFill></fill>
   </fills>
   <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
