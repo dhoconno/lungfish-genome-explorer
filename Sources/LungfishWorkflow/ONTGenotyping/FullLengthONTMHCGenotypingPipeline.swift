@@ -5726,7 +5726,7 @@ private func contentTypesXML(sheetCount: Int) -> String {
 
 private func workbookXML(sheetNames: [String]) -> String {
     let sheets = sheetNames.enumerated().map { index, name in
-        "<sheet name=\"\(xmlEscape(name))\" sheetId=\"\(index + 1)\" r:id=\"rId\(index + 1)\"/>"
+        "<sheet name=\"\(ooxmlTextEncode(name))\" sheetId=\"\(index + 1)\" r:id=\"rId\(index + 1)\"/>"
     }.joined(separator: "\n")
     return """
     <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -5798,7 +5798,7 @@ private func worksheetXML(rows: [[FullLengthONTMHCWorkbookCell]]) -> String {
             let style = workbookCellStyle(cell, isHeader: rowIndex == 0).map { " s=\"\($0)\"" } ?? ""
             switch cell.value {
             case .text(let value):
-                return "<c r=\"\(ref)\"\(style) t=\"inlineStr\"><is><t xml:space=\"preserve\">\(xmlEscape(value))</t></is></c>"
+                return "<c r=\"\(ref)\"\(style) t=\"inlineStr\"><is><t xml:space=\"preserve\">\(ooxmlTextEncode(value))</t></is></c>"
             case .integer(let value):
                 return "<c r=\"\(ref)\"\(style)><v>\(value)</v></c>"
             case .decimal(let value):
@@ -5861,11 +5861,54 @@ private func xlsxColumn(_ oneBasedIndex: Int) -> String {
     return result
 }
 
-private func xmlEscape(_ value: String) -> String {
-    value
-        .replacingOccurrences(of: "&", with: "&amp;")
-        .replacingOccurrences(of: "<", with: "&lt;")
-        .replacingOccurrences(of: ">", with: "&gt;")
-        .replacingOccurrences(of: "\"", with: "&quot;")
-        .replacingOccurrences(of: "'", with: "&apos;")
+private func ooxmlTextEncode(_ value: String) -> String {
+    let scalars = Array(value.unicodeScalars)
+    var encoded = ""
+    encoded.reserveCapacity(value.utf8.count)
+    for index in scalars.indices {
+        let scalar = scalars[index]
+        if scalar == "_", isLiteralOOXMLEscapeToken(at: index, in: scalars) {
+            encoded += "_x005F_"
+            continue
+        }
+        guard isLegalXML10Scalar(scalar.value) else {
+            encoded += String(format: "_x%04X_", scalar.value)
+            continue
+        }
+        switch scalar {
+        case "&": encoded += "&amp;"
+        case "<": encoded += "&lt;"
+        case ">": encoded += "&gt;"
+        case "\"": encoded += "&quot;"
+        case "'": encoded += "&apos;"
+        default: encoded.unicodeScalars.append(scalar)
+        }
+    }
+    return encoded
+}
+
+private func isLiteralOOXMLEscapeToken(
+    at index: Int,
+    in scalars: [Unicode.Scalar]
+) -> Bool {
+    guard index + 6 < scalars.count,
+          scalars[index + 1] == "x" || scalars[index + 1] == "X",
+          scalars[index + 6] == "_" else {
+        return false
+    }
+    return scalars[(index + 2)...(index + 5)].allSatisfy { scalar in
+        switch scalar.value {
+        case 48...57, 65...70, 97...102: true
+        default: false
+        }
+    }
+}
+
+private func isLegalXML10Scalar(_ value: UInt32) -> Bool {
+    value == 0x9
+        || value == 0xA
+        || value == 0xD
+        || (0x20...0xD7FF).contains(value)
+        || (0xE000...0xFFFD).contains(value)
+        || (0x10000...0x10FFFF).contains(value)
 }

@@ -192,6 +192,70 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(rows[3][matchClassIndex], "un-nameable")
     }
 
+    func testLegacyNormalizationPreservesRawIdentifiersAcrossAllRetainedSheetShapes() throws {
+        let documents = makeDocuments()
+        let projection = try FullLengthONTMHCWorkbookProjection(
+            candidateDocument: documents.candidates,
+            unnameableDocument: documents.unnameable,
+            sampleOrder: ["donor_extension"]
+        )
+        let sheets = [
+            [
+                ["unmatched_sequence_id", "sample", "cluster", "closest_match_id", "closest_reference", "match_class"],
+                ["cluster-1", "donor_extension", "cluster_5SNP", "Old_5SNP", "Reference_extension", "snp-different"],
+            ],
+            [
+                ["unmatched_sequence_id", "closest_match_id", "match_class", "donor_extension"],
+                ["cluster_5SNP", "Old_5SNP", "snp-different", "7"],
+            ],
+            [
+                ["unmatched_sequence_id", "sample", "cluster", "closest_match_id", "closest_reference", "match_class"],
+                ["cluster-u", "donor_extension", "cluster_5SNP", "Old_5SNP", "Reference_extension", "snp-different"],
+            ],
+            [
+                ["unmatched_sequence_id", "closest_match_id", "closest_reference_name", "match_class", "donor_extension"],
+                ["cluster_5SNP", "Old_5SNP", "Reference_extension", "snp-different", "7"],
+            ],
+        ]
+
+        for (index, input) in sheets.enumerated() {
+            let output = projection.enrichingLegacyUnmatchedRows(input)
+            let flattened = output.flatMap { $0 }
+            XCTAssertTrue(flattened.contains("donor_extension"), "Sheet shape \(index) changed a sample identifier")
+            XCTAssertTrue(flattened.contains("cluster_5SNP"), "Sheet shape \(index) changed a cluster/stable identifier")
+            let closestIndex = try XCTUnwrap(output[0].firstIndex(of: "closest_match_id"))
+            XCTAssertFalse(output[1][closestIndex].contains("_5SNP"), "Allele-derived label was not normalized")
+            if let referenceIndex = output[0].firstIndex(where: {
+                $0 == "closest_reference" || $0 == "closest_reference_name"
+            }) {
+                XCTAssertFalse(output[1][referenceIndex].contains("_extension"))
+            }
+        }
+    }
+
+    func testOOXMLTextEncoderHandlesControlsLiteralEscapeTokensEntitiesAndUnicode() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ooxml-text-encoding-\(UUID().uuidString).xlsx")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let payload = "control:\u{000B} literal:_x000B_ entities:&< unicode:β🧬"
+
+        try FullLengthONTMHCXLSXPackageWriter.write(
+            sheets: [.init(name: "Name &_x000B_ β🧬", rows: [["Value"], [payload]])],
+            to: url
+        )
+
+        let workbook = try unzip("xl/workbook.xml", from: url)
+        let sheet = try unzip("xl/worksheets/sheet1.xml", from: url)
+        XCTAssertTrue(workbook.contains("Name &amp;_x005F_x000B_ β🧬"), workbook)
+        XCTAssertTrue(sheet.contains("control:_x000B_"), sheet)
+        XCTAssertTrue(sheet.contains("literal:_x005F_x000B_"), sheet)
+        XCTAssertTrue(sheet.contains("entities:&amp;&lt;"), sheet)
+        XCTAssertTrue(sheet.contains("unicode:β🧬"), sheet)
+        XCTAssertFalse(sheet.contains("\u{000B}"))
+        try assertXMLWellFormed(workbook)
+        try assertXMLWellFormed(sheet)
+    }
+
     private func makeDocuments() -> (
         candidates: ONTMHCCandidateAllelesDocument,
         unnameable: ONTMHCUnnameableClustersDocument
@@ -326,5 +390,21 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         process.waitUntilExit()
         XCTAssertEqual(process.terminationStatus, 0)
         return try XCTUnwrap(String(data: data, encoding: .utf8))
+    }
+
+    private func assertXMLWellFormed(_ xml: String) throws {
+        let process = Process()
+        let input = Pipe()
+        let errors = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xmllint")
+        process.arguments = ["--noout", "-"]
+        process.standardInput = input
+        process.standardError = errors
+        try process.run()
+        input.fileHandleForWriting.write(Data(xml.utf8))
+        try input.fileHandleForWriting.close()
+        process.waitUntilExit()
+        let message = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        XCTAssertEqual(process.terminationStatus, 0, message)
     }
 }

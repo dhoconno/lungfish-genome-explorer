@@ -404,7 +404,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             switch field {
             case "match_source": "reciprocal-minimap2"
             case "closest_match_id": candidate.provisionalName
-            case "closest_reference": candidate.closestReferenceName
+            case "closest_reference", "closest_reference_name": candidate.closestReferenceName
             case "match_class": candidate.classification
             case "nucleotides_different", "snp_differences": String(candidate.snpCount)
             case "indel_bases": String(candidate.insertedBases + candidate.deletedBases)
@@ -413,7 +413,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             case "percent_identity": decimalText(candidate.identity * 100)
             case "query_coverage": decimalText(candidate.shorterCoverage * 100)
             case "evalue", "bitscore": ""
-            default: normalizedLegacyLabel(original)
+            default: original
             }
         }
     }
@@ -427,9 +427,9 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             switch field {
             case "match_source": "reciprocal-unnameable"
             case "match_class": "un-nameable"
-            case "closest_match_id", "closest_reference", "nucleotides_different", "snp_differences",
+            case "closest_match_id", "closest_reference", "closest_reference_name", "nucleotides_different", "snp_differences",
                  "indel_bases", "aligned_bases", "score", "percent_identity", "query_coverage", "evalue", "bitscore": ""
-            default: normalizedLegacyLabel(original)
+            default: original
             }
         }
     }
@@ -442,7 +442,12 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 if originalMatchID.range(of: #"_[1-9][0-9]*SNP$"#, options: .regularExpression) != nil { return "novel" }
                 if originalMatchID.hasSuffix("_extension") { return "extension" }
             }
-            return normalizedLegacyLabel(original)
+            switch field {
+            case "closest_match_id", "closest_reference", "closest_reference_name":
+                return normalizedLegacyLabel(original)
+            default:
+                return original
+            }
         }
     }
 
