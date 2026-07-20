@@ -530,7 +530,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             return
         }
-        if finalState == .preparedNew, (stagingState == .old || stagingState == .oldWorkbookEdited) {
+        if finalState == .preparedNew, stagingState == .old {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try exchange(
                 final,
