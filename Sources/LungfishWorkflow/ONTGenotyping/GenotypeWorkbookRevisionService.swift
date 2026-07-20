@@ -152,6 +152,7 @@ public struct GenotypeWorkbookRevisionService {
     private let bundleCloneAttemptObserver: (@Sendable () -> Void)?
     private let forceBundleCloneFallback: Bool
     private let bundleCopyPrimitive: (@Sendable (URL, URL, UInt32) -> Int32)?
+    private let workbookAttestationRootURL: URL?
 
     public init(
         fileManager: FileManager = .default,
@@ -161,7 +162,8 @@ public struct GenotypeWorkbookRevisionService {
         publicationFailureInjector: (@Sendable (String) throws -> Void)? = nil,
         bundleCloneAttemptObserver: (@Sendable () -> Void)? = nil,
         forceBundleCloneFallback: Bool = false,
-        bundleCopyPrimitive: (@Sendable (URL, URL, UInt32) -> Int32)? = nil
+        bundleCopyPrimitive: (@Sendable (URL, URL, UInt32) -> Int32)? = nil,
+        workbookAttestationRootURL: URL? = nil
     ) {
         self.fileManager = fileManager
         self.dateProvider = dateProvider
@@ -171,6 +173,7 @@ public struct GenotypeWorkbookRevisionService {
         self.bundleCloneAttemptObserver = bundleCloneAttemptObserver
         self.forceBundleCloneFallback = forceBundleCloneFallback
         self.bundleCopyPrimitive = bundleCopyPrimitive
+        self.workbookAttestationRootURL = workbookAttestationRootURL
     }
 
     public func ensureCurrentWorkbook(
@@ -239,7 +242,10 @@ public struct GenotypeWorkbookRevisionService {
         defer { publicationLock.release() }
         let workbookPublicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundle)
         defer { workbookPublicationLock.release() }
-        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(for: bundle)
+        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+            for: bundle,
+            attestationRootURL: workbookAttestationRootURL
+        )
         try recoverWorkbookRollbackFailureIfNeeded(for: bundle)
         try validateSourceBundleTree(bundle)
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundle)
@@ -460,7 +466,23 @@ public struct GenotypeWorkbookRevisionService {
             sourceWorkbookURL,
             witness: sourceWorkbookWitness
         )
-        try ONTGenotypeWorkbookUpdateRecovery.write(workbookTransaction, for: bundle)
+        workbookTransaction = try ONTGenotypeWorkbookUpdateRecovery.createAttestation(
+            for: workbookTransaction,
+            attestationRootURL: workbookAttestationRootURL
+        )
+        do {
+            try ONTGenotypeWorkbookUpdateRecovery.write(
+                workbookTransaction,
+                for: bundle,
+                attestationRootURL: workbookAttestationRootURL
+            )
+        } catch {
+            try? ONTGenotypeWorkbookUpdateRecovery.removeUnpublishedAttestation(
+                for: workbookTransaction,
+                attestationRootURL: workbookAttestationRootURL
+            )
+            throw error
+        }
         do {
             try publicationFailureInjector?("after-transaction-marker-hard-stop")
         } catch {
@@ -477,7 +499,8 @@ public struct GenotypeWorkbookRevisionService {
         } catch {
             try ONTGenotypeWorkbookUpdateRecovery.discardPreparedTransactionAssumingLock(
                 workbookTransaction,
-                for: bundle
+                for: bundle,
+                attestationRootURL: workbookAttestationRootURL
             )
             throw error
         }
@@ -523,7 +546,8 @@ public struct GenotypeWorkbookRevisionService {
             try publicationFailureInjector?("after-revision-manifest-hard-stop")
             try ONTGenotypeWorkbookUpdateRecovery.finalizeCommittedTransactionAssumingLock(
                 workbookTransaction,
-                for: bundle
+                for: bundle,
+                attestationRootURL: workbookAttestationRootURL
             )
             removeStageOnExit = false
             return try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: revisedManifestData)
@@ -531,7 +555,11 @@ public struct GenotypeWorkbookRevisionService {
             if finalManifestCommitted { throw error }
             let publicationError = error
             workbookTransaction.phase = .rollingBack
-            try ONTGenotypeWorkbookUpdateRecovery.write(workbookTransaction, for: bundle)
+            try ONTGenotypeWorkbookUpdateRecovery.write(
+                workbookTransaction,
+                for: bundle,
+                attestationRootURL: workbookAttestationRootURL
+            )
             do {
                 try publicationFailureInjector?("before-rollback-exchange")
                 try ONTGenotypeWorkbookUpdateRecovery.validateExchangedDirectoryIdentitiesAssumingLock(
@@ -545,7 +573,11 @@ public struct GenotypeWorkbookRevisionService {
                 )
             } catch let rollbackError {
                 workbookTransaction.phase = .rollbackFailed
-                try ONTGenotypeWorkbookUpdateRecovery.write(workbookTransaction, for: bundle)
+                try ONTGenotypeWorkbookUpdateRecovery.write(
+                    workbookTransaction,
+                    for: bundle,
+                    attestationRootURL: workbookAttestationRootURL
+                )
                 let receiptURL = try retainWorkbookRollbackFailureGenerations(
                     liveBundleURL: bundle,
                     priorBundleURL: cloneBundleURL,
@@ -560,11 +592,17 @@ public struct GenotypeWorkbookRevisionService {
             do {
                 try syncDirectory(bundle.deletingLastPathComponent())
             } catch {
-                try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(for: bundle)
+                try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                    for: bundle,
+                    attestationRootURL: workbookAttestationRootURL
+                )
                 removeStageOnExit = false
                 throw publicationError
             }
-            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(for: bundle)
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: bundle,
+                attestationRootURL: workbookAttestationRootURL
+            )
             removeStageOnExit = false
             throw publicationError
         }

@@ -336,7 +336,8 @@ wb.save(path)
         let marker = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
         )
-        XCTAssertEqual(marker["schemaVersion"] as? Int, 2)
+        XCTAssertEqual(marker["schemaVersion"] as? Int, 3)
+        XCTAssertNotNil(marker["attestationID"] as? String)
         XCTAssertEqual(marker["phase"] as? String, "prepared")
         XCTAssertEqual(marker["workflowName"] as? String, "Genotype Workbook Update")
         XCTAssertFalse((marker["argv"] as? [String] ?? []).isEmpty)
@@ -383,6 +384,117 @@ wb.save(path)
                 ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
             ).path
         ))
+    }
+
+    func testRecoveryWithoutDetachedAttestationFailsClosedWithoutMutatingEitherGeneration() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let attestationRoot = root.appendingPathComponent("attestations", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: attestationRoot,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: NSNumber(value: 0o700)]
+        )
+        XCTAssertEqual(chmod(attestationRoot.path, 0o700), 0)
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "missing-detached-attestation")
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-exchange-hard-stop" else { return }
+                    throw NSError(domain: "SimulatedSIGKILL", code: 9)
+                },
+                workbookAttestationRootURL: attestationRoot
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
+        let marker = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
+        )
+        let attestationID = try XCTUnwrap(marker["attestationID"] as? String)
+        let attestationURL = attestationRoot.appendingPathComponent("\(attestationID).json")
+        let stagingURL = URL(
+            fileURLWithPath: try XCTUnwrap(marker["stagingBundlePath"] as? String),
+            isDirectory: true
+        )
+        try FileManager.default.removeItem(at: attestationURL)
+        let finalBefore = try bundleSnapshot(fixture.bundleURL)
+        let stagingBefore = try bundleSnapshot(stagingURL)
+        let markerBefore = try Data(contentsOf: markerURL)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot
+            )
+        ) { error in
+            XCTAssertTrue(error is ONTGenotypeWorkbookUpdateRecoveryError)
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("ambiguous"))
+        }
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), finalBefore)
+        XCTAssertEqual(try bundleSnapshot(stagingURL), stagingBefore)
+        XCTAssertEqual(try Data(contentsOf: markerURL), markerBefore)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: attestationURL.path))
+    }
+
+    func testRecoveryRejectsSymlinkedDetachedAttestationWithoutMutatingEitherGeneration() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let attestationRoot = root.appendingPathComponent("attestations", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: attestationRoot,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: NSNumber(value: 0o700)]
+        )
+        XCTAssertEqual(chmod(attestationRoot.path, 0o700), 0)
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "symlinked-detached-attestation")
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-exchange-hard-stop" else { return }
+                    throw NSError(domain: "SimulatedSIGKILL", code: 9)
+                },
+                workbookAttestationRootURL: attestationRoot
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
+        let marker = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
+        )
+        let attestationID = try XCTUnwrap(marker["attestationID"] as? String)
+        let attestationURL = attestationRoot.appendingPathComponent("\(attestationID).json")
+        let retainedURL = root.appendingPathComponent("retained-attestation.json")
+        try FileManager.default.moveItem(at: attestationURL, to: retainedURL)
+        try FileManager.default.createSymbolicLink(at: attestationURL, withDestinationURL: retainedURL)
+        let stagingURL = URL(
+            fileURLWithPath: try XCTUnwrap(marker["stagingBundlePath"] as? String),
+            isDirectory: true
+        )
+        let finalBefore = try bundleSnapshot(fixture.bundleURL)
+        let stagingBefore = try bundleSnapshot(stagingURL)
+        let markerBefore = try Data(contentsOf: markerURL)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot
+            )
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("ambiguous"))
+        }
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), finalBefore)
+        XCTAssertEqual(try bundleSnapshot(stagingURL), stagingBefore)
+        XCTAssertEqual(try Data(contentsOf: markerURL), markerBefore)
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: attestationURL.path),
+            retainedURL.path
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retainedURL.path))
     }
 
     func testAsyncLoaderFinishesCleanupAfterHardStopFollowingCommittedManifest() async throws {
