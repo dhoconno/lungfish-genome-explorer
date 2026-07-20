@@ -752,6 +752,11 @@ public final class GenotypeResultViewController: NSViewController {
                 self.comparisonMatrix.applyAnnotationSidecar(published, reload: false)
                 self.onAnnotationSidecarChanged?(published)
                 self.onDisplayStateChanged?(persistedState)
+                if expectedSettings.tints != published.settings.mhcCandidateDisplay.tints {
+                    self.currentWorkbookNeedsRefresh = true
+                    self.currentWorkbookUpdateStatus = "current.xlsx does not include candidate tint changes."
+                    self.rebuildArtifactLens()
+                }
                 self.finishCandidateSettingsPersistence(processPending: true)
             } catch {
                 guard !Task.isCancelled,
@@ -6071,6 +6076,14 @@ extension GenotypeResultViewController {
     func testingReloadCurrentWorkbookResult() {
         guard let bundleURL = result?.bundleURL else { return }
         reloadCurrentWorkbookResult(from: bundleURL)
+    }
+
+    var testingCurrentWorkbookNeedsRefresh: Bool {
+        currentWorkbookNeedsRefresh
+    }
+
+    var testingCurrentWorkbookUpdateStatus: String? {
+        currentWorkbookUpdateStatus
     }
 
     var testingResultBundleURL: URL? {

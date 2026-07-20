@@ -42,6 +42,9 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertEqual(inspection["candidateIDFills"], "00000000|00000000|00000000|00000000")
         XCTAssertEqual(inspection["editableCandidateCount"], "4")
         XCTAssertEqual(inspection["editableNameFills"], "FFFF0000|8000FF00|FF0000FF|40FFFF00")
+        XCTAssertEqual(inspection["analystFormula"], "=SUM(D1:D3)")
+        XCTAssertEqual(inspection["analystFill"], "FF123456")
+        XCTAssertEqual(inspection["candidateShapedAnalystFormula"], "=1+1")
         XCTAssertEqual(inspection["unnameableIDs"], "cluster-u|cluster-u")
         XCTAssertEqual(inspection["unnameableQueries"], "cluster-u-a|cluster-u-z")
         XCTAssertEqual(
@@ -74,10 +77,33 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertTrue(pythonStep.outputs.allSatisfy {
             ($0.originPath ?? $0.path).hasPrefix(fixture.bundleURL.path)
         })
+        let durableReplayArgv = try XCTUnwrap(pythonStep.durableReplayArgv)
+        XCTAssertTrue(pythonStep.argv.joined(separator: " ").contains(".staging"), "Actual argv should retain execution origin")
+        XCTAssertFalse(durableReplayArgv.joined(separator: " ").contains(".staging"))
+        XCTAssertFalse(pythonStep.reproducibleCommand.contains(".staging"))
+        XCTAssertTrue(durableReplayArgv.dropFirst().allSatisfy {
+            $0.isEmpty || $0.hasPrefix(fixture.bundleURL.path)
+        })
+        for filename in ["apply-current-workbook-overrides.py", "candidate-config.json", "haplotype-calls.json"] {
+            let descriptor = try XCTUnwrap(pythonStep.inputs.first(where: { $0.path.hasSuffix(filename) }))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: descriptor.path))
+            XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: descriptor.path)))
+        }
         XCTAssertEqual(envelope.steps.last?.toolName, "lungfish-internal atomic workbook bundle exchange")
         XCTAssertEqual(envelope.output?.path, fixture.bundleURL.path)
         XCTAssertTrue(envelope.outputs.allSatisfy { $0.path.hasPrefix(fixture.bundleURL.path) })
         XCTAssertGreaterThanOrEqual(envelope.wallTimeSeconds ?? -1, pythonStep.wallTimeSeconds ?? 0)
+
+        _ = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+        let secondInspection = try inspectCandidateWorkbook(currentURL)
+        XCTAssertEqual(secondInspection["editableCandidateCount"], "4")
+        XCTAssertEqual(secondInspection["analystFormula"], "=SUM(D1:D3)")
+        XCTAssertEqual(secondInspection["analystFill"], "FF123456")
+        XCTAssertEqual(secondInspection["candidateShapedAnalystFormula"], "=1+1")
+        XCTAssertEqual(secondInspection["managedBeginCount"], "1")
+        XCTAssertEqual(secondInspection["managedEndCount"], "1")
     }
 
     func testCandidateUpdateUsesUnifiedPivotFallbackWhenFullSequencingSheetIsAbsent() throws {
@@ -93,6 +119,31 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         let inspection = try inspectCandidateWorkbook(try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL))
         XCTAssertEqual(inspection["unifiedCandidateCount"], "4")
         XCTAssertEqual(inspection["unifiedCandidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
+    }
+
+    func testBundleCloneAttemptsCopyOnWriteAndFallbackPublishesEquivalentWorkbook() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "clone-fallback")
+        let before = try ProvenanceFileHasher.sha256(
+            of: ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        )
+        let attempted = expectation(description: "copy-on-write clone attempted")
+
+        _ = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            bundleCloneAttemptObserver: { attempted.fulfill() },
+            forceBundleCloneFallback: true
+        ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        wait(for: [attempted], timeout: 0.1)
+        XCTAssertNotEqual(
+            try ProvenanceFileHasher.sha256(
+                of: ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+            ),
+            before
+        )
+        XCTAssertNoThrow(try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL))
     }
 
     func testMalformedCandidateArtifactFailsWithoutMutatingWorkbookOrManifest() throws {
@@ -115,6 +166,30 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: fixture.bundleURL.appendingPathComponent("artifacts/workbooks/updates").path
         ))
+    }
+
+    func testAmbiguousManagedCandidateMarkersFailClosedWithoutBundleMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "ambiguous-candidate-markers")
+        try installCandidateArtifacts(in: fixture.bundleURL)
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+wb["Full Sequencing Results 1"].append(["LGE MHC Candidate Alleles [BEGIN]"])
+wb.save(path)
+"""#, currentURL.path])
+        let before = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
     }
 
     func testMalformedCandidateDoesNotCreateInitiallyAbsentCurrentWorkbookOrRevisionArtifacts() throws {
@@ -157,6 +232,94 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
             ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
         )
         XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+    }
+
+    func testPostExchangeFailureRestoresEntireBundleBeforeRevisionManifestPublication() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "post-exchange-rollback")
+        let before = try bundleSnapshot(fixture.bundleURL)
+        let originalRevisionCount = fixture.manifest.workbookRevisions?.count
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "post-exchange" else { return }
+                    let visible = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+                    if visible.workbookRevisions?.count != originalRevisionCount {
+                        throw NSError(domain: "RevisionManifestPublishedEarly", code: 1)
+                    }
+                    throw NSError(domain: "InjectedPostExchangeFailure", code: 1)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertEqual((error as NSError).domain, "InjectedPostExchangeFailure")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+    }
+
+    func testPreManifestFailureRestoresEntireBundleWithOldManifestStillVisible() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "pre-manifest-rollback")
+        let before = try bundleSnapshot(fixture.bundleURL)
+        let originalRevisionCount = fixture.manifest.workbookRevisions?.count
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "before-revision-manifest" else { return }
+                    let visible = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+                    if visible.workbookRevisions?.count != originalRevisionCount {
+                        throw NSError(domain: "RevisionManifestPublishedEarly", code: 1)
+                    }
+                    throw NSError(domain: "InjectedPreManifestFailure", code: 1)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertEqual((error as NSError).domain, "InjectedPreManifestFailure")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+    }
+
+    func testRollbackFailureQuarantinesBothGenerationsAndNextRunRecoversPrior() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "rollback-failure-recovery")
+        let beforeManifest = fixture.manifest
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    if checkpoint == "post-exchange" {
+                        throw NSError(domain: "InjectedPublicationFailure", code: 1)
+                    }
+                    if checkpoint == "before-rollback-exchange" {
+                        throw NSError(domain: "InjectedRollbackFailure", code: 1)
+                    }
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.bundleURL.path))
+        let receiptURL = root.appendingPathComponent(
+            ".\(fixture.bundleURL.lastPathComponent).workbook-update-failure.json"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: receiptURL.path))
+        let recoveryEntries = try FileManager.default.contentsOfDirectory(atPath: root.path)
+            .filter { $0.contains("workbook-update-recovery") }
+        XCTAssertEqual(recoveryEntries.filter { $0.hasSuffix(".prior") }.count, 1)
+        XCTAssertEqual(recoveryEntries.filter { $0.hasSuffix(".failed") }.count, 1)
+
+        _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+            .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: receiptURL.path))
+        let recovered = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        XCTAssertGreaterThan(recovered.workbookRevisions?.count ?? 0, beforeManifest.workbookRevisions?.count ?? 0)
     }
 
     func testSymlinkUpdatesPathIsRejectedWithoutAnyBundleMutation() throws {
@@ -945,6 +1108,7 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         let code = #"""
 import sys
 from openpyxl import Workbook
+from openpyxl.styles import PatternFill
 
 path = sys.argv[1]
 wb = Workbook()
@@ -966,6 +1130,7 @@ wb.save(path)
         let code = #"""
 import sys
 from openpyxl import Workbook
+from openpyxl.styles import PatternFill
 
 path = sys.argv[1]
 wb = Workbook()
@@ -1004,6 +1169,15 @@ for row, label in enumerate([
 ], start=4):
     full.cell(row, 1).value = label
     full.cell(row, 4).value = "" if "DRB" in label else "old"
+
+# Legacy start-only managed block followed by analyst-authored content. Updates
+# must migrate only the generated rows and preserve everything after them.
+full.append(["LGE MHC Candidate Alleles"])
+full.append(["Provisional Name", "Stable Cluster ID", "Locus", "Classification", "Support Class", "sample-a"])
+full.append(["Mafa-A1*001:01_1nt_nov", "legacy-cluster", "Mafa-A1", "novel", "singleton", 3])
+full.append(["Analyst_A1_1nt_nov", "analyst-candidate-shaped", "Mafa-A1", "novel", "singleton", "=1+1"])
+full.append(["Analyst Calculation", None, None, "=SUM(D1:D3)"])
+full.cell(full.max_row, 1).fill = PatternFill(fill_type="solid", fgColor="FF123456")
 
 legacy_headers = [
     "unmatched_sequence_id", "match_source", "closest_match_id", "closest_reference", "closest_reference_name",
@@ -1374,13 +1548,28 @@ payload = {
 }
 if "Full Sequencing Results 1" in wb.sheetnames:
     ws = wb["Full Sequencing Results 1"]
-    marker = next((row for row in range(1, ws.max_row + 1) if text(ws.cell(row, 1).value) == "LGE MHC Candidate Alleles"), None)
-    rows = list(range(marker + 2, ws.max_row + 1)) if marker else []
+    begin_label = "LGE MHC Candidate Alleles [BEGIN]"
+    end_label = "LGE MHC Candidate Alleles [END]"
+    marker = next((row for row in range(1, ws.max_row + 1) if text(ws.cell(row, 1).value) == begin_label), None)
+    end = next((row for row in range((marker or 0) + 1, ws.max_row + 1) if text(ws.cell(row, 1).value) == end_label), None)
+    rows = list(range(marker + 2, end)) if marker and end else []
     payload["editableCandidateCount"] = str(len(rows))
     payload["editableNameFills"] = "|".join(argb(ws.cell(row, 1)) for row in rows)
+    analyst = next((row for row in range(1, ws.max_row + 1) if text(ws.cell(row, 1).value) == "Analyst Calculation"), None)
+    payload["analystFormula"] = text(ws.cell(analyst, 4).value) if analyst else ""
+    payload["analystFill"] = argb(ws.cell(analyst, 1)) if analyst else ""
+    analyst_candidate = next((row for row in range(1, ws.max_row + 1) if text(ws.cell(row, 2).value) == "analyst-candidate-shaped"), None)
+    payload["candidateShapedAnalystFormula"] = text(ws.cell(analyst_candidate, 6).value) if analyst_candidate else ""
+    payload["managedBeginCount"] = str(sum(1 for row in range(1, ws.max_row + 1) if text(ws.cell(row, 1).value) == begin_label))
+    payload["managedEndCount"] = str(sum(1 for row in range(1, ws.max_row + 1) if text(ws.cell(row, 1).value) == end_label))
 else:
     payload["editableCandidateCount"] = "0"
     payload["editableNameFills"] = ""
+    payload["analystFormula"] = ""
+    payload["analystFill"] = ""
+    payload["candidateShapedAnalystFormula"] = ""
+    payload["managedBeginCount"] = "0"
+    payload["managedEndCount"] = "0"
 if "Unified Genotype Pivot" in wb.sheetnames:
     ws = wb["Unified Genotype Pivot"]
     rows = [row for row in range(2, ws.max_row + 1) if text(ws.cell(row, 1).value).startswith("candidate-")]

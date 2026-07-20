@@ -853,18 +853,83 @@ def write_candidate_artifact_sheets():
 
 
 def write_candidates_to_editable_view():
-    if not candidate_records:
-        return
+    managed_begin = "LGE MHC Candidate Alleles [BEGIN]"
+    managed_end = "LGE MHC Candidate Alleles [END]"
+    legacy_begin = "LGE MHC Candidate Alleles"
+    managed_headers = ["Provisional Name", "Stable Cluster ID", "Locus", "Classification", "Support Class"]
+
+    def generated_candidate_row(ws, row, managed_width):
+        name = clean(ws.cell(row, 1).value)
+        stable_id = clean(ws.cell(row, 2).value)
+        locus = clean(ws.cell(row, 3).value)
+        classification = clean(ws.cell(row, 4).value)
+        support = clean(ws.cell(row, 5).value)
+        valid_name = (classification == "novel" and re.search(r"_[1-9][0-9]*nt_nov$", name)) or (
+            classification == "extension" and name.endswith("_ext")
+        )
+        cells = [ws.cell(row, col) for col in range(1, ws.max_column + 1)]
+        if any(cell.data_type == "f" or cell.comment is not None or cell.hyperlink is not None for cell in cells):
+            return False
+        if any(cell.has_style for cell in cells[1:]):
+            return False
+        if any(clean(cell.value) for cell in cells[managed_width:]):
+            return False
+        for cell in cells[5:managed_width]:
+            value = cell.value
+            if value in (None, ""):
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                return False
+        return bool(stable_id and locus and valid_name and support in {"shared", "singleton"})
+
+    def remove_prior_managed_block(ws):
+        begin_rows = [row for row in range(1, ws.max_row + 1) if clean(ws.cell(row, 1).value) == managed_begin]
+        end_rows = [row for row in range(1, ws.max_row + 1) if clean(ws.cell(row, 1).value) == managed_end]
+        legacy_rows = [row for row in range(1, ws.max_row + 1) if clean(ws.cell(row, 1).value) == legacy_begin]
+        if len(begin_rows) > 1 or len(end_rows) > 1 or len(legacy_rows) > 1:
+            raise ValueError("Ambiguous LGE candidate block markers; workbook was not modified")
+        if end_rows and not begin_rows:
+            raise ValueError("LGE candidate end marker has no matching begin marker; workbook was not modified")
+        if begin_rows and end_rows:
+            begin_row = begin_rows[0]
+            end_row = end_rows[0]
+            if end_row <= begin_row:
+                raise ValueError("LGE candidate block markers are out of order; workbook was not modified")
+            ws.delete_rows(begin_row, end_row - begin_row + 1)
+            return
+        if begin_rows and legacy_rows:
+            raise ValueError("Ambiguous current and legacy LGE candidate block markers; workbook was not modified")
+        begin_row = begin_rows[0] if begin_rows else (legacy_rows[0] if legacy_rows else None)
+        if begin_row is None:
+            return
+
+        # Migrate a start-only block conservatively. Consume only the exact
+        # generated header and contiguous rows that match our generated schema;
+        # stop before any analyst-authored row, formula, or styled content.
+        delete_through = begin_row
+        header_row = begin_row + 1
+        if header_row > ws.max_row or [clean(ws.cell(header_row, col).value) for col in range(1, 6)] != managed_headers:
+            raise ValueError("Start-only LGE candidate block does not have the generated header; workbook was not modified")
+        managed_width = max(
+            5,
+            max((col for col in range(1, ws.max_column + 1) if clean(ws.cell(header_row, col).value)), default=5),
+        )
+        delete_through = header_row
+        row = header_row + 1
+        while row <= ws.max_row and generated_candidate_row(ws, row, managed_width):
+            delete_through = row
+            row += 1
+        ws.delete_rows(begin_row, delete_through - begin_row + 1)
+
     samples = candidate_samples()
     if "Full Sequencing Results 1" in wb.sheetnames:
         ws = wb["Full Sequencing Results 1"]
-        # Replace only the prior managed candidate block, preserving known/user rows.
-        marker_row = row_for(ws, "LGE MHC Candidate Alleles")
-        if marker_row is not None:
-            ws.delete_rows(marker_row, ws.max_row - marker_row + 1)
+        remove_prior_managed_block(ws)
+        if not candidate_records:
+            return
         ws.append([])
-        ws.append(["LGE MHC Candidate Alleles"])
-        ws.append(["Provisional Name", "Stable Cluster ID", "Locus", "Classification", "Support Class"] + samples)
+        ws.append([managed_begin])
+        ws.append(managed_headers + samples)
         for record in candidate_records:
             reads = sample_read_counts(clean(record.get("stable_cluster_id")))
             ws.append([
@@ -873,6 +938,7 @@ def write_candidates_to_editable_view():
             ] + [reads.get(sample) for sample in samples])
             # The provisional-name cell alone receives the category tint.
             ws.cell(ws.max_row, 1).fill = PatternFill(fill_type="solid", fgColor=candidate_argb(record))
+        ws.append([managed_end])
         return
 
     if "Unified Genotype Pivot" in wb.sheetnames:
@@ -886,8 +952,13 @@ def write_candidates_to_editable_view():
         ] + samples)
     headers = [clean(cell.value) for cell in ws[1]]
     call_type_col = headers.index("call_type") + 1 if "call_type" in headers else 1
+    stable_id_col = headers.index("stable_cluster_id") + 1 if "stable_cluster_id" in headers else None
+    classification_col = headers.index("classification") + 1 if "classification" in headers else None
     for row in range(ws.max_row, 1, -1):
-        if clean(ws.cell(row, call_type_col).value).startswith("candidate-"):
+        call_type = clean(ws.cell(row, call_type_col).value)
+        stable_id = clean(ws.cell(row, stable_id_col).value) if stable_id_col else ""
+        classification = clean(ws.cell(row, classification_col).value) if classification_col else ""
+        if call_type in {"candidate-novel", "candidate-extension"} and stable_id and call_type == f"candidate-{classification}":
             ws.delete_rows(row, 1)
     sample_headers = headers[12:] if len(headers) > 12 else samples
     for record in candidate_records:

@@ -321,6 +321,50 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertNil(controller.testingCandidatePersistenceWarning)
     }
 
+    func testCandidateTintRequiresExplicitWorkbookRefreshButVisibilityDoesNot() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CandidateTintWorkbookRefresh-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let workbookURL = bundleURL.appendingPathComponent("current.xlsx")
+        let workbookBytes = Data("workbook-must-not-change-until-explicit-update".utf8)
+        try workbookBytes.write(to: workbookURL)
+        let result = makeCandidateResult(
+            bundleURL: bundleURL,
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
+            candidates: [makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
+            observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        var tintState = controller.testingDisplayState
+        var tintSettings = try XCTUnwrap(tintState.mhcCandidateDisplaySettings)
+        tintSettings.tints[.singletonNovel] = AnnotationColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.5)
+        tintState.mhcCandidateDisplaySettings = tintSettings
+        controller.applyDisplayState(tintState)
+        await controller.testingWaitForCandidateSettingsPersistence()
+
+        XCTAssertTrue(controller.testingCurrentWorkbookNeedsRefresh)
+        XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("candidate tint") == true)
+        XCTAssertEqual(try Data(contentsOf: workbookURL), workbookBytes)
+
+        controller.applyCurrentWorkbookUpdateCompleted(result: result)
+        XCTAssertFalse(controller.testingCurrentWorkbookNeedsRefresh)
+
+        var visibilityState = controller.testingDisplayState
+        var visibilitySettings = try XCTUnwrap(visibilityState.mhcCandidateDisplaySettings)
+        visibilitySettings.showSingletonCandidates = false
+        visibilityState.mhcCandidateDisplaySettings = visibilitySettings
+        controller.applyDisplayState(visibilityState)
+        await controller.testingWaitForCandidateSettingsPersistence()
+
+        XCTAssertFalse(controller.testingCurrentWorkbookNeedsRefresh)
+        XCTAssertEqual(try Data(contentsOf: workbookURL), workbookBytes)
+    }
+
     func testCandidateSettingsConflictRestoresLatestSidecarAndShowsNonfatalWarning() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("CandidateDisplayConflict-\(UUID().uuidString)", isDirectory: true)
