@@ -182,6 +182,53 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertTrue(result.integrityWarnings.isEmpty)
     }
 
+    func testStableLoaderRetriesWhenWriterPublishesANewManifestGeneration() throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+        let replacementCalls = fixture.bundleURL.appendingPathComponent("calls-v2.csv")
+        try Data(
+            "sample,genotype,passed_alignments,passed_unique_reads\nSampleA,new-generation-allele,9,9\n".utf8
+        ).write(to: replacementCalls)
+        var observedAttempts = 0
+
+        let result = try ONTGenotypeResultBundle.loadResult(
+            from: fixture.bundleURL,
+            candidateArtifactByteBudget: Int64.max,
+            stableReadObserver: { attempt in
+                observedAttempts += 1
+                guard attempt == 0 else { return }
+                let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+                var object = try XCTUnwrap(
+                    try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+                )
+                object["longSummaryCSVPath"] = replacementCalls.lastPathComponent
+                try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+                    .write(to: manifestURL, options: .atomic)
+            }
+        )
+
+        XCTAssertEqual(observedAttempts, 2)
+        XCTAssertEqual(result.manifest.longSummaryCSVPath, replacementCalls.lastPathComponent)
+        XCTAssertEqual(result.calls.map(\.genotype), ["new-generation-allele"])
+    }
+
+    func testMarkerWithoutExistingPublicationLockRequiresRecoveryWithoutCreatingLock() throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
+        let lockURL = ONTGenotypeBundlePublicationLock.lockURL(for: fixture.bundleURL)
+        try Data("{}".utf8).write(to: markerURL)
+        try? FileManager.default.removeItem(at: lockURL)
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)) { error in
+            guard case ONTGenotypeWorkbookUpdateRecoveryError.recoveryRequired(let path) = error else {
+                return XCTFail("Expected recoveryRequired, got \(error)")
+            }
+            XCTAssertEqual(path, lockURL.path)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path))
+    }
+
     func testMissingCandidateJSONFailsSoftAndPreservesKnownCalls() throws {
         let fixture = try CandidateBundleFixture()
         defer { fixture.remove() }

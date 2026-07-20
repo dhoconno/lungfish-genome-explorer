@@ -21,6 +21,18 @@ public struct ONTGenotypeWorkbookUpdateFileDescriptor: Codable, Equatable, Senda
     }
 }
 
+public struct ONTGenotypeWorkbookUpdateDirectoryIdentity: Codable, Equatable, Sendable {
+    public let path: String
+    public let device: UInt64
+    public let inode: UInt64
+
+    public init(path: String, device: UInt64, inode: UInt64) {
+        self.path = path
+        self.device = device
+        self.inode = inode
+    }
+}
+
 public struct ONTGenotypeWorkbookUpdateTransaction: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     public let transactionID: String
@@ -39,10 +51,13 @@ public struct ONTGenotypeWorkbookUpdateTransaction: Codable, Equatable, Sendable
     public let newManifest: ONTGenotypeWorkbookUpdateFileDescriptor
     public let oldCurrentWorkbook: ONTGenotypeWorkbookUpdateFileDescriptor
     public let newCurrentWorkbook: ONTGenotypeWorkbookUpdateFileDescriptor
+    public let oldGenerationIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity
+    public let newGenerationIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity
+    public let transactionRootIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity
     public var phase: ONTGenotypeWorkbookUpdateTransactionPhase
 
     public init(
-        schemaVersion: Int = 1,
+        schemaVersion: Int = 2,
         transactionID: String,
         finalBundlePath: String,
         stagingBundlePath: String,
@@ -59,6 +74,9 @@ public struct ONTGenotypeWorkbookUpdateTransaction: Codable, Equatable, Sendable
         newManifest: ONTGenotypeWorkbookUpdateFileDescriptor,
         oldCurrentWorkbook: ONTGenotypeWorkbookUpdateFileDescriptor,
         newCurrentWorkbook: ONTGenotypeWorkbookUpdateFileDescriptor,
+        oldGenerationIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity,
+        newGenerationIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity,
+        transactionRootIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity,
         phase: ONTGenotypeWorkbookUpdateTransactionPhase = .prepared
     ) {
         self.schemaVersion = schemaVersion
@@ -78,6 +96,9 @@ public struct ONTGenotypeWorkbookUpdateTransaction: Codable, Equatable, Sendable
         self.newManifest = newManifest
         self.oldCurrentWorkbook = oldCurrentWorkbook
         self.newCurrentWorkbook = newCurrentWorkbook
+        self.oldGenerationIdentity = oldGenerationIdentity
+        self.newGenerationIdentity = newGenerationIdentity
+        self.transactionRootIdentity = transactionRootIdentity
         self.phase = phase
     }
 }
@@ -87,6 +108,7 @@ public enum ONTGenotypeWorkbookUpdateRecoveryError: Error, LocalizedError, Senda
     case lockHeld(String)
     case systemFailure(String, Int32)
     case unsafeMarker(String)
+    case recoveryRequired(String)
     case invalidTransaction(String)
     case ambiguousTransaction(String)
     case currentWorkbookIntegrity(String)
@@ -97,6 +119,8 @@ public enum ONTGenotypeWorkbookUpdateRecoveryError: Error, LocalizedError, Senda
         case .lockHeld(let path): return "Workbook publication lock is already held: \(path)"
         case .systemFailure(let path, let code): return "Workbook transaction failed at \(path) (errno \(code))."
         case .unsafeMarker(let path): return "Workbook transaction marker is unsafe: \(path)"
+        case .recoveryRequired(let path):
+            return "Workbook transaction recovery is required, but the existing publication lock could not be opened: \(path)"
         case .invalidTransaction(let message): return "Workbook transaction marker is invalid: \(message)"
         case .ambiguousTransaction(let message): return "Workbook transaction recovery is ambiguous: \(message)"
         case .currentWorkbookIntegrity(let message): return "The current workbook failed integrity validation: \(message)"
@@ -123,7 +147,8 @@ public final class ONTGenotypeBundlePublicationLock: @unchecked Sendable {
 
     public static func acquire(
         for bundleURL: URL,
-        blocking: Bool = false
+        blocking: Bool = false,
+        createIfMissing: Bool = true
     ) throws -> ONTGenotypeBundlePublicationLock {
         let parent = bundleURL.standardizedFileURL.deletingLastPathComponent()
         let parentDescriptor = Darwin.open(parent.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
@@ -132,11 +157,15 @@ public final class ONTGenotypeBundlePublicationLock: @unchecked Sendable {
         }
         defer { Darwin.close(parentDescriptor) }
         let lockURL = lockURL(for: bundleURL)
+        let openFlags = O_RDWR | O_NOFOLLOW | O_CLOEXEC | (createIfMissing ? O_CREAT : 0)
         let descriptor = lockURL.lastPathComponent.withCString {
-            Darwin.openat(parentDescriptor, $0, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
+            Darwin.openat(parentDescriptor, $0, openFlags, S_IRUSR | S_IWUSR)
         }
         guard descriptor >= 0 else {
             if errno == ELOOP { throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeLock(lockURL.path) }
+            if !createIfMissing, errno == ENOENT || errno == EACCES || errno == EROFS {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.recoveryRequired(lockURL.path)
+            }
             throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(lockURL.path, errno)
         }
         var info = stat()
@@ -212,6 +241,26 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         )
     }
 
+    public static func directoryIdentity(
+        for url: URL,
+        path: String
+    ) throws -> ONTGenotypeWorkbookUpdateDirectoryIdentity {
+        var info = stat()
+        guard Darwin.lstat(url.path, &info) == 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, errno)
+        }
+        guard info.st_mode & S_IFMT == S_IFDIR else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "journaled generation is not a real directory: \(url.path)"
+            )
+        }
+        return ONTGenotypeWorkbookUpdateDirectoryIdentity(
+            path: path,
+            device: UInt64(bitPattern: Int64(info.st_dev)),
+            inode: UInt64(info.st_ino)
+        )
+    }
+
     public static func write(_ transaction: ONTGenotypeWorkbookUpdateTransaction, for bundleURL: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -240,10 +289,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         for bundleURL: URL
     ) throws {
         try validate(transaction, for: bundleURL)
+        try validateTransactionRootIfPresent(transaction)
         let final = URL(fileURLWithPath: transaction.finalBundlePath, isDirectory: true)
         let staging = URL(fileURLWithPath: transaction.stagingBundlePath, isDirectory: true)
-        guard generationState(at: final, transaction: transaction) == .committedNew,
-              generationState(at: staging, transaction: transaction) == .old else {
+        guard try generationState(at: final, transaction: transaction) == .committedNew,
+              try generationState(at: staging, transaction: transaction) == .old else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
                 "Cannot finalize a workbook transaction whose committed and prior generations do not match the journal."
             )
@@ -269,10 +319,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             from: readRegularFileNoFollow(marker)
         )
         try validate(transaction, for: bundleURL)
+        try validateTransactionRootIfPresent(transaction)
         let final = URL(fileURLWithPath: transaction.finalBundlePath, isDirectory: true)
         let staging = URL(fileURLWithPath: transaction.stagingBundlePath, isDirectory: true)
-        let finalState = generationState(at: final, transaction: transaction)
-        let stagingState = generationState(at: staging, transaction: transaction)
+        let finalState = try generationState(at: final, transaction: transaction)
+        let stagingState = try generationState(at: staging, transaction: transaction)
 
         if finalState == .old, stagingState == .preparedNew {
             try removeProvenTransactionRoot(transaction)
@@ -281,8 +332,13 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             return
         }
         if finalState == .preparedNew, stagingState == .old {
-            try exchange(final, staging)
-            guard generationState(at: final, transaction: transaction) == .old else {
+            try exchange(
+                final,
+                expectedLHS: transaction.newGenerationIdentity,
+                staging,
+                expectedRHS: transaction.oldGenerationIdentity
+            )
+            guard try generationState(at: final, transaction: transaction) == .old else {
                 throw try ambiguous(transaction, detail: "Rollback exchange did not restore the prior generation.")
             }
             try removeProvenTransactionRoot(transaction)
@@ -340,8 +396,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     private static func generationState(
         at bundleURL: URL,
         transaction: ONTGenotypeWorkbookUpdateTransaction
-    ) -> GenerationState {
-        guard FileManager.default.fileExists(atPath: bundleURL.path) else { return .missing }
+    ) throws -> GenerationState {
+        guard let actualIdentity = try directoryIdentityIfPresent(at: bundleURL) else { return .missing }
+        let isOldGeneration = identity(actualIdentity, matches: transaction.oldGenerationIdentity)
+        let isNewGeneration = identity(actualIdentity, matches: transaction.newGenerationIdentity)
+        guard isOldGeneration || isNewGeneration else { return .ambiguous }
         let manifestURL = bundleURL.appendingPathComponent(transaction.oldManifest.path)
         let oldManifest = matches(manifestURL, transaction.oldManifest)
         let newManifest = matches(manifestURL, transaction.newManifest)
@@ -353,9 +412,9 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             bundleURL.appendingPathComponent(transaction.newCurrentWorkbook.path),
             transaction.newCurrentWorkbook
         )
-        if oldManifest && oldWorkbook { return .old }
-        if oldManifest && newWorkbook { return .preparedNew }
-        if newManifest && newWorkbook { return .committedNew }
+        if isOldGeneration, oldManifest && oldWorkbook { return .old }
+        if isNewGeneration, oldManifest && newWorkbook { return .preparedNew }
+        if isNewGeneration, newManifest && newWorkbook { return .committedNew }
         return .ambiguous
     }
 
@@ -370,11 +429,14 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         for bundleURL: URL
     ) throws {
         let final = bundleURL.standardizedFileURL
-        guard transaction.schemaVersion == 1,
+        guard transaction.schemaVersion == 2,
               URL(fileURLWithPath: transaction.finalBundlePath).standardizedFileURL == final,
               transaction.oldManifest.path == ONTGenotypeResultBundleManifest.filename,
               transaction.newManifest.path == ONTGenotypeResultBundleManifest.filename,
-              transaction.oldCurrentWorkbook.path == transaction.newCurrentWorkbook.path else {
+              transaction.oldCurrentWorkbook.path == transaction.newCurrentWorkbook.path,
+              transaction.oldGenerationIdentity.path == transaction.finalBundlePath,
+              transaction.newGenerationIdentity.path == transaction.stagingBundlePath,
+              transaction.transactionRootIdentity.path == transaction.transactionRootPath else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(markerURL(for: bundleURL).path)
         }
         let parent = final.deletingLastPathComponent().standardizedFileURL
@@ -400,6 +462,102 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         }
     }
 
+    public static func validatePreparedDirectoryIdentitiesAssumingLock(
+        _ transaction: ONTGenotypeWorkbookUpdateTransaction,
+        for bundleURL: URL
+    ) throws {
+        try validate(transaction, for: bundleURL)
+        try requireDirectoryIdentity(
+            at: URL(fileURLWithPath: transaction.transactionRootPath, isDirectory: true),
+            expected: transaction.transactionRootIdentity,
+            role: "transaction root"
+        )
+        try requireDirectoryIdentity(
+            at: URL(fileURLWithPath: transaction.finalBundlePath, isDirectory: true),
+            expected: transaction.oldGenerationIdentity,
+            role: "prior generation"
+        )
+        try requireDirectoryIdentity(
+            at: URL(fileURLWithPath: transaction.stagingBundlePath, isDirectory: true),
+            expected: transaction.newGenerationIdentity,
+            role: "prepared generation"
+        )
+    }
+
+    public static func validateExchangedDirectoryIdentitiesAssumingLock(
+        _ transaction: ONTGenotypeWorkbookUpdateTransaction,
+        for bundleURL: URL
+    ) throws {
+        try validate(transaction, for: bundleURL)
+        try requireDirectoryIdentity(
+            at: URL(fileURLWithPath: transaction.transactionRootPath, isDirectory: true),
+            expected: transaction.transactionRootIdentity,
+            role: "transaction root"
+        )
+        try requireDirectoryIdentity(
+            at: URL(fileURLWithPath: transaction.finalBundlePath, isDirectory: true),
+            expected: transaction.newGenerationIdentity,
+            role: "prepared generation"
+        )
+        try requireDirectoryIdentity(
+            at: URL(fileURLWithPath: transaction.stagingBundlePath, isDirectory: true),
+            expected: transaction.oldGenerationIdentity,
+            role: "prior generation"
+        )
+    }
+
+    private static func validateTransactionRootIfPresent(
+        _ transaction: ONTGenotypeWorkbookUpdateTransaction
+    ) throws {
+        let root = URL(fileURLWithPath: transaction.transactionRootPath, isDirectory: true)
+        guard let actual = try directoryIdentityIfPresent(at: root) else { return }
+        guard identity(actual, matches: transaction.transactionRootIdentity) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "transaction root identity does not match the journal: \(root.path)"
+            )
+        }
+    }
+
+    private static func requireDirectoryIdentity(
+        at url: URL,
+        expected: ONTGenotypeWorkbookUpdateDirectoryIdentity,
+        role: String
+    ) throws {
+        guard let actual = try directoryIdentityIfPresent(at: url),
+              identity(actual, matches: expected) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "\(role) identity does not match the journal: \(url.path)"
+            )
+        }
+    }
+
+    private static func directoryIdentityIfPresent(
+        at url: URL
+    ) throws -> ONTGenotypeWorkbookUpdateDirectoryIdentity? {
+        var info = stat()
+        guard Darwin.lstat(url.path, &info) == 0 else {
+            if errno == ENOENT { return nil }
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, errno)
+        }
+        guard info.st_mode & S_IFMT == S_IFDIR else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "journaled directory path is not a real directory: \(url.path)"
+            )
+        }
+        return ONTGenotypeWorkbookUpdateDirectoryIdentity(
+            path: url.path,
+            device: UInt64(bitPattern: Int64(info.st_dev)),
+            inode: UInt64(info.st_ino)
+        )
+    }
+
+    private static func identity(
+        _ actual: ONTGenotypeWorkbookUpdateDirectoryIdentity,
+        matches expected: ONTGenotypeWorkbookUpdateDirectoryIdentity
+    ) -> Bool {
+        actual.device == expected.device && actual.inode == expected.inode
+    }
+
     private static func ambiguous(
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         detail: String
@@ -421,13 +579,21 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
               root.lastPathComponent.hasSuffix(".staging") else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction("unsafe transaction cleanup root")
         }
-        if FileManager.default.fileExists(atPath: root.path) {
-            try removeTreeNoFollow(root)
+        if try directoryIdentityIfPresent(at: root) != nil {
+            try requireDirectoryIdentity(
+                at: root,
+                expected: transaction.transactionRootIdentity,
+                role: "transaction root"
+            )
+            try removeTreeNoFollow(root, expected: transaction.transactionRootIdentity)
             try syncDirectory(root.deletingLastPathComponent())
         }
     }
 
-    private static func removeTreeNoFollow(_ root: URL) throws {
+    private static func removeTreeNoFollow(
+        _ root: URL,
+        expected: ONTGenotypeWorkbookUpdateDirectoryIdentity
+    ) throws {
         let parent = root.deletingLastPathComponent()
         let parentDescriptor = Darwin.open(parent.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard parentDescriptor >= 0 else {
@@ -441,9 +607,13 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction("cleanup root is not a real directory")
         }
         var rootInfo = stat()
-        guard Darwin.fstat(rootDescriptor, &rootInfo) == 0 else {
+        guard Darwin.fstat(rootDescriptor, &rootInfo) == 0,
+              UInt64(bitPattern: Int64(rootInfo.st_dev)) == expected.device,
+              UInt64(rootInfo.st_ino) == expected.inode else {
             Darwin.close(rootDescriptor)
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(root.path, errno)
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "cleanup root identity does not match the journal"
+            )
         }
         do {
             try removeDirectoryContentsNoFollow(rootDescriptor, displayURL: root)
@@ -530,10 +700,19 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         }
     }
 
-    private static func exchange(_ lhs: URL, _ rhs: URL) throws {
+    private static func exchange(
+        _ lhs: URL,
+        expectedLHS: ONTGenotypeWorkbookUpdateDirectoryIdentity,
+        _ rhs: URL,
+        expectedRHS: ONTGenotypeWorkbookUpdateDirectoryIdentity
+    ) throws {
+        try requireDirectoryIdentity(at: lhs, expected: expectedLHS, role: "exchange source")
+        try requireDirectoryIdentity(at: rhs, expected: expectedRHS, role: "exchange destination")
         guard Darwin.renameatx_np(AT_FDCWD, lhs.path, AT_FDCWD, rhs.path, UInt32(RENAME_SWAP)) == 0 else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(rhs.path, errno)
         }
+        try requireDirectoryIdentity(at: lhs, expected: expectedRHS, role: "exchanged prior generation")
+        try requireDirectoryIdentity(at: rhs, expected: expectedLHS, role: "exchanged prepared generation")
         try syncDirectory(rhs.deletingLastPathComponent())
     }
 

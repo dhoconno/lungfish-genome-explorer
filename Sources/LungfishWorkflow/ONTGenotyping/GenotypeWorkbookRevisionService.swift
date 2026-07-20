@@ -1,4 +1,5 @@
 import Darwin
+import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -88,6 +89,13 @@ public struct GenotypeWorkbookRevisionProvenanceContext: Equatable, Sendable {
 }
 
 public struct GenotypeWorkbookRevisionService {
+    private struct SourceWorkbookWitness {
+        let device: dev_t
+        let inode: ino_t
+        let sizeBytes: Int64
+        let sha256: String
+    }
+
     private struct WorkbookOverrideExecutionRecord: Codable {
         let executable: String
         let argv: [String]
@@ -275,6 +283,7 @@ public struct GenotypeWorkbookRevisionService {
         let stagedCallsURL = stageDirectory.appendingPathComponent(callsName)
         let stagedConfigurationURL = stageDirectory.appendingPathComponent(configName)
         let stagedRuntimeRecordURL = stageDirectory.appendingPathComponent(runtimeName)
+        let stagedSourceWorkbookURL = stageDirectory.appendingPathComponent("source-workbook.xlsx")
         let patchedURL = stageDirectory.appendingPathComponent("current.xlsx")
         let scriptURL = stageDirectory.appendingPathComponent("apply-current-workbook-overrides.py")
         let encoder = JSONEncoder()
@@ -282,8 +291,12 @@ public struct GenotypeWorkbookRevisionService {
         try writeStagedFile(try JSONEncoder().encode(calls), to: stagedCallsURL)
         try writeStagedFile(try encoder.encode(configuration), to: stagedConfigurationURL)
         try writeStagedFile(Data(workbookOverrideScript.utf8), to: scriptURL)
+        let sourceWorkbookWitness = try snapshotRegularFileNoFollow(
+            from: sourceWorkbookURL,
+            to: stagedSourceWorkbookURL
+        )
         let scriptArguments = [
-            sourceWorkbookURL.path,
+            stagedSourceWorkbookURL.path,
             patchedURL.path,
             stagedCallsURL.path,
             annotationSidecarURL?.path ?? "",
@@ -293,6 +306,7 @@ public struct GenotypeWorkbookRevisionService {
         let executionRecord = try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
         try writeStagedFile(try encoder.encode(executionRecord), to: stagedRuntimeRecordURL)
         try validateWorkbook(patchedURL)
+        try publicationFailureInjector?("after-python-before-source-conflict-check")
         try checkCancellation()
 
         let cloneBundleURL = stageDirectory.appendingPathComponent(bundle.lastPathComponent, isDirectory: true)
@@ -313,7 +327,7 @@ public struct GenotypeWorkbookRevisionService {
         try fileManager.copyItem(at: stagedConfigurationURL, to: cloneConfigurationURL)
         try fileManager.copyItem(at: stagedRuntimeRecordURL, to: cloneRuntimeURL)
         try fileManager.copyItem(at: scriptURL, to: cloneScriptURL)
-        try fileManager.copyItem(at: sourceWorkbookURL, to: cloneSourceWorkbookURL)
+        try fileManager.copyItem(at: stagedSourceWorkbookURL, to: cloneSourceWorkbookURL)
         try fileManager.copyItem(at: patchedURL, to: clonePatchedWorkbookURL)
 
         let cloneCandidateInputs = candidateInputs.map { input in
@@ -369,6 +383,10 @@ public struct GenotypeWorkbookRevisionService {
         try originalManifestData.write(to: cloneManifestURL, options: .atomic)
         try syncDirectoryTree(cloneBundleURL)
         try checkCancellation()
+        try requireUnchangedRegularFileNoFollow(
+            sourceWorkbookURL,
+            witness: sourceWorkbookWitness
+        )
 
         let oldCurrentPath = manifest.currentWorkbookPath ?? manifest.primaryWorkbookPath
         let newCurrentPath = cloneManifest.currentWorkbookPath ?? cloneManifest.primaryWorkbookPath
@@ -416,6 +434,18 @@ public struct GenotypeWorkbookRevisionService {
             newCurrentWorkbook: try ONTGenotypeWorkbookUpdateRecovery.descriptor(
                 for: ONTGenotypeResultBundle.resolvedURL(for: newCurrentPath, in: cloneBundleURL),
                 path: newCurrentPath
+            ),
+            oldGenerationIdentity: try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(
+                for: bundle,
+                path: bundle.path
+            ),
+            newGenerationIdentity: try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(
+                for: cloneBundleURL,
+                path: cloneBundleURL.path
+            ),
+            transactionRootIdentity: try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(
+                for: stageDirectory,
+                path: stageDirectory.path
             )
         )
         guard workbookTransaction.oldManifest != workbookTransaction.newManifest,
@@ -433,7 +463,15 @@ public struct GenotypeWorkbookRevisionService {
         }
 
         let publicationStartedAt = Date()
+        try ONTGenotypeWorkbookUpdateRecovery.validatePreparedDirectoryIdentitiesAssumingLock(
+            workbookTransaction,
+            for: bundle
+        )
         try exchangeDirectoriesNoSync(cloneBundleURL, bundle)
+        try ONTGenotypeWorkbookUpdateRecovery.validateExchangedDirectoryIdentitiesAssumingLock(
+            workbookTransaction,
+            for: bundle
+        )
         try syncDirectory(bundle.deletingLastPathComponent())
         let publicationCompletedAt = Date()
         do {
@@ -475,7 +513,15 @@ public struct GenotypeWorkbookRevisionService {
             try ONTGenotypeWorkbookUpdateRecovery.write(workbookTransaction, for: bundle)
             do {
                 try publicationFailureInjector?("before-rollback-exchange")
+                try ONTGenotypeWorkbookUpdateRecovery.validateExchangedDirectoryIdentitiesAssumingLock(
+                    workbookTransaction,
+                    for: bundle
+                )
                 try exchangeDirectoriesNoSync(cloneBundleURL, bundle)
+                try ONTGenotypeWorkbookUpdateRecovery.validatePreparedDirectoryIdentitiesAssumingLock(
+                    workbookTransaction,
+                    for: bundle
+                )
             } catch let rollbackError {
                 workbookTransaction.phase = .rollbackFailed
                 try ONTGenotypeWorkbookUpdateRecovery.write(workbookTransaction, for: bundle)
@@ -1372,6 +1418,128 @@ public struct GenotypeWorkbookRevisionService {
             )
         }
         try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(stageURL, role: "workbook update staging directory")
+    }
+
+    private func snapshotRegularFileNoFollow(
+        from sourceURL: URL,
+        to destinationURL: URL
+    ) throws -> SourceWorkbookWitness {
+        let sourceDescriptor = Darwin.open(sourceURL.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard sourceDescriptor >= 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not open current workbook snapshot source without following links: \(sourceURL.path) (errno \(errno))."
+            )
+        }
+        defer { Darwin.close(sourceDescriptor) }
+        var before = stat()
+        guard Darwin.fstat(sourceDescriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Current workbook snapshot source is not a regular file: \(sourceURL.path)"
+            )
+        }
+        let destinationDescriptor = Darwin.open(
+            destinationURL.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            S_IRUSR | S_IWUSR
+        )
+        guard destinationDescriptor >= 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not create immutable workbook input snapshot: \(destinationURL.path) (errno \(errno))."
+            )
+        }
+        defer { Darwin.close(destinationDescriptor) }
+        var hasher = SHA256()
+        var totalBytes: Int64 = 0
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = Darwin.read(sourceDescriptor, &buffer, buffer.count)
+            if count == 0 { break }
+            guard count > 0 else {
+                if errno == EINTR { continue }
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Could not read current workbook snapshot: \(sourceURL.path) (errno \(errno))."
+                )
+            }
+            hasher.update(data: Data(buffer[0..<count]))
+            totalBytes += Int64(count)
+            var offset = 0
+            while offset < count {
+                let written = buffer.withUnsafeBytes { bytes in
+                    Darwin.write(
+                        destinationDescriptor,
+                        bytes.baseAddress!.advanced(by: offset),
+                        count - offset
+                    )
+                }
+                guard written > 0 else {
+                    if errno == EINTR { continue }
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                        "Could not write immutable workbook input snapshot: \(destinationURL.path) (errno \(errno))."
+                    )
+                }
+                offset += written
+            }
+        }
+        var after = stat()
+        guard Darwin.fstat(sourceDescriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              totalBytes == Int64(after.st_size),
+              Darwin.fsync(destinationDescriptor) == 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Current workbook changed while its immutable input snapshot was being created."
+            )
+        }
+        return SourceWorkbookWitness(
+            device: before.st_dev,
+            inode: before.st_ino,
+            sizeBytes: totalBytes,
+            sha256: hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        )
+    }
+
+    private func requireUnchangedRegularFileNoFollow(
+        _ url: URL,
+        witness: SourceWorkbookWitness
+    ) throws {
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Current workbook changed or became unavailable before publication: \(url.path)"
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        var info = stat()
+        guard Darwin.fstat(descriptor, &info) == 0,
+              info.st_mode & S_IFMT == S_IFREG,
+              info.st_dev == witness.device,
+              info.st_ino == witness.inode,
+              Int64(info.st_size) == witness.sizeBytes else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Current workbook changed while the update was being prepared; the manual edit was preserved."
+            )
+        }
+        var hasher = SHA256()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            if count == 0 { break }
+            guard count > 0 else {
+                if errno == EINTR { continue }
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Could not verify the current workbook before publication: \(url.path)"
+                )
+            }
+            hasher.update(data: Data(buffer[0..<count]))
+        }
+        let checksum = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        guard checksum == witness.sha256 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Current workbook changed while the update was being prepared; the manual edit was preserved."
+            )
+        }
     }
 
     private func writeStagedFile(_ data: Data, to url: URL) throws {

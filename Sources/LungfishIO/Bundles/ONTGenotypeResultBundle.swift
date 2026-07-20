@@ -1389,6 +1389,22 @@ public enum ONTGenotypeResultBundle {
 
     private static let maximumCollectedCandidateArtifactBytes: Int64 = 256 * 1_024 * 1_024
     private static let artifactReadChunkBytes = 64 * 1_024
+    private static let maximumStableReadAttempts = 3
+
+    private struct ManifestSnapshot: Equatable {
+        let data: Data
+        let device: dev_t
+        let inode: ino_t
+        let sizeBytes: Int64
+        let sha256: String
+
+        static func == (lhs: ManifestSnapshot, rhs: ManifestSnapshot) -> Bool {
+            lhs.device == rhs.device
+                && lhs.inode == rhs.inode
+                && lhs.sizeBytes == rhs.sizeBytes
+                && lhs.sha256 == rhs.sha256
+        }
+    }
 
     private struct MHCCandidateProjection {
         let candidates: ONTMHCCandidateAllelesDocument?
@@ -1548,14 +1564,11 @@ public enum ONTGenotypeResultBundle {
     /// Synchronous loader retained for CLI and non-UI callers. This method may hash
     /// large declared BAM artifacts; AppKit call sites should use `loadResultAsync`.
     public static func loadResult(from bundleURL: URL) throws -> ONTGenotypeResultBundleData {
-        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL, blocking: true)
-        defer { publicationLock.release() }
-        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(for: bundleURL)
-        let manifest = try loadManifest(from: bundleURL)
-        return try loadResult(
+        try loadStableResult(
             from: bundleURL,
-            manifest: manifest,
-            candidateArtifactByteBudget: maximumCollectedCandidateArtifactBytes
+            candidateArtifactByteBudget: maximumCollectedCandidateArtifactBytes,
+            requiredManifest: nil,
+            stableReadObserver: nil
         )
     }
 
@@ -1574,16 +1587,14 @@ public enum ONTGenotypeResultBundle {
 
     static func loadResult(
         from bundleURL: URL,
-        candidateArtifactByteBudget: Int64
+        candidateArtifactByteBudget: Int64,
+        stableReadObserver: ((Int) throws -> Void)? = nil
     ) throws -> ONTGenotypeResultBundleData {
-        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL, blocking: true)
-        defer { publicationLock.release() }
-        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(for: bundleURL)
-        let manifest = try loadManifest(from: bundleURL)
-        return try loadResult(
+        try loadStableResult(
             from: bundleURL,
-            manifest: manifest,
-            candidateArtifactByteBudget: candidateArtifactByteBudget
+            candidateArtifactByteBudget: candidateArtifactByteBudget,
+            requiredManifest: nil,
+            stableReadObserver: stableReadObserver
         )
     }
 
@@ -1593,19 +1604,120 @@ public enum ONTGenotypeResultBundle {
         from bundleURL: URL,
         manifest: ONTGenotypeResultBundleManifest
     ) throws -> ONTGenotypeResultBundleData {
-        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL, blocking: true)
+        try loadStableResult(
+            from: bundleURL,
+            candidateArtifactByteBudget: maximumCollectedCandidateArtifactBytes,
+            requiredManifest: manifest,
+            stableReadObserver: nil
+        )
+    }
+
+    private static func loadStableResult(
+        from bundleURL: URL,
+        candidateArtifactByteBudget: Int64,
+        requiredManifest: ONTGenotypeResultBundleManifest?,
+        stableReadObserver: ((Int) throws -> Void)?
+    ) throws -> ONTGenotypeResultBundleData {
+        let bundle = bundleURL.standardizedFileURL
+        for attempt in 0..<maximumStableReadAttempts {
+            try Task.checkCancellation()
+            if try transactionMarkerExistsNoFollow(for: bundle) {
+                try recoverUsingExistingPublicationLock(for: bundle)
+                continue
+            }
+
+            let before = try readManifestSnapshotNoFollow(from: bundle)
+            let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: before.data)
+            if let requiredManifest, manifest != requiredManifest {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.currentWorkbookIntegrity(
+                    "The caller-supplied manifest is stale relative to the durable bundle manifest."
+                )
+            }
+            let result = try loadResult(
+                from: bundle,
+                manifest: manifest,
+                candidateArtifactByteBudget: candidateArtifactByteBudget
+            )
+            try stableReadObserver?(attempt)
+            try Task.checkCancellation()
+
+            if try transactionMarkerExistsNoFollow(for: bundle) {
+                try recoverUsingExistingPublicationLock(for: bundle)
+                continue
+            }
+            let after = try readManifestSnapshotNoFollow(from: bundle)
+            if before == after { return result }
+        }
+        throw ONTGenotypeWorkbookUpdateRecoveryError.currentWorkbookIntegrity(
+            "The genotype result changed repeatedly while it was being loaded. Please retry after the writer finishes."
+        )
+    }
+
+    private static func recoverUsingExistingPublicationLock(for bundleURL: URL) throws {
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
         defer { publicationLock.release() }
         try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(for: bundleURL)
-        let durableManifest = try loadManifest(from: bundleURL)
-        guard durableManifest == manifest else {
+    }
+
+    private static func transactionMarkerExistsNoFollow(for bundleURL: URL) throws -> Bool {
+        let marker = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: bundleURL)
+        var info = stat()
+        guard Darwin.lstat(marker.path, &info) == 0 else {
+            if errno == ENOENT { return false }
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(marker.path, errno)
+        }
+        guard info.st_mode & S_IFMT == S_IFREG else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(marker.path)
+        }
+        return true
+    }
+
+    private static func readManifestSnapshotNoFollow(from bundleURL: URL) throws -> ManifestSnapshot {
+        let url = manifestURL(in: bundleURL)
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, errno)
+        }
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.currentWorkbookIntegrity(
-                "The caller-supplied manifest is stale relative to the durable bundle manifest."
+                "The durable bundle manifest is not a regular file: \(url.path)"
             )
         }
-        return try loadResult(
-            from: bundleURL,
-            manifest: durableManifest,
-            candidateArtifactByteBudget: maximumCollectedCandidateArtifactBytes
+        var data = Data()
+        data.reserveCapacity(Int(before.st_size))
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+        while true {
+            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            if count == 0 { break }
+            guard count > 0 else {
+                if errno == EINTR { continue }
+                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, errno)
+            }
+            data.append(buffer, count: count)
+        }
+        var after = stat()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              Int64(data.count) == Int64(after.st_size) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.currentWorkbookIntegrity(
+                "The durable bundle manifest changed while it was being read."
+            )
+        }
+        return ManifestSnapshot(
+            data: data,
+            device: after.st_dev,
+            inode: after.st_ino,
+            sizeBytes: Int64(after.st_size),
+            sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         )
     }
 

@@ -336,7 +336,7 @@ wb.save(path)
         let marker = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
         )
-        XCTAssertEqual(marker["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(marker["schemaVersion"] as? Int, 2)
         XCTAssertEqual(marker["phase"] as? String, "prepared")
         XCTAssertEqual(marker["workflowName"] as? String, "Genotype Workbook Update")
         XCTAssertFalse((marker["argv"] as? [String] ?? []).isEmpty)
@@ -344,6 +344,9 @@ wb.save(path)
         XCTAssertNotNil(marker["newManifest"] as? [String: Any])
         XCTAssertNotNil(marker["oldCurrentWorkbook"] as? [String: Any])
         XCTAssertNotNil(marker["newCurrentWorkbook"] as? [String: Any])
+        XCTAssertNotNil(marker["oldGenerationIdentity"] as? [String: Any])
+        XCTAssertNotNil(marker["newGenerationIdentity"] as? [String: Any])
+        XCTAssertNotNil(marker["transactionRootIdentity"] as? [String: Any])
 
         _ = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
 
@@ -461,6 +464,96 @@ wb.save(path)
         XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
             $0.contains("workbook-update-recovery") && $0.hasSuffix(".json")
         })
+    }
+
+    func testCraftedMarkerCannotRedirectRecoveryToByteIdenticalUnrelatedStage() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "crafted-marker-stage")
+        let markerURL = try interruptWorkbookPublicationAfterExchange(fixture: fixture, root: root)
+        var marker = try markerObject(at: markerURL)
+        let genuineRoot = URL(
+            fileURLWithPath: try XCTUnwrap(marker["transactionRootPath"] as? String),
+            isDirectory: true
+        )
+        let genuineStage = URL(
+            fileURLWithPath: try XCTUnwrap(marker["stagingBundlePath"] as? String),
+            isDirectory: true
+        )
+        let rogueRoot = root.appendingPathComponent(
+            ".\(fixture.bundleURL.lastPathComponent).workbook-update-crafted.staging",
+            isDirectory: true
+        )
+        let rogueStage = rogueRoot.appendingPathComponent(fixture.bundleURL.lastPathComponent, isDirectory: true)
+        try FileManager.default.createDirectory(at: rogueRoot, withIntermediateDirectories: false)
+        try FileManager.default.copyItem(at: genuineStage, to: rogueStage)
+        let sentinel = rogueRoot.appendingPathComponent("unrelated-sentinel.txt")
+        try Data("must-survive".utf8).write(to: sentinel)
+        marker["transactionRootPath"] = rogueRoot.path
+        marker["stagingBundlePath"] = rogueStage.path
+        try writeMarkerObject(marker, to: markerURL)
+        let finalBefore = try bundleSnapshot(fixture.bundleURL)
+        let genuineBefore = try bundleSnapshot(genuineRoot)
+        let rogueBefore = try bundleSnapshot(rogueRoot)
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), finalBefore)
+        XCTAssertEqual(try bundleSnapshot(genuineRoot), genuineBefore)
+        XCTAssertEqual(try bundleSnapshot(rogueRoot), rogueBefore)
+        XCTAssertEqual(try Data(contentsOf: sentinel), Data("must-survive".utf8))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+    }
+
+    func testRecoveryRejectsTransactionRootInodeSubstitutionWithoutDeletingEitherTree() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "marker-inode-substitution")
+        let markerURL = try interruptWorkbookPublicationAfterExchange(fixture: fixture, root: root)
+        let marker = try markerObject(at: markerURL)
+        let transactionRoot = URL(
+            fileURLWithPath: try XCTUnwrap(marker["transactionRootPath"] as? String),
+            isDirectory: true
+        )
+        let retainedRoot = root.appendingPathComponent("retained-genuine-transaction-root", isDirectory: true)
+        try FileManager.default.moveItem(at: transactionRoot, to: retainedRoot)
+        try FileManager.default.copyItem(at: retainedRoot, to: transactionRoot)
+        let finalBefore = try bundleSnapshot(fixture.bundleURL)
+        let retainedBefore = try bundleSnapshot(retainedRoot)
+        let replacementBefore = try bundleSnapshot(transactionRoot)
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), finalBefore)
+        XCTAssertEqual(try bundleSnapshot(retainedRoot), retainedBefore)
+        XCTAssertEqual(try bundleSnapshot(transactionRoot), replacementBefore)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+    }
+
+    func testRecoveryRejectsSymlinkedTransactionRootBeforeAnyGenerationSwap() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "marker-root-symlink")
+        let markerURL = try interruptWorkbookPublicationAfterExchange(fixture: fixture, root: root)
+        let marker = try markerObject(at: markerURL)
+        let transactionRoot = URL(
+            fileURLWithPath: try XCTUnwrap(marker["transactionRootPath"] as? String),
+            isDirectory: true
+        )
+        let retainedRoot = root.appendingPathComponent("retained-symlink-target", isDirectory: true)
+        try FileManager.default.moveItem(at: transactionRoot, to: retainedRoot)
+        try FileManager.default.createSymbolicLink(at: transactionRoot, withDestinationURL: retainedRoot)
+        let finalBefore = try bundleSnapshot(fixture.bundleURL)
+        let retainedBefore = try bundleSnapshot(retainedRoot)
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), finalBefore)
+        XCTAssertEqual(try bundleSnapshot(retainedRoot), retainedBefore)
+        var info = stat()
+        XCTAssertEqual(Darwin.lstat(transactionRoot.path, &info), 0)
+        XCTAssertEqual(info.st_mode & S_IFMT, S_IFLNK)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
     }
 
     func testPreManifestFailureRestoresEntireBundleWithOldManifestStillVisible() throws {
@@ -694,6 +787,68 @@ wb.save(path)
             try FileManager.default.contentsOfDirectory(atPath: root.path)
                 .contains(where: { $0.hasPrefix(stagePrefix) })
         )
+    }
+
+    func testManualExcelSaveAfterPythonConflictsAndSurvivesWithoutMetadataMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "manual-save-race")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+        let manifestBefore = try Data(contentsOf: manifestURL)
+        let provenanceURL = fixture.bundleURL.appendingPathComponent(
+            "artifacts/workbooks/provenance", isDirectory: true
+        )
+        let provenanceBefore = try directorySnapshot(provenanceURL)
+        let pythonURL = testPythonExecutableURL
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-python-before-source-conflict-check" else { return }
+                    _ = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+wb[wb.sheetnames[0]]["Z99"] = "manual-save-survives"
+wb.save(path)
+"""#, currentURL.path], executableURL: pythonURL)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("changed"))
+        }
+
+        XCTAssertEqual(try Data(contentsOf: manifestURL), manifestBefore)
+        XCTAssertEqual(try directorySnapshot(provenanceURL), provenanceBefore)
+        let manualValue = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+wb = load_workbook(sys.argv[1], data_only=False)
+print(wb[wb.sheetnames[0]]["Z99"].value or "")
+"""#, currentURL.path], executableURL: pythonURL)
+        XCTAssertEqual(manualValue.trimmingCharacters(in: .whitespacesAndNewlines), "manual-save-survives")
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
+    func testReadOnlyBundleAndParentLoadWithoutCreatingAdjacentLock() throws {
+        let root = try temporaryDirectory()
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "readonly-load")
+        let lockURL = ONTGenotypeBundlePublicationLock.lockURL(for: fixture.bundleURL)
+        try? FileManager.default.removeItem(at: lockURL)
+        defer {
+            try? chmodTreeWritable(root)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try chmodTreeReadOnly(fixture.bundleURL)
+        XCTAssertEqual(chmod(root.path, S_IRUSR | S_IXUSR), 0)
+
+        let loaded = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(loaded.bundleURL, fixture.bundleURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path))
     }
 
     func testSidecarDisplayEditAloneDoesNotMutateCurrentWorkbook() throws {
@@ -1847,6 +2002,76 @@ print(json.dumps(payload))
         return out
     }
 
+    private static func runPythonStatic(
+        _ arguments: [String],
+        executableURL: URL?
+    ) throws -> String {
+        let process = Process()
+        if let executableURL {
+            process.executableURL = executableURL
+            process.arguments = arguments
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["python3"] + arguments
+        }
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let errorText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "GenotypeWorkbookRevisionServiceTests",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: errorText]
+            )
+        }
+        return output
+    }
+
+    private func directorySnapshot(_ directoryURL: URL) throws -> [String: Data] {
+        guard FileManager.default.fileExists(atPath: directoryURL.path) else { return [:] }
+        var snapshot: [String: Data] = [:]
+        let rootCount = directoryURL.pathComponents.count
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: directoryURL, includingPropertiesForKeys: nil))
+        while let url = enumerator.nextObject() as? URL {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                continue
+            }
+            snapshot[url.pathComponents.dropFirst(rootCount).joined(separator: "/")] = try Data(contentsOf: url)
+        }
+        return snapshot
+    }
+
+    private func chmodTreeReadOnly(_ root: URL) throws {
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
+        var directories = [root]
+        while let url = enumerator.nextObject() as? URL {
+            var isDirectory: ObjCBool = false
+            _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            if isDirectory.boolValue {
+                directories.append(url)
+            } else {
+                XCTAssertEqual(chmod(url.path, S_IRUSR), 0)
+            }
+        }
+        for directory in directories.reversed() {
+            XCTAssertEqual(chmod(directory.path, S_IRUSR | S_IXUSR), 0)
+        }
+    }
+
+    private func chmodTreeWritable(_ root: URL) throws {
+        _ = chmod(root.path, S_IRWXU)
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return }
+        while let url = enumerator.nextObject() as? URL {
+            _ = chmod(url.path, S_IRWXU)
+        }
+    }
+
     private func workbookData(_ label: String) -> Data {
         var data = Data([0x50, 0x4b, 0x03, 0x04])
         data.append(Data(label.utf8))
@@ -1883,6 +2108,37 @@ print(json.dumps(payload))
             }
         }
         return snapshot
+    }
+
+    private func interruptWorkbookPublicationAfterExchange(
+        fixture: (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest),
+        root: URL
+    ) throws -> URL {
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-exchange-hard-stop" else { return }
+                    throw NSError(domain: "SimulatedSIGKILL", code: 9)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        let markerURL = root.appendingPathComponent(
+            ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+        return markerURL
+    }
+
+    private func markerObject(at markerURL: URL) throws -> [String: Any] {
+        try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
+        )
+    }
+
+    private func writeMarkerObject(_ object: [String: Any], to markerURL: URL) throws {
+        try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+            .write(to: markerURL, options: .atomic)
     }
 
     private func writeManifestWithoutCurrent(in bundleURL: URL) throws {
