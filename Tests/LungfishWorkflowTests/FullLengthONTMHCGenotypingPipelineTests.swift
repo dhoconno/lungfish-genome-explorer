@@ -431,8 +431,22 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(evidence.bai.sha256, try ProvenanceFileHasher.sha256(of: evidenceBAIURL))
         XCTAssertEqual(evidence.bam.sizeBytes, Int64(try ProvenanceFileHasher.fileSize(of: evidenceBAMURL)))
         XCTAssertEqual(evidence.bai.sizeBytes, Int64(try ProvenanceFileHasher.fileSize(of: evidenceBAIURL)))
-        XCTAssertNil(manifest.mhcCandidateArtifacts?.reciprocalEvidence)
-        XCTAssertNil(manifest.mhcCandidateArtifacts?.candidateJSON)
+        let reciprocal = try XCTUnwrap(manifest.mhcCandidateArtifacts?.reciprocalEvidence)
+        XCTAssertEqual(reciprocal.bam.path, "artifacts/alignments/unmatched-to-reference.bam")
+        XCTAssertEqual(reciprocal.bai.path, "artifacts/alignments/unmatched-to-reference.bam.bai")
+        let candidateJSON = try XCTUnwrap(manifest.mhcCandidateArtifacts?.candidateJSON)
+        XCTAssertEqual(candidateJSON.path, "candidate-alleles.json")
+        for reference in [
+            reciprocal.bam, reciprocal.bai, candidateJSON,
+            try XCTUnwrap(manifest.mhcCandidateArtifacts?.candidateFASTA),
+            try XCTUnwrap(manifest.mhcCandidateArtifacts?.unnameableJSON),
+            try XCTUnwrap(manifest.mhcCandidateArtifacts?.unnameableFASTA),
+        ] {
+            let url = outputDirectory.appendingPathComponent(reference.path)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+            XCTAssertEqual(reference.sha256, try ProvenanceFileHasher.sha256(of: url))
+            XCTAssertEqual(reference.sizeBytes, Int64(try ProvenanceFileHasher.fileSize(of: url)))
+        }
 
         let report = try String(contentsOf: request.reportCSVURL, encoding: .utf8)
         XCTAssertTrue(report.contains("DL46,allele1,7,7,1,7"))
@@ -448,6 +462,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: cohortWorkDirectory.path),
             "Regenerable cohort alignment intermediates should be removed after provenance is written."
+        )
+        let candidateWorkDirectory = outputDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent(".\(outputDirectory.lastPathComponent).candidate-artifact-work")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: candidateWorkDirectory.path),
+            "Regenerable candidate alignment intermediates should be removed after provenance is written."
         )
         let savontDirectory = outputDirectory
             .appendingPathComponent("samples", isDirectory: true)
@@ -505,8 +526,12 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "Expected deduplicated unmatched FASTA in provenance outputs. Outputs: \(envelope.outputs.map(\.path))"
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.deduplicatedUnmatchedClustersFASTAURL.path))
+        let durableEvidenceBAMs = Set([
+            "artifacts/alignments/genotyping-evidence.bam",
+            "artifacts/alignments/unmatched-to-reference.bam",
+        ])
         let durablePerSampleBAMs = try FileManager.default.subpathsOfDirectory(atPath: outputDirectory.path)
-            .filter { $0.hasSuffix(".bam") && $0 != "artifacts/alignments/genotyping-evidence.bam" }
+            .filter { $0.hasSuffix(".bam") && !durableEvidenceBAMs.contains($0) }
         XCTAssertEqual(durablePerSampleBAMs, [])
 
         let workbookXML = try Self.unzippedText(path: "xl/workbook.xml", from: result.workbookURL)
@@ -668,7 +693,9 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let minimapMappingSteps = envelope.steps.filter {
             $0.toolName == "minimap2" && $0.argv.contains("-a")
         }
-        XCTAssertEqual(minimapMappingSteps.count, 1, "Checkpoint reuse must remap retained clusters.")
+        XCTAssertEqual(minimapMappingSteps.count, 2, "Checkpoint reuse must remap retained clusters and candidates.")
+        XCTAssertEqual(minimapMappingSteps.filter { $0.argv.contains("splice") }.count, 1)
+        XCTAssertEqual(minimapMappingSteps.filter { $0.argv.contains("asm20") }.count, 1)
         let reuseStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName == "lungfish full-length ONT MHC sample checkpoint reuse"
         })
@@ -2356,11 +2383,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             current=""
             for arg in "$@"; do previous="$current"; current="$arg"; done
             target_fasta="$previous"
-            reference_fasta="$current"
-            allele=$(awk '/^>/{sub(/^>/, ""); print $1; exit}' "$reference_fasta")
+            query_fasta="$current"
+            query=$(awk '/^>/{sub(/^>/, ""); print $1; exit}' "$query_fasta")
             target=$(awk '/^>/{sub(/^>/, ""); print $1; exit}' "$target_fasta")
             printf '@SQ\tSN:%s\tLN:8\n' "$target"
-            printf '%s\t0\t%s\t1\t60\t8=\t*\t0\t0\tACGTACGT\t*\n' "$allele" "$target"
+            if [ -n "$query" ]; then
+              printf '%s\t0\t%s\t1\t60\t8=\t*\t0\t0\tACGTACGT\t*\tNM:i:0\tAS:i:8\n' "$query" "$target"
+            fi
             """#,
             to: minimap2Bin.appendingPathComponent("minimap2")
         )

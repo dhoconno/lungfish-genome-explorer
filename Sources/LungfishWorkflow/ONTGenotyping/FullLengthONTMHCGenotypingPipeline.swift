@@ -322,6 +322,7 @@ public enum FullLengthONTMHCGenotypingCleanupWarningKind: String, Sendable, Coda
     case retiredCohortPublicationDirectory
     case cohortAlignmentTemporaryWorkDirectory
     case cohortAlignmentWorkDirectory
+    case candidateArtifactWorkDirectory
     case workflowIntermediates
 }
 
@@ -359,6 +360,12 @@ public struct FullLengthONTMHCGenotypingResult: Sendable, Codable, Equatable {
     public let referenceFASTAURL: URL
     public let genotypingEvidenceBAMURL: URL?
     public let genotypingEvidenceBAIURL: URL?
+    public let reciprocalEvidenceBAMURL: URL?
+    public let reciprocalEvidenceBAIURL: URL?
+    public let candidateAllelesJSONURL: URL?
+    public let candidateAllelesFASTAURL: URL?
+    public let unnameableClustersJSONURL: URL?
+    public let unnameableClustersFASTAURL: URL?
     public let cleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning]
 }
 
@@ -378,6 +385,12 @@ extension FullLengthONTMHCGenotypingResult {
         case referenceFASTAURL
         case genotypingEvidenceBAMURL
         case genotypingEvidenceBAIURL
+        case reciprocalEvidenceBAMURL
+        case reciprocalEvidenceBAIURL
+        case candidateAllelesJSONURL
+        case candidateAllelesFASTAURL
+        case unnameableClustersJSONURL
+        case unnameableClustersFASTAURL
         case cleanupWarnings
     }
 
@@ -400,6 +413,12 @@ extension FullLengthONTMHCGenotypingResult {
         referenceFASTAURL = try container.decode(URL.self, forKey: .referenceFASTAURL)
         genotypingEvidenceBAMURL = try container.decodeIfPresent(URL.self, forKey: .genotypingEvidenceBAMURL)
         genotypingEvidenceBAIURL = try container.decodeIfPresent(URL.self, forKey: .genotypingEvidenceBAIURL)
+        reciprocalEvidenceBAMURL = try container.decodeIfPresent(URL.self, forKey: .reciprocalEvidenceBAMURL)
+        reciprocalEvidenceBAIURL = try container.decodeIfPresent(URL.self, forKey: .reciprocalEvidenceBAIURL)
+        candidateAllelesJSONURL = try container.decodeIfPresent(URL.self, forKey: .candidateAllelesJSONURL)
+        candidateAllelesFASTAURL = try container.decodeIfPresent(URL.self, forKey: .candidateAllelesFASTAURL)
+        unnameableClustersJSONURL = try container.decodeIfPresent(URL.self, forKey: .unnameableClustersJSONURL)
+        unnameableClustersFASTAURL = try container.decodeIfPresent(URL.self, forKey: .unnameableClustersFASTAURL)
         cleanupWarnings = try container.decodeIfPresent(
             [FullLengthONTMHCGenotypingCleanupWarning].self,
             forKey: .cleanupWarnings
@@ -422,6 +441,12 @@ extension FullLengthONTMHCGenotypingResult {
         try container.encode(referenceFASTAURL, forKey: .referenceFASTAURL)
         try container.encodeIfPresent(genotypingEvidenceBAMURL, forKey: .genotypingEvidenceBAMURL)
         try container.encodeIfPresent(genotypingEvidenceBAIURL, forKey: .genotypingEvidenceBAIURL)
+        try container.encodeIfPresent(reciprocalEvidenceBAMURL, forKey: .reciprocalEvidenceBAMURL)
+        try container.encodeIfPresent(reciprocalEvidenceBAIURL, forKey: .reciprocalEvidenceBAIURL)
+        try container.encodeIfPresent(candidateAllelesJSONURL, forKey: .candidateAllelesJSONURL)
+        try container.encodeIfPresent(candidateAllelesFASTAURL, forKey: .candidateAllelesFASTAURL)
+        try container.encodeIfPresent(unnameableClustersJSONURL, forKey: .unnameableClustersJSONURL)
+        try container.encodeIfPresent(unnameableClustersFASTAURL, forKey: .unnameableClustersFASTAURL)
         try container.encode(cleanupWarnings, forKey: .cleanupWarnings)
     }
 }
@@ -805,6 +830,41 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             to: request.deduplicatedUnmatchedClustersFASTAURL
         )
 
+        let evidenceArtifactPair = try validatedEvidenceArtifactPair(
+            cohortAlignmentResult,
+            bundleDirectoryURL: request.outputDirectory
+        )
+        let candidateWriter = FullLengthONTMHCCandidateArtifactWriter(
+            minimap2ExecutableURL: minimap2ExecutableURL,
+            samtoolsExecutableURL: samtoolsExecutableURL
+        )
+        let candidateWorkDirectory = request.outputDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent(".\(request.outputDirectory.lastPathComponent).candidate-artifact-work", isDirectory: true)
+        try FileManager.default.createDirectory(at: candidateWorkDirectory, withIntermediateDirectories: true)
+        let candidateArtifactResult = try await candidateWriter.write(.init(
+            observations: unmatchedClosestMatchRows.map {
+                FullLengthONTMHCCandidateSequenceObservation(
+                    sampleID: $0.sample,
+                    readGroupID: $0.sample,
+                    sourceClusterID: $0.cluster,
+                    clusterReadCount: $0.clusterReads,
+                    sequence: $0.sequence,
+                    genotypingEvidence: []
+                )
+            },
+            referenceAlleleFASTAURL: referenceFASTAURL,
+            referenceRecords: try mhcReferenceRecords(
+                sourceURL: request.referenceSourceURL,
+                fastaURL: referenceFASTAURL,
+                cdnaThreshold: request.cdnaThreshold
+            ),
+            genotypingEvidence: evidenceArtifactPair,
+            threads: request.threads,
+            outputDirectoryURL: request.outputDirectory,
+            workDirectoryURL: candidateWorkDirectory
+        ))
+
         progress.emit(0.86, "Writing full-length ONT MHC genotype reports.")
         let reportRows = FullLengthONTMHCClusterReportBuilder.reportRows(
             genotypeRows: allGenotypeRows,
@@ -859,10 +919,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         let workbookCopy = try createInitialCurrentWorkbookCopy(for: request)
         pipelineSteps.append(workbookCopy.step)
-        let evidenceArtifactPair = try validatedEvidenceArtifactPair(
-            cohortAlignmentResult,
-            bundleDirectoryURL: request.outputDirectory
-        )
         let manifestCreatedAt = Date()
         var manifestPublicationPlan: FullLengthONTMHCSuccessManifestPublicationPlan?
         do {
@@ -870,6 +926,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 request: request,
                 workbookRevision: workbookCopy.revision,
                 evidenceArtifactPair: evidenceArtifactPair,
+                candidateArtifacts: candidateArtifactResult.manifest,
                 createdAt: manifestCreatedAt
             )
             manifestPublicationPlan = plan
@@ -883,6 +940,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 steps: pipelineSteps,
                 cohortAlignmentResult: cohortAlignmentResult,
                 bamViewRecord: bamView.commandRecord,
+                candidateArtifactResult: candidateArtifactResult,
                 manifestPublicationPlan: plan,
                 startedAt: startedAt,
                 completedAt: provenanceCompletedAt
@@ -928,6 +986,18 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 }
             }
             do {
+                if FileManager.default.fileExists(atPath: candidateWorkDirectory.path) {
+                    try postPublicationWorkDirectoryCleaner.removeWorkDirectory(at: candidateWorkDirectory)
+                }
+            } catch {
+                cleanupWarnings.append(FullLengthONTMHCGenotypingCleanupWarning(
+                    kind: .candidateArtifactWorkDirectory,
+                    path: candidateWorkDirectory.standardizedFileURL.path,
+                    error: cleanupErrorDescription(error),
+                    publishedArtifactsRemainValid: true
+                ))
+            }
+            do {
                 try removeGeneratedWorkflowIntermediates(workDirectory)
             } catch {
                 cleanupWarnings.append(FullLengthONTMHCGenotypingCleanupWarning(
@@ -955,6 +1025,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             referenceFASTAURL: referenceFASTAURL,
             genotypingEvidenceBAMURL: cohortAlignmentResult.bamURL,
             genotypingEvidenceBAIURL: cohortAlignmentResult.baiURL,
+            reciprocalEvidenceBAMURL: candidateArtifactResult.reciprocalBAMURL,
+            reciprocalEvidenceBAIURL: candidateArtifactResult.reciprocalBAIURL,
+            candidateAllelesJSONURL: candidateArtifactResult.candidateJSONURL,
+            candidateAllelesFASTAURL: candidateArtifactResult.candidateFASTAURL,
+            unnameableClustersJSONURL: candidateArtifactResult.unnameableJSONURL,
+            unnameableClustersFASTAURL: candidateArtifactResult.unnameableFASTAURL,
             cleanupWarnings: cleanupWarnings
         )
     }
@@ -987,6 +1063,34 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             throw FullLengthONTMHCGenotypingError.invalidReference(sourceURL.path)
         }
         return fastaURL.standardizedFileURL
+    }
+
+    private func mhcReferenceRecords(
+        sourceURL: URL,
+        fastaURL: URL,
+        cdnaThreshold: Int
+    ) throws -> [MHCReferenceRecord] {
+        if MHCAmpliconReferenceBundle.isBundleURL(sourceURL) {
+            return try MHCReferenceRecordCatalog.load(
+                from: sourceURL,
+                cdnaThreshold: cdnaThreshold
+            ).records
+        }
+        return try FullLengthONTMHCClusterGenotyper.readFASTARecords(from: fastaURL).map { record in
+            let sequenceID = record.name.split(whereSeparator: { $0.isWhitespace }).first.map(String.init)
+                ?? record.name
+            let alleleName = sequenceID
+            let locus = alleleName.split(separator: "*", maxSplits: 1).first.map(String.init)
+                ?? alleleName
+            return MHCReferenceRecord(
+                sequenceID: sequenceID,
+                alleleName: alleleName,
+                locus: locus,
+                moleculeClass: record.sequence.count < cdnaThreshold ? .cDNA : .genomicDNA,
+                classEvidence: .lengthThresholdFallback,
+                sequenceLength: record.sequence.count
+            )
+        }
     }
 
     private func materializeFASTQ(
@@ -2548,6 +2652,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         request: FullLengthONTMHCGenotypingRunRequest,
         workbookRevision: ONTGenotypeWorkbookRevision,
         evidenceArtifactPair: ONTMHCBAMArtifactPair,
+        candidateArtifacts: ONTMHCCandidateArtifactManifest,
         createdAt: Date
     ) throws -> FullLengthONTMHCSuccessManifestPublicationPlan {
         let startedAt = Date()
@@ -2573,15 +2678,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             haplotypeDefinitionSetID: request.haplotypeDefinitionSetID,
             haplotypeAssayID: resolvedHaplotypeDefinitionSet?.assayID,
             createdAt: ISO8601DateFormatter().string(from: createdAt),
-            mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest(
-                schemaVersion: 1,
-                genotypingEvidence: evidenceArtifactPair,
-                reciprocalEvidence: nil,
-                candidateJSON: nil,
-                candidateFASTA: nil,
-                unnameableJSON: nil,
-                unnameableFASTA: nil
-            )
+            mhcCandidateArtifacts: candidateArtifacts
         )
         let stagedURL = request.outputDirectory.appendingPathComponent(
             ".\(ONTGenotypeResultBundleManifest.filename).staging-\(UUID().uuidString)"
@@ -2704,6 +2801,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         steps: [FullLengthONTMHCProvenanceStep],
         cohortAlignmentResult: FullLengthONTMHCCohortAlignmentResult,
         bamViewRecord: FullLengthONTMHCCohortAlignmentCommandRecord,
+        candidateArtifactResult: FullLengthONTMHCCandidateArtifactResult,
         manifestPublicationPlan: FullLengthONTMHCSuccessManifestPublicationPlan,
         startedAt: Date,
         completedAt: Date
@@ -2860,6 +2958,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         .output(request.cdnaClustersFASTAURL, format: .fasta, role: .output)
         .output(cohortAlignmentResult.bamURL, format: .bam, role: .output)
         .output(cohortAlignmentResult.baiURL, format: .unknown, role: .index)
+        .output(candidateArtifactResult.reciprocalBAMURL, format: .bam, role: .output)
+        .output(candidateArtifactResult.reciprocalBAIURL, format: .unknown, role: .index)
+        .output(candidateArtifactResult.candidateJSONURL, format: .json, role: .output)
+        .output(candidateArtifactResult.candidateFASTAURL, format: .fasta, role: .output)
+        .output(candidateArtifactResult.unnameableJSONURL, format: .json, role: .output)
+        .output(candidateArtifactResult.unnameableFASTAURL, format: .fasta, role: .output)
 
         if request.haplotypeDefinitionSetID != nil {
             builder = try builder.output(request.haplotypeAnalysisURL, format: .json, role: .report)
@@ -2876,6 +2980,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             cohortAlignmentResult,
             bamViewRecord: bamViewRecord
         )
+        allProvenanceSteps += try (
+            candidateArtifactResult.toolVersionDiscoveryRecords + candidateArtifactResult.commandRecords
+        ).map {
+            try provenanceStep(for: $0)
+        }
         allProvenanceSteps.append(manifestPublicationPlan.provenanceStep)
         allProvenanceSteps.sort {
             ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast)
