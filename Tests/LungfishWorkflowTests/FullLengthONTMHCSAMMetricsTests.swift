@@ -24,12 +24,37 @@ final class FullLengthONTMHCSAMMetricsTests: XCTestCase {
         XCTAssertEqual(metrics.nonIntronIndelBases, 7)
     }
 
+    func testHardClipsAtBothEndsAreAcceptedAndExcludedFromAllSpans() throws {
+        let metrics = try FullLengthONTMHCSAMMetrics(
+            cigar: "426H5S100=2X3I4D20N10=7S15H",
+            nm: nil
+        )
+
+        XCTAssertEqual(metrics.matches, 110)
+        XCTAssertEqual(metrics.snps, 2)
+        XCTAssertEqual(metrics.insertedBases, 3)
+        XCTAssertEqual(metrics.deletedBases, 4)
+        XCTAssertEqual(metrics.softClippedBases, 12)
+        XCTAssertEqual(metrics.comparableBases, 112)
+        XCTAssertEqual(metrics.referenceSpan, 136)
+        XCTAssertEqual(metrics.querySpan, 127)
+    }
+
+    func testRejectsHardClipBetweenQueryConsumingOperations() {
+        assertMetricsError(
+            cigar: "10=5H10=",
+            nm: nil,
+            equals: .invalidHardClipPlacement
+        )
+    }
+
     func testRejectsMalformedAndUnsupportedCIGAROperations() {
         assertMetricsError(cigar: "", nm: nil, equals: .emptyCIGAR)
         assertMetricsError(cigar: "M", nm: 0, equals: .missingOperationLength(operator: "M"))
         assertMetricsError(cigar: "0M", nm: 0, equals: .zeroOperationLength(operator: "M"))
+        assertMetricsError(cigar: "0H", nm: nil, equals: .zeroOperationLength(operator: "H"))
         assertMetricsError(cigar: "10M2", nm: 0, equals: .trailingOperationLength("2"))
-        assertMetricsError(cigar: "10H", nm: nil, equals: .unsupportedOperator("H"))
+        assertMetricsError(cigar: "10P", nm: nil, equals: .unsupportedOperator("P"))
     }
 
     func testAmbiguousMUsesNMMinusNonIntronIndelsForSNPCount() throws {

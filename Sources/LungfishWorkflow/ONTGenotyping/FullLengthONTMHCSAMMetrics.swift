@@ -29,6 +29,7 @@ enum FullLengthONTMHCSAMMetricsError: Error, Equatable, Sendable {
     case zeroOperationLength(operator: Character)
     case trailingOperationLength(String)
     case unsupportedOperator(Character)
+    case invalidHardClipPlacement
     case missingNMForAmbiguousMatch
     case invalidNM(String)
     case negativeNM(Int)
@@ -70,6 +71,9 @@ struct FullLengthONTMHCSAMMetrics: Equatable, Sendable {
         var deletedBases = 0
         var skippedReferenceBases = 0
         var softClippedBases = 0
+        var sawAlignmentOperation = false
+        var sawLeadingHardClip = false
+        var sawTrailingHardClip = false
         var lengthText = ""
 
         for character in cigar {
@@ -89,6 +93,22 @@ struct FullLengthONTMHCSAMMetrics: Equatable, Sendable {
             }
 
             let operation = FullLengthONTMHCSAMMetricsArithmeticOperation.accumulateCIGAROperator(character)
+            if character == "H" {
+                if sawTrailingHardClip || (!sawAlignmentOperation && sawLeadingHardClip) {
+                    throw FullLengthONTMHCSAMMetricsError.invalidHardClipPlacement
+                }
+                if sawAlignmentOperation {
+                    sawTrailingHardClip = true
+                } else {
+                    sawLeadingHardClip = true
+                }
+                lengthText = ""
+                continue
+            }
+            guard !sawTrailingHardClip else {
+                throw FullLengthONTMHCSAMMetricsError.invalidHardClipPlacement
+            }
+            sawAlignmentOperation = true
             switch character {
             case "=":
                 explicitMatches = try Self.adding(
