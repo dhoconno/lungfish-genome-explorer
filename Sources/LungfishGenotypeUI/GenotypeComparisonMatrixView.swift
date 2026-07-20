@@ -415,8 +415,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedMatrixTargets = [matrixTarget(row: visibleRows[0], sample: nil)]
         selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         scrollRowToVisibleInBothTables(0)
-        onSharedCallSelected?(visibleRows[0].sharedCall, nil, selectedMatrixTargets)
-        if visibleRows[0].population != .known {
+        if visibleRows[0].population == .known {
+            onSharedCallSelected?(visibleRows[0].sharedCall, nil, selectedMatrixTargets)
+        } else {
             onCandidateRowSelected?(visibleRows[0], nil, selectedMatrixTargets)
         }
     }
@@ -1013,8 +1014,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 selectRowIndexes(IndexSet(integer: newIndex), byExtendingSelection: false)
                 scrollRowToVisibleInBothTables(newIndex)
             } else {
-                onSharedCallSelected?(visibleRows[newIndex].sharedCall, selectedSampleName, selectedMatrixTargets)
-                if visibleRows[newIndex].population != .known {
+                if visibleRows[newIndex].population == .known {
+                    onSharedCallSelected?(visibleRows[newIndex].sharedCall, selectedSampleName, selectedMatrixTargets)
+                } else {
                     onCandidateRowSelected?(visibleRows[newIndex], selectedSampleName, selectedMatrixTargets)
                 }
             }
@@ -1627,8 +1629,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         directSelectionAnchor = selectedMatrixTargets.first
         reloadSelectionTransition(from: previousTargets, to: selectedMatrixTargets)
         setHeaderViewsNeedDisplay()
-        onSharedCallSelected?(row.sharedCall, sample, selectedMatrixTargets)
-        if row.population != .known {
+        if row.population == .known {
+            onSharedCallSelected?(row.sharedCall, sample, selectedMatrixTargets)
+        } else {
             onCandidateRowSelected?(row, sample, selectedMatrixTargets)
         }
     }
@@ -1651,8 +1654,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         directSelectionAnchor = selectedMatrixTargets.last
         reloadSelectionTransition(from: previousTargets, to: selectedMatrixTargets)
         setHeaderViewsNeedDisplay()
-        onSharedCallSelected?(firstRow.sharedCall, sample, selectedMatrixTargets)
-        if firstRow.population != .known {
+        if firstRow.population == .known {
+            onSharedCallSelected?(firstRow.sharedCall, sample, selectedMatrixTargets)
+        } else {
             onCandidateRowSelected?(firstRow, sample, selectedMatrixTargets)
         }
     }

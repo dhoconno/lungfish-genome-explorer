@@ -25,6 +25,11 @@ public struct GenotypeAIHaplotypingUIRequest: Equatable, Sendable {
     }
 }
 
+struct GenotypeCandidateSelectionCallbackCounts: Equatable {
+    let known: Int
+    let candidate: Int
+}
+
 @MainActor
 public final class GenotypeResultViewController: NSViewController {
     typealias Lens = GenotypeResultViewportLens
@@ -34,6 +39,7 @@ public final class GenotypeResultViewController: NSViewController {
     public var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
     public var onAnnotationSidecarChanged: ((GenotypeAnnotationSidecar) -> Void)?
+    public var onCandidatePersistenceWarningChanged: ((String?) -> Void)?
     public var onCurrentWorkbookUpdateRequested: ((URL, [GenotypeWorkbookHaplotypeCall], [String]) -> Void)?
     public var onAIHaplotypingRequested: ((URL, GenotypeAIHaplotypingUIRequest) -> Void)?
     public var windowStateScope: WindowStateScope?
@@ -109,6 +115,16 @@ public final class GenotypeResultViewController: NSViewController {
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
+    private var currentCandidateRow: GenotypeCandidateMatrixRow?
+    private var candidatePersistenceWarning: String?
+    private var candidateSettingsPersistenceTask: Task<Void, Never>?
+    private var candidateSettingsPersistenceGeneration: UInt64 = 0
+    private var pendingCandidateSettingsRequest: (
+        settings: ONTMHCCandidateDisplaySettings,
+        state: GenotypeResultDisplayState
+    )?
+    private var knownSelectionCallbackCount = 0
+    private var candidateSelectionCallbackCount = 0
     private var currentSelectedSample: String?
     private var currentSelectedLocus: String?
     private var currentSelectionState: GenotypeResultSelectionState?
@@ -448,12 +464,21 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func configure(result: ONTGenotypeResultBundleData) {
         invalidateCurrentWorkbookResultReload()
+        candidateSettingsPersistenceTask?.cancel()
+        candidateSettingsPersistenceTask = nil
+        pendingCandidateSettingsRequest = nil
+        candidateSettingsPersistenceGeneration &+= 1
         self.result = result
         liveHaplotypeAnalysis = nil
         cachedHaplotypeDefinitionContext = nil
         comparisonMatrixConfigured = false
         currentWorkbookNeedsRefresh = false
         currentWorkbookUpdateStatus = nil
+        currentCandidateRow = nil
+        candidatePersistenceWarning = nil
+        onCandidatePersistenceWarningChanged?(nil)
+        knownSelectionCallbackCount = 0
+        candidateSelectionCallbackCount = 0
         let knownSampleIDs = Set(
             result.samples.map(\.sample)
                 + result.calls.map(\.sample)
@@ -474,6 +499,9 @@ public final class GenotypeResultViewController: NSViewController {
             bundleURL: result.bundleURL,
             author: NSUserName()
         )
+        displayState.mhcCandidateDisplaySettings = validatedMHCCandidateDocument(from: result) == nil
+            ? nil
+            : (annotationStore?.sidecar.settings.mhcCandidateDisplay ?? .default)
         displayState.summaryViewMode = initialSummaryViewMode(for: result)
         if shouldEagerlyRecomputeHaplotypeAnalysis(for: result) {
             recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
@@ -512,6 +540,21 @@ public final class GenotypeResultViewController: NSViewController {
             }
         }
         diagnosticDisplayGenotypeByIdentifier = bestByIdentifier.mapValues(\.genotype)
+    }
+
+    private func validatedMHCCandidateDocument(
+        from result: ONTGenotypeResultBundleData
+    ) -> ONTMHCCandidateAllelesDocument? {
+        guard result.manifest.kind == "full-length-ont-mhc-genotype",
+              let artifacts = result.manifest.mhcCandidateArtifacts,
+              artifacts.schemaVersion == 1,
+              artifacts.candidateJSON != nil,
+              artifacts.candidateFASTA != nil,
+              let document = result.mhcCandidates,
+              document.schemaVersion == 1 else {
+            return nil
+        }
+        return document
     }
 
     private func rebuildActiveHaplotypeAnalysisIndexes() {
@@ -616,6 +659,17 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyDisplayState(_ state: GenotypeResultDisplayState) {
+        if state.mhcCandidateDisplaySettings != displayState.mhcCandidateDisplaySettings,
+           let result,
+           validatedMHCCandidateDocument(from: result) != nil,
+           let requestedSettings = state.mhcCandidateDisplaySettings {
+            persistCandidateDisplaySettings(requestedSettings, requestedState: state)
+            return
+        }
+        applyDisplayStateImmediately(state)
+    }
+
+    private func applyDisplayStateImmediately(_ state: GenotypeResultDisplayState) {
         let previousViewMode = displayState.summaryViewMode
         let previousAncillary = displayState.showsAncillaryLoci
         let previousIncludedLoci = displayState.includedLoci
@@ -653,6 +707,96 @@ public final class GenotypeResultViewController: NSViewController {
                 currentSharedCall,
                 sample: currentSelectedSample,
                 matrixTargets: currentSelectionState?.matrixTargets
+            )
+        }
+    }
+
+    private func persistCandidateDisplaySettings(
+        _ requestedSettings: ONTMHCCandidateDisplaySettings,
+        requestedState: GenotypeResultDisplayState
+    ) {
+        guard let store = annotationStore, !store.isReadOnly else {
+            candidatePersistenceWarning = "Candidate display settings could not be saved because this bundle is read-only."
+            onCandidatePersistenceWarningChanged?(candidatePersistenceWarning)
+            onDisplayStateChanged?(displayState)
+            refreshCandidateSelectionDetails()
+            return
+        }
+        if candidateSettingsPersistenceTask != nil {
+            pendingCandidateSettingsRequest = (requestedSettings, requestedState)
+            return
+        }
+        candidateSettingsPersistenceGeneration &+= 1
+        let generation = candidateSettingsPersistenceGeneration
+        let expectedSettings = store.sidecar.settings.mhcCandidateDisplay
+        let bundleURL = store.bundleURL
+        let author = store.author
+        candidateSettingsPersistenceTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled,
+                  generation == self.candidateSettingsPersistenceGeneration else { return }
+            do {
+                let published = try await GenotypeCandidateDisplayPersistence.persist(
+                    display: requestedSettings,
+                    expectedDisplay: expectedSettings,
+                    bundleURL: bundleURL,
+                    author: author
+                )
+                guard !Task.isCancelled,
+                      generation == self.candidateSettingsPersistenceGeneration else { return }
+                self.annotationStore = try? GenotypeAnnotationStore(bundleURL: bundleURL, author: author)
+                self.candidatePersistenceWarning = nil
+                self.onCandidatePersistenceWarningChanged?(nil)
+                var persistedState = requestedState
+                persistedState.mhcCandidateDisplaySettings = published.settings.mhcCandidateDisplay
+                self.applyDisplayStateImmediately(persistedState)
+                self.comparisonMatrix.applyAnnotationSidecar(published, reload: false)
+                self.onAnnotationSidecarChanged?(published)
+                self.onDisplayStateChanged?(persistedState)
+                self.finishCandidateSettingsPersistence(processPending: true)
+            } catch {
+                guard !Task.isCancelled,
+                      generation == self.candidateSettingsPersistenceGeneration else { return }
+                self.candidatePersistenceWarning = error.localizedDescription
+                self.onCandidatePersistenceWarningChanged?(self.candidatePersistenceWarning)
+                let latest: GenotypeAnnotationSidecar
+                if let conflict = error as? GenotypeCandidateDisplayPersistenceError {
+                    latest = conflict.latestSidecar
+                } else {
+                    latest = (try? GenotypeAnnotationStore(bundleURL: bundleURL, author: author).sidecar)
+                        ?? store.sidecar
+                }
+                self.annotationStore = try? GenotypeAnnotationStore(bundleURL: bundleURL, author: author)
+                var restoredState = self.displayState
+                restoredState.mhcCandidateDisplaySettings = latest.settings.mhcCandidateDisplay
+                self.applyDisplayStateImmediately(restoredState)
+                self.comparisonMatrix.applyAnnotationSidecar(latest, reload: false)
+                self.onAnnotationSidecarChanged?(latest)
+                self.onDisplayStateChanged?(restoredState)
+                self.refreshCandidateSelectionDetails()
+                self.finishCandidateSettingsPersistence(processPending: false)
+            }
+        }
+    }
+
+    private func finishCandidateSettingsPersistence(processPending: Bool) {
+        candidateSettingsPersistenceTask = nil
+        guard processPending, let pendingCandidateSettingsRequest else {
+            self.pendingCandidateSettingsRequest = nil
+            return
+        }
+        self.pendingCandidateSettingsRequest = nil
+        persistCandidateDisplaySettings(
+            pendingCandidateSettingsRequest.settings,
+            requestedState: pendingCandidateSettingsRequest.state
+        )
+    }
+
+    private func refreshCandidateSelectionDetails() {
+        if let currentCandidateRow {
+            showCandidateRow(
+                currentCandidateRow,
+                sample: currentSelectedSample,
+                matrixTargets: currentSelectionState?.matrixTargets ?? []
             )
         }
     }
@@ -1134,7 +1278,12 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func wireCallbacks() {
         comparisonMatrix.onSharedCallSelected = { [weak self] sharedCall, sample, matrixTargets in
+            self?.knownSelectionCallbackCount += 1
             self?.showSharedCall(sharedCall, sample: sample, matrixTargets: matrixTargets)
+        }
+        comparisonMatrix.onCandidateRowSelected = { [weak self] row, sample, matrixTargets in
+            self?.candidateSelectionCallbackCount += 1
+            self?.showCandidateRow(row, sample: sample, matrixTargets: matrixTargets)
         }
         comparisonMatrix.onMatrixTargetsSelected = { [weak self] targets in
             self?.showMatrixTargetSelection(targets)
@@ -2118,6 +2267,7 @@ public final class GenotypeResultViewController: NSViewController {
         matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
     ) {
         currentSharedCall = sharedCall
+        currentCandidateRow = nil
         currentSelectedSample = sample
         removeArrangedSubviews(from: detailStack)
 
@@ -2182,8 +2332,55 @@ public final class GenotypeResultViewController: NSViewController {
         publishSelectionState(selectionState(for: sharedCall, sample: sample, matrixTargets: matrixTargets))
     }
 
+    private func showCandidateRow(
+        _ row: GenotypeCandidateMatrixRow,
+        sample: String?,
+        matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) {
+        guard let result,
+              let document = validatedMHCCandidateDocument(from: result),
+              let artifacts = result.manifest.mhcCandidateArtifacts,
+              row.candidate != nil else {
+            showEmptySelection()
+            return
+        }
+        currentSharedCall = nil
+        currentCandidateRow = row
+        currentSelectedSample = sample
+        let rows = GenotypeCandidateEvidenceProjection.detailRows(
+            row: row,
+            document: document,
+            artifacts: artifacts,
+            selectedSample: sample
+        ) + matrixCommentDetailRows(for: row.sharedCall, sample: sample, matrixTargets: matrixTargets)
+        removeArrangedSubviews(from: detailStack)
+        detailStack.addArrangedSubview(sectionTitle("Candidate Allele Evidence"))
+        detailStack.addArrangedSubview(wrappingText(row.alleleName, weight: .medium, maximumLines: 3))
+        detailStack.addArrangedSubview(caption("Candidate rows are display evidence only and are excluded from haplotype inference and genotype QC."))
+        if let candidatePersistenceWarning {
+            detailStack.addArrangedSubview(caption("Warning: \(candidatePersistenceWarning)"))
+        }
+        detailStack.addArrangedSubview(detailRows(rows))
+
+        let target = GenotypeResultHighlightTarget(
+            genotype: row.genotype,
+            locus: row.locus,
+            sample: sample,
+            stableClusterID: row.stableClusterID
+        )
+        publishSelectionState(GenotypeResultSelectionState(
+            title: row.alleleName,
+            subtitle: "\(row.locus) candidate - \(row.stableClusterID ?? "Unavailable")",
+            detailRows: rows,
+            highlightTarget: target,
+            highlightStyle: comparisonMatrix.highlightStyle(for: target),
+            matrixTargets: matrixTargets
+        ))
+    }
+
     private func showEmptySelection() {
         currentSharedCall = nil
+        currentCandidateRow = nil
         currentSelectedSample = nil
         removeArrangedSubviews(from: detailStack)
         detailStack.addArrangedSubview(caption("Select a genotype row to review shared support."))
@@ -5637,6 +5834,46 @@ extension GenotypeResultViewController {
     func testingSelectMatrixCell(genotype: String, sample: String) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingSelectCell(genotype: genotype, sample: sample)
+    }
+
+    func testingSelectCandidateCell(stableClusterID: String, sample: String) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSelectCandidateCell(
+            rowID: .candidate(stableClusterID: stableClusterID),
+            sample: sample
+        )
+    }
+
+    var testingSelectedCandidateStableClusterID: String? {
+        currentCandidateRow?.stableClusterID
+    }
+
+    var testingCandidateSelectionCallbackCounts: GenotypeCandidateSelectionCallbackCounts {
+        .init(known: knownSelectionCallbackCount, candidate: candidateSelectionCallbackCount)
+    }
+
+    var testingCandidateIntegrityWarningText: String {
+        guard let result else { return "" }
+        return GenotypeCandidateEvidenceProjection.warningText(result.integrityWarnings)
+    }
+
+    var testingVisibleMatrixGenotypes: [String] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingVisibleGenotypes
+    }
+
+    var testingDisplayState: GenotypeResultDisplayState {
+        displayState
+    }
+
+    var testingCandidatePersistenceWarning: String? {
+        candidatePersistenceWarning
+    }
+
+    func testingWaitForCandidateSettingsPersistence() async {
+        while candidateSettingsPersistenceTask != nil {
+            await Task.yield()
+        }
     }
 
     func testingSelectMatrixRows(genotypes: [String], sample: String?) {

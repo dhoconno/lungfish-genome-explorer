@@ -302,6 +302,10 @@ extension MainSplitViewController {
                 controller.onAnnotationSidecarChanged = { [weak self] sidecar in
                     self?.inspectorController.updateGenotypeAnnotationSidecar(sidecar)
                 }
+                controller.onCandidatePersistenceWarningChanged = { [weak self] warning in
+                    self?.inspectorController.genotypeResultDisplaySectionViewModel
+                        .updateMHCCandidatePersistenceWarning(warning)
+                }
                 controller.onCurrentWorkbookUpdateRequested = { [weak self, weak controller] bundleURL, calls, includedLoci in
                     guard let self else { return }
                     guard self.canWriteProjectOutputs(workflowName: "Update current.xlsx") else { return }

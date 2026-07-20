@@ -354,7 +354,12 @@ extension InspectorViewController {
         )
         // Mirror the current display-state knobs into the document state so
         // Inspector controls render with the right values when the section appears.
-        let currentDisplay = viewModel.genotypeResultDisplaySectionViewModel.displayState
+        var currentDisplay = viewModel.genotypeResultDisplaySectionViewModel.displayState
+        if result.manifest.kind == "full-length-ont-mhc-genotype", result.mhcCandidates != nil {
+            currentDisplay.mhcCandidateDisplaySettings = sidecar.settings.mhcCandidateDisplay
+        } else {
+            currentDisplay.mhcCandidateDisplaySettings = nil
+        }
         let availableLoci = genotypeHaplotypeLoci(result)
         let defaultIncludedLoci = genotypeDefaultIncludedHaplotypeLoci(
             availableLoci,
@@ -374,6 +379,7 @@ extension InspectorViewController {
             state: currentDisplay,
             hasHaplotypingResult: result.haplotypeAnalysis != nil
         )
+        viewModel.genotypeResultDisplaySectionViewModel.updateMHCCandidatePresentation(from: result)
         updateProvenanceTarget(
             url: result.bundleURL,
             sidebarType: .genotypeResultBundle,
@@ -497,6 +503,11 @@ extension InspectorViewController {
             nextState.qcRows = genotypeQCRows(subjects: subjects)
             nextState.haplotypeDefinitionRows = genotypeHaplotypeDefinitionRows(result, sidecar: sidecar)
             nextState.currentWorkbookUpdate = genotypeCurrentWorkbookUpdateState(result: result, sidecar: sidecar)
+            var displayState = viewModel.genotypeResultDisplaySectionViewModel.displayState
+            if viewModel.genotypeResultDisplaySectionViewModel.mhcCandidateControlsAvailable {
+                displayState.mhcCandidateDisplaySettings = sidecar.settings.mhcCandidateDisplay
+            }
+            viewModel.genotypeResultDisplaySectionViewModel.updateDisplayState(displayState)
         }
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(
             nextState

@@ -8,6 +8,313 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeResultViewportTests: XCTestCase {
+    func testFullLengthCandidateControlsExposeExactLabelsDefaultsAndIndependentTintReset() throws {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        let result = makeCandidateResult(
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 3)],
+            candidates: [
+                makeCandidate(id: "shared", name: "Shared_nov", classification: .novel, support: .shared, samples: ["AnimalA", "AnimalB"]),
+                makeCandidate(id: "single", name: "Single_ext", classification: .extension, support: .singleton, samples: ["AnimalB"]),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "shared", sample: "AnimalA", reads: 2),
+                makeCandidateObservation(cluster: "shared", sample: "AnimalB", reads: 4),
+                makeCandidateObservation(cluster: "single", sample: "AnimalB", reads: 6),
+            ]
+        )
+
+        viewModel.updateMHCCandidatePresentation(from: result)
+
+        XCTAssertTrue(viewModel.mhcCandidateControlsAvailable)
+        XCTAssertEqual(GenotypeCandidateEvidenceSection.visibilityLabels, [
+            "Known",
+            "Shared candidates (2+ samples)",
+            "Singleton candidates (1 sample)",
+        ])
+        XCTAssertEqual(GenotypeCandidateEvidenceSection.tintLabels, [
+            "Shared novel",
+            "Singleton novel",
+            "Shared extension",
+            "Singleton extension",
+        ])
+        XCTAssertEqual(viewModel.mhcCandidateDisplaySettings, .default)
+
+        let replacement = AnnotationColor(red: 0.12, green: 0.34, blue: 0.56, alpha: 0.78)
+        viewModel.setMHCCandidateTint(replacement, category: .sharedNovel)
+        XCTAssertEqual(viewModel.mhcCandidateDisplaySettings.tints[.sharedNovel], replacement)
+        XCTAssertEqual(
+            viewModel.mhcCandidateDisplaySettings.tints[.singletonNovel],
+            ONTMHCCandidateDisplaySettings.defaultTints[.singletonNovel]
+        )
+
+        viewModel.resetMHCCandidateTint(.sharedNovel)
+        XCTAssertEqual(viewModel.mhcCandidateDisplaySettings.tints, ONTMHCCandidateDisplaySettings.defaultTints)
+    }
+
+    func testLegacyAndInvalidCandidateBundlesDoNotExposeControlsAndInvalidWarningIsNonfatal() {
+        let candidate = makeCandidateResult(
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
+            candidates: [makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
+            observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
+        )
+        let legacyBase = makeResult(samples: candidate.samples, calls: candidate.calls)
+        let legacy = ONTGenotypeResultBundleData(
+            bundleURL: legacyBase.bundleURL,
+            manifest: legacyBase.manifest,
+            artifacts: legacyBase.artifacts,
+            stats: legacyBase.stats,
+            calls: candidate.calls,
+            samples: candidate.samples,
+            haplotypeAnalysis: nil,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            integrityWarnings: []
+        )
+        let invalid = ONTGenotypeResultBundleData(
+            bundleURL: candidate.bundleURL,
+            manifest: candidate.manifest,
+            artifacts: candidate.artifacts,
+            stats: candidate.stats,
+            calls: candidate.calls,
+            samples: candidate.samples,
+            haplotypeAnalysis: nil,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            integrityWarnings: [.init(
+                code: .candidateArtifactChecksumMismatch,
+                detail: "candidate JSON checksum did not match",
+                path: "artifacts/candidates/candidates.json"
+            )]
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+
+        viewModel.updateMHCCandidatePresentation(from: legacy)
+        XCTAssertFalse(viewModel.mhcCandidateControlsAvailable)
+        XCTAssertTrue(viewModel.mhcCandidateIntegrityWarnings.isEmpty)
+
+        viewModel.updateMHCCandidatePresentation(from: invalid)
+        XCTAssertFalse(viewModel.mhcCandidateControlsAvailable)
+        XCTAssertEqual(viewModel.mhcCandidateIntegrityWarnings.count, 1)
+        XCTAssertTrue(viewModel.mhcCandidateIntegrityWarnings[0].contains("checksum"))
+
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: invalid)
+        XCTAssertEqual(controller.testingVisibleMatrixGenotypes, ["Known"])
+        XCTAssertTrue(controller.testingCandidateIntegrityWarningText.contains("checksum"))
+    }
+
+    func testCandidateSelectionUsesExclusiveCallbackAndCompleteStableEvidenceDetail() throws {
+        let result = makeCandidateResult(
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
+            candidates: [
+                makeCandidate(id: "cluster-a", name: "Collision_nov", classification: .novel, support: .shared, samples: ["AnimalA", "AnimalB"]),
+                makeCandidate(id: "cluster-b", name: "Collision_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalA", reads: 5),
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalB", reads: 7),
+                makeCandidateObservation(cluster: "cluster-b", sample: "AnimalA", reads: 11),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        controller.testingSelectCandidateCell(stableClusterID: "cluster-b", sample: "AnimalA")
+
+        XCTAssertEqual(controller.testingSelectedCandidateStableClusterID, "cluster-b")
+        let details = Dictionary(uniqueKeysWithValues: controller.testingCurrentSelectionDetailRows)
+        XCTAssertEqual(details["Stable Cluster ID"], "cluster-b")
+        XCTAssertEqual(details["Provisional Name"], "Collision_nov")
+        XCTAssertEqual(details["Classification"], "Novel")
+        XCTAssertEqual(details["Support Class"], "Singleton (1 sample)")
+        XCTAssertEqual(details["Independent Samples"], "1")
+        XCTAssertEqual(details["Occurrence Count"], "1")
+        XCTAssertEqual(details["Total Cluster Reads"], "5")
+        XCTAssertEqual(details["Selected Sample"], "AnimalA")
+        XCTAssertEqual(details["Selected Sample Reads"], "11")
+        XCTAssertEqual(details["Closest Reference"], "Mafa-A1*018:01:01:01")
+        XCTAssertEqual(details["SNP Substitutions"], "5")
+        XCTAssertEqual(details["FASTA Record ID"], "cluster-b")
+        XCTAssertEqual(details["Candidate FASTA Path"], "artifacts/candidates/candidates.fasta")
+        XCTAssertEqual(details["Genotyping BAM Path"], "artifacts/alignments/genotyping-evidence.bam")
+        XCTAssertEqual(details["Genotyping BAI Path"], "artifacts/alignments/genotyping-evidence.bam.bai")
+        XCTAssertEqual(details["Reciprocal BAM Path"], "artifacts/alignments/unmatched-to-reference.bam")
+        XCTAssertEqual(details["Reciprocal BAI Path"], "artifacts/alignments/unmatched-to-reference.bam.bai")
+        XCTAssertEqual(details["Selected Alignment Query"], "cluster-b")
+        XCTAssertEqual(details["Selected Alignment CIGAR"], "2000M")
+        XCTAssertEqual(details["Genotyping Alignment Query"], "cluster-b|AnimalA")
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0.localizedCaseInsensitiveContains("sequence bases") })
+        XCTAssertEqual(controller.testingCandidateSelectionCallbackCounts, .init(known: 0, candidate: 1))
+    }
+
+    func testCandidateVisibilityPersistsBeforeRedrawWithoutMutatingCurrentWorkbook() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CandidateDisplayPersistence-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let workbookURL = bundleURL.appendingPathComponent("current.xlsx")
+        let workbookBytes = Data("workbook-must-not-change".utf8)
+        try workbookBytes.write(to: workbookURL)
+        let result = makeCandidateResult(
+            bundleURL: bundleURL,
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
+            candidates: [makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
+            observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        _ = controller.testingVisibleMatrixGenotypes
+        var state = controller.testingDisplayState
+        var candidateSettings = try XCTUnwrap(state.mhcCandidateDisplaySettings)
+        candidateSettings.showSingletonCandidates = false
+        state.mhcCandidateDisplaySettings = candidateSettings
+
+        controller.applyDisplayState(state)
+
+        XCTAssertTrue(controller.testingVisibleMatrixGenotypes.contains("Candidate_nov"), "Redraw must wait for durable sidecar publication")
+        await controller.testingWaitForCandidateSettingsPersistence()
+        XCTAssertFalse(controller.testingVisibleMatrixGenotypes.contains("Candidate_nov"))
+        XCTAssertEqual(try Data(contentsOf: workbookURL), workbookBytes)
+        XCTAssertFalse(
+            try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+                .settings.mhcCandidateDisplay.showSingletonCandidates
+        )
+        let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
+        let provenance = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: ProvenanceRecorder.fileSidecarURL(for: annotationURL))
+        )
+        XCTAssertEqual(provenance.options.explicit["action"], .string("updateMHCCandidateDisplaySettings"))
+        XCTAssertEqual(provenance.options.explicit["showSingletonCandidates"], .boolean(false))
+        XCTAssertEqual(provenance.output?.path, annotationURL.path)
+        XCTAssertNil(controller.testingCandidatePersistenceWarning)
+    }
+
+    func testCandidateSettingsConflictRestoresLatestSidecarAndShowsNonfatalWarning() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CandidateDisplayConflict-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let result = makeCandidateResult(
+            bundleURL: bundleURL,
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
+            candidates: [makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
+            observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
+        var concurrentSettings = concurrent.sidecar.settings.mhcCandidateDisplay
+        concurrentSettings.showKnown = false
+        try concurrent.updateMHCCandidateDisplaySettings(concurrentSettings)
+        var state = controller.testingDisplayState
+        var staleSettings = try XCTUnwrap(state.mhcCandidateDisplaySettings)
+        staleSettings.showSingletonCandidates = false
+        state.mhcCandidateDisplaySettings = staleSettings
+
+        controller.applyDisplayState(state)
+        await controller.testingWaitForCandidateSettingsPersistence()
+
+        XCTAssertFalse(try XCTUnwrap(controller.testingDisplayState.mhcCandidateDisplaySettings).showKnown)
+        XCTAssertTrue(try XCTUnwrap(controller.testingDisplayState.mhcCandidateDisplaySettings).showSingletonCandidates)
+        XCTAssertTrue(controller.testingCandidatePersistenceWarning?.localizedCaseInsensitiveContains("changed") == true)
+        XCTAssertEqual(controller.testingVisibleMatrixGenotypes, ["Candidate_nov"])
+    }
+
+    func testRapidCandidateControlEditsCoalesceWithoutLosingTheLatestSettings() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CandidateDisplayCoalescing-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let result = makeCandidateResult(
+            bundleURL: bundleURL,
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
+            candidates: [makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
+            observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        var firstState = controller.testingDisplayState
+        var firstSettings = try XCTUnwrap(firstState.mhcCandidateDisplaySettings)
+        firstSettings.showKnown = false
+        firstState.mhcCandidateDisplaySettings = firstSettings
+        var latestState = firstState
+        var latestSettings = firstSettings
+        latestSettings.showSingletonCandidates = false
+        latestState.mhcCandidateDisplaySettings = latestSettings
+
+        controller.applyDisplayState(firstState)
+        controller.applyDisplayState(latestState)
+        await controller.testingWaitForCandidateSettingsPersistence()
+
+        let saved = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+            .settings.mhcCandidateDisplay
+        XCTAssertFalse(saved.showKnown)
+        XCTAssertFalse(saved.showSingletonCandidates)
+        XCTAssertTrue(controller.testingVisibleMatrixGenotypes.isEmpty)
+    }
+
+    func testCandidateSelectionPersistsByStableIDAcrossTintReloadAndClearsWhenHidden() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CandidateSelectionReload-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let result = makeCandidateResult(
+            bundleURL: bundleURL,
+            calls: [],
+            candidates: [makeCandidate(id: "stable-a", name: "Collision_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
+            observations: [makeCandidateObservation(cluster: "stable-a", sample: "AnimalA", reads: 5)]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        controller.testingSelectCandidateCell(stableClusterID: "stable-a", sample: "AnimalA")
+        var tintState = controller.testingDisplayState
+        var tintSettings = try XCTUnwrap(tintState.mhcCandidateDisplaySettings)
+        tintSettings.tints[.singletonNovel] = AnnotationColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.5)
+        tintState.mhcCandidateDisplaySettings = tintSettings
+
+        controller.applyDisplayState(tintState)
+        await controller.testingWaitForCandidateSettingsPersistence()
+        XCTAssertEqual(controller.testingSelectedCandidateStableClusterID, "stable-a")
+
+        var hiddenState = controller.testingDisplayState
+        var hiddenSettings = try XCTUnwrap(hiddenState.mhcCandidateDisplaySettings)
+        hiddenSettings.showSingletonCandidates = false
+        hiddenState.mhcCandidateDisplaySettings = hiddenSettings
+        controller.applyDisplayState(hiddenState)
+        await controller.testingWaitForCandidateSettingsPersistence()
+        XCTAssertNil(controller.testingSelectedCandidateStableClusterID)
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.isEmpty)
+    }
+
+    func testCandidateRowsRemainExcludedFromKnownCallQCAndHaplotypeOutputs() {
+        let result = makeCandidateResult(
+            calls: [],
+            candidates: [makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .shared, samples: ["AnimalA", "AnimalB"])],
+            observations: [
+                makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 500),
+                makeCandidateObservation(cluster: "candidate", sample: "AnimalB", reads: 700),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        XCTAssertEqual(result.callCount, 0)
+        XCTAssertTrue(result.locusSummaries.isEmpty)
+        XCTAssertTrue(controller.testingCurrentWorkbookHaplotypeCalls().isEmpty)
+        XCTAssertFalse(controller.testingHaplotypeMatrixText.contains("Candidate_nov"))
+    }
     func testMHCCandidateMatrixKeepsCollidingLabelsAsStableRowsAndShowsAllPopulationsByDefault() throws {
         let knownCall = makeCall(sample: "AnimalA", genotype: "Mafa-A1*001:01", reads: 13)
         let result = makeCandidateResult(
@@ -6099,8 +6406,14 @@ final class GenotypeResultViewportTests: XCTestCase {
             kind: "full-length-ont-mhc-genotype",
             mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest(
                 schemaVersion: 1,
-                genotypingEvidence: nil,
-                reciprocalEvidence: nil,
+                genotypingEvidence: ONTMHCBAMArtifactPair(
+                    bam: .init(path: "artifacts/alignments/genotyping-evidence.bam", sha256: String(repeating: "e", count: 64), sizeBytes: 2),
+                    bai: .init(path: "artifacts/alignments/genotyping-evidence.bam.bai", sha256: String(repeating: "f", count: 64), sizeBytes: 3)
+                ),
+                reciprocalEvidence: ONTMHCBAMArtifactPair(
+                    bam: .init(path: "artifacts/alignments/unmatched-to-reference.bam", sha256: String(repeating: "1", count: 64), sizeBytes: 4),
+                    bai: .init(path: "artifacts/alignments/unmatched-to-reference.bam.bai", sha256: String(repeating: "2", count: 64), sizeBytes: 5)
+                ),
                 candidateJSON: candidateReference,
                 candidateFASTA: fastaReference,
                 unnameableJSON: nil,

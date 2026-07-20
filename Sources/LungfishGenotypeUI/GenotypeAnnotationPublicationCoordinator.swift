@@ -7,7 +7,7 @@ enum GenotypeAnnotationPublicationFaultPoint: Equatable, Sendable {
 }
 
 typealias GenotypeAnnotationPublicationFaultInjector =
-    @MainActor @Sendable (GenotypeAnnotationPublicationFaultPoint) -> Error?
+    @Sendable (GenotypeAnnotationPublicationFaultPoint) -> Error?
 
 struct GenotypeAnnotationPublicationSnapshot: Sendable {
     let annotationData: Data?
@@ -46,7 +46,6 @@ private enum GenotypeAnnotationPublicationCoordinatorError: Error, LocalizedErro
     }
 }
 
-@MainActor
 struct GenotypeAnnotationPublicationCoordinator {
     static let lockFilename = ".annotations-publication.lock"
 
