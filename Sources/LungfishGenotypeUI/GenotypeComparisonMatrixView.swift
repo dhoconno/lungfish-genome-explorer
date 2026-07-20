@@ -43,6 +43,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private enum ColumnID {
         static let rowSelector = NSUserInterfaceItemIdentifier("rowSelector")
         static let genotype = NSUserInterfaceItemIdentifier("genotype")
+        static let stableClusterID = NSUserInterfaceItemIdentifier("stableClusterID")
         static let locus = NSUserInterfaceItemIdentifier("locus")
         static let samples = NSUserInterfaceItemIdentifier("samples")
         static let uniqueReads = NSUserInterfaceItemIdentifier("uniqueReads")
@@ -481,7 +482,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         pinnedTableView.headerView = pinnedHeaderView
         pinnedTableView.setAccessibilityIdentifier("genotype-comparison-pinned-table")
-        pinnedTableView.setAccessibilityLabel("Known and candidate genotype calls, loci, and summary statistics")
+        pinnedTableView.setAccessibilityLabel("Known and candidate genotype calls, stable cluster identifiers, loci, and summary statistics")
         pinnedScrollView.documentView = pinnedTableView
 
         let headerView = GenotypeMatrixHeaderView()
@@ -634,6 +635,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
         addRowSelectorColumn(to: pinnedTableView)
         addColumn(to: pinnedTableView, identifier: ColumnID.genotype, title: "Genotype", width: 280, minWidth: 160, ascending: true)
+        if isMHCCandidateViewportEnabled {
+            addColumn(
+                to: pinnedTableView,
+                identifier: ColumnID.stableClusterID,
+                title: "Cluster ID",
+                width: 150,
+                minWidth: 110,
+                ascending: true,
+                headerToolTip: "Stable cluster identifier; blank for known alleles"
+            )
+        }
         addColumn(to: pinnedTableView, identifier: ColumnID.locus, title: "Locus", width: 92, minWidth: 78, ascending: true)
         addColumn(to: pinnedTableView, identifier: ColumnID.samples, title: "Samples", width: 70, minWidth: 58, ascending: false)
         addColumn(to: pinnedTableView, identifier: ColumnID.uniqueReads, title: "Unique", width: 78, minWidth: 62, ascending: false)
@@ -702,6 +714,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         allRows.contains { row in
             row.locus.localizedCaseInsensitiveContains(search)
                 || row.genotype.localizedCaseInsensitiveContains(search)
+                || (row.stableClusterID?.localizedCaseInsensitiveContains(search) ?? false)
         }
     }
 
@@ -736,13 +749,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         title: String,
         width: CGFloat,
         minWidth: CGFloat,
-        ascending: Bool
+        ascending: Bool,
+        headerToolTip: String? = nil
     ) {
         let column = NSTableColumn(identifier: identifier)
         column.title = title
         column.width = width
         column.minWidth = minWidth
-        column.headerToolTip = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        column.headerToolTip = headerToolTip ?? title.trimmingCharacters(in: .whitespacesAndNewlines)
         column.sortDescriptorPrototype = NSSortDescriptor(key: identifier.rawValue, ascending: ascending)
         tableView.addTableColumn(column)
     }
@@ -783,7 +797,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
 
         let unfilteredSummaries = result.locusSummaries
-        let candidateDocument = result.manifest.mhcCandidateArtifacts == nil ? nil : result.mhcCandidates
+        let candidateDocument = validatedMHCCandidateDocument(from: result)
         totalRowCount = unfilteredSummaries.flatMap(\.sharedCalls).count
             + (candidateDocument?.candidates.count ?? 0)
         let globalThreshold = displayState.activeMinimumSupportPercent / 100
@@ -861,7 +875,32 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private var effectiveCandidateDisplaySettings: ONTMHCCandidateDisplaySettings {
-        displayState.mhcCandidateDisplaySettings ?? candidateDisplaySettings
+        guard isMHCCandidateViewportEnabled else { return .default }
+        return displayState.mhcCandidateDisplaySettings ?? candidateDisplaySettings
+    }
+
+    /// Candidate projection is deliberately confined to the full-length MHC
+    /// result surface. A manifest declaration alone is insufficient: the
+    /// loader must also have rehydrated a schema-compatible candidate document
+    /// from a paired JSON/FASTA declaration.
+    private var isMHCCandidateViewportEnabled: Bool {
+        guard let result else { return false }
+        return validatedMHCCandidateDocument(from: result) != nil
+    }
+
+    private func validatedMHCCandidateDocument(
+        from result: ONTGenotypeResultBundleData
+    ) -> ONTMHCCandidateAllelesDocument? {
+        guard result.manifest.kind == "full-length-ont-mhc-genotype",
+              let artifacts = result.manifest.mhcCandidateArtifacts,
+              artifacts.schemaVersion == 1,
+              artifacts.candidateJSON != nil,
+              artifacts.candidateFASTA != nil,
+              let document = result.mhcCandidates,
+              document.schemaVersion == 1 else {
+            return nil
+        }
+        return document
     }
 
     private func makeLocusSummaries(from calls: [ONTGenotypeCall]) -> [ONTGenotypeLocusSummary] {
@@ -1009,6 +1048,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func rowMatchesIdentity(_ row: GenotypeCandidateMatrixRow, filter: String) -> Bool {
         row.locus.localizedCaseInsensitiveContains(filter)
             || row.genotype.localizedCaseInsensitiveContains(filter)
+            || (row.stableClusterID?.localizedCaseInsensitiveContains(filter) ?? false)
     }
 
     private func makeSupportFractionLookup(for result: ONTGenotypeResultBundleData) -> [CellKey: Double] {
@@ -1064,6 +1104,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     ) -> Bool {
         let ordered: ComparisonResult
         switch key {
+        case ColumnID.stableClusterID.rawValue:
+            ordered = (lhs.stableClusterID ?? "").localizedStandardCompare(rhs.stableClusterID ?? "")
         case ColumnID.locus.rawValue:
             ordered = lhs.locus.localizedStandardCompare(rhs.locus)
         case ColumnID.samples.rawValue:
@@ -1114,9 +1156,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func appendMissingCandidateSamples(from result: ONTGenotypeResultBundleData) {
-        guard result.manifest.mhcCandidateArtifacts != nil else { return }
+        guard let candidateDocument = validatedMHCCandidateDocument(from: result) else { return }
         var seen = Set(sampleNames)
-        let candidateSamples = (result.mhcCandidates?.observations.map(\.sampleID) ?? []).sorted {
+        let candidateSamples = candidateDocument.observations.map(\.sampleID).sorted {
             $0.localizedStandardCompare($1) == .orderedAscending
         }
         sampleNames.append(contentsOf: candidateSamples.filter { seen.insert($0).inserted })
@@ -1162,6 +1204,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         cell.textField?.stringValue = value.text
         cell.textField?.alignment = value.alignment
         cell.textField?.toolTip = value.toolTip
+        cell.textField?.isSelectable = identifier == ColumnID.stableClusterID
+        if identifier == ColumnID.stableClusterID {
+            cell.textField?.setAccessibilityLabel(value.toolTip ?? "Stable cluster ID: None")
+        }
         applyCellStyle(cell, identifier: identifier, row: sharedCall)
         return cell
     }
@@ -1238,6 +1284,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return ("", .center, "Select row")
         case ColumnID.genotype:
             return (row.genotype, .left, rowTooltip(row: row, fallback: row.genotype))
+        case ColumnID.stableClusterID:
+            guard let stableClusterID = row.stableClusterID else {
+                return ("", .left, "Known allele; no stable cluster ID")
+            }
+            return (stableClusterID, .left, "Stable cluster ID: \(stableClusterID)")
         case ColumnID.locus:
             return (row.locus, .left, rowTooltip(row: row, fallback: row.locus))
         case ColumnID.samples:
@@ -2503,6 +2554,7 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
 #if DEBUG
 enum GenotypeCandidateMatrixTestingColumn {
     case alleleName
+    case stableClusterID
     case locus
     case sample(String)
 }
@@ -2521,6 +2573,8 @@ extension GenotypeComparisonMatrixView {
         switch column {
         case .alleleName:
             identifier = ColumnID.genotype
+        case .stableClusterID:
+            identifier = ColumnID.stableClusterID
         case .locus:
             identifier = ColumnID.locus
         case .sample(let sample):
@@ -2530,6 +2584,66 @@ extension GenotypeComparisonMatrixView {
             identifier = sampleIdentifier
         }
         return backgroundColor(for: identifier, row: row, renderedStyle: renderedStyle(for: identifier, row: row))
+    }
+
+    func testingPinnedCellValue(
+        rowID: GenotypeCandidateMatrixRowID,
+        column: GenotypeCandidateMatrixTestingColumn
+    ) -> String? {
+        guard let (identifier, rowIndex) = testingPinnedCellTarget(rowID: rowID, column: column) else { return nil }
+        return cellValue(for: identifier, row: visibleRows[rowIndex]).text
+    }
+
+    func testingPinnedCellToolTip(
+        rowID: GenotypeCandidateMatrixRowID,
+        column: GenotypeCandidateMatrixTestingColumn
+    ) -> String? {
+        guard let (identifier, rowIndex) = testingPinnedCellTarget(rowID: rowID, column: column) else { return nil }
+        return cellValue(for: identifier, row: visibleRows[rowIndex]).toolTip
+    }
+
+    func testingPinnedCellAccessibilityLabel(
+        rowID: GenotypeCandidateMatrixRowID,
+        column: GenotypeCandidateMatrixTestingColumn
+    ) -> String? {
+        guard let (identifier, row) = testingPinnedCellTarget(rowID: rowID, column: column),
+              let column = pinnedTableView.tableColumns.first(where: { $0.identifier == identifier }),
+              let cell = tableView(pinnedTableView, viewFor: column, row: row) as? NSTableCellView else {
+            return nil
+        }
+        return cell.textField?.accessibilityLabel()
+    }
+
+    func testingPinnedCellIsSelectable(
+        rowID: GenotypeCandidateMatrixRowID,
+        column: GenotypeCandidateMatrixTestingColumn
+    ) -> Bool {
+        guard let (identifier, row) = testingPinnedCellTarget(rowID: rowID, column: column),
+              let column = pinnedTableView.tableColumns.first(where: { $0.identifier == identifier }),
+              let cell = tableView(pinnedTableView, viewFor: column, row: row) as? NSTableCellView else {
+            return false
+        }
+        return cell.textField?.isSelectable == true
+    }
+
+    private func testingPinnedCellTarget(
+        rowID: GenotypeCandidateMatrixRowID,
+        column: GenotypeCandidateMatrixTestingColumn
+    ) -> (NSUserInterfaceItemIdentifier, Int)? {
+        guard let row = visibleRows.firstIndex(where: { $0.id == rowID }) else { return nil }
+        let identifier: NSUserInterfaceItemIdentifier
+        switch column {
+        case .alleleName:
+            identifier = ColumnID.genotype
+        case .stableClusterID:
+            identifier = ColumnID.stableClusterID
+        case .locus:
+            identifier = ColumnID.locus
+        case .sample:
+            return nil
+        }
+        guard pinnedTableView.tableColumns.contains(where: { $0.identifier == identifier }) else { return nil }
+        return (identifier, row)
     }
 
     func testingSelectCandidateCell(rowID: GenotypeCandidateMatrixRowID, sample: String) {
@@ -2796,6 +2910,8 @@ extension GenotypeComparisonMatrixView {
     var testingActiveSortDescriptorKey: String? {
         activeSortDescriptors.first?.key
     }
+
+    var testingStableClusterIDSortKey: String { ColumnID.stableClusterID.rawValue }
 
     func testingSortKey(forSample sample: String) -> String? {
         sampleColumnLookup.first(where: { $0.value == sample })?.key.rawValue

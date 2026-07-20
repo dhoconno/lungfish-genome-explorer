@@ -55,6 +55,108 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(matrix.testingDrawsSelectionFocus(rowID: collisions[1].id, sample: "AnimalB"))
     }
 
+    func testMHCCandidateMatrixShowsStableClusterIDColumnWithFilterSortCopyAndAccessibility() throws {
+        let result = makeCandidateResult(
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 13)],
+            candidates: [
+                makeCandidate(id: "cluster-b", name: "Collision_nov", classification: .novel, support: .singleton, samples: ["AnimalB"]),
+                makeCandidate(id: "cluster-a", name: "Collision_nov", classification: .novel, support: .shared, samples: ["AnimalA", "AnimalB"]),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "cluster-b", sample: "AnimalB", reads: 7),
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalA", reads: 5),
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalB", reads: 11),
+            ]
+        )
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: result)
+
+        XCTAssertEqual(matrix.testingPinnedColumnTitles, ["", "Genotype", "Cluster ID", "Locus", "Samples", "Unique"])
+        XCTAssertEqual(
+            matrix.testingPinnedCellValue(
+                rowID: .known(locus: "MHC-KNOWN", genotype: "Known"),
+                column: .stableClusterID
+            ),
+            ""
+        )
+        XCTAssertEqual(
+            matrix.testingPinnedCellValue(rowID: .candidate(stableClusterID: "cluster-a"), column: .stableClusterID),
+            "cluster-a"
+        )
+        XCTAssertEqual(
+            matrix.testingPinnedCellValue(rowID: .candidate(stableClusterID: "cluster-b"), column: .stableClusterID),
+            "cluster-b"
+        )
+        XCTAssertEqual(
+            matrix.testingPinnedCellToolTip(rowID: .candidate(stableClusterID: "cluster-a"), column: .stableClusterID),
+            "Stable cluster ID: cluster-a"
+        )
+        XCTAssertEqual(
+            matrix.testingPinnedCellAccessibilityLabel(rowID: .candidate(stableClusterID: "cluster-a"), column: .stableClusterID),
+            "Stable cluster ID: cluster-a"
+        )
+        XCTAssertTrue(matrix.testingPinnedCellIsSelectable(
+            rowID: .candidate(stableClusterID: "cluster-a"),
+            column: .stableClusterID
+        ))
+
+        matrix.testingSetFilter("cluster-b")
+        XCTAssertEqual(matrix.testingVisibleRows.map(\.id), [.candidate(stableClusterID: "cluster-b")])
+
+        matrix.testingSetFilter("Collision_nov")
+        matrix.testingSetSortDescriptor(key: matrix.testingStableClusterIDSortKey, ascending: true)
+        XCTAssertEqual(matrix.testingVisibleRows.map(\.id), [
+            .candidate(stableClusterID: "cluster-a"),
+            .candidate(stableClusterID: "cluster-b"),
+        ])
+    }
+
+    func testNonFullLengthBundleCannotProjectCandidateRowsSamplesSettingsOrColumns() {
+        let knownCall = makeCall(sample: "AnimalA", genotype: "Known", reads: 13)
+        let fullLengthResult = makeCandidateResult(
+            calls: [knownCall],
+            candidates: [
+                makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .singleton, samples: ["CandidateOnlySample"]),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "candidate", sample: "CandidateOnlySample", reads: 7),
+            ]
+        )
+        let nonFullLengthManifest = makeResult(
+            samples: [],
+            calls: [],
+            mhcCandidateArtifacts: fullLengthResult.manifest.mhcCandidateArtifacts
+        ).manifest
+        let nonFullLengthResult = ONTGenotypeResultBundleData(
+            bundleURL: fullLengthResult.bundleURL,
+            manifest: nonFullLengthManifest,
+            artifacts: fullLengthResult.artifacts,
+            stats: fullLengthResult.stats,
+            calls: [knownCall],
+            samples: [ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 13,
+                passedUniqueReads: 13,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [knownCall]
+            )],
+            haplotypeAnalysis: nil,
+            mhcCandidates: fullLengthResult.mhcCandidates,
+            mhcUnnameableClusters: nil,
+            integrityWarnings: []
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+        sidecar.settings.mhcCandidateDisplay = ONTMHCCandidateDisplaySettings(showKnown: false)
+        let matrix = GenotypeComparisonMatrixView()
+
+        matrix.configure(result: nonFullLengthResult, sidecar: sidecar)
+
+        XCTAssertEqual(matrix.testingVisibleRows.map(\.id), [.known(locus: "MHC-KNOWN", genotype: "Known")])
+        XCTAssertEqual(matrix.testingVisibleSampleNames, ["AnimalA"])
+        XCTAssertEqual(matrix.testingPinnedColumnTitles, ["", "Genotype", "Locus", "Samples", "Unique"])
+    }
+
     func testMHCCandidateMatrixVisibilitySettingsFilterEachPopulationIndependently() {
         let result = makeCandidateResult(
             calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 3)],
@@ -219,11 +321,14 @@ final class GenotypeResultViewportTests: XCTestCase {
             mhcUnnameableClusters: nil,
             integrityWarnings: [.init(code: .candidateArtifactMalformedJSON, detail: "invalid")]
         )
-        matrix.configure(result: invalidCandidateResult, sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z"))
+        var invalidSidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+        invalidSidecar.settings.mhcCandidateDisplay = ONTMHCCandidateDisplaySettings(showKnown: false)
+        matrix.configure(result: invalidCandidateResult, sidecar: invalidSidecar)
 
         XCTAssertEqual(matrix.testingVisibleRows.map(\.id), [
             .known(locus: "MHC-KNOWN", genotype: "Known"),
         ])
+        XCTAssertEqual(matrix.testingPinnedColumnTitles, ["", "Genotype", "Locus", "Samples", "Unique"])
     }
 
     func testViewportPublishesSharedGenotypeSelectionForInspector() {
@@ -5714,6 +5819,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         bundleURL: URL = URL(fileURLWithPath: "/tmp/example.lungfishgenotype"),
         samples: [ONTGenotypeSampleResult],
         calls: [ONTGenotypeCall],
+        kind: String = "ont-barcode-genotype",
         haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
         haplotypeDefinitionSetID: String? = nil,
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
@@ -5722,6 +5828,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
             manifest: ONTGenotypeResultBundleManifest(
+                kind: kind,
                 outputName: "example",
                 analysisName: "Example",
                 primaryWorkbookPath: "example.xlsx",
@@ -5776,6 +5883,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         let base = makeResult(
             samples: samples,
             calls: calls,
+            kind: "full-length-ont-mhc-genotype",
             mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest(
                 schemaVersion: 1,
                 genotypingEvidence: nil,
