@@ -8,8 +8,15 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
     func testPublishesReciprocalEvidenceAndCanonicalCandidateArtifacts() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
+        let logicalFinalOutputURL = fixture.rootURL.appendingPathComponent(
+            "published/result.lungfishgenotype",
+            isDirectory: true
+        )
 
-        let result = try await fixture.write(observations: fixture.observations)
+        let result = try await fixture.write(
+            observations: fixture.observations,
+            finalOutputDirectoryURL: logicalFinalOutputURL
+        )
 
         let commands = try fixture.commands()
         let minimap = try XCTUnwrap(commands.first)
@@ -72,10 +79,21 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             transformations["lungfish-in-process:construct-stable-unmatched-cluster-fasta"]
         )
         XCTAssertEqual(construction.inputs.count, 1)
-        XCTAssertEqual(construction.inputs.first?.path, "deduplicated_unmatched_clusters.fasta")
-        XCTAssertEqual(construction.inputs.first?.sha256, candidate.inputs[1].sha256)
-        XCTAssertEqual(construction.inputs.first?.byteSize, UInt64(candidate.inputs[1].sizeBytes))
+        XCTAssertEqual(
+            construction.inputs.first?.path,
+            logicalFinalOutputURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta").path
+        )
+        let stagedCanonicalURL = fixture.outputURL.appendingPathComponent(
+            "deduplicated_unmatched_clusters.fasta"
+        )
+        XCTAssertTrue(construction.argv.contains(stagedCanonicalURL.path))
+        XCTAssertEqual(construction.inputs.first?.sha256, try sha256(stagedCanonicalURL))
+        XCTAssertEqual(construction.inputs.first?.byteSize, UInt64(try fileSize(stagedCanonicalURL)))
         XCTAssertEqual(construction.inputs.first?.phase, .final)
+        for input in result.transformationRecords.flatMap(\.inputs) {
+            XCTAssertTrue(input.path.hasPrefix("/"), "Non-absolute provenance input: \(input.path)")
+            XCTAssertEqual(URL(fileURLWithPath: input.path).standardizedFileURL.path, input.path)
+        }
         XCTAssertEqual(construction.outputs.count, 1)
         XCTAssertEqual(construction.outputs.first?.phase, .temporary)
         XCTAssertEqual(commands.first?.last, construction.outputs.first?.path)
@@ -96,7 +114,15 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(candidate.candidates.map(\.provisionalName), [
             "Mafa-A1*018:01:01:01_5nt_nov", "Mafa-B*001:01_ext",
         ])
+        XCTAssertEqual(
+            Set(candidate.observations.map(\.stableClusterID)),
+            Set(candidate.candidates.map(\.stableClusterID))
+        )
         XCTAssertEqual(unnameable.clusters.map(\.stableClusterID), [fixture.unnameableID])
+        XCTAssertEqual(
+            Set(unnameable.observations.map(\.stableClusterID)),
+            Set(unnameable.clusters.map(\.stableClusterID))
+        )
         XCTAssertEqual(unnameable.clusters.first?.reason, .noAlignment)
         XCTAssertEqual(unnameable.inputs, candidate.inputs)
         XCTAssertEqual(unnameable.evidence, candidate.evidence)
@@ -139,6 +165,31 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let collisionLabel = "Mafa-A1*018:01:01:01_5nt_nov"
         XCTAssertEqual(left.candidates.filter { $0.provisionalName == collisionLabel }.count, 2)
         XCTAssertEqual(Set(left.candidates.filter { $0.provisionalName == collisionLabel }.map(\.stableClusterID)).count, 2)
+    }
+
+    func testChecksumTransformationTimingBracketsDescriptorHashing() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let provider = RecordingDelayedArtifactDescriptorProvider(delay: 0.01)
+
+        let result = try await fixture.write(
+            observations: fixture.observations,
+            artifactDescriptorProvider: provider
+        )
+
+        let checksum = try XCTUnwrap(result.transformationRecords.first {
+            $0.workflowName == "lungfish-in-process:capture-mhc-candidate-artifact-checksums"
+        })
+        let captures = provider.captures
+        XCTAssertEqual(captures.count, 6)
+        XCTAssertLessThanOrEqual(checksum.startedAt, try XCTUnwrap(captures.first).startedAt)
+        XCTAssertGreaterThanOrEqual(checksum.completedAt, try XCTUnwrap(captures.last).completedAt)
+        XCTAssertEqual(
+            checksum.wallTime,
+            checksum.completedAt.timeIntervalSince(checksum.startedAt),
+            accuracy: 0.000_001
+        )
+        XCTAssertGreaterThanOrEqual(checksum.wallTime, 0.06)
     }
 
     func testWriterRejectsReuseOfNonFreshCallerOwnedStagingDirectory() async throws {
@@ -413,7 +464,10 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
 
         func write(
             observations: [FullLengthONTMHCCandidateSequenceObservation],
-            canonicalFASTAOverride: String? = nil
+            canonicalFASTAOverride: String? = nil,
+            finalOutputDirectoryURL: URL? = nil,
+            artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding =
+                DefaultFullLengthONTMHCArtifactDescriptorProvider()
         ) async throws -> FullLengthONTMHCCandidateArtifactResult {
             try Data(samText.utf8).write(to: toolsURL.appendingPathComponent("sam-template"), options: .atomic)
             let records = Dictionary(
@@ -426,7 +480,10 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
                 to: outputURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta"),
                 options: .atomic
             )
-            let writer = FullLengthONTMHCCandidateArtifactWriter(executableDirectoryURL: toolsURL)
+            let writer = FullLengthONTMHCCandidateArtifactWriter(
+                executableDirectoryURL: toolsURL,
+                artifactDescriptorProvider: artifactDescriptorProvider
+            )
             return try await writer.stage(.init(
                 observations: observations,
                 referenceAlleleFASTAURL: referenceFASTAURL,
@@ -437,6 +494,7 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
                 genotypingEvidence: nil,
                 threads: 14,
                 outputDirectoryURL: outputURL,
+                finalOutputDirectoryURL: finalOutputDirectoryURL,
                 workDirectoryURL: workURL
             ))
         }
@@ -549,4 +607,45 @@ private func XCTAssertThrowsErrorAsync(
         try await expression()
         XCTFail("Expected expression to throw", file: file, line: line)
     } catch {}
+}
+
+private final class RecordingDelayedArtifactDescriptorProvider:
+    FullLengthONTMHCArtifactDescriptorProviding,
+    @unchecked Sendable
+{
+    struct Capture {
+        let startedAt: Date
+        let completedAt: Date
+    }
+
+    private let delay: TimeInterval
+    private let lock = NSLock()
+    private var recordedCaptures: [Capture] = []
+
+    init(delay: TimeInterval) {
+        self.delay = delay
+    }
+
+    var captures: [Capture] {
+        lock.withLock { recordedCaptures }
+    }
+
+    func descriptor(
+        for url: URL,
+        role: FullLengthONTMHCArtifactRole,
+        phase: FullLengthONTMHCArtifactPhase
+    ) throws -> FullLengthONTMHCArtifactDescriptor {
+        let startedAt = Date()
+        Thread.sleep(forTimeInterval: delay)
+        let descriptor = try DefaultFullLengthONTMHCArtifactDescriptorProvider().descriptor(
+            for: url,
+            role: role,
+            phase: phase
+        )
+        let completedAt = Date()
+        lock.withLock {
+            recordedCaptures.append(.init(startedAt: startedAt, completedAt: completedAt))
+        }
+        return descriptor
+    }
 }

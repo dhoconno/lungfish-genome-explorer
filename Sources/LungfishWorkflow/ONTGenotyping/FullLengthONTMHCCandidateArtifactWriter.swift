@@ -35,6 +35,7 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     let genotypingEvidence: ONTMHCBAMArtifactPair?
     let threads: Int
     let outputDirectoryURL: URL
+    let finalOutputDirectoryURL: URL
     let workDirectoryURL: URL
     let thresholds: ONTMHCCandidateThresholds
 
@@ -45,6 +46,7 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
         genotypingEvidence: ONTMHCBAMArtifactPair?,
         threads: Int,
         outputDirectoryURL: URL,
+        finalOutputDirectoryURL: URL? = nil,
         workDirectoryURL: URL,
         thresholds: ONTMHCCandidateThresholds = .defaults
     ) {
@@ -54,6 +56,7 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
         self.genotypingEvidence = genotypingEvidence
         self.threads = max(1, threads)
         self.outputDirectoryURL = outputDirectoryURL.standardizedFileURL
+        self.finalOutputDirectoryURL = (finalOutputDirectoryURL ?? outputDirectoryURL).standardizedFileURL
         self.workDirectoryURL = workDirectoryURL.standardizedFileURL
         self.thresholds = thresholds
     }
@@ -219,23 +222,33 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
     private let minimap2ExecutableURL: URL?
     private let samtoolsExecutableURL: URL?
     private let fileManager: FileManager
+    private let artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding
 
-    init(executableDirectoryURL: URL? = nil, fileManager: FileManager = .default) {
+    init(
+        executableDirectoryURL: URL? = nil,
+        fileManager: FileManager = .default,
+        artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding =
+            DefaultFullLengthONTMHCArtifactDescriptorProvider()
+    ) {
         self.executableDirectoryURL = executableDirectoryURL?.standardizedFileURL
         minimap2ExecutableURL = nil
         samtoolsExecutableURL = nil
         self.fileManager = fileManager
+        self.artifactDescriptorProvider = artifactDescriptorProvider
     }
 
     init(
         minimap2ExecutableURL: URL,
         samtoolsExecutableURL: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding =
+            DefaultFullLengthONTMHCArtifactDescriptorProvider()
     ) {
         executableDirectoryURL = nil
         self.minimap2ExecutableURL = minimap2ExecutableURL.standardizedFileURL
         self.samtoolsExecutableURL = samtoolsExecutableURL.standardizedFileURL
         self.fileManager = fileManager
+        self.artifactDescriptorProvider = artifactDescriptorProvider
     }
 
     static func stableClusterID(for sequence: String) -> String {
@@ -280,10 +293,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             role: .sourceClusterFASTA,
             phase: .input
         )
-        let canonicalDescriptor = FullLengthONTMHCArtifactDescriptor(
-            path: "deduplicated_unmatched_clusters.fasta",
-            sha256: capturedCanonicalDescriptor.sha256,
-            byteSize: capturedCanonicalDescriptor.byteSize,
+        let canonicalDescriptor = capturedCanonicalDescriptor.relocated(
+            to: request.finalOutputDirectoryURL.appendingPathComponent(
+                "deduplicated_unmatched_clusters.fasta"
+            ),
             role: .sourceClusterFASTA,
             phase: .final
         )
@@ -513,6 +526,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             finalRelativePath: "deduplicated_unmatched_clusters.fasta"
         )
         let allObservations = grouped.flatMap(\.observations).sorted(by: Self.observationLessThan)
+        let candidateStableIDs = Set(candidates.lazy.map(\.stableClusterID))
+        let unnameableStableIDs = Set(unnameable.lazy.map(\.stableClusterID))
         let createdAt = Self.iso8601(Date())
         let evidence = [reciprocalBAMReference, reciprocalBAIReference]
             + (request.genotypingEvidence.map { [$0.bam, $0.bai] } ?? [])
@@ -524,7 +539,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             evidence: evidence,
             sequenceFASTA: candidateFASTAReference,
             candidates: candidates,
-            observations: allObservations.filter { Set(candidates.map(\.stableClusterID)).contains($0.stableClusterID) }
+            observations: allObservations.filter { candidateStableIDs.contains($0.stableClusterID) }
         )
         let unnameableDocument = ONTMHCUnnameableClustersDocument(
             schemaVersion: 1,
@@ -534,7 +549,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             evidence: evidence,
             sequenceFASTA: unnameableFASTAReference,
             clusters: unnameable,
-            observations: allObservations.filter { Set(unnameable.map(\.stableClusterID)).contains($0.stableClusterID) }
+            observations: allObservations.filter { unnameableStableIDs.contains($0.stableClusterID) }
         )
         let candidateJSONURL = stagedRootURL.appendingPathComponent("candidate-alleles.json")
         let unnameableJSONURL = stagedRootURL.appendingPathComponent("unnameable-unmatched-clusters.json")
@@ -599,9 +614,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("unnameable-unmatched-clusters.json"), .commandOutput),
         ]
+        let checksumStartedAt = Date()
         let finalPublicationDescriptors = try finalPublicationURLs.map {
-            try FullLengthONTMHCArtifactDescriptor(url: $0.0, role: $0.1, phase: .staging)
+            try artifactDescriptorProvider.descriptor(for: $0.0, role: $0.1, phase: .staging)
         }
+        let checksumCompletedAt = Date()
         transformations.append(.init(
             workflowName: "lungfish-in-process:materialize-mhc-candidate-staging-generation",
             workflowVersion: WorkflowRun.currentAppVersion,
@@ -621,8 +638,6 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             completedAt: materializationCompletedAt,
             wallTime: materializationCompletedAt.timeIntervalSince(materializationStartedAt)
         ))
-        let checksumStartedAt = Date()
-        let checksumCompletedAt = Date()
         transformations.append(.init(
             workflowName: "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
             workflowVersion: WorkflowRun.currentAppVersion,

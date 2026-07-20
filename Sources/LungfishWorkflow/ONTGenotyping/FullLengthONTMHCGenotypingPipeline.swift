@@ -158,6 +158,10 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         outputDirectory.appendingPathComponent("full-length-ont-mhc-genotyping-provenance.json")
     }
 
+    public var failureProvenanceURL: URL {
+        URL(fileURLWithPath: outputDirectory.standardizedFileURL.path + ".failed.lungfish-provenance.json")
+    }
+
     public var manifestURL: URL {
         ONTGenotypeResultBundle.manifestURL(in: outputDirectory)
     }
@@ -534,10 +538,10 @@ private struct FullLengthONTMHCSavontPreset: Sendable, Equatable {
 }
 
 private enum FullLengthONTMHCWorkbookTintDefaults {
-    static let sharedNovel = "FFFFE0B2"
-    static let singletonNovel = "FFFFCC80"
-    static let sharedExtension = "FFB2DFDB"
-    static let singletonExtension = "FFBBDEFB"
+    static let sharedNovel = "F5D78E"
+    static let singletonNovel = "F5B97A"
+    static let sharedExtension = "A8D8D0"
+    static let singletonExtension = "AFCBF2"
 }
 
 struct FullLengthONTMHCWorkbookProjectionInputDocument: Codable, Equatable, Sendable {
@@ -735,23 +739,27 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         _ request: FullLengthONTMHCGenotypingRunRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> FullLengthONTMHCGenotypingResult {
-        try validateInputs(request)
+        let runStartedAt = Date()
         let runLock = try DarwinFullLengthONTMHCRunLock.acquire(
             outputDirectoryURL: request.outputDirectory
         )
         defer { runLock.release() }
-        try metadataPublicationObserver(.runLockAcquired(lockURL: runLock.lockURL))
-
         let finalOutputURL = request.outputDirectory.standardizedFileURL
-        let finalExisted = try FullLengthONTMHCAlignmentSafety().requireOptionalDirectoryEntryNoFollow(
-            finalOutputURL,
-            role: "final output bundle directory"
-        )
         let stagedOutputURL = finalOutputURL.deletingLastPathComponent().appendingPathComponent(
             ".\(finalOutputURL.lastPathComponent).run-staging-\(UUID().uuidString)",
             isDirectory: true
         )
+        var finalExisted = false
         do {
+            if FileManager.default.fileExists(atPath: request.failureProvenanceURL.path) {
+                try FileManager.default.removeItem(at: request.failureProvenanceURL)
+            }
+            try metadataPublicationObserver(.runLockAcquired(lockURL: runLock.lockURL))
+            try validateInputs(request)
+            finalExisted = try FullLengthONTMHCAlignmentSafety().requireOptionalDirectoryEntryNoFollow(
+                finalOutputURL,
+                role: "final output bundle directory"
+            )
             try FileManager.default.createDirectory(
                 at: stagedOutputURL,
                 withIntermediateDirectories: false
@@ -846,16 +854,35 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 additionalCleanupWarnings: publicationCleanupWarnings
             )
         } catch {
+            let partialEnvelope = loadPartialFailureEnvelope(
+                stagedOutputURL: stagedOutputURL,
+                finalOutputURL: finalOutputURL,
+                finalExistedBeforeRun: finalExisted
+            )
+            var reportedError: Error = error
             if FileManager.default.fileExists(atPath: stagedOutputURL.path) {
                 do {
                     try FileManager.default.removeItem(at: stagedOutputURL)
                 } catch let cleanupError {
-                    throw FullLengthONTMHCGenotypingError.reportFailed(
+                    reportedError = FullLengthONTMHCGenotypingError.reportFailed(
                         "Run failed (\(error.localizedDescription)); staging cleanup also failed (\(cleanupError.localizedDescription))."
                     )
                 }
             }
-            throw error
+            do {
+                try writeFailureProvenance(
+                    request: request,
+                    stagedOutputURL: stagedOutputURL,
+                    startedAt: runStartedAt,
+                    error: reportedError,
+                    partialEnvelope: partialEnvelope
+                )
+            } catch let provenanceError {
+                throw FullLengthONTMHCGenotypingError.reportFailed(
+                    "Run failed (\(reportedError.localizedDescription)); failed-run provenance also could not be written (\(provenanceError.localizedDescription))."
+                )
+            }
+            throw reportedError
         }
     }
 
@@ -895,6 +922,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let stagedSamples = try stageSamples(
             request: request,
             workDirectory: workDirectory,
+            logicalFinalOutputURL: logicalFinalOutputURL,
             progressHandler: { fraction, message in
                 progress.emit(fraction, message)
             }
@@ -1120,6 +1148,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             genotypingEvidence: evidenceArtifactPair,
             threads: request.threads,
             outputDirectoryURL: request.outputDirectory,
+            finalOutputDirectoryURL: logicalFinalOutputURL,
             workDirectoryURL: candidateWorkDirectory
         ))
         try metadataPublicationObserver(.candidateArtifactsStaged(
@@ -1254,7 +1283,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let workbookAssemblyCompletedAt = Date()
         var workbookAssemblyInputs = [
             candidateArtifactResult.candidateJSONURL,
+            candidateArtifactResult.candidateFASTAURL,
             candidateArtifactResult.unnameableJSONURL,
+            candidateArtifactResult.unnameableFASTAURL,
+            cohortAlignmentResult.bamURL,
+            cohortAlignmentResult.baiURL,
+            candidateArtifactResult.reciprocalBAMURL,
+            candidateArtifactResult.reciprocalBAIURL,
             request.reportCSVURL,
             request.sampleSummaryCSVURL,
             request.deduplicatedUnmatchedClustersFASTAURL,
@@ -1267,7 +1302,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         var workbookAssemblyArgv = [
             "lungfish-in-process", "assemble-mhc-workbook-projection-input",
             "--candidate-json", candidateArtifactResult.candidateJSONURL.path,
+            "--candidate-fasta", candidateArtifactResult.candidateFASTAURL.path,
             "--unnameable-json", candidateArtifactResult.unnameableJSONURL.path,
+            "--unnameable-fasta", candidateArtifactResult.unnameableFASTAURL.path,
+            "--genotyping-bam", cohortAlignmentResult.bamURL.path,
+            "--genotyping-bai", cohortAlignmentResult.baiURL.path,
+            "--reciprocal-bam", candidateArtifactResult.reciprocalBAMURL.path,
+            "--reciprocal-bai", candidateArtifactResult.reciprocalBAIURL.path,
             "--report-csv", request.reportCSVURL.path,
             "--sample-summary-csv", request.sampleSummaryCSVURL.path,
             "--unmatched-fasta", request.deduplicatedUnmatchedClustersFASTAURL.path,
@@ -2210,19 +2251,24 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private func materializeFASTQ(
         inputURL: URL,
         sample: String,
-        sampleDirectory: URL
-    ) throws -> URL {
+        sampleDirectory: URL,
+        logicalFinalOutputURL: URL
+    ) throws -> FullLengthONTMHCFASTQMaterializationResult {
         let outputURL = sampleDirectory.appendingPathComponent("00-input.fastq")
-        _ = sample
         return try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
             inputURL: inputURL,
-            outputURL: outputURL
+            outputURL: outputURL,
+            logicalOutputURL: logicalFinalOutputURL
+                .appendingPathComponent("workflow", isDirectory: true)
+                .appendingPathComponent(sample, isDirectory: true)
+                .appendingPathComponent("00-input.fastq")
         )
     }
 
     private func stageSamples(
         request: FullLengthONTMHCGenotypingRunRequest,
         workDirectory: URL,
+        logicalFinalOutputURL: URL,
         progressHandler: (@Sendable (Double, String) -> Void)?
     ) throws -> [FullLengthONTMHCScheduledSample] {
         var sampleNameCounts: [String: Int] = [:]
@@ -2242,11 +2288,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             )
             let sampleDirectory = workDirectory.appendingPathComponent(sample, isDirectory: true)
             try FileManager.default.createDirectory(at: sampleDirectory, withIntermediateDirectories: true)
-            let materializedFASTQ = try materializeFASTQ(
+            let materialization = try materializeFASTQ(
                 inputURL: inputURL,
                 sample: sample,
-                sampleDirectory: sampleDirectory
+                sampleDirectory: sampleDirectory,
+                logicalFinalOutputURL: logicalFinalOutputURL
             )
+            let materializedFASTQ = materialization.outputURL
             let readCount = fastqReadCount(materializedFASTQ)
             stagedSamples.append(FullLengthONTMHCScheduledSample(
                 originalIndex: index,
@@ -2254,7 +2302,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 sample: sample,
                 sampleDirectory: sampleDirectory,
                 materializedFASTQURL: materializedFASTQ,
-                readCount: readCount
+                readCount: readCount,
+                materializationStep: materialization.step
             ))
             progressHandler?(
                 FullLengthONTMHCSampleScheduler.stagingProgress(
@@ -4225,7 +4274,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         for primer in [request.orientReferenceURL, request.forwardPrimerURL, request.reversePrimerURL].compactMap({ $0 }) {
             builder = try builder.input(primer, format: .fasta, role: .reference)
         }
-        var allProvenanceSteps = try steps.map { try $0.provenanceStep() }
+        var allProvenanceSteps = stagedSamples.compactMap(\.materializationStep)
+        allProvenanceSteps += try steps.map { try $0.provenanceStep() }
         allProvenanceSteps += try cohortAlignmentProvenanceSteps(
             cohortAlignmentResult,
             bamViewRecord: bamViewRecord
@@ -4254,6 +4304,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             !descriptor.path.contains(".cohort-alignment-work")
                 && !descriptor.path.contains(".candidate-artifact-work")
                 && !descriptor.path.contains("/.alignments-replacement-")
+                && !descriptor.path.contains("/workflow/")
         }
         let envelope = ProvenanceEnvelope(
             schemaVersion: builtEnvelope.schemaVersion,
@@ -4281,6 +4332,272 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             legacyWorkflowRun: builtEnvelope.legacyRun
         )
         try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: request.provenanceURL)
+    }
+
+    private func loadPartialFailureEnvelope(
+        stagedOutputURL: URL,
+        finalOutputURL: URL,
+        finalExistedBeforeRun: Bool
+    ) -> ProvenanceEnvelope? {
+        let stagedURL = stagedOutputURL.appendingPathComponent(
+            "full-length-ont-mhc-genotyping-provenance.json"
+        )
+        if let envelope = try? ProvenanceEnvelopeReader.load(fromSidecar: stagedURL) {
+            return envelope
+        }
+        guard !finalExistedBeforeRun else { return nil }
+        let finalURL = finalOutputURL.appendingPathComponent(
+            "full-length-ont-mhc-genotyping-provenance.json"
+        )
+        return try? ProvenanceEnvelopeReader.load(fromSidecar: finalURL)
+    }
+
+    private func writeFailureProvenance(
+        request: FullLengthONTMHCGenotypingRunRequest,
+        stagedOutputURL: URL,
+        startedAt: Date,
+        error: Error,
+        partialEnvelope: ProvenanceEnvelope?
+    ) throws {
+        let completedAt = Date()
+        let cancelled = isCancellation(error)
+        let exitStatus = cancelled ? 130 : 1
+        let stderrText = cancelled
+            ? "Full-length ONT MHC genotyping was cancelled: \(error.localizedDescription)"
+            : error.localizedDescription
+        let inputs = failureInputDescriptors(request)
+        let outputs = try failureDiagnosticDescriptors(stagedOutputURL: stagedOutputURL)
+        let options = failureProvenanceOptions(
+            request: request,
+            outcome: cancelled ? "cancelled" : "failed",
+            retainedDiagnosticCount: outputs.count
+        )
+        var steps = partialEnvelope?.steps ?? []
+        if let cohortError = error as? FullLengthONTMHCCohortAlignmentBuildError {
+            for record in cohortError.toolVersionDiscoveryRecords + cohortError.commandRecords {
+                if let step = try? provenanceStep(for: record) {
+                    steps.append(step)
+                }
+            }
+            steps.append(contentsOf: cohortError.transformationRecords.map { $0.provenanceStep() })
+        }
+        let receiptArgv = request.argv + [
+            "--failure-provenance", request.failureProvenanceURL.path,
+        ]
+        steps.append(ProvenanceStep(
+            toolName: "lungfish-internal record-full-length-mhc-failed-run",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: receiptArgv,
+            durableReplayArgv: request.argv,
+            reproducibleCommand: request.argv.map(shellEscape).joined(separator: " "),
+            resolvedOptions: options.resolvedDefaults,
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: exitStatus,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: stderrText,
+            startedAt: startedAt,
+            completedAt: completedAt
+        ))
+        steps.sort { ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast) }
+        var seenFiles = Set<String>()
+        let files = (inputs + outputs + steps.flatMap { $0.inputs + $0.outputs }).filter {
+            seenFiles.insert("\($0.role.rawValue)\u{0}\($0.path)").inserted
+        }
+        let envelope = ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: "lungfish fastq full-length-ont-mhc-genotype",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: CLICommandIdentity.executableName,
+            toolVersion: WorkflowRun.currentAppVersion,
+            tool: ProvenanceToolIdentity(
+                name: CLICommandIdentity.executableName,
+                version: WorkflowRun.currentAppVersion,
+                kind: "cli"
+            ),
+            argv: request.argv,
+            durableReplayArgv: request.argv,
+            reproducibleCommand: request.argv.map(shellEscape).joined(separator: " "),
+            options: options,
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            files: files,
+            output: outputs.first,
+            outputs: outputs,
+            steps: steps,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: exitStatus,
+            stderr: stderrText
+        )
+        if FileManager.default.fileExists(atPath: request.failureProvenanceURL.path) {
+            try FileManager.default.removeItem(at: request.failureProvenanceURL)
+        }
+        try ProvenanceWriter(signingProvider: nil).write(
+            envelope,
+            toSidecar: request.failureProvenanceURL
+        )
+    }
+
+    private func failureInputDescriptors(
+        _ request: FullLengthONTMHCGenotypingRunRequest
+    ) -> [ProvenanceFileDescriptor] {
+        var descriptors: [ProvenanceFileDescriptor] = []
+        for inputURL in request.inputFASTQURLs {
+            if let sourceDescriptors = try? FullLengthONTMHCFASTQMaterializer
+                .provenanceSourceDescriptors(for: inputURL) {
+                descriptors.append(contentsOf: sourceDescriptors)
+            }
+        }
+        var supplementalURLs: [URL] = [
+            request.referenceSourceURL,
+            request.orientReferenceURL,
+            request.forwardPrimerURL,
+            request.reversePrimerURL,
+        ].compactMap { $0 }
+        if let referenceFASTA = try? resolveMHCReferenceFASTA(request.referenceSourceURL) {
+            supplementalURLs.append(referenceFASTA)
+            if let catalogInputs = try? mhcReferenceCatalogInputs(
+                sourceURL: request.referenceSourceURL,
+                fastaURL: referenceFASTA
+            ) {
+                supplementalURLs.append(contentsOf: catalogInputs.allURLs)
+            }
+        }
+        var seen = Set<String>()
+        for url in supplementalURLs.map(\.standardizedFileURL) where seen.insert(url.path).inserted {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  let descriptor = try? ProvenanceFileDescriptor.file(
+                    url: url,
+                    format: failureFileFormat(url),
+                    role: url == request.referenceSourceURL ? .reference : .input
+                  ) else { continue }
+            descriptors.append(descriptor)
+        }
+        var seenDescriptors = Set<String>()
+        return descriptors.filter {
+            seenDescriptors.insert("\($0.role.rawValue)\u{0}\($0.path)").inserted
+        }
+    }
+
+    private func failureDiagnosticDescriptors(
+        stagedOutputURL: URL
+    ) throws -> [ProvenanceFileDescriptor] {
+        let parentURL = stagedOutputURL.deletingLastPathComponent()
+        let runToken = stagedOutputURL.lastPathComponent
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: parentURL,
+            includingPropertiesForKeys: nil,
+            options: []
+        )) ?? []
+        let roots = contents.filter { $0.lastPathComponent.contains(runToken) }
+        var fileURLs: [URL] = []
+        let safety = FullLengthONTMHCAlignmentSafety()
+        for root in roots.sorted(by: { $0.path < $1.path }) {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory) else {
+                continue
+            }
+            if isDirectory.boolValue {
+                try safety.requireSafeDirectoryTree(root, role: "retained failed-run diagnostics")
+                guard let enumerator = FileManager.default.enumerator(
+                    at: root,
+                    includingPropertiesForKeys: nil,
+                    options: []
+                ) else { continue }
+                for case let entry as URL in enumerator {
+                    var entryIsDirectory: ObjCBool = false
+                    if FileManager.default.fileExists(atPath: entry.path, isDirectory: &entryIsDirectory),
+                       !entryIsDirectory.boolValue {
+                        fileURLs.append(entry.standardizedFileURL)
+                    }
+                }
+            } else {
+                try safety.requireRegularFileNoFollow(root, role: "retained failed-run diagnostic")
+                fileURLs.append(root.standardizedFileURL)
+            }
+        }
+        return try fileURLs.sorted { $0.path < $1.path }.map { url in
+            try ProvenanceFileDescriptor.file(
+                url: url,
+                format: failureFileFormat(url),
+                role: url.path.contains("/logs/") || url.pathExtension == "log" ? .log : .output
+            )
+        }
+    }
+
+    private func failureProvenanceOptions(
+        request: FullLengthONTMHCGenotypingRunRequest,
+        outcome: String,
+        retainedDiagnosticCount: Int
+    ) -> ProvenanceOptions {
+        let defaults: [String: ParameterValue] = [
+            "threads": .integer(max(1, ProcessInfo.processInfo.activeProcessorCount)),
+            "minimumLength": .integer(2_000),
+            "maximumLength": .integer(4_000),
+            "savontQualityValueCutoff": .integer(FullLengthONTMHCGenotypingRunRequest.defaultSavontQualityValueCutoff),
+            "savontMinimumClusterSize": .integer(FullLengthONTMHCGenotypingRunRequest.defaultSavontMinimumClusterSize),
+            "minUnmatchedReads": .integer(5),
+            "cdnaThreshold": .integer(2_000),
+            "sampleJobs": .string("auto"),
+            "savontThreadsPerSample": .string("auto"),
+            "keepIntermediates": .boolean(false),
+            "reuseCompatibleCheckpoints": .boolean(false),
+        ]
+        var resolved: [String: ParameterValue] = [
+            "threads": .integer(request.threads),
+            "minimumLength": .integer(request.minimumLength),
+            "maximumLength": .integer(request.maximumLength),
+            "savontQualityValueCutoff": .integer(request.savontQualityValueCutoff),
+            "savontMinimumClusterSize": .integer(request.savontMinimumClusterSize),
+            "minUnmatchedReads": .integer(request.minUnmatchedReads),
+            "cdnaThreshold": .integer(request.cdnaThreshold),
+            "sampleJobs": request.sampleJobs.map(ParameterValue.integer) ?? .string("auto"),
+            "savontThreadsPerSample": request.savontThreadsPerSample.map(ParameterValue.integer) ?? .string("auto"),
+            "keepIntermediates": .boolean(request.keepIntermediates),
+            "reuseCompatibleCheckpoints": .boolean(request.reuseCompatibleCheckpoints),
+            "outcome": .string(outcome),
+            "retainedDiagnosticCount": .integer(retainedDiagnosticCount),
+        ]
+        resolved["haplotypeDropoutSampleFraction"] = request.haplotypeDropoutSampleFraction
+            .map(ParameterValue.number) ?? .string("disabled")
+        resolved["haplotypeDropoutLocusFraction"] = request.haplotypeDropoutLocusFraction
+            .map(ParameterValue.number) ?? .string("disabled")
+        resolved["haplotypeDropoutLocusFractionOverrides"] = .dictionary(
+            request.haplotypeDropoutLocusFractionOverrides.mapValues(ParameterValue.number)
+        )
+        resolved["haplotypeDefinition"] = request.haplotypeDefinitionSetID
+            .map(ParameterValue.string) ?? .string("disabled")
+        var explicit = resolved
+        explicit["inputFASTQs"] = .array(request.inputFASTQURLs.map(ParameterValue.file))
+        explicit["reference"] = .file(request.referenceSourceURL)
+        explicit["outputDirectory"] = .file(request.outputDirectory)
+        explicit["outputName"] = .string(request.outputName)
+        explicit["failureProvenance"] = .file(request.failureProvenanceURL)
+        if let value = request.orientReferenceURL { explicit["orientReference"] = .file(value) }
+        if let value = request.forwardPrimerURL { explicit["forwardPrimer"] = .file(value) }
+        if let value = request.reversePrimerURL { explicit["reversePrimer"] = .file(value) }
+        if let value = request.projectURL { explicit["project"] = .file(value) }
+        return ProvenanceOptions(explicit: explicit, defaults: defaults, resolvedDefaults: resolved)
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError
+            || (error as? FullLengthONTMHCCohortAlignmentBuildError)?.wasCancelled == true
+            || Task.isCancelled
+    }
+
+    private func failureFileFormat(_ url: URL) -> FileFormat {
+        let name = url.lastPathComponent.lowercased()
+        if name.hasSuffix(".fastq") || name.hasSuffix(".fastq.gz") || name.hasSuffix(".fq") || name.hasSuffix(".fq.gz") { return .fastq }
+        if name.hasSuffix(".fasta") || name.hasSuffix(".fasta.gz") || name.hasSuffix(".fa") || name.hasSuffix(".fa.gz") { return .fasta }
+        if name.hasSuffix(".bam") { return .bam }
+        if name.hasSuffix(".sam") { return .sam }
+        if name.hasSuffix(".json") { return .json }
+        if name.hasSuffix(".sqlite") || name.hasSuffix(".db") { return .sqlite }
+        if name.hasSuffix(".csv") || name.hasSuffix(".tsv") || name.hasSuffix(".log") { return .text }
+        return .unknown
     }
 
     private func cohortAlignmentProvenanceSteps(
@@ -6166,10 +6483,10 @@ private let fullLengthONTMHCWorkbookStylesXML = """
   <fills count="6">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="\(FullLengthONTMHCWorkbookTintDefaults.sharedNovel)"/><bgColor indexed="64"/></patternFill></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="\(FullLengthONTMHCWorkbookTintDefaults.singletonNovel)"/><bgColor indexed="64"/></patternFill></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="\(FullLengthONTMHCWorkbookTintDefaults.sharedExtension)"/><bgColor indexed="64"/></patternFill></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="\(FullLengthONTMHCWorkbookTintDefaults.singletonExtension)"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="\(opaqueWorkbookARGB(FullLengthONTMHCWorkbookTintDefaults.sharedNovel))"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="\(opaqueWorkbookARGB(FullLengthONTMHCWorkbookTintDefaults.singletonNovel))"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="\(opaqueWorkbookARGB(FullLengthONTMHCWorkbookTintDefaults.sharedExtension))"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="\(opaqueWorkbookARGB(FullLengthONTMHCWorkbookTintDefaults.singletonExtension))"/><bgColor indexed="64"/></patternFill></fill>
   </fills>
   <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
@@ -6184,6 +6501,10 @@ private let fullLengthONTMHCWorkbookStylesXML = """
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>
 """
+
+private func opaqueWorkbookARGB(_ rgb: String) -> String {
+    "FF" + rgb
+}
 
 private func worksheetXML(rows: [[FullLengthONTMHCWorkbookCell]]) -> String {
     let rowCount = max(rows.count, 1)

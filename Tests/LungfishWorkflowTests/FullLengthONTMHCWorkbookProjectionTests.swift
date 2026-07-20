@@ -65,7 +65,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             to: url
         )
         let styles = try unzip("xl/styles.xml", from: url)
-        for rgb in ["FFFFE0B2", "FFFFCC80", "FFB2DFDB", "FFBBDEFB"] {
+        for rgb in ["FFF5D78E", "FFF5B97A", "FFA8D8D0", "FFAFCBF2"] {
             XCTAssertTrue(styles.contains("rgb=\"\(rgb)\""), "Missing fill \(rgb)")
         }
         let sheet = try unzip("xl/worksheets/sheet1.xml", from: url)

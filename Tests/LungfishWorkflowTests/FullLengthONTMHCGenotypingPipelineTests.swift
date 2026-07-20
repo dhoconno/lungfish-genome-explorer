@@ -416,6 +416,114 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         )
     }
 
+    func testBundleFASTQMaterializationRecordsExactManifestPayloadsAndTimedStep() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-bundle-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("DL46.lungfishfastq", isDirectory: true)
+        let chunks = bundle.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunks, withIntermediateDirectories: true)
+        let firstFASTQ = chunks.appendingPathComponent("part-1.fastq")
+        let secondFASTQ = chunks.appendingPathComponent("part-2.fastq")
+        try "@read-1\nACGTACGT\n+\nIIIIIIII\n".write(to: firstFASTQ, atomically: true, encoding: .utf8)
+        try "@read-2\nACGTACGT\n+\nIIIIIIII\n".write(to: secondFASTQ, atomically: true, encoding: .utf8)
+        let sourceManifest = FASTQSourceFileManifest(files: [
+            .init(filename: "chunks/part-1.fastq", originalPath: firstFASTQ.path, sizeBytes: 28, isSymlink: false),
+            .init(filename: "chunks/part-2.fastq", originalPath: secondFASTQ.path, sizeBytes: 28, isSymlink: false),
+        ])
+        try sourceManifest.save(to: bundle)
+        let manifestURL = bundle.appendingPathComponent(FASTQSourceFileManifest.filename)
+        let (baseRequest, pipeline) = try makeFakeFullLengthRun(root: root)
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: [bundle],
+            referenceSourceURL: baseRequest.referenceSourceURL,
+            outputDirectory: baseRequest.outputDirectory,
+            outputName: baseRequest.outputName,
+            threads: baseRequest.threads,
+            minimumLength: baseRequest.minimumLength,
+            maximumLength: baseRequest.maximumLength
+        )
+
+        _ = try await pipeline.run(request)
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        let topLevelInputs = envelope.files.filter { $0.role == .input }
+        XCTAssertFalse(topLevelInputs.contains { $0.path == bundle.path })
+        let step = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-internal materialize-full-length-mhc-fastq"
+        })
+        XCTAssertEqual(Set(step.inputs.map(\.path)), Set([manifestURL.path, firstFASTQ.path, secondFASTQ.path]))
+        XCTAssertEqual(value(after: "--bundle", in: step.argv), bundle.path)
+        XCTAssertEqual(value(after: "--manifest", in: step.argv), manifestURL.path)
+        XCTAssertEqual(values(after: "--payload", in: step.argv), [firstFASTQ.path, secondFASTQ.path])
+        XCTAssertTrue(try XCTUnwrap(value(after: "--output", in: step.argv)).hasSuffix("/workflow/DL46/00-input.fastq"))
+        XCTAssertEqual(step.resolvedOptions["payloadCount"], .integer(2))
+        XCTAssertEqual(step.exitStatus, 0)
+        XCTAssertNotNil(step.runtimeIdentity)
+        XCTAssertNotNil(step.startedAt)
+        XCTAssertNotNil(step.completedAt)
+        XCTAssertGreaterThanOrEqual(step.wallTimeSeconds ?? -1, 0)
+        for descriptor in step.inputs + step.outputs {
+            XCTAssertTrue(descriptor.path.hasPrefix("/"), descriptor.path)
+            XCTAssertNotNil(descriptor.checksumSHA256, descriptor.path)
+            XCTAssertNotNil(descriptor.fileSize, descriptor.path)
+        }
+        XCTAssertEqual(Set(topLevelInputs.map(\.path)).intersection(Set([manifestURL.path, firstFASTQ.path, secondFASTQ.path])),
+                       Set([manifestURL.path, firstFASTQ.path, secondFASTQ.path]))
+    }
+
+    func testFASTQMaterializationHonorsCancellationBeforeReadingPayload() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-materialization-cancel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let inputURL = root.appendingPathComponent("reads.fastq")
+        let outputURL = root.appendingPathComponent("00-input.fastq")
+        try "@read-1\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+
+        let task = Task {
+            return try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
+                inputURL: inputURL,
+                outputURL: outputURL
+            )
+        }
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected materialization cancellation")
+        } catch is CancellationError {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        }
+    }
+
+    func testBundleFASTQMaterializationRejectsSymlinkedPayloadPathComponents() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-materialization-nofollow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("DL46.lungfishfastq", isDirectory: true)
+        let external = root.appendingPathComponent("external", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+        let externalFASTQ = external.appendingPathComponent("reads.fastq")
+        try "@read-1\nACGT\n+\nIIII\n".write(to: externalFASTQ, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            at: bundle.appendingPathComponent("chunks", isDirectory: true),
+            withDestinationURL: external
+        )
+        try FASTQSourceFileManifest(files: [
+            .init(filename: "chunks/reads.fastq", originalPath: externalFASTQ.path, sizeBytes: 20, isSymlink: true),
+        ]).save(to: bundle)
+        let outputURL = root.appendingPathComponent("00-input.fastq")
+
+        XCTAssertThrowsError(try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
+            inputURL: bundle,
+            outputURL: outputURL
+        )) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("symlink"), error.localizedDescription)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
     func testSavontClusterNormalizerAddsReadCountFromDepthHeaders() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-savont-normalize-\(UUID().uuidString)", isDirectory: true)
@@ -731,7 +839,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let unnameableSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet11.xml", from: result.workbookURL)
         XCTAssertTrue(unnameableSheetXML.contains("Stable Cluster ID"))
         XCTAssertTrue(unnameableSheetXML.contains("Reason"))
-        XCTAssertTrue(try Self.unzippedText(path: "xl/styles.xml", from: result.workbookURL).contains("FFFFE0B2"))
+        XCTAssertTrue(try Self.unzippedText(path: "xl/styles.xml", from: result.workbookURL).contains("FFF5D78E"))
     }
 
     func testRunRetriesStrictNoClusterSampleWithHiddenQV90MinClusterOneFallback() async throws {
@@ -889,6 +997,60 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let retainedBAMs = try FileManager.default.subpathsOfDirectory(atPath: cohortWorkDirectory.path)
             .filter { $0.hasSuffix(".bam") }
         XCTAssertFalse(retainedBAMs.isEmpty, "Final-view failure must retain per-sample BAM diagnostics.")
+        let failureEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        XCTAssertNotEqual(failureEnvelope.exitStatus, 0)
+        XCTAssertTrue(failureEnvelope.stderr?.contains("forced final BAM view failure") == true)
+        XCTAssertFalse(failureEnvelope.argv.isEmpty)
+        XCTAssertFalse(failureEnvelope.options.resolvedDefaults.isEmpty)
+        XCTAssertNotNil(failureEnvelope.runtimeIdentity)
+        XCTAssertFalse(failureEnvelope.steps.isEmpty)
+        XCTAssertFalse(failureEnvelope.outputs.isEmpty)
+        for output in failureEnvelope.outputs {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: output.path), output.path)
+            XCTAssertNotNil(output.checksumSHA256, output.path)
+            XCTAssertNotNil(output.fileSize, output.path)
+        }
+    }
+
+    func testPrepublicationCancellationWritesScopedAdjacentReceiptWithoutSuccessMetadata() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-cancel-receipt-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .provenanceFinalizedBeforeManifestPublication = event else { return }
+                throw CancellationError()
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {}
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.manifestURL.path))
+        let failureEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        XCTAssertEqual(failureEnvelope.exitStatus, 130)
+        XCTAssertTrue(failureEnvelope.stderr?.localizedCaseInsensitiveContains("cancel") == true)
+        XCTAssertEqual(failureEnvelope.options.resolvedDefaults["outcome"], .string("cancelled"))
+    }
+
+    func testSuccessfulRunRemovesStaleAdjacentFailureReceipt() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-stale-failure-receipt-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(root: root)
+        try "stale".write(to: request.failureProvenanceURL, atomically: true, encoding: .utf8)
+
+        _ = try await pipeline.run(request)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.failureProvenanceURL.path))
     }
 
     func testInjectedFailureAfterProvenanceLeavesNoVisibleSuccessManifest() async throws {
@@ -1365,10 +1527,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateMinimumIdentity"]?.numberValue, 0.75)
         XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateMinimumShorterCoverage"]?.numberValue, 0.70)
         XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateMinimumIntronGapBases"]?.integerValue, 20)
-        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSharedNovelTint"]?.stringValue, "FFFFE0B2")
-        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSingletonNovelTint"]?.stringValue, "FFFFCC80")
-        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSharedExtensionTint"]?.stringValue, "FFB2DFDB")
-        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSingletonExtensionTint"]?.stringValue, "FFBBDEFB")
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSharedNovelTint"]?.stringValue, "F5D78E")
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSingletonNovelTint"]?.stringValue, "F5B97A")
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSharedExtensionTint"]?.stringValue, "A8D8D0")
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSingletonExtensionTint"]?.stringValue, "AFCBF2")
         XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateNovelDistanceMetric"]?.stringValue, "SNP-substitutions-only")
         XCTAssertEqual(
             envelope.options.resolvedDefaults["mhcResultBundleAtomicPublication"]?.stringValue,
@@ -1450,6 +1612,21 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             FullLengthONTMHCWorkbookProjectionInputDocument.self,
             from: Data(contentsOf: workbookProjectionInputURL)
         )
+        let expectedCanonicalTints = [
+            FullLengthONTMHCWorkbookTintCategory.sharedNovel.rawValue: "F5D78E",
+            FullLengthONTMHCWorkbookTintCategory.singletonNovel.rawValue: "F5B97A",
+            FullLengthONTMHCWorkbookTintCategory.sharedExtension.rawValue: "A8D8D0",
+            FullLengthONTMHCWorkbookTintCategory.singletonExtension.rawValue: "AFCBF2",
+        ]
+        XCTAssertEqual(workbookProjectionInput.tintARGB, expectedCanonicalTints)
+        XCTAssertEqual(value(after: "--shared-novel-tint", in: workbookProjectionStep.argv), "F5D78E")
+        XCTAssertEqual(value(after: "--singleton-novel-tint", in: workbookProjectionStep.argv), "F5B97A")
+        XCTAssertEqual(value(after: "--shared-extension-tint", in: workbookProjectionStep.argv), "A8D8D0")
+        XCTAssertEqual(value(after: "--singleton-extension-tint", in: workbookProjectionStep.argv), "AFCBF2")
+        XCTAssertEqual(workbookProjectionStep.resolvedOptions["sharedNovelTint"]?.stringValue, "F5D78E")
+        XCTAssertEqual(workbookProjectionStep.resolvedOptions["singletonNovelTint"]?.stringValue, "F5B97A")
+        XCTAssertEqual(workbookProjectionStep.resolvedOptions["sharedExtensionTint"]?.stringValue, "A8D8D0")
+        XCTAssertEqual(workbookProjectionStep.resolvedOptions["singletonExtensionTint"]?.stringValue, "AFCBF2")
         XCTAssertGreaterThan(workbookProjectionInput.sourceSummary.reportRowCount, 0)
         XCTAssertEqual(workbookProjectionInput.sourceSummary.sampleSummaryCount, 1)
         XCTAssertFalse(workbookProjectionInput.sheets.isEmpty)
@@ -1465,12 +1642,42 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         })
         XCTAssertTrue(Set(workbookAssemblyStep.inputs.map(\.path)).isSuperset(of: [
             try XCTUnwrap(result.candidateAllelesJSONURL).path,
+            try XCTUnwrap(result.candidateAllelesFASTAURL).path,
             try XCTUnwrap(result.unnameableClustersJSONURL).path,
+            try XCTUnwrap(result.unnameableClustersFASTAURL).path,
+            try XCTUnwrap(result.genotypingEvidenceBAMURL).path,
+            try XCTUnwrap(result.genotypingEvidenceBAIURL).path,
+            try XCTUnwrap(result.reciprocalEvidenceBAMURL).path,
+            try XCTUnwrap(result.reciprocalEvidenceBAIURL).path,
             result.reportCSVURL.path,
             result.sampleSummaryCSVURL.path,
             result.deduplicatedUnmatchedClustersFASTAURL.path,
             result.referenceFASTAURL.path,
         ]))
+        XCTAssertEqual(
+            value(after: "--candidate-fasta", in: workbookAssemblyStep.argv),
+            try XCTUnwrap(result.candidateAllelesFASTAURL).path
+        )
+        XCTAssertEqual(
+            value(after: "--unnameable-fasta", in: workbookAssemblyStep.argv),
+            try XCTUnwrap(result.unnameableClustersFASTAURL).path
+        )
+        XCTAssertEqual(
+            value(after: "--genotyping-bam", in: workbookAssemblyStep.argv),
+            try XCTUnwrap(result.genotypingEvidenceBAMURL).path
+        )
+        XCTAssertEqual(
+            value(after: "--genotyping-bai", in: workbookAssemblyStep.argv),
+            try XCTUnwrap(result.genotypingEvidenceBAIURL).path
+        )
+        XCTAssertEqual(
+            value(after: "--reciprocal-bam", in: workbookAssemblyStep.argv),
+            try XCTUnwrap(result.reciprocalEvidenceBAMURL).path
+        )
+        XCTAssertEqual(
+            value(after: "--reciprocal-bai", in: workbookAssemblyStep.argv),
+            try XCTUnwrap(result.reciprocalEvidenceBAIURL).path
+        )
         XCTAssertEqual(workbookAssemblyStep.outputs.map(\.path), [workbookProjectionInputURL.path])
         XCTAssertNotNil(workbookAssemblyStep.resolvedOptions["genotypeRowCount"])
         XCTAssertNotNil(workbookAssemblyStep.resolvedOptions["orderedAlleleCount"])
@@ -1556,6 +1763,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.manifestURL.path))
+        let failureEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        XCTAssertEqual(failureEnvelope.exitStatus, 1)
+        XCTAssertTrue(failureEnvelope.stderr?.contains("injected-final-provenance-boundary") == true)
+        XCTAssertFalse(failureEnvelope.steps.isEmpty)
+        XCTAssertFalse(failureEnvelope.options.resolvedDefaults.isEmpty)
     }
 
     func testPostPublicationWorkflowCleanupFailureReturnsSuccessWithRetainedPathWarning() async throws {
@@ -3337,6 +3551,14 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             return nil
         }
         return arguments[index + 1]
+    }
+
+    private func values(after flag: String, in arguments: [String]) -> [String] {
+        arguments.indices.compactMap { index in
+            guard arguments[index] == flag,
+                  arguments.indices.contains(index + 1) else { return nil }
+            return arguments[index + 1]
+        }
     }
 }
 

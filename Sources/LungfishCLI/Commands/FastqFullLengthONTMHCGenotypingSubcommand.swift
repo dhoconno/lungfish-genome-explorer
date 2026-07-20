@@ -151,7 +151,9 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
                 : (parsedHaplotypeDefinitionScope ?? .project),
             haplotypeDefinitionSetID: effectiveHaplotypeDefinition
         )
+        let suppressProgress = globalOptions.quiet
         let result = try await FullLengthONTMHCGenotypingPipeline().run(request) { fraction, message in
+            guard !suppressProgress else { return }
             let percent = Int((fraction * 100.0).rounded())
             FileHandle.standardError.write(Data("[\(percent)%] \(message)\n".utf8))
         }
@@ -183,13 +185,25 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
                 .appendingPathComponent("artifacts/projections/mhc-workbook-projection-input.json").path,
             cleanupWarnings: result.cleanupWarnings
         )
-        if globalOptions.outputFormat == .json {
+        if let output = try outputData(for: payload) {
+            FileHandle.standardOutput.write(output)
+        }
+    }
+
+    func outputData(for payload: FastqFullLengthONTMHCGenotypingPayload) throws -> Data? {
+        guard !globalOptions.quiet else { return nil }
+
+        switch globalOptions.outputFormat {
+        case .json:
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            FileHandle.standardOutput.write(try encoder.encode(payload))
-            FileHandle.standardOutput.write(Data("\n".utf8))
-        } else if !globalOptions.quiet {
-            FileHandle.standardOutput.write(Data(payload.textOutput.utf8))
+            var output = try encoder.encode(payload)
+            output.append(contentsOf: "\n".utf8)
+            return output
+        case .tsv:
+            return Data(try payload.tsvOutput().utf8)
+        case .text:
+            return Data(payload.textOutput.utf8)
         }
     }
 }
@@ -219,6 +233,17 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let referenceCatalogJSONPath: String
     let workbookProjectionInputJSONPath: String
     let cleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning]
+
+    private static let tsvHeader = [
+        "outputDirectory", "reportCSVPath", "sampleSummaryCSVPath", "statsJSONPath",
+        "workbookPath", "primaryWorkbookPath", "haplotypeAnalysisPath",
+        "unmatchedClustersFASTAPath", "deduplicatedUnmatchedClustersFASTAPath",
+        "cdnaClustersFASTAPath", "provenancePath", "manifestPath", "referenceFASTAPath",
+        "genotypingEvidenceBAMPath", "genotypingEvidenceBAIPath", "reciprocalEvidenceBAMPath",
+        "reciprocalEvidenceBAIPath", "candidateAllelesJSONPath", "candidateAllelesFASTAPath",
+        "unnameableClustersJSONPath", "unnameableClustersFASTAPath", "referenceCatalogJSONPath",
+        "workbookProjectionInputJSONPath", "cleanupWarnings",
+    ]
 
     var textOutput: String {
         let values: [(String, String?)] = [
@@ -253,5 +278,36 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
             "Cleanup warning (\($0.kind.rawValue)): \($0.path): \($0.error)"
         })
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    func tsvOutput() throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let cleanupWarningsJSON = String(decoding: try encoder.encode(cleanupWarnings), as: UTF8.self)
+        let values = [
+            outputDirectory, reportCSVPath, sampleSummaryCSVPath, statsJSONPath,
+            workbookPath, primaryWorkbookPath, haplotypeAnalysisPath ?? "",
+            unmatchedClustersFASTAPath, deduplicatedUnmatchedClustersFASTAPath,
+            cdnaClustersFASTAPath, provenancePath, manifestPath, referenceFASTAPath,
+            genotypingEvidenceBAMPath ?? "", genotypingEvidenceBAIPath ?? "",
+            reciprocalEvidenceBAMPath ?? "", reciprocalEvidenceBAIPath ?? "",
+            candidateAllelesJSONPath ?? "", candidateAllelesFASTAPath ?? "",
+            unnameableClustersJSONPath ?? "", unnameableClustersFASTAPath ?? "",
+            referenceCatalogJSONPath, workbookProjectionInputJSONPath, cleanupWarningsJSON,
+        ]
+        precondition(values.count == Self.tsvHeader.count)
+        return Self.tsvHeader.joined(separator: "\t")
+            + "\n"
+            + values.map(Self.tsvEscape).joined(separator: "\t")
+            + "\n"
+    }
+
+    private static func tsvEscape(_ value: String) -> String {
+        let needsQuoting = value.contains("\t")
+            || value.contains("\"")
+            || value.contains("\n")
+            || value.contains("\r")
+        guard needsQuoting else { return value }
+        return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
     }
 }
