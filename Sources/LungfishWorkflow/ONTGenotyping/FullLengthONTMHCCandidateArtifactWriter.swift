@@ -3,15 +3,15 @@ import Darwin
 import Foundation
 import LungfishIO
 
-public struct FullLengthONTMHCCandidateSequenceObservation: Sendable, Equatable {
-    public let sampleID: String
-    public let readGroupID: String
-    public let sourceClusterID: String
-    public let clusterReadCount: Int
-    public let sequence: String
-    public let genotypingEvidence: [ONTMHCEvidenceLocator]
+struct FullLengthONTMHCCandidateSequenceObservation: Sendable, Equatable {
+    let sampleID: String
+    let readGroupID: String
+    let sourceClusterID: String
+    let clusterReadCount: Int
+    let sequence: String
+    let genotypingEvidence: [ONTMHCEvidenceLocator]
 
-    public init(
+    init(
         sampleID: String,
         readGroupID: String,
         sourceClusterID: String,
@@ -28,17 +28,17 @@ public struct FullLengthONTMHCCandidateSequenceObservation: Sendable, Equatable 
     }
 }
 
-public struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
-    public let observations: [FullLengthONTMHCCandidateSequenceObservation]
-    public let referenceAlleleFASTAURL: URL
-    public let referenceRecords: [MHCReferenceRecord]
-    public let genotypingEvidence: ONTMHCBAMArtifactPair?
-    public let threads: Int
-    public let outputDirectoryURL: URL
-    public let workDirectoryURL: URL
-    public let thresholds: ONTMHCCandidateThresholds
+struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
+    let observations: [FullLengthONTMHCCandidateSequenceObservation]
+    let referenceAlleleFASTAURL: URL
+    let referenceRecords: [MHCReferenceRecord]
+    let genotypingEvidence: ONTMHCBAMArtifactPair?
+    let threads: Int
+    let outputDirectoryURL: URL
+    let workDirectoryURL: URL
+    let thresholds: ONTMHCCandidateThresholds
 
-    public init(
+    init(
         observations: [FullLengthONTMHCCandidateSequenceObservation],
         referenceAlleleFASTAURL: URL,
         referenceRecords: [MHCReferenceRecord],
@@ -59,24 +59,24 @@ public struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable
     }
 }
 
-public struct FullLengthONTMHCCandidateArtifactResult: Sendable, Equatable {
-    public let stableUnmatchedFASTAURL: URL
-    public let reciprocalBAMURL: URL
-    public let reciprocalBAIURL: URL
-    public let candidateFASTAURL: URL
-    public let candidateJSONURL: URL
-    public let unnameableFASTAURL: URL
-    public let unnameableJSONURL: URL
-    public let manifest: ONTMHCCandidateArtifactManifest
-    public let classifiedClusters: [FullLengthONTMHCCandidateCluster]
-    public let classifications: [FullLengthONTMHCCandidateClassificationResult]
-    public let commandRecords: [FullLengthONTMHCCohortAlignmentCommandRecord]
-    public let toolVersions: [FullLengthONTMHCToolVersionRecord]
-    public let toolVersionDiscoveryRecords: [FullLengthONTMHCCohortAlignmentCommandRecord]
-    public let transformationRecords: [FullLengthONTMHCInProcessTransformationRecord]
-    public let runtimeIdentity: ProvenanceRuntimeIdentity
+struct FullLengthONTMHCCandidateArtifactResult: Sendable, Equatable {
+    let stableUnmatchedFASTAURL: URL
+    let reciprocalBAMURL: URL
+    let reciprocalBAIURL: URL
+    let candidateFASTAURL: URL
+    let candidateJSONURL: URL
+    let unnameableFASTAURL: URL
+    let unnameableJSONURL: URL
+    let manifest: ONTMHCCandidateArtifactManifest
+    let classifiedClusters: [FullLengthONTMHCCandidateCluster]
+    let classifications: [FullLengthONTMHCCandidateClassificationResult]
+    let commandRecords: [FullLengthONTMHCCohortAlignmentCommandRecord]
+    let toolVersions: [FullLengthONTMHCToolVersionRecord]
+    let toolVersionDiscoveryRecords: [FullLengthONTMHCCohortAlignmentCommandRecord]
+    let transformationRecords: [FullLengthONTMHCInProcessTransformationRecord]
+    let runtimeIdentity: ProvenanceRuntimeIdentity
 
-    public var allArtifactReferences: [ONTMHCArtifactReference] {
+    var allArtifactReferences: [ONTMHCArtifactReference] {
         [
             manifest.reciprocalEvidence?.bam,
             manifest.reciprocalEvidence?.bai,
@@ -88,26 +88,146 @@ public struct FullLengthONTMHCCandidateArtifactResult: Sendable, Equatable {
     }
 }
 
-public struct FullLengthONTMHCCandidateArtifactWriterError: Error, LocalizedError, Sendable, Equatable {
-    public let message: String
-    public var errorDescription: String? { message }
+struct FullLengthONTMHCCandidateArtifactWriterError: Error, LocalizedError, Sendable, Equatable {
+    let message: String
+    var errorDescription: String? { message }
     init(_ message: String) { self.message = message }
 }
 
-public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
+struct FullLengthONTMHCReciprocalSAMParser: Sendable {
+    static let maximumLineBytes = 1_048_576
+    static let maximumFields = 4_096
+    static let maximumAlignmentsPerCluster = 1_024
+
+    func parse(
+        _ url: URL,
+        clusterIDs: Set<String>,
+        references: [MHCReferenceRecord],
+        finalBAMPath: String
+    ) throws -> [String: [FullLengthONTMHCCandidateAlignment]] {
+        let referencesByID = Dictionary(uniqueKeysWithValues: references.map { ($0.sequenceID, $0) })
+        var result: [String: [FullLengthONTMHCCandidateAlignment]] = [:]
+        var lineNumber = 0
+        try url.forEachLineAutoDecompressing { line in
+            try Task.checkCancellation()
+            lineNumber += 1
+            guard line.utf8.count <= Self.maximumLineBytes else {
+                throw error("line exceeds \(Self.maximumLineBytes) bytes", line: lineNumber)
+            }
+            guard !line.isEmpty, !line.hasPrefix("@") else { return }
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count >= 11, fields.count <= Self.maximumFields,
+                  clusterIDs.contains(fields[0]),
+                  let flag = Int(fields[1]), flag >= 0 else {
+                throw error("malformed mandatory fields", line: lineNumber)
+            }
+            if flag & 0x4 != 0 { return }
+            guard let position = Int(fields[3]), position > 0,
+                  let mapq = Int(fields[4]), (0...255).contains(mapq),
+                  fields[5] != "*" else {
+                throw error("malformed mapped alignment", line: lineNumber)
+            }
+            guard let reference = referencesByID[fields[2]] else {
+                throw error("unknown reference '\(fields[2])'", line: lineNumber)
+            }
+            let nm = try uniqueIntegerTag("NM", in: fields.dropFirst(11), required: false, line: lineNumber)
+            let score = try uniqueIntegerTag("AS", in: fields.dropFirst(11), required: true, line: lineNumber)!
+            guard nm.map({ $0 >= 0 }) ?? true else {
+                throw error("NM must be nonnegative", line: lineNumber)
+            }
+            let locator = ONTMHCEvidenceLocator(
+                bamPath: finalBAMPath,
+                queryName: fields[0],
+                referenceName: fields[2],
+                readGroupID: nil,
+                referenceStart: position,
+                cigar: fields[5]
+            )
+            var alignments = result[fields[0], default: []]
+            guard alignments.count < Self.maximumAlignmentsPerCluster else {
+                throw error("too many alignments for cluster '\(fields[0])'", line: lineNumber)
+            }
+            alignments.append(.init(
+                reference: .resolved(reference),
+                cigar: fields[5],
+                nm: nm,
+                mappingQuality: mapq,
+                alignmentScore: score,
+                evidence: locator
+            ))
+            result[fields[0]] = alignments
+        }
+        return result.mapValues { values in
+            var unique: [FullLengthONTMHCCandidateAlignment] = []
+            for value in values.sorted(by: Self.alignmentLessThan) where unique.last != value {
+                unique.append(value)
+            }
+            return unique
+        }
+    }
+
+    private func uniqueIntegerTag(
+        _ name: String,
+        in tags: ArraySlice<String>,
+        required: Bool,
+        line: Int
+    ) throws -> Int? {
+        let matches = tags.filter { tag in
+            tag.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).first == Substring(name)
+        }
+        guard matches.count <= 1 else {
+            throw error("duplicate \(name) tag", line: line)
+        }
+        guard let tag = matches.first else {
+            if required { throw error("missing \(name):i tag", line: line) }
+            return nil
+        }
+        let pieces = tag.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard pieces.count == 3, pieces[0] == Substring(name), pieces[1] == "i",
+              let value = Int(pieces[2]) else {
+            throw error("malformed \(name):i tag", line: line)
+        }
+        return value
+    }
+
+    private func error(_ detail: String, line: Int) -> FullLengthONTMHCCandidateArtifactWriterError {
+        FullLengthONTMHCCandidateArtifactWriterError(
+            "Malformed reciprocal SAM alignment at line \(line): \(detail)."
+        )
+    }
+
+    private static func alignmentLessThan(
+        _ lhs: FullLengthONTMHCCandidateAlignment,
+        _ rhs: FullLengthONTMHCCandidateAlignment
+    ) -> Bool {
+        let left = [
+            lhs.reference.referenceName, String(lhs.evidence.referenceStart), lhs.cigar,
+            String(lhs.nm ?? -1), String(lhs.alignmentScore), String(lhs.mappingQuality),
+            lhs.evidence.bamPath, lhs.evidence.queryName,
+        ]
+        let right = [
+            rhs.reference.referenceName, String(rhs.evidence.referenceStart), rhs.cigar,
+            String(rhs.nm ?? -1), String(rhs.alignmentScore), String(rhs.mappingQuality),
+            rhs.evidence.bamPath, rhs.evidence.queryName,
+        ]
+        return left.lexicographicallyPrecedes(right)
+    }
+}
+
+struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
     private let executableDirectoryURL: URL?
     private let minimap2ExecutableURL: URL?
     private let samtoolsExecutableURL: URL?
     private let fileManager: FileManager
 
-    public init(executableDirectoryURL: URL? = nil, fileManager: FileManager = .default) {
+    init(executableDirectoryURL: URL? = nil, fileManager: FileManager = .default) {
         self.executableDirectoryURL = executableDirectoryURL?.standardizedFileURL
         minimap2ExecutableURL = nil
         samtoolsExecutableURL = nil
         self.fileManager = fileManager
     }
 
-    public init(
+    init(
         minimap2ExecutableURL: URL,
         samtoolsExecutableURL: URL,
         fileManager: FileManager = .default
@@ -118,7 +238,7 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         self.fileManager = fileManager
     }
 
-    public static func stableClusterID(for sequence: String) -> String {
+    static func stableClusterID(for sequence: String) -> String {
         let normalized = normalizedSequence(sequence)
         var bytes = Array(SHA256.hash(data: Data(normalized.utf8)).prefix(16))
         bytes[6] = (bytes[6] & 0x0f) | 0x50
@@ -129,7 +249,7 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         )).uuidString.lowercased()
     }
 
-    public func write(
+    func stage(
         _ request: FullLengthONTMHCCandidateArtifactWriteRequest
     ) async throws -> FullLengthONTMHCCandidateArtifactResult {
         try Task.checkCancellation()
@@ -137,6 +257,14 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         try safety.requireRegularFileNoFollow(request.referenceAlleleFASTAURL, role: "reference allele FASTA")
         try fileManager.createDirectory(at: request.outputDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: request.workDirectoryURL, withIntermediateDirectories: true)
+        let callerStagedUnmatchedFASTAURL = request.outputDirectoryURL.appendingPathComponent(
+            "deduplicated_unmatched_clusters.fasta"
+        )
+        try safety.requireRegularFileNoFollow(
+            callerStagedUnmatchedFASTAURL,
+            role: "caller-staged deduplicated unmatched FASTA"
+        )
+        try requireFreshStagingTargets(in: request.outputDirectoryURL)
         let pathContext = try safety.prepareDirectories(
             outputDirectoryURL: request.outputDirectoryURL,
             workDirectoryURL: request.workDirectoryURL
@@ -146,16 +274,11 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             "full-length-ont-mhc-candidates-\(UUID().uuidString)", isDirectory: true
         )
         try fileManager.createDirectory(at: generationURL, withIntermediateDirectories: false)
-        defer { try? fileManager.removeItem(at: generationURL) }
         let logsURL = generationURL.appendingPathComponent("logs", isDirectory: true)
         try fileManager.createDirectory(at: logsURL, withIntermediateDirectories: false)
         let stagedRootURL = generationURL.appendingPathComponent("publication", isDirectory: true)
         let stagedAlignmentsURL = stagedRootURL.appendingPathComponent("artifacts/alignments", isDirectory: true)
         try fileManager.createDirectory(at: stagedAlignmentsURL, withIntermediateDirectories: true)
-        try copyExistingAlignmentArtifacts(
-            from: request.outputDirectoryURL.appendingPathComponent("artifacts/alignments", isDirectory: true),
-            to: stagedAlignmentsURL
-        )
 
         var transformations: [FullLengthONTMHCInProcessTransformationRecord] = []
         let referenceDescriptor = try FullLengthONTMHCArtifactDescriptor(
@@ -189,9 +312,7 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let grouped = try groupedClusters(request.observations)
         try writeFASTA(grouped.map { ($0.id, $0.sequence) }, to: stagedStableFASTAURL)
         let stagedStableDescriptor = try FullLengthONTMHCArtifactDescriptor(
-            url: stagedStableFASTAURL,
-            role: .sourceClusterFASTA,
-            phase: .staging
+            url: stagedStableFASTAURL, role: .sourceClusterFASTA, phase: .temporary
         )
         let stableFASTACompletedAt = Date()
         transformations.append(.init(
@@ -298,7 +419,7 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let finalBAMURL = request.outputDirectoryURL.appendingPathComponent(reciprocalBAMRelativePath)
         let finalBAIURL = request.outputDirectoryURL.appendingPathComponent("artifacts/alignments/unmatched-to-reference.bam.bai")
         let classificationStartedAt = Date()
-        let alignments = try parseReciprocalSAM(
+        let alignments = try FullLengthONTMHCReciprocalSAMParser().parse(
             reciprocalViewURL,
             clusterIDs: Set(grouped.map(\.id)),
             references: request.referenceRecords,
@@ -387,7 +508,7 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let unnameableFASTAReference = try artifactReference(unnameableFASTAURL, finalRelativePath: "unnameable_unmatched_clusters.fasta")
         let referenceInput = try artifactReference(request.referenceAlleleFASTAURL, finalRelativePath: request.referenceAlleleFASTAURL.path)
         let stableUnmatchedInput = try artifactReference(
-            stagedStableFASTAURL,
+            callerStagedUnmatchedFASTAURL,
             finalRelativePath: "deduplicated_unmatched_clusters.fasta"
         )
         let allObservations = grouped.flatMap(\.observations).sorted(by: Self.observationLessThan)
@@ -452,56 +573,52 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let stagedPublicationDescriptors = [
             try FullLengthONTMHCArtifactDescriptor(url: stagedBAMURL, role: .evidenceBAM, phase: .staging),
             try FullLengthONTMHCArtifactDescriptor(url: stagedBAIURL, role: .evidenceBAI, phase: .staging),
-            stagedStableDescriptor,
             candidateFASTADescriptor,
             candidateJSONDescriptor,
             unnameableFASTADescriptor,
             unnameableJSONDescriptor,
         ]
-        let publicationStartedAt = Date()
-        try publishTransaction(
+        let materializationStartedAt = Date()
+        try materializeStagingGeneration(
             stagedRootURL: stagedRootURL,
             outputDirectoryURL: request.outputDirectoryURL,
             relativePaths: [
-                "artifacts/alignments", "deduplicated_unmatched_clusters.fasta",
+                "artifacts/alignments/unmatched-to-reference.bam",
+                "artifacts/alignments/unmatched-to-reference.bam.bai",
                 "candidate_alleles.fasta", "candidate-alleles.json",
                 "unnameable_unmatched_clusters.fasta", "unnameable-unmatched-clusters.json",
             ]
         )
-        let publicationCompletedAt = Date()
+        let materializationCompletedAt = Date()
         let finalPublicationURLs: [(URL, FullLengthONTMHCArtifactRole)] = [
             (finalBAMURL, .evidenceBAM),
             (finalBAIURL, .evidenceBAI),
-            (request.outputDirectoryURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("candidate_alleles.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("candidate-alleles.json"), .commandOutput),
             (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("unnameable-unmatched-clusters.json"), .commandOutput),
         ]
         let finalPublicationDescriptors = try finalPublicationURLs.map {
-            try FullLengthONTMHCArtifactDescriptor(url: $0.0, role: $0.1, phase: .final)
+            try FullLengthONTMHCArtifactDescriptor(url: $0.0, role: $0.1, phase: .staging)
         }
         transformations.append(.init(
-            workflowName: "lungfish-internal:publish-mhc-candidate-artifacts",
+            workflowName: "lungfish-in-process:materialize-mhc-candidate-staging-generation",
             workflowVersion: WorkflowRun.currentAppVersion,
             argv: [
-                "lungfish-internal", "publish-mhc-candidate-artifacts",
-                "--atomic-mechanism", "renameatx_np",
+                "lungfish-in-process", "materialize-mhc-candidate-staging-generation",
                 stagedRootURL.path,
                 request.outputDirectoryURL.path,
             ],
             resolvedOptions: [
-                "atomicMechanism": "renameatx_np",
-                "replaceMode": "RENAME_SWAP",
-                "createMode": "RENAME_EXCL",
-                "rollbackOnFailure": "true",
+                "destinationState": "fresh-caller-owned-unpublished-staging-directory",
+                "replacementAllowed": "false",
             ],
             inputs: stagedPublicationDescriptors,
             outputs: finalPublicationDescriptors,
             exitStatus: 0,
-            startedAt: publicationStartedAt,
-            completedAt: publicationCompletedAt,
-            wallTime: publicationCompletedAt.timeIntervalSince(publicationStartedAt)
+            startedAt: materializationStartedAt,
+            completedAt: materializationCompletedAt,
+            wallTime: materializationCompletedAt.timeIntervalSince(materializationStartedAt)
         ))
         let checksumStartedAt = Date()
         let checksumCompletedAt = Date()
@@ -645,6 +762,10 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
                     evidence.append(contentsOf: value.genotypingEvidence)
                 }
                 let sources = counts.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+                let sortedEvidence = evidence.sorted(by: Self.evidenceLessThan)
+                let uniqueEvidence = sortedEvidence.enumerated().compactMap { index, value in
+                    index == 0 || sortedEvidence[index - 1] != value ? value : nil
+                }
                 return ONTMHCCandidateObservation(
                     stableClusterID: id,
                     sampleID: key.sampleID,
@@ -652,64 +773,11 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
                     sourceClusterIDs: sources,
                     sourceClusterReadCounts: counts,
                     aggregatedSampleReadCount: counts.values.reduce(0, +),
-                    evidence: evidence.sorted(by: Self.evidenceLessThan)
+                    evidence: uniqueEvidence
                 )
             }.sorted(by: Self.observationLessThan)
             return Group(id: id, sequence: sequence, observations: observations)
         }.sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
-    }
-
-    func parseReciprocalSAM(
-        _ url: URL,
-        clusterIDs: Set<String>,
-        references: [MHCReferenceRecord],
-        finalBAMPath: String
-    ) throws -> [String: [FullLengthONTMHCCandidateAlignment]] {
-        let referencesByID = Dictionary(uniqueKeysWithValues: references.map { ($0.sequenceID, $0) })
-        let data = try String(contentsOf: url, encoding: .utf8)
-        var result: [String: [FullLengthONTMHCCandidateAlignment]] = [:]
-        for (lineIndex, line) in data.split(separator: "\n", omittingEmptySubsequences: true).enumerated() {
-            try Task.checkCancellation()
-            if line.first == "@" { continue }
-            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            guard fields.count >= 11,
-                  clusterIDs.contains(fields[0]),
-                  let flag = Int(fields[1]), flag >= 0 else {
-                throw FullLengthONTMHCCandidateArtifactWriterError("Malformed reciprocal SAM alignment at line \(lineIndex + 1).")
-            }
-            if flag & 0x4 != 0 { continue }
-            guard
-                  let position = Int(fields[3]), position > 0,
-                  let mapq = Int(fields[4]), (0...255).contains(mapq),
-                  fields[5] != "*" else {
-                throw FullLengthONTMHCCandidateArtifactWriterError("Malformed reciprocal SAM alignment at line \(lineIndex + 1).")
-            }
-            guard let reference = referencesByID[fields[2]] else {
-                throw FullLengthONTMHCCandidateArtifactWriterError("Reciprocal SAM names unknown reference '\(fields[2])'.")
-            }
-            var nm: Int?
-            var score: Int?
-            for tag in fields.dropFirst(11) {
-                if tag.hasPrefix("NM:i:") { nm = Int(tag.dropFirst(5)) }
-                if tag.hasPrefix("AS:i:") { score = Int(tag.dropFirst(5)) }
-            }
-            guard let score else {
-                throw FullLengthONTMHCCandidateArtifactWriterError("Reciprocal SAM alignment at line \(lineIndex + 1) lacks AS:i.")
-            }
-            let locator = ONTMHCEvidenceLocator(
-                bamPath: finalBAMPath,
-                queryName: fields[0],
-                referenceName: fields[2],
-                readGroupID: nil,
-                referenceStart: position,
-                cigar: fields[5]
-            )
-            result[fields[0], default: []].append(.init(
-                reference: .resolved(reference), cigar: fields[5], nm: nm,
-                mappingQuality: mapq, alignmentScore: score, evidence: locator
-            ))
-        }
-        return result
     }
 
     func run(
@@ -803,57 +871,47 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         throw FullLengthONTMHCCandidateArtifactWriterError("Executable '\(name)' was not found on PATH.")
     }
 
-    func copyExistingAlignmentArtifacts(from source: URL, to destination: URL) throws {
-        var sourceInfo = stat()
-        guard lstat(source.path, &sourceInfo) == 0 else { return }
-        guard (sourceInfo.st_mode & S_IFMT) == S_IFDIR else {
-            throw FullLengthONTMHCCandidateArtifactWriterError("Existing alignments path is not a regular directory.")
+    var stagedRelativePaths: [String] {
+        [
+            "artifacts/alignments/unmatched-to-reference.bam",
+            "artifacts/alignments/unmatched-to-reference.bam.bai",
+            "candidate_alleles.fasta",
+            "candidate-alleles.json",
+            "unnameable_unmatched_clusters.fasta",
+            "unnameable-unmatched-clusters.json",
+        ]
+    }
+
+    func requireFreshStagingTargets(in outputDirectoryURL: URL) throws {
+        let existing = stagedRelativePaths.filter { relative in
+            fileManager.fileExists(atPath: outputDirectoryURL.appendingPathComponent(relative).path)
         }
-        for name in try fileManager.contentsOfDirectory(atPath: source.path).sorted() {
-            let input = source.appendingPathComponent(name)
-            var info = stat()
-            guard lstat(input.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
-                throw FullLengthONTMHCCandidateArtifactWriterError("Existing alignment artifact '\(name)' is not a regular file.")
-            }
-            if name == "unmatched-to-reference.bam" || name == "unmatched-to-reference.bam.bai" { continue }
-            try fileManager.copyItem(at: input, to: destination.appendingPathComponent(name))
+        guard existing.isEmpty else {
+            throw FullLengthONTMHCCandidateArtifactWriterError(
+                "Candidate artifacts require a fresh caller-owned staging directory; existing targets: \(existing.joined(separator: ", "))."
+            )
         }
     }
 
-    func publishTransaction(stagedRootURL: URL, outputDirectoryURL: URL, relativePaths: [String]) throws {
-        struct Applied { let staged: URL; let final: URL; let replaced: Bool }
-        var applied: [Applied] = []
-        do {
-            for relative in relativePaths {
-                try Task.checkCancellation()
-                let staged = stagedRootURL.appendingPathComponent(relative)
-                let final = outputDirectoryURL.appendingPathComponent(relative)
-                try fileManager.createDirectory(at: final.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let replaced = fileManager.fileExists(atPath: final.path)
-                let flags = UInt32(replaced ? RENAME_SWAP : RENAME_EXCL)
-                let status = staged.path.withCString { source in
-                    final.path.withCString { destination in
-                        renameatx_np(AT_FDCWD, source, AT_FDCWD, destination, flags)
-                    }
-                }
-                guard status == 0 else {
-                    throw FullLengthONTMHCCandidateArtifactWriterError("Could not publish candidate artifact '\(relative)': \(POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO).localizedDescription)")
-                }
-                applied.append(.init(staged: staged, final: final, replaced: replaced))
+    func materializeStagingGeneration(
+        stagedRootURL: URL,
+        outputDirectoryURL: URL,
+        relativePaths: [String]
+    ) throws {
+        for relative in relativePaths {
+            try Task.checkCancellation()
+            let staged = stagedRootURL.appendingPathComponent(relative)
+            let destination = outputDirectoryURL.appendingPathComponent(relative)
+            guard !fileManager.fileExists(atPath: destination.path) else {
+                throw FullLengthONTMHCCandidateArtifactWriterError(
+                    "Candidate artifacts require a fresh caller-owned staging directory; target appeared during generation: \(relative)."
+                )
             }
-        } catch {
-            for operation in applied.reversed() {
-                if operation.replaced {
-                    _ = operation.staged.path.withCString { source in
-                        operation.final.path.withCString { destination in
-                            renameatx_np(AT_FDCWD, source, AT_FDCWD, destination, UInt32(RENAME_SWAP))
-                        }
-                    }
-                } else {
-                    try? fileManager.removeItem(at: operation.final)
-                }
-            }
-            throw error
+            try fileManager.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try fileManager.moveItem(at: staged, to: destination)
         }
     }
 
@@ -884,11 +942,10 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
     }
 
     func artifactReference(_ url: URL, finalRelativePath: String) throws -> ONTMHCArtifactReference {
-        let attributes = try fileManager.attributesOfItem(atPath: url.path)
         return ONTMHCArtifactReference(
             path: finalRelativePath,
-            sha256: Self.sha256(try Data(contentsOf: url, options: .mappedIfSafe)),
-            sizeBytes: (attributes[.size] as? NSNumber)?.int64Value ?? 0
+            sha256: try ProvenanceFileHasher.sha256(of: url),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: url))
         )
     }
 

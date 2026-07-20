@@ -547,6 +547,10 @@ enum FullLengthONTMHCMetadataPublicationEvent: Sendable, Equatable {
         finalManifestURL: URL,
         provenanceURL: URL
     )
+    case resultBundlePublishedBeforeReceipt(
+        stagedDirectoryURL: URL,
+        finalDirectoryURL: URL
+    )
 }
 
 private struct FullLengthONTMHCSuccessManifestPublicationPlan: Sendable {
@@ -580,34 +584,37 @@ private struct FullLengthONTMHCSuccessManifestPublicationPlan: Sendable {
     }
 }
 
-private struct FullLengthONTMHCSuccessResultBundlePublicationPlan: Sendable {
+private struct FullLengthONTMHCResultBundlePublicationRecord: Sendable {
     let stagedDirectoryURL: URL
     let finalDirectoryURL: URL
-    let stagedManifestDescriptor: ProvenanceFileDescriptor
-    let finalManifestDescriptor: ProvenanceFileDescriptor
+    let payloadMappings: [(staged: ProvenanceFileDescriptor, final: ProvenanceFileDescriptor)]
     let replacingExisting: Bool
     let startedAt: Date
     let completedAt: Date
 
+    let exitStatus: Int32
+    let errorMessage: String?
+
     var provenanceStep: ProvenanceStep {
         let mode = replacingExisting ? "replace" : "create"
         let argv = [
-            "lungfish-internal", "plan-success-result-bundle-publication",
+            "lungfish-internal", "publish-result-bundle",
             "--mode", mode,
             "--atomic-mechanism", "renameatx_np",
             stagedDirectoryURL.path,
             finalDirectoryURL.path,
         ]
         return ProvenanceStep(
-            toolName: "lungfish-internal plan-success-result-bundle-publication",
+            toolName: "lungfish-internal publish-result-bundle",
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
             durableReplayArgv: argv,
             reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
-            inputs: [stagedManifestDescriptor],
-            outputs: [finalManifestDescriptor],
-            exitStatus: 0,
+            inputs: payloadMappings.map(\.staged),
+            outputs: payloadMappings.map(\.final),
+            exitStatus: Int(exitStatus),
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: errorMessage,
             startedAt: startedAt,
             completedAt: completedAt
         )
@@ -661,11 +668,15 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         let finalExisted = FileManager.default.fileExists(atPath: finalOutputURL.path)
         do {
-            if finalExisted {
-                try FileManager.default.copyItem(at: finalOutputURL, to: stagedOutputURL)
-                try rehydrateCopiedCheckpointPaths(
-                    copiedBundleURL: stagedOutputURL,
-                    priorFinalOutputURL: finalOutputURL
+            try FileManager.default.createDirectory(
+                at: stagedOutputURL,
+                withIntermediateDirectories: false
+            )
+            if finalExisted, request.reuseCompatibleCheckpoints {
+                try importRequestedCheckpointGeneration(
+                    request: request,
+                    priorFinalOutputURL: finalOutputURL,
+                    stagedOutputURL: stagedOutputURL
                 )
             }
             let stagedRequest = request.replacingOutput(
@@ -675,7 +686,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             let stagedResult = try await runStaged(
                 stagedRequest,
                 logicalFinalOutputURL: finalOutputURL,
-                replacingExistingResult: finalExisted,
                 progressHandler: progressHandler
             )
             try Task.checkCancellation()
@@ -684,18 +694,70 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 finalOutputURL: finalOutputURL
             )
             try Task.checkCancellation()
-            try publishStagedResultBundle(
+            let publicationMappings = try resultBundlePublicationMappings(
+                stagedOutputURL: stagedOutputURL,
+                finalOutputURL: finalOutputURL
+            )
+            let publicationRecord = try publishStagedResultBundle(
                 stagedOutputURL: stagedOutputURL,
                 finalOutputURL: finalOutputURL,
-                replacingExisting: finalExisted
+                replacingExisting: finalExisted,
+                payloadMappings: publicationMappings
             )
-            if finalExisted, FileManager.default.fileExists(atPath: stagedOutputURL.path) {
-                try? FileManager.default.removeItem(at: stagedOutputURL)
+            do {
+                try metadataPublicationObserver(.resultBundlePublishedBeforeReceipt(
+                    stagedDirectoryURL: stagedOutputURL,
+                    finalDirectoryURL: finalOutputURL
+                ))
+                try appendActualResultBundlePublicationReceipt(
+                    publicationRecord,
+                    provenanceURL: finalOutputURL.appendingPathComponent(
+                        "full-length-ont-mhc-genotyping-provenance.json"
+                    )
+                )
+                try publishRelocatedSuccessManifest(in: finalOutputURL)
+            } catch {
+                do {
+                    try rollbackPublishedResultBundle(
+                        stagedOutputURL: stagedOutputURL,
+                        finalOutputURL: finalOutputURL,
+                        replacingExisting: finalExisted
+                    )
+                } catch let rollbackError {
+                    throw FullLengthONTMHCGenotypingError.reportFailed(
+                        "Post-publication metadata failed (\(error.localizedDescription)); rollback also failed (\(rollbackError.localizedDescription))."
+                    )
+                }
+                throw error
             }
-            return relocatedResult(stagedResult, from: stagedOutputURL, to: finalOutputURL)
+            var publicationCleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning] = []
+            if finalExisted, FileManager.default.fileExists(atPath: stagedOutputURL.path) {
+                do {
+                    try FileManager.default.removeItem(at: stagedOutputURL)
+                } catch {
+                    publicationCleanupWarnings.append(.init(
+                        kind: .retiredCohortPublicationDirectory,
+                        path: stagedOutputURL.path,
+                        error: error.localizedDescription,
+                        publishedArtifactsRemainValid: true
+                    ))
+                }
+            }
+            return relocatedResult(
+                stagedResult,
+                from: stagedOutputURL,
+                to: finalOutputURL,
+                additionalCleanupWarnings: publicationCleanupWarnings
+            )
         } catch {
             if FileManager.default.fileExists(atPath: stagedOutputURL.path) {
-                try? FileManager.default.removeItem(at: stagedOutputURL)
+                do {
+                    try FileManager.default.removeItem(at: stagedOutputURL)
+                } catch let cleanupError {
+                    throw FullLengthONTMHCGenotypingError.reportFailed(
+                        "Run failed (\(error.localizedDescription)); staging cleanup also failed (\(cleanupError.localizedDescription))."
+                    )
+                }
             }
             throw error
         }
@@ -704,7 +766,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private func runStaged(
         _ request: FullLengthONTMHCGenotypingRunRequest,
         logicalFinalOutputURL: URL,
-        replacingExistingResult: Bool,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> FullLengthONTMHCGenotypingResult {
         let progress = FullLengthONTMHCProgressRelay(progressHandler)
@@ -940,7 +1001,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             fastaURL: referenceFASTAURL,
             cdnaThreshold: request.cdnaThreshold
         )
-        let candidateArtifactResult = try await candidateWriter.write(.init(
+        let candidateArtifactResult = try await candidateWriter.stage(.init(
             observations: unmatchedClosestMatchRows.map {
                 FullLengthONTMHCCandidateSequenceObservation(
                     sampleID: $0.sample,
@@ -963,25 +1024,30 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         ))
         try Task.checkCancellation()
         let reciprocalKnownRows = reciprocalKnownGenotypeRows(
-            from: candidateArtifactResult,
-            referenceRecords: candidateReferenceRecords
+            from: candidateArtifactResult
         )
         allGenotypeRows.append(contentsOf: reciprocalKnownRows)
         let cdnaAlleles = Set(candidateReferenceRecords.filter {
             $0.moleculeClass == .cDNA
         }.map(\.alleleName))
+        let cdnaReferenceIDs = Set(candidateReferenceRecords.filter {
+            $0.moleculeClass == .cDNA
+        }.map(\.sequenceID))
         sampleSummaries = sampleSummaries.map { summary in
             let rows = reciprocalKnownRows.filter { $0.sample == summary.sample }
             guard !rows.isEmpty else { return summary }
             let reciprocalCDNAClusters = Set(rows.filter {
-                cdnaAlleles.contains($0.allele)
+                $0.referenceSequenceID.map(cdnaReferenceIDs.contains) ?? cdnaAlleles.contains($0.allele)
             }.map(\.cluster))
+            let assignedSourceReads = Dictionary(grouping: rows, by: \.cluster).values.reduce(0) {
+                $0 + ($1.map(\.clusterReads).max() ?? 0)
+            }
             return FullLengthONTMHCSampleSummary(
                 sample: summary.sample,
                 totalInputReads: summary.totalInputReads,
                 clusterCount: summary.clusterCount,
                 clusteredReads: summary.clusteredReads,
-                assignedReads: summary.assignedReads + rows.reduce(0) { $0 + $1.clusterReads },
+                assignedReads: summary.assignedReads + assignedSourceReads,
                 unmatchedClusters: max(0, summary.unmatchedClusters - Set(rows.map(\.cluster)).count),
                 cdnaClusters: summary.cdnaClusters + reciprocalCDNAClusters.count,
                 savontPreset: summary.savontPreset,
@@ -1072,15 +1138,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 bamViewRecord: bamView.commandRecord,
                 candidateArtifactResult: candidateArtifactResult,
                 manifestPublicationPlan: plan,
-                resultBundlePublicationPlan: .init(
-                    stagedDirectoryURL: request.outputDirectory,
-                    finalDirectoryURL: logicalFinalOutputURL,
-                    stagedManifestDescriptor: plan.stagedDescriptor,
-                    finalManifestDescriptor: plan.finalDescriptor,
-                    replacingExisting: replacingExistingResult,
-                    startedAt: provenanceCompletedAt,
-                    completedAt: Date()
-                ),
                 startedAt: startedAt,
                 completedAt: provenanceCompletedAt
             )
@@ -1089,13 +1146,17 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 finalManifestURL: ONTGenotypeResultBundle.manifestURL(in: logicalFinalOutputURL),
                 provenanceURL: request.provenanceURL
             ))
-            try Task.checkCancellation()
-            try publishSuccessManifest(plan)
             manifestPublicationPlan = nil
         } catch {
             if let stagedURL = manifestPublicationPlan?.stagedURL,
                FileManager.default.fileExists(atPath: stagedURL.path) {
-                try? FileManager.default.removeItem(at: stagedURL)
+                do {
+                    try FileManager.default.removeItem(at: stagedURL)
+                } catch let cleanupError {
+                    throw FullLengthONTMHCGenotypingError.reportFailed(
+                        "Metadata staging failed (\(error.localizedDescription)); staged manifest cleanup also failed (\(cleanupError.localizedDescription))."
+                    )
+                }
             }
             throw error
         }
@@ -1196,10 +1257,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         stagedOutputURL: URL,
         finalOutputURL: URL
     ) throws {
-        let stagedManifestURL = ONTGenotypeResultBundle.manifestURL(in: stagedOutputURL)
-        let manifestData = try Data(contentsOf: stagedManifestURL)
-        try FileManager.default.removeItem(at: stagedManifestURL)
-
         let provenanceURL = stagedOutputURL.appendingPathComponent(
             "full-length-ont-mhc-genotyping-provenance.json"
         )
@@ -1208,18 +1265,129 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             replacing: stagedOutputURL.standardizedFileURL.path,
             with: finalOutputURL.standardizedFileURL.path
         )
-        try manifestData.write(to: stagedManifestURL, options: .atomic)
     }
 
-    private func rehydrateCopiedCheckpointPaths(
-        copiedBundleURL: URL,
-        priorFinalOutputURL: URL
+    private func importRequestedCheckpointGeneration(
+        request: FullLengthONTMHCGenotypingRunRequest,
+        priorFinalOutputURL: URL,
+        stagedOutputURL: URL
     ) throws {
-        try rewriteCheckpointPaths(
-            in: copiedBundleURL,
-            replacing: priorFinalOutputURL.standardizedFileURL.path,
-            with: copiedBundleURL.standardizedFileURL.path
+        let sampleNames = plannedSampleNames(for: request.inputFASTQURLs)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        for sample in sampleNames {
+            try Task.checkCancellation()
+            let relativeCheckpointPath = ".full-length-ont-mhc/checkpoints/samples/\(sample).json"
+            let sourceCheckpointURL = priorFinalOutputURL.appendingPathComponent(relativeCheckpointPath)
+            guard FileManager.default.fileExists(atPath: sourceCheckpointURL.path) else { continue }
+            do {
+                try FullLengthONTMHCAlignmentSafety().requireRegularFileNoFollow(
+                    sourceCheckpointURL,
+                    role: "sample checkpoint"
+                )
+            } catch {
+                throw FullLengthONTMHCGenotypingError.reportFailed(
+                    "Prior sample checkpoint must be a regular file without symlinks: \(sourceCheckpointURL.path) (\(error.localizedDescription))"
+                )
+            }
+            let checkpointData = try Data(contentsOf: sourceCheckpointURL)
+            guard let checkpoint = try? decoder.decode(
+                FullLengthONTMHCSampleCheckpoint.self,
+                from: checkpointData
+            ), checkpoint.schemaVersion == FullLengthONTMHCSampleCheckpoint.schemaVersion,
+               checkpoint.signature.sample == sample,
+               checkpoint.result.sample == sample else {
+                continue
+            }
+
+            var allowedSourceFiles = Set<URL>()
+            allowedSourceFiles.insert(checkpoint.result.clustersFASTAURL.standardizedFileURL)
+            for url in checkpoint.result.steps.flatMap(\.outputs) {
+                allowedSourceFiles.insert(url.standardizedFileURL)
+            }
+            for sourceURL in allowedSourceFiles.sorted(by: { $0.path < $1.path }) {
+                try copyCheckpointRegularFile(
+                    sourceURL,
+                    sample: sample,
+                    priorFinalOutputURL: priorFinalOutputURL,
+                    stagedOutputURL: stagedOutputURL
+                )
+            }
+
+            let destinationCheckpointURL = stagedOutputURL.appendingPathComponent(relativeCheckpointPath)
+            try FileManager.default.createDirectory(
+                at: destinationCheckpointURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try checkpointData.write(to: destinationCheckpointURL, options: .atomic)
+            try rewriteJSONStrings(
+                at: destinationCheckpointURL,
+                replacing: priorFinalOutputURL.standardizedFileURL.path,
+                with: stagedOutputURL.standardizedFileURL.path
+            )
+        }
+    }
+
+    private func plannedSampleNames(for inputURLs: [URL]) -> [String] {
+        var counts: [String: Int] = [:]
+        return inputURLs.enumerated().map { index, url in
+            let base = sampleName(for: url, fallbackIndex: index)
+            let occurrence = (counts[base] ?? 0) + 1
+            counts[base] = occurrence
+            return occurrence == 1 ? base : "\(base)-\(occurrence)"
+        }
+    }
+
+    private func copyCheckpointRegularFile(
+        _ sourceURL: URL,
+        sample: String,
+        priorFinalOutputURL: URL,
+        stagedOutputURL: URL
+    ) throws {
+        let source = sourceURL.standardizedFileURL
+        let rootComponents = priorFinalOutputURL.standardizedFileURL.pathComponents
+        let sourceComponents = source.pathComponents
+        guard sourceComponents.count > rootComponents.count,
+              Array(sourceComponents.prefix(rootComponents.count)) == rootComponents else {
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Prior sample checkpoint output escapes its result bundle: \(source.path)"
+            )
+        }
+        let relativeComponents = Array(sourceComponents.dropFirst(rootComponents.count))
+        guard relativeComponents.count >= 3,
+              relativeComponents[0] == "samples",
+              relativeComponents[1] == sample else {
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Prior sample checkpoint output is outside the allowed sample directory: \(source.path)"
+            )
+        }
+        do {
+            try FullLengthONTMHCAlignmentSafety().requireRegularFileNoFollow(
+                source,
+                role: "sample checkpoint output"
+            )
+        } catch {
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Prior sample checkpoint output must be a regular file without symlinks: \(source.path) (\(error.localizedDescription))"
+            )
+        }
+        let destination = relativeComponents.reduce(stagedOutputURL) {
+            $0.appendingPathComponent($1)
+        }
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true
         )
+        try FileManager.default.copyItem(at: source, to: destination)
+        let sourceSize = try ProvenanceFileHasher.fileSize(of: source)
+        let destinationSize = try ProvenanceFileHasher.fileSize(of: destination)
+        let sourceChecksum = try ProvenanceFileHasher.sha256(of: source)
+        let destinationChecksum = try ProvenanceFileHasher.sha256(of: destination)
+        guard sourceSize == destinationSize, sourceChecksum == destinationChecksum else {
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Imported sample checkpoint output failed size/checksum validation: \(source.path)"
+            )
+        }
     }
 
     private func rewriteCheckpointPaths(
@@ -1270,30 +1438,205 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private func publishStagedResultBundle(
         stagedOutputURL: URL,
         finalOutputURL: URL,
-        replacingExisting: Bool
-    ) throws {
+        replacingExisting: Bool,
+        payloadMappings: [(staged: ProvenanceFileDescriptor, final: ProvenanceFileDescriptor)]
+    ) throws -> FullLengthONTMHCResultBundlePublicationRecord {
         try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(
             stagedOutputURL,
             role: "staged full-length MHC result bundle"
         )
+        let startedAt = Date()
         let flags = UInt32(replacingExisting ? RENAME_SWAP : RENAME_EXCL)
         let status = stagedOutputURL.path.withCString { stagedPath in
             finalOutputURL.path.withCString { finalPath in
                 renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags)
             }
         }
+        let code = status == 0 ? nil : (POSIXErrorCode(rawValue: errno) ?? .EIO)
+        let record = FullLengthONTMHCResultBundlePublicationRecord(
+            stagedDirectoryURL: stagedOutputURL,
+            finalDirectoryURL: finalOutputURL,
+            payloadMappings: payloadMappings,
+            replacingExisting: replacingExisting,
+            startedAt: startedAt,
+            completedAt: Date(),
+            exitStatus: status,
+            errorMessage: code.map { POSIXError($0).localizedDescription }
+        )
         guard status == 0 else {
-            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+            try writeResultBundlePublicationFailureReceipt(record)
             throw FullLengthONTMHCGenotypingError.reportFailed(
-                "Could not atomically publish the complete MHC result bundle: \(POSIXError(code).localizedDescription)"
+                "Could not atomically publish the complete MHC result bundle: \(record.errorMessage ?? "unknown error")"
             )
         }
+        return record
+    }
+
+    private func resultBundlePublicationMappings(
+        stagedOutputURL: URL,
+        finalOutputURL: URL
+    ) throws -> [(staged: ProvenanceFileDescriptor, final: ProvenanceFileDescriptor)] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: stagedOutputURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+            options: []
+        ) else {
+            throw FullLengthONTMHCGenotypingError.reportFailed("Could not enumerate staged result payload.")
+        }
+        let rootComponents = stagedOutputURL.standardizedFileURL.pathComponents
+        var mappings: [(staged: ProvenanceFileDescriptor, final: ProvenanceFileDescriptor)] = []
+        for case let source as URL in enumerator {
+            try Task.checkCancellation()
+            let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard values.isSymbolicLink != true else {
+                throw FullLengthONTMHCGenotypingError.reportFailed(
+                    "Staged result payload contains a symbolic link: \(source.path)"
+                )
+            }
+            guard values.isRegularFile == true else { continue }
+            if source.lastPathComponent == "full-length-ont-mhc-genotyping-provenance.json" { continue }
+            if source.lastPathComponent.hasPrefix(".\(ONTGenotypeResultBundleManifest.filename).staging-") { continue }
+            let relative = source.standardizedFileURL.pathComponents.dropFirst(rootComponents.count)
+            let destination = relative.reduce(finalOutputURL) { $0.appendingPathComponent($1) }
+            let checksum = try ProvenanceFileHasher.sha256(of: source)
+            let size = try ProvenanceFileHasher.fileSize(of: source)
+            let staged = ProvenanceFileDescriptor(
+                path: source.path,
+                checksumSHA256: checksum,
+                fileSize: size,
+                role: .input
+            )
+            let final = ProvenanceFileDescriptor(
+                path: destination.path,
+                checksumSHA256: checksum,
+                fileSize: size,
+                role: .output,
+                originPath: source.path
+            )
+            mappings.append((staged, final))
+        }
+        return mappings.sorted { $0.staged.path < $1.staged.path }
+    }
+
+    private func appendActualResultBundlePublicationReceipt(
+        _ record: FullLengthONTMHCResultBundlePublicationRecord,
+        provenanceURL: URL
+    ) throws {
+        guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL) else {
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Published result bundle is missing its staged provenance receipt."
+            )
+        }
+        let completedAt = Date()
+        let updated = ProvenanceEnvelope(
+            schemaVersion: envelope.schemaVersion,
+            id: envelope.id,
+            createdAt: envelope.createdAt,
+            workflowName: envelope.workflowName,
+            workflowVersion: envelope.workflowVersion,
+            toolName: envelope.toolName,
+            toolVersion: envelope.toolVersion,
+            githubReleaseVersion: envelope.githubReleaseVersion,
+            tool: envelope.tool,
+            argv: envelope.argv,
+            durableReplayArgv: envelope.durableReplayArgv,
+            reproducibleCommand: envelope.reproducibleCommand,
+            options: envelope.options,
+            runtimeIdentity: envelope.runtimeIdentity,
+            files: envelope.files,
+            output: envelope.output,
+            outputs: envelope.outputs,
+            steps: envelope.steps + [record.provenanceStep],
+            wallTimeSeconds: (envelope.wallTimeSeconds ?? 0) + completedAt.timeIntervalSince(record.startedAt),
+            exitStatus: 0,
+            stderr: envelope.stderr,
+            signatures: envelope.signatures,
+            legacyWorkflowRun: envelope.legacyRun
+        )
+        try ProvenanceWriter(signingProvider: nil).write(updated, toSidecar: provenanceURL)
+    }
+
+    private func publishRelocatedSuccessManifest(in finalOutputURL: URL) throws {
+        let entries = try FileManager.default.contentsOfDirectory(
+            at: finalOutputURL,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix(".\(ONTGenotypeResultBundleManifest.filename).staging-")
+        }
+        guard entries.count == 1, let stagedURL = entries.first else {
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Expected exactly one staged success manifest after result publication."
+            )
+        }
+        let finalURL = ONTGenotypeResultBundle.manifestURL(in: finalOutputURL)
+        let checksum = try ProvenanceFileHasher.sha256(of: stagedURL)
+        let size = try ProvenanceFileHasher.fileSize(of: stagedURL)
+        try publishSuccessManifest(.init(
+            stagedURL: stagedURL,
+            finalURL: finalURL,
+            stagedDescriptor: .init(
+                path: stagedURL.path,
+                checksumSHA256: checksum,
+                fileSize: size,
+                role: .input
+            ),
+            finalDescriptor: .init(
+                path: finalURL.path,
+                checksumSHA256: checksum,
+                fileSize: size,
+                role: .output,
+                originPath: stagedURL.path
+            ),
+            startedAt: Date(),
+            completedAt: Date()
+        ))
+    }
+
+    private func rollbackPublishedResultBundle(
+        stagedOutputURL: URL,
+        finalOutputURL: URL,
+        replacingExisting: Bool
+    ) throws {
+        if replacingExisting {
+            let status = stagedOutputURL.path.withCString { stagedPath in
+                finalOutputURL.path.withCString { finalPath in
+                    renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, UInt32(RENAME_SWAP))
+                }
+            }
+            guard status == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        } else {
+            try FileManager.default.removeItem(at: finalOutputURL)
+        }
+    }
+
+    private func writeResultBundlePublicationFailureReceipt(
+        _ record: FullLengthONTMHCResultBundlePublicationRecord
+    ) throws {
+        let url = record.finalDirectoryURL.deletingLastPathComponent().appendingPathComponent(
+            ".\(record.finalDirectoryURL.lastPathComponent).publication-failure.json"
+        )
+        let object: [String: Any] = [
+            "toolName": "lungfish-internal publish-result-bundle",
+            "mode": record.replacingExisting ? "replace" : "create",
+            "stagedPath": record.stagedDirectoryURL.path,
+            "finalPath": record.finalDirectoryURL.path,
+            "exitStatus": Int(record.exitStatus),
+            "stderr": record.errorMessage ?? "",
+            "startedAt": ISO8601DateFormatter().string(from: record.startedAt),
+            "completedAt": ISO8601DateFormatter().string(from: record.completedAt),
+            "wallTimeSeconds": record.completedAt.timeIntervalSince(record.startedAt),
+        ]
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url, options: .atomic)
     }
 
     private func relocatedResult(
         _ result: FullLengthONTMHCGenotypingResult,
         from stagedOutputURL: URL,
-        to finalOutputURL: URL
+        to finalOutputURL: URL,
+        additionalCleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning] = []
     ) -> FullLengthONTMHCGenotypingResult {
         func relocated(_ url: URL?) -> URL? {
             guard let url else { return nil }
@@ -1339,7 +1682,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     error: warning.error,
                     publishedArtifactsRemainValid: warning.publishedArtifactsRemainValid
                 )
-            }
+            } + additionalCleanupWarnings
         )
     }
 
@@ -1679,31 +2022,29 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     }
 
     private func reciprocalKnownGenotypeRows(
-        from result: FullLengthONTMHCCandidateArtifactResult,
-        referenceRecords: [MHCReferenceRecord]
+        from result: FullLengthONTMHCCandidateArtifactResult
     ) -> [FullLengthONTMHCClusterGenotypeRow] {
-        let referenceByAllele = Dictionary(
-            grouping: referenceRecords,
-            by: \.alleleName
-        ).mapValues { records in
-            records.sorted { $0.sequenceID.localizedStandardCompare($1.sequenceID) == .orderedAscending }.first!
-        }
         return zip(result.classifiedClusters, result.classifications).flatMap {
             (cluster, classification) -> [FullLengthONTMHCClusterGenotypeRow] in
-            guard case .known(let allele) = classification,
-                  let reference = referenceByAllele[allele] else { return [] }
-            return cluster.observations.flatMap { observation in
-                observation.sourceClusterIDs.compactMap { sourceClusterID in
-                    guard let reads = observation.sourceClusterReadCounts[sourceClusterID] else { return nil }
-                    return FullLengthONTMHCClusterGenotypeRow(
-                        sample: observation.sampleID,
-                        cluster: sourceClusterID,
-                        clusterReads: reads,
-                        allele: allele,
-                        alleleLength: reference.sequenceLength,
-                        alignedBases: reference.sequenceLength,
-                        score: reference.sequenceLength
-                    )
+            guard case .known(let calls) = classification else { return [] }
+            return calls.flatMap { call in
+                cluster.observations.flatMap { observation in
+                    observation.sourceClusterIDs.compactMap { sourceClusterID in
+                        guard let reads = observation.sourceClusterReadCounts[sourceClusterID] else { return nil }
+                        return FullLengthONTMHCClusterGenotypeRow(
+                            sample: observation.sampleID,
+                            cluster: sourceClusterID,
+                            clusterReads: reads,
+                            allele: call.reference.alleleName,
+                            alleleLength: call.reference.sequenceLength,
+                            alignedBases: call.comparableBases,
+                            score: call.alignmentScore,
+                            referenceSequenceID: call.reference.sequenceID,
+                            mappingQuality: call.mappingQuality,
+                            cigar: call.cigar,
+                            evidence: call.evidence
+                        )
+                    }
                 }
             }
         }.sorted {
@@ -1713,7 +2054,15 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             if $0.allele != $1.allele {
                 return $0.allele.localizedStandardCompare($1.allele) == .orderedAscending
             }
-            return $0.cluster.localizedStandardCompare($1.cluster) == .orderedAscending
+            if $0.cluster != $1.cluster {
+                return $0.cluster.localizedStandardCompare($1.cluster) == .orderedAscending
+            }
+            if $0.referenceSequenceID != $1.referenceSequenceID {
+                return ($0.referenceSequenceID ?? "").localizedStandardCompare(
+                    $1.referenceSequenceID ?? ""
+                ) == .orderedAscending
+            }
+            return ($0.cigar ?? "").localizedStandardCompare($1.cigar ?? "") == .orderedAscending
         }
     }
 
@@ -3182,7 +3531,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         bamViewRecord: FullLengthONTMHCCohortAlignmentCommandRecord,
         candidateArtifactResult: FullLengthONTMHCCandidateArtifactResult,
         manifestPublicationPlan: FullLengthONTMHCSuccessManifestPublicationPlan,
-        resultBundlePublicationPlan: FullLengthONTMHCSuccessResultBundlePublicationPlan,
         startedAt: Date,
         completedAt: Date
     ) throws {
@@ -3400,7 +3748,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             provenanceStep(for: $0)
         }
         allProvenanceSteps.append(manifestPublicationPlan.provenanceStep)
-        allProvenanceSteps.append(resultBundlePublicationPlan.provenanceStep)
         allProvenanceSteps.sort {
             ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast)
         }
@@ -4975,12 +5322,10 @@ private struct FullLengthONTMHCFileFingerprint: Sendable, Codable, Equatable {
         if isDirectory(standardized) {
             return try directoryFingerprint(url: standardized)
         }
-        let data = try Data(contentsOf: standardized)
-        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         return FullLengthONTMHCFileFingerprint(
             path: standardized.path,
-            sha256: digest,
-            fileSizeBytes: UInt64(data.count)
+            sha256: try ProvenanceFileHasher.sha256(of: standardized),
+            fileSizeBytes: try ProvenanceFileHasher.fileSize(of: standardized)
         )
     }
 
@@ -4995,9 +5340,9 @@ private struct FullLengthONTMHCFileFingerprint: Sendable, Codable, Equatable {
                       !isDirectory.boolValue else {
                     return "\(relativePath)\tdirectory\t0"
                 }
-                let data = try Data(contentsOf: fileURL)
-                let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-                return "\(relativePath)\t\(digest)\t\(data.count)"
+                let digest = try ProvenanceFileHasher.sha256(of: fileURL)
+                let size = try ProvenanceFileHasher.fileSize(of: fileURL)
+                return "\(relativePath)\t\(digest)\t\(size)"
             }
         let manifest = files.joined(separator: "\n")
         let digest = SHA256.hash(data: Data(manifest.utf8)).map { String(format: "%02x", $0) }.joined()

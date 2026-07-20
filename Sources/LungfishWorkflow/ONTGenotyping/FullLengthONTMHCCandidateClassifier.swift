@@ -81,8 +81,25 @@ public struct FullLengthONTMHCCandidateCluster: Equatable, Sendable {
     }
 }
 
+public struct FullLengthONTMHCKnownReferenceCall: Equatable, Sendable {
+    public let reference: MHCReferenceRecord
+    public let cigar: String
+    public let nm: Int?
+    public let mappingQuality: Int
+    public let alignmentScore: Int
+    public let comparableBases: Int
+    public let matchedBases: Int
+    public let insertedBases: Int
+    public let deletedBases: Int
+    public let nonIntronIndelBases: Int
+    public let longGapBases: Int
+    public let shorterCoverage: Double
+    public let identity: Double
+    public let evidence: ONTMHCEvidenceLocator
+}
+
 public enum FullLengthONTMHCCandidateClassificationResult: Equatable, Sendable {
-    case known(referenceAllele: String)
+    case known([FullLengthONTMHCKnownReferenceCall])
     case candidate(ONTMHCCandidateRecord)
     case unnameable(ONTMHCUnnameableRecord)
 
@@ -198,10 +215,11 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
 
         let eligible = analyzed.filter { $0.failure == nil }
 
-        if let knownGenomic = best(eligible.filter {
+        let knownGenomic = bestTies(eligible.filter {
             $0.metrics.snps == 0 && $0.resolvedReference?.moleculeClass == .genomicDNA
-        }) {
-            return .known(referenceAllele: knownGenomic.resolvedReference!.alleleName)
+        })
+        if !knownGenomic.isEmpty {
+            return .known(knownCalls(knownGenomic))
         }
 
         if let extensionHit = best(eligible.filter { isExactCDNAExtension($0, cluster: cluster) }) {
@@ -215,8 +233,9 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
 
         // Exact cDNA matches and zero-SNP indel-only relationships that do not
         // meet the stricter extension rule remain genotypes of the existing allele.
-        if let knownZeroSNP = best(eligible.filter { $0.metrics.snps == 0 }) {
-            return .known(referenceAllele: knownZeroSNP.resolvedReference!.alleleName)
+        let knownZeroSNP = bestTies(eligible.filter { $0.metrics.snps == 0 })
+        if !knownZeroSNP.isEmpty {
+            return .known(knownCalls(knownZeroSNP))
         }
 
         if let novel = best(eligible.filter { $0.metrics.snps > 0 }) {
@@ -235,7 +254,7 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             support: support,
             reason: failure.reason,
             failedMetrics: closest.failedMetrics,
-            evidence: analyzed.map(\.input.evidence)
+            evidence: sortedUniqueEvidence(analyzed.map(\.input.evidence))
         ))
     }
 
@@ -485,6 +504,56 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         hits.min(by: isRankedBefore)
     }
 
+    private func bestTies(_ hits: [AnalyzedAlignment]) -> [AnalyzedAlignment] {
+        guard let bestHit = best(hits) else { return [] }
+        let equallyBest = hits.filter { hasEquivalentBiologicalRank($0, bestHit) }
+        var seenReferenceIDs = Set<String>()
+        return equallyBest.sorted(by: isRankedBefore).filter { hit in
+            guard let referenceID = hit.resolvedReference?.sequenceID else { return false }
+            return seenReferenceIDs.insert(referenceID).inserted
+        }
+    }
+
+    private func hasEquivalentBiologicalRank(
+        _ lhs: AnalyzedAlignment,
+        _ rhs: AnalyzedAlignment
+    ) -> Bool {
+        lhs.metrics.snps == rhs.metrics.snps
+            && lhs.metrics.comparableBases == rhs.metrics.comparableBases
+            && lhs.nonIntronIndelBases == rhs.nonIntronIndelBases
+            && lhs.input.alignmentScore == rhs.input.alignmentScore
+            && lhs.input.mappingQuality == rhs.input.mappingQuality
+    }
+
+    private func knownCalls(
+        _ hits: [AnalyzedAlignment]
+    ) -> [FullLengthONTMHCKnownReferenceCall] {
+        hits.compactMap { hit in
+            guard let reference = hit.resolvedReference else { return nil }
+            return FullLengthONTMHCKnownReferenceCall(
+                reference: reference,
+                cigar: hit.input.cigar,
+                nm: hit.input.nm,
+                mappingQuality: hit.input.mappingQuality,
+                alignmentScore: hit.input.alignmentScore,
+                comparableBases: hit.metrics.comparableBases,
+                matchedBases: hit.metrics.matches,
+                insertedBases: hit.metrics.insertedBases,
+                deletedBases: hit.metrics.deletedBases,
+                nonIntronIndelBases: hit.nonIntronIndelBases,
+                longGapBases: hit.longGapBases,
+                shorterCoverage: hit.shorterCoverage,
+                identity: hit.identity,
+                evidence: hit.input.evidence
+            )
+        }.sorted {
+            if $0.reference.alleleName != $1.reference.alleleName {
+                return localizedStandardLessThan($0.reference.alleleName, $1.reference.alleleName)
+            }
+            return localizedStandardLessThan($0.reference.sequenceID, $1.reference.sequenceID)
+        }
+    }
+
     private func isRankedBefore(_ lhs: AnalyzedAlignment, _ rhs: AnalyzedAlignment) -> Bool {
         if lhs.metrics.snps != rhs.metrics.snps { return lhs.metrics.snps < rhs.metrics.snps }
         if lhs.metrics.comparableBases != rhs.metrics.comparableBases {
@@ -572,6 +641,23 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             sequenceSHA256: cluster.sequenceSHA256,
             evidence: evidence
         )
+    }
+
+    private func sortedUniqueEvidence(
+        _ evidence: [ONTMHCEvidenceLocator]
+    ) -> [ONTMHCEvidenceLocator] {
+        let sorted = evidence.sorted {
+            [
+                $0.bamPath, $0.queryName, $0.referenceName, $0.readGroupID ?? "",
+                String($0.referenceStart), $0.cigar,
+            ].lexicographicallyPrecedes([
+                $1.bamPath, $1.queryName, $1.referenceName, $1.readGroupID ?? "",
+                String($1.referenceStart), $1.cigar,
+            ])
+        }
+        return sorted.enumerated().compactMap { index, value in
+            index == 0 || sorted[index - 1] != value ? value : nil
+        }
     }
 
     private func intronSizedQueryInsertionBases(

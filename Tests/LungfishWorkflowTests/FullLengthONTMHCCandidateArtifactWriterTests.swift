@@ -59,7 +59,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             "lungfish-in-process:render-mhc-candidate-json",
             "lungfish-in-process:render-mhc-unnameable-json",
             "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
-            "lungfish-internal:publish-mhc-candidate-artifacts",
+            "lungfish-in-process:materialize-mhc-candidate-staging-generation",
         ])
         let classification = try XCTUnwrap(
             transformations["lungfish-in-process:parse-and-classify-reciprocal-mhc-alignments"]
@@ -69,16 +69,16 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(classification.resolvedOptions["minimumShorterCoverage"], "0.7")
         XCTAssertEqual(classification.resolvedOptions["minimumIntronGapBases"], "20")
         XCTAssertEqual(classification.resolvedOptions["novelDistanceMetric"], "SNP-substitutions-only")
-        let publication = try XCTUnwrap(
-            transformations["lungfish-internal:publish-mhc-candidate-artifacts"]
+        let materialization = try XCTUnwrap(
+            transformations["lungfish-in-process:materialize-mhc-candidate-staging-generation"]
         )
-        XCTAssertEqual(publication.resolvedOptions["atomicMechanism"], "renameatx_np")
-        XCTAssertEqual(publication.outputs.map(\.path).sorted(), [
+        XCTAssertEqual(materialization.resolvedOptions["replacementAllowed"], "false")
+        XCTAssertTrue(materialization.outputs.allSatisfy { $0.phase == .staging })
+        XCTAssertEqual(materialization.outputs.map(\.path).sorted(), [
             result.reciprocalBAMURL.path,
             result.reciprocalBAIURL.path,
             result.candidateFASTAURL.path,
             result.candidateJSONURL.path,
-            result.stableUnmatchedFASTAURL.path,
             result.unnameableFASTAURL.path,
             result.unnameableJSONURL.path,
         ].sorted())
@@ -131,15 +131,19 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(Set(left.candidates.filter { $0.provisionalName == collisionLabel }.map(\.stableClusterID)).count, 2)
     }
 
-    func testFailureDoesNotReplacePreviouslyPublishedCandidateTruth() async throws {
+    func testWriterRejectsReuseOfNonFreshCallerOwnedStagingDirectory() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let first = try await fixture.write(observations: fixture.observations)
         let oldCandidate = try Data(contentsOf: first.candidateJSONURL)
-        try Data("sort".utf8).write(to: fixture.toolsURL.appendingPathComponent("fail-command"))
-
-        await XCTAssertThrowsErrorAsync {
+        do {
             _ = try await fixture.write(observations: fixture.observations)
+            XCTFail("Expected non-fresh staging directory rejection")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("fresh caller-owned staging directory"),
+                error.localizedDescription
+            )
         }
         XCTAssertEqual(try Data(contentsOf: first.candidateJSONURL), oldCandidate)
         XCTAssertEqual(try fastaHeaders(first.candidateFASTAURL), [fixture.novelID, fixture.extensionID])
@@ -169,10 +173,92 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
 
         let result = try await fixture.write(observations: fixture.observations + [knownObservation])
         let index = try XCTUnwrap(result.classifiedClusters.firstIndex { $0.stableClusterID == knownID })
-        XCTAssertEqual(result.classifications[index], .known(referenceAllele: "Mafa-A1*018:01:01:01"))
+        guard case .known(let calls) = result.classifications[index] else {
+            return XCTFail("Expected known reciprocal call")
+        }
+        XCTAssertEqual(calls.map(\.reference.sequenceID), ["ref-genomic"])
+        XCTAssertEqual(calls.first?.comparableBases, 1_200)
+        XCTAssertEqual(calls.first?.insertedBases, 1)
+        XCTAssertEqual(calls.first?.alignmentScore, 1_200)
         XCTAssertFalse(try fastaHeaders(result.candidateFASTAURL).contains(knownID))
         XCTAssertFalse(try fastaHeaders(result.unnameableFASTAURL).contains(knownID))
         XCTAssertEqual(result.classifiedClusters[index].observations.first?.sourceClusterReadCounts, ["known-source": 13])
+    }
+
+    func testReciprocalSAMParserRejectsMalformedAndDuplicateIntegerTags() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let reference = MHCReferenceRecord(
+            sequenceID: "ref", alleleName: "Mafa-A1*001", locus: "Mafa-A1",
+            moleculeClass: .genomicDNA, classEvidence: .annotatedMetadata, sequenceLength: 1_200
+        )
+        for (name, tags, expected) in [
+            ("duplicate-as", "NM:i:0\tAS:i:1200\tAS:i:1199", "duplicate AS"),
+            ("malformed-as", "NM:i:0\tAS:Z:1200", "malformed AS"),
+            ("duplicate-nm", "NM:i:0\tNM:i:1\tAS:i:1200", "duplicate NM"),
+            ("malformed-nm", "NM:Z:0\tAS:i:1200", "malformed NM"),
+        ] {
+            let url = root.appendingPathComponent("\(name).sam")
+            try Data("cluster\t0\tref\t1\t60\t1200=\t*\t0\t0\t*\t*\t\(tags)\n".utf8).write(to: url)
+            XCTAssertThrowsError(try FullLengthONTMHCReciprocalSAMParser().parse(
+                url, clusterIDs: ["cluster"], references: [reference], finalBAMPath: "evidence.bam"
+            )) {
+                XCTAssertTrue($0.localizedDescription.contains(expected), $0.localizedDescription)
+            }
+        }
+    }
+
+    func testReciprocalSAMParserStreamsLargeInputAndHonorsCancellation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("large.sam")
+        let count = 5_000
+        let records = (0..<count).map {
+            "cluster-\($0)\t0\tref\t1\t60\t1200=\t*\t0\t0\t*\t*\tNM:i:0\tAS:i:1200"
+        }.joined(separator: "\n") + "\n"
+        try Data(records.utf8).write(to: url)
+        let reference = MHCReferenceRecord(
+            sequenceID: "ref", alleleName: "Mafa-A1*001", locus: "Mafa-A1",
+            moleculeClass: .genomicDNA, classEvidence: .annotatedMetadata, sequenceLength: 1_200
+        )
+        let clusterIDs = Set((0..<count).map { "cluster-\($0)" })
+        let parsed = try FullLengthONTMHCReciprocalSAMParser().parse(
+            url, clusterIDs: clusterIDs, references: [reference], finalBAMPath: "evidence.bam"
+        )
+        XCTAssertEqual(parsed.count, count)
+
+        let cancelled = Task {
+            try FullLengthONTMHCReciprocalSAMParser().parse(
+                url, clusterIDs: clusterIDs, references: [reference], finalBAMPath: "evidence.bam"
+            )
+        }
+        cancelled.cancel()
+        do {
+            _ = try await cancelled.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+        }
+    }
+
+    func testReciprocalSAMAndObservationEvidenceAreDeterministicallySortedAndDeduplicated() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let original = fixture.observations[0]
+        let duplicatedObservation = FullLengthONTMHCCandidateSequenceObservation(
+            sampleID: original.sampleID,
+            readGroupID: original.readGroupID,
+            sourceClusterID: original.sourceClusterID,
+            clusterReadCount: original.clusterReadCount,
+            sequence: original.sequence,
+            genotypingEvidence: original.genotypingEvidence + original.genotypingEvidence
+        )
+        fixture.additionalSAM = "\(fixture.novelID)\t0\tref-genomic\t1\t60\t595=5X600=\t*\t0\t0\t*\t*\tNM:i:5\tAS:i:1190\n"
+        let result = try await fixture.write(observations: [duplicatedObservation] + Array(fixture.observations.dropFirst()))
+        let novelCluster = try XCTUnwrap(result.classifiedClusters.first { $0.stableClusterID == fixture.novelID })
+        XCTAssertEqual(novelCluster.alignments.count, 1)
+        XCTAssertTrue(novelCluster.observations.allSatisfy { $0.evidence.count == 1 })
     }
 
     private func fastaHeaders(_ url: URL) throws -> [String] {
@@ -249,8 +335,17 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
 
         func write(observations: [FullLengthONTMHCCandidateSequenceObservation]) async throws -> FullLengthONTMHCCandidateArtifactResult {
             try Data(samText.utf8).write(to: toolsURL.appendingPathComponent("sam-template"), options: .atomic)
+            let records = Dictionary(
+                observations.map { (FullLengthONTMHCCandidateArtifactWriter.stableClusterID(for: $0.sequence), $0.sequence) },
+                uniquingKeysWith: { first, _ in first }
+            ).sorted { $0.key < $1.key }
+            let stagedUnmatched = records.map { ">\($0.key)\n\($0.value)\n" }.joined()
+            try Data(stagedUnmatched.utf8).write(
+                to: outputURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta"),
+                options: .atomic
+            )
             let writer = FullLengthONTMHCCandidateArtifactWriter(executableDirectoryURL: toolsURL)
-            return try await writer.write(.init(
+            return try await writer.stage(.init(
                 observations: observations,
                 referenceAlleleFASTAURL: referenceFASTAURL,
                 referenceRecords: [

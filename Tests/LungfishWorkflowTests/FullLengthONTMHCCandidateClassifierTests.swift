@@ -27,10 +27,14 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
             alignments: [alignment(reference: genomicReference, cigar: "600=50I600=")]
         )
 
-        XCTAssertEqual(
-            try FullLengthONTMHCCandidateClassifier().classify(cluster),
-            .known(referenceAllele: "Mafa-A1*018:01:01:01")
-        )
+        guard case .known(let calls) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected known call")
+        }
+        XCTAssertEqual(calls.map(\.reference.sequenceID), ["ref-genomic"])
+        XCTAssertEqual(calls.first?.comparableBases, 1_200)
+        XCTAssertEqual(calls.first?.insertedBases, 50)
+        XCTAssertEqual(calls.first?.alignmentScore, 2_000)
+        XCTAssertEqual(calls.first?.evidence.cigar, "600=50I600=")
     }
 
     func testCompleteExactCDNAWithOnlyIntronSizedQueryInsertionsIsExtension() throws {
@@ -75,12 +79,49 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
                 alignments: [alignment(reference: cdnaReference, cigar: cigar)]
             )
 
-            XCTAssertEqual(
-                try FullLengthONTMHCCandidateClassifier().classify(cluster),
-                .known(referenceAllele: cdnaReference.alleleName),
-                cigar
-            )
+            guard case .known(let calls) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+                return XCTFail("Expected known call for \(cigar)")
+            }
+            XCTAssertEqual(calls.map(\.reference.sequenceID), [cdnaReference.sequenceID], cigar)
         }
+    }
+
+    func testKnownCallsPreserveEquallyBestAlleleAndReferenceIdentityTies() throws {
+        let alleleTie = MHCReferenceRecord(
+            sequenceID: "ref-second-allele",
+            alleleName: "Mafa-A2*001:01",
+            locus: "Mafa-A2",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let sameAlleleSecondRecord = MHCReferenceRecord(
+            sequenceID: "ref-genomic-copy",
+            alleleName: genomicReference.alleleName,
+            locus: genomicReference.locus,
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let cluster = makeCluster(alignments: [
+            alignment(reference: alleleTie, cigar: "1200=", mapq: 50, score: 2_000),
+            alignment(reference: genomicReference, cigar: "1200=", mapq: 50, score: 2_000),
+            alignment(reference: sameAlleleSecondRecord, cigar: "1200=", mapq: 50, score: 2_000),
+            alignment(reference: genomicReference, cigar: "1200=", mapq: 40, score: 1_900),
+        ])
+
+        guard case .known(let calls) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected known calls")
+        }
+        XCTAssertEqual(calls.map(\.reference.sequenceID), [
+            "ref-genomic", "ref-genomic-copy", "ref-second-allele",
+        ])
+        XCTAssertEqual(Set(calls.map(\.reference.alleleName)), [
+            genomicReference.alleleName, alleleTie.alleleName,
+        ])
+        XCTAssertTrue(calls.allSatisfy {
+            $0.comparableBases == 1_200 && $0.alignmentScore == 2_000 && $0.mappingQuality == 50
+        })
     }
 
     func testSNPCountAloneNamesNovelCandidate() throws {

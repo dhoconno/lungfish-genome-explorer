@@ -9,6 +9,10 @@ public struct FullLengthONTMHCClusterGenotypeRow: Codable, Equatable, Sendable {
     public let alleleLength: Int
     public let alignedBases: Int
     public let score: Int
+    public let referenceSequenceID: String?
+    public let mappingQuality: Int?
+    public let cigar: String?
+    public let evidence: ONTMHCEvidenceLocator?
 
     public init(
         sample: String,
@@ -17,7 +21,11 @@ public struct FullLengthONTMHCClusterGenotypeRow: Codable, Equatable, Sendable {
         allele: String,
         alleleLength: Int,
         alignedBases: Int,
-        score: Int
+        score: Int,
+        referenceSequenceID: String? = nil,
+        mappingQuality: Int? = nil,
+        cigar: String? = nil,
+        evidence: ONTMHCEvidenceLocator? = nil
     ) {
         self.sample = sample
         self.cluster = cluster
@@ -26,6 +34,10 @@ public struct FullLengthONTMHCClusterGenotypeRow: Codable, Equatable, Sendable {
         self.alleleLength = alleleLength
         self.alignedBases = alignedBases
         self.score = score
+        self.referenceSequenceID = referenceSequenceID
+        self.mappingQuality = mappingQuality
+        self.cigar = cigar
+        self.evidence = evidence
     }
 }
 
@@ -546,8 +558,10 @@ public enum FullLengthONTMHCClusterReportBuilder {
         genotypeRows: [FullLengthONTMHCClusterGenotypeRow],
         sampleReadCounts: [String: Int]
     ) -> [FullLengthONTMHCReportRow] {
-        let sampleAssignedReads = Dictionary(grouping: genotypeRows, by: \.sample).mapValues {
-            $0.reduce(0) { $0 + $1.clusterReads }
+        let sampleAssignedReads = Dictionary(grouping: genotypeRows, by: \.sample).mapValues { rows in
+            Dictionary(grouping: rows, by: \.cluster).values.reduce(0) { total, clusterRows in
+                total + (clusterRows.map(\.clusterReads).max() ?? 0)
+            }
         }
         let overallInputReads = sampleReadCounts.values.reduce(0, +)
         let overallRetainedReads = sampleAssignedReads.values.reduce(0, +)
@@ -555,9 +569,14 @@ public enum FullLengthONTMHCClusterReportBuilder {
             ? Double(overallRetainedReads) / Double(overallInputReads) * 100.0
             : nil
 
-        var readsBySampleAndAllele: [String: Int] = [:]
+        var rowsBySampleAndAllele: [String: [FullLengthONTMHCClusterGenotypeRow]] = [:]
         for row in genotypeRows {
-            readsBySampleAndAllele["\(row.sample)\u{0}\(row.allele)", default: 0] += row.clusterReads
+            rowsBySampleAndAllele["\(row.sample)\u{0}\(row.allele)", default: []].append(row)
+        }
+        let readsBySampleAndAllele = rowsBySampleAndAllele.mapValues { rows in
+            Dictionary(grouping: rows, by: \.cluster).values.reduce(0) { total, clusterRows in
+                total + (clusterRows.map(\.clusterReads).max() ?? 0)
+            }
         }
 
         return readsBySampleAndAllele.keys.sorted().compactMap { key in

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import XCTest
 import LungfishIO
 @testable import LungfishWorkflow
@@ -764,6 +765,32 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: stagedManifestURL.path))
     }
 
+    func testFailureAfterDirectorySwapRollsBackPriorBundleBeforeSuccessManifest() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-post-swap-rollback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (initialRequest, initialPipeline) = try makeFakeFullLengthRun(root: root)
+        _ = try await initialPipeline.run(initialRequest)
+        let priorSnapshot = try directoryFileSnapshot(initialRequest.outputDirectory)
+
+        let (replacementRequest, replacementPipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .resultBundlePublishedBeforeReceipt = event else { return }
+                throw InjectedPostSwapFailure()
+            }
+        )
+        do {
+            _ = try await replacementPipeline.run(replacementRequest)
+            XCTFail("Expected injected post-swap failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("injected post-swap failure"))
+        }
+
+        XCTAssertEqual(try directoryFileSnapshot(replacementRequest.outputDirectory), priorSnapshot)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: replacementRequest.manifestURL.path))
+    }
+
     func testFailedReplacementAfterCandidateAndProvenanceWorkLeavesPriorBundleByteForByteUnchanged() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-atomic-replacement-\(UUID().uuidString)", isDirectory: true)
@@ -845,16 +872,93 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let (request, pipeline) = try makeFakeFullLengthRun(root: root)
         _ = try await pipeline.run(request)
         let provenanceBefore = try Data(contentsOf: request.provenanceURL)
+        let staleRootArtifact = request.outputDirectory.appendingPathComponent("stale-from-prior-run.txt")
+        let removedSampleArtifact = request.outputDirectory
+            .appendingPathComponent("samples/REMOVED", isDirectory: true)
+            .appendingPathComponent("stale.txt")
+        try FileManager.default.createDirectory(
+            at: removedSampleArtifact.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("stale-root".utf8).write(to: staleRootArtifact)
+        try Data("stale-sample".utf8).write(to: removedSampleArtifact)
 
         let result = try await pipeline.run(request)
 
         XCTAssertNotEqual(try Data(contentsOf: request.provenanceURL), provenanceBefore)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleRootArtifact.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: removedSampleArtifact.path))
         try assertSuccessfulPublishedEvidence(result: result, request: request)
         let siblings = try FileManager.default.contentsOfDirectory(
             at: request.outputDirectory.deletingLastPathComponent(),
             includingPropertiesForKeys: nil
         )
         XCTAssertFalse(siblings.contains { $0.lastPathComponent.contains(".run-staging-") })
+    }
+
+    func testCheckpointImportRejectsSymlinkInsteadOfCopyingPriorBundleContent() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-checkpoint-symlink-rejection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (baseRequest, pipeline) = try makeFakeFullLengthRun(root: root)
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: baseRequest.inputFASTQURLs,
+            referenceSourceURL: baseRequest.referenceSourceURL,
+            outputDirectory: baseRequest.outputDirectory,
+            outputName: baseRequest.outputName,
+            threads: baseRequest.threads,
+            minimumLength: baseRequest.minimumLength,
+            maximumLength: baseRequest.maximumLength,
+            reuseCompatibleCheckpoints: true
+        )
+        _ = try await pipeline.run(request)
+        let checkpointURL = request.outputDirectory
+            .appendingPathComponent(".full-length-ont-mhc/checkpoints/samples/DL46.json")
+        let externalURL = root.appendingPathComponent("external-checkpoint.json")
+        try FileManager.default.moveItem(at: checkpointURL, to: externalURL)
+        try FileManager.default.createSymbolicLink(at: checkpointURL, withDestinationURL: externalURL)
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected unsafe checkpoint symlink rejection")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("checkpoint"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("regular file"), error.localizedDescription)
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.manifestURL.path))
+        XCTAssertEqual(try Data(contentsOf: externalURL), try Data(contentsOf: checkpointURL))
+    }
+
+    func testCheckpointImportRejectsFIFOWithoutOpeningIt() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-checkpoint-fifo-rejection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (baseRequest, pipeline) = try makeFakeFullLengthRun(root: root)
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: baseRequest.inputFASTQURLs,
+            referenceSourceURL: baseRequest.referenceSourceURL,
+            outputDirectory: baseRequest.outputDirectory,
+            outputName: baseRequest.outputName,
+            threads: baseRequest.threads,
+            minimumLength: baseRequest.minimumLength,
+            maximumLength: baseRequest.maximumLength,
+            reuseCompatibleCheckpoints: true
+        )
+        _ = try await pipeline.run(request)
+        let checkpointURL = request.outputDirectory
+            .appendingPathComponent(".full-length-ont-mhc/checkpoints/samples/DL46.json")
+        try FileManager.default.removeItem(at: checkpointURL)
+        XCTAssertEqual(Darwin.mkfifo(checkpointURL.path, S_IRUSR | S_IWUSR), 0)
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected FIFO checkpoint rejection")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("checkpoint"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("regular file"), error.localizedDescription)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.manifestURL.path))
     }
 
     func testConcurrentSameOutputRunIsRejectedBeforeTouchingPriorResult() async throws {
@@ -1015,19 +1119,36 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "lungfish-in-process:render-mhc-candidate-json",
             "lungfish-in-process:render-mhc-unnameable-json",
             "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
-            "lungfish-internal:publish-mhc-candidate-artifacts",
+            "lungfish-in-process:materialize-mhc-candidate-staging-generation",
         ]))
         let candidatePublicationStep = try XCTUnwrap(envelope.steps.first {
-            $0.toolName == "lungfish-internal:publish-mhc-candidate-artifacts"
+            $0.toolName == "lungfish-in-process:materialize-mhc-candidate-staging-generation"
         })
         XCTAssertTrue(candidatePublicationStep.outputs.allSatisfy {
             $0.path.hasPrefix(request.outputDirectory.path + "/")
         })
         let resultPublicationStep = try XCTUnwrap(envelope.steps.first {
-            $0.toolName == "lungfish-internal plan-success-result-bundle-publication"
+            $0.toolName == "lungfish-internal publish-result-bundle"
         })
         XCTAssertTrue(resultPublicationStep.argv.contains("renameatx_np"))
         XCTAssertTrue(resultPublicationStep.argv.contains("create"))
+        XCTAssertEqual(resultPublicationStep.exitStatus, 0)
+        XCTAssertNotNil(resultPublicationStep.startedAt)
+        XCTAssertNotNil(resultPublicationStep.completedAt)
+        XCTAssertGreaterThanOrEqual(resultPublicationStep.wallTimeSeconds ?? -1, 0)
+        XCTAssertFalse(resultPublicationStep.inputs.isEmpty)
+        XCTAssertEqual(resultPublicationStep.inputs.count, resultPublicationStep.outputs.count)
+        for (stagedPayload, finalPayload) in zip(
+            resultPublicationStep.inputs,
+            resultPublicationStep.outputs
+        ) {
+            XCTAssertNotEqual(stagedPayload.path, finalPayload.path)
+            XCTAssertEqual(stagedPayload.checksumSHA256, finalPayload.checksumSHA256)
+            XCTAssertEqual(stagedPayload.fileSize, finalPayload.fileSize)
+            XCTAssertEqual(finalPayload.originPath, stagedPayload.path)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: finalPayload.path))
+            XCTAssertEqual(finalPayload.checksumSHA256, try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: finalPayload.path)))
+        }
         let mappingStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName == "lungfish-internal plan-success-manifest-publication"
         })
@@ -2724,6 +2845,10 @@ private struct SelectiveFailingPostPublicationCleaner: FullLengthONTMHCWorkDirec
         let label: String
         var errorDescription: String? { "injected \(label) cleanup failure" }
     }
+}
+
+private struct InjectedPostSwapFailure: Error, LocalizedError {
+    var errorDescription: String? { "injected post-swap failure" }
 }
 
 private final class MetadataPublicationObservation: @unchecked Sendable {
