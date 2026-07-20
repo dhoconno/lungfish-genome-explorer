@@ -1,8 +1,206 @@
+import CryptoKit
 import Foundation
 import XCTest
 @testable import LungfishIO
 
 final class ONTGenotypeResultBundleTests: XCTestCase {
+    func testLoadsValidMHCCandidateDocumentsAndChecksummedEvidence() throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.calls.map(\.genotype), ["known-allele"])
+        XCTAssertEqual(result.mhcCandidates?.candidates.map(\.stableClusterID), [fixture.candidateID])
+        XCTAssertEqual(result.mhcUnnameableClusters?.clusters.map(\.stableClusterID), [fixture.unnameableID])
+        XCTAssertTrue(result.integrityWarnings.isEmpty)
+    }
+
+    func testMissingCandidateJSONFailsSoftAndPreservesKnownCalls() throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+        try FileManager.default.removeItem(at: fixture.candidateJSONURL)
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.calls.map(\.genotype), ["known-allele"])
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertNil(result.mhcUnnameableClusters)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactMissing)
+        XCTAssertEqual(result.integrityWarnings.first?.path, "candidate-alleles.json")
+    }
+
+    func testEscapingCandidatePathFailsSoftWithoutReadingOutsideBundle() throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+        try fixture.rewriteManifest { artifacts in
+            ONTMHCCandidateArtifactManifest(
+                schemaVersion: artifacts.schemaVersion,
+                genotypingEvidence: artifacts.genotypingEvidence,
+                reciprocalEvidence: artifacts.reciprocalEvidence,
+                candidateJSON: ONTMHCArtifactReference(
+                    path: "../candidate-alleles.json",
+                    sha256: artifacts.candidateJSON!.sha256,
+                    sizeBytes: artifacts.candidateJSON!.sizeBytes
+                ),
+                candidateFASTA: artifacts.candidateFASTA,
+                unnameableJSON: artifacts.unnameableJSON,
+                unnameableFASTA: artifacts.unnameableFASTA
+            )
+        }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.calls.count, 1)
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactPathInvalid)
+    }
+
+    func testIntermediateSymlinkInCandidatePathFailsSoft() throws {
+        let fixture = try CandidateBundleFixture(candidateDirectory: "candidate-data")
+        defer { fixture.remove() }
+        let realDirectory = fixture.rootURL.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.moveItem(
+            at: fixture.bundleURL.appendingPathComponent("candidate-data", isDirectory: true),
+            to: realDirectory
+        )
+        try FileManager.default.createSymbolicLink(
+            at: fixture.bundleURL.appendingPathComponent("candidate-data"),
+            withDestinationURL: realDirectory
+        )
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.calls.count, 1)
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactPathInvalid)
+    }
+
+    func testCandidateArtifactSymlinkFailsSoftEvenWhenTargetBytesMatch() throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+        let realJSON = fixture.rootURL.appendingPathComponent("real-candidate.json")
+        try FileManager.default.moveItem(at: fixture.candidateJSONURL, to: realJSON)
+        try FileManager.default.createSymbolicLink(at: fixture.candidateJSONURL, withDestinationURL: realJSON)
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.calls.count, 1)
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactPathInvalid)
+    }
+
+    func testChecksummedBAMEvidenceMismatchFailsSoftWithoutParsingBAM() throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+        try fixture.rewriteManifest { artifacts in
+            let pair = artifacts.genotypingEvidence!
+            return ONTMHCCandidateArtifactManifest(
+                schemaVersion: artifacts.schemaVersion,
+                genotypingEvidence: ONTMHCBAMArtifactPair(
+                    bam: ONTMHCArtifactReference(
+                        path: pair.bam.path,
+                        sha256: String(repeating: "0", count: 64),
+                        sizeBytes: pair.bam.sizeBytes
+                    ),
+                    bai: pair.bai
+                ),
+                reciprocalEvidence: artifacts.reciprocalEvidence,
+                candidateJSON: artifacts.candidateJSON,
+                candidateFASTA: artifacts.candidateFASTA,
+                unnameableJSON: artifacts.unnameableJSON,
+                unnameableFASTA: artifacts.unnameableFASTA
+            )
+        }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.calls.count, 1)
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactChecksumMismatch)
+        XCTAssertTrue(result.integrityWarnings.first?.path?.hasSuffix("genotyping.bam") == true)
+    }
+
+    func testCandidateArtifactSizeAndChecksumMismatchesFailSoft() throws {
+        let sizeFixture = try CandidateBundleFixture()
+        defer { sizeFixture.remove() }
+        let handle = try FileHandle(forWritingTo: sizeFixture.candidateFASTAURL)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("changed".utf8))
+
+        let sizeResult = try ONTGenotypeResultBundle.loadResult(from: sizeFixture.bundleURL)
+        XCTAssertEqual(sizeResult.calls.count, 1)
+        XCTAssertEqual(sizeResult.integrityWarnings.first?.code, .candidateArtifactSizeMismatch)
+
+        let checksumFixture = try CandidateBundleFixture()
+        defer { checksumFixture.remove() }
+        let original = try Data(contentsOf: checksumFixture.candidateFASTAURL)
+        var changed = original
+        changed[changed.startIndex] = changed[changed.startIndex] == 62 ? 59 : 62
+        try changed.write(to: checksumFixture.candidateFASTAURL)
+
+        let checksumResult = try ONTGenotypeResultBundle.loadResult(from: checksumFixture.bundleURL)
+        XCTAssertEqual(checksumResult.calls.count, 1)
+        XCTAssertEqual(checksumResult.integrityWarnings.first?.code, .candidateArtifactChecksumMismatch)
+    }
+
+    func testMalformedCandidateJSONAndUnsupportedSchemaFailSoft() throws {
+        let malformedFixture = try CandidateBundleFixture()
+        defer { malformedFixture.remove() }
+        try malformedFixture.replaceCandidateJSON(Data("{".utf8))
+
+        let malformed = try ONTGenotypeResultBundle.loadResult(from: malformedFixture.bundleURL)
+        XCTAssertEqual(malformed.calls.count, 1)
+        XCTAssertEqual(malformed.integrityWarnings.first?.code, .candidateArtifactMalformedJSON)
+
+        let schemaFixture = try CandidateBundleFixture(candidateSchemaVersion: 2)
+        defer { schemaFixture.remove() }
+        let schema = try ONTGenotypeResultBundle.loadResult(from: schemaFixture.bundleURL)
+        XCTAssertEqual(schema.calls.count, 1)
+        XCTAssertEqual(schema.integrityWarnings.first?.code, .candidateArtifactSchemaUnsupported)
+    }
+
+    func testMissingDuplicateAndExtraCandidateFASTARecordsFailSoft() throws {
+        for (records, expectedCode) in [
+            ([], ONTGenotypeIntegrityWarningCode.candidateArtifactMissingFASTARecord),
+            (["candidate-sequence", "candidate-sequence"], .candidateArtifactDuplicateFASTARecord),
+            (["candidate-sequence", "extra"], .candidateArtifactExtraFASTARecord),
+        ] {
+            let fixture = try CandidateBundleFixture(candidateFASTAIDs: records)
+            defer { fixture.remove() }
+
+            let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+            XCTAssertEqual(result.calls.count, 1)
+            XCTAssertNil(result.mhcCandidates)
+            XCTAssertEqual(result.integrityWarnings.first?.code, expectedCode)
+        }
+    }
+
+    func testInconsistentDocumentFASTAReferenceFailsSoft() throws {
+        let fixture = try CandidateBundleFixture(documentCandidateFASTAPath: "other.fasta")
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.calls.count, 1)
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactDocumentReferenceMismatch)
+    }
+
+    func testLegacyBundleLoadsWithEmptyCandidateProjectionAndNoWarnings() throws {
+        let fixture = try CandidateBundleFixture(includeCandidateArtifacts: false)
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.calls.count, 1)
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertNil(result.mhcUnnameableClusters)
+        XCTAssertTrue(result.integrityWarnings.isEmpty)
+    }
+
     func testDecodesLegacyManifestWithoutMHCCandidateArtifacts() throws {
         let data = Data(
             """
@@ -915,5 +1113,256 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         }
         """.write(to: statsJSONURL, atomically: true, encoding: .utf8)
         return (genotypeCSVURL, sampleCSVURL, statsJSONURL, provenanceURL)
+    }
+
+    private final class CandidateBundleFixture {
+        let rootURL: URL
+        let bundleURL: URL
+        let candidateJSONURL: URL
+        let candidateFASTAURL: URL
+        let candidateID = "candidate-sequence"
+        let unnameableID = "unnameable-sequence"
+
+        init(
+            includeCandidateArtifacts: Bool = true,
+            candidateDirectory: String = "",
+            candidateSchemaVersion: Int = 1,
+            candidateFASTAIDs: [String] = ["candidate-sequence"],
+            documentCandidateFASTAPath: String? = nil
+        ) throws {
+            rootURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ONTGenotypeCandidateFixture-\(UUID().uuidString)", isDirectory: true)
+            bundleURL = rootURL.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+            let workbook = bundleURL.appendingPathComponent("result.xlsx")
+            let calls = bundleURL.appendingPathComponent("calls.csv")
+            let samples = bundleURL.appendingPathComponent("samples.csv")
+            let stats = bundleURL.appendingPathComponent("stats.json")
+            let provenance = bundleURL.appendingPathComponent("provenance.json")
+            try Data("workbook".utf8).write(to: workbook)
+            try Data("{}".utf8).write(to: stats)
+            try Data("{}".utf8).write(to: provenance)
+            try Data("sample,genotype,passed_alignments,passed_unique_reads\nSampleA,known-allele,8,8\n".utf8)
+                .write(to: calls)
+            try Data("sample,passed_alignments,passed_unique_reads\nSampleA,8,8\n".utf8)
+                .write(to: samples)
+
+            let candidateRoot = candidateDirectory.isEmpty
+                ? bundleURL
+                : bundleURL.appendingPathComponent(candidateDirectory, isDirectory: true)
+            try FileManager.default.createDirectory(at: candidateRoot, withIntermediateDirectories: true)
+            candidateJSONURL = candidateRoot.appendingPathComponent("candidate-alleles.json")
+            candidateFASTAURL = candidateRoot.appendingPathComponent("candidate_alleles.fasta")
+            let unnameableJSONURL = candidateRoot.appendingPathComponent("unnameable.json")
+            let unnameableFASTAURL = candidateRoot.appendingPathComponent("unnameable.fasta")
+            let alignments = bundleURL.appendingPathComponent("artifacts/alignments", isDirectory: true)
+            try FileManager.default.createDirectory(at: alignments, withIntermediateDirectories: true)
+            let genotypingBAM = alignments.appendingPathComponent("genotyping.bam")
+            let genotypingBAI = alignments.appendingPathComponent("genotyping.bam.bai")
+            let reciprocalBAM = alignments.appendingPathComponent("reciprocal.bam")
+            let reciprocalBAI = alignments.appendingPathComponent("reciprocal.bam.bai")
+            try Data("bam-one".utf8).write(to: genotypingBAM)
+            try Data("bai-one".utf8).write(to: genotypingBAI)
+            try Data("bam-two".utf8).write(to: reciprocalBAM)
+            try Data("bai-two".utf8).write(to: reciprocalBAI)
+
+            let candidateSequence = "ACGT"
+            let unnameableSequence = "TGCA"
+            let candidateFASTA = candidateFASTAIDs
+                .map { ">\($0)\n\($0 == "extra" ? "AAAA" : candidateSequence)\n" }
+                .joined()
+            try Data(candidateFASTA.utf8).write(to: candidateFASTAURL)
+            try Data(">\(unnameableID)\n\(unnameableSequence)\n".utf8).write(to: unnameableFASTAURL)
+
+            let candidateRelative = Self.relative("candidate-alleles.json", directory: candidateDirectory)
+            let candidateFASTARelative = Self.relative("candidate_alleles.fasta", directory: candidateDirectory)
+            let unnameableRelative = Self.relative("unnameable.json", directory: candidateDirectory)
+            let unnameableFASTARelative = Self.relative("unnameable.fasta", directory: candidateDirectory)
+            let genotypingPair = try Self.pair(
+                bam: genotypingBAM, bamPath: "artifacts/alignments/genotyping.bam",
+                bai: genotypingBAI, baiPath: "artifacts/alignments/genotyping.bam.bai"
+            )
+            let reciprocalPair = try Self.pair(
+                bam: reciprocalBAM, bamPath: "artifacts/alignments/reciprocal.bam",
+                bai: reciprocalBAI, baiPath: "artifacts/alignments/reciprocal.bam.bai"
+            )
+            let candidateFASTAReference = try Self.reference(
+                candidateFASTAURL,
+                path: documentCandidateFASTAPath ?? candidateFASTARelative
+            )
+            let actualCandidateFASTAReference = try Self.reference(candidateFASTAURL, path: candidateFASTARelative)
+            let unnameableFASTAReference = try Self.reference(unnameableFASTAURL, path: unnameableFASTARelative)
+            let evidence = [genotypingPair.bam, genotypingPair.bai, reciprocalPair.bam, reciprocalPair.bai]
+            let locator = ONTMHCEvidenceLocator(
+                bamPath: reciprocalPair.bam.path,
+                queryName: candidateID,
+                referenceName: "Mafa-A1*001:01",
+                readGroupID: nil,
+                referenceStart: 1,
+                cigar: "4="
+            )
+            let candidateRecord = ONTMHCCandidateRecord(
+                stableClusterID: candidateID,
+                provisionalName: "Mafa-A1*001:01_1nt_nov",
+                locus: "Mafa-A1",
+                classification: .novel,
+                supportClass: .singleton,
+                closestReferenceName: "Mafa-A1*001:01",
+                closestReferenceClass: .genomicDNA,
+                snpCount: 1,
+                insertedBases: 0,
+                deletedBases: 0,
+                longGapBases: 0,
+                comparableBases: 4,
+                shorterCoverage: 1,
+                identity: 0.75,
+                mappingQuality: 60,
+                alignmentScore: 3,
+                independentSampleCount: 1,
+                occurrenceCount: 1,
+                totalClusterReads: 8,
+                supportingSampleIDs: ["SampleA"],
+                fastaRecordID: candidateID,
+                sequenceSHA256: Self.sha256(Data(candidateSequence.utf8)),
+                selectedEvidence: locator
+            )
+            let candidateDocument = ONTMHCCandidateAllelesDocument(
+                schemaVersion: candidateSchemaVersion,
+                createdAt: "2026-07-19T00:00:00Z",
+                thresholds: .defaults,
+                inputs: [],
+                evidence: evidence,
+                sequenceFASTA: candidateFASTAReference,
+                candidates: [candidateRecord],
+                observations: []
+            )
+            let unnameableRecord = ONTMHCUnnameableRecord(
+                stableClusterID: unnameableID,
+                reason: .noAlignment,
+                failedMetrics: [:],
+                supportClass: .singleton,
+                independentSampleCount: 1,
+                occurrenceCount: 1,
+                totalClusterReads: 4,
+                supportingSampleIDs: ["SampleB"],
+                fastaRecordID: unnameableID,
+                sequenceSHA256: Self.sha256(Data(unnameableSequence.utf8)),
+                evidence: []
+            )
+            let unnameableDocument = ONTMHCUnnameableClustersDocument(
+                schemaVersion: 1,
+                createdAt: "2026-07-19T00:00:00Z",
+                thresholds: .defaults,
+                evidence: evidence,
+                sequenceFASTA: unnameableFASTAReference,
+                clusters: [unnameableRecord],
+                observations: []
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(candidateDocument).write(to: candidateJSONURL)
+            try encoder.encode(unnameableDocument).write(to: unnameableJSONURL)
+
+            let artifacts: ONTMHCCandidateArtifactManifest? = includeCandidateArtifacts
+                ? try ONTMHCCandidateArtifactManifest(
+                    schemaVersion: 1,
+                    genotypingEvidence: genotypingPair,
+                    reciprocalEvidence: reciprocalPair,
+                    candidateJSON: Self.reference(candidateJSONURL, path: candidateRelative),
+                    candidateFASTA: actualCandidateFASTAReference,
+                    unnameableJSON: Self.reference(unnameableJSONURL, path: unnameableRelative),
+                    unnameableFASTA: unnameableFASTAReference
+                )
+                : nil
+            let manifest = ONTGenotypeResultBundleManifest(
+                outputName: "result",
+                analysisName: "result",
+                primaryWorkbookPath: workbook.lastPathComponent,
+                longSummaryCSVPath: calls.lastPathComponent,
+                sampleSummaryCSVPath: samples.lastPathComponent,
+                statsJSONPath: stats.lastPathComponent,
+                provenancePath: provenance.lastPathComponent,
+                mhcCandidateArtifacts: artifacts
+            )
+            try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+        }
+
+        func remove() {
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        func replaceCandidateJSON(_ data: Data) throws {
+            try data.write(to: candidateJSONURL)
+            try rewriteManifest { artifacts in
+                ONTMHCCandidateArtifactManifest(
+                    schemaVersion: artifacts.schemaVersion,
+                    genotypingEvidence: artifacts.genotypingEvidence,
+                    reciprocalEvidence: artifacts.reciprocalEvidence,
+                    candidateJSON: try! Self.reference(candidateJSONURL, path: artifacts.candidateJSON!.path),
+                    candidateFASTA: artifacts.candidateFASTA,
+                    unnameableJSON: artifacts.unnameableJSON,
+                    unnameableFASTA: artifacts.unnameableFASTA
+                )
+            }
+        }
+
+        func rewriteManifest(
+            _ transform: (ONTMHCCandidateArtifactManifest) -> ONTMHCCandidateArtifactManifest
+        ) throws {
+            let old = try ONTGenotypeResultBundle.loadManifest(from: bundleURL)
+            let artifacts = transform(try XCTUnwrap(old.mhcCandidateArtifacts))
+            let updated = ONTGenotypeResultBundleManifest(
+                outputName: old.outputName,
+                analysisName: old.analysisName,
+                primaryWorkbookPath: old.primaryWorkbookPath,
+                currentWorkbookPath: old.currentWorkbookPath,
+                workbookRevisions: old.workbookRevisions,
+                longSummaryCSVPath: old.longSummaryCSVPath,
+                sampleSummaryCSVPath: old.sampleSummaryCSVPath,
+                statsJSONPath: old.statsJSONPath,
+                provenancePath: old.provenancePath,
+                deduplicatedUnmatchedClustersFASTAPath: old.deduplicatedUnmatchedClustersFASTAPath,
+                haplotypeAnalysisPath: old.haplotypeAnalysisPath,
+                haplotypeDefinitionSetID: old.haplotypeDefinitionSetID,
+                haplotypeAssayID: old.haplotypeAssayID,
+                presetID: old.presetID,
+                presetVersion: old.presetVersion,
+                createdAt: old.createdAt,
+                activeHaplotypeAnalysisRevisionID: old.activeHaplotypeAnalysisRevisionID,
+                haplotypeAnalysisRevisions: old.haplotypeAnalysisRevisions,
+                mhcCandidateArtifacts: artifacts
+            )
+            try ONTGenotypeResultBundle.writeManifest(updated, to: bundleURL)
+        }
+
+        private static func relative(_ filename: String, directory: String) -> String {
+            directory.isEmpty ? filename : "\(directory)/\(filename)"
+        }
+
+        private static func pair(
+            bam: URL,
+            bamPath: String,
+            bai: URL,
+            baiPath: String
+        ) throws -> ONTMHCBAMArtifactPair {
+            ONTMHCBAMArtifactPair(
+                bam: try reference(bam, path: bamPath),
+                bai: try reference(bai, path: baiPath)
+            )
+        }
+
+        private static func reference(_ url: URL, path: String) throws -> ONTMHCArtifactReference {
+            let data = try Data(contentsOf: url)
+            return ONTMHCArtifactReference(
+                path: path,
+                sha256: sha256(data),
+                sizeBytes: Int64(data.count)
+            )
+        }
+
+        private static func sha256(_ data: Data) -> String {
+            SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        }
     }
 }

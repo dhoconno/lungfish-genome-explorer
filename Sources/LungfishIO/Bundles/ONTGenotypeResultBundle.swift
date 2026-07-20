@@ -1,3 +1,5 @@
+import CryptoKit
+import Darwin
 import Foundation
 
 public enum ONTGenotypeWorkbookRevisionRole: String, Codable, CaseIterable, Equatable, Sendable {
@@ -942,6 +944,37 @@ public struct ONTGenotypeResultArtifacts: Codable, Equatable, Sendable {
     }
 }
 
+public enum ONTGenotypeIntegrityWarningCode: String, Codable, Equatable, Sendable {
+    case candidateArtifactManifestSchemaUnsupported = "candidate-artifact-manifest-schema-unsupported"
+    case candidateArtifactIncompleteDeclaration = "candidate-artifact-incomplete-declaration"
+    case candidateArtifactPathInvalid = "candidate-artifact-path-invalid"
+    case candidateArtifactMissing = "candidate-artifact-missing"
+    case candidateArtifactNotRegularFile = "candidate-artifact-not-regular-file"
+    case candidateArtifactSizeMismatch = "candidate-artifact-size-mismatch"
+    case candidateArtifactChecksumMismatch = "candidate-artifact-checksum-mismatch"
+    case candidateArtifactTooLarge = "candidate-artifact-too-large"
+    case candidateArtifactMalformedJSON = "candidate-artifact-malformed-json"
+    case candidateArtifactSchemaUnsupported = "candidate-artifact-schema-unsupported"
+    case candidateArtifactDocumentReferenceMismatch = "candidate-artifact-document-reference-mismatch"
+    case candidateArtifactMalformedFASTA = "candidate-artifact-malformed-fasta"
+    case candidateArtifactMissingFASTARecord = "candidate-artifact-missing-fasta-record"
+    case candidateArtifactDuplicateFASTARecord = "candidate-artifact-duplicate-fasta-record"
+    case candidateArtifactExtraFASTARecord = "candidate-artifact-extra-fasta-record"
+    case candidateArtifactSequenceChecksumMismatch = "candidate-artifact-sequence-checksum-mismatch"
+}
+
+public struct ONTGenotypeIntegrityWarning: Codable, Equatable, Sendable {
+    public let code: ONTGenotypeIntegrityWarningCode
+    public let detail: String
+    public let path: String?
+
+    public init(code: ONTGenotypeIntegrityWarningCode, detail: String, path: String? = nil) {
+        self.code = code
+        self.detail = detail
+        self.path = path
+    }
+}
+
 public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     private struct SupportKey: Hashable {
         let sample: String
@@ -960,6 +993,9 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     public let calls: [ONTGenotypeCall]
     public let samples: [ONTGenotypeSampleResult]
     public let haplotypeAnalysis: GenotypeHaplotypeAnalysis?
+    public let mhcCandidates: ONTMHCCandidateAllelesDocument?
+    public let mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?
+    public let integrityWarnings: [ONTGenotypeIntegrityWarning]
 
     public init(
         bundleURL: URL,
@@ -970,6 +1006,32 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         samples: [ONTGenotypeSampleResult],
         haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil
     ) {
+        self.init(
+            bundleURL: bundleURL,
+            manifest: manifest,
+            artifacts: artifacts,
+            stats: stats,
+            calls: calls,
+            samples: samples,
+            haplotypeAnalysis: haplotypeAnalysis,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            integrityWarnings: []
+        )
+    }
+
+    public init(
+        bundleURL: URL,
+        manifest: ONTGenotypeResultBundleManifest,
+        artifacts: ONTGenotypeResultArtifacts,
+        stats: ONTGenotypeRunStats,
+        calls: [ONTGenotypeCall],
+        samples: [ONTGenotypeSampleResult],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        mhcCandidates: ONTMHCCandidateAllelesDocument?,
+        mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?,
+        integrityWarnings: [ONTGenotypeIntegrityWarning]
+    ) {
         self.bundleURL = bundleURL.standardizedFileURL
         self.manifest = manifest
         self.artifacts = artifacts
@@ -977,6 +1039,58 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         self.calls = calls
         self.samples = samples
         self.haplotypeAnalysis = haplotypeAnalysis
+        self.mhcCandidates = mhcCandidates
+        self.mhcUnnameableClusters = mhcUnnameableClusters
+        self.integrityWarnings = integrityWarnings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bundleURL
+        case manifest
+        case artifacts
+        case stats
+        case calls
+        case samples
+        case haplotypeAnalysis
+        case mhcCandidates
+        case mhcUnnameableClusters
+        case integrityWarnings
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            bundleURL: try container.decode(URL.self, forKey: .bundleURL),
+            manifest: try container.decode(ONTGenotypeResultBundleManifest.self, forKey: .manifest),
+            artifacts: try container.decode(ONTGenotypeResultArtifacts.self, forKey: .artifacts),
+            stats: try container.decode(ONTGenotypeRunStats.self, forKey: .stats),
+            calls: try container.decode([ONTGenotypeCall].self, forKey: .calls),
+            samples: try container.decode([ONTGenotypeSampleResult].self, forKey: .samples),
+            haplotypeAnalysis: try container.decodeIfPresent(GenotypeHaplotypeAnalysis.self, forKey: .haplotypeAnalysis),
+            mhcCandidates: try container.decodeIfPresent(ONTMHCCandidateAllelesDocument.self, forKey: .mhcCandidates),
+            mhcUnnameableClusters: try container.decodeIfPresent(
+                ONTMHCUnnameableClustersDocument.self,
+                forKey: .mhcUnnameableClusters
+            ),
+            integrityWarnings: try container.decodeIfPresent(
+                [ONTGenotypeIntegrityWarning].self,
+                forKey: .integrityWarnings
+            ) ?? []
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(bundleURL, forKey: .bundleURL)
+        try container.encode(manifest, forKey: .manifest)
+        try container.encode(artifacts, forKey: .artifacts)
+        try container.encode(stats, forKey: .stats)
+        try container.encode(calls, forKey: .calls)
+        try container.encode(samples, forKey: .samples)
+        try container.encodeIfPresent(haplotypeAnalysis, forKey: .haplotypeAnalysis)
+        try container.encodeIfPresent(mhcCandidates, forKey: .mhcCandidates)
+        try container.encodeIfPresent(mhcUnnameableClusters, forKey: .mhcUnnameableClusters)
+        try container.encode(integrityWarnings, forKey: .integrityWarnings)
     }
 
     public var sampleCount: Int {
@@ -1273,6 +1387,26 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
 public enum ONTGenotypeResultBundle {
     public static let directoryExtension = "lungfishgenotype"
 
+    private static let maximumCollectedCandidateArtifactBytes: Int64 = 256 * 1_024 * 1_024
+    private static let artifactReadChunkBytes = 64 * 1_024
+
+    private struct MHCCandidateProjection {
+        let candidates: ONTMHCCandidateAllelesDocument?
+        let unnameable: ONTMHCUnnameableClustersDocument?
+        let warnings: [ONTGenotypeIntegrityWarning]
+
+        static let absent = MHCCandidateProjection(candidates: nil, unnameable: nil, warnings: [])
+    }
+
+    private struct CandidateIntegrityFailure: Error {
+        let warning: ONTGenotypeIntegrityWarning
+    }
+
+    private struct ParsedFASTA {
+        let sequences: [String: String]
+        let counts: [String: Int]
+    }
+
     public static func isBundleURL(_ url: URL) -> Bool {
         url.pathExtension.lowercased() == directoryExtension
     }
@@ -1340,6 +1474,10 @@ public enum ONTGenotypeResultBundle {
         let sampleRows = try loadCSVRows(from: artifacts.sampleSummaryCSVURL)
         let stats = try ONTGenotypeRunStats.load(from: artifacts.statsJSONURL)
         let haplotypeAnalysis = try loadHaplotypeAnalysisIfPresent(from: artifacts.haplotypeAnalysisURL)
+        let mhcProjection = try loadMHCCandidateProjection(
+            from: manifest.mhcCandidateArtifacts,
+            bundleURL: bundleURL
+        )
 
         let calls = callRows.compactMap(makeCall(row:)).filter { isAssignedSample($0.sample) }
         let callsBySample = Dictionary(grouping: calls, by: \.sample)
@@ -1368,8 +1506,528 @@ public enum ONTGenotypeResultBundle {
             stats: stats,
             calls: calls,
             samples: samples,
-            haplotypeAnalysis: haplotypeAnalysis
+            haplotypeAnalysis: haplotypeAnalysis,
+            mhcCandidates: mhcProjection.candidates,
+            mhcUnnameableClusters: mhcProjection.unnameable,
+            integrityWarnings: mhcProjection.warnings
         )
+    }
+
+    private static func loadMHCCandidateProjection(
+        from artifactManifest: ONTMHCCandidateArtifactManifest?,
+        bundleURL: URL
+    ) throws -> MHCCandidateProjection {
+        guard let artifactManifest else { return .absent }
+        do {
+            guard artifactManifest.schemaVersion == 1 else {
+                throw integrityFailure(
+                    .candidateArtifactManifestSchemaUnsupported,
+                    "MHC candidate artifact manifest schema \(artifactManifest.schemaVersion) is unsupported; expected schema 1."
+                )
+            }
+            try requirePairedDeclaration(
+                artifactManifest.candidateJSON,
+                artifactManifest.candidateFASTA,
+                label: "candidate JSON and FASTA"
+            )
+            try requirePairedDeclaration(
+                artifactManifest.unnameableJSON,
+                artifactManifest.unnameableFASTA,
+                label: "un-nameable JSON and FASTA"
+            )
+
+            var collectedData: [String: Data] = [:]
+            let collectedReferences = [
+                artifactManifest.candidateJSON,
+                artifactManifest.candidateFASTA,
+                artifactManifest.unnameableJSON,
+                artifactManifest.unnameableFASTA,
+            ].compactMap { $0 }
+            for reference in collectedReferences {
+                collectedData[reference.path] = try validateArtifact(
+                    reference,
+                    in: bundleURL,
+                    collectData: true
+                )
+            }
+            for reference in declaredBAMReferences(artifactManifest) {
+                _ = try validateArtifact(reference, in: bundleURL, collectData: false)
+            }
+
+            let candidates: ONTMHCCandidateAllelesDocument? = try artifactManifest.candidateJSON.map { reference in
+                let data = try requiredCollectedData(reference, from: collectedData)
+                return try decodeCandidateDocument(data, path: reference.path)
+            }
+            let unnameable: ONTMHCUnnameableClustersDocument? = try artifactManifest.unnameableJSON.map { reference in
+                let data = try requiredCollectedData(reference, from: collectedData)
+                return try decodeUnnameableDocument(data, path: reference.path)
+            }
+
+            let declaredEvidence = declaredBAMReferences(artifactManifest)
+            if let candidates, let fastaReference = artifactManifest.candidateFASTA {
+                try validateDocumentReferences(
+                    sequenceFASTA: candidates.sequenceFASTA,
+                    evidence: candidates.evidence,
+                    expectedSequenceFASTA: fastaReference,
+                    expectedEvidence: declaredEvidence,
+                    evidenceLocators: candidates.candidates.map(\.selectedEvidence)
+                        + candidates.observations.flatMap(\.evidence),
+                    documentPath: artifactManifest.candidateJSON?.path
+                )
+                let fasta = try parseFASTA(
+                    requiredCollectedData(fastaReference, from: collectedData),
+                    path: fastaReference.path
+                )
+                try validateCandidateRecords(candidates.candidates, fasta: fasta, path: fastaReference.path)
+            }
+            if let unnameable, let fastaReference = artifactManifest.unnameableFASTA {
+                try validateDocumentReferences(
+                    sequenceFASTA: unnameable.sequenceFASTA,
+                    evidence: unnameable.evidence,
+                    expectedSequenceFASTA: fastaReference,
+                    expectedEvidence: declaredEvidence,
+                    evidenceLocators: unnameable.clusters.flatMap(\.evidence)
+                        + unnameable.observations.flatMap(\.evidence),
+                    documentPath: artifactManifest.unnameableJSON?.path
+                )
+                let fasta = try parseFASTA(
+                    requiredCollectedData(fastaReference, from: collectedData),
+                    path: fastaReference.path
+                )
+                try validateUnnameableRecords(unnameable.clusters, fasta: fasta, path: fastaReference.path)
+            }
+            return MHCCandidateProjection(candidates: candidates, unnameable: unnameable, warnings: [])
+        } catch let failure as CandidateIntegrityFailure {
+            return MHCCandidateProjection(candidates: nil, unnameable: nil, warnings: [failure.warning])
+        }
+    }
+
+    private static func requirePairedDeclaration(
+        _ json: ONTMHCArtifactReference?,
+        _ fasta: ONTMHCArtifactReference?,
+        label: String
+    ) throws {
+        guard (json == nil) == (fasta == nil) else {
+            throw integrityFailure(
+                .candidateArtifactIncompleteDeclaration,
+                "The optional MHC \(label) must either both be declared or both be absent.",
+                path: json?.path ?? fasta?.path
+            )
+        }
+    }
+
+    private static func declaredBAMReferences(
+        _ manifest: ONTMHCCandidateArtifactManifest
+    ) -> [ONTMHCArtifactReference] {
+        [
+            manifest.genotypingEvidence?.bam,
+            manifest.genotypingEvidence?.bai,
+            manifest.reciprocalEvidence?.bam,
+            manifest.reciprocalEvidence?.bai,
+        ].compactMap { $0 }
+    }
+
+    private static func requiredCollectedData(
+        _ reference: ONTMHCArtifactReference,
+        from dataByPath: [String: Data]
+    ) throws -> Data {
+        guard let data = dataByPath[reference.path] else {
+            throw integrityFailure(
+                .candidateArtifactMissing,
+                "The declared MHC candidate artifact could not be loaded.",
+                path: reference.path
+            )
+        }
+        return data
+    }
+
+    private static func validateArtifact(
+        _ reference: ONTMHCArtifactReference,
+        in bundleURL: URL,
+        collectData: Bool
+    ) throws -> Data? {
+        let components = try safeRelativePathComponents(reference.path)
+        let rootFD = bundleURL.path.withCString {
+            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard rootFD >= 0 else {
+            throw integrityFailure(
+                .candidateArtifactPathInvalid,
+                "The genotype bundle root could not be opened without following symbolic links: \(errnoDetail()).",
+                path: reference.path
+            )
+        }
+        defer { Darwin.close(rootFD) }
+
+        var directoryFD = rootFD
+        var ownedDirectoryFDs: [Int32] = []
+        defer { ownedDirectoryFDs.reversed().forEach { Darwin.close($0) } }
+        for component in components.dropLast() {
+            let nextFD = component.withCString {
+                Darwin.openat(directoryFD, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+            }
+            guard nextFD >= 0 else {
+                let code: ONTGenotypeIntegrityWarningCode = errno == ENOENT
+                    ? .candidateArtifactMissing
+                    : .candidateArtifactPathInvalid
+                throw integrityFailure(
+                    code,
+                    "A path component could not be opened as a real directory without following links: \(errnoDetail()).",
+                    path: reference.path
+                )
+            }
+            ownedDirectoryFDs.append(nextFD)
+            directoryFD = nextFD
+        }
+
+        let finalFD = components.last!.withCString {
+            Darwin.openat(directoryFD, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard finalFD >= 0 else {
+            let code: ONTGenotypeIntegrityWarningCode = errno == ENOENT
+                ? .candidateArtifactMissing
+                : .candidateArtifactPathInvalid
+            throw integrityFailure(
+                code,
+                "The declared artifact could not be opened as a no-follow file: \(errnoDetail()).",
+                path: reference.path
+            )
+        }
+        defer { Darwin.close(finalFD) }
+
+        var status = stat()
+        guard Darwin.fstat(finalFD, &status) == 0 else {
+            throw integrityFailure(
+                .candidateArtifactPathInvalid,
+                "The declared artifact could not be inspected: \(errnoDetail()).",
+                path: reference.path
+            )
+        }
+        guard (status.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+            throw integrityFailure(
+                .candidateArtifactNotRegularFile,
+                "The declared MHC artifact is not a regular file.",
+                path: reference.path
+            )
+        }
+        let actualSize = Int64(status.st_size)
+        guard reference.sizeBytes >= 0, actualSize == reference.sizeBytes else {
+            throw integrityFailure(
+                .candidateArtifactSizeMismatch,
+                "Declared size \(reference.sizeBytes) bytes does not match the regular file size \(actualSize) bytes.",
+                path: reference.path
+            )
+        }
+        if collectData, actualSize > maximumCollectedCandidateArtifactBytes {
+            throw integrityFailure(
+                .candidateArtifactTooLarge,
+                "The candidate JSON/FASTA is \(actualSize) bytes; the safe loading limit is \(maximumCollectedCandidateArtifactBytes) bytes.",
+                path: reference.path
+            )
+        }
+
+        var hasher = SHA256()
+        var collected = collectData ? Data() : nil
+        if collectData { collected?.reserveCapacity(Int(actualSize)) }
+        var bytesRead: Int64 = 0
+        var buffer = [UInt8](repeating: 0, count: artifactReadChunkBytes)
+        while true {
+            try Task.checkCancellation()
+            let count = buffer.withUnsafeMutableBytes { rawBuffer -> Int in
+                Darwin.read(finalFD, rawBuffer.baseAddress!, rawBuffer.count)
+            }
+            guard count >= 0 else {
+                if errno == EINTR { continue }
+                throw integrityFailure(
+                    .candidateArtifactPathInvalid,
+                    "The declared artifact could not be read: \(errnoDetail()).",
+                    path: reference.path
+                )
+            }
+            if count == 0 { break }
+            bytesRead += Int64(count)
+            guard bytesRead <= actualSize else {
+                throw integrityFailure(
+                    .candidateArtifactSizeMismatch,
+                    "The artifact grew while it was being validated.",
+                    path: reference.path
+                )
+            }
+            let chunk = Data(buffer.prefix(count))
+            hasher.update(data: chunk)
+            collected?.append(chunk)
+        }
+        guard bytesRead == actualSize else {
+            throw integrityFailure(
+                .candidateArtifactSizeMismatch,
+                "The artifact changed size while it was being validated (read \(bytesRead) of \(actualSize) bytes).",
+                path: reference.path
+            )
+        }
+        let checksum = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        guard checksum == reference.sha256.lowercased() else {
+            throw integrityFailure(
+                .candidateArtifactChecksumMismatch,
+                "Declared SHA-256 \(reference.sha256) does not match computed SHA-256 \(checksum).",
+                path: reference.path
+            )
+        }
+        return collected
+    }
+
+    private static func safeRelativePathComponents(_ path: String) throws -> [String] {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let components = trimmed.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard !trimmed.isEmpty,
+              !trimmed.hasPrefix("/"),
+              !trimmed.utf8.contains(0),
+              !components.isEmpty,
+              components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            throw integrityFailure(
+                .candidateArtifactPathInvalid,
+                "Candidate artifact paths must be non-empty relative paths contained below the bundle root.",
+                path: path
+            )
+        }
+        return components
+    }
+
+    private static func decodeCandidateDocument(
+        _ data: Data,
+        path: String
+    ) throws -> ONTMHCCandidateAllelesDocument {
+        try requireSchemaOne(data, path: path)
+        do {
+            return try JSONDecoder().decode(ONTMHCCandidateAllelesDocument.self, from: data)
+        } catch {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Candidate JSON does not conform to schema 1: \(error.localizedDescription)",
+                path: path
+            )
+        }
+    }
+
+    private static func decodeUnnameableDocument(
+        _ data: Data,
+        path: String
+    ) throws -> ONTMHCUnnameableClustersDocument {
+        try requireSchemaOne(data, path: path)
+        do {
+            return try JSONDecoder().decode(ONTMHCUnnameableClustersDocument.self, from: data)
+        } catch {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Un-nameable cluster JSON does not conform to schema 1: \(error.localizedDescription)",
+                path: path
+            )
+        }
+    }
+
+    private static func requireSchemaOne(_ data: Data, path: String) throws {
+        let object: Any
+        do {
+            object = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Candidate artifact is not valid JSON: \(error.localizedDescription)",
+                path: path
+            )
+        }
+        guard let dictionary = object as? [String: Any], let schema = dictionary["schema_version"] as? Int else {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Candidate artifact must be a JSON object with integer schema_version 1.",
+                path: path
+            )
+        }
+        guard schema == 1 else {
+            throw integrityFailure(
+                .candidateArtifactSchemaUnsupported,
+                "Candidate artifact schema \(schema) is unsupported; expected schema 1.",
+                path: path
+            )
+        }
+    }
+
+    private static func validateDocumentReferences(
+        sequenceFASTA: ONTMHCArtifactReference,
+        evidence: [ONTMHCArtifactReference],
+        expectedSequenceFASTA: ONTMHCArtifactReference,
+        expectedEvidence: [ONTMHCArtifactReference],
+        evidenceLocators: [ONTMHCEvidenceLocator],
+        documentPath: String?
+    ) throws {
+        guard sequenceFASTA == expectedSequenceFASTA else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "The document sequence_fasta reference does not exactly match the manifest FASTA reference.",
+                path: documentPath
+            )
+        }
+        guard canonicalReferences(evidence) == canonicalReferences(expectedEvidence) else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "The document evidence references do not exactly match the BAM/BAI artifacts declared by the manifest.",
+                path: documentPath
+            )
+        }
+        let declaredBAMPaths = Set(expectedEvidence.filter { $0.path.lowercased().hasSuffix(".bam") }.map(\.path))
+        guard evidenceLocators.allSatisfy({ declaredBAMPaths.contains($0.bamPath) }) else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "At least one evidence locator names a BAM that is not declared by the artifact manifest.",
+                path: documentPath
+            )
+        }
+    }
+
+    private static func canonicalReferences(_ references: [ONTMHCArtifactReference]) -> [String] {
+        references.map { "\($0.path)\u{0}\($0.sha256.lowercased())\u{0}\($0.sizeBytes)" }.sorted()
+    }
+
+    private static func parseFASTA(_ data: Data, path: String) throws -> ParsedFASTA {
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw integrityFailure(
+                .candidateArtifactMalformedFASTA,
+                "Candidate FASTA is not valid UTF-8.",
+                path: path
+            )
+        }
+        var sequences: [String: String] = [:]
+        var counts: [String: Int] = [:]
+        var currentID: String?
+        var currentSequence = ""
+
+        func finishRecord() throws {
+            guard let id = currentID else { return }
+            guard !currentSequence.isEmpty else {
+                throw integrityFailure(
+                    .candidateArtifactMalformedFASTA,
+                    "FASTA record '\(id)' has no sequence.",
+                    path: path
+                )
+            }
+            counts[id, default: 0] += 1
+            if sequences[id] == nil { sequences[id] = currentSequence.uppercased() }
+        }
+
+        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.last == "\r" ? rawLine.dropLast() : rawLine[...]
+            if line.first == ">" {
+                try finishRecord()
+                let header = line.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let id = header.split(whereSeparator: \.isWhitespace).first, !id.isEmpty else {
+                    throw integrityFailure(
+                        .candidateArtifactMalformedFASTA,
+                        "Candidate FASTA contains an empty record identifier.",
+                        path: path
+                    )
+                }
+                currentID = String(id)
+                currentSequence = ""
+            } else {
+                let sequenceLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard sequenceLine.isEmpty || currentID != nil else {
+                    throw integrityFailure(
+                        .candidateArtifactMalformedFASTA,
+                        "Candidate FASTA contains sequence data before its first header.",
+                        path: path
+                    )
+                }
+                currentSequence += sequenceLine
+            }
+        }
+        try finishRecord()
+        return ParsedFASTA(sequences: sequences, counts: counts)
+    }
+
+    private static func validateCandidateRecords(
+        _ records: [ONTMHCCandidateRecord],
+        fasta: ParsedFASTA,
+        path: String
+    ) throws {
+        try validateFASTARecords(
+            records.map { ($0.stableClusterID, $0.fastaRecordID, $0.sequenceSHA256) },
+            fasta: fasta,
+            path: path
+        )
+    }
+
+    private static func validateUnnameableRecords(
+        _ records: [ONTMHCUnnameableRecord],
+        fasta: ParsedFASTA,
+        path: String
+    ) throws {
+        try validateFASTARecords(
+            records.map { ($0.stableClusterID, $0.fastaRecordID, $0.sequenceSHA256) },
+            fasta: fasta,
+            path: path
+        )
+    }
+
+    private static func validateFASTARecords(
+        _ records: [(stableID: String, fastaID: String, checksum: String)],
+        fasta: ParsedFASTA,
+        path: String
+    ) throws {
+        guard records.allSatisfy({ !$0.stableID.isEmpty && $0.stableID == $0.fastaID }),
+              Set(records.map(\.stableID)).count == records.count else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "Every document record must have one unique, non-empty stable_cluster_id equal to its fasta_record_id.",
+                path: path
+            )
+        }
+        let expected = Set(records.map(\.stableID))
+        if let missing = expected.sorted().first(where: { fasta.counts[$0] == nil }) {
+            throw integrityFailure(
+                .candidateArtifactMissingFASTARecord,
+                "FASTA is missing declared stable cluster '\(missing)'.",
+                path: path
+            )
+        }
+        if let duplicate = expected.sorted().first(where: { fasta.counts[$0] != 1 }) {
+            throw integrityFailure(
+                .candidateArtifactDuplicateFASTARecord,
+                "FASTA stable cluster '\(duplicate)' occurs \(fasta.counts[duplicate] ?? 0) times; expected exactly once.",
+                path: path
+            )
+        }
+        let extras = Set(fasta.counts.keys).subtracting(expected)
+        if let extra = extras.sorted().first {
+            throw integrityFailure(
+                .candidateArtifactExtraFASTARecord,
+                "FASTA contains undeclared record '\(extra)'.",
+                path: path
+            )
+        }
+        for record in records.sorted(by: { $0.stableID < $1.stableID }) {
+            guard let sequence = fasta.sequences[record.stableID] else { continue }
+            let checksum = SHA256.hash(data: Data(sequence.utf8))
+                .map { String(format: "%02x", $0) }
+                .joined()
+            guard checksum == record.checksum.lowercased() else {
+                throw integrityFailure(
+                    .candidateArtifactSequenceChecksumMismatch,
+                    "FASTA sequence SHA-256 for '\(record.stableID)' is \(checksum), not the document value \(record.checksum).",
+                    path: path
+                )
+            }
+        }
+    }
+
+    private static func integrityFailure(
+        _ code: ONTGenotypeIntegrityWarningCode,
+        _ detail: String,
+        path: String? = nil
+    ) -> CandidateIntegrityFailure {
+        CandidateIntegrityFailure(warning: ONTGenotypeIntegrityWarning(code: code, detail: detail, path: path))
+    }
+
+    private static func errnoDetail() -> String {
+        String(cString: Darwin.strerror(errno))
     }
 
     public static func resolvedURL(for path: String, in bundleURL: URL) -> URL {
