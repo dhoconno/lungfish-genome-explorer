@@ -302,6 +302,15 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         try removeMarker(for: bundleURL)
     }
 
+    public static func discardPreparedTransactionAssumingLock(
+        _ transaction: ONTGenotypeWorkbookUpdateTransaction,
+        for bundleURL: URL
+    ) throws {
+        try validatePreparedDirectoryIdentitiesAssumingLock(transaction, for: bundleURL)
+        try removeProvenTransactionRoot(transaction)
+        try removeMarker(for: bundleURL)
+    }
+
     public static func recoverIfNeededAssumingLock(for bundleURL: URL) throws {
         let marker = markerURL(for: bundleURL)
         var markerInfo = stat()

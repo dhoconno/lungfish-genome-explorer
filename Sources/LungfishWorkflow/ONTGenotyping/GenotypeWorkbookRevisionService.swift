@@ -427,9 +427,10 @@ public struct GenotypeWorkbookRevisionService {
                 for: revisedManifestData,
                 path: ONTGenotypeResultBundleManifest.filename
             ),
-            oldCurrentWorkbook: try ONTGenotypeWorkbookUpdateRecovery.descriptor(
-                for: ONTGenotypeResultBundle.resolvedURL(for: oldCurrentPath, in: bundle),
-                path: oldCurrentPath
+            oldCurrentWorkbook: ONTGenotypeWorkbookUpdateFileDescriptor(
+                path: oldCurrentPath,
+                sizeBytes: sourceWorkbookWitness.sizeBytes,
+                sha256: sourceWorkbookWitness.sha256
             ),
             newCurrentWorkbook: try ONTGenotypeWorkbookUpdateRecovery.descriptor(
                 for: ONTGenotypeResultBundle.resolvedURL(for: newCurrentPath, in: cloneBundleURL),
@@ -454,13 +455,33 @@ public struct GenotypeWorkbookRevisionService {
                 "Workbook publication transaction cannot distinguish the old and new generations."
             )
         }
+        try publicationFailureInjector?("before-transaction-marker-source-conflict-check")
+        try requireUnchangedRegularFileNoFollow(
+            sourceWorkbookURL,
+            witness: sourceWorkbookWitness
+        )
         try ONTGenotypeWorkbookUpdateRecovery.write(workbookTransaction, for: bundle)
-        removeStageOnExit = false
         do {
             try publicationFailureInjector?("after-transaction-marker-hard-stop")
         } catch {
+            removeStageOnExit = false
             throw error
         }
+
+        do {
+            try publicationFailureInjector?("before-exchange-source-conflict-check")
+            try requireUnchangedRegularFileNoFollow(
+                sourceWorkbookURL,
+                witness: sourceWorkbookWitness
+            )
+        } catch {
+            try ONTGenotypeWorkbookUpdateRecovery.discardPreparedTransactionAssumingLock(
+                workbookTransaction,
+                for: bundle
+            )
+            throw error
+        }
+        removeStageOnExit = false
 
         let publicationStartedAt = Date()
         try ONTGenotypeWorkbookUpdateRecovery.validatePreparedDirectoryIdentitiesAssumingLock(

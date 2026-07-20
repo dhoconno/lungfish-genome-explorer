@@ -833,6 +833,100 @@ print(wb[wb.sheetnames[0]]["Z99"].value or "")
         try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
     }
 
+    func testManualExcelSaveAtPreWALBoundaryConflictsAndSurvivesWithoutMetadataMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "manual-save-pre-wal-race")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+        let manifestBefore = try Data(contentsOf: manifestURL)
+        let provenanceURL = fixture.bundleURL.appendingPathComponent(
+            "artifacts/workbooks/provenance", isDirectory: true
+        )
+        let provenanceBefore = try directorySnapshot(provenanceURL)
+        let pythonURL = testPythonExecutableURL
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: pythonURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "before-transaction-marker-source-conflict-check" else { return }
+                    _ = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+wb[wb.sheetnames[0]]["Z98"] = "manual-save-pre-wal-survives"
+wb.save(path)
+"""#, currentURL.path], executableURL: pythonURL)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("changed"))
+        }
+
+        XCTAssertEqual(try Data(contentsOf: manifestURL), manifestBefore)
+        XCTAssertEqual(try directorySnapshot(provenanceURL), provenanceBefore)
+        let manualValue = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+wb = load_workbook(sys.argv[1], data_only=False)
+print(wb[wb.sheetnames[0]]["Z98"].value or "")
+"""#, currentURL.path], executableURL: pythonURL)
+        XCTAssertEqual(manualValue.trimmingCharacters(in: .whitespacesAndNewlines), "manual-save-pre-wal-survives")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL).path
+        ))
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
+    func testManualExcelSaveAtPreExchangeBoundaryConflictsAndSurvivesWithoutMetadataMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "manual-save-pre-exchange-race")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+        let manifestBefore = try Data(contentsOf: manifestURL)
+        let provenanceURL = fixture.bundleURL.appendingPathComponent(
+            "artifacts/workbooks/provenance", isDirectory: true
+        )
+        let provenanceBefore = try directorySnapshot(provenanceURL)
+        let pythonURL = testPythonExecutableURL
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: pythonURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "before-exchange-source-conflict-check" else { return }
+                    _ = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+wb[wb.sheetnames[0]]["Z97"] = "manual-save-pre-exchange-survives"
+wb.save(path)
+"""#, currentURL.path], executableURL: pythonURL)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("changed"))
+        }
+
+        XCTAssertEqual(try Data(contentsOf: manifestURL), manifestBefore)
+        XCTAssertEqual(try directorySnapshot(provenanceURL), provenanceBefore)
+        let manualValue = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+wb = load_workbook(sys.argv[1], data_only=False)
+print(wb[wb.sheetnames[0]]["Z97"].value or "")
+"""#, currentURL.path], executableURL: pythonURL)
+        XCTAssertEqual(manualValue.trimmingCharacters(in: .whitespacesAndNewlines), "manual-save-pre-exchange-survives")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL).path
+        ))
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
     func testReadOnlyBundleAndParentLoadWithoutCreatingAdjacentLock() throws {
         let root = try temporaryDirectory()
         let fixture = try makeMCMWorkbookBundle(in: root, outputName: "readonly-load")
