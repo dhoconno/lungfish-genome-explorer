@@ -1282,6 +1282,126 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(rollbacks.first).argv.contains("remove-published-generation"))
     }
 
+    func testReplacementRollbackFailureRetainsPriorGenerationAndLaterSuccessDoesNotDeleteRecovery() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-replacement-rollback-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, initialPipeline) = try makeFakeFullLengthRun(root: root)
+        _ = try await initialPipeline.run(request)
+        let priorSnapshot = try directoryFileSnapshot(request.outputDirectory)
+        let (_, failingPipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .resultBundlePublishedBeforeReceipt = event else { return }
+                throw NSError(domain: "injected-post-publish-before-rollback-failure", code: 41)
+            },
+            rollbackOperationObserver: {
+                throw NSError(domain: "injected-rollback-failure", code: 42)
+            }
+        )
+
+        do {
+            _ = try await failingPipeline.run(request)
+            XCTFail("Expected rollback failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("rollback also failed"))
+        }
+
+        let failureEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        let rollback = try XCTUnwrap(failureEnvelope.steps.first {
+            $0.toolName == "lungfish-internal rollback-result-bundle"
+        })
+        XCTAssertNotEqual(rollback.exitStatus, 0)
+        XCTAssertTrue(rollback.stderr?.contains("injected-rollback-failure") == true)
+        let retainedPriorPath = try XCTUnwrap(
+            failureEnvelope.options.resolvedDefaults["retainedPriorGenerationPath"]?.fileValue?.path
+        )
+        let retainedPriorURL = URL(fileURLWithPath: retainedPriorPath, isDirectory: true)
+        XCTAssertEqual(try directoryFileSnapshot(retainedPriorURL), priorSnapshot)
+        let retainedFailedPublishedPath = try XCTUnwrap(
+            failureEnvelope.options.resolvedDefaults["retainedFailedPublishedGenerationPath"]?.fileValue?.path
+        )
+        let retainedFailedPublishedURL = URL(
+            fileURLWithPath: retainedFailedPublishedPath,
+            isDirectory: true
+        )
+        let failedPublishedSnapshot = try directoryFileSnapshot(retainedFailedPublishedURL)
+        XCTAssertFalse(failedPublishedSnapshot.isEmpty)
+        let retainedRelativePaths = Set(try FileManager.default.subpathsOfDirectory(atPath: retainedPriorPath)
+            .filter { relative in
+                var isDirectory: ObjCBool = false
+                return FileManager.default.fileExists(
+                    atPath: retainedPriorURL.appendingPathComponent(relative).path,
+                    isDirectory: &isDirectory
+                ) && !isDirectory.boolValue
+            })
+        let receiptRelativePaths = Set(failureEnvelope.outputs.compactMap { descriptor -> String? in
+            guard descriptor.path.hasPrefix(retainedPriorPath + "/") else { return nil }
+            return String(descriptor.path.dropFirst(retainedPriorPath.count + 1))
+        })
+        XCTAssertEqual(receiptRelativePaths, retainedRelativePaths)
+        XCTAssertTrue(failureEnvelope.outputs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+
+        let (_, successfulPipeline) = try makeFakeFullLengthRun(root: root)
+        _ = try await successfulPipeline.run(request)
+
+        XCTAssertEqual(try directoryFileSnapshot(retainedPriorURL), priorSnapshot)
+        XCTAssertEqual(
+            try directoryFileSnapshot(retainedFailedPublishedURL),
+            failedPublishedSnapshot
+        )
+    }
+
+    func testNewRunRollbackFailureQuarantinesFailedGenerationAndRecordsRecovery() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-new-run-rollback-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .resultBundlePublishedBeforeReceipt = event else { return }
+                throw NSError(domain: "injected-new-run-post-publish", code: 43)
+            },
+            rollbackOperationObserver: {
+                throw NSError(domain: "injected-new-run-rollback-failure", code: 44)
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected rollback failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("rollback also failed"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
+        let failureEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        let recoveryPath = try XCTUnwrap(
+            failureEnvelope.options.resolvedDefaults["retainedFailedPublishedGenerationPath"]?.fileValue?.path
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: recoveryPath))
+        XCTAssertFalse(failureEnvelope.outputs.isEmpty)
+        XCTAssertTrue(failureEnvelope.outputs.allSatisfy {
+            $0.path.hasPrefix(recoveryPath + "/") && FileManager.default.fileExists(atPath: $0.path)
+        })
+        let rollback = try XCTUnwrap(failureEnvelope.steps.first {
+            $0.toolName == "lungfish-internal rollback-result-bundle"
+        })
+        XCTAssertNotEqual(rollback.exitStatus, 0)
+        XCTAssertTrue(rollback.argv.contains(recoveryPath) || rollback.stderr?.contains("injected-new-run-rollback-failure") == true)
+        let recoveryURL = URL(fileURLWithPath: recoveryPath, isDirectory: true)
+        let recoverySnapshot = try directoryFileSnapshot(recoveryURL)
+        let (_, successfulPipeline) = try makeFakeFullLengthRun(root: root)
+
+        _ = try await successfulPipeline.run(request)
+
+        XCTAssertEqual(try directoryFileSnapshot(recoveryURL), recoverySnapshot)
+    }
+
     func testFailedReplacementAfterCandidateAndProvenanceWorkLeavesPriorBundleByteForByteUnchanged() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-atomic-replacement-\(UUID().uuidString)", isDirectory: true)
@@ -3391,7 +3511,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         referenceSourceURL: URL? = nil,
         failFinalBAMView: Bool = false,
         postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
-        metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void = { _ in }
+        metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void = { _ in },
+        rollbackOperationObserver: @escaping @Sendable () throws -> Void = {}
     ) throws -> (
         FullLengthONTMHCGenotypingRunRequest,
         FullLengthONTMHCGenotypingPipeline
@@ -3434,7 +3555,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 bundledMicromambaVersionProvider: { "test-micromamba" }
             ),
             postPublicationWorkDirectoryCleaner: postPublicationWorkDirectoryCleaner,
-            metadataPublicationObserver: metadataPublicationObserver
+            metadataPublicationObserver: metadataPublicationObserver,
+            rollbackOperationObserver: rollbackOperationObserver
         )
         return (request, pipeline)
     }

@@ -720,11 +720,22 @@ private struct FullLengthONTMHCResultBundlePublicationError: Error, LocalizedErr
     }
 }
 
+private struct FullLengthONTMHCRollbackFailureRecovery: Sendable {
+    let retainedPriorGenerationURL: URL?
+    let retainedFailedPublishedGenerationURL: URL?
+    let quarantineError: String?
+
+    var retainedRoots: [URL] {
+        [retainedPriorGenerationURL, retainedFailedPublishedGenerationURL].compactMap { $0 }
+    }
+}
+
 public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private let nativeToolRunner: NativeToolRunner
     private let condaManager: CondaManager
     private let postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning
     private let metadataPublicationObserver: @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void
+    private let rollbackOperationObserver: @Sendable () throws -> Void
 
     public init(
         nativeToolRunner: NativeToolRunner = .shared,
@@ -735,18 +746,21 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         self.condaManager = condaManager
         self.postPublicationWorkDirectoryCleaner = postPublicationWorkDirectoryCleaner
         self.metadataPublicationObserver = { _ in }
+        self.rollbackOperationObserver = {}
     }
 
     init(
         nativeToolRunner: NativeToolRunner,
         condaManager: CondaManager,
         postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning,
-        metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void
+        metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void,
+        rollbackOperationObserver: @escaping @Sendable () throws -> Void = {}
     ) {
         self.nativeToolRunner = nativeToolRunner
         self.condaManager = condaManager
         self.postPublicationWorkDirectoryCleaner = postPublicationWorkDirectoryCleaner
         self.metadataPublicationObserver = metadataPublicationObserver
+        self.rollbackOperationObserver = rollbackOperationObserver
     }
 
     public func run(
@@ -767,6 +781,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         var failureEnvelopeSnapshot: ProvenanceEnvelope?
         var successfulPublicationRecordSnapshot: FullLengthONTMHCResultBundlePublicationRecord?
         var rollbackStepSnapshot: ProvenanceStep?
+        var rollbackFailureRecovery: FullLengthONTMHCRollbackFailureRecovery?
         do {
             try removeStaleFailureReceipts(for: request)
             try metadataPublicationObserver(.runLockAcquired(lockURL: runLock.lockURL))
@@ -857,12 +872,21 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                         errorMessage: nil
                     )
                 } catch let rollbackError {
+                    let recovery = retainRollbackFailureGenerations(
+                        after: publicationRecord
+                    )
+                    rollbackFailureRecovery = recovery
+                    let rollbackErrorText = [
+                        rollbackError.localizedDescription,
+                        recovery.quarantineError,
+                    ].compactMap { $0 }.joined(separator: "; ")
                     rollbackStepSnapshot = rollbackProvenanceStep(
                         for: publicationRecord,
                         startedAt: rollbackStartedAt,
                         completedAt: Date(),
                         exitStatus: 1,
-                        errorMessage: rollbackError.localizedDescription
+                        errorMessage: rollbackErrorText,
+                        recovery: recovery
                     )
                     throw FullLengthONTMHCGenotypingError.reportFailed(
                         "Post-publication metadata failed (\(error.localizedDescription)); rollback also failed (\(rollbackError.localizedDescription))."
@@ -898,7 +922,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             )
             let failedPublicationRecord = (error as? FullLengthONTMHCResultBundlePublicationError)?.record
             var reportedError: Error = error
-            if FileManager.default.fileExists(atPath: stagedOutputURL.path) {
+            let retainedRecoveryPaths = Set(
+                rollbackFailureRecovery?.retainedRoots.map { $0.standardizedFileURL.path } ?? []
+            )
+            if FileManager.default.fileExists(atPath: stagedOutputURL.path),
+               !retainedRecoveryPaths.contains(stagedOutputURL.standardizedFileURL.path) {
                 do {
                     try FileManager.default.removeItem(at: stagedOutputURL)
                 } catch let cleanupError {
@@ -916,7 +944,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     partialEnvelope: partialEnvelope,
                     failedPublicationRecord: failedPublicationRecord,
                     successfulPublicationRecord: successfulPublicationRecordSnapshot,
-                    rollbackStep: rollbackStepSnapshot
+                    rollbackStep: rollbackStepSnapshot,
+                    rollbackFailureRecovery: rollbackFailureRecovery
                 )
             } catch let provenanceError {
                 throw FullLengthONTMHCGenotypingError.reportFailed(
@@ -2015,6 +2044,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         finalOutputURL: URL,
         replacingExisting: Bool
     ) throws {
+        try rollbackOperationObserver()
         if replacingExisting {
             let status = stagedOutputURL.path.withCString { stagedPath in
                 finalOutputURL.path.withCString { finalPath in
@@ -2034,18 +2064,25 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         startedAt: Date,
         completedAt: Date,
         exitStatus: Int,
-        errorMessage: String?
+        errorMessage: String?,
+        recovery: FullLengthONTMHCRollbackFailureRecovery? = nil
     ) -> ProvenanceStep {
         let action = publicationRecord.replacingExisting
             ? "swap-prior-generation-back"
             : "remove-published-generation"
-        let argv = [
+        var argv = [
             "lungfish-internal", "rollback-result-bundle",
             "--action", action,
             "--atomic-mechanism", publicationRecord.replacingExisting ? "renameatx_np" : "removeItem",
             publicationRecord.finalDirectoryURL.path,
             publicationRecord.stagedDirectoryURL.path,
         ]
+        if let path = recovery?.retainedPriorGenerationURL?.path {
+            argv += ["--retained-prior-generation", path]
+        }
+        if let path = recovery?.retainedFailedPublishedGenerationURL?.path {
+            argv += ["--retained-failed-published-generation", path]
+        }
         return ProvenanceStep(
             toolName: "lungfish-internal rollback-result-bundle",
             toolVersion: WorkflowRun.currentAppVersion,
@@ -2064,6 +2101,52 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             stderr: errorMessage,
             startedAt: startedAt,
             completedAt: completedAt
+        )
+    }
+
+    private func retainRollbackFailureGenerations(
+        after publicationRecord: FullLengthONTMHCResultBundlePublicationRecord
+    ) -> FullLengthONTMHCRollbackFailureRecovery {
+        let fileManager = FileManager.default
+        let stagedURL = publicationRecord.stagedDirectoryURL.standardizedFileURL
+        let finalURL = publicationRecord.finalDirectoryURL.standardizedFileURL
+        let retainedPriorURL: URL? = publicationRecord.replacingExisting
+            && fileManager.fileExists(atPath: stagedURL.path)
+            ? stagedURL
+            : nil
+        guard fileManager.fileExists(atPath: finalURL.path) else {
+            return FullLengthONTMHCRollbackFailureRecovery(
+                retainedPriorGenerationURL: retainedPriorURL,
+                retainedFailedPublishedGenerationURL: nil,
+                quarantineError: nil
+            )
+        }
+        let quarantineURL = publicationRecord.replacingExisting
+            ? URL(fileURLWithPath: stagedURL.path + ".published-recovery", isDirectory: true)
+            : stagedURL
+        let status = finalURL.path.withCString { finalPath in
+            quarantineURL.path.withCString { quarantinePath in
+                renameatx_np(
+                    AT_FDCWD,
+                    finalPath,
+                    AT_FDCWD,
+                    quarantinePath,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        if status == 0 {
+            return FullLengthONTMHCRollbackFailureRecovery(
+                retainedPriorGenerationURL: retainedPriorURL,
+                retainedFailedPublishedGenerationURL: quarantineURL,
+                quarantineError: nil
+            )
+        }
+        let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        return FullLengthONTMHCRollbackFailureRecovery(
+            retainedPriorGenerationURL: retainedPriorURL,
+            retainedFailedPublishedGenerationURL: finalURL,
+            quarantineError: "Could not quarantine failed published generation at \(quarantineURL.path): \(error.localizedDescription)"
         )
     }
 
@@ -4402,7 +4485,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         partialEnvelope: ProvenanceEnvelope?,
         failedPublicationRecord: FullLengthONTMHCResultBundlePublicationRecord?,
         successfulPublicationRecord: FullLengthONTMHCResultBundlePublicationRecord?,
-        rollbackStep: ProvenanceStep?
+        rollbackStep: ProvenanceStep?,
+        rollbackFailureRecovery: FullLengthONTMHCRollbackFailureRecovery?
     ) throws {
         let completedAt = Date()
         let cancelled = isCancellation(error)
@@ -4411,11 +4495,15 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ? "Full-length ONT MHC genotyping was cancelled: \(error.localizedDescription)"
             : error.localizedDescription
         let inputs = failureInputDescriptors(request)
-        let outputs = try failureDiagnosticDescriptors(stagedOutputURL: stagedOutputURL)
+        let outputs = try failureDiagnosticDescriptors(
+            stagedOutputURL: stagedOutputURL,
+            additionalRoots: rollbackFailureRecovery?.retainedRoots ?? []
+        )
         let options = failureProvenanceOptions(
             request: request,
             outcome: cancelled ? "cancelled" : "failed",
-            retainedDiagnosticCount: outputs.count
+            retainedDiagnosticCount: outputs.count,
+            rollbackFailureRecovery: rollbackFailureRecovery
         )
         var steps = partialEnvelope?.steps ?? []
         func appendIfMissing(_ candidate: ProvenanceStep) {
@@ -4556,7 +4644,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     }
 
     private func failureDiagnosticDescriptors(
-        stagedOutputURL: URL
+        stagedOutputURL: URL,
+        additionalRoots: [URL] = []
     ) throws -> [ProvenanceFileDescriptor] {
         let parentURL = stagedOutputURL.deletingLastPathComponent()
         let runToken = stagedOutputURL.lastPathComponent
@@ -4565,7 +4654,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             includingPropertiesForKeys: nil,
             options: []
         )) ?? []
-        let roots = contents.filter { $0.lastPathComponent.contains(runToken) }
+        var seenRoots = Set<String>()
+        let roots = (contents.filter { $0.lastPathComponent.contains(runToken) } + additionalRoots)
+            .map(\.standardizedFileURL)
+            .filter { seenRoots.insert($0.path).inserted }
         var fileURLs: [URL] = []
         let safety = FullLengthONTMHCAlignmentSafety()
         for root in roots.sorted(by: { $0.path < $1.path }) {
@@ -4604,7 +4696,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private func failureProvenanceOptions(
         request: FullLengthONTMHCGenotypingRunRequest,
         outcome: String,
-        retainedDiagnosticCount: Int
+        retainedDiagnosticCount: Int,
+        rollbackFailureRecovery: FullLengthONTMHCRollbackFailureRecovery? = nil
     ) -> ProvenanceOptions {
         let defaults: [String: ParameterValue] = [
             "threads": .integer(max(1, ProcessInfo.processInfo.activeProcessorCount)),
@@ -4643,6 +4736,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         resolved["haplotypeDefinition"] = request.haplotypeDefinitionSetID
             .map(ParameterValue.string) ?? .string("disabled")
+        if let path = rollbackFailureRecovery?.retainedPriorGenerationURL?.path {
+            resolved["retainedPriorGenerationPath"] = .file(URL(fileURLWithPath: path))
+        }
+        if let path = rollbackFailureRecovery?.retainedFailedPublishedGenerationURL?.path {
+            resolved["retainedFailedPublishedGenerationPath"] = .file(URL(fileURLWithPath: path))
+        }
         var explicit = resolved
         explicit["inputFASTQs"] = .array(request.inputFASTQURLs.map(ParameterValue.file))
         explicit["reference"] = .file(request.referenceSourceURL)
