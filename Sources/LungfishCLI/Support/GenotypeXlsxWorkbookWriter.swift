@@ -192,6 +192,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         let sample: String
         let locus: String
         let genotype: String
+        let stableClusterID: String
         let fillColor: String
         let textColor: String
         let borderColor: String
@@ -476,6 +477,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
             .header("Sample"),
             .header("Locus"),
             .header("Genotype"),
+            .header("Stable Cluster ID"),
             .header("Fill Color"),
             .header("Text Color"),
             .header("Border Color"),
@@ -494,6 +496,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                 .body(row.sample),
                 .body(row.locus),
                 .body(row.genotype),
+                .body(row.stableClusterID),
                 .body(row.fillColor),
                 .body(row.textColor),
                 .body(row.borderColor),
@@ -522,6 +525,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                 sample: target.sample,
                 locus: target.locus,
                 genotype: target.genotype,
+                stableClusterID: target.stableClusterID,
                 fillColor: style.style.fillColor ?? "",
                 textColor: style.style.textColor ?? "",
                 borderColor: style.style.borderColor ?? "",
@@ -542,6 +546,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                 sample: target.sample,
                 locus: target.locus,
                 genotype: target.genotype,
+                stableClusterID: target.stableClusterID,
                 fillColor: "",
                 textColor: "",
                 borderColor: "",
@@ -559,14 +564,14 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
 
     private func matrixTargetFields(
         _ target: GenotypeAnnotationSidecar.MatrixTarget
-    ) -> (kind: String, sample: String, locus: String, genotype: String) {
+    ) -> (kind: String, sample: String, locus: String, genotype: String, stableClusterID: String) {
         switch target {
-        case let .row(locus, genotype, _):
-            return ("row", "", locus, genotype)
+        case let .row(locus, genotype, stableClusterID):
+            return ("row", "", locus, genotype, stableClusterID ?? "")
         case let .column(sample):
-            return ("column", sample, "", "")
-        case let .cell(locus, genotype, sample, _):
-            return ("cell", sample, locus, genotype)
+            return ("column", sample, "", "", "")
+        case let .cell(locus, genotype, sample, stableClusterID):
+            return ("cell", sample, locus, genotype, stableClusterID ?? "")
         }
     }
 

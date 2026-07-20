@@ -2333,19 +2333,30 @@ public final class GenotypeResultViewController: NSViewController {
         matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]
     ) -> [(String, String)] {
         guard let sidecar = annotationStore?.sidecar else { return [] }
-        var targets = matrixTargets
+        var targets = Set(matrixTargets)
+        for target in matrixTargets {
+            switch target {
+            case let .row(locus, genotype, stableClusterID),
+                 let .cell(locus, genotype, _, stableClusterID):
+                if let stableClusterID {
+                    targets.insert(.row(
+                        locus: locus,
+                        genotype: genotype,
+                        stableClusterID: stableClusterID
+                    ))
+                }
+            case .column:
+                break
+            }
+        }
         let rowTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
             locus: sharedCall.locus,
             genotype: sharedCall.genotype
         )
-        if !targets.contains(rowTarget) {
-            targets.append(rowTarget)
-        }
+        targets.insert(rowTarget)
         if let sample {
             let columnTarget = GenotypeAnnotationSidecar.MatrixTarget.column(sample: sample)
-            if !targets.contains(columnTarget) {
-                targets.append(columnTarget)
-            }
+            targets.insert(columnTarget)
         }
         return sidecar.matrixComments.compactMap { comment in
             guard targets.contains(comment.target) else { return nil }

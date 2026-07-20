@@ -230,6 +230,82 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertNil(matrix.testingRenderedTextColor(rowID: .candidate(stableClusterID: "dark"), column: .locus))
     }
 
+    func testCandidateCellDetailsIncludeLegacyAndExactRowCommentsWithoutCollisionLeakage() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CandidateInheritedComments-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "Mafa-A1*018:01:01:01_5nt_nov"
+        let result = makeCandidateResult(
+            bundleURL: bundleURL,
+            calls: [],
+            candidates: [
+                makeCandidate(id: "cluster-a", name: genotype, classification: .novel, support: .singleton, samples: ["AnimalA"]),
+                makeCandidate(id: "cluster-b", name: genotype, classification: .novel, support: .singleton, samples: ["AnimalA"]),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalA", reads: 5),
+                makeCandidateObservation(cluster: "cluster-b", sample: "AnimalA", reads: 7),
+            ]
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+        sidecar.matrixComments = [
+            .init(
+                target: .row(locus: "MHC-A1", genotype: genotype),
+                body: "Inherited legacy row.",
+                author: "qa",
+                timestamp: "2026-07-20T00:00:00Z"
+            ),
+            .init(
+                target: .row(locus: "MHC-A1", genotype: genotype, stableClusterID: "cluster-a"),
+                body: "Cluster A row.",
+                author: "qa",
+                timestamp: "2026-07-20T00:00:01Z"
+            ),
+            .init(
+                target: .row(locus: "MHC-A1", genotype: genotype, stableClusterID: "cluster-b"),
+                body: "Cluster B row.",
+                author: "qa",
+                timestamp: "2026-07-20T00:00:02Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A1",
+                    genotype: genotype,
+                    sample: "AnimalA",
+                    stableClusterID: "cluster-a"
+                ),
+                body: "Cluster A cell.",
+                author: "qa",
+                timestamp: "2026-07-20T00:00:03Z"
+            ),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        controller.testingSelectMatrixCell(genotype: genotype, sample: "AnimalA")
+
+        XCTAssertEqual(
+            controller.testingCurrentSelectionMatrixTargets,
+            [.cell(
+                locus: "MHC-A1",
+                genotype: genotype,
+                sample: "AnimalA",
+                stableClusterID: "cluster-a"
+            )]
+        )
+        let commentBodies = controller.testingCurrentSelectionDetailRows
+            .filter { $0.0.hasSuffix("Comment") }
+            .map(\.1)
+        XCTAssertEqual(commentBodies.filter { $0 == "Inherited legacy row." }.count, 1)
+        XCTAssertEqual(commentBodies.filter { $0 == "Cluster A row." }.count, 1)
+        XCTAssertEqual(commentBodies.filter { $0 == "Cluster A cell." }.count, 1)
+        XCTAssertFalse(commentBodies.contains("Cluster B row."))
+    }
+
     func testNonFullLengthBundleCannotProjectCandidateRowsSamplesSettingsOrColumns() {
         let knownCall = makeCall(sample: "AnimalA", genotype: "Known", reads: 13)
         let fullLengthResult = makeCandidateResult(
@@ -5989,6 +6065,7 @@ final class GenotypeResultViewportTests: XCTestCase {
     }
 
     private func makeCandidateResult(
+        bundleURL: URL = URL(fileURLWithPath: "/tmp/example.lungfishgenotype"),
         calls: [ONTGenotypeCall],
         candidates: [ONTMHCCandidateRecord],
         observations: [ONTMHCCandidateObservation]
@@ -6016,6 +6093,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             sizeBytes: 1
         )
         let base = makeResult(
+            bundleURL: bundleURL,
             samples: samples,
             calls: calls,
             kind: "full-length-ont-mhc-genotype",
