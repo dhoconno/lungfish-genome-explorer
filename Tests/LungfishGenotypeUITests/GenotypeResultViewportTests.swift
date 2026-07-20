@@ -8,6 +8,224 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeResultViewportTests: XCTestCase {
+    func testMHCCandidateMatrixKeepsCollidingLabelsAsStableRowsAndShowsAllPopulationsByDefault() throws {
+        let knownCall = makeCall(sample: "AnimalA", genotype: "Mafa-A1*001:01", reads: 13)
+        let result = makeCandidateResult(
+            calls: [knownCall],
+            candidates: [
+                makeCandidate(
+                    id: "cluster-b",
+                    name: "Mafa-A1*018:01:01:01_5nt_nov",
+                    classification: .novel,
+                    support: .singleton,
+                    samples: ["AnimalB"]
+                ),
+                makeCandidate(
+                    id: "cluster-a",
+                    name: "Mafa-A1*018:01:01:01_5nt_nov",
+                    classification: .novel,
+                    support: .shared,
+                    samples: ["AnimalA", "AnimalB"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "cluster-b", sample: "AnimalB", reads: 7),
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalA", reads: 5),
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalB", reads: 11),
+            ]
+        )
+        let matrix = GenotypeComparisonMatrixView()
+
+        matrix.configure(result: result, sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z"))
+
+        XCTAssertEqual(matrix.testingVisibleRows.map(\.population), [.known, .sharedCandidate, .singletonCandidate])
+        let collisions = matrix.testingVisibleRows.filter {
+            $0.alleleName == "Mafa-A1*018:01:01:01_5nt_nov"
+        }
+        XCTAssertEqual(collisions.count, 2)
+        XCTAssertEqual(collisions.map(\.id), [
+            .candidate(stableClusterID: "cluster-a"),
+            .candidate(stableClusterID: "cluster-b"),
+        ])
+        XCTAssertEqual(collisions[0].support(for: "AnimalA")?.passedUniqueReads, 5)
+        XCTAssertEqual(collisions[0].evidenceBySample["AnimalA"]?.first?.queryName, "cluster-a|AnimalA")
+        XCTAssertTrue(matrix.testingLocusFilterTitles.contains("MHC-A1"))
+        matrix.testingSelectCandidateCell(rowID: collisions[0].id, sample: "AnimalB")
+        XCTAssertTrue(matrix.testingDrawsSelectionFocus(rowID: collisions[0].id, sample: "AnimalB"))
+        XCTAssertFalse(matrix.testingDrawsSelectionFocus(rowID: collisions[1].id, sample: "AnimalB"))
+    }
+
+    func testMHCCandidateMatrixVisibilitySettingsFilterEachPopulationIndependently() {
+        let result = makeCandidateResult(
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 3)],
+            candidates: [
+                makeCandidate(id: "shared", name: "Shared_nov", classification: .novel, support: .shared, samples: ["AnimalA", "AnimalB"]),
+                makeCandidate(id: "single", name: "Single_ext", classification: .extension, support: .singleton, samples: ["AnimalB"]),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "shared", sample: "AnimalA", reads: 2),
+                makeCandidateObservation(cluster: "shared", sample: "AnimalB", reads: 4),
+                makeCandidateObservation(cluster: "single", sample: "AnimalB", reads: 6),
+            ]
+        )
+        let matrix = GenotypeComparisonMatrixView()
+
+        for (settings, expected) in [
+            (ONTMHCCandidateDisplaySettings(showKnown: false), ["Shared_nov", "Single_ext"]),
+            (ONTMHCCandidateDisplaySettings(showSharedCandidates: false), ["Known", "Single_ext"]),
+            (ONTMHCCandidateDisplaySettings(showSingletonCandidates: false), ["Known", "Shared_nov"]),
+            (ONTMHCCandidateDisplaySettings(showKnown: false, showSharedCandidates: false), ["Single_ext"]),
+            (ONTMHCCandidateDisplaySettings(showKnown: false, showSingletonCandidates: false), ["Shared_nov"]),
+            (ONTMHCCandidateDisplaySettings(showSharedCandidates: false, showSingletonCandidates: false), ["Known"]),
+        ] {
+            var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+            sidecar.settings.mhcCandidateDisplay = settings
+            matrix.configure(result: result, sidecar: sidecar)
+            XCTAssertEqual(matrix.testingVisibleGenotypes, expected)
+        }
+    }
+
+    func testMHCCandidateTintsAreExactAndOnlyColorAlleleNameCells() throws {
+        let categories: [(ONTMHCCandidateTintCategory, ONTMHCCandidateClassification, ONTMHCCandidateSupportClass, String)] = [
+            (.sharedNovel, .novel, .shared, "shared-nov"),
+            (.singletonNovel, .novel, .singleton, "singleton-nov"),
+            (.sharedExtension, .extension, .shared, "shared-ext"),
+            (.singletonExtension, .extension, .singleton, "singleton-ext"),
+        ]
+        let customTints = Dictionary(uniqueKeysWithValues: categories.enumerated().map { index, value in
+            (value.0, AnnotationColor(
+                red: Double(index + 1) / 10,
+                green: Double(index + 2) / 10,
+                blue: Double(index + 3) / 10,
+                alpha: Double(index + 4) / 10
+            ))
+        })
+        let candidates = categories.map { category, classification, support, id in
+            makeCandidate(
+                id: id,
+                name: id,
+                classification: classification,
+                support: support,
+                samples: support == .shared ? ["AnimalA", "AnimalB"] : ["AnimalA"]
+            )
+        }
+        let observations = candidates.flatMap { candidate in
+            candidate.supportingSampleIDs.map {
+                makeCandidateObservation(cluster: candidate.stableClusterID, sample: $0, reads: 5)
+            }
+        }
+        let result = makeCandidateResult(calls: [], candidates: candidates, observations: observations)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+        sidecar.settings.mhcCandidateDisplay = ONTMHCCandidateDisplaySettings(tints: customTints)
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: result, sidecar: sidecar)
+
+        for (category, _, _, id) in categories {
+            let rowID = GenotypeCandidateMatrixRowID.candidate(stableClusterID: id)
+            let color = try XCTUnwrap(matrix.testingBackgroundColor(rowID: rowID, column: .alleleName))
+            let expected = try XCTUnwrap(customTints[category])
+            XCTAssertEqual(color.redComponent, expected.red, accuracy: 0.000_000_1)
+            XCTAssertEqual(color.greenComponent, expected.green, accuracy: 0.000_000_1)
+            XCTAssertEqual(color.blueComponent, expected.blue, accuracy: 0.000_000_1)
+            XCTAssertEqual(color.alphaComponent, expected.alpha, accuracy: 0.000_000_1)
+            XCTAssertNil(matrix.testingBackgroundColor(rowID: rowID, column: .locus))
+            XCTAssertNil(matrix.testingBackgroundColor(rowID: rowID, column: .sample("AnimalA")))
+        }
+    }
+
+    func testMHCCandidateTintIsBelowKnownAnnotationAndSelectionFocus() throws {
+        let candidate = makeCandidate(
+            id: "candidate",
+            name: "Candidate_nov",
+            classification: .novel,
+            support: .singleton,
+            samples: ["AnimalA"]
+        )
+        let result = makeCandidateResult(
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
+            candidates: [candidate],
+            observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+        sidecar.matrixStyles = [
+            .init(
+                target: .row(locus: "MHC-A1", genotype: "Candidate_nov"),
+                style: .init(fillColor: "#123456"),
+                author: "test",
+                timestamp: "2026-07-20T00:00:00Z"
+            ),
+            .init(
+                target: .row(locus: "MHC-KNOWN", genotype: "Known"),
+                style: .init(fillColor: "#654321"),
+                author: "test",
+                timestamp: "2026-07-20T00:00:00Z"
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: result, sidecar: sidecar)
+
+        let candidateID = GenotypeCandidateMatrixRowID.candidate(stableClusterID: "candidate")
+        let annotatedCandidateColor = try XCTUnwrap(matrix.testingBackgroundColor(rowID: candidateID, column: .alleleName))
+        XCTAssertEqual(annotatedCandidateColor.redComponent, 0x12 / 255.0, accuracy: 0.000_000_1)
+        XCTAssertEqual(annotatedCandidateColor.greenComponent, 0x34 / 255.0, accuracy: 0.000_000_1)
+        XCTAssertEqual(annotatedCandidateColor.blueComponent, 0x56 / 255.0, accuracy: 0.000_000_1)
+        let annotatedKnownColor = try XCTUnwrap(matrix.testingBackgroundColor(
+            rowID: .known(locus: "MHC-KNOWN", genotype: "Known"),
+            column: .alleleName
+        ))
+        XCTAssertEqual(annotatedKnownColor.redComponent, 0x65 / 255.0, accuracy: 0.000_000_1)
+        XCTAssertEqual(annotatedKnownColor.greenComponent, 0x43 / 255.0, accuracy: 0.000_000_1)
+        XCTAssertEqual(annotatedKnownColor.blueComponent, 0x21 / 255.0, accuracy: 0.000_000_1)
+        matrix.testingSelectCandidateCell(rowID: candidateID, sample: "AnimalA")
+        XCTAssertTrue(matrix.testingDrawsSelectionFocus(rowID: candidateID, sample: "AnimalA"))
+        XCTAssertEqual(matrix.testingSelectedRowID, candidateID)
+    }
+
+    func testMHCCandidateProjectionFailsSoftAndClearsAcrossBundleReload() {
+        let matrix = GenotypeComparisonMatrixView()
+        let candidateResult = makeCandidateResult(
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
+            candidates: [makeCandidate(id: "candidate", name: "Candidate", classification: .novel, support: .singleton, samples: ["AnimalA"])],
+            observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
+        )
+        matrix.configure(result: candidateResult, sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z"))
+        XCTAssertEqual(matrix.testingVisibleRows.count, 2)
+
+        let legacyManifest = makeResult(samples: candidateResult.samples, calls: candidateResult.calls).manifest
+        let legacyResult = ONTGenotypeResultBundleData(
+            bundleURL: URL(fileURLWithPath: "/tmp/legacy.lungfishgenotype"),
+            manifest: legacyManifest,
+            artifacts: candidateResult.artifacts,
+            stats: candidateResult.stats,
+            calls: candidateResult.calls,
+            samples: candidateResult.samples,
+            haplotypeAnalysis: nil,
+            mhcCandidates: candidateResult.mhcCandidates,
+            mhcUnnameableClusters: nil,
+            integrityWarnings: []
+        )
+        matrix.configure(result: legacyResult, sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z"))
+        XCTAssertEqual(matrix.testingVisibleRows.map(\.population), [.known])
+
+        let invalidCandidateResult = ONTGenotypeResultBundleData(
+            bundleURL: URL(fileURLWithPath: "/tmp/reloaded.lungfishgenotype"),
+            manifest: candidateResult.manifest,
+            artifacts: candidateResult.artifacts,
+            stats: candidateResult.stats,
+            calls: candidateResult.calls,
+            samples: candidateResult.samples,
+            haplotypeAnalysis: nil,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            integrityWarnings: [.init(code: .candidateArtifactMalformedJSON, detail: "invalid")]
+        )
+        matrix.configure(result: invalidCandidateResult, sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z"))
+
+        XCTAssertEqual(matrix.testingVisibleRows.map(\.id), [
+            .known(locus: "MHC-KNOWN", genotype: "Known"),
+        ])
+    }
+
     func testViewportPublishesSharedGenotypeSelectionForInspector() {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -1856,13 +2074,17 @@ final class GenotypeResultViewportTests: XCTestCase {
     }
 
     func testSavedTextFilterRoundTripsAsMatrixRowFilter() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SavedTextFilter-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         let calls = [
             makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
             makeCall(sample: "AnimalA", genotype: "04_Mafa_B_001_01", reads: 42),
         ]
-        controller.configure(result: makeResult(samples: [], calls: calls))
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: calls))
         controller.testingSetUnifiedSampleFilter("MHC-B")
         try controller.testingSaveCurrentFilterAsSmartCohort()
         controller.testingSetUnifiedSampleFilter("")
@@ -2845,6 +3067,7 @@ final class GenotypeResultViewportTests: XCTestCase {
     func testConfigureUsesPersistedHaplotypeAnalysisWhenSavedDropoutThresholdsExist() throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: bundleURL) }
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-05-23T00:00:00Z")
         sidecar.settings.dropoutAbsolute = 50
@@ -5493,6 +5716,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         calls: [ONTGenotypeCall],
         haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
         haplotypeDefinitionSetID: String? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
         stats: ONTGenotypeRunStats = ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60)
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
@@ -5505,7 +5729,8 @@ final class GenotypeResultViewportTests: XCTestCase {
                 sampleSummaryCSVPath: "example.retained-demux-samples.csv",
                 statsJSONPath: "example.retained-demux-stats.json",
                 provenancePath: "retained-demux-genotyping-provenance.json",
-                haplotypeDefinitionSetID: haplotypeDefinitionSetID
+                haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+                mhcCandidateArtifacts: mhcCandidateArtifacts
             ),
             artifacts: ONTGenotypeResultArtifacts(
                 workbookURL: URL(fileURLWithPath: "/tmp/example.xlsx"),
@@ -5518,6 +5743,130 @@ final class GenotypeResultViewportTests: XCTestCase {
             calls: calls,
             samples: samples,
             haplotypeAnalysis: haplotypeAnalysis
+        )
+    }
+
+    private func makeCandidateResult(
+        calls: [ONTGenotypeCall],
+        candidates: [ONTMHCCandidateRecord],
+        observations: [ONTMHCCandidateObservation]
+    ) -> ONTGenotypeResultBundleData {
+        let sampleIDs = Set(calls.map(\.sample) + observations.map(\.sampleID))
+        let samples = sampleIDs.sorted().map { sample in
+            let sampleCalls = calls.filter { $0.sample == sample }
+            return ONTGenotypeSampleResult(
+                sample: sample,
+                passedAlignments: sampleCalls.reduce(0) { $0 + $1.passedAlignments },
+                passedUniqueReads: sampleCalls.reduce(0) { $0 + $1.passedUniqueReads },
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: sampleCalls
+            )
+        }
+        let candidateReference = ONTMHCArtifactReference(
+            path: "artifacts/candidates/candidates.json",
+            sha256: String(repeating: "c", count: 64),
+            sizeBytes: 1
+        )
+        let fastaReference = ONTMHCArtifactReference(
+            path: "artifacts/candidates/candidates.fasta",
+            sha256: String(repeating: "d", count: 64),
+            sizeBytes: 1
+        )
+        let base = makeResult(
+            samples: samples,
+            calls: calls,
+            mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest(
+                schemaVersion: 1,
+                genotypingEvidence: nil,
+                reciprocalEvidence: nil,
+                candidateJSON: candidateReference,
+                candidateFASTA: fastaReference,
+                unnameableJSON: nil,
+                unnameableFASTA: nil
+            )
+        )
+        let document = ONTMHCCandidateAllelesDocument(
+            schemaVersion: 1,
+            createdAt: "2026-07-20T00:00:00Z",
+            thresholds: .defaults,
+            inputs: [],
+            evidence: [],
+            sequenceFASTA: .init(path: "candidates.fasta", sha256: String(repeating: "a", count: 64), sizeBytes: 1),
+            candidates: candidates,
+            observations: observations
+        )
+        return ONTGenotypeResultBundleData(
+            bundleURL: base.bundleURL,
+            manifest: base.manifest,
+            artifacts: base.artifacts,
+            stats: base.stats,
+            calls: calls,
+            samples: samples,
+            haplotypeAnalysis: nil,
+            mhcCandidates: document,
+            mhcUnnameableClusters: nil,
+            integrityWarnings: []
+        )
+    }
+
+    private func makeCandidate(
+        id: String,
+        name: String,
+        classification: ONTMHCCandidateClassification,
+        support: ONTMHCCandidateSupportClass,
+        samples: [String]
+    ) -> ONTMHCCandidateRecord {
+        ONTMHCCandidateRecord(
+            stableClusterID: id,
+            provisionalName: name,
+            locus: "MHC-A1",
+            classification: classification,
+            supportClass: support,
+            closestReferenceName: "Mafa-A1*018:01:01:01",
+            closestReferenceClass: .genomicDNA,
+            snpCount: classification == .novel ? 5 : 0,
+            insertedBases: 0,
+            deletedBases: 0,
+            longGapBases: classification == .extension ? 100 : 0,
+            comparableBases: 2_000,
+            shorterCoverage: 1,
+            identity: 0.99,
+            mappingQuality: 60,
+            alignmentScore: 2_000,
+            independentSampleCount: samples.count,
+            occurrenceCount: samples.count,
+            totalClusterReads: samples.count * 5,
+            supportingSampleIDs: samples,
+            fastaRecordID: id,
+            sequenceSHA256: String(repeating: "b", count: 64),
+            selectedEvidence: .init(
+                bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+                queryName: id,
+                referenceName: "Mafa-A1*018:01:01:01",
+                readGroupID: nil,
+                referenceStart: 1,
+                cigar: "2000M"
+            )
+        )
+    }
+
+    private func makeCandidateObservation(cluster: String, sample: String, reads: Int) -> ONTMHCCandidateObservation {
+        ONTMHCCandidateObservation(
+            stableClusterID: cluster,
+            sampleID: sample,
+            readGroupID: sample,
+            sourceClusterIDs: ["source-\(cluster)-\(sample)"],
+            sourceClusterReadCounts: ["source-\(cluster)-\(sample)": reads],
+            aggregatedSampleReadCount: reads,
+            evidence: [.init(
+                bamPath: "artifacts/alignments/genotyping-evidence.bam",
+                queryName: "\(cluster)|\(sample)",
+                referenceName: "Mafa-A1*018:01:01:01",
+                readGroupID: sample,
+                referenceStart: 1,
+                cigar: "2000M"
+            )]
         )
     }
 

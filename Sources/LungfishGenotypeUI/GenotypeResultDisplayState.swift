@@ -127,6 +127,10 @@ public struct GenotypeResultDisplayState: Equatable {
     public var matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus
     public var matrixRowFilterText: String = ""
     public var matrixSampleFilterText: String = ""
+    /// Optional live override for the bundle-scoped candidate viewport settings.
+    /// `nil` preserves the settings loaded from this result bundle's annotation
+    /// sidecar. Full-length MHC controls use this while an edit is being applied.
+    public var mhcCandidateDisplaySettings: ONTMHCCandidateDisplaySettings? = nil
 
     /// The historical "calls below this are unreliable" cohort flag (default
     /// `5_000`). It LABELS samples in the Cohort Summary panel; it does not
@@ -150,6 +154,7 @@ public struct GenotypeResultDisplayState: Equatable {
         matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
         matrixRowFilterText: String = "",
         matrixSampleFilterText: String = "",
+        mhcCandidateDisplaySettings: ONTMHCCandidateDisplaySettings? = nil,
         cohortFlagThreshold: Int = 5_000
     ) {
         self.viewportLens = viewportLens
@@ -168,6 +173,7 @@ public struct GenotypeResultDisplayState: Equatable {
         self.matrixPercentDenominator = matrixPercentDenominator
         self.matrixRowFilterText = matrixRowFilterText
         self.matrixSampleFilterText = matrixSampleFilterText
+        self.mhcCandidateDisplaySettings = mhcCandidateDisplaySettings
         self.cohortFlagThreshold = cohortFlagThreshold
     }
 
@@ -208,6 +214,7 @@ extension GenotypeResultDisplayState {
             || matrixMinimumReads != previous.matrixMinimumReads
             || matrixMinimumPercent != previous.matrixMinimumPercent
             || matrixPercentDenominator != previous.matrixPercentDenominator
+            || mhcCandidateDisplaySettings != previous.mhcCandidateDisplaySettings
     }
 
     func requiresMatrixFilterPass(comparedTo previous: GenotypeResultDisplayState) -> Bool {
