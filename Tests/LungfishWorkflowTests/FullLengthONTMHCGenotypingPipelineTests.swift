@@ -6,6 +6,92 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
+    func testAnnotatedReferenceMetadataIsEmbeddedInPublishedGenotypeBundle() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-embedded-reference-metadata-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("annotated.lungfishref", isDirectory: true)
+        let genomeDirectory = bundle.appendingPathComponent("genome", isDirectory: true)
+        let metadataDirectory = bundle.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: metadataDirectory, withIntermediateDirectories: true)
+        let fastaURL = genomeDirectory.appendingPathComponent("reference.fasta")
+        let databaseURL = metadataDirectory.appendingPathComponent("genbank_records.sqlite")
+        try ">NHP00344 Mafa-E*02:01:01\nACGTACGT\n".write(
+            to: fastaURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let manifestURL = bundle.appendingPathComponent("manifest.json")
+        try BundleManifest(
+            name: "Annotated MHC Reference",
+            identifier: "org.lungfish.tests.embedded-reference-metadata",
+            source: SourceInfo(organism: "Macaca fascicularis", assembly: "test"),
+            genome: GenomeInfo(
+                path: "genome/reference.fasta",
+                indexPath: "genome/reference.fasta.fai",
+                totalLength: 8,
+                chromosomes: [
+                    ChromosomeInfo(name: "NHP00344", length: 8, offset: 26, lineBases: 8, lineWidth: 9),
+                ]
+            )
+        ).save(to: bundle)
+        var manifestObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        manifestObject["record_store"] = [
+            "database_path": "metadata/genbank_records.sqlite",
+            "format": "genbank",
+            "schema_version": 1,
+            "record_count": 1,
+        ]
+        try JSONSerialization.data(withJSONObject: manifestObject, options: [.prettyPrinted, .sortedKeys])
+            .write(to: manifestURL, options: .atomic)
+        var database: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(databaseURL.path, &database), SQLITE_OK)
+        guard let database else { return XCTFail("Could not create SQLite record store") }
+        let schemaAndRows = """
+        CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE records (id INTEGER PRIMARY KEY, sequence_name TEXT NOT NULL UNIQUE, sequence_length INTEGER NOT NULL, source_ordinal INTEGER NOT NULL);
+        CREATE TABLE field_definitions (key TEXT PRIMARY KEY, display_title TEXT NOT NULL, value_type TEXT NOT NULL, source_category TEXT NOT NULL, preferred_order INTEGER NOT NULL);
+        CREATE TABLE field_values (record_id INTEGER NOT NULL, field_key TEXT NOT NULL, value_ordinal INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY (record_id, field_key, value_ordinal));
+        INSERT INTO metadata VALUES ('schema_version', '1');
+        INSERT INTO records VALUES (1, 'NHP00344', 8, 0);
+        INSERT INTO field_definitions VALUES ('feature.allele', 'Allele', 'text', 'feature', 0);
+        INSERT INTO field_definitions VALUES ('feature.gene', 'Gene', 'text', 'feature', 1);
+        INSERT INTO field_definitions VALUES ('feature.mol_type', 'Mol Type', 'text', 'feature', 2);
+        INSERT INTO field_values VALUES (1, 'feature.allele', 0, 'Mafa-E*02:01:01');
+        INSERT INTO field_values VALUES (1, 'feature.gene', 0, 'E');
+        INSERT INTO field_values VALUES (1, 'feature.mol_type', 0, 'genomic DNA');
+        """
+        var sqliteError: UnsafeMutablePointer<CChar>?
+        XCTAssertEqual(sqlite3_exec(database, schemaAndRows, nil, nil, &sqliteError), SQLITE_OK)
+        if let sqliteError {
+            defer { sqlite3_free(sqliteError) }
+            XCTFail(String(cString: sqliteError))
+        }
+        XCTAssertEqual(sqlite3_close(database), SQLITE_OK)
+
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            referenceSourceURL: bundle
+        )
+        _ = try await pipeline.run(request)
+
+        let embeddedDatabaseURL = request.outputDirectory
+            .appendingPathComponent("metadata", isDirectory: true)
+            .appendingPathComponent("genbank_records.sqlite")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: embeddedDatabaseURL.path),
+            "The published genotype bundle must retain the selected reference fields needed by the viewport."
+        )
+        let resultManifestObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: request.manifestURL)) as? [String: Any]
+        )
+        let embeddedStore = try XCTUnwrap(resultManifestObject["reference_record_store"] as? [String: Any])
+        XCTAssertEqual(embeddedStore["database_path"] as? String, "metadata/genbank_records.sqlite")
+    }
+
     func testLungfishReferenceRecordStoreImportHasActualInputsCommandAndTiming() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-record-store-provenance-\(UUID().uuidString)", isDirectory: true)
