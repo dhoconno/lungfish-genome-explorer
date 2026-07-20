@@ -1419,9 +1419,228 @@ public struct GenotypeWorkbookRevisionService {
             return
         }
         if fileManager.fileExists(atPath: destinationURL.path) { try fileManager.removeItem(at: destinationURL) }
-        guard copy(sourceURL, destinationURL, fallbackFlags) == 0 else {
+        _ = fallbackFlags // Kept explicit to document that metadata-copy fallback is intentionally avoided.
+        try copyDirectoryTreeByDescriptorNoFollow(from: sourceURL, to: destinationURL)
+    }
+
+    private func copyDirectoryTreeByDescriptorNoFollow(from sourceURL: URL, to destinationURL: URL) throws {
+        let sourceDescriptor = Darwin.open(
+            sourceURL.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard sourceDescriptor >= 0 else {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "Could not clone workbook bundle without following links: \(sourceURL.path) (errno \(errno))."
+                "Could not open workbook bundle fallback source: \(sourceURL.path) (errno \(errno))."
+            )
+        }
+        defer { Darwin.close(sourceDescriptor) }
+        guard Darwin.mkdir(destinationURL.path, S_IRWXU) == 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not create workbook bundle fallback destination: \(destinationURL.path) (errno \(errno))."
+            )
+        }
+        let destinationDescriptor = Darwin.open(
+            destinationURL.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard destinationDescriptor >= 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not open workbook bundle fallback destination: \(destinationURL.path) (errno \(errno))."
+            )
+        }
+        defer { Darwin.close(destinationDescriptor) }
+        try copyDirectoryContentsByDescriptorNoFollow(
+            sourceDescriptor: sourceDescriptor,
+            destinationDescriptor: destinationDescriptor,
+            sourceURL: sourceURL,
+            destinationURL: destinationURL
+        )
+        guard Darwin.fsync(destinationDescriptor) == 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not sync workbook bundle fallback destination: \(destinationURL.path) (errno \(errno))."
+            )
+        }
+    }
+
+    private func copyDirectoryContentsByDescriptorNoFollow(
+        sourceDescriptor: Int32,
+        destinationDescriptor: Int32,
+        sourceURL: URL,
+        destinationURL: URL
+    ) throws {
+        let enumerationDescriptor = Darwin.dup(sourceDescriptor)
+        guard enumerationDescriptor >= 0, let stream = Darwin.fdopendir(enumerationDescriptor) else {
+            if enumerationDescriptor >= 0 { Darwin.close(enumerationDescriptor) }
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not enumerate workbook bundle fallback source: \(sourceURL.path) (errno \(errno))."
+            )
+        }
+        defer { Darwin.closedir(stream) }
+        while let entry = Darwin.readdir(stream) {
+            let name = withUnsafePointer(to: &entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN) + 1) {
+                    String(cString: $0)
+                }
+            }
+            if name == "." || name == ".." { continue }
+            let sourceChild = sourceURL.appendingPathComponent(name)
+            let destinationChild = destinationURL.appendingPathComponent(name)
+            var sourceInfo = stat()
+            let inspectStatus = name.withCString {
+                Darwin.fstatat(sourceDescriptor, $0, &sourceInfo, AT_SYMLINK_NOFOLLOW)
+            }
+            guard inspectStatus == 0 else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Could not inspect workbook bundle fallback source: \(sourceChild.path) (errno \(errno))."
+                )
+            }
+            switch sourceInfo.st_mode & S_IFMT {
+            case S_IFREG:
+                try copyRegularFileByDescriptorNoFollow(
+                    name: name,
+                    sourceDescriptor: sourceDescriptor,
+                    destinationDescriptor: destinationDescriptor,
+                    expected: sourceInfo,
+                    sourceURL: sourceChild,
+                    destinationURL: destinationChild
+                )
+            case S_IFDIR:
+                guard name.withCString({ Darwin.mkdirat(destinationDescriptor, $0, S_IRWXU) }) == 0 else {
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                        "Could not create workbook bundle fallback directory: \(destinationChild.path) (errno \(errno))."
+                    )
+                }
+                let sourceChildDescriptor = name.withCString {
+                    Darwin.openat(
+                        sourceDescriptor,
+                        $0,
+                        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                    )
+                }
+                let destinationChildDescriptor = name.withCString {
+                    Darwin.openat(
+                        destinationDescriptor,
+                        $0,
+                        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                    )
+                }
+                guard sourceChildDescriptor >= 0, destinationChildDescriptor >= 0 else {
+                    if sourceChildDescriptor >= 0 { Darwin.close(sourceChildDescriptor) }
+                    if destinationChildDescriptor >= 0 { Darwin.close(destinationChildDescriptor) }
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                        "Could not open workbook bundle fallback directory: \(sourceChild.path) (errno \(errno))."
+                    )
+                }
+                do {
+                    var openedInfo = stat()
+                    guard Darwin.fstat(sourceChildDescriptor, &openedInfo) == 0,
+                          openedInfo.st_dev == sourceInfo.st_dev,
+                          openedInfo.st_ino == sourceInfo.st_ino else {
+                        throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                            "Workbook bundle directory changed during fallback copy: \(sourceChild.path)."
+                        )
+                    }
+                    try copyDirectoryContentsByDescriptorNoFollow(
+                        sourceDescriptor: sourceChildDescriptor,
+                        destinationDescriptor: destinationChildDescriptor,
+                        sourceURL: sourceChild,
+                        destinationURL: destinationChild
+                    )
+                    guard Darwin.fsync(destinationChildDescriptor) == 0 else {
+                        throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                            "Could not sync workbook bundle fallback directory: \(destinationChild.path) (errno \(errno))."
+                        )
+                    }
+                    Darwin.close(sourceChildDescriptor)
+                    Darwin.close(destinationChildDescriptor)
+                } catch {
+                    Darwin.close(sourceChildDescriptor)
+                    Darwin.close(destinationChildDescriptor)
+                    throw error
+                }
+            default:
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Symlinks and special files are not allowed in workbook bundle fallback copy: \(sourceChild.path)"
+                )
+            }
+        }
+    }
+
+    private func copyRegularFileByDescriptorNoFollow(
+        name: String,
+        sourceDescriptor: Int32,
+        destinationDescriptor: Int32,
+        expected: stat,
+        sourceURL: URL,
+        destinationURL: URL
+    ) throws {
+        let input = name.withCString {
+            Darwin.openat(sourceDescriptor, $0, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        }
+        guard input >= 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not open workbook bundle fallback file: \(sourceURL.path) (errno \(errno))."
+            )
+        }
+        defer { Darwin.close(input) }
+        var openedInfo = stat()
+        guard Darwin.fstat(input, &openedInfo) == 0,
+              openedInfo.st_mode & S_IFMT == S_IFREG,
+              openedInfo.st_dev == expected.st_dev,
+              openedInfo.st_ino == expected.st_ino else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Workbook bundle file changed during fallback copy: \(sourceURL.path)."
+            )
+        }
+        let output = name.withCString {
+            Darwin.openat(
+                destinationDescriptor,
+                $0,
+                O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                S_IRUSR | S_IWUSR
+            )
+        }
+        guard output >= 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not create workbook bundle fallback file: \(destinationURL.path) (errno \(errno))."
+            )
+        }
+        defer { Darwin.close(output) }
+        var buffer = [UInt8](repeating: 0, count: 128 * 1024)
+        var copied: off_t = 0
+        while true {
+            let count = Darwin.read(input, &buffer, buffer.count)
+            if count == 0 { break }
+            guard count > 0 else {
+                if errno == EINTR { continue }
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Could not read workbook bundle fallback file: \(sourceURL.path) (errno \(errno))."
+                )
+            }
+            var offset = 0
+            while offset < count {
+                let written = buffer.withUnsafeBytes { bytes in
+                    Darwin.write(output, bytes.baseAddress!.advanced(by: offset), count - offset)
+                }
+                guard written > 0 else {
+                    if errno == EINTR { continue }
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                        "Could not write workbook bundle fallback file: \(destinationURL.path) (errno \(errno))."
+                    )
+                }
+                offset += written
+                copied += off_t(written)
+            }
+        }
+        var after = stat()
+        guard Darwin.fstat(input, &after) == 0,
+              after.st_dev == expected.st_dev,
+              after.st_ino == expected.st_ino,
+              after.st_size == expected.st_size,
+              copied == expected.st_size,
+              Darwin.fsync(output) == 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Workbook bundle file changed or failed to sync during fallback copy: \(sourceURL.path)."
             )
         }
     }

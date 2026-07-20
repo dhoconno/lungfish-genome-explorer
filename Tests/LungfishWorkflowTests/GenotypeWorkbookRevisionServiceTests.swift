@@ -147,6 +147,37 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertNoThrow(try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL))
     }
 
+    func testBundleCloneFallbackRemovesPartialCloneAndCopiesWithoutCopyfile() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "partial-clone-fallback")
+        let attempts = SendableFlagBox()
+
+        _ = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            bundleCopyPrimitive: { _, destination, _ in
+                attempts.set((attempts.value ?? 0) + 1)
+                try? FileManager.default.createDirectory(
+                    at: destination,
+                    withIntermediateDirectories: false
+                )
+                try? Data("partial-clone".utf8).write(
+                    to: destination.appendingPathComponent("partial.txt")
+                )
+                errno = ENOTSUP
+                return -1
+            }
+        ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        XCTAssertEqual(attempts.value, 1, "copyfile is only the clone attempt; fallback is descriptor-based")
+        XCTAssertNoThrow(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: fixture.bundleURL.appendingPathComponent("partial.txt").path
+            )
+        )
+    }
+
     func testDefaultBundleCopyPrimitiveReceivesRecursiveCloneNoFollowFlags() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
