@@ -5263,7 +5263,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func sharedCallMeaning(for sharedCall: ONTGenotypeSharedCall) -> String {
-        "This row is one exact reference genotype label observed in \(sharedCall.sampleCount) assigned samples. Counts summarize retained unique-read support for this label, not phased haplotypes or allele absence."
+        "This row is one known reference genotype label observed in \(sharedCall.sampleCount) assigned samples. Counts summarize retained unique-read support for this label, not phased haplotypes or allele absence."
     }
 
     private func artifactStatus(_ url: URL) -> String {
