@@ -1,10 +1,103 @@
 import Foundation
 import Darwin
+import SQLite3
 import XCTest
 import LungfishIO
 @testable import LungfishWorkflow
 
 final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
+    func testLungfishReferenceRecordStoreImportHasActualInputsCommandAndTiming() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-record-store-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("annotated.lungfishref", isDirectory: true)
+        let genomeDirectory = bundle.appendingPathComponent("genome", isDirectory: true)
+        let metadataDirectory = bundle.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: metadataDirectory, withIntermediateDirectories: true)
+        let fastaURL = genomeDirectory.appendingPathComponent("reference.fasta")
+        let manifestURL = bundle.appendingPathComponent("manifest.json")
+        let databaseURL = metadataDirectory.appendingPathComponent("records.sqlite")
+        try ">record-1 fallback-description\nACGTACGT\n".write(
+            to: fastaURL, atomically: true, encoding: .utf8
+        )
+        let manifest = BundleManifest(
+            name: "Annotated MHC Reference",
+            identifier: "org.lungfish.tests.annotated-mhc",
+            source: SourceInfo(organism: "Macaca fascicularis", assembly: "test"),
+            genome: GenomeInfo(
+                path: "genome/reference.fasta",
+                indexPath: "genome/reference.fasta.fai",
+                totalLength: 8,
+                chromosomes: [
+                    ChromosomeInfo(name: "record-1", length: 8, offset: 10, lineBases: 8, lineWidth: 9)
+                ]
+            )
+        )
+        try manifest.save(to: bundle)
+        var manifestObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        manifestObject["record_store"] = ["database_path": "metadata/records.sqlite"]
+        try JSONSerialization.data(withJSONObject: manifestObject, options: [.prettyPrinted, .sortedKeys])
+            .write(to: manifestURL, options: .atomic)
+        var database: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(databaseURL.path, &database), SQLITE_OK)
+        guard let database else { return XCTFail("Could not create SQLite record store") }
+        let schemaAndRows = """
+        CREATE TABLE records (id INTEGER PRIMARY KEY, sequence_name TEXT NOT NULL UNIQUE, sequence_length INTEGER NOT NULL, source_ordinal INTEGER NOT NULL);
+        CREATE TABLE field_values (record_id INTEGER NOT NULL, field_key TEXT NOT NULL, value_ordinal INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY (record_id, field_key, value_ordinal));
+        INSERT INTO records VALUES (1, 'record-1', 8, 0);
+        INSERT INTO field_values VALUES (1, 'feature.allele', 0, 'Mafa-A1*018:01:01:01');
+        INSERT INTO field_values VALUES (1, 'feature.gene', 0, 'A1');
+        INSERT INTO field_values VALUES (1, 'feature.mol_type', 0, 'genomic DNA');
+        """
+        var sqliteError: UnsafeMutablePointer<CChar>?
+        XCTAssertEqual(sqlite3_exec(database, schemaAndRows, nil, nil, &sqliteError), SQLITE_OK)
+        if let sqliteError {
+            defer { sqlite3_free(sqliteError) }
+            XCTFail(String(cString: sqliteError))
+        }
+        XCTAssertEqual(sqlite3_close(database), SQLITE_OK)
+
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            referenceSourceURL: bundle
+        )
+        _ = try await pipeline.run(request)
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        let imports = envelope.steps.filter {
+            $0.toolName == "lungfish-in-process:import-mhc-reference-catalog"
+        }
+        let step = try XCTUnwrap(imports.first)
+        XCTAssertEqual(imports.count, 1, "The writer must not synthesize a second catalog import.")
+        XCTAssertEqual(Set(step.inputs.map(\.path)), Set([
+            fastaURL.path, manifestURL.path, databaseURL.path,
+        ]))
+        for input in step.inputs {
+            XCTAssertNotNil(input.checksumSHA256)
+            XCTAssertNotNil(input.fileSize)
+        }
+        XCTAssertEqual(value(after: "--reference-fasta", in: step.argv), fastaURL.path)
+        XCTAssertEqual(value(after: "--reference-bundle-manifest", in: step.argv), manifestURL.path)
+        XCTAssertEqual(value(after: "--record-store", in: step.argv), databaseURL.path)
+        XCTAssertEqual(value(after: "--cdna-threshold", in: step.argv), "2000")
+        XCTAssertNotNil(step.startedAt)
+        XCTAssertNotNil(step.completedAt)
+        XCTAssertGreaterThanOrEqual(step.wallTimeSeconds ?? -1, 0)
+        let projectionURL = try XCTUnwrap(step.outputs.first).path
+        XCTAssertTrue(projectionURL.hasPrefix(request.outputDirectory.path + "/"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: projectionURL))
+        XCTAssertNotNil(step.outputs.first?.checksumSHA256)
+        let projection = try JSONDecoder().decode(
+            FullLengthONTMHCReferenceCatalogProjection.self,
+            from: Data(contentsOf: URL(fileURLWithPath: projectionURL))
+        )
+        XCTAssertEqual(projection.records.first?.alleleName, "Mafa-A1*018:01:01:01")
+        XCTAssertEqual(projection.records.first?.classEvidence, .annotatedMetadata)
+    }
+
     func testLungfishReferenceBundleUsesMHCMetadataCatalog() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-reference-catalog-\(UUID().uuidString)", isDirectory: true)
@@ -1255,8 +1348,15 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         XCTAssertTrue(observation.observedProvenanceBoundary)
         XCTAssertTrue(observation.manifestWasAbsentAtProvenanceBoundary)
+        XCTAssertTrue(observation.observedFinalProvenanceBoundary)
+        XCTAssertTrue(observation.observedManifestPublication)
         XCTAssertTrue(FileManager.default.fileExists(atPath: request.manifestURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: request.provenanceURL.path))
+        XCTAssertEqual(
+            observation.finalizedProvenanceChecksum,
+            try ProvenanceFileHasher.sha256(of: request.provenanceURL),
+            "Provenance must not be mutated after the success manifest is published."
+        )
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.genotypingEvidenceBAMURL!.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.genotypingEvidenceBAIURL!.path))
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
@@ -1285,13 +1385,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "lungfish-in-process:render-mhc-unnameable-json",
             "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
             "lungfish-in-process:materialize-mhc-candidate-staging-generation",
+            "lungfish-in-process:assemble-mhc-workbook-projection-input",
             "lungfish-internal mhc-candidate-workbook-project",
         ]))
         let auditedCandidateSteps = envelope.steps.filter { step in
             step.toolName.hasPrefix("lungfish-in-process:")
                 || step.toolName == "lungfish-internal mhc-candidate-workbook-project"
                 || step.toolName == "lungfish-internal publish-result-bundle"
-                || step.toolName == "lungfish-internal publish-success-manifest"
                 || (step.toolName == "minimap2" && step.argv.contains("asm20"))
                 || (step.toolName == "samtools"
                     && (step.reproducibleCommand.contains("unmatched-to-reference.bam")
@@ -1303,10 +1403,19 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             XCTAssertNotEqual(step.toolVersion, "unknown", step.toolName)
             XCTAssertFalse(step.argv.isEmpty, step.toolName)
             XCTAssertFalse(step.reproducibleCommand.isEmpty, step.toolName)
+            XCTAssertFalse(step.resolvedOptions.isEmpty, step.toolName)
+            XCTAssertNotNil(step.runtimeIdentity, step.toolName)
             XCTAssertNotNil(step.exitStatus, step.toolName)
             XCTAssertGreaterThanOrEqual(step.wallTimeSeconds ?? -1, 0, step.toolName)
             XCTAssertNotNil(step.startedAt, step.toolName)
             XCTAssertNotNil(step.completedAt, step.toolName)
+            XCTAssertFalse(step.inputs.isEmpty, "\(step.toolName) must identify its scientific inputs.")
+            if step.outputs.isEmpty {
+                XCTAssertNotNil(
+                    step.resolvedOptions["provenanceOutputException"],
+                    "\(step.toolName) must identify outputs or document its in-process sink."
+                )
+            }
             for descriptor in step.inputs + step.outputs {
                 XCTAssertNotNil(descriptor.checksumSHA256, "\(step.toolName): \(descriptor.path)")
                 XCTAssertNotNil(descriptor.fileSize, "\(step.toolName): \(descriptor.path)")
@@ -1329,10 +1438,21 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertNotNil(workbookProjectionStep.startedAt)
         XCTAssertNotNil(workbookProjectionStep.completedAt)
         XCTAssertGreaterThanOrEqual(workbookProjectionStep.wallTimeSeconds ?? -1, 0)
-        XCTAssertEqual(Set(workbookProjectionStep.inputs.map(\.path)), Set([
-            try XCTUnwrap(result.candidateAllelesJSONURL).path,
-            try XCTUnwrap(result.unnameableClustersJSONURL).path,
-        ]))
+        XCTAssertEqual(workbookProjectionStep.inputs.count, 1)
+        let workbookProjectionInputURL = URL(
+            fileURLWithPath: try XCTUnwrap(workbookProjectionStep.inputs.first).path
+        )
+        XCTAssertEqual(
+            value(after: "--projection-input", in: workbookProjectionStep.argv),
+            workbookProjectionInputURL.path
+        )
+        let workbookProjectionInput = try JSONDecoder().decode(
+            FullLengthONTMHCWorkbookProjectionInputDocument.self,
+            from: Data(contentsOf: workbookProjectionInputURL)
+        )
+        XCTAssertGreaterThan(workbookProjectionInput.sourceSummary.reportRowCount, 0)
+        XCTAssertEqual(workbookProjectionInput.sourceSummary.sampleSummaryCount, 1)
+        XCTAssertFalse(workbookProjectionInput.sheets.isEmpty)
         XCTAssertEqual(workbookProjectionStep.outputs.map(\.path), [result.primaryWorkbookURL.path])
         for descriptor in workbookProjectionStep.inputs + workbookProjectionStep.outputs {
             XCTAssertNotNil(descriptor.checksumSHA256)
@@ -1340,6 +1460,21 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             XCTAssertFalse(descriptor.path.contains(".run-staging-"), descriptor.path)
             XCTAssertFalse(descriptor.path.contains(".candidate-artifact-work"), descriptor.path)
         }
+        let workbookAssemblyStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-in-process:assemble-mhc-workbook-projection-input"
+        })
+        XCTAssertTrue(Set(workbookAssemblyStep.inputs.map(\.path)).isSuperset(of: [
+            try XCTUnwrap(result.candidateAllelesJSONURL).path,
+            try XCTUnwrap(result.unnameableClustersJSONURL).path,
+            result.reportCSVURL.path,
+            result.sampleSummaryCSVURL.path,
+            result.deduplicatedUnmatchedClustersFASTAURL.path,
+            result.referenceFASTAURL.path,
+        ]))
+        XCTAssertEqual(workbookAssemblyStep.outputs.map(\.path), [workbookProjectionInputURL.path])
+        XCTAssertNotNil(workbookAssemblyStep.resolvedOptions["genotypeRowCount"])
+        XCTAssertNotNil(workbookAssemblyStep.resolvedOptions["orderedAlleleCount"])
+        XCTAssertNotNil(workbookAssemblyStep.resolvedOptions["inProcessSourceException"])
         let candidatePublicationStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName == "lungfish-in-process:materialize-mhc-candidate-staging-generation"
         })
@@ -1374,26 +1509,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             XCTAssertEqual(finalPayload.checksumSHA256, try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: finalPayload.path)))
         }
         XCTAssertFalse(envelope.steps.contains {
-            $0.toolName.contains("plan-success-manifest-publication")
-        }, "A planned manifest move must not be recorded as a successful executed step.")
-        let mappingStep = try XCTUnwrap(envelope.steps.first {
-            $0.toolName == "lungfish-internal publish-success-manifest"
-        })
-        XCTAssertEqual(mappingStep.exitStatus, 0)
-        XCTAssertEqual(Array(mappingStep.argv.prefix(4)), [
-            "lungfish-internal", "publish-success-manifest", "--atomic-mechanism", "renameatx_np",
-        ])
-        XCTAssertNotNil(mappingStep.startedAt)
-        XCTAssertNotNil(mappingStep.completedAt)
-        XCTAssertGreaterThanOrEqual(mappingStep.wallTimeSeconds ?? -1, 0)
-        let staged = try XCTUnwrap(mappingStep.inputs.first)
-        let published = try XCTUnwrap(mappingStep.outputs.first)
-        XCTAssertTrue(staged.path.contains(".genotype-result.json.staging-"))
-        XCTAssertEqual(published.path, request.manifestURL.path)
-        XCTAssertEqual(staged.checksumSHA256, published.checksumSHA256)
-        XCTAssertEqual(staged.fileSize, published.fileSize)
-        XCTAssertEqual(published.checksumSHA256, try ProvenanceFileHasher.sha256(of: request.manifestURL))
-        XCTAssertEqual(published.fileSize, try ProvenanceFileHasher.fileSize(of: request.manifestURL))
+            $0.toolName.contains("success-manifest")
+        }, "Manifest publication cannot truthfully appear in provenance finalized before that operation.")
 
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: request.outputDirectory)
         for relativePath in [
@@ -1413,6 +1530,32 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 "Manifest published before referenced output existed: \(relativePath)"
             )
         }
+    }
+
+    func testFailureAtFinalProvenanceBoundaryLeavesNoVisibleManifestOrBundle() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-final-provenance-boundary-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .provenanceFinalizedBeforeManifestPublication(
+                    let finalManifestURL, let provenanceURL
+                ) = event else { return }
+                XCTAssertFalse(FileManager.default.fileExists(atPath: finalManifestURL.path))
+                XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
+                throw NSError(domain: "injected-final-provenance-boundary", code: 31)
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected final provenance boundary failure")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, "injected-final-provenance-boundary")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.manifestURL.path))
     }
 
     func testPostPublicationWorkflowCleanupFailureReturnsSuccessWithRetainedPathWarning() async throws {
@@ -2840,6 +2983,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         savontScript: String? = nil,
         minimap2Script: String? = nil,
         blastnScript: String? = nil,
+        referenceSourceURL: URL? = nil,
         failFinalBAMView: Bool = false,
         postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
         metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void = { _ in }
@@ -2861,11 +3005,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             )
         }
         let inputFASTQ = root.appendingPathComponent("DL46.fastq")
-        let referenceFASTA = root.appendingPathComponent("reference.fasta")
+        let referenceFASTA = referenceSourceURL ?? root.appendingPathComponent("reference.fasta")
         let outputDirectory = root.appendingPathComponent("full-length.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try "@read-1\nACGTACGT\n+\nIIIIIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
-        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        if referenceSourceURL == nil {
+            try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        }
         let request = FullLengthONTMHCGenotypingRunRequest(
             inputFASTQURLs: [inputFASTQ],
             referenceSourceURL: referenceFASTA,
@@ -3235,6 +3381,9 @@ private final class MetadataPublicationObservation: @unchecked Sendable {
     private var didObserveProvenanceBoundary = false
     private var manifestAbsentAtBoundary = false
     private var capturedStagedManifestURL: URL?
+    private var didObserveFinalProvenanceBoundary = false
+    private var didObserveManifestPublication = false
+    private var capturedFinalizedProvenanceChecksum: String?
 
     init(failAfterProvenance: Bool) {
         self.failAfterProvenance = failAfterProvenance
@@ -3252,7 +3401,31 @@ private final class MetadataPublicationObservation: @unchecked Sendable {
         lock.withLock { capturedStagedManifestURL }
     }
 
+    var observedFinalProvenanceBoundary: Bool {
+        lock.withLock { didObserveFinalProvenanceBoundary }
+    }
+
+    var observedManifestPublication: Bool {
+        lock.withLock { didObserveManifestPublication }
+    }
+
+    var finalizedProvenanceChecksum: String? {
+        lock.withLock { capturedFinalizedProvenanceChecksum }
+    }
+
     func observe(_ event: FullLengthONTMHCMetadataPublicationEvent) throws {
+        if case .provenanceFinalizedBeforeManifestPublication(_, let provenanceURL) = event {
+            let checksum = try ProvenanceFileHasher.sha256(of: provenanceURL)
+            lock.withLock {
+                didObserveFinalProvenanceBoundary = true
+                capturedFinalizedProvenanceChecksum = checksum
+            }
+            return
+        }
+        if case .successManifestPublished = event {
+            lock.withLock { didObserveManifestPublication = true }
+            return
+        }
         guard case .provenanceWrittenBeforeManifestPublication(
             let stagedManifestURL,
             let finalManifestURL,

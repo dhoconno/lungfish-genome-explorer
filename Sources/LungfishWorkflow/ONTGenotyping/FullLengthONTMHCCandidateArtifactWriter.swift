@@ -31,8 +31,6 @@ struct FullLengthONTMHCCandidateSequenceObservation: Sendable, Equatable {
 struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     let observations: [FullLengthONTMHCCandidateSequenceObservation]
     let referenceAlleleFASTAURL: URL
-    let referenceCatalogInputURLs: [URL]
-    let referenceCDNAThreshold: Int
     let referenceRecords: [MHCReferenceRecord]
     let genotypingEvidence: ONTMHCBAMArtifactPair?
     let threads: Int
@@ -43,8 +41,6 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     init(
         observations: [FullLengthONTMHCCandidateSequenceObservation],
         referenceAlleleFASTAURL: URL,
-        referenceCatalogInputURLs: [URL] = [],
-        referenceCDNAThreshold: Int = 2_000,
         referenceRecords: [MHCReferenceRecord],
         genotypingEvidence: ONTMHCBAMArtifactPair?,
         threads: Int,
@@ -54,14 +50,6 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     ) {
         self.observations = observations
         self.referenceAlleleFASTAURL = referenceAlleleFASTAURL.standardizedFileURL
-        let requestedCatalogInputs = referenceCatalogInputURLs.isEmpty
-            ? [referenceAlleleFASTAURL]
-            : referenceCatalogInputURLs
-        var seenCatalogInputs = Set<String>()
-        self.referenceCatalogInputURLs = requestedCatalogInputs
-            .map(\.standardizedFileURL)
-            .filter { seenCatalogInputs.insert($0.path).inserted }
-        self.referenceCDNAThreshold = max(1, referenceCDNAThreshold)
         self.referenceRecords = referenceRecords
         self.genotypingEvidence = genotypingEvidence
         self.threads = max(1, threads)
@@ -316,36 +304,6 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             role: .referenceFASTA,
             phase: .input
         )
-        let referenceCatalogDescriptors = try request.referenceCatalogInputURLs.map { url in
-            try FullLengthONTMHCArtifactDescriptor(
-                url: url,
-                role: url == request.referenceAlleleFASTAURL ? .referenceFASTA : .commandInput,
-                phase: .input
-            )
-        }
-        let referenceImportStartedAt = Date()
-        let referenceImportCompletedAt = Date()
-        transformations.append(.init(
-            workflowName: "lungfish-in-process:import-mhc-reference-catalog",
-            workflowVersion: WorkflowRun.currentAppVersion,
-            argv: [
-                "lungfish-in-process", "import-mhc-reference-catalog",
-                "--record-count", String(request.referenceRecords.count),
-                "--cdna-threshold", String(request.referenceCDNAThreshold),
-                request.referenceAlleleFASTAURL.path,
-            ],
-            resolvedOptions: [
-                "recordCount": String(request.referenceRecords.count),
-                "cdnaThreshold": String(request.referenceCDNAThreshold),
-                "moleculeClassSource": "reference-metadata-with-length-fallback",
-            ],
-            inputs: referenceCatalogDescriptors,
-            outputs: [],
-            exitStatus: 0,
-            startedAt: referenceImportStartedAt,
-            completedAt: referenceImportCompletedAt,
-            wallTime: referenceImportCompletedAt.timeIntervalSince(referenceImportStartedAt)
-        ))
         let stagedStableFASTAURL = stagedRootURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta")
         let stableFASTAStartedAt = Date()
         try writeFASTA(grouped.map { ($0.id, $0.sequence) }, to: stagedStableFASTAURL)
@@ -495,7 +453,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "--novel-distance", "snp-substitutions-only",
                 reciprocalViewURL.path,
             ],
-            resolvedOptions: Self.candidateResolvedOptions(request.thresholds),
+            resolvedOptions: Self.candidateResolvedOptions(request.thresholds).merging([
+                "provenanceOutputException": "typed in-memory classification result is consumed by the candidate and unnameable render steps",
+            ]) { current, _ in current },
             inputs: [referenceDescriptor, stagedStableDescriptor, reciprocalViewDescriptor],
             outputs: [],
             exitStatus: 0,
@@ -667,7 +627,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             workflowName: "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
             workflowVersion: WorkflowRun.currentAppVersion,
             argv: ["lungfish-in-process", "capture-mhc-candidate-artifact-checksums", "--algorithm", "sha256"],
-            resolvedOptions: ["algorithm": "SHA-256", "artifactCount": String(finalPublicationDescriptors.count)],
+            resolvedOptions: [
+                "algorithm": "SHA-256",
+                "artifactCount": String(finalPublicationDescriptors.count),
+                "provenanceOutputException": "checksums are embedded in the candidate artifact manifest consumed by result-bundle publication",
+            ],
             inputs: finalPublicationDescriptors,
             outputs: [],
             exitStatus: 0,

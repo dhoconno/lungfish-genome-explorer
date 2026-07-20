@@ -1,21 +1,21 @@
 import Foundation
 import LungfishIO
 
-enum FullLengthONTMHCWorkbookTintCategory: String, CaseIterable, Equatable, Sendable {
+enum FullLengthONTMHCWorkbookTintCategory: String, CaseIterable, Codable, Equatable, Sendable {
     case sharedNovel
     case singletonNovel
     case sharedExtension
     case singletonExtension
 }
 
-enum FullLengthONTMHCWorkbookCellValue: Equatable, Sendable {
+enum FullLengthONTMHCWorkbookCellValue: Codable, Equatable, Sendable {
     case text(String)
     case integer(Int)
     case decimal(Double)
     case blank
 }
 
-struct FullLengthONTMHCWorkbookCell: Equatable, Sendable {
+struct FullLengthONTMHCWorkbookCell: Codable, Equatable, Sendable {
     let value: FullLengthONTMHCWorkbookCellValue
     let tint: FullLengthONTMHCWorkbookTintCategory?
 

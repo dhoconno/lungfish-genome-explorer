@@ -26,6 +26,8 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
             candidateAllelesFASTAPath: "/tmp/result.lungfishgenotype/candidate_alleles.fasta",
             unnameableClustersJSONPath: "/tmp/result.lungfishgenotype/unnameable-unmatched-clusters.json",
             unnameableClustersFASTAPath: "/tmp/result.lungfishgenotype/unnameable_unmatched_clusters.fasta",
+            referenceCatalogJSONPath: "/tmp/result.lungfishgenotype/artifacts/reference/mhc-reference-catalog.json",
+            workbookProjectionInputJSONPath: "/tmp/result.lungfishgenotype/artifacts/projections/mhc-workbook-projection-input.json",
             cleanupWarnings: [
                 FullLengthONTMHCGenotypingCleanupWarning(
                     kind: .workflowIntermediates,
@@ -57,6 +59,8 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
             "candidateAllelesFASTAPath": "/tmp/result.lungfishgenotype/candidate_alleles.fasta",
             "unnameableClustersJSONPath": "/tmp/result.lungfishgenotype/unnameable-unmatched-clusters.json",
             "unnameableClustersFASTAPath": "/tmp/result.lungfishgenotype/unnameable_unmatched_clusters.fasta",
+            "referenceCatalogJSONPath": "/tmp/result.lungfishgenotype/artifacts/reference/mhc-reference-catalog.json",
+            "workbookProjectionInputJSONPath": "/tmp/result.lungfishgenotype/artifacts/projections/mhc-workbook-projection-input.json",
         ]
         for (key, path) in expectedPublishedPaths {
             XCTAssertEqual(object[key] as? String, path, "Missing final published CLI path for \(key)")

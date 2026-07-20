@@ -177,6 +177,10 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             candidateAllelesFASTAPath: result.candidateAllelesFASTAURL?.path,
             unnameableClustersJSONPath: result.unnameableClustersJSONURL?.path,
             unnameableClustersFASTAPath: result.unnameableClustersFASTAURL?.path,
+            referenceCatalogJSONPath: result.outputDirectory
+                .appendingPathComponent("artifacts/reference/mhc-reference-catalog.json").path,
+            workbookProjectionInputJSONPath: result.outputDirectory
+                .appendingPathComponent("artifacts/projections/mhc-workbook-projection-input.json").path,
             cleanupWarnings: result.cleanupWarnings
         )
         if globalOptions.outputFormat == .json {
@@ -212,6 +216,8 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let candidateAllelesFASTAPath: String?
     let unnameableClustersJSONPath: String?
     let unnameableClustersFASTAPath: String?
+    let referenceCatalogJSONPath: String
+    let workbookProjectionInputJSONPath: String
     let cleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning]
 
     var textOutput: String {
@@ -237,6 +243,8 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
             ("Candidate alleles FASTA", candidateAllelesFASTAPath),
             ("Un-nameable clusters JSON", unnameableClustersJSONPath),
             ("Un-nameable clusters FASTA", unnameableClustersFASTAPath),
+            ("MHC reference catalog JSON", referenceCatalogJSONPath),
+            ("Workbook projection input JSON", workbookProjectionInputJSONPath),
         ]
         var lines = values.compactMap { label, path in
             path.map { "\(label): \($0)" }
