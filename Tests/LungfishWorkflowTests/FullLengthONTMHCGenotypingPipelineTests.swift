@@ -565,7 +565,11 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let guideSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet1.xml", from: result.workbookURL)
         XCTAssertTrue(guideSheetXML.contains("Full-length ONT MHC genotyping"))
         XCTAssertTrue(guideSheetXML.contains("score = aligned_bases - (100 * snp_differences) - (10 * indel_bases)"))
-        XCTAssertTrue(guideSheetXML.contains("Exact genotype calls require zero SNP differences and zero indel bases."))
+        XCTAssertTrue(guideSheetXML.contains(
+            "Known genotype calls require zero SNP differences. Indel-only genomic-reference alignments remain calls to the existing allele; true genomic extensions of cDNA references are classified separately with the _ext suffix."
+        ))
+        XCTAssertTrue(guideSheetXML.contains("Cluster-level known genotype evidence."))
+        XCTAssertFalse(guideSheetXML.contains("zero SNP differences and zero indel bases"))
         XCTAssertTrue(guideSheetXML.contains("Blank closest-match fields mean the unmatched cluster had no mapped SAM hit."))
         XCTAssertTrue(guideSheetXML.contains("MHC-like unmatched rescue"))
         XCTAssertTrue(guideSheetXML.contains("local-blast-rescue"))

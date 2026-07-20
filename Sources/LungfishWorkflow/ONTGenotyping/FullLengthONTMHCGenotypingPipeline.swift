@@ -3310,9 +3310,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ["Read preparation", "Input reads are materialized as plain FASTQ, optionally oriented and primer-trimmed, length-filtered, then clustered into Savont ASVs."],
             ["Savont settings", "quality_value_cutoff=\(request.savontQualityValueCutoff); min_cluster_size=\(request.savontMinimumClusterSize); min_length=\(request.minimumLength); max_length=\(request.maximumLength)"],
             ["Sample presets", sampleSummaries.map { "\($0.sample): \($0.savontPreset) (\($0.savontStatus.rawValue))" }.joined(separator: "; ")],
-            ["Genotype call rule", "Exact genotype calls require zero SNP differences and zero indel bases."],
+            ["Genotype call rule", "Known genotype calls require zero SNP differences. Indel-only genomic-reference alignments remain calls to the existing allele; true genomic extensions of cDNA references are classified separately with the _ext suffix."],
             ["Score formula", "score = aligned_bases - (100 * snp_differences) - (10 * indel_bases)"],
-            ["Score interpretation", "Higher scores are better. Exact calls have score equal to aligned_bases; each SNP subtracts 100 and each indel base subtracts 10."],
+            ["Score interpretation", "Higher scores are better. Alignments without SNPs or indels have score equal to aligned_bases; each SNP subtracts 100 and each indel base subtracts 10."],
             ["Unmatched closest match", "For unmatched clusters, closest-match fields describe the best non-exact mapped reference hit when one exists."],
             ["Unmatched normalization", "Unmatched cluster sequences are trimmed to their best minimap2 target interval and reverse-complemented when the best hit maps to the reverse strand before unmatched_sequence_id assignment."],
             ["Blank closest-match fields", "Blank closest-match fields mean the unmatched cluster had no mapped SAM hit."],
@@ -3324,13 +3324,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ["Haplotype filtering scope", "Haplotype thresholds affect haplotype assignment only; genotype and unmatched worksheets retain observed cluster evidence."],
             ["", ""],
             ["Samples worksheet", "One row per sample with input reads, retained/assigned read summaries, unmatched counts, cDNA counts, and Savont status."],
-            ["Genotypes worksheet", "Cluster-level exact genotype evidence. Each row is one sample cluster assigned to one exact reference genotype."],
+            ["Genotypes worksheet", "Cluster-level known genotype evidence. Each row is one sample cluster assigned to one existing reference allele."],
             ["Genotyping pivot worksheet", "Sample-by-genotype pivot formatted for review of full-length genotyping calls and haplotype summaries."],
             ["Unmatched Clusters worksheet", "One row per unmatched cluster with sequence, read support, deterministic unmatched_sequence_id, and closest-match metadata when available."],
             ["Unmatched Shared Pivot worksheet", "One row per unique unmatched sequence with occurrence count, total supporting reads, closest-match summary, and per-sample read counts."],
             ["MHC-like Unmatched Clusters worksheet", "One row per unmatched cluster with either genotyping SAM closest-match evidence or accepted local BLAST rescue evidence."],
             ["MHC-like Unmatched Pivot worksheet", "One row per unique MHC-like unmatched sequence with occurrence count, total supporting reads, best evidence summary, and per-sample read counts."],
-            ["Unified Genotype Pivot worksheet", "One sample-by-call pivot combining exact reference genotypes and normalized novel MHC-like unmatched sequences."],
+            ["Unified Genotype Pivot worksheet", "One sample-by-call pivot combining known reference genotype calls and normalized novel MHC-like unmatched sequences."],
         ]
     }
 
