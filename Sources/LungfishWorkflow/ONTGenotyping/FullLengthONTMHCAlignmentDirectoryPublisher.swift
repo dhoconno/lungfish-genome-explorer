@@ -14,6 +14,7 @@ public struct FullLengthONTMHCAlignmentDirectoryPublicationRecord: Sendable, Equ
     public let argv: [String]
     public let sourceDirectoryURL: URL
     public let finalDirectoryURL: URL
+    public let atomicMechanism: String
     public let exitStatus: Int32
     public let errorMessage: String?
     public let startedAt: Date
@@ -28,6 +29,7 @@ public struct FullLengthONTMHCAlignmentDirectoryPublicationRecord: Sendable, Equ
         errorMessage: String?,
         startedAt: Date,
         completedAt: Date,
+        atomicMechanism: String = "renameatx_np",
         toolVersion: String = WorkflowRun.currentAppVersion
     ) {
         let sourceURL = sourceDirectoryURL.standardizedFileURL
@@ -43,6 +45,7 @@ public struct FullLengthONTMHCAlignmentDirectoryPublicationRecord: Sendable, Equ
         ]
         self.sourceDirectoryURL = sourceURL
         self.finalDirectoryURL = destinationURL
+        self.atomicMechanism = atomicMechanism
         self.exitStatus = exitStatus
         self.errorMessage = errorMessage
         self.startedAt = startedAt

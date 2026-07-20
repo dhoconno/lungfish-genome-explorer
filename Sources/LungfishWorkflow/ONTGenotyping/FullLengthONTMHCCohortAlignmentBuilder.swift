@@ -193,8 +193,49 @@ public extension FullLengthONTMHCAlignmentDirectoryPublishing {
     }
 }
 
+struct FullLengthONTMHCAlignmentDirectoryRenameAttempt: Sendable, Equatable {
+    let status: Int32
+    let errorCode: Int32?
+}
+
+protocol FullLengthONTMHCAlignmentDirectoryRenaming: Sendable {
+    func rename(
+        stagedDirectoryURL: URL,
+        finalDirectoryURL: URL,
+        flags: UInt32
+    ) -> FullLengthONTMHCAlignmentDirectoryRenameAttempt
+}
+
+private struct DarwinFullLengthONTMHCAlignmentDirectoryRenamer:
+    FullLengthONTMHCAlignmentDirectoryRenaming
+{
+    func rename(
+        stagedDirectoryURL: URL,
+        finalDirectoryURL: URL,
+        flags: UInt32
+    ) -> FullLengthONTMHCAlignmentDirectoryRenameAttempt {
+        let status = stagedDirectoryURL.path.withCString { stagedPath in
+            finalDirectoryURL.path.withCString { finalPath in
+                renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags)
+            }
+        }
+        return FullLengthONTMHCAlignmentDirectoryRenameAttempt(
+            status: status,
+            errorCode: status == 0 ? nil : errno
+        )
+    }
+}
+
 public struct DarwinAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignmentDirectoryPublishing {
-    public init() {}
+    private let renamer: any FullLengthONTMHCAlignmentDirectoryRenaming
+
+    public init() {
+        renamer = DarwinFullLengthONTMHCAlignmentDirectoryRenamer()
+    }
+
+    init(renamer: any FullLengthONTMHCAlignmentDirectoryRenaming) {
+        self.renamer = renamer
+    }
 
     public func publish(
         stagedDirectoryURL: URL,
@@ -206,12 +247,37 @@ public struct DarwinAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignment
         let finalExists = FileManager.default.fileExists(atPath: destinationURL.path)
         let mode: FullLengthONTMHCAlignmentDirectoryPublicationMode = finalExists ? .replace : .create
         let flags = UInt32(finalExists ? RENAME_SWAP : RENAME_EXCL)
-        let status = sourceURL.path.withCString { stagedPath in
-            destinationURL.path.withCString { finalPath in
-                renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags)
+        var attempt = renamer.rename(
+            stagedDirectoryURL: sourceURL,
+            finalDirectoryURL: destinationURL,
+            flags: flags
+        )
+        var usedUnsupportedExclusiveRenameFallback = false
+        if mode == .create,
+           attempt.status != 0,
+           attempt.errorCode == ENOTSUP {
+            usedUnsupportedExclusiveRenameFallback = true
+            let reservationStatus = destinationURL.path.withCString {
+                mkdir($0, mode_t(S_IRWXU))
+            }
+            if reservationStatus != 0 {
+                attempt = FullLengthONTMHCAlignmentDirectoryRenameAttempt(
+                    status: -1,
+                    errorCode: errno
+                )
+            } else {
+                attempt = renamer.rename(
+                    stagedDirectoryURL: sourceURL,
+                    finalDirectoryURL: destinationURL,
+                    flags: 0
+                )
+                if attempt.status != 0 {
+                    _ = destinationURL.path.withCString { rmdir($0) }
+                }
             }
         }
-        let code = status == 0 ? nil : (POSIXErrorCode(rawValue: errno) ?? .EIO)
+        let status = attempt.status
+        let code = attempt.errorCode.map { POSIXErrorCode(rawValue: $0) ?? .EIO }
         let completedAt = Date()
         let record = FullLengthONTMHCAlignmentDirectoryPublicationRecord(
             mode: mode,
@@ -220,7 +286,10 @@ public struct DarwinAtomicAlignmentDirectoryPublisher: FullLengthONTMHCAlignment
             exitStatus: status,
             errorMessage: code.map { POSIXError($0).localizedDescription },
             startedAt: startedAt,
-            completedAt: completedAt
+            completedAt: completedAt,
+            atomicMechanism: usedUnsupportedExclusiveRenameFallback
+                ? "exclusive-directory-reservation-then-rename"
+                : "renameatx_np"
         )
         guard status == 0 else {
             throw FullLengthONTMHCAlignmentDirectoryPublicationError(record: record)
