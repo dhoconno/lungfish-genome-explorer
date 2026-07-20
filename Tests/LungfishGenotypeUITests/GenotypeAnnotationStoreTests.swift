@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
@@ -6,6 +7,8 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeAnnotationStoreTests: XCTestCase {
+    private struct InjectedPublicationFailure: Error {}
+
     private func makeBundleURL() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
@@ -448,6 +451,208 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.updateMHCCandidateDisplaySettings(display))
 
         XCTAssertEqual(store.sidecar, before)
+    }
+
+    func testCandidateDisplayPublicationRestoresAnnotationAndProvenanceBytesWhenProvenancePublishFails() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let initial = try GenotypeAnnotationStore(bundleURL: dir, author: "initial")
+        try initial.updateSettings { $0.viewMode = "matrix" }
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let priorAnnotation = try Data(contentsOf: annotationURL)
+        let priorProvenance = try Data(contentsOf: provenanceURL)
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "fault",
+            publicationFaultInjector: { point in
+                point == .beforeProvenancePublication ? InjectedPublicationFailure() : nil
+            }
+        )
+        var display = store.sidecar.settings.mhcCandidateDisplay
+        display.showKnown = false
+
+        XCTAssertThrowsError(try store.updateMHCCandidateDisplaySettings(display))
+
+        XCTAssertEqual(try Data(contentsOf: annotationURL), priorAnnotation)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), priorProvenance)
+        XCTAssertEqual(store.sidecar.settings.mhcCandidateDisplay.showKnown, true)
+    }
+
+    func testCandidateDisplayPublicationRestoresBothFilesWhenCommitDirectorySyncFails() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let initial = try GenotypeAnnotationStore(bundleURL: dir, author: "initial")
+        try initial.updateSettings { $0.panelLayout = "bLeading" }
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let priorAnnotation = try Data(contentsOf: annotationURL)
+        let priorProvenance = try Data(contentsOf: provenanceURL)
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "fault",
+            publicationFaultInjector: { point in
+                point == .commitDirectorySync ? InjectedPublicationFailure() : nil
+            }
+        )
+        var display = store.sidecar.settings.mhcCandidateDisplay
+        display.showSharedCandidates = false
+
+        XCTAssertThrowsError(try store.updateMHCCandidateDisplaySettings(display))
+
+        XCTAssertEqual(try Data(contentsOf: annotationURL), priorAnnotation)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), priorProvenance)
+    }
+
+    func testPublicationReportsPrimaryAndRollbackFailuresTogether() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let initial = try GenotypeAnnotationStore(bundleURL: dir, author: "initial")
+        try initial.updateSettings { $0.cardDensity = "compact" }
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let priorAnnotation = try Data(contentsOf: annotationURL)
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "fault",
+            publicationFaultInjector: { point in
+                guard point == .beforeProvenancePublication else { return nil }
+                try? FileManager.default.removeItem(at: provenanceURL)
+                try? FileManager.default.createDirectory(
+                    at: provenanceURL,
+                    withIntermediateDirectories: false
+                )
+                return InjectedPublicationFailure()
+            }
+        )
+        var display = store.sidecar.settings.mhcCandidateDisplay
+        display.showKnown = false
+
+        XCTAssertThrowsError(try store.updateMHCCandidateDisplaySettings(display)) { error in
+            let transactionError = error as? GenotypeAnnotationPublicationTransactionError
+            XCTAssertTrue(transactionError?.primaryError is InjectedPublicationFailure)
+            XCTAssertNotNil(transactionError?.rollbackError)
+        }
+        XCTAssertEqual(try Data(contentsOf: annotationURL), priorAnnotation)
+    }
+
+    func testStaleCandidateStoreMergesOntoLatestUnrelatedSettingsEditUnderLock() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        let candidateStore = try GenotypeAnnotationStore(bundleURL: dir, author: "candidate")
+        let settingsStore = try GenotypeAnnotationStore(bundleURL: dir, author: "settings")
+        try settingsStore.updateSettings { $0.viewMode = "matrix" }
+        var display = candidateStore.sidecar.settings.mhcCandidateDisplay
+        display.showSingletonCandidates = false
+
+        try candidateStore.updateMHCCandidateDisplaySettings(display)
+
+        let reloaded = try GenotypeAnnotationStore(bundleURL: dir, author: "reader")
+        XCTAssertEqual(reloaded.sidecar.settings.viewMode, "matrix")
+        XCTAssertFalse(reloaded.sidecar.settings.mhcCandidateDisplay.showSingletonCandidates)
+        XCTAssertEqual(
+            reloaded.sidecar.auditLog.suffix(2).map(\.action),
+            ["updateSettings", "updateMHCCandidateDisplaySettings"]
+        )
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        ))
+        XCTAssertEqual(
+            provenance.outputs.first?.checksumSHA256,
+            try ProvenanceFileDescriptor.file(url: annotationURL, format: .json, role: .output).checksumSHA256
+        )
+    }
+
+    func testStaleCandidateStoreConflictsWithConcurrentCandidateEdit() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        let first = try GenotypeAnnotationStore(bundleURL: dir, author: "first")
+        let stale = try GenotypeAnnotationStore(bundleURL: dir, author: "stale")
+        var firstDisplay = first.sidecar.settings.mhcCandidateDisplay
+        firstDisplay.showKnown = false
+        try first.updateMHCCandidateDisplaySettings(firstDisplay)
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let firstAnnotation = try Data(contentsOf: annotationURL)
+        let firstProvenance = try Data(contentsOf: provenanceURL)
+        var staleDisplay = stale.sidecar.settings.mhcCandidateDisplay
+        staleDisplay.showSingletonCandidates = false
+
+        XCTAssertThrowsError(try stale.updateMHCCandidateDisplaySettings(staleDisplay))
+        XCTAssertEqual(try Data(contentsOf: annotationURL), firstAnnotation)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), firstProvenance)
+
+        let reloaded = try GenotypeAnnotationStore(bundleURL: dir, author: "reader")
+        XCTAssertFalse(reloaded.sidecar.settings.mhcCandidateDisplay.showKnown)
+        XCTAssertTrue(reloaded.sidecar.settings.mhcCandidateDisplay.showSingletonCandidates)
+        XCTAssertEqual(stale.sidecar, reloaded.sidecar)
+    }
+
+    func testHeldCandidatePublicationLockCannotPartiallyMutateBundle() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "candidate")
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let priorAnnotation = try Data(contentsOf: annotationURL)
+        let priorProvenance = try Data(contentsOf: provenanceURL)
+        let lockURL = dir.appendingPathComponent(".annotations-publication.lock")
+        let lockFD = Darwin.open(lockURL.path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, mode_t(0o600))
+        XCTAssertGreaterThanOrEqual(lockFD, 0)
+        defer { if lockFD >= 0 { Darwin.close(lockFD) } }
+        XCTAssertEqual(flock(lockFD, LOCK_EX | LOCK_NB), 0)
+        defer { if lockFD >= 0 { _ = flock(lockFD, LOCK_UN) } }
+        var display = store.sidecar.settings.mhcCandidateDisplay
+        display.showKnown = false
+
+        XCTAssertThrowsError(try store.updateMHCCandidateDisplaySettings(display))
+
+        XCTAssertEqual(try Data(contentsOf: annotationURL), priorAnnotation)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), priorProvenance)
+    }
+
+    func testUnsafeCandidatePublicationLockCannotPartiallyMutateBundle() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "candidate")
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let priorAnnotation = try Data(contentsOf: annotationURL)
+        let priorProvenance = try Data(contentsOf: provenanceURL)
+        let lockURL = dir.appendingPathComponent(".annotations-publication.lock")
+        try FileManager.default.removeItem(at: lockURL)
+        try FileManager.default.createDirectory(at: lockURL, withIntermediateDirectories: false)
+        var display = store.sidecar.settings.mhcCandidateDisplay
+        display.showSharedCandidates = false
+
+        XCTAssertThrowsError(try store.updateMHCCandidateDisplaySettings(display))
+
+        XCTAssertEqual(try Data(contentsOf: annotationURL), priorAnnotation)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), priorProvenance)
+    }
+
+    func testGenericStaleStoreConflictsWithoutOverwritingLatestEdit() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        let first = try GenotypeAnnotationStore(bundleURL: dir, author: "first")
+        let stale = try GenotypeAnnotationStore(bundleURL: dir, author: "stale")
+        try first.setSampleStatus(.reviewed, sample: "sample-1")
+
+        XCTAssertThrowsError(try stale.setCallStatus(
+            .needsReview,
+            sample: "sample-2",
+            locus: "MHC-A",
+            slot: .h1
+        ))
+
+        let reloaded = try GenotypeAnnotationStore(bundleURL: dir, author: "reader")
+        XCTAssertEqual(reloaded.sidecar.sampleStatusFlags.map(\.sample), ["sample-1"])
+        XCTAssertTrue(reloaded.sidecar.callStatusFlags.isEmpty)
+        XCTAssertEqual(stale.sidecar, reloaded.sidecar)
     }
 
     func testSmartCohortPersistence() throws {

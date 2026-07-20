@@ -1,8 +1,20 @@
+import CryptoKit
 import Foundation
 import Observation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+
+private enum GenotypeAnnotationStorePersistenceError: Error, LocalizedError {
+    case staleRevision
+
+    var errorDescription: String? {
+        switch self {
+        case .staleRevision:
+            return "The genotype annotations changed in another process. Reload the bundle before saving this edit."
+        }
+    }
+}
 
 @Observable
 @MainActor
@@ -10,6 +22,12 @@ public final class GenotypeAnnotationStore {
     public private(set) var sidecar: GenotypeAnnotationSidecar
     public let bundleURL: URL
     public let author: String
+
+    @ObservationIgnored
+    private var lastPersistedSidecar: GenotypeAnnotationSidecar
+
+    @ObservationIgnored
+    private let publicationFaultInjector: GenotypeAnnotationPublicationFaultInjector?
 
     @ObservationIgnored
     private let isoFormatter: ISO8601DateFormatter = {
@@ -20,10 +38,21 @@ public final class GenotypeAnnotationStore {
 
     public private(set) var isReadOnly: Bool
 
-    public init(bundleURL: URL, author: String) throws {
+    public convenience init(bundleURL: URL, author: String) throws {
+        try self.init(bundleURL: bundleURL, author: author, publicationFaultInjector: nil)
+    }
+
+    init(
+        bundleURL: URL,
+        author: String,
+        publicationFaultInjector: GenotypeAnnotationPublicationFaultInjector?
+    ) throws {
+        let loadedSidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
         self.bundleURL = bundleURL
         self.author = author
-        self.sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+        self.sidecar = loadedSidecar
+        self.lastPersistedSidecar = loadedSidecar
+        self.publicationFaultInjector = publicationFaultInjector
         // Detect read-only volumes (e.g. a mounted share) by probing the
         // bundle directory. We don't refuse to load; we just suppress
         // attempts to persist so the analyst can still browse the bundle
@@ -322,7 +351,6 @@ public final class GenotypeAnnotationStore {
     }
 
     func updateSettings(_ mutate: (inout GenotypeAnnotationSidecar.Settings) -> Void) throws {
-        let original = sidecar
         let before = sidecar.settings
         mutate(&sidecar.settings)
         guard sidecar.settings != before else { return }
@@ -333,40 +361,60 @@ public final class GenotypeAnnotationStore {
             color: nil, reason: "settings", rationale: nil,
             author: author, timestamp: timestamp
         ))
-        do {
-            try persist(action: "updateSettings")
-        } catch {
-            sidecar = original
-            throw error
-        }
+        try persist(action: "updateSettings")
     }
 
     func updateMHCCandidateDisplaySettings(_ display: ONTMHCCandidateDisplaySettings) throws {
-        let original = sidecar
-        let before = sidecar.settings.mhcCandidateDisplay
-        guard display != before else { return }
-        sidecar.settings.mhcCandidateDisplay = display
+        guard !isReadOnly else { return }
+        let startedAt = Date()
         let timestamp = now()
-        sidecar.append(audit: .init(
-            action: "updateMHCCandidateDisplaySettings",
-            sample: "bundle",
-            locus: nil,
-            slot: nil,
-            before: mhcCandidateDisplaySummary(before),
-            after: mhcCandidateDisplaySummary(display),
-            color: nil,
-            reason: "mhc-candidate-display-settings",
-            rationale: nil,
-            author: author,
-            timestamp: timestamp
-        ))
+        var latestForRollback = sidecar
+        var publishedSidecar: GenotypeAnnotationSidecar?
+        let coordinator = annotationPublicationCoordinator()
         do {
-            try persist(
-                action: "updateMHCCandidateDisplaySettings",
-                editContext: mhcCandidateDisplayEditContext(display)
-            )
+            _ = try coordinator.transact { snapshot in
+                var latest = try decodedLatestSidecar(from: snapshot.annotationData)
+                latestForRollback = latest
+                let before = latest.settings.mhcCandidateDisplay
+                guard display != before else {
+                    publishedSidecar = latest
+                    return nil
+                }
+                guard before == lastPersistedSidecar.settings.mhcCandidateDisplay else {
+                    throw GenotypeAnnotationStorePersistenceError.staleRevision
+                }
+                latest.settings.mhcCandidateDisplay = display
+                latest.append(audit: .init(
+                    action: "updateMHCCandidateDisplaySettings",
+                    sample: "bundle",
+                    locus: nil,
+                    slot: nil,
+                    before: mhcCandidateDisplaySummary(before),
+                    after: mhcCandidateDisplaySummary(display),
+                    color: nil,
+                    reason: "mhc-candidate-display-settings",
+                    rationale: nil,
+                    author: author,
+                    timestamp: timestamp
+                ))
+                let payload = try annotationPublicationPayload(
+                    sidecar: latest,
+                    action: "updateMHCCandidateDisplaySettings",
+                    editContext: mhcCandidateDisplayEditContext(display),
+                    snapshot: snapshot,
+                    startedAt: startedAt,
+                    endedAt: Date()
+                )
+                publishedSidecar = latest
+                return payload
+            }
+            if let publishedSidecar {
+                sidecar = publishedSidecar
+                lastPersistedSidecar = publishedSidecar
+            }
         } catch {
-            sidecar = original
+            sidecar = latestForRollback
+            lastPersistedSidecar = latestForRollback
             throw error
         }
     }
@@ -585,30 +633,105 @@ public final class GenotypeAnnotationStore {
     private func persist(action: String, editContext: ProvenanceEditContext? = nil) throws {
         guard !isReadOnly else { return }
         let startedAt = Date()
+        let desiredSidecar = sidecar
+        var latestForRollback = lastPersistedSidecar
+        let coordinator = annotationPublicationCoordinator()
+        do {
+            _ = try coordinator.transact { snapshot in
+                let latest = try decodedLatestSidecar(from: snapshot.annotationData)
+                latestForRollback = latest
+                guard latest == lastPersistedSidecar else {
+                    throw GenotypeAnnotationStorePersistenceError.staleRevision
+                }
+                return try annotationPublicationPayload(
+                    sidecar: desiredSidecar,
+                    action: action,
+                    editContext: editContext,
+                    snapshot: snapshot,
+                    startedAt: startedAt,
+                    endedAt: Date()
+                )
+            }
+            sidecar = desiredSidecar
+            lastPersistedSidecar = desiredSidecar
+        } catch {
+            sidecar = latestForRollback
+            lastPersistedSidecar = latestForRollback
+            throw error
+        }
+    }
+
+    private func annotationPublicationCoordinator() -> GenotypeAnnotationPublicationCoordinator {
         let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
-        let input = FileManager.default.fileExists(atPath: annotationURL.path)
-            ? try ProvenanceFileDescriptor.file(url: annotationURL, format: .json, role: .input)
-            : nil
-        try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)
-        try writeAnnotationProvenance(
-            action: action,
-            annotationURL: annotationURL,
-            priorInput: input,
-            editContext: editContext,
-            startedAt: startedAt,
-            endedAt: Date()
+        return GenotypeAnnotationPublicationCoordinator(
+            bundleURL: bundleURL,
+            annotationFilename: annotationURL.lastPathComponent,
+            provenanceFilename: ProvenanceRecorder.fileSidecarURL(for: annotationURL).lastPathComponent,
+            faultInjector: publicationFaultInjector
         )
     }
 
-    private func writeAnnotationProvenance(
+    private func decodedLatestSidecar(from data: Data?) throws -> GenotypeAnnotationSidecar {
+        guard let data else {
+            return GenotypeAnnotationSidecar.empty(generatedAt: lastPersistedSidecar.generatedAt)
+        }
+        return try GenotypeAnnotationSidecar.decode(data)
+    }
+
+    private func annotationPublicationPayload(
+        sidecar: GenotypeAnnotationSidecar,
+        action: String,
+        editContext: ProvenanceEditContext?,
+        snapshot: GenotypeAnnotationPublicationSnapshot,
+        startedAt: Date,
+        endedAt: Date
+    ) throws -> GenotypeAnnotationPublicationPayload {
+        let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
+        let annotationData = try sidecar.encoded()
+        let priorInput = snapshot.annotationData.map {
+            provenanceDescriptor(data: $0, url: annotationURL, role: .input)
+        }
+        let output = provenanceDescriptor(data: annotationData, url: annotationURL, role: .output)
+        let envelope = makeAnnotationProvenance(
+            sidecar: sidecar,
+            action: action,
+            annotationURL: annotationURL,
+            priorInput: priorInput,
+            output: output,
+            editContext: editContext,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+        return try GenotypeAnnotationPublicationPayload(
+            annotationData: annotationData,
+            provenanceData: ProvenanceJSON.encoder.encode(envelope)
+        )
+    }
+
+    private func provenanceDescriptor(
+        data: Data,
+        url: URL,
+        role: FileRole
+    ) -> ProvenanceFileDescriptor {
+        ProvenanceFileDescriptor(
+            path: url.path,
+            checksumSHA256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+            fileSize: UInt64(data.count),
+            format: .json,
+            role: role
+        )
+    }
+
+    private func makeAnnotationProvenance(
+        sidecar: GenotypeAnnotationSidecar,
         action: String,
         annotationURL: URL,
         priorInput: ProvenanceFileDescriptor?,
+        output: ProvenanceFileDescriptor,
         editContext: ProvenanceEditContext?,
         startedAt: Date,
         endedAt: Date
-    ) throws {
-        let output = try ProvenanceFileDescriptor.file(url: annotationURL, format: .json, role: .output)
+    ) -> ProvenanceEnvelope {
         let argv = [
             CLICommandIdentity.executableName,
             "genotype",
@@ -638,7 +761,7 @@ public final class GenotypeAnnotationStore {
             startedAt: startedAt,
             completedAt: endedAt
         )
-        let envelope = ProvenanceEnvelope(
+        return ProvenanceEnvelope(
             createdAt: startedAt,
             workflowName: "Genotype annotation sidecar edit",
             workflowVersion: WorkflowRun.currentAppVersion,
@@ -673,10 +796,6 @@ public final class GenotypeAnnotationStore {
             steps: [step],
             wallTimeSeconds: wallTime,
             exitStatus: 0
-        )
-        try ProvenanceWriter(signingProvider: nil).write(
-            envelope,
-            toSidecar: ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         )
     }
 
