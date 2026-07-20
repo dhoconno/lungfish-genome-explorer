@@ -589,6 +589,17 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         let pivotSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet4.xml", from: result.workbookURL)
         XCTAssertTrue(pivotSheetXML.contains("Client ID"))
+        for sheetNumber in 5...8 {
+            let unmatchedXML = try Self.unzippedText(
+                path: "xl/worksheets/sheet\(sheetNumber).xml",
+                from: result.workbookURL
+            )
+            XCTAssertFalse(unmatchedXML.contains("_extension"), "Legacy extension label leaked into sheet \(sheetNumber)")
+            XCTAssertNil(
+                unmatchedXML.range(of: #"_[0-9]+SNP"#, options: .regularExpression),
+                "Legacy SNP label leaked into sheet \(sheetNumber)"
+            )
+        }
         let candidateSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet10.xml", from: result.workbookURL)
         XCTAssertTrue(candidateSheetXML.contains("Stable Cluster ID"))
         XCTAssertTrue(candidateSheetXML.contains("Provisional Name"))

@@ -29,6 +29,13 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(projection.unnameableRows.map(\.stableClusterID), ["cluster-u"])
         XCTAssertEqual(projection.unnameableRows.first?.reason, "unresolved-locus")
         XCTAssertEqual(projection.unnameableRows.first?.readsBySample, ["sample-a": 4])
+        XCTAssertEqual(projection.unnameableRows.first?.evidence.map(\.queryName), ["cluster-u-a", "cluster-u-z"])
+        XCTAssertEqual(projection.unnameableWorksheetRows.count, 3, "Header plus one row for each evidence locator")
+        let queryColumn = try XCTUnwrap(
+            projection.unnameableWorksheetRows[0].firstIndex { $0.value == .text("Evidence Query Name") }
+        )
+        XCTAssertEqual(projection.unnameableWorksheetRows[1][queryColumn].value, .text("cluster-u-a"))
+        XCTAssertEqual(projection.unnameableWorksheetRows[2][queryColumn].value, .text("cluster-u-z"))
     }
 
     func testWorkbookWritesFourTintStylesOnlyOnCandidateNameCellsAndUsesTypedNumbers() throws {
@@ -46,6 +53,14 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             sheets: [
                 .init(name: "Candidate Alleles", cells: projection.candidateWorksheetRows),
                 .init(name: "Un-nameable Clusters", cells: projection.unnameableWorksheetRows),
+                .init(
+                    name: "Unified Genotype Pivot",
+                    cells: FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildCells(
+                        reportRows: [],
+                        projection: projection,
+                        sampleOrder: projection.sampleOrder
+                    )
+                ),
             ],
             to: url
         )
@@ -75,10 +90,18 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         let unnameableSheet = try unzip("xl/worksheets/sheet2.xml", from: url)
         XCTAssertTrue(unnameableSheet.contains("cluster-u"))
         XCTAssertTrue(unnameableSheet.contains("unresolved-locus"))
+        XCTAssertTrue(unnameableSheet.contains("cluster-u-a"))
+        XCTAssertTrue(unnameableSheet.contains("cluster-u-z"))
         XCTAssertFalse(unnameableSheet.contains(" s=\"2\""))
         XCTAssertFalse(unnameableSheet.contains(" s=\"3\""))
         XCTAssertFalse(unnameableSheet.contains(" s=\"4\""))
         XCTAssertFalse(unnameableSheet.contains(" s=\"5\""))
+        let unifiedSheet = try unzip("xl/worksheets/sheet3.xml", from: url)
+        XCTAssertTrue(unifiedSheet.contains("<c r=\"J2\"><v>2</v></c>"))
+        XCTAssertTrue(unifiedSheet.contains("<c r=\"K2\"><v>2</v></c>"))
+        XCTAssertTrue(unifiedSheet.contains("<c r=\"L2\"><v>10</v></c>"))
+        XCTAssertFalse(unifiedSheet.contains("<c r=\"J2\" t=\"inlineStr\">"))
+        XCTAssertTrue(unifiedSheet.contains("<c r=\"C2\" s=\"2\" t=\"inlineStr\">"))
     }
 
     func testUnifiedPivotPreservesKnownCallsAndSeparateCandidateRowsWhenLabelsCollide() throws {
@@ -137,21 +160,36 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             sampleOrder: ["sample-a", "sample-b"]
         )
 
-        let rows = projection.enrichingLegacyUnmatchedRows([
-            ["unmatched_sequence_id", "sequence"],
-            ["cluster-1", "ACGT"],
-            ["cluster-u", "TGCA"],
-        ])
+        let legacy = [
+            ["unmatched_sequence_id", "closest_match_id", "closest_reference", "match_class", "nucleotides_different", "snp_differences", "indel_bases", "aligned_bases", "score", "sequence"],
+            ["cluster-1", "Mafa-A1*018:01:01:01_5SNP", "legacy-ref", "snp-different", "9", "9", "9", "9", "9", "ACGT"],
+            ["cluster-3", "Mafa-B*001:01_extension", "legacy-cdna", "extension", "0", "0", "200", "800", "-1200", "CCCC"],
+            ["cluster-u", "Unresolved_2SNP", "legacy-unresolved", "snp-different", "2", "2", "0", "700", "500", "TGCA"],
+        ]
+        let rows = projection.enrichingLegacyUnmatchedRows(legacy)
 
-        XCTAssertEqual(rows.count, 3)
+        XCTAssertEqual(rows.count, 4)
         XCTAssertEqual(rows[0][1], "provisional_name")
         XCTAssertEqual(rows[1][1], "Mafa-A1*018:01:01:01_5nt_nov")
         XCTAssertEqual(rows[1][3], "novel")
         XCTAssertEqual(rows[1][5], "5")
-        XCTAssertEqual(rows[2][3], "un-nameable")
-        XCTAssertEqual(rows[2][10], "unresolved-locus")
+        XCTAssertEqual(rows[3][3], "un-nameable")
+        XCTAssertEqual(rows[3][10], "unresolved-locus")
         XCTAssertEqual(rows[1].last, "ACGT")
-        XCTAssertEqual(rows[2].last, "TGCA")
+        XCTAssertEqual(rows[3].last, "TGCA")
+        let allValues = rows.flatMap { $0 }.joined(separator: "\t")
+        XCTAssertFalse(allValues.contains("_extension"), allValues)
+        XCTAssertNil(allValues.range(of: #"_[0-9]+SNP"#, options: .regularExpression), allValues)
+        let closestMatchIndex = try XCTUnwrap(rows[0].firstIndex(of: "closest_match_id"))
+        let matchClassIndex = try XCTUnwrap(rows[0].firstIndex(of: "match_class"))
+        let snpIndex = try XCTUnwrap(rows[0].firstIndex(of: "snp_differences"))
+        XCTAssertEqual(rows[1][closestMatchIndex], "Mafa-A1*018:01:01:01_5nt_nov")
+        XCTAssertEqual(rows[1][matchClassIndex], "novel")
+        XCTAssertEqual(rows[1][snpIndex], "5")
+        XCTAssertEqual(rows[2][closestMatchIndex], "Mafa-B*001:01_ext")
+        XCTAssertEqual(rows[2][matchClassIndex], "extension")
+        XCTAssertEqual(rows[3][closestMatchIndex], "")
+        XCTAssertEqual(rows[3][matchClassIndex], "un-nameable")
     }
 
     private func makeDocuments() -> (
@@ -235,7 +273,24 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             supportingSampleIDs: ["sample-a"],
             fastaRecordID: "cluster-u",
             sequenceSHA256: String(repeating: "f", count: 64),
-            evidence: [evidence]
+            evidence: [
+                ONTMHCEvidenceLocator(
+                    bamPath: "artifacts/alignments/z.bam",
+                    queryName: "cluster-u-z",
+                    referenceName: "ref-z",
+                    readGroupID: "sample-z",
+                    referenceStart: 90,
+                    cigar: "900M"
+                ),
+                ONTMHCEvidenceLocator(
+                    bamPath: "artifacts/alignments/a.bam",
+                    queryName: "cluster-u-a",
+                    referenceName: "ref-a",
+                    readGroupID: "sample-a",
+                    referenceStart: 10,
+                    cigar: "800M"
+                ),
+            ]
         )
         let unnameableDocument = ONTMHCUnnameableClustersDocument(
             schemaVersion: 1,

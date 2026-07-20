@@ -247,29 +247,35 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
         let header = [
             "Stable Cluster ID", "Reason", "Support Class", "Independent Sample Count", "Occurrence Count",
             "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256", "Failed Metrics",
-            "Evidence BAM Path", "Evidence Query Name", "Evidence Reference Name", "Evidence Read Group ID",
-            "Evidence Reference Start", "Evidence CIGAR", "Evidence Count",
+            "Evidence Ordinal", "Evidence Count", "Evidence BAM Path", "Evidence Query Name", "Evidence Reference Name",
+            "Evidence Read Group ID", "Evidence Reference Start", "Evidence CIGAR",
         ] + sampleOrder.map { "Sample Reads: \($0)" }
         var result = [header.map { FullLengthONTMHCWorkbookCell($0) }]
         for row in unnameableRows {
-            let first = row.evidence.first
-            var cells: [FullLengthONTMHCWorkbookCell] = [
-                .init(row.stableClusterID), .init(row.reason), .init(row.supportClass),
-                .init(row.independentSampleCount), .init(row.occurrenceCount), .init(row.totalClusterReads),
-                .init(row.supportingSampleIDs.joined(separator: ";")), .init(row.fastaRecordID),
-                .init(row.sequenceSHA256), .init(Self.metricText(row.failedMetrics)),
-                first.map { .init($0.bamPath) } ?? .blank,
-                first.map { .init($0.queryName) } ?? .blank,
-                first.map { .init($0.referenceName) } ?? .blank,
-                first?.readGroupID.map { FullLengthONTMHCWorkbookCell($0) } ?? .blank,
-                first.map { .init($0.referenceStart) } ?? .blank,
-                first.map { .init($0.cigar) } ?? .blank,
-                .init(row.evidence.count),
-            ]
-            cells.append(contentsOf: sampleOrder.map { sample in
-                row.readsBySample[sample].map { FullLengthONTMHCWorkbookCell($0) } ?? .blank
-            })
-            result.append(cells)
+            let evidenceRows: [(ordinal: Int?, locator: ONTMHCEvidenceLocator?)] = row.evidence.isEmpty
+                ? [(nil, nil)]
+                : row.evidence.enumerated().map { ($0.offset + 1, $0.element) }
+            for evidenceRow in evidenceRows {
+                let locator = evidenceRow.locator
+                var cells: [FullLengthONTMHCWorkbookCell] = [
+                    .init(row.stableClusterID), .init(row.reason), .init(row.supportClass),
+                    .init(row.independentSampleCount), .init(row.occurrenceCount), .init(row.totalClusterReads),
+                    .init(row.supportingSampleIDs.joined(separator: ";")), .init(row.fastaRecordID),
+                    .init(row.sequenceSHA256), .init(Self.metricText(row.failedMetrics)),
+                    evidenceRow.ordinal.map { FullLengthONTMHCWorkbookCell($0) } ?? .blank,
+                    .init(row.evidence.count),
+                    locator.map { .init($0.bamPath) } ?? .blank,
+                    locator.map { .init($0.queryName) } ?? .blank,
+                    locator.map { .init($0.referenceName) } ?? .blank,
+                    locator?.readGroupID.map { FullLengthONTMHCWorkbookCell($0) } ?? .blank,
+                    locator.map { .init($0.referenceStart) } ?? .blank,
+                    locator.map { .init($0.cigar) } ?? .blank,
+                ]
+                cells.append(contentsOf: sampleOrder.map { sample in
+                    row.readsBySample[sample].map { FullLengthONTMHCWorkbookCell($0) } ?? .blank
+                })
+                result.append(cells)
+            }
         }
         return result
     }
@@ -283,22 +289,35 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
         ]
         let candidatesByID = Dictionary(uniqueKeysWithValues: candidateRows.map { ($0.stableClusterID, $0) })
         let unnameableByID = Dictionary(uniqueKeysWithValues: unnameableRows.map { ($0.stableClusterID, $0) })
-        var result = [Self.inserting(metadataHeader, afterFirstCellOf: rows[0])]
+        let legacyHeader = rows[0]
+        var result = [Self.inserting(metadataHeader, afterFirstCellOf: legacyHeader)]
         result.append(contentsOf: rows.dropFirst().map { row in
             let id = row.first ?? ""
             let metadata: [String]
+            let authoritativeRow: [String]
             if let candidate = candidatesByID[id] {
                 metadata = [
                     candidate.provisionalName, candidate.locus, candidate.classification, candidate.supportClass,
                     String(candidate.snpCount), String(candidate.insertedBases), String(candidate.deletedBases),
                     String(candidate.longGapBases), candidate.closestReferenceName, "",
                 ]
+                authoritativeRow = Self.authoritativeLegacyRow(
+                    row,
+                    header: legacyHeader,
+                    candidate: candidate
+                )
             } else if let unnameable = unnameableByID[id] {
                 metadata = ["", "", "un-nameable", unnameable.supportClass, "", "", "", "", "", unnameable.reason]
+                authoritativeRow = Self.authoritativeLegacyRow(
+                    row,
+                    header: legacyHeader,
+                    unnameable: unnameable
+                )
             } else {
                 metadata = Array(repeating: "", count: metadataHeader.count)
+                authoritativeRow = Self.normalizingLegacyLabels(row, header: legacyHeader)
             }
-            return Self.inserting(metadata, afterFirstCellOf: row)
+            return Self.inserting(metadata, afterFirstCellOf: authoritativeRow)
         })
         return result
     }
@@ -374,6 +393,83 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
     private static func inserting(_ values: [String], afterFirstCellOf row: [String]) -> [String] {
         guard let first = row.first else { return values }
         return [first] + values + row.dropFirst()
+    }
+
+    private static func authoritativeLegacyRow(
+        _ row: [String],
+        header: [String],
+        candidate: FullLengthONTMHCCandidateWorkbookRow
+    ) -> [String] {
+        replacingLegacyFields(in: row, header: header) { field, original in
+            switch field {
+            case "match_source": "reciprocal-minimap2"
+            case "closest_match_id": candidate.provisionalName
+            case "closest_reference": candidate.closestReferenceName
+            case "match_class": candidate.classification
+            case "nucleotides_different", "snp_differences": String(candidate.snpCount)
+            case "indel_bases": String(candidate.insertedBases + candidate.deletedBases)
+            case "aligned_bases": String(candidate.comparableBases)
+            case "score": String(candidate.alignmentScore)
+            case "percent_identity": decimalText(candidate.identity * 100)
+            case "query_coverage": decimalText(candidate.shorterCoverage * 100)
+            case "evalue", "bitscore": ""
+            default: normalizedLegacyLabel(original)
+            }
+        }
+    }
+
+    private static func authoritativeLegacyRow(
+        _ row: [String],
+        header: [String],
+        unnameable: FullLengthONTMHCUnnameableWorkbookRow
+    ) -> [String] {
+        replacingLegacyFields(in: row, header: header) { field, original in
+            switch field {
+            case "match_source": "reciprocal-unnameable"
+            case "match_class": "un-nameable"
+            case "closest_match_id", "closest_reference", "nucleotides_different", "snp_differences",
+                 "indel_bases", "aligned_bases", "score", "percent_identity", "query_coverage", "evalue", "bitscore": ""
+            default: normalizedLegacyLabel(original)
+            }
+        }
+    }
+
+    private static func normalizingLegacyLabels(_ row: [String], header: [String]) -> [String] {
+        let originalMatchID = header.firstIndex(of: "closest_match_id").flatMap { row.indices.contains($0) ? row[$0] : nil }
+        return replacingLegacyFields(in: row, header: header) { field, original in
+            if field == "match_class", let originalMatchID {
+                if originalMatchID.range(of: #"_0SNP$"#, options: .regularExpression) != nil { return "exact" }
+                if originalMatchID.range(of: #"_[1-9][0-9]*SNP$"#, options: .regularExpression) != nil { return "novel" }
+                if originalMatchID.hasSuffix("_extension") { return "extension" }
+            }
+            return normalizedLegacyLabel(original)
+        }
+    }
+
+    private static func replacingLegacyFields(
+        in row: [String],
+        header: [String],
+        transform: (_ field: String, _ value: String) -> String
+    ) -> [String] {
+        row.enumerated().map { index, value in
+            transform(header.indices.contains(index) ? header[index] : "", value)
+        }
+    }
+
+    private static func normalizedLegacyLabel(_ value: String) -> String {
+        var result = value.replacingOccurrences(of: "_extension", with: "_ext")
+        guard let regex = try? NSRegularExpression(pattern: #"_([0-9]+)SNP"#) else { return result }
+        while let match = regex.firstMatch(in: result, range: NSRange(result.startIndex..., in: result)),
+              let fullRange = Range(match.range(at: 0), in: result),
+              let countRange = Range(match.range(at: 1), in: result),
+              let count = Int(result[countRange]) {
+            result.replaceSubrange(fullRange, with: count == 0 ? "" : "_\(count)nt_nov")
+        }
+        return result
+    }
+
+    private static func decimalText(_ value: Double) -> String {
+        String(format: "%.12g", locale: Locale(identifier: "en_US_POSIX"), value)
     }
 
     private static func evidenceLess(_ lhs: ONTMHCEvidenceLocator, _ rhs: ONTMHCEvidenceLocator) -> Bool {

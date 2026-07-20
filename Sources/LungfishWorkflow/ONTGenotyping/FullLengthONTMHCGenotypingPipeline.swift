@@ -5239,7 +5239,11 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
         ).enumerated().map { rowIndex, row in
             let tint = rowIndex == 0 || row.count < 3 ? nil : tintsByStableID[row[1]]
             return row.enumerated().map { columnIndex, value in
-                FullLengthONTMHCWorkbookCell(value, tint: columnIndex == 2 ? tint : nil)
+                if rowIndex > 0, columnIndex >= 9 {
+                    if value.isEmpty { return .blank }
+                    if let number = Int(value) { return FullLengthONTMHCWorkbookCell(number) }
+                }
+                return FullLengthONTMHCWorkbookCell(value, tint: columnIndex == 2 ? tint : nil)
             }
         }
     }
