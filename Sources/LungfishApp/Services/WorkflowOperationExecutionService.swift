@@ -526,7 +526,8 @@ final class WorkflowOperationExecutionService {
         _ request: FullLengthONTMHCGenotypingRunRequest,
         routeContext: OperationRouteContext?
     ) async throws -> [URL] {
-        try fileManager.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
+        let outputParentDirectory = request.outputDirectory.deletingLastPathComponent()
+        try fileManager.createDirectory(at: outputParentDirectory, withIntermediateDirectories: true)
         let arguments = fullLengthONTMHCGenotypingArguments(for: request)
         let cliCommand = ViralReconWorkflowCommandPreview.build(
             executableName: CLICommandIdentity.executableName,
@@ -550,7 +551,7 @@ final class WorkflowOperationExecutionService {
         do {
             let result = try await processRunner.runLungfishCLI(
                 arguments: arguments,
-                workingDirectory: request.outputDirectory,
+                workingDirectory: outputParentDirectory,
                 outputHandler: { [operationCenter] output in
                     Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
                 }
