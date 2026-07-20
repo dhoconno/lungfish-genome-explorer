@@ -1103,8 +1103,15 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertNotNil(failureEnvelope.runtimeIdentity)
         XCTAssertFalse(failureEnvelope.steps.isEmpty)
         XCTAssertFalse(failureEnvelope.outputs.isEmpty)
+        XCTAssertEqual(
+            failureEnvelope.options.resolvedDefaults["retainedDiagnosticCount"],
+            .integer(failureEnvelope.outputs.count)
+        )
         for output in failureEnvelope.outputs {
             XCTAssertTrue(FileManager.default.fileExists(atPath: output.path), output.path)
+            var information = stat()
+            XCTAssertEqual(Darwin.lstat(output.path, &information), 0, output.path)
+            XCTAssertEqual(information.st_mode & S_IFMT, S_IFREG, output.path)
             XCTAssertNotNil(output.checksumSHA256, output.path)
             XCTAssertNotNil(output.fileSize, output.path)
         }
@@ -1232,6 +1239,47 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         XCTAssertEqual(try directoryFileSnapshot(replacementRequest.outputDirectory), priorSnapshot)
         XCTAssertTrue(FileManager.default.fileExists(atPath: replacementRequest.manifestURL.path))
+    }
+
+    func testEarlyPostPublishFailureRecordsSuccessfulPublicationAndRollbackExactlyOnce() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-early-post-publish-receipt-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .resultBundlePublishedBeforeReceipt = event else { return }
+                throw NSError(domain: "injected-early-post-publish", code: 37)
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected early post-publication failure")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, "injected-early-post-publish")
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        let publications = envelope.steps.filter {
+            $0.toolName == "lungfish-internal publish-result-bundle"
+        }
+        let rollbacks = envelope.steps.filter {
+            $0.toolName == "lungfish-internal rollback-result-bundle"
+        }
+        XCTAssertEqual(publications.count, 1)
+        XCTAssertEqual(publications.first?.exitStatus, 0)
+        XCTAssertFalse(try XCTUnwrap(publications.first).inputs.isEmpty)
+        XCTAssertFalse(try XCTUnwrap(publications.first).outputs.isEmpty)
+        XCTAssertTrue(try XCTUnwrap(publications.first).outputs.allSatisfy {
+            $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertEqual(rollbacks.count, 1)
+        XCTAssertEqual(rollbacks.first?.exitStatus, 0)
+        XCTAssertTrue(try XCTUnwrap(rollbacks.first).argv.contains("remove-published-generation"))
     }
 
     func testFailedReplacementAfterCandidateAndProvenanceWorkLeavesPriorBundleByteForByteUnchanged() async throws {
@@ -1904,6 +1952,14 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(failureEnvelope.steps.contains { $0.toolName == "minimap2" })
         XCTAssertTrue(failureEnvelope.steps.contains { $0.toolName == "samtools" })
         XCTAssertTrue(failureEnvelope.steps.contains { $0.toolName.contains("classif") })
+        XCTAssertEqual(
+            failureEnvelope.steps.filter { $0.toolName == "lungfish-internal publish-result-bundle" }.count,
+            1
+        )
+        XCTAssertEqual(
+            failureEnvelope.steps.filter { $0.toolName == "lungfish-internal rollback-result-bundle" }.count,
+            1
+        )
         XCTAssertFalse(failureEnvelope.options.resolvedDefaults.isEmpty)
     }
 
@@ -1978,13 +2034,19 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty)
         XCTAssertEqual(envelope.options.resolvedDefaults["outcome"]?.stringValue, "failed")
         XCTAssertFalse(envelope.files.isEmpty)
-        XCTAssertFalse(envelope.outputs.isEmpty)
+        XCTAssertTrue(envelope.outputs.isEmpty)
+        XCTAssertEqual(envelope.options.resolvedDefaults["retainedDiagnosticCount"], .integer(0))
         XCTAssertTrue(envelope.files.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
-        XCTAssertTrue(envelope.outputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+        for output in envelope.outputs {
+            var information = stat()
+            XCTAssertEqual(Darwin.lstat(output.path, &information), 0, output.path)
+            XCTAssertEqual(information.st_mode & S_IFMT, S_IFREG, output.path)
+        }
         XCTAssertNotEqual(envelope.exitStatus, 0)
         XCTAssertFalse((envelope.stderr ?? "").isEmpty)
         let step = try XCTUnwrap(envelope.steps.first { $0.toolName == "lungfish-internal publish-result-bundle" })
         XCTAssertNotEqual(step.exitStatus, 0)
+        XCTAssertFalse(step.outputs.isEmpty, "Attempted publication outputs belong on the failed step only.")
         let legacyReceipt = root.appendingPathComponent(
             ".\(request.outputDirectory.lastPathComponent).publication-failure.json"
         )
