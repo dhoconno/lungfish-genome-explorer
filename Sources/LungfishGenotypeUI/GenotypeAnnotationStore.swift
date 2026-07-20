@@ -473,7 +473,9 @@ public final class GenotypeAnnotationStore {
 
     private func mhcCandidateDisplaySummary(_ display: ONTMHCCandidateDisplaySettings) -> String {
         let tintSummary = ONTMHCCandidateTintCategory.allCases.map { category in
-            "\(category.rawValue)=\(display.tints[category]?.hexString ?? "missing")"
+            let color = display.tints[category]
+                ?? ONTMHCCandidateDisplaySettings.defaultTints[category]!
+            return "\(category.rawValue)=\(mhcCandidateTintSummary(color))"
         }.joined(separator: ",")
         return [
             "showKnown=\(display.showKnown)",
@@ -481,6 +483,10 @@ public final class GenotypeAnnotationStore {
             "showSingletonCandidates=\(display.showSingletonCandidates)",
             tintSummary,
         ].joined(separator: "; ")
+    }
+
+    private func mhcCandidateTintSummary(_ color: AnnotationColor) -> String {
+        "{red=\(color.red),green=\(color.green),blue=\(color.blue),alpha=\(color.alpha),hexRGB=\(color.hexString)}"
     }
 
     private func smartCohortSummary(_ cohort: GenotypeCohortSmartFilter) -> String {
@@ -708,17 +714,26 @@ public final class GenotypeAnnotationStore {
                 "showSingletonCandidates": .boolean(display.showSingletonCandidates),
                 "candidateTints": .dictionary(Dictionary(uniqueKeysWithValues:
                     ONTMHCCandidateTintCategory.allCases.map { category in
-                        (
+                        let color = display.tints[category]
+                            ?? ONTMHCCandidateDisplaySettings.defaultTints[category]!
+                        return (
                             category.rawValue,
-                            ParameterValue.string(
-                                display.tints[category]?.hexString
-                                    ?? ONTMHCCandidateDisplaySettings.defaultTints[category]!.hexString
-                            )
+                            mhcCandidateTintParameterValue(color)
                         )
                     }
                 )),
             ]
         )
+    }
+
+    private func mhcCandidateTintParameterValue(_ color: AnnotationColor) -> ParameterValue {
+        .dictionary([
+            "red": .number(color.red),
+            "green": .number(color.green),
+            "blue": .number(color.blue),
+            "alpha": .number(color.alpha),
+            "hexRGB": .string(color.hexString),
+        ])
     }
 
     private func matrixTargetParameterValue(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> ParameterValue {

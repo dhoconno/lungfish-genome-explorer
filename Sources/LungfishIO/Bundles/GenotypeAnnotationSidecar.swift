@@ -102,7 +102,12 @@ public struct ONTMHCCandidateDisplaySettings: Codable, Equatable, Sendable {
         var normalized = defaultTints
         for category in ONTMHCCandidateTintCategory.allCases {
             if let tint = tints[category] {
-                normalized[category] = tint
+                normalized[category] = AnnotationColor(
+                    red: tint.red,
+                    green: tint.green,
+                    blue: tint.blue,
+                    alpha: tint.alpha
+                )
             }
         }
         return normalized

@@ -23,8 +23,11 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
         sidecar.settings.mhcCandidateDisplay.showKnown = false
         sidecar.settings.mhcCandidateDisplay.showSingletonCandidates = false
-        sidecar.settings.mhcCandidateDisplay.tints[.sharedNovel] = try XCTUnwrap(
-            AnnotationColor(hex: "#123456")
+        sidecar.settings.mhcCandidateDisplay.tints[.sharedNovel] = AnnotationColor(
+            red: 0.123456789012345,
+            green: 0.234567890123456,
+            blue: 0.345678901234567,
+            alpha: 0.456789012345678
         )
 
         let decoded = try GenotypeAnnotationSidecar.decode(sidecar.encoded())

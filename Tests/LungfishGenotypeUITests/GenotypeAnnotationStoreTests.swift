@@ -378,10 +378,10 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         display.showSharedCandidates = true
         display.showSingletonCandidates = false
         display.tints = [
-            .sharedNovel: try XCTUnwrap(AnnotationColor(hex: "#112233")),
-            .singletonNovel: try XCTUnwrap(AnnotationColor(hex: "#223344")),
-            .sharedExtension: try XCTUnwrap(AnnotationColor(hex: "#334455")),
-            .singletonExtension: try XCTUnwrap(AnnotationColor(hex: "#445566")),
+            .sharedNovel: AnnotationColor(red: 0.123456789012345, green: 0.234567890123456, blue: 0.345678901234567, alpha: 0.456789012345678),
+            .singletonNovel: AnnotationColor(red: 0.223456789012345, green: 0.334567890123456, blue: 0.445678901234567, alpha: 0.556789012345678),
+            .sharedExtension: AnnotationColor(red: 0.323456789012345, green: 0.434567890123456, blue: 0.545678901234567, alpha: 0.656789012345678),
+            .singletonExtension: AnnotationColor(red: 0.423456789012345, green: 0.534567890123456, blue: 0.645678901234567, alpha: 0.756789012345678),
         ]
 
         try store.updateMHCCandidateDisplaySettings(display)
@@ -394,10 +394,34 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["showSharedCandidates"], .boolean(true))
         XCTAssertEqual(envelope.options.explicit["showSingletonCandidates"], .boolean(false))
         XCTAssertEqual(envelope.options.explicit["candidateTints"], .dictionary([
-            "sharedNovel": .string("#112233"),
-            "singletonNovel": .string("#223344"),
-            "sharedExtension": .string("#334455"),
-            "singletonExtension": .string("#445566"),
+            "sharedNovel": .dictionary([
+                "red": .number(0.123456789012345),
+                "green": .number(0.234567890123456),
+                "blue": .number(0.345678901234567),
+                "alpha": .number(0.456789012345678),
+                "hexRGB": .string("#1F3B58"),
+            ]),
+            "singletonNovel": .dictionary([
+                "red": .number(0.223456789012345),
+                "green": .number(0.334567890123456),
+                "blue": .number(0.445678901234567),
+                "alpha": .number(0.556789012345678),
+                "hexRGB": .string("#385571"),
+            ]),
+            "sharedExtension": .dictionary([
+                "red": .number(0.323456789012345),
+                "green": .number(0.434567890123456),
+                "blue": .number(0.545678901234567),
+                "alpha": .number(0.656789012345678),
+                "hexRGB": .string("#526E8B"),
+            ]),
+            "singletonExtension": .dictionary([
+                "red": .number(0.423456789012345),
+                "green": .number(0.534567890123456),
+                "blue": .number(0.645678901234567),
+                "alpha": .number(0.756789012345678),
+                "hexRGB": .string("#6B88A4"),
+            ]),
         ]))
         XCTAssertEqual(envelope.outputs.first?.path, annotationURL.path)
         XCTAssertEqual(
@@ -405,7 +429,9 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             try ProvenanceFileDescriptor.file(url: annotationURL, format: .json, role: .output).checksumSHA256
         )
         XCTAssertEqual(store.sidecar.auditLog.last?.action, "updateMHCCandidateDisplaySettings")
-        XCTAssertTrue(store.sidecar.auditLog.last?.after?.contains("sharedNovel=#112233") == true)
+        XCTAssertTrue(store.sidecar.auditLog.last?.after?.contains(
+            "sharedNovel={red=0.123456789012345,green=0.234567890123456,blue=0.345678901234567,alpha=0.456789012345678,hexRGB=#1F3B58}"
+        ) == true)
     }
 
     func testUpdateMHCCandidateDisplaySettingsRollsBackWhenAtomicSidecarWriteFails() throws {
