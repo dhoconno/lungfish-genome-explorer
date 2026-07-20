@@ -89,6 +89,11 @@ public struct GenotypeWorkbookRevisionProvenanceContext: Equatable, Sendable {
 }
 
 public struct GenotypeWorkbookRevisionService {
+    private enum WorkbookPublicationMechanism {
+        case renameSwap
+        case journaledThreeRename
+    }
+
     private struct SourceWorkbookWitness {
         let device: dev_t
         let inode: ino_t
@@ -153,7 +158,8 @@ public struct GenotypeWorkbookRevisionService {
     private let forceBundleCloneFallback: Bool
     private let bundleCopyPrimitive: (@Sendable (URL, URL, UInt32) -> Int32)?
     private let workbookAttestationRootURL: URL?
-    private let directorySwapPrimitive: (@Sendable (URL, URL) -> Int32)?
+    private let directorySwapPrimitive: ONTGenotypeDirectoryRenamePrimitive?
+    private let directoryMovePrimitive: ONTGenotypeDirectoryRenamePrimitive?
     private let workbookAtomicRenamePrimitive: ONTGenotypeAtomicRenamePrimitive?
 
     public init(
@@ -166,7 +172,8 @@ public struct GenotypeWorkbookRevisionService {
         forceBundleCloneFallback: Bool = false,
         bundleCopyPrimitive: (@Sendable (URL, URL, UInt32) -> Int32)? = nil,
         workbookAttestationRootURL: URL? = nil,
-        directorySwapPrimitive: (@Sendable (URL, URL) -> Int32)? = nil,
+        directorySwapPrimitive: ONTGenotypeDirectoryRenamePrimitive? = nil,
+        directoryMovePrimitive: ONTGenotypeDirectoryRenamePrimitive? = nil,
         workbookAtomicRenamePrimitive: ONTGenotypeAtomicRenamePrimitive? = nil
     ) {
         self.fileManager = fileManager
@@ -179,6 +186,7 @@ public struct GenotypeWorkbookRevisionService {
         self.bundleCopyPrimitive = bundleCopyPrimitive
         self.workbookAttestationRootURL = workbookAttestationRootURL
         self.directorySwapPrimitive = directorySwapPrimitive
+        self.directoryMovePrimitive = directoryMovePrimitive
         self.workbookAtomicRenamePrimitive = workbookAtomicRenamePrimitive
     }
 
@@ -462,6 +470,10 @@ public struct GenotypeWorkbookRevisionService {
             transactionRootIdentity: try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(
                 for: stageDirectory,
                 path: stageDirectory.path
+            ),
+            finalParentIdentity: try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(
+                for: bundle.deletingLastPathComponent(),
+                path: bundle.deletingLastPathComponent().path
             )
         )
         guard workbookTransaction.oldManifest != workbookTransaction.newManifest,
@@ -521,7 +533,7 @@ public struct GenotypeWorkbookRevisionService {
             workbookTransaction,
             for: bundle
         )
-        try exchangeDirectoriesNoSync(
+        let publicationMechanism = try exchangeDirectoriesNoSync(
             cloneBundleURL,
             bundle,
             transaction: workbookTransaction,
@@ -532,6 +544,15 @@ public struct GenotypeWorkbookRevisionService {
             workbookTransaction,
             for: bundle
         )
+        let retiredOldWorkbookURL = cloneBundleURL.appendingPathComponent(
+            workbookTransaction.oldCurrentWorkbook.path
+        )
+        func requireRetiredOldWorkbookUnchanged() throws {
+            try requireUnchangedRegularFileNoFollow(
+                retiredOldWorkbookURL,
+                witness: sourceWorkbookWitness
+            )
+        }
         try syncDirectory(bundle.deletingLastPathComponent())
         let publicationCompletedAt = Date()
         do {
@@ -541,6 +562,7 @@ public struct GenotypeWorkbookRevisionService {
         }
         var finalManifestCommitted = false
         do {
+            try requireRetiredOldWorkbookUnchanged()
             try publicationFailureInjector?("post-exchange")
             try publicationFailureInjector?("before-final-provenance")
             let finalProvenanceURL = ONTGenotypeResultBundle.resolvedURL(for: provenancePath, in: bundle)
@@ -549,17 +571,42 @@ public struct GenotypeWorkbookRevisionService {
                 bundleURL: bundle,
                 workflowStartedAt: workflowStartedAt,
                 publicationStartedAt: publicationStartedAt,
-                publicationCompletedAt: publicationCompletedAt
+                publicationCompletedAt: publicationCompletedAt,
+                mechanism: publicationMechanism
             )
             try syncFile(finalProvenanceURL)
             try syncDirectoryTree(bundle)
             try publicationFailureInjector?("before-revision-manifest")
+            try requireRetiredOldWorkbookUnchanged()
             let finalManifestURL = ONTGenotypeResultBundle.manifestURL(in: bundle)
             try revisedManifestData.write(to: finalManifestURL, options: .atomic)
             try syncFile(finalManifestURL)
             try syncDirectory(bundle)
             finalManifestCommitted = true
             try publicationFailureInjector?("after-revision-manifest-hard-stop")
+            do {
+                try requireRetiredOldWorkbookUnchanged()
+            } catch {
+                let manualEditConflict = error
+                _ = try exchangeDirectoriesNoSync(
+                    cloneBundleURL,
+                    bundle,
+                    transaction: workbookTransaction,
+                    protectedOldWorkbookURL: nil,
+                    protectedOldWorkbookWitness: nil
+                )
+                try ONTGenotypeWorkbookUpdateRecovery.validatePreparedDirectoryIdentitiesAssumingLock(
+                    workbookTransaction,
+                    for: bundle
+                )
+                try syncDirectory(bundle.deletingLastPathComponent())
+                try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                    for: bundle,
+                    attestationRootURL: workbookAttestationRootURL
+                )
+                removeStageOnExit = false
+                throw manualEditConflict
+            }
             try ONTGenotypeWorkbookUpdateRecovery.finalizeCommittedTransactionAssumingLock(
                 workbookTransaction,
                 for: bundle,
@@ -570,20 +617,13 @@ public struct GenotypeWorkbookRevisionService {
         } catch {
             if finalManifestCommitted { throw error }
             let publicationError = error
-            workbookTransaction.phase = .rollingBack
-            try ONTGenotypeWorkbookUpdateRecovery.write(
-                workbookTransaction,
-                for: bundle,
-                attestationRootURL: workbookAttestationRootURL,
-                atomicRenamePrimitive: workbookAtomicRenamePrimitive
-            )
             do {
                 try publicationFailureInjector?("before-rollback-exchange")
                 try ONTGenotypeWorkbookUpdateRecovery.validateExchangedDirectoryIdentitiesAssumingLock(
                     workbookTransaction,
                     for: bundle
                 )
-                try exchangeDirectoriesNoSync(
+                _ = try exchangeDirectoriesNoSync(
                     cloneBundleURL,
                     bundle,
                     transaction: workbookTransaction,
@@ -595,13 +635,6 @@ public struct GenotypeWorkbookRevisionService {
                     for: bundle
                 )
             } catch let rollbackError {
-                workbookTransaction.phase = .rollbackFailed
-                try ONTGenotypeWorkbookUpdateRecovery.write(
-                    workbookTransaction,
-                    for: bundle,
-                    attestationRootURL: workbookAttestationRootURL,
-                    atomicRenamePrimitive: workbookAtomicRenamePrimitive
-                )
                 let receiptURL = try retainWorkbookRollbackFailureGenerations(
                     liveBundleURL: bundle,
                     priorBundleURL: cloneBundleURL,
@@ -2039,18 +2072,22 @@ public struct GenotypeWorkbookRevisionService {
         transaction: ONTGenotypeWorkbookUpdateTransaction,
         protectedOldWorkbookURL: URL?,
         protectedOldWorkbookWitness: SourceWorkbookWitness?
-    ) throws {
+    ) throws -> WorkbookPublicationMechanism {
         try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(lhs, role: "staged workbook bundle")
         try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(rhs, role: "published workbook bundle")
-        let swap: @Sendable (URL, URL) -> Int32 = directorySwapPrimitive ?? { left, right in
-            Darwin.renameatx_np(AT_FDCWD, left.path, AT_FDCWD, right.path, UInt32(RENAME_SWAP))
-        }
-        if swap(lhs, rhs) == 0 { return }
-        let swapError = errno
-        guard swapError == ENOTSUP || swapError == EINVAL else {
-            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "Could not atomically publish workbook bundle transaction (errno \(swapError))."
-            )
+        let lhsIdentity = try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(for: lhs, path: lhs.path)
+        let rhsIdentity = try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(for: rhs, path: rhs.path)
+        if try ONTGenotypeWorkbookUpdateRecovery.swapDirectoriesAssumingLock(
+            transaction,
+            for: rhs,
+            lhs: lhs,
+            expectedLHS: lhsIdentity,
+            rhs: rhs,
+            expectedRHS: rhsIdentity,
+            attestationRootURL: workbookAttestationRootURL,
+            renamePrimitive: directorySwapPrimitive
+        ) {
+            return .renameSwap
         }
         let temporary = URL(
             fileURLWithPath: transaction.rotationTemporaryPath,
@@ -2065,19 +2102,14 @@ public struct GenotypeWorkbookRevisionService {
                 "Workbook publication rotation temporary path is invalid."
             )
         }
-        let lhsIdentity = try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(for: lhs, path: lhs.path)
-        let rhsIdentity = try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(for: rhs, path: rhs.path)
-        try requireAbsentNoFollow(temporary, role: "workbook publication rotation temporary")
-        try ONTGenotypeWorkbookUpdateRecovery.validateRecoveryAuthorityAssumingLock(
+        try ONTGenotypeWorkbookUpdateRecovery.moveDirectoryNoReplaceAssumingLock(
             transaction,
             for: rhs,
-            attestationRootURL: workbookAttestationRootURL
-        )
-        try renameDirectoryNoReplace(
-            lhs,
+            source: lhs,
             expected: lhsIdentity,
-            to: temporary,
-            destinationParentIdentity: transaction.transactionRootIdentity
+            destination: temporary,
+            attestationRootURL: workbookAttestationRootURL,
+            renamePrimitive: directoryMovePrimitive
         )
         try publicationFailureInjector?("after-rotation-stage-to-temporary-hard-stop")
         if let protectedOldWorkbookURL, let protectedOldWorkbookWitness {
@@ -2094,16 +2126,14 @@ public struct GenotypeWorkbookRevisionService {
                 throw error
             }
         }
-        try ONTGenotypeWorkbookUpdateRecovery.validateRecoveryAuthorityAssumingLock(
+        try ONTGenotypeWorkbookUpdateRecovery.moveDirectoryNoReplaceAssumingLock(
             transaction,
             for: rhs,
-            attestationRootURL: workbookAttestationRootURL
-        )
-        try renameDirectoryNoReplace(
-            rhs,
+            source: rhs,
             expected: rhsIdentity,
-            to: lhs,
-            destinationParentIdentity: transaction.transactionRootIdentity
+            destination: lhs,
+            attestationRootURL: workbookAttestationRootURL,
+            renamePrimitive: directoryMovePrimitive
         )
         try publicationFailureInjector?("after-rotation-final-to-stage-hard-stop")
         if let protectedOldWorkbookWitness {
@@ -2123,90 +2153,17 @@ public struct GenotypeWorkbookRevisionService {
                 throw error
             }
         }
-        try ONTGenotypeWorkbookUpdateRecovery.validateRecoveryAuthorityAssumingLock(
+        try ONTGenotypeWorkbookUpdateRecovery.moveDirectoryNoReplaceAssumingLock(
             transaction,
             for: rhs,
-            attestationRootURL: workbookAttestationRootURL
-        )
-        try renameDirectoryNoReplace(
-            temporary,
+            source: temporary,
             expected: lhsIdentity,
-            to: rhs,
-            destinationParentIdentity: try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(
-                for: rhs.deletingLastPathComponent(),
-                path: rhs.deletingLastPathComponent().path
-            )
+            destination: rhs,
+            attestationRootURL: workbookAttestationRootURL,
+            renamePrimitive: directoryMovePrimitive
         )
         try publicationFailureInjector?("after-rotation-temporary-to-final-hard-stop")
-    }
-
-    private func requireAbsentNoFollow(_ url: URL, role: String) throws {
-        var info = stat()
-        guard Darwin.lstat(url.path, &info) != 0 else {
-            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "\(role) already exists: \(url.path)"
-            )
-        }
-        guard errno == ENOENT else {
-            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "Could not inspect \(role): \(url.path) (errno \(errno))."
-            )
-        }
-    }
-
-    private func renameDirectoryNoReplace(
-        _ source: URL,
-        expected: ONTGenotypeWorkbookUpdateDirectoryIdentity,
-        to destination: URL,
-        destinationParentIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity
-    ) throws {
-        let actualSource = try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(
-            for: source,
-            path: source.path
-        )
-        guard actualSource.device == expected.device,
-              actualSource.inode == expected.inode else {
-            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "Workbook publication rotation source identity changed: \(source.path)"
-            )
-        }
-        let destinationParent = destination.deletingLastPathComponent()
-        let actualParent = try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(
-            for: destinationParent,
-            path: destinationParent.path
-        )
-        guard actualParent.device == destinationParentIdentity.device,
-              actualParent.inode == destinationParentIdentity.inode else {
-            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "Workbook publication rotation destination parent changed: \(destinationParent.path)"
-            )
-        }
-        try requireAbsentNoFollow(destination, role: "workbook publication rotation destination")
-        guard Darwin.renameatx_np(
-            AT_FDCWD,
-            source.path,
-            AT_FDCWD,
-            destination.path,
-            0
-        ) == 0 else {
-            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "Could not rotate workbook publication directory from \(source.path) to \(destination.path) (errno \(errno))."
-            )
-        }
-        let moved = try ONTGenotypeWorkbookUpdateRecovery.directoryIdentity(
-            for: destination,
-            path: destination.path
-        )
-        guard moved.device == expected.device, moved.inode == expected.inode else {
-            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "Workbook publication rotation destination identity is ambiguous: \(destination.path)"
-            )
-        }
-        try requireAbsentNoFollow(source, role: "retired workbook publication rotation source")
-        try syncDirectory(destinationParent)
-        if source.deletingLastPathComponent().standardizedFileURL != destinationParent.standardizedFileURL {
-            try syncDirectory(source.deletingLastPathComponent())
-        }
+        return .journaledThreeRename
     }
 
     private func appendFinalPublicationStep(
@@ -2214,16 +2171,23 @@ public struct GenotypeWorkbookRevisionService {
         bundleURL: URL,
         workflowStartedAt: Date,
         publicationStartedAt: Date,
-        publicationCompletedAt: Date
+        publicationCompletedAt: Date,
+        mechanism: WorkbookPublicationMechanism
     ) throws {
         let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: provenanceURL))
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: bundleURL)
         let outputs = [try ProvenanceFileDescriptor.file(url: currentURL, role: .output)]
+        let mechanismFields: (toolName: String, subcommand: String) = switch mechanism {
+        case .renameSwap:
+            ("lungfish-internal atomic workbook bundle exchange", "atomic-workbook-bundle-exchange")
+        case .journaledThreeRename:
+            ("lungfish-internal journaled three-rename workbook bundle rotation", "journaled-three-rename-workbook-bundle-rotation")
+        }
         let publicationStep = ProvenanceStep(
-            toolName: "lungfish-internal atomic workbook bundle exchange",
+            toolName: mechanismFields.toolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: [
-                "lungfish-internal", "atomic-workbook-bundle-exchange",
+                "lungfish-internal", mechanismFields.subcommand,
                 "--bundle", bundleURL.path,
             ],
             outputs: outputs,
