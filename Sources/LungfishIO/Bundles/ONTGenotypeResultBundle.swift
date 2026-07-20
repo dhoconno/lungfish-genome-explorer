@@ -1548,6 +1548,9 @@ public enum ONTGenotypeResultBundle {
     /// Synchronous loader retained for CLI and non-UI callers. This method may hash
     /// large declared BAM artifacts; AppKit call sites should use `loadResultAsync`.
     public static func loadResult(from bundleURL: URL) throws -> ONTGenotypeResultBundleData {
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL, blocking: true)
+        defer { publicationLock.release() }
+        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(for: bundleURL)
         let manifest = try loadManifest(from: bundleURL)
         return try loadResult(
             from: bundleURL,
@@ -1573,6 +1576,9 @@ public enum ONTGenotypeResultBundle {
         from bundleURL: URL,
         candidateArtifactByteBudget: Int64
     ) throws -> ONTGenotypeResultBundleData {
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL, blocking: true)
+        defer { publicationLock.release() }
+        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(for: bundleURL)
         let manifest = try loadManifest(from: bundleURL)
         return try loadResult(
             from: bundleURL,
@@ -1587,9 +1593,18 @@ public enum ONTGenotypeResultBundle {
         from bundleURL: URL,
         manifest: ONTGenotypeResultBundleManifest
     ) throws -> ONTGenotypeResultBundleData {
-        try loadResult(
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL, blocking: true)
+        defer { publicationLock.release() }
+        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(for: bundleURL)
+        let durableManifest = try loadManifest(from: bundleURL)
+        guard durableManifest == manifest else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.currentWorkbookIntegrity(
+                "The caller-supplied manifest is stale relative to the durable bundle manifest."
+            )
+        }
+        return try loadResult(
             from: bundleURL,
-            manifest: manifest,
+            manifest: durableManifest,
             candidateArtifactByteBudget: maximumCollectedCandidateArtifactBytes
         )
     }

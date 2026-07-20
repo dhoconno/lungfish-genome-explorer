@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 import LungfishIO
@@ -146,6 +147,58 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertNoThrow(try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL))
     }
 
+    func testDefaultBundleCopyPrimitiveReceivesRecursiveCloneNoFollowFlags() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "clone-flags")
+        let observedFlags = SendableFlagBox()
+
+        _ = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            bundleCopyPrimitive: { source, destination, copyFlags in
+                observedFlags.set(copyFlags)
+                return Darwin.copyfile(
+                    source.path,
+                    destination.path,
+                    nil,
+                    copyfile_flags_t(copyFlags)
+                )
+            }
+        ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        let expected = UInt32(
+            COPYFILE_ALL | COPYFILE_RECURSIVE | COPYFILE_CLONE | COPYFILE_NOFOLLOW | COPYFILE_EXCL
+        )
+        XCTAssertEqual(observedFlags.value, expected)
+        XCTAssertNoThrow(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+    }
+
+    func testNestedBundleSymlinkIsRejectedBeforeCopyPrimitiveRuns() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "clone-symlink")
+        let outside = root.appendingPathComponent("outside.txt")
+        try Data("outside".utf8).write(to: outside)
+        try FileManager.default.createSymbolicLink(
+            at: fixture.bundleURL.appendingPathComponent("artifacts/nested-unsafe-link"),
+            withDestinationURL: outside
+        )
+        let observedFlags = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                bundleCopyPrimitive: { _, _, flags in
+                    observedFlags.set(flags)
+                    return 1
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+
+        XCTAssertNil(observedFlags.value)
+        XCTAssertEqual(try Data(contentsOf: outside), Data("outside".utf8))
+    }
+
     func testMalformedCandidateArtifactFailsWithoutMutatingWorkbookOrManifest() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -259,6 +312,157 @@ wb.save(path)
         XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
     }
 
+    func testFreshLoaderRecoversHardStopImmediatelyAfterWorkbookExchange() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "hard-stop-recovery")
+        let before = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-exchange-hard-stop" else { return }
+                    throw NSError(domain: "SimulatedSIGKILL", code: 9)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertEqual((error as NSError).domain, "SimulatedSIGKILL")
+        }
+        let markerURL = root.appendingPathComponent(
+            ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+        let marker = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
+        )
+        XCTAssertEqual(marker["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(marker["phase"] as? String, "prepared")
+        XCTAssertEqual(marker["workflowName"] as? String, "Genotype Workbook Update")
+        XCTAssertFalse((marker["argv"] as? [String] ?? []).isEmpty)
+        XCTAssertNotNil(marker["oldManifest"] as? [String: Any])
+        XCTAssertNotNil(marker["newManifest"] as? [String: Any])
+        XCTAssertNotNil(marker["oldCurrentWorkbook"] as? [String: Any])
+        XCTAssertNotNil(marker["newCurrentWorkbook"] as? [String: Any])
+
+        _ = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: markerURL.path))
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
+            $0.contains("workbook-update-recovery") && $0.hasSuffix(".json")
+        })
+    }
+
+    func testFreshLoaderDiscardsProvenUnpublishedStageAfterPreExchangeHardStop() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "pre-exchange-hard-stop")
+        let before = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-transaction-marker-hard-stop" else { return }
+                    throw NSError(domain: "SimulatedSIGKILL", code: 9)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+
+        _ = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent(
+                ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
+            ).path
+        ))
+    }
+
+    func testAsyncLoaderFinishesCleanupAfterHardStopFollowingCommittedManifest() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "committed-hard-stop")
+        let priorRevisionCount = fixture.manifest.workbookRevisions?.count ?? 0
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-revision-manifest-hard-stop" else { return }
+                    throw NSError(domain: "SimulatedSIGKILL", code: 9)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        let markerURL = root.appendingPathComponent(
+            ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+
+        let loaded = try await ONTGenotypeResultBundle.loadResultAsync(from: fixture.bundleURL)
+
+        XCTAssertGreaterThan(loaded.manifest.workbookRevisions?.count ?? 0, priorRevisionCount)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: markerURL.path))
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
+    func testLoaderAllowsExternalCurrentWorkbookEditWhenNoTransactionIsActive() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "workbook-integrity")
+        _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+            .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        try Data("tampered-current-workbook".utf8).write(to: currentURL, options: .atomic)
+
+        let loaded = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        XCTAssertEqual(loaded.artifacts.workbookURL, currentURL)
+    }
+
+    func testAmbiguousHardStopRecoveryPreservesBothGenerationsAndFailsClosed() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "ambiguous-hard-stop")
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-exchange-hard-stop" else { return }
+                    throw NSError(domain: "SimulatedSIGKILL", code: 9)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        let markerURL = root.appendingPathComponent(
+            ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
+        )
+        let markerObject = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
+        )
+        let stagingPath = try XCTUnwrap(markerObject["stagingBundlePath"] as? String)
+        let stagingURL = URL(fileURLWithPath: stagingPath, isDirectory: true)
+        let stagingManifest = try ONTGenotypeResultBundle.loadManifest(from: stagingURL)
+        let stagingCurrentURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(stagingManifest.currentWorkbookPath),
+            in: stagingURL
+        )
+        try Data("ambiguous-generation".utf8).write(to: stagingCurrentURL, options: .atomic)
+        let finalBefore = try bundleSnapshot(fixture.bundleURL)
+        let stagingBefore = try bundleSnapshot(stagingURL)
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), finalBefore)
+        XCTAssertEqual(try bundleSnapshot(stagingURL), stagingBefore)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
+            $0.contains("workbook-update-recovery") && $0.hasSuffix(".json")
+        })
+    }
+
     func testPreManifestFailureRestoresEntireBundleWithOldManifestStillVisible() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -284,7 +488,7 @@ wb.save(path)
         XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
     }
 
-    func testRollbackFailureQuarantinesBothGenerationsAndNextRunRecoversPrior() throws {
+    func testRollbackFailureRetainsJournaledGenerationsAndNextRunRecoversPrior() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeMCMWorkbookBundle(in: root, outputName: "rollback-failure-recovery")
@@ -304,15 +508,21 @@ wb.save(path)
             ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
         )
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.bundleURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.bundleURL.path))
         let receiptURL = root.appendingPathComponent(
             ".\(fixture.bundleURL.lastPathComponent).workbook-update-failure.json"
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: receiptURL.path))
-        let recoveryEntries = try FileManager.default.contentsOfDirectory(atPath: root.path)
-            .filter { $0.contains("workbook-update-recovery") }
-        XCTAssertEqual(recoveryEntries.filter { $0.hasSuffix(".prior") }.count, 1)
-        XCTAssertEqual(recoveryEntries.filter { $0.hasSuffix(".failed") }.count, 1)
+        let markerURL = root.appendingPathComponent(
+            ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
+        )
+        let marker = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
+        )
+        XCTAssertEqual(marker["phase"] as? String, "rollbackFailed")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: try XCTUnwrap(marker["stagingBundlePath"] as? String)
+        ))
 
         _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
             .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
@@ -1282,6 +1492,7 @@ payload = {
     "firstOverrideRow": row_values("Overrides", 2, 9),
     "firstAuditRow": row_values("Audit Log", 2, 10),
 }
+
 legacy_fields = [
     "match_source", "closest_match_id", "closest_reference", "closest_reference_name", "match_class",
     "nucleotides_different", "snp_differences", "indel_bases", "aligned_bases", "score",
@@ -1698,7 +1909,7 @@ print(json.dumps(payload))
         let prefix = ".\(bundleURL.lastPathComponent).workbook-update-"
         XCTAssertFalse(
             try FileManager.default.contentsOfDirectory(atPath: parent.path)
-                .contains(where: { $0.hasPrefix(prefix) })
+                .contains(where: { $0.hasPrefix(prefix) && $0.hasSuffix(".staging") })
         )
     }
 
@@ -1719,4 +1930,12 @@ print(json.dumps(payload))
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
+}
+
+private final class SendableFlagBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: UInt32?
+
+    var value: UInt32? { lock.withLock { stored } }
+    func set(_ value: UInt32) { lock.withLock { stored = value } }
 }
