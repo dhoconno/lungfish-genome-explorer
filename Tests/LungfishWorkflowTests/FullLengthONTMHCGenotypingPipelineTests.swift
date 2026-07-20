@@ -436,6 +436,14 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(reciprocal.bai.path, "artifacts/alignments/unmatched-to-reference.bam.bai")
         let candidateJSON = try XCTUnwrap(manifest.mhcCandidateArtifacts?.candidateJSON)
         XCTAssertEqual(candidateJSON.path, "candidate-alleles.json")
+        let candidateDocument = try JSONDecoder().decode(
+            ONTMHCCandidateAllelesDocument.self,
+            from: Data(contentsOf: outputDirectory.appendingPathComponent(candidateJSON.path))
+        )
+        XCTAssertEqual(candidateDocument.inputs.map(\.path), [
+            referenceFASTA.path,
+            "deduplicated_unmatched_clusters.fasta",
+        ])
         for reference in [
             reciprocal.bam, reciprocal.bai, candidateJSON,
             try XCTUnwrap(manifest.mhcCandidateArtifacts?.candidateFASTA),
@@ -721,11 +729,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("forced final BAM view failure"))
         }
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: request.manifestURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: request.provenanceURL.path))
-        let cohortWorkDirectory = request.outputDirectory
-            .deletingLastPathComponent()
-            .appendingPathComponent(".\(request.outputDirectory.lastPathComponent).cohort-alignment-work")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
+        let cohortWorkDirectory = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).first {
+                $0.lastPathComponent.contains(".run-staging-")
+                    && $0.lastPathComponent.hasSuffix(".cohort-alignment-work")
+            }
+        )
         let retainedBAMs = try FileManager.default.subpathsOfDirectory(atPath: cohortWorkDirectory.path)
             .filter { $0.hasSuffix(".bam") }
         XCTAssertFalse(retainedBAMs.isEmpty, "Final-view failure must retain per-sample BAM diagnostics.")
@@ -749,13 +759,102 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         }
 
         XCTAssertTrue(observation.observedProvenanceBoundary)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: request.manifestURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: request.provenanceURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
         let stagedManifestURL = try XCTUnwrap(observation.stagedManifestURL)
         XCTAssertFalse(FileManager.default.fileExists(atPath: stagedManifestURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: request.outputDirectory.appendingPathComponent("artifacts/alignments/genotyping-evidence.bam").path
-        ))
+    }
+
+    func testFailedReplacementAfterCandidateAndProvenanceWorkLeavesPriorBundleByteForByteUnchanged() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-atomic-replacement-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, initialPipeline) = try makeFakeFullLengthRun(root: root)
+        _ = try await initialPipeline.run(request)
+
+        let bundleBefore = try directoryFileSnapshot(request.outputDirectory)
+
+        let (_, failingPipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .provenanceWrittenBeforeManifestPublication = event else { return }
+                throw NSError(domain: "injected-replacement", code: 19)
+            }
+        )
+        do {
+            _ = try await failingPipeline.run(request)
+            XCTFail("Expected injected replacement failure")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, "injected-replacement")
+        }
+
+        XCTAssertEqual(try directoryFileSnapshot(request.outputDirectory), bundleBefore)
+    }
+
+    func testFailureImmediatelyAfterCandidateArtifactsLeavesNoVisibleResultBundle() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-post-candidate-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .candidateArtifactsStaged = event else { return }
+                throw NSError(domain: "injected-post-candidate", code: 23)
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected injected post-candidate failure")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, "injected-post-candidate")
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
+    }
+
+    func testCancellationImmediatelyAfterCandidateArtifactsLeavesPriorBundleByteForByteUnchanged() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-post-candidate-cancel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, initialPipeline) = try makeFakeFullLengthRun(root: root)
+        _ = try await initialPipeline.run(request)
+        let bundleBefore = try directoryFileSnapshot(request.outputDirectory)
+        let (_, cancellingPipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .candidateArtifactsStaged = event else { return }
+                throw CancellationError()
+            }
+        )
+
+        do {
+            _ = try await cancellingPipeline.run(request)
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("Expected CancellationError, received \(error)")
+        }
+
+        XCTAssertEqual(try directoryFileSnapshot(request.outputDirectory), bundleBefore)
+    }
+
+    func testSuccessfulReplacementAtomicallyPublishesCompleteBundleAndRemovesRetiredGeneration() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-successful-atomic-replacement-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(root: root)
+        _ = try await pipeline.run(request)
+        let provenanceBefore = try Data(contentsOf: request.provenanceURL)
+
+        let result = try await pipeline.run(request)
+
+        XCTAssertNotEqual(try Data(contentsOf: request.provenanceURL), provenanceBefore)
+        try assertSuccessfulPublishedEvidence(result: result, request: request)
+        let siblings = try FileManager.default.contentsOfDirectory(
+            at: request.outputDirectory.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertFalse(siblings.contains { $0.lastPathComponent.contains(".run-staging-") })
     }
 
     func testConcurrentSameOutputRunIsRejectedBeforeTouchingPriorResult() async throws {
@@ -896,6 +995,39 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.genotypingEvidenceBAMURL!.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.genotypingEvidenceBAIURL!.path))
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateReciprocalMappingPreset"]?.stringValue, "asm20")
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateMinimumAlignedBases"]?.integerValue, 1_000)
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateMinimumIdentity"]?.numberValue, 0.75)
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateMinimumShorterCoverage"]?.numberValue, 0.70)
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateMinimumIntronGapBases"]?.integerValue, 20)
+        XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateNovelDistanceMetric"]?.stringValue, "SNP-substitutions-only")
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["mhcResultBundleAtomicPublication"]?.stringValue,
+            "adjacent-directory-renameatx_np"
+        )
+        let candidateProvenanceNames = Set(envelope.steps.map(\.toolName))
+        XCTAssertTrue(candidateProvenanceNames.isSuperset(of: [
+            "lungfish-in-process:import-mhc-reference-catalog",
+            "lungfish-in-process:construct-stable-unmatched-cluster-fasta",
+            "lungfish-in-process:parse-and-classify-reciprocal-mhc-alignments",
+            "lungfish-in-process:render-mhc-candidate-fasta",
+            "lungfish-in-process:render-mhc-unnameable-fasta",
+            "lungfish-in-process:render-mhc-candidate-json",
+            "lungfish-in-process:render-mhc-unnameable-json",
+            "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
+            "lungfish-internal:publish-mhc-candidate-artifacts",
+        ]))
+        let candidatePublicationStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-internal:publish-mhc-candidate-artifacts"
+        })
+        XCTAssertTrue(candidatePublicationStep.outputs.allSatisfy {
+            $0.path.hasPrefix(request.outputDirectory.path + "/")
+        })
+        let resultPublicationStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-internal plan-success-result-bundle-publication"
+        })
+        XCTAssertTrue(resultPublicationStep.argv.contains("renameatx_np"))
+        XCTAssertTrue(resultPublicationStep.argv.contains("create"))
         let mappingStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName == "lungfish-internal plan-success-manifest-publication"
         })
@@ -2160,6 +2292,19 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         XCTAssertEqual(records.map(\.name), ["Mamu-A1*001", "Mamu-B*007"])
         XCTAssertEqual(records.map(\.sequence), ["ACGTTGCA", "TTTT"])
+    }
+
+    private func directoryFileSnapshot(_ directoryURL: URL) throws -> [String: Data] {
+        let paths = try FileManager.default.subpathsOfDirectory(atPath: directoryURL.path).sorted()
+        var snapshot: [String: Data] = [:]
+        for path in paths {
+            let url = directoryURL.appendingPathComponent(path)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else { continue }
+            snapshot[path] = try Data(contentsOf: url)
+        }
+        return snapshot
     }
 
     private static func writeGzip(_ content: String, to gzipURL: URL) throws {

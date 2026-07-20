@@ -68,10 +68,12 @@ public struct FullLengthONTMHCCandidateArtifactResult: Sendable, Equatable {
     public let unnameableFASTAURL: URL
     public let unnameableJSONURL: URL
     public let manifest: ONTMHCCandidateArtifactManifest
+    public let classifiedClusters: [FullLengthONTMHCCandidateCluster]
     public let classifications: [FullLengthONTMHCCandidateClassificationResult]
     public let commandRecords: [FullLengthONTMHCCohortAlignmentCommandRecord]
     public let toolVersions: [FullLengthONTMHCToolVersionRecord]
     public let toolVersionDiscoveryRecords: [FullLengthONTMHCCohortAlignmentCommandRecord]
+    public let transformationRecords: [FullLengthONTMHCInProcessTransformationRecord]
     public let runtimeIdentity: ProvenanceRuntimeIdentity
 
     public var allArtifactReferences: [ONTMHCArtifactReference] {
@@ -155,9 +157,65 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             to: stagedAlignmentsURL
         )
 
-        let grouped = try groupedClusters(request.observations)
+        var transformations: [FullLengthONTMHCInProcessTransformationRecord] = []
+        let referenceDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: request.referenceAlleleFASTAURL,
+            role: .referenceFASTA,
+            phase: .input
+        )
+        let referenceImportStartedAt = Date()
+        let referenceImportCompletedAt = Date()
+        transformations.append(.init(
+            workflowName: "lungfish-in-process:import-mhc-reference-catalog",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-in-process", "import-mhc-reference-catalog",
+                "--record-count", String(request.referenceRecords.count),
+                request.referenceAlleleFASTAURL.path,
+            ],
+            resolvedOptions: [
+                "recordCount": String(request.referenceRecords.count),
+                "moleculeClassSource": "reference-metadata-with-length-fallback",
+            ],
+            inputs: [referenceDescriptor],
+            outputs: [],
+            exitStatus: 0,
+            startedAt: referenceImportStartedAt,
+            completedAt: referenceImportCompletedAt,
+            wallTime: referenceImportCompletedAt.timeIntervalSince(referenceImportStartedAt)
+        ))
         let stagedStableFASTAURL = stagedRootURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta")
+        let stableFASTAStartedAt = Date()
+        let grouped = try groupedClusters(request.observations)
         try writeFASTA(grouped.map { ($0.id, $0.sequence) }, to: stagedStableFASTAURL)
+        let stagedStableDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: stagedStableFASTAURL,
+            role: .sourceClusterFASTA,
+            phase: .staging
+        )
+        let stableFASTACompletedAt = Date()
+        transformations.append(.init(
+            workflowName: "lungfish-in-process:construct-stable-unmatched-cluster-fasta",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-in-process", "construct-stable-unmatched-cluster-fasta",
+                "--stable-id", "sha256-uuid-v5-compatible",
+                "--line-width", "80",
+                stagedStableFASTAURL.path,
+            ],
+            resolvedOptions: [
+                "stableID": "first-128-bits-SHA256-with-UUID-version-and-variant-bits",
+                "sequenceNormalization": "remove-whitespace-and-uppercase",
+                "sequenceGrouping": "exact-normalized-sequence",
+                "lineWidth": "80",
+            ],
+            inputs: [],
+            outputs: [stagedStableDescriptor],
+            exitStatus: 0,
+            startedAt: stableFASTAStartedAt,
+            completedAt: stableFASTACompletedAt,
+            wallTime: stableFASTACompletedAt.timeIntervalSince(stableFASTAStartedAt)
+        ))
 
         let minimap2URL = try executable(named: "minimap2")
         let samtoolsURL = try executable(named: "samtools")
@@ -236,13 +294,15 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             generationURL: generationURL, logsURL: logsURL, records: &commands
         )
 
-        let finalBAMURL = request.outputDirectoryURL.appendingPathComponent("artifacts/alignments/unmatched-to-reference.bam")
+        let reciprocalBAMRelativePath = "artifacts/alignments/unmatched-to-reference.bam"
+        let finalBAMURL = request.outputDirectoryURL.appendingPathComponent(reciprocalBAMRelativePath)
         let finalBAIURL = request.outputDirectoryURL.appendingPathComponent("artifacts/alignments/unmatched-to-reference.bam.bai")
+        let classificationStartedAt = Date()
         let alignments = try parseReciprocalSAM(
             reciprocalViewURL,
             clusterIDs: Set(grouped.map(\.id)),
             references: request.referenceRecords,
-            finalBAMURL: finalBAMURL
+            finalBAMPath: reciprocalBAMRelativePath
         )
         let clusters = grouped.map { group in
             FullLengthONTMHCCandidateCluster(
@@ -255,6 +315,32 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             )
         }
         let classifications = try FullLengthONTMHCCandidateClassifier(thresholds: request.thresholds).classify(clusters)
+        let reciprocalViewDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: reciprocalViewURL,
+            role: .commandOutput,
+            phase: .temporary
+        )
+        let classificationCompletedAt = Date()
+        transformations.append(.init(
+            workflowName: "lungfish-in-process:parse-and-classify-reciprocal-mhc-alignments",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-in-process", "parse-and-classify-reciprocal-mhc-alignments",
+                "--minimum-aligned-bases", String(request.thresholds.minimumAlignedBases),
+                "--minimum-identity", String(request.thresholds.minimumIdentity),
+                "--minimum-shorter-coverage", String(request.thresholds.minimumShorterCoverage),
+                "--minimum-intron-gap-bases", String(request.thresholds.minimumIntronGapBases),
+                "--novel-distance", "snp-substitutions-only",
+                reciprocalViewURL.path,
+            ],
+            resolvedOptions: Self.candidateResolvedOptions(request.thresholds),
+            inputs: [referenceDescriptor, stagedStableDescriptor, reciprocalViewDescriptor],
+            outputs: [],
+            exitStatus: 0,
+            startedAt: classificationStartedAt,
+            completedAt: classificationCompletedAt,
+            wallTime: classificationCompletedAt.timeIntervalSince(classificationStartedAt)
+        ))
         let candidates = classifications.compactMap { result -> ONTMHCCandidateRecord? in
             guard case .candidate(let record) = result else { return nil }
             return record
@@ -266,14 +352,44 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let sequenceByID = Dictionary(uniqueKeysWithValues: grouped.map { ($0.id, $0.sequence) })
         let candidateFASTAURL = stagedRootURL.appendingPathComponent("candidate_alleles.fasta")
         let unnameableFASTAURL = stagedRootURL.appendingPathComponent("unnameable_unmatched_clusters.fasta")
+        let candidateFASTAStartedAt = Date()
         try writeFASTA(candidates.map { ($0.stableClusterID, sequenceByID[$0.stableClusterID]!) }, to: candidateFASTAURL)
+        let candidateFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: candidateFASTAURL, role: .sourceClusterFASTA, phase: .staging
+        )
+        let candidateFASTACompletedAt = Date()
+        transformations.append(Self.renderTransformation(
+            name: "render-mhc-candidate-fasta",
+            source: stagedStableDescriptor,
+            output: candidateFASTADescriptor,
+            recordCount: candidates.count,
+            startedAt: candidateFASTAStartedAt,
+            completedAt: candidateFASTACompletedAt
+        ))
+        let unnameableFASTAStartedAt = Date()
         try writeFASTA(unnameable.map { ($0.stableClusterID, sequenceByID[$0.stableClusterID]!) }, to: unnameableFASTAURL)
+        let unnameableFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: unnameableFASTAURL, role: .sourceClusterFASTA, phase: .staging
+        )
+        let unnameableFASTACompletedAt = Date()
+        transformations.append(Self.renderTransformation(
+            name: "render-mhc-unnameable-fasta",
+            source: stagedStableDescriptor,
+            output: unnameableFASTADescriptor,
+            recordCount: unnameable.count,
+            startedAt: unnameableFASTAStartedAt,
+            completedAt: unnameableFASTACompletedAt
+        ))
 
         let reciprocalBAMReference = try artifactReference(stagedBAMURL, finalRelativePath: "artifacts/alignments/unmatched-to-reference.bam")
         let reciprocalBAIReference = try artifactReference(stagedBAIURL, finalRelativePath: "artifacts/alignments/unmatched-to-reference.bam.bai")
         let candidateFASTAReference = try artifactReference(candidateFASTAURL, finalRelativePath: "candidate_alleles.fasta")
         let unnameableFASTAReference = try artifactReference(unnameableFASTAURL, finalRelativePath: "unnameable_unmatched_clusters.fasta")
         let referenceInput = try artifactReference(request.referenceAlleleFASTAURL, finalRelativePath: request.referenceAlleleFASTAURL.path)
+        let stableUnmatchedInput = try artifactReference(
+            stagedStableFASTAURL,
+            finalRelativePath: "deduplicated_unmatched_clusters.fasta"
+        )
         let allObservations = grouped.flatMap(\.observations).sorted(by: Self.observationLessThan)
         let createdAt = Self.iso8601(Date())
         let evidence = [reciprocalBAMReference, reciprocalBAIReference]
@@ -282,7 +398,7 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             schemaVersion: 1,
             createdAt: createdAt,
             thresholds: request.thresholds,
-            inputs: [referenceInput],
+            inputs: [referenceInput, stableUnmatchedInput],
             evidence: evidence,
             sequenceFASTA: candidateFASTAReference,
             candidates: candidates,
@@ -292,7 +408,7 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             schemaVersion: 1,
             createdAt: createdAt,
             thresholds: request.thresholds,
-            inputs: [referenceInput],
+            inputs: [referenceInput, stableUnmatchedInput],
             evidence: evidence,
             sequenceFASTA: unnameableFASTAReference,
             clusters: unnameable,
@@ -300,13 +416,49 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         )
         let candidateJSONURL = stagedRootURL.appendingPathComponent("candidate-alleles.json")
         let unnameableJSONURL = stagedRootURL.appendingPathComponent("unnameable-unmatched-clusters.json")
+        let candidateJSONStartedAt = Date()
         try writeCanonicalJSON(candidateDocument, to: candidateJSONURL)
+        let candidateJSONDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: candidateJSONURL, role: .commandOutput, phase: .staging
+        )
+        let candidateJSONCompletedAt = Date()
+        transformations.append(Self.renderTransformation(
+            name: "render-mhc-candidate-json",
+            inputs: [referenceDescriptor, stagedStableDescriptor, candidateFASTADescriptor],
+            output: candidateJSONDescriptor,
+            recordCount: candidates.count,
+            startedAt: candidateJSONStartedAt,
+            completedAt: candidateJSONCompletedAt
+        ))
+        let unnameableJSONStartedAt = Date()
         try writeCanonicalJSON(unnameableDocument, to: unnameableJSONURL)
+        let unnameableJSONDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: unnameableJSONURL, role: .commandOutput, phase: .staging
+        )
+        let unnameableJSONCompletedAt = Date()
+        transformations.append(Self.renderTransformation(
+            name: "render-mhc-unnameable-json",
+            inputs: [referenceDescriptor, stagedStableDescriptor, unnameableFASTADescriptor],
+            output: unnameableJSONDescriptor,
+            recordCount: unnameable.count,
+            startedAt: unnameableJSONStartedAt,
+            completedAt: unnameableJSONCompletedAt
+        ))
         let candidateJSONReference = try artifactReference(candidateJSONURL, finalRelativePath: "candidate-alleles.json")
         let unnameableJSONReference = try artifactReference(unnameableJSONURL, finalRelativePath: "unnameable-unmatched-clusters.json")
 
         try Task.checkCancellation()
         try safety.revalidatePathContext(pathContext)
+        let stagedPublicationDescriptors = [
+            try FullLengthONTMHCArtifactDescriptor(url: stagedBAMURL, role: .evidenceBAM, phase: .staging),
+            try FullLengthONTMHCArtifactDescriptor(url: stagedBAIURL, role: .evidenceBAI, phase: .staging),
+            stagedStableDescriptor,
+            candidateFASTADescriptor,
+            candidateJSONDescriptor,
+            unnameableFASTADescriptor,
+            unnameableJSONDescriptor,
+        ]
+        let publicationStartedAt = Date()
         try publishTransaction(
             stagedRootURL: stagedRootURL,
             outputDirectoryURL: request.outputDirectoryURL,
@@ -316,6 +468,55 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "unnameable_unmatched_clusters.fasta", "unnameable-unmatched-clusters.json",
             ]
         )
+        let publicationCompletedAt = Date()
+        let finalPublicationURLs: [(URL, FullLengthONTMHCArtifactRole)] = [
+            (finalBAMURL, .evidenceBAM),
+            (finalBAIURL, .evidenceBAI),
+            (request.outputDirectoryURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta"), .sourceClusterFASTA),
+            (request.outputDirectoryURL.appendingPathComponent("candidate_alleles.fasta"), .sourceClusterFASTA),
+            (request.outputDirectoryURL.appendingPathComponent("candidate-alleles.json"), .commandOutput),
+            (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.fasta"), .sourceClusterFASTA),
+            (request.outputDirectoryURL.appendingPathComponent("unnameable-unmatched-clusters.json"), .commandOutput),
+        ]
+        let finalPublicationDescriptors = try finalPublicationURLs.map {
+            try FullLengthONTMHCArtifactDescriptor(url: $0.0, role: $0.1, phase: .final)
+        }
+        transformations.append(.init(
+            workflowName: "lungfish-internal:publish-mhc-candidate-artifacts",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-internal", "publish-mhc-candidate-artifacts",
+                "--atomic-mechanism", "renameatx_np",
+                stagedRootURL.path,
+                request.outputDirectoryURL.path,
+            ],
+            resolvedOptions: [
+                "atomicMechanism": "renameatx_np",
+                "replaceMode": "RENAME_SWAP",
+                "createMode": "RENAME_EXCL",
+                "rollbackOnFailure": "true",
+            ],
+            inputs: stagedPublicationDescriptors,
+            outputs: finalPublicationDescriptors,
+            exitStatus: 0,
+            startedAt: publicationStartedAt,
+            completedAt: publicationCompletedAt,
+            wallTime: publicationCompletedAt.timeIntervalSince(publicationStartedAt)
+        ))
+        let checksumStartedAt = Date()
+        let checksumCompletedAt = Date()
+        transformations.append(.init(
+            workflowName: "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            argv: ["lungfish-in-process", "capture-mhc-candidate-artifact-checksums", "--algorithm", "sha256"],
+            resolvedOptions: ["algorithm": "SHA-256", "artifactCount": String(finalPublicationDescriptors.count)],
+            inputs: finalPublicationDescriptors,
+            outputs: [],
+            exitStatus: 0,
+            startedAt: checksumStartedAt,
+            completedAt: checksumCompletedAt,
+            wallTime: checksumCompletedAt.timeIntervalSince(checksumStartedAt)
+        ))
         let manifest = ONTMHCCandidateArtifactManifest(
             schemaVersion: 1,
             genotypingEvidence: request.genotypingEvidence,
@@ -334,10 +535,12 @@ public struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             unnameableFASTAURL: request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.fasta"),
             unnameableJSONURL: request.outputDirectoryURL.appendingPathComponent("unnameable-unmatched-clusters.json"),
             manifest: manifest,
+            classifiedClusters: clusters,
             classifications: classifications,
             commandRecords: commands,
             toolVersions: toolVersions,
             toolVersionDiscoveryRecords: toolVersions.map(\.discoveryCommand),
+            transformationRecords: transformations,
             runtimeIdentity: ProvenanceRuntimeIdentity()
         )
     }
@@ -352,6 +555,69 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
 
     static func normalizedSequence(_ sequence: String) -> String {
         sequence.filter { !$0.isWhitespace }.uppercased()
+    }
+
+    static func candidateResolvedOptions(
+        _ thresholds: ONTMHCCandidateThresholds
+    ) -> [String: String] {
+        [
+            "minimumAlignedBases": String(thresholds.minimumAlignedBases),
+            "minimumIdentity": String(thresholds.minimumIdentity),
+            "minimumShorterCoverage": String(thresholds.minimumShorterCoverage),
+            "minimumIntronGapBases": String(thresholds.minimumIntronGapBases),
+            "novelDistanceMetric": "SNP-substitutions-only",
+            "zeroSNPIndelClassification": "known-existing-allele",
+            "extensionRule": "identical-except-long-intron-gaps",
+        ]
+    }
+
+    static func renderTransformation(
+        name: String,
+        source: FullLengthONTMHCArtifactDescriptor,
+        output: FullLengthONTMHCArtifactDescriptor,
+        recordCount: Int,
+        startedAt: Date,
+        completedAt: Date
+    ) -> FullLengthONTMHCInProcessTransformationRecord {
+        renderTransformation(
+            name: name,
+            inputs: [source],
+            output: output,
+            recordCount: recordCount,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    }
+
+    static func renderTransformation(
+        name: String,
+        inputs: [FullLengthONTMHCArtifactDescriptor],
+        output: FullLengthONTMHCArtifactDescriptor,
+        recordCount: Int,
+        startedAt: Date,
+        completedAt: Date
+    ) -> FullLengthONTMHCInProcessTransformationRecord {
+        FullLengthONTMHCInProcessTransformationRecord(
+            workflowName: "lungfish-in-process:\(name)",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-in-process", name,
+                "--canonical-order", "stable-cluster-id",
+                "--record-count", String(recordCount),
+                output.path,
+            ],
+            resolvedOptions: [
+                "canonicalOrder": "stable-cluster-id",
+                "recordCount": String(recordCount),
+                "newline": "LF",
+            ],
+            inputs: inputs,
+            outputs: [output],
+            exitStatus: 0,
+            startedAt: startedAt,
+            completedAt: completedAt,
+            wallTime: completedAt.timeIntervalSince(startedAt)
+        )
     }
 
     func groupedClusters(_ inputs: [FullLengthONTMHCCandidateSequenceObservation]) throws -> [Group] {
@@ -397,7 +663,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         _ url: URL,
         clusterIDs: Set<String>,
         references: [MHCReferenceRecord],
-        finalBAMURL: URL
+        finalBAMPath: String
     ) throws -> [String: [FullLengthONTMHCCandidateAlignment]] {
         let referencesByID = Dictionary(uniqueKeysWithValues: references.map { ($0.sequenceID, $0) })
         let data = try String(contentsOf: url, encoding: .utf8)
@@ -408,13 +674,16 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard fields.count >= 11,
                   clusterIDs.contains(fields[0]),
-                  let flag = Int(fields[1]), flag >= 0,
+                  let flag = Int(fields[1]), flag >= 0 else {
+                throw FullLengthONTMHCCandidateArtifactWriterError("Malformed reciprocal SAM alignment at line \(lineIndex + 1).")
+            }
+            if flag & 0x4 != 0 { continue }
+            guard
                   let position = Int(fields[3]), position > 0,
                   let mapq = Int(fields[4]), (0...255).contains(mapq),
                   fields[5] != "*" else {
                 throw FullLengthONTMHCCandidateArtifactWriterError("Malformed reciprocal SAM alignment at line \(lineIndex + 1).")
             }
-            if flag & 0x4 != 0 { continue }
             guard let reference = referencesByID[fields[2]] else {
                 throw FullLengthONTMHCCandidateArtifactWriterError("Reciprocal SAM names unknown reference '\(fields[2])'.")
             }
@@ -428,7 +697,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
                 throw FullLengthONTMHCCandidateArtifactWriterError("Reciprocal SAM alignment at line \(lineIndex + 1) lacks AS:i.")
             }
             let locator = ONTMHCEvidenceLocator(
-                bamPath: finalBAMURL.path,
+                bamPath: finalBAMPath,
                 queryName: fields[0],
                 referenceName: fields[2],
                 readGroupID: nil,

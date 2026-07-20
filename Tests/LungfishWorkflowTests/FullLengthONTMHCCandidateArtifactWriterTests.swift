@@ -35,10 +35,53 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             from: Data(contentsOf: result.unnameableJSONURL)
         )
         XCTAssertEqual(candidate.schemaVersion, 1)
+        XCTAssertEqual(candidate.inputs.map(\.path), [
+            fixture.referenceFASTAURL.path,
+            "deduplicated_unmatched_clusters.fasta",
+        ])
+        XCTAssertTrue(candidate.observations.allSatisfy { !$0.evidence.isEmpty })
+        XCTAssertTrue(candidate.candidates.allSatisfy {
+            $0.selectedEvidence.bamPath == "artifacts/alignments/unmatched-to-reference.bam"
+        })
         XCTAssertEqual(result.toolVersions.map(\.toolName), ["minimap2", "samtools"])
         XCTAssertEqual(result.toolVersions.map(\.version), ["2.28-fake", "samtools 1.21-fake"])
         XCTAssertTrue(result.commandRecords.allSatisfy { $0.toolVersion?.isEmpty == false })
         XCTAssertFalse(result.runtimeIdentity.executablePath.isEmpty)
+        let transformations = Dictionary(uniqueKeysWithValues: result.transformationRecords.map {
+            ($0.workflowName, $0)
+        })
+        XCTAssertEqual(Set(transformations.keys), [
+            "lungfish-in-process:import-mhc-reference-catalog",
+            "lungfish-in-process:construct-stable-unmatched-cluster-fasta",
+            "lungfish-in-process:parse-and-classify-reciprocal-mhc-alignments",
+            "lungfish-in-process:render-mhc-candidate-fasta",
+            "lungfish-in-process:render-mhc-unnameable-fasta",
+            "lungfish-in-process:render-mhc-candidate-json",
+            "lungfish-in-process:render-mhc-unnameable-json",
+            "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
+            "lungfish-internal:publish-mhc-candidate-artifacts",
+        ])
+        let classification = try XCTUnwrap(
+            transformations["lungfish-in-process:parse-and-classify-reciprocal-mhc-alignments"]
+        )
+        XCTAssertEqual(classification.resolvedOptions["minimumAlignedBases"], "1000")
+        XCTAssertEqual(classification.resolvedOptions["minimumIdentity"], "0.75")
+        XCTAssertEqual(classification.resolvedOptions["minimumShorterCoverage"], "0.7")
+        XCTAssertEqual(classification.resolvedOptions["minimumIntronGapBases"], "20")
+        XCTAssertEqual(classification.resolvedOptions["novelDistanceMetric"], "SNP-substitutions-only")
+        let publication = try XCTUnwrap(
+            transformations["lungfish-internal:publish-mhc-candidate-artifacts"]
+        )
+        XCTAssertEqual(publication.resolvedOptions["atomicMechanism"], "renameatx_np")
+        XCTAssertEqual(publication.outputs.map(\.path).sorted(), [
+            result.reciprocalBAMURL.path,
+            result.reciprocalBAIURL.path,
+            result.candidateFASTAURL.path,
+            result.candidateJSONURL.path,
+            result.stableUnmatchedFASTAURL.path,
+            result.unnameableFASTAURL.path,
+            result.unnameableJSONURL.path,
+        ].sorted())
         XCTAssertEqual(candidate.candidates.map(\.stableClusterID), [fixture.novelID, fixture.extensionID])
         XCTAssertEqual(candidate.candidates.map(\.provisionalName), [
             "Mafa-A1*018:01:01:01_5nt_nov", "Mafa-B*001:01_ext",
@@ -102,6 +145,36 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(try fastaHeaders(first.candidateFASTAURL), [fixture.novelID, fixture.extensionID])
     }
 
+    func testZeroSNPGenomicIndelOnlyClusterIsReturnedForKnownCallFoldback() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let knownSequence = String(repeating: "A", count: 600) + "C" + String(repeating: "A", count: 600)
+        let knownID = stableID(knownSequence)
+        fixture.additionalSAM = "\(knownID)\t0\tref-genomic\t1\t60\t600=1I600=\t*\t0\t0\t*\t*\tNM:i:1\tAS:i:1200\n"
+        let knownObservation = FullLengthONTMHCCandidateSequenceObservation(
+            sampleID: "known-sample",
+            readGroupID: "known-sample",
+            sourceClusterID: "known-source",
+            clusterReadCount: 13,
+            sequence: knownSequence,
+            genotypingEvidence: [.init(
+                bamPath: "artifacts/alignments/genotyping-evidence.bam",
+                queryName: "ref-genomic",
+                referenceName: "known-sample|known-source",
+                readGroupID: "known-sample",
+                referenceStart: 1,
+                cigar: "600=1I600="
+            )]
+        )
+
+        let result = try await fixture.write(observations: fixture.observations + [knownObservation])
+        let index = try XCTUnwrap(result.classifiedClusters.firstIndex { $0.stableClusterID == knownID })
+        XCTAssertEqual(result.classifications[index], .known(referenceAllele: "Mafa-A1*018:01:01:01"))
+        XCTAssertFalse(try fastaHeaders(result.candidateFASTAURL).contains(knownID))
+        XCTAssertFalse(try fastaHeaders(result.unnameableFASTAURL).contains(knownID))
+        XCTAssertEqual(result.classifiedClusters[index].observations.first?.sourceClusterReadCounts, ["known-source": 13])
+    }
+
     private func fastaHeaders(_ url: URL) throws -> [String] {
         try String(contentsOf: url, encoding: .utf8).split(separator: "\n").compactMap { line in
             line.first == ">" ? String(line.dropFirst()).split(separator: " ").first.map(String.init) : nil
@@ -143,11 +216,22 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
         var unnameableID: String { FullLengthONTMHCCandidateArtifactWriter.stableClusterID(for: unnameableSequence) }
 
         var observations: [FullLengthONTMHCCandidateSequenceObservation] { [
-            .init(sampleID: "sample-b", readGroupID: "sample-b", sourceClusterID: "b1", clusterReadCount: 7, sequence: novelSequence, genotypingEvidence: []),
-            .init(sampleID: "sample-a", readGroupID: "sample-a", sourceClusterID: "a1", clusterReadCount: 5, sequence: novelSequence, genotypingEvidence: []),
-            .init(sampleID: "sample-a", readGroupID: "sample-a", sourceClusterID: "a2", clusterReadCount: 11, sequence: extensionSequence, genotypingEvidence: []),
-            .init(sampleID: "sample-z", readGroupID: "sample-z", sourceClusterID: "z1", clusterReadCount: 3, sequence: unnameableSequence, genotypingEvidence: []),
+            .init(sampleID: "sample-b", readGroupID: "sample-b", sourceClusterID: "b1", clusterReadCount: 7, sequence: novelSequence, genotypingEvidence: evidence(sample: "sample-b", source: "b1")),
+            .init(sampleID: "sample-a", readGroupID: "sample-a", sourceClusterID: "a1", clusterReadCount: 5, sequence: novelSequence, genotypingEvidence: evidence(sample: "sample-a", source: "a1")),
+            .init(sampleID: "sample-a", readGroupID: "sample-a", sourceClusterID: "a2", clusterReadCount: 11, sequence: extensionSequence, genotypingEvidence: evidence(sample: "sample-a", source: "a2")),
+            .init(sampleID: "sample-z", readGroupID: "sample-z", sourceClusterID: "z1", clusterReadCount: 3, sequence: unnameableSequence, genotypingEvidence: evidence(sample: "sample-z", source: "z1")),
         ] }
+
+        private func evidence(sample: String, source: String) -> [ONTMHCEvidenceLocator] {
+            [.init(
+                bamPath: "artifacts/alignments/genotyping-evidence.bam",
+                queryName: "ref-genomic",
+                referenceName: "\(sample)|\(source)",
+                readGroupID: sample,
+                referenceStart: 1,
+                cigar: "1200="
+            )]
+        }
 
         init() throws {
             rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -195,6 +279,7 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             @SQ\tSN:ref-cdna\tLN:1000
             \(novelID)\t0\tref-genomic\t1\t60\t595=5X600=\t*\t0\t0\t*\t*\tNM:i:5\tAS:i:1190
             \(extensionID)\t0\tref-cdna\t1\t55\t500=50I500=\t*\t0\t0\t*\t*\tNM:i:50\tAS:i:1000
+            \(unnameableID)\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*
             \(additionalSAM)
             """
         }
