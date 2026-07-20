@@ -5853,7 +5853,8 @@ extension GenotypeResultViewController {
     }
 
     var testingCandidateIntegrityWarningText: String {
-        guard let result else { return "" }
+        guard let result,
+              result.manifest.kind == "full-length-ont-mhc-genotype" else { return "" }
         return GenotypeCandidateEvidenceProjection.warningText(result.integrityWarnings)
     }
 

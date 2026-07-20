@@ -99,15 +99,21 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     public func updateMHCCandidatePresentation(from result: ONTGenotypeResultBundleData) {
+        let isFullLengthMHCResult = result.manifest.kind == "full-length-ont-mhc-genotype"
         let declaration = result.manifest.mhcCandidateArtifacts
-        mhcCandidateControlsAvailable = result.manifest.kind == "full-length-ont-mhc-genotype"
+        mhcCandidateControlsAvailable = isFullLengthMHCResult
             && declaration?.schemaVersion == 1
             && declaration?.candidateJSON != nil
             && declaration?.candidateFASTA != nil
             && result.mhcCandidates?.schemaVersion == 1
-        mhcCandidateIntegrityWarnings = result.integrityWarnings.map(Self.integrityWarningText)
+        mhcCandidateIntegrityWarnings = isFullLengthMHCResult
+            ? result.integrityWarnings.map(Self.integrityWarningText)
+            : []
         if !mhcCandidateControlsAvailable {
             displayState.mhcCandidateDisplaySettings = nil
+        }
+        if !isFullLengthMHCResult {
+            mhcCandidatePersistenceWarning = nil
         }
     }
 

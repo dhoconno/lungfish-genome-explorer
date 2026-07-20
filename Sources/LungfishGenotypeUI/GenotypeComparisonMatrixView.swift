@@ -857,10 +857,24 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             candidateDocument: candidateDocument,
             settings: effectiveCandidateDisplaySettings
         )
-        if minimumReads > 0 {
+        if globalThreshold > 0 || matrixThreshold > 0 || minimumReads > 0 {
             allRows = allRows.compactMap { row in
                 guard row.population != .known else { return row }
-                let support = row.sampleSupport.filter { $0.passedUniqueReads >= minimumReads }
+                if globalThreshold > 0 {
+                    guard let fraction = candidatePopulationSupportFraction(for: row),
+                          fraction >= globalThreshold else {
+                        return nil
+                    }
+                }
+                if matrixThreshold > 0 {
+                    guard let fraction = candidatePopulationSupportFraction(for: row),
+                          fraction >= matrixThreshold else {
+                        return nil
+                    }
+                }
+                let support = minimumReads > 0
+                    ? row.sampleSupport.filter { $0.passedUniqueReads >= minimumReads }
+                    : row.sampleSupport
                 guard !support.isEmpty else { return nil }
                 return GenotypeCandidateMatrixRow(
                     id: row.id,
@@ -885,6 +899,16 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         rebuildLocusPopup(Set(allRows.map(\.locus)).sorted {
             $0.localizedStandardCompare($1) == .orderedAscending
         })
+    }
+
+    /// Candidate percentage support is a population occurrence fraction, not
+    /// a read-share fraction: distinct samples supporting this stable sequence
+    /// divided by the full logical sample union represented by the matrix.
+    private func candidatePopulationSupportFraction(for row: GenotypeCandidateMatrixRow) -> Double? {
+        let eligibleSamples = Set(sampleNames)
+        guard !eligibleSamples.isEmpty else { return nil }
+        let supportingSamples = Set(row.sampleSupport.map(\.sample)).intersection(eligibleSamples)
+        return Double(supportingSamples.count) / Double(eligibleSamples.count)
     }
 
     private func rebuildSupportLookup() {
@@ -1077,6 +1101,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func makeSupportFractionLookup(for result: ONTGenotypeResultBundleData) -> [CellKey: Double] {
+        var fractions: [CellKey: Double]
         switch displayState.supportDenominator {
         case .viewedLocus:
             let contexts = result.calls.map { CallSupportContext(call: $0, locus: $0.locusGroup) }
@@ -1088,7 +1113,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                     default: 0
                 ] += context.call.passedUniqueReads
             }
-            var fractions: [CellKey: Double] = [:]
+            fractions = [:]
             fractions.reserveCapacity(contexts.count)
             for context in contexts {
                 guard let denominator = denominators[
@@ -1102,12 +1127,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 ] =
                     Double(context.call.passedUniqueReads) / Double(denominator)
             }
-            return fractions
         case .sampleRetained:
             let retainedBySample = Dictionary(uniqueKeysWithValues: result.samples.map {
                 ($0.sample, $0.passedUniqueReads)
             })
-            var fractions: [CellKey: Double] = [:]
+            fractions = [:]
             fractions.reserveCapacity(result.calls.count)
             for call in result.calls {
                 guard let denominator = call.sampleUniqueRetainedReads ?? retainedBySample[call.sample],
@@ -1117,8 +1141,29 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 fractions[CellKey(locus: call.locusGroup, genotype: call.genotype, sample: call.sample)] =
                     Double(call.passedUniqueReads) / Double(denominator)
             }
+        }
+
+        guard let candidateDocument = validatedMHCCandidateDocument(from: result) else {
             return fractions
         }
+        let eligibleSampleCount = Set(sampleNames).count
+        guard eligibleSampleCount > 0 else { return fractions }
+        let observationsByCluster = Dictionary(grouping: candidateDocument.observations, by: \.stableClusterID)
+        for candidate in candidateDocument.candidates {
+            let supportingSamples = Set(
+                (observationsByCluster[candidate.stableClusterID] ?? []).map(\.sampleID)
+            )
+            let populationFraction = Double(supportingSamples.count) / Double(eligibleSampleCount)
+            for sample in supportingSamples {
+                fractions[CellKey(
+                    locus: candidate.locus,
+                    genotype: candidate.provisionalName,
+                    sample: sample,
+                    stableClusterID: candidate.stableClusterID
+                )] = populationFraction
+            }
+        }
+        return fractions
     }
 
     private func compare(
@@ -2199,10 +2244,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return Self.color(from: tint)
         }
 
-        guard displayState.cellColorMode == .support,
+        // Candidate population fractions drive percentage filtering but do not
+        // introduce the known-call blue support heatmap. Their configurable
+        // category tint remains confined to the allele-name cell.
+        guard row.population == .known,
+              displayState.cellColorMode == .support,
               let sample = sampleColumnLookup[identifier],
               let fraction = supportFractionByCell[
-                CellKey(locus: row.locus, genotype: row.genotype, sample: sample)
+                CellKey(
+                    locus: row.locus,
+                    genotype: row.genotype,
+                    sample: sample,
+                    stableClusterID: row.stableClusterID
+                )
               ] else {
             return nil
         }
@@ -2387,7 +2441,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
               row.support(for: sample) == nil else {
             return false
         }
-        return supportFractionByCell[CellKey(locus: row.locus, genotype: row.genotype, sample: sample)] != nil
+        return supportFractionByCell[CellKey(
+            locus: row.locus,
+            genotype: row.genotype,
+            sample: sample,
+            stableClusterID: row.stableClusterID
+        )] != nil
     }
 
     private func isSelectedCell(
@@ -2701,6 +2760,19 @@ extension GenotypeComparisonMatrixView {
     var testingVisibleRows: [GenotypeCandidateMatrixRow] { visibleRows }
     var testingVisibleGenotypes: [String] { visibleRows.map(\.genotype) }
     var testingSelectedRowID: GenotypeCandidateMatrixRowID? { selectedRowID }
+
+    func testingSupportFraction(
+        rowID: GenotypeCandidateMatrixRowID,
+        sample: String
+    ) -> Double? {
+        guard let row = allRows.first(where: { $0.id == rowID }) else { return nil }
+        return supportFractionByCell[CellKey(
+            locus: row.locus,
+            genotype: row.genotype,
+            sample: sample,
+            stableClusterID: row.stableClusterID
+        )]
+    }
 
     func testingBackgroundColor(
         rowID: GenotypeCandidateMatrixRowID,
