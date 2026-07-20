@@ -178,6 +178,226 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         )
     }
 
+    func testUnsupportedDirectorySwapPublishesThroughCrashSafeRotation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "rename-rotation")
+        let before = try ProvenanceFileHasher.sha256(
+            of: ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        )
+
+        _ = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            forceBundleCloneFallback: true,
+            directorySwapPrimitive: { _, _ in
+                errno = ENOTSUP
+                return -1
+            }
+        ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        XCTAssertNotEqual(
+            try ProvenanceFileHasher.sha256(
+                of: ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+            ),
+            before
+        )
+        XCTAssertNoThrow(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL).path
+        ))
+    }
+
+    func testRecoveryRestoresPriorGenerationAfterEveryInterruptedRotationStep() throws {
+        for checkpoint in [
+            "after-rotation-stage-to-temporary-hard-stop",
+            "after-rotation-final-to-stage-hard-stop",
+            "after-rotation-temporary-to-final-hard-stop",
+        ] {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "rotation-crash-\(checkpoint)"
+            )
+            let before = try bundleSnapshot(fixture.bundleURL)
+
+            XCTAssertThrowsError(
+                try GenotypeWorkbookRevisionService(
+                    pythonExecutableURL: testPythonExecutableURL,
+                    publicationFailureInjector: { observed in
+                        guard observed == checkpoint else { return }
+                        throw NSError(domain: "SimulatedRotationSIGKILL", code: 9)
+                    },
+                    forceBundleCloneFallback: true,
+                    directorySwapPrimitive: { _, _ in
+                        errno = ENOTSUP
+                        return -1
+                    }
+                ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+            )
+
+            _ = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+            XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before, checkpoint)
+            try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+            XCTAssertFalse(FileManager.default.fileExists(
+                atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL).path
+            ))
+        }
+    }
+
+    func testMarkerCreateAndPhaseRewriteFallbackWhenRenameFlagsAreUnsupported() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "marker-rename-fallback")
+        let before = try bundleSnapshot(fixture.bundleURL)
+        let renameCalls = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "post-exchange" else { return }
+                    throw NSError(domain: "InjectedPostExchangeFailure", code: 1)
+                },
+                forceBundleCloneFallback: true,
+                directorySwapPrimitive: { _, _ in
+                    errno = ENOTSUP
+                    return -1
+                },
+                workbookAtomicRenamePrimitive: { source, destination, flags in
+                    renameCalls.set((renameCalls.value ?? 0) + 1)
+                    if flags != 0 {
+                        errno = ENOTSUP
+                        return -1
+                    }
+                    return Darwin.renameatx_np(AT_FDCWD, source, AT_FDCWD, destination, 0)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+
+        XCTAssertGreaterThanOrEqual(renameCalls.value ?? 0, 4)
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL).path
+        ))
+    }
+
+    func testManualSaveDuringRotationIsDetectedAndPreservedAtBothOldGenerationBoundaries() throws {
+        for (checkpoint, cell) in [
+            ("after-rotation-stage-to-temporary-hard-stop", "Z96"),
+            ("after-rotation-final-to-stage-hard-stop", "Z95"),
+        ] {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let fixture = try makeMCMWorkbookBundle(in: root, outputName: "manual-\(cell)")
+            let currentPath = try XCTUnwrap(fixture.manifest.currentWorkbookPath)
+            let currentURL = ONTGenotypeResultBundle.resolvedURL(
+                for: currentPath,
+                in: fixture.bundleURL
+            )
+            let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+            let manifestBefore = try Data(contentsOf: manifestURL)
+            let pythonURL = testPythonExecutableURL
+
+            XCTAssertThrowsError(
+                try GenotypeWorkbookRevisionService(
+                    pythonExecutableURL: pythonURL,
+                    publicationFailureInjector: { observed in
+                        guard observed == checkpoint else { return }
+                        let editURL: URL
+                        if checkpoint == "after-rotation-final-to-stage-hard-stop" {
+                            let marker = try XCTUnwrap(
+                                try JSONSerialization.jsonObject(
+                                    with: Data(contentsOf: ONTGenotypeWorkbookUpdateRecovery.markerURL(
+                                        for: fixture.bundleURL
+                                    ))
+                                ) as? [String: Any]
+                            )
+                            editURL = URL(
+                                fileURLWithPath: try XCTUnwrap(marker["stagingBundlePath"] as? String),
+                                isDirectory: true
+                            ).appendingPathComponent(currentPath)
+                        } else {
+                            editURL = currentURL
+                        }
+                        _ = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path, cell = sys.argv[1], sys.argv[2]
+wb = load_workbook(path)
+wb[wb.sheetnames[0]][cell] = "manual-rotation-survives"
+wb.save(path)
+"""#, editURL.path, cell], executableURL: pythonURL)
+                    },
+                    forceBundleCloneFallback: true,
+                    directorySwapPrimitive: { _, _ in
+                        errno = ENOTSUP
+                        return -1
+                    }
+                ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+            ) { error in
+                XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("changed"))
+            }
+
+            XCTAssertEqual(try Data(contentsOf: manifestURL), manifestBefore)
+            let value = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+wb = load_workbook(sys.argv[1], data_only=False)
+print(wb[wb.sheetnames[0]][sys.argv[2]].value or "")
+"""#, currentURL.path, cell], executableURL: pythonURL)
+            XCTAssertEqual(value.trimmingCharacters(in: .whitespacesAndNewlines), "manual-rotation-survives")
+            try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+        }
+    }
+
+    func testRecoveryKeepsCommittedGenerationAfterLaterManualWorkbookEdit() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "committed-manual-edit")
+        let priorRevisionCount = fixture.manifest.workbookRevisions?.count ?? 0
+        let pythonURL = testPythonExecutableURL
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: pythonURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-revision-manifest-hard-stop" else { return }
+                    throw NSError(domain: "SimulatedSIGKILL", code: 9)
+                },
+                forceBundleCloneFallback: true,
+                directorySwapPrimitive: { _, _ in
+                    errno = ENOTSUP
+                    return -1
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        let committedURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        _ = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+wb[wb.sheetnames[0]]["Z94"] = "committed-manual-edit-survives"
+wb.save(path)
+"""#, committedURL.path], executableURL: pythonURL)
+
+        let loaded = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertGreaterThan(loaded.manifest.workbookRevisions?.count ?? 0, priorRevisionCount)
+        let value = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+wb = load_workbook(sys.argv[1], data_only=False)
+print(wb[wb.sheetnames[0]]["Z94"].value or "")
+"""#, committedURL.path], executableURL: pythonURL)
+        XCTAssertEqual(value.trimmingCharacters(in: .whitespacesAndNewlines), "committed-manual-edit-survives")
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
     func testDefaultBundleCopyPrimitiveReceivesRecursiveCloneNoFollowFlags() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -367,7 +587,7 @@ wb.save(path)
         let marker = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
         )
-        XCTAssertEqual(marker["schemaVersion"] as? Int, 3)
+        XCTAssertEqual(marker["schemaVersion"] as? Int, 4)
         XCTAssertNotNil(marker["attestationID"] as? String)
         XCTAssertEqual(marker["phase"] as? String, "prepared")
         XCTAssertEqual(marker["workflowName"] as? String, "Genotype Workbook Update")
