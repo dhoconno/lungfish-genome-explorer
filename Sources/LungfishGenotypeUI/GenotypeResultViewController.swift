@@ -2851,11 +2851,13 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private var currentWorkbookRelevantChangeCount: Int {
-        guard let sidecar = annotationStore?.sidecar else { return 0 }
+        let candidateProjection = result?.manifest.mhcCandidateArtifacts == nil ? 0 : 1
+        guard let sidecar = annotationStore?.sidecar else { return candidateProjection }
         return sidecar.callOverrides.count
             + sidecar.manualHaplotypeAssignments.count
             + sidecar.matrixStyles.count
             + sidecar.matrixComments.count
+            + candidateProjection
     }
 
     private var currentWorkbookHasMatrixAnnotations: Bool {
@@ -2875,18 +2877,10 @@ public final class GenotypeResultViewController: NSViewController {
         guard currentWorkbookHasMatrixAnnotations,
               !(annotationStore?.isReadOnly ?? true) else { return }
         currentWorkbookNeedsRefresh = true
-        currentWorkbookUpdateStatus = "Queued current.xlsx annotation update."
+        currentWorkbookUpdateStatus = "current.xlsx does not include workbook annotation changes."
         rebuildArtifactLens()
         currentWorkbookAnnotationAutoUpdateTask?.cancel()
-        currentWorkbookAnnotationAutoUpdateTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: 1_200_000_000)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            self?.updateCurrentWorkbookFromOverrides()
-        }
+        currentWorkbookAnnotationAutoUpdateTask = nil
     }
 
     @objc private func updateCurrentWorkbookFromOverrides() {
@@ -2895,7 +2889,9 @@ public final class GenotypeResultViewController: NSViewController {
         currentWorkbookAnnotationAutoUpdateTask = nil
         let calls = currentWorkbookEffectiveHaplotypeCalls()
         let includedLoci = currentWorkbookIncludedLoci()
-        guard !calls.isEmpty || currentWorkbookHasMatrixAnnotations else {
+        guard !calls.isEmpty
+                || currentWorkbookHasMatrixAnnotations
+                || result.manifest.mhcCandidateArtifacts != nil else {
             currentWorkbookUpdateStatus = "No displayed haplotype calls are available for current.xlsx."
             rebuildArtifactLens()
             return

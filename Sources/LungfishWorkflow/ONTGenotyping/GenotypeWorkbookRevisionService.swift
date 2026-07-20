@@ -1,4 +1,6 @@
+import Darwin
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public enum GenotypeWorkbookRevisionError: Error, LocalizedError, Equatable, Sendable {
@@ -86,6 +88,40 @@ public struct GenotypeWorkbookRevisionProvenanceContext: Equatable, Sendable {
 }
 
 public struct GenotypeWorkbookRevisionService {
+    private struct WorkbookOverrideExecutionRecord: Codable {
+        let executable: String
+        let argv: [String]
+        let exitStatus: Int32
+        let wallTimeSeconds: Double
+        let stdout: String
+        let stderr: String
+    }
+
+    private struct WorkbookCandidateUpdateConfiguration: Codable {
+        struct Tint: Codable {
+            let red: Double
+            let green: Double
+            let blue: Double
+            let alpha: Double
+        }
+
+        let candidateJSONPath: String?
+        let candidateFASTAPath: String?
+        let unnameableJSONPath: String?
+        let unnameableFASTAPath: String?
+        let tints: [String: Tint]
+        let ooxmlAlphaSemantics: String
+
+        private enum CodingKeys: String, CodingKey {
+            case candidateJSONPath = "candidate_json_path"
+            case candidateFASTAPath = "candidate_fasta_path"
+            case unnameableJSONPath = "unnameable_json_path"
+            case unnameableFASTAPath = "unnameable_fasta_path"
+            case tints
+            case ooxmlAlphaSemantics = "ooxml_alpha_semantics"
+        }
+    }
+
     private let fileManager: FileManager
     private let dateProvider: @Sendable () -> Date
     private let userProvider: @Sendable () -> String
@@ -163,11 +199,15 @@ public struct GenotypeWorkbookRevisionService {
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws -> ONTGenotypeResultBundleManifest {
         let bundle = bundleURL.standardizedFileURL
+        try checkCancellation()
+        let publicationLock = try DarwinFullLengthONTMHCRunLock.acquire(outputDirectoryURL: bundle)
+        defer { publicationLock.release() }
         _ = try ensureCurrentWorkbook(in: bundle)
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: bundle)
         guard fileManager.fileExists(atPath: currentURL.path) else {
             throw GenotypeWorkbookRevisionError.missingCurrentWorkbook(currentURL.path)
         }
+        try validateRegularBundleFile(currentURL, in: bundle, role: "current workbook")
 
         let tempDirectory = fileManager.temporaryDirectory
             .appendingPathComponent("LungfishCurrentWorkbookOverrides-\(UUID().uuidString)", isDirectory: true)
@@ -177,24 +217,44 @@ public struct GenotypeWorkbookRevisionService {
         let callsURL = bundle
             .appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
             .appendingPathComponent("\(timestampSlug())-haplotype-calls-\(UUID().uuidString.prefix(8)).json")
-        let patchedURL = bundle
+        let runtimeRecordURL = bundle
             .appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
-            .appendingPathComponent("\(timestampSlug())-current-overrides-\(UUID().uuidString.prefix(8)).xlsx")
+            .appendingPathComponent("\(timestampSlug())-openpyxl-runtime-\(UUID().uuidString.prefix(8)).json")
+        let patchedURL = currentURL.deletingLastPathComponent()
+            .appendingPathComponent(".current-\(UUID().uuidString).staging.xlsx")
         let scriptURL = tempDirectory.appendingPathComponent("apply-current-workbook-overrides.py")
+        let configurationURL = bundle
+            .appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
+            .appendingPathComponent("\(timestampSlug())-mhc-candidate-workbook-update-\(UUID().uuidString.prefix(8)).json")
         try fileManager.createDirectory(at: callsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(calls).write(to: callsURL)
         try workbookOverrideScript.write(to: scriptURL, atomically: true, encoding: .utf8)
-        var scriptArguments = [
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundle)
+        let candidateInputs = try candidateArtifactInputURLs(from: manifest, in: bundle)
+        let sidecar = try loadAnnotationSidecarIfPresent(annotationSidecarURL)
+        let configuration = try makeCandidateConfiguration(
+            manifest: manifest,
+            bundleURL: bundle,
+            sidecar: sidecar
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(configuration).write(to: configurationURL, options: .atomic)
+        let scriptArguments = [
             currentURL.path,
             patchedURL.path,
             callsURL.path,
+            annotationSidecarURL?.path ?? "",
+            configurationURL.path,
         ]
-        if let annotationSidecarURL, fileManager.fileExists(atPath: annotationSidecarURL.path) {
-            scriptArguments.append(annotationSidecarURL.path)
-        }
-        try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
+        defer { try? fileManager.removeItem(at: patchedURL) }
+        try checkCancellation()
+        let executionRecord = try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
+        try encoder.encode(executionRecord).write(to: runtimeRecordURL, options: .atomic)
+        try validateWorkbook(patchedURL)
+        try checkCancellation()
 
-        var additionalInputs = [callsURL]
+        var additionalInputs = [callsURL, configurationURL, runtimeRecordURL] + candidateInputs
         if let annotationSidecarURL, fileManager.fileExists(atPath: annotationSidecarURL.path) {
             additionalInputs.append(annotationSidecarURL)
         }
@@ -204,6 +264,7 @@ public struct GenotypeWorkbookRevisionService {
             label: "Applied haplotype overrides",
             provenanceAction: "apply-haplotype-overrides",
             additionalInputURLs: additionalInputs,
+            additionalExplicitOptions: candidateProvenanceOptions(configuration),
             provenanceContext: provenanceContext
         )
     }
@@ -214,6 +275,7 @@ public struct GenotypeWorkbookRevisionService {
         label: String? = nil,
         provenanceAction: String = "import",
         additionalInputURLs: [URL] = [],
+        additionalExplicitOptions: [String: ParameterValue] = [:],
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws -> ONTGenotypeResultBundleManifest {
         let source = sourceURL.standardizedFileURL
@@ -281,6 +343,7 @@ public struct GenotypeWorkbookRevisionService {
                 provenancePath: provenancePath,
                 startedAt: startedAt,
                 additionalInputURLs: additionalInputURLs,
+                additionalExplicitOptions: additionalExplicitOptions,
                 provenanceContext: provenanceContext
             )
             return manifest
@@ -358,21 +421,31 @@ public struct GenotypeWorkbookRevisionService {
         return manifest
     }
 
-    private func runPythonScript(scriptURL: URL, arguments: [String]) throws {
+    private func runPythonScript(
+        scriptURL: URL,
+        arguments: [String]
+    ) throws -> WorkbookOverrideExecutionRecord {
         let process = Process()
+        let executable: String
+        let processArguments: [String]
         if let pythonExecutableURL {
             process.executableURL = pythonExecutableURL
-            process.arguments = [scriptURL.path] + arguments
+            executable = pythonExecutableURL.path
+            processArguments = [scriptURL.path] + arguments
         } else {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["python3", scriptURL.path] + arguments
+            executable = "/usr/bin/env"
+            processArguments = ["python3", scriptURL.path] + arguments
         }
+        process.arguments = processArguments
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
+        let startedAt = Date()
         try process.run()
         process.waitUntilExit()
+        let wallTime = Date().timeIntervalSince(startedAt)
         let out = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let err = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         guard process.terminationStatus == 0 else {
@@ -380,6 +453,196 @@ public struct GenotypeWorkbookRevisionService {
                 ? out.trimmingCharacters(in: .whitespacesAndNewlines)
                 : err.trimmingCharacters(in: .whitespacesAndNewlines)
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(message)
+        }
+        return WorkbookOverrideExecutionRecord(
+            executable: executable,
+            argv: [executable] + processArguments,
+            exitStatus: process.terminationStatus,
+            wallTimeSeconds: wallTime,
+            stdout: out,
+            stderr: err
+        )
+    }
+
+    private func loadAnnotationSidecarIfPresent(_ url: URL?) throws -> GenotypeAnnotationSidecar? {
+        guard let url, fileManager.fileExists(atPath: url.path) else { return nil }
+        return try JSONDecoder().decode(GenotypeAnnotationSidecar.self, from: Data(contentsOf: url))
+    }
+
+    private func makeCandidateConfiguration(
+        manifest: ONTGenotypeResultBundleManifest,
+        bundleURL: URL,
+        sidecar: GenotypeAnnotationSidecar?
+    ) throws -> WorkbookCandidateUpdateConfiguration {
+        let artifacts = manifest.mhcCandidateArtifacts
+        if let artifacts {
+            guard artifacts.schemaVersion == 1 else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Unsupported MHC candidate artifact schema \(artifacts.schemaVersion)."
+                )
+            }
+            guard (artifacts.candidateJSON == nil) == (artifacts.candidateFASTA == nil),
+                  (artifacts.unnameableJSON == nil) == (artifacts.unnameableFASTA == nil) else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "MHC candidate JSON and FASTA artifacts must be declared as pairs."
+                )
+            }
+            if let candidateJSON = artifacts.candidateJSON {
+                let document = try decodeAndValidate(
+                    ONTMHCCandidateAllelesDocument.self,
+                    reference: candidateJSON,
+                    in: bundleURL
+                )
+                try validateArtifact(document.sequenceFASTA, equals: artifacts.candidateFASTA, label: "candidate FASTA")
+                try validateCandidateLabels(document.candidates)
+            }
+            if let unnameableJSON = artifacts.unnameableJSON {
+                let document = try decodeAndValidate(
+                    ONTMHCUnnameableClustersDocument.self,
+                    reference: unnameableJSON,
+                    in: bundleURL
+                )
+                try validateArtifact(document.sequenceFASTA, equals: artifacts.unnameableFASTA, label: "un-nameable FASTA")
+            }
+            if let candidatesReference = artifacts.candidateJSON,
+               let unnameableReference = artifacts.unnameableJSON {
+                let candidates = try decodeAndValidate(
+                    ONTMHCCandidateAllelesDocument.self,
+                    reference: candidatesReference,
+                    in: bundleURL
+                )
+                let unnameable = try decodeAndValidate(
+                    ONTMHCUnnameableClustersDocument.self,
+                    reference: unnameableReference,
+                    in: bundleURL
+                )
+                _ = try FullLengthONTMHCWorkbookProjection(
+                    candidateDocument: candidates,
+                    unnameableDocument: unnameable,
+                    sampleOrder: Array(Set((candidates.observations + unnameable.observations).map(\.sampleID))).sorted()
+                )
+            }
+        }
+
+        let settings = sidecar?.settings.mhcCandidateDisplay ?? .default
+        let tints: [String: WorkbookCandidateUpdateConfiguration.Tint] = Dictionary(
+            uniqueKeysWithValues: ONTMHCCandidateTintCategory.allCases.map { category in
+            let color = settings.tints[category] ?? ONTMHCCandidateDisplaySettings.defaultTints[category]!
+            return (
+                category.rawValue,
+                WorkbookCandidateUpdateConfiguration.Tint(
+                    red: color.red,
+                    green: color.green,
+                    blue: color.blue,
+                    alpha: color.alpha
+                )
+            )
+        })
+        return WorkbookCandidateUpdateConfiguration(
+            candidateJSONPath: artifacts?.candidateJSON.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
+            candidateFASTAPath: artifacts?.candidateFASTA.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
+            unnameableJSONPath: artifacts?.unnameableJSON.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
+            unnameableFASTAPath: artifacts?.unnameableFASTA.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
+            tints: tints,
+            ooxmlAlphaSemantics: "The leading OOXML ARGB byte is alpha: 00 is transparent and FF is opaque; RGB and alpha are rounded from the exact bundle RGBA values."
+        )
+    }
+
+    private func candidateArtifactInputURLs(
+        from manifest: ONTGenotypeResultBundleManifest,
+        in bundleURL: URL
+    ) throws -> [URL] {
+        guard let artifacts = manifest.mhcCandidateArtifacts else { return [] }
+        let references = [
+            artifacts.candidateJSON,
+            artifacts.candidateFASTA,
+            artifacts.unnameableJSON,
+            artifacts.unnameableFASTA,
+        ].compactMap { $0 }
+        for reference in references {
+            _ = try validatedArtifactURL(reference, in: bundleURL)
+        }
+        return references.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL) }
+    }
+
+    private func decodeAndValidate<T: Decodable>(
+        _ type: T.Type,
+        reference: ONTMHCArtifactReference,
+        in bundleURL: URL
+    ) throws -> T {
+        let url = try validatedArtifactURL(reference, in: bundleURL)
+        do {
+            return try JSONDecoder().decode(type, from: Data(contentsOf: url))
+        } catch {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Malformed MHC candidate artifact \(reference.path): \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func validatedArtifactURL(
+        _ reference: ONTMHCArtifactReference,
+        in bundleURL: URL
+    ) throws -> URL {
+        let url = ONTGenotypeResultBundle.resolvedURL(for: reference.path, in: bundleURL)
+        do {
+            try validateRegularBundleFile(url, in: bundleURL, role: "workbook candidate input")
+            guard Int64(try ProvenanceFileHasher.fileSize(of: url)) == reference.sizeBytes,
+                  try ProvenanceFileHasher.sha256(of: url) == reference.sha256 else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "MHC candidate artifact checksum or size does not match the manifest: \(reference.path)"
+                )
+            }
+            return url
+        } catch let error as GenotypeWorkbookRevisionError {
+            throw error
+        } catch {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(error.localizedDescription)
+        }
+    }
+
+    private func validateRegularBundleFile(_ url: URL, in bundleURL: URL, role: String) throws {
+        let safety = FullLengthONTMHCAlignmentSafety()
+        try safety.requireDirectoryNoFollow(bundleURL, role: "genotype bundle")
+        let descriptor = try safety.openRegularFileNoFollow(url, within: bundleURL, role: role)
+        Darwin.close(descriptor)
+    }
+
+    private func validateArtifact(
+        _ documentReference: ONTMHCArtifactReference,
+        equals manifestReference: ONTMHCArtifactReference?,
+        label: String
+    ) throws {
+        guard documentReference == manifestReference else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "The \(label) reference in JSON does not match the bundle manifest."
+            )
+        }
+    }
+
+    private func validateCandidateLabels(_ candidates: [ONTMHCCandidateRecord]) throws {
+        for candidate in candidates {
+            switch candidate.classification {
+            case .novel:
+                guard candidate.snpCount > 0,
+                      candidate.provisionalName.hasSuffix("_\(candidate.snpCount)nt_nov") else {
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                        "Candidate \(candidate.stableClusterID) has a prohibited or non-authoritative novel label."
+                    )
+                }
+            case .extension:
+                guard candidate.provisionalName.hasSuffix("_ext") else {
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                        "Candidate \(candidate.stableClusterID) has a non-authoritative extension label."
+                    )
+                }
+            }
+        }
+    }
+
+    private func checkCancellation() throws {
+        if withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }) {
+            throw CancellationError()
         }
     }
 
@@ -455,6 +718,7 @@ public struct GenotypeWorkbookRevisionService {
         provenancePath: String,
         startedAt: Date,
         additionalInputURLs: [URL],
+        additionalExplicitOptions: [String: ParameterValue] = [:],
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws {
         let completedAt = dateProvider()
@@ -483,6 +747,7 @@ public struct GenotypeWorkbookRevisionService {
         if !additionalInputURLs.isEmpty {
             explicitOptions["additionalInputs"] = .array(additionalInputURLs.map { .file($0) })
         }
+        explicitOptions.merge(additionalExplicitOptions) { _, new in new }
         let envelope = ProvenanceEnvelope(
             createdAt: completedAt,
             workflowName: "Genotype Workbook Revision",
@@ -520,6 +785,27 @@ public struct GenotypeWorkbookRevisionService {
         try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
     }
 
+    private func candidateProvenanceOptions(
+        _ configuration: WorkbookCandidateUpdateConfiguration
+    ) -> [String: ParameterValue] {
+        let tintValues = Dictionary(uniqueKeysWithValues: configuration.tints.map { key, tint in
+            (
+                key,
+                ParameterValue.dictionary([
+                    "red": .number(tint.red),
+                    "green": .number(tint.green),
+                    "blue": .number(tint.blue),
+                    "alpha": .number(tint.alpha),
+                ])
+            )
+        })
+        return [
+            "mhcCandidateTints": .dictionary(tintValues),
+            "mhcCandidateVisibilityFiltersApplied": .boolean(false),
+            "ooxmlAlphaSemantics": .string(configuration.ooxmlAlphaSemantics),
+        ]
+    }
+
     private func validateWorkbook(_ url: URL) throws {
         guard url.pathExtension.lowercased() == "xlsx",
               let handle = try? FileHandle(forReadingFrom: url) else {
@@ -546,10 +832,11 @@ public struct GenotypeWorkbookRevisionService {
             try fileManager.removeItem(at: temporaryURL)
         }
         try fileManager.copyItem(at: sourceURL, to: temporaryURL)
-        if fileManager.fileExists(atPath: destinationURL.path) {
-            try fileManager.removeItem(at: destinationURL)
+        guard Darwin.rename(temporaryURL.path, destinationURL.path) == 0 else {
+            let code = errno
+            try? fileManager.removeItem(at: temporaryURL)
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSUnderlyingErrorKey: POSIXError(.init(rawValue: code) ?? .EIO)])
         }
-        try fileManager.moveItem(at: temporaryURL, to: destinationURL)
     }
 
     private func manifestWithWorkbookFields(
@@ -576,7 +863,8 @@ public struct GenotypeWorkbookRevisionService {
             presetVersion: manifest.presetVersion,
             createdAt: manifest.createdAt,
             activeHaplotypeAnalysisRevisionID: manifest.activeHaplotypeAnalysisRevisionID,
-            haplotypeAnalysisRevisions: manifest.haplotypeAnalysisRevisions
+            haplotypeAnalysisRevisions: manifest.haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: manifest.mhcCandidateArtifacts
         )
     }
 

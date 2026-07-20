@@ -4,8 +4,187 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testExplicitUpdateRetainsAllCandidateCategoriesAndUnnameableEvidenceWithNameOnlyTints() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-workbook")
+        try installCandidateArtifacts(in: fixture.bundleURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+        sidecar.settings.mhcCandidateDisplay = ONTMHCCandidateDisplaySettings(
+            showKnown: false,
+            showSharedCandidates: false,
+            showSingletonCandidates: false,
+            tints: [
+                .sharedNovel: AnnotationColor(red: 1, green: 0, blue: 0, alpha: 1),
+                .singletonNovel: AnnotationColor(red: 0, green: 1, blue: 0, alpha: 0.5),
+                .sharedExtension: AnnotationColor(red: 0, green: 0, blue: 1, alpha: 1),
+                .singletonExtension: AnnotationColor(red: 1, green: 1, blue: 0, alpha: 0.25),
+            ]
+        )
+        try sidecar.encoded().write(to: annotationURL)
+
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+        let updated = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_000) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+        let after = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertNotEqual(before, after, "Only the explicit update action may rewrite current.xlsx")
+        let inspection = try inspectCandidateWorkbook(currentURL)
+        XCTAssertEqual(inspection["candidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
+        XCTAssertEqual(inspection["candidateNames"], "Mafa-A1*018:01:01:01_5nt_nov|Mafa-A1*018:01:01:01_5nt_nov|Mafa-B*001:01_ext|Mafa-B*002:01_ext")
+        XCTAssertEqual(inspection["candidateNameFills"], "FFFF0000|8000FF00|FF0000FF|40FFFF00")
+        XCTAssertEqual(inspection["candidateIDFills"], "00000000|00000000|00000000|00000000")
+        XCTAssertEqual(inspection["editableCandidateCount"], "4")
+        XCTAssertEqual(inspection["editableNameFills"], "FFFF0000|8000FF00|FF0000FF|40FFFF00")
+        XCTAssertEqual(inspection["unnameableIDs"], "cluster-u|cluster-u")
+        XCTAssertEqual(inspection["unnameableQueries"], "cluster-u-a|cluster-u-z")
+        XCTAssertFalse((inspection["allText"] ?? "").contains("_0nt_nov"))
+        XCTAssertEqual(updated.mhcCandidateArtifacts?.schemaVersion, 1)
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let provenance = try String(contentsOf: provenanceURL, encoding: .utf8)
+        XCTAssertTrue(provenance.contains("mhcCandidateTints"))
+        XCTAssertTrue(provenance.contains("mhcCandidateVisibilityFiltersApplied"))
+        XCTAssertTrue(provenance.contains("openpyxl-runtime"))
+    }
+
+    func testCandidateUpdateUsesUnifiedPivotFallbackWhenFullSequencingSheetIsAbsent() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "candidate-fallback")
+        try installCandidateArtifacts(in: fixture.bundleURL)
+
+        _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+            .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        let inspection = try inspectCandidateWorkbook(try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL))
+        XCTAssertEqual(inspection["unifiedCandidateCount"], "4")
+        XCTAssertEqual(inspection["unifiedCandidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
+    }
+
+    func testMalformedCandidateArtifactFailsWithoutMutatingWorkbookOrManifest() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-rollback")
+        try installCandidateArtifacts(in: fixture.bundleURL)
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+        let beforeWorkbook = try Data(contentsOf: currentURL)
+        let beforeManifest = try Data(contentsOf: manifestURL)
+        let candidateJSONURL = fixture.bundleURL
+            .appendingPathComponent("artifacts/mhc-candidates/candidate-alleles.json")
+        try Data("{malformed".utf8).write(to: candidateJSONURL, options: .atomic)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        XCTAssertEqual(try Data(contentsOf: currentURL), beforeWorkbook)
+        XCTAssertEqual(try Data(contentsOf: manifestURL), beforeManifest)
+    }
+
+    func testSidecarDisplayEditAloneDoesNotMutateCurrentWorkbook() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "sidecar-only")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+        sidecar.settings.mhcCandidateDisplay.showSingletonCandidates = false
+        try sidecar.encoded().write(
+            to: fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename),
+            options: .atomic
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testConcurrentExplicitUpdateConflictsBeforeWorkbookMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-concurrent")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let before = try Data(contentsOf: currentURL)
+        let lock = try DarwinFullLengthONTMHCRunLock.acquire(outputDirectoryURL: fixture.bundleURL)
+        defer { lock.release() }
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        XCTAssertEqual(try Data(contentsOf: currentURL), before)
+    }
+
+    func testExplicitUpdateRejectsSymlinkCurrentWorkbookWithoutMutatingTarget() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-symlink")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let outside = root.appendingPathComponent("outside.xlsx")
+        try makeMinimalMCMWorkbook(at: outside)
+        let outsideBefore = try Data(contentsOf: outside)
+        try FileManager.default.removeItem(at: currentURL)
+        try FileManager.default.createSymbolicLink(at: currentURL, withDestinationURL: outside)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        XCTAssertEqual(try Data(contentsOf: outside), outsideBefore)
+    }
+
+    func testWorkbookRevisionPreservesMHCCandidateArtifactManifest() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeBundle(in: root, outputName: "candidate-preservation", includeCurrent: true)
+        let reference = ONTMHCArtifactReference(
+            path: "artifacts/mhc-candidates/candidate-alleles.json",
+            sha256: String(repeating: "a", count: 64),
+            sizeBytes: 42
+        )
+        let candidateArtifacts = ONTMHCCandidateArtifactManifest(
+            schemaVersion: 1,
+            genotypingEvidence: nil,
+            reciprocalEvidence: nil,
+            candidateJSON: reference,
+            candidateFASTA: reference,
+            unnameableJSON: reference,
+            unnameableFASTA: reference
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            schemaVersion: fixture.manifest.schemaVersion,
+            kind: fixture.manifest.kind,
+            outputName: fixture.manifest.outputName,
+            analysisName: fixture.manifest.analysisName,
+            primaryWorkbookPath: fixture.manifest.primaryWorkbookPath,
+            currentWorkbookPath: fixture.manifest.currentWorkbookPath,
+            workbookRevisions: fixture.manifest.workbookRevisions,
+            longSummaryCSVPath: fixture.manifest.longSummaryCSVPath,
+            sampleSummaryCSVPath: fixture.manifest.sampleSummaryCSVPath,
+            statsJSONPath: fixture.manifest.statsJSONPath,
+            provenancePath: fixture.manifest.provenancePath,
+            mhcCandidateArtifacts: candidateArtifacts
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: fixture.bundleURL)
+        let replacement = root.appendingPathComponent("replacement.xlsx")
+        try workbookData("replacement").write(to: replacement)
+
+        let updated = try GenotypeWorkbookRevisionService()
+            .importRevisedWorkbook(from: replacement, into: fixture.bundleURL)
+
+        XCTAssertEqual(updated.mhcCandidateArtifacts, candidateArtifacts)
+    }
+
     func testApplyHaplotypeOverridesPatchesCurrentWorkbookAndRecordsSidecarProvenance() throws {
-        try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for current workbook override verification")
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeMCMWorkbookBundle(in: root, outputName: "mcm")
@@ -41,7 +220,8 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
 
         let updatedManifest = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 5_000) },
-            userProvider: { "tester" }
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
         ).applyHaplotypeOverrides(
             [
                 GenotypeWorkbookHaplotypeCall(
@@ -100,7 +280,7 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
     }
 
     func testApplyHaplotypeOverridesWritesMatrixAnnotationsToCurrentWorkbook() throws {
-        try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for current workbook matrix annotation verification")
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "matrix")
@@ -137,7 +317,8 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
 
         _ = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 6_000) },
-            userProvider: { "tester" }
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
         ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
 
         let inspection = try inspectGenericMatrixWorkbook(try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL))
@@ -745,14 +926,230 @@ print(json.dumps(payload))
         return try XCTUnwrap(object as? [String: String])
     }
 
+    private func installCandidateArtifacts(in bundleURL: URL) throws {
+        let directory = bundleURL.appendingPathComponent("artifacts/mhc-candidates", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let candidateFASTAURL = directory.appendingPathComponent("candidate-alleles.fasta")
+        let unnameableFASTAURL = directory.appendingPathComponent("unnameable-clusters.fasta")
+        let bases = Array("ACGT")
+        try (1...4).map { ">cluster-\($0)\n" + String(repeating: bases[$0 % 4], count: 40) }
+            .joined(separator: "\n").appending("\n")
+            .write(to: candidateFASTAURL, atomically: true, encoding: .utf8)
+        try ">cluster-u\n".appending(String(repeating: "N", count: 40)).appending("\n")
+            .write(to: unnameableFASTAURL, atomically: true, encoding: .utf8)
+        let candidateFASTA = try artifactReference(candidateFASTAURL, relativeTo: bundleURL)
+        let unnameableFASTA = try artifactReference(unnameableFASTAURL, relativeTo: bundleURL)
+        let selected = ONTMHCEvidenceLocator(
+            bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+            queryName: "candidate-query",
+            referenceName: "reference-allele",
+            readGroupID: nil,
+            referenceStart: 10,
+            cigar: "1000M"
+        )
+        let specs: [(String, String, ONTMHCCandidateClassification, ONTMHCCandidateSupportClass, Int)] = [
+            ("cluster-1", "Mafa-A1*018:01:01:01_5nt_nov", .novel, .shared, 5),
+            ("cluster-2", "Mafa-A1*018:01:01:01_5nt_nov", .novel, .singleton, 5),
+            ("cluster-3", "Mafa-B*001:01_ext", .extension, .shared, 0),
+            ("cluster-4", "Mafa-B*002:01_ext", .extension, .singleton, 0),
+        ]
+        let candidates = specs.map { id, name, classification, support, snps in
+            ONTMHCCandidateRecord(
+                stableClusterID: id,
+                provisionalName: name,
+                locus: name.hasPrefix("Mafa-A") ? "Mafa-A1" : "Mafa-B",
+                classification: classification,
+                supportClass: support,
+                closestReferenceName: classification == .novel ? "Mafa-A1*018:01:01:01" : String(name.dropLast(4)),
+                closestReferenceClass: classification == .novel ? .genomicDNA : .cDNA,
+                snpCount: snps,
+                insertedBases: 0,
+                deletedBases: classification == .extension ? 200 : 0,
+                longGapBases: classification == .extension ? 200 : 0,
+                comparableBases: 1_000,
+                shorterCoverage: 1,
+                identity: 1,
+                mappingQuality: 60,
+                alignmentScore: 1_000,
+                independentSampleCount: support == .shared ? 2 : 1,
+                occurrenceCount: support == .shared ? 2 : 1,
+                totalClusterReads: id == "cluster-1" ? 10 : (support == .shared ? 6 : 4),
+                supportingSampleIDs: support == .shared ? ["sample-a", "sample-b"] : ["sample-a"],
+                fastaRecordID: id,
+                sequenceSHA256: String(repeating: String(id.last!), count: 64),
+                selectedEvidence: ONTMHCEvidenceLocator(
+                    bamPath: selected.bamPath,
+                    queryName: id,
+                    referenceName: selected.referenceName,
+                    readGroupID: nil,
+                    referenceStart: selected.referenceStart,
+                    cigar: selected.cigar
+                )
+            )
+        }
+        var observations: [ONTMHCCandidateObservation] = []
+        for candidate in candidates {
+            observations.append(candidateObservation(candidate.stableClusterID, sample: "sample-a", reads: candidate.stableClusterID == "cluster-1" ? 7 : 4))
+            if candidate.supportClass == .shared {
+                observations.append(candidateObservation(candidate.stableClusterID, sample: "sample-b", reads: candidate.stableClusterID == "cluster-1" ? 3 : 2))
+            }
+        }
+        let candidateDocument = ONTMHCCandidateAllelesDocument(
+            schemaVersion: 1,
+            createdAt: "2026-07-20T00:00:00Z",
+            thresholds: .defaults,
+            inputs: [],
+            evidence: [],
+            sequenceFASTA: candidateFASTA,
+            candidates: candidates.reversed(),
+            observations: observations.reversed()
+        )
+        let unnameable = ONTMHCUnnameableRecord(
+            stableClusterID: "cluster-u",
+            reason: .unresolvedLocus,
+            failedMetrics: ["identity": 0.7],
+            supportClass: .singleton,
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 4,
+            supportingSampleIDs: ["sample-a"],
+            fastaRecordID: "cluster-u",
+            sequenceSHA256: String(repeating: "f", count: 64),
+            evidence: [
+                .init(bamPath: "artifacts/alignments/z.bam", queryName: "cluster-u-z", referenceName: "ref-z", readGroupID: "sample-z", referenceStart: 90, cigar: "900M"),
+                .init(bamPath: "artifacts/alignments/a.bam", queryName: "cluster-u-a", referenceName: "ref-a", readGroupID: "sample-a", referenceStart: 10, cigar: "800M"),
+            ]
+        )
+        let unnameableDocument = ONTMHCUnnameableClustersDocument(
+            schemaVersion: 1,
+            createdAt: "2026-07-20T00:00:00Z",
+            thresholds: .defaults,
+            sequenceFASTA: unnameableFASTA,
+            clusters: [unnameable],
+            observations: [candidateObservation("cluster-u", sample: "sample-a", reads: 4)]
+        )
+        let candidateJSONURL = directory.appendingPathComponent("candidate-alleles.json")
+        let unnameableJSONURL = directory.appendingPathComponent("unnameable-clusters.json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(candidateDocument).write(to: candidateJSONURL, options: .atomic)
+        try encoder.encode(unnameableDocument).write(to: unnameableJSONURL, options: .atomic)
+        let artifacts = ONTMHCCandidateArtifactManifest(
+            schemaVersion: 1,
+            genotypingEvidence: nil,
+            reciprocalEvidence: nil,
+            candidateJSON: try artifactReference(candidateJSONURL, relativeTo: bundleURL),
+            candidateFASTA: candidateFASTA,
+            unnameableJSON: try artifactReference(unnameableJSONURL, relativeTo: bundleURL),
+            unnameableFASTA: unnameableFASTA
+        )
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundleURL)
+        let updated = ONTGenotypeResultBundleManifest(
+            schemaVersion: manifest.schemaVersion,
+            kind: manifest.kind,
+            outputName: manifest.outputName,
+            analysisName: manifest.analysisName,
+            primaryWorkbookPath: manifest.primaryWorkbookPath,
+            currentWorkbookPath: manifest.currentWorkbookPath,
+            workbookRevisions: manifest.workbookRevisions,
+            longSummaryCSVPath: manifest.longSummaryCSVPath,
+            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
+            statsJSONPath: manifest.statsJSONPath,
+            provenancePath: manifest.provenancePath,
+            mhcCandidateArtifacts: artifacts
+        )
+        try ONTGenotypeResultBundle.writeManifest(updated, to: bundleURL)
+    }
+
+    private func artifactReference(_ url: URL, relativeTo bundleURL: URL) throws -> ONTMHCArtifactReference {
+        ONTMHCArtifactReference(
+            path: String(url.standardizedFileURL.path.dropFirst(bundleURL.standardizedFileURL.path.count + 1)),
+            sha256: try ProvenanceFileHasher.sha256(of: url),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: url))
+        )
+    }
+
+    private func candidateObservation(_ cluster: String, sample: String, reads: Int) -> ONTMHCCandidateObservation {
+        ONTMHCCandidateObservation(
+            stableClusterID: cluster,
+            sampleID: sample,
+            readGroupID: sample,
+            sourceClusterIDs: ["source-\(cluster)-\(sample)"],
+            sourceClusterReadCounts: ["source-\(cluster)-\(sample)": reads],
+            aggregatedSampleReadCount: reads,
+            evidence: []
+        )
+    }
+
+    private func inspectCandidateWorkbook(_ url: URL) throws -> [String: String] {
+        let code = #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+
+def text(value):
+    return "" if value is None else str(value)
+
+def argb(cell):
+    value = getattr(cell.fill.fgColor, "rgb", None)
+    return text(value) or "00000000"
+
+candidate = wb["Candidate Alleles"]
+unnameable = wb["Un-nameable Clusters"]
+candidate_ids = [text(candidate.cell(row, 1).value) for row in range(2, candidate.max_row + 1)]
+candidate_names = [text(candidate.cell(row, 2).value) for row in range(2, candidate.max_row + 1)]
+payload = {
+    "candidateIDs": "|".join(candidate_ids),
+    "candidateNames": "|".join(candidate_names),
+    "candidateNameFills": "|".join(argb(candidate.cell(row, 2)) for row in range(2, candidate.max_row + 1)),
+    "candidateIDFills": "|".join(argb(candidate.cell(row, 1)) for row in range(2, candidate.max_row + 1)),
+    "unnameableIDs": "|".join(text(unnameable.cell(row, 1).value) for row in range(2, unnameable.max_row + 1)),
+    "unnameableQueries": "|".join(text(unnameable.cell(row, 14).value) for row in range(2, unnameable.max_row + 1)),
+    "allText": "|".join(text(cell.value) for ws in wb.worksheets for row in ws.iter_rows() for cell in row),
+}
+if "Full Sequencing Results 1" in wb.sheetnames:
+    ws = wb["Full Sequencing Results 1"]
+    marker = next((row for row in range(1, ws.max_row + 1) if text(ws.cell(row, 1).value) == "LGE MHC Candidate Alleles"), None)
+    rows = list(range(marker + 2, ws.max_row + 1)) if marker else []
+    payload["editableCandidateCount"] = str(len(rows))
+    payload["editableNameFills"] = "|".join(argb(ws.cell(row, 1)) for row in rows)
+else:
+    payload["editableCandidateCount"] = "0"
+    payload["editableNameFills"] = ""
+if "Unified Genotype Pivot" in wb.sheetnames:
+    ws = wb["Unified Genotype Pivot"]
+    rows = [row for row in range(2, ws.max_row + 1) if text(ws.cell(row, 1).value).startswith("candidate-")]
+    payload["unifiedCandidateCount"] = str(len(rows))
+    payload["unifiedCandidateIDs"] = "|".join(text(ws.cell(row, 4).value) for row in rows)
+else:
+    payload["unifiedCandidateCount"] = "0"
+    payload["unifiedCandidateIDs"] = ""
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path])
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: String])
+    }
+
     private func pythonCanImportOpenpyxl() -> Bool {
         (try? runPython(["-c", "import openpyxl"])) != nil
     }
 
+    private var testPythonExecutableURL: URL? {
+        let bundled = URL(fileURLWithPath: "/Users/dho/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3")
+        return FileManager.default.isExecutableFile(atPath: bundled.path) ? bundled : nil
+    }
+
     private func runPython(_ arguments: [String]) throws -> String {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["python3"] + arguments
+        if let testPythonExecutableURL {
+            process.executableURL = testPythonExecutableURL
+            process.arguments = arguments
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["python3"] + arguments
+        }
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
