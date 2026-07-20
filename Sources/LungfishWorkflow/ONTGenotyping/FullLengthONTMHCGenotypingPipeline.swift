@@ -162,6 +162,12 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         URL(fileURLWithPath: outputDirectory.standardizedFileURL.path + ".failed.lungfish-provenance.json")
     }
 
+    var legacyPublicationFailureProvenanceURL: URL {
+        outputDirectory.deletingLastPathComponent().appendingPathComponent(
+            ".\(outputDirectory.lastPathComponent).publication-failure.json"
+        )
+    }
+
     public var manifestURL: URL {
         ONTGenotypeResultBundle.manifestURL(in: outputDirectory)
     }
@@ -706,6 +712,14 @@ private struct FullLengthONTMHCResultBundlePublicationRecord: Sendable {
     }
 }
 
+private struct FullLengthONTMHCResultBundlePublicationError: Error, LocalizedError, Sendable {
+    let record: FullLengthONTMHCResultBundlePublicationRecord
+
+    var errorDescription: String? {
+        "Could not atomically publish the complete MHC result bundle: \(record.errorMessage ?? "unknown error")"
+    }
+}
+
 public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private let nativeToolRunner: NativeToolRunner
     private let condaManager: CondaManager
@@ -750,10 +764,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             isDirectory: true
         )
         var finalExisted = false
+        var failureEnvelopeSnapshot: ProvenanceEnvelope?
         do {
-            if FileManager.default.fileExists(atPath: request.failureProvenanceURL.path) {
-                try FileManager.default.removeItem(at: request.failureProvenanceURL)
-            }
+            try removeStaleFailureReceipts(for: request)
             try metadataPublicationObserver(.runLockAcquired(lockURL: runLock.lockURL))
             try validateInputs(request)
             finalExisted = try FullLengthONTMHCAlignmentSafety().requireOptionalDirectoryEntryNoFollow(
@@ -821,6 +834,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     provenanceURL: finalProvenanceURL
                 ))
             } catch {
+                failureEnvelopeSnapshot = try? ProvenanceEnvelopeReader.load(
+                    fromSidecar: finalOutputURL.appendingPathComponent(
+                        "full-length-ont-mhc-genotyping-provenance.json"
+                    )
+                )
                 do {
                     try rollbackPublishedResultBundle(
                         stagedOutputURL: stagedOutputURL,
@@ -847,6 +865,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     ))
                 }
             }
+            try removeStaleFailureReceipts(for: request)
             return relocatedResult(
                 stagedResult,
                 from: stagedOutputURL,
@@ -854,11 +873,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 additionalCleanupWarnings: publicationCleanupWarnings
             )
         } catch {
-            let partialEnvelope = loadPartialFailureEnvelope(
+            let partialEnvelope = failureEnvelopeSnapshot ?? loadPartialFailureEnvelope(
                 stagedOutputURL: stagedOutputURL,
                 finalOutputURL: finalOutputURL,
                 finalExistedBeforeRun: finalExisted
             )
+            let failedPublicationRecord = (error as? FullLengthONTMHCResultBundlePublicationError)?.record
             var reportedError: Error = error
             if FileManager.default.fileExists(atPath: stagedOutputURL.path) {
                 do {
@@ -875,7 +895,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     stagedOutputURL: stagedOutputURL,
                     startedAt: runStartedAt,
                     error: reportedError,
-                    partialEnvelope: partialEnvelope
+                    partialEnvelope: partialEnvelope,
+                    failedPublicationRecord: failedPublicationRecord
                 )
             } catch let provenanceError {
                 throw FullLengthONTMHCGenotypingError.reportFailed(
@@ -1822,10 +1843,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             errorMessage: code.map { POSIXError($0).localizedDescription }
         )
         guard status == 0 else {
-            try writeResultBundlePublicationFailureReceipt(record)
-            throw FullLengthONTMHCGenotypingError.reportFailed(
-                "Could not atomically publish the complete MHC result bundle: \(record.errorMessage ?? "unknown error")"
-            )
+            throw FullLengthONTMHCResultBundlePublicationError(record: record)
         }
         return record
     }
@@ -1989,40 +2007,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         } else {
             try FileManager.default.removeItem(at: finalOutputURL)
         }
-    }
-
-    private func writeResultBundlePublicationFailureReceipt(
-        _ record: FullLengthONTMHCResultBundlePublicationRecord
-    ) throws {
-        let url = record.finalDirectoryURL.deletingLastPathComponent().appendingPathComponent(
-            ".\(record.finalDirectoryURL.lastPathComponent).publication-failure.json"
-        )
-        let step = record.provenanceStep
-        let startedAt = step.startedAt ?? record.startedAt
-        let completedAt = step.completedAt ?? record.completedAt
-        let envelope = ProvenanceEnvelope(
-            createdAt: startedAt,
-            workflowName: "lungfish fastq full-length-ont-mhc-genotype result-bundle-publication",
-            workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: step.toolName,
-            toolVersion: step.toolVersion,
-            argv: step.argv,
-            durableReplayArgv: step.durableReplayArgv,
-            reproducibleCommand: step.reproducibleCommand,
-            options: ProvenanceOptions(explicit: [
-                "publicationStatus": .string("failed"),
-                "publicationMode": .string(record.replacingExisting ? "replace" : "create"),
-                "atomicMechanism": .string("renameatx_np"),
-            ]),
-            runtimeIdentity: ProvenanceRuntimeIdentity(),
-            files: step.inputs,
-            outputs: step.outputs,
-            steps: [step],
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
-            exitStatus: Int(record.exitStatus),
-            stderr: record.errorMessage
-        )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: url)
     }
 
     private func relocatedResult(
@@ -4357,7 +4341,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         stagedOutputURL: URL,
         startedAt: Date,
         error: Error,
-        partialEnvelope: ProvenanceEnvelope?
+        partialEnvelope: ProvenanceEnvelope?,
+        failedPublicationRecord: FullLengthONTMHCResultBundlePublicationRecord?
     ) throws {
         let completedAt = Date()
         let cancelled = isCancellation(error)
@@ -4366,7 +4351,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ? "Full-length ONT MHC genotyping was cancelled: \(error.localizedDescription)"
             : error.localizedDescription
         let inputs = failureInputDescriptors(request)
-        let outputs = try failureDiagnosticDescriptors(stagedOutputURL: stagedOutputURL)
+        let retainedDiagnosticOutputs = try failureDiagnosticDescriptors(stagedOutputURL: stagedOutputURL)
+        let outputs = retainedDiagnosticOutputs.isEmpty
+            ? (failedPublicationRecord?.provenanceStep.outputs ?? [])
+            : retainedDiagnosticOutputs
         let options = failureProvenanceOptions(
             request: request,
             outcome: cancelled ? "cancelled" : "failed",
@@ -4380,6 +4368,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 }
             }
             steps.append(contentsOf: cohortError.transformationRecords.map { $0.provenanceStep() })
+        }
+        if let failedPublicationRecord {
+            steps.append(failedPublicationRecord.provenanceStep)
         }
         let receiptArgv = request.argv + [
             "--failure-provenance", request.failureProvenanceURL.path,
@@ -4436,6 +4427,15 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             envelope,
             toSidecar: request.failureProvenanceURL
         )
+    }
+
+    private func removeStaleFailureReceipts(
+        for request: FullLengthONTMHCGenotypingRunRequest
+    ) throws {
+        for url in [request.failureProvenanceURL, request.legacyPublicationFailureProvenanceURL]
+            where FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
     }
 
     private func failureInputDescriptors(

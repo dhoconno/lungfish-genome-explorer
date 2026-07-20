@@ -472,6 +472,102 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                        Set([manifestURL.path, firstFASTQ.path, secondFASTQ.path]))
     }
 
+    func testBundleFASTQMaterializationRejectsPayloadSwapAfterValidation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-materialization-swap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        let payload = bundle.appendingPathComponent("reads.fastq")
+        let replacement = root.appendingPathComponent("replacement.fastq")
+        let output = root.appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try "@original\nACGT\n+\nIIII\n".write(to: payload, atomically: true, encoding: .utf8)
+        try "@replacement\nTGCA\n+\nJJJJ\n".write(to: replacement, atomically: true, encoding: .utf8)
+        try FASTQSourceFileManifest(files: [
+            .init(filename: "reads.fastq", originalPath: payload.path, sizeBytes: 23, isSymlink: false),
+        ]).save(to: bundle)
+
+        XCTAssertThrowsError(try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
+            inputURL: bundle,
+            outputURL: output,
+            beforePayloadRead: { _ in
+                try FileManager.default.removeItem(at: payload)
+                try FileManager.default.moveItem(at: replacement, to: payload)
+            }
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    func testBundleFASTQMaterializationRejectsPayloadMutationDuringSnapshot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-materialization-mutation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        let payload = bundle.appendingPathComponent("reads.fastq")
+        let output = root.appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try "@original\nACGT\n+\nIIII\n".write(to: payload, atomically: true, encoding: .utf8)
+        try FASTQSourceFileManifest(files: [
+            .init(filename: "reads.fastq", originalPath: payload.path, sizeBytes: 23, isSymlink: false),
+        ]).save(to: bundle)
+
+        XCTAssertThrowsError(try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
+            inputURL: bundle,
+            outputURL: output,
+            afterFirstSourceChunkRead: { _ in
+                let handle = try FileHandle(forWritingTo: payload)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data("@mutated\nAAAA\n+\n!!!!\n".utf8))
+                try handle.synchronize()
+            }
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    func testBundleFASTQMaterializationPreservesRootAndPerPayloadProvenanceLineage() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-upstream-lineage-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        let payload = bundle.appendingPathComponent("chunks/reads.fastq")
+        let output = root.appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: payload.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@read\nACGT\n+\nIIII\n".write(to: payload, atomically: true, encoding: .utf8)
+        try FASTQSourceFileManifest(files: [
+            .init(filename: "chunks/reads.fastq", originalPath: payload.path, sizeBytes: 20, isSymlink: false),
+        ]).save(to: bundle)
+        let upstream = try ProvenanceRunBuilder(
+            workflowName: "fastq.import.bundle",
+            workflowVersion: "test",
+            toolName: "lungfish-cli",
+            toolVersion: "test"
+        )
+        .argv(["lungfish-cli", "fastq", "import-ont", "--output", bundle.path])
+        .runtime(ProvenanceRuntimeIdentity())
+        .output(payload, format: .fastq, role: .output)
+        .complete(exitStatus: 0, startedAt: Date(timeIntervalSince1970: 1), endedAt: Date(timeIntervalSince1970: 2))
+        try ProvenanceWriter(signingProvider: nil).write(upstream, to: bundle)
+        let rootProvenance = bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let payloadProvenance = try XCTUnwrap(
+            ProvenanceWriter.bundleOutputSidecarURL(for: payload, inBundle: bundle)
+        )
+
+        let result = try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
+            inputURL: bundle,
+            outputURL: output
+        )
+
+        let payloadDescriptor = try XCTUnwrap(result.step.inputs.first { $0.path == payload.path })
+        XCTAssertEqual(payloadDescriptor.sourceProvenancePath, payloadProvenance.path)
+        for provenanceURL in [rootProvenance, payloadProvenance] {
+            let descriptor = try XCTUnwrap(result.step.inputs.first { $0.path == provenanceURL.path })
+            XCTAssertNotNil(descriptor.checksumSHA256)
+            XCTAssertNotNil(descriptor.fileSize)
+            XCTAssertEqual(descriptor.format, .json)
+        }
+    }
+
     func testFASTQMaterializationHonorsCancellationBeforeReadingPayload() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-materialization-cancel-\(UUID().uuidString)", isDirectory: true)
@@ -1051,6 +1147,42 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         _ = try await pipeline.run(request)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.failureProvenanceURL.path))
+    }
+
+    func testSuccessfulRunAfterPriorRenameFailureRemovesEveryAdjacentFailureReceipt() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-stale-rename-receipt-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, failingPipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .provenanceWrittenBeforeManifestPublication(
+                    _, let finalManifestURL, _
+                ) = event else { return }
+                try FileManager.default.createDirectory(
+                    at: finalManifestURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: false
+                )
+            }
+        )
+        let legacyReceipt = root.appendingPathComponent(
+            ".\(request.outputDirectory.lastPathComponent).publication-failure.json"
+        )
+        do {
+            _ = try await failingPipeline.run(request)
+            XCTFail("Expected injected publication rename failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("atomically publish"))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.failureProvenanceURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyReceipt.path))
+        try FileManager.default.removeItem(at: request.outputDirectory)
+        let (_, successfulPipeline) = try makeFakeFullLengthRun(root: root)
+
+        _ = try await successfulPipeline.run(request)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.failureProvenanceURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyReceipt.path))
     }
 
     func testInjectedFailureAfterProvenanceLeavesNoVisibleSuccessManifest() async throws {
@@ -1768,7 +1900,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         )
         XCTAssertEqual(failureEnvelope.exitStatus, 1)
         XCTAssertTrue(failureEnvelope.stderr?.contains("injected-final-provenance-boundary") == true)
-        XCTAssertFalse(failureEnvelope.steps.isEmpty)
+        XCTAssertTrue(failureEnvelope.steps.contains { $0.toolName == "lungfish-internal materialize-full-length-mhc-fastq" })
+        XCTAssertTrue(failureEnvelope.steps.contains { $0.toolName == "minimap2" })
+        XCTAssertTrue(failureEnvelope.steps.contains { $0.toolName == "samtools" })
+        XCTAssertTrue(failureEnvelope.steps.contains { $0.toolName.contains("classif") })
         XCTAssertFalse(failureEnvelope.options.resolvedDefaults.isEmpty)
     }
 
@@ -1828,38 +1963,32 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("atomically publish"), error.localizedDescription)
         }
 
-        let receiptURL = root.appendingPathComponent(
-            ".\(request.outputDirectory.lastPathComponent).publication-failure.json"
-        )
+        let receiptURL = request.failureProvenanceURL
         let envelope = try ProvenanceJSON.decoder.decode(
             ProvenanceEnvelope.self,
             from: Data(contentsOf: receiptURL)
         )
-        XCTAssertEqual(envelope.workflowName, "lungfish fastq full-length-ont-mhc-genotype result-bundle-publication")
+        XCTAssertEqual(envelope.workflowName, "lungfish fastq full-length-ont-mhc-genotype")
         XCTAssertEqual(envelope.workflowVersion, WorkflowRun.currentAppVersion)
-        XCTAssertEqual(envelope.toolName, "lungfish-internal publish-result-bundle")
+        XCTAssertEqual(envelope.toolName, CLICommandIdentity.executableName)
         XCTAssertEqual(envelope.toolVersion, WorkflowRun.currentAppVersion)
-        XCTAssertEqual(envelope.argv.first, "lungfish-internal")
-        XCTAssertTrue(envelope.argv.contains("renameatx_np"))
-        XCTAssertTrue(envelope.reproducibleCommand.contains("publish-result-bundle"))
+        XCTAssertEqual(envelope.argv.first, CLICommandIdentity.executableName)
+        XCTAssertTrue(envelope.steps.contains { $0.argv.contains("renameatx_np") })
+        XCTAssertTrue(envelope.steps.contains { $0.reproducibleCommand.contains("publish-result-bundle") })
         XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty)
-        XCTAssertEqual(envelope.options.explicit["publicationStatus"]?.stringValue, "failed")
+        XCTAssertEqual(envelope.options.resolvedDefaults["outcome"]?.stringValue, "failed")
         XCTAssertFalse(envelope.files.isEmpty)
         XCTAssertFalse(envelope.outputs.isEmpty)
         XCTAssertTrue(envelope.files.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
         XCTAssertTrue(envelope.outputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
         XCTAssertNotEqual(envelope.exitStatus, 0)
         XCTAssertFalse((envelope.stderr ?? "").isEmpty)
-        XCTAssertEqual(envelope.steps.count, 1)
-        let step = try XCTUnwrap(envelope.steps.first)
-        XCTAssertEqual(step.argv, envelope.argv)
-        XCTAssertEqual(step.exitStatus, envelope.exitStatus)
-        XCTAssertEqual(step.startedAt, envelope.createdAt)
-        XCTAssertEqual(
-            try XCTUnwrap(envelope.wallTimeSeconds),
-            try XCTUnwrap(step.completedAt).timeIntervalSince(envelope.createdAt),
-            accuracy: 0.000_001
+        let step = try XCTUnwrap(envelope.steps.first { $0.toolName == "lungfish-internal publish-result-bundle" })
+        XCTAssertNotEqual(step.exitStatus, 0)
+        let legacyReceipt = root.appendingPathComponent(
+            ".\(request.outputDirectory.lastPathComponent).publication-failure.json"
         )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyReceipt.path))
     }
 
     func testPostPublicationCohortCleanupFailureStillRemovesWorkflowIntermediates() async throws {
