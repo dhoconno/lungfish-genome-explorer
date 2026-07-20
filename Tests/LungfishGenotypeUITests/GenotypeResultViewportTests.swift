@@ -115,6 +115,121 @@ final class GenotypeResultViewportTests: XCTestCase {
         ])
     }
 
+    func testCollidingCandidatesKeepStableIdentityThroughSelectionSupportStylesHighlightsAndComments() throws {
+        let genotype = "Mafa-A1*018:01:01:01_5nt_nov"
+        let result = makeCandidateResult(
+            calls: [],
+            candidates: [
+                makeCandidate(id: "cluster-a", name: genotype, classification: .novel, support: .shared, samples: ["AnimalA", "AnimalB"]),
+                makeCandidate(id: "cluster-b", name: genotype, classification: .novel, support: .shared, samples: ["AnimalA", "AnimalB"]),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalA", reads: 5),
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalB", reads: 7),
+                makeCandidateObservation(cluster: "cluster-b", sample: "AnimalA", reads: 11),
+                makeCandidateObservation(cluster: "cluster-b", sample: "AnimalB", reads: 13),
+            ]
+        )
+        let rowA = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A1",
+            genotype: genotype,
+            stableClusterID: "cluster-a"
+        )
+        let rowB = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A1",
+            genotype: genotype,
+            stableClusterID: "cluster-b"
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+        sidecar.matrixStyles = [
+            .init(
+                target: rowA,
+                style: .init(fillColor: "#123456"),
+                author: "test",
+                timestamp: "2026-07-20T00:00:00Z"
+            ),
+        ]
+        sidecar.matrixComments = [
+            .init(target: rowA, body: "Only cluster A", author: "test", timestamp: "2026-07-20T00:00:00Z"),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: result, sidecar: sidecar)
+
+        let idA = GenotypeCandidateMatrixRowID.candidate(stableClusterID: "cluster-a")
+        let idB = GenotypeCandidateMatrixRowID.candidate(stableClusterID: "cluster-b")
+        let styledA = try XCTUnwrap(matrix.testingBackgroundColor(rowID: idA, column: .alleleName))
+        XCTAssertEqual(Double(styledA.redComponent), 0x12 / 255.0, accuracy: 0.000_001)
+        XCTAssertNotEqual(
+            matrix.testingBackgroundColor(rowID: idB, column: .alleleName)?.usingColorSpace(.deviceRGB)?.redComponent,
+            0x12 / 255.0
+        )
+        XCTAssertTrue(matrix.testingPinnedCellToolTip(rowID: idA, column: .alleleName)?.contains("Only cluster A") == true)
+        XCTAssertFalse(matrix.testingPinnedCellToolTip(rowID: idB, column: .alleleName)?.contains("Only cluster A") == true)
+
+        matrix.testingClickCandidateRowChiclet(rowID: idA)
+        matrix.testingClickCandidateRowChiclet(rowID: idB, modifiers: .command)
+        XCTAssertEqual(Set(matrix.testingSelectedMatrixTargets), Set([rowA, rowB]))
+
+        matrix.testingClickCandidateRowChiclet(rowID: idA)
+        matrix.testingClickCandidateRowChiclet(rowID: idB, modifiers: .shift)
+        XCTAssertEqual(Set(matrix.testingSelectedMatrixTargets), Set([rowA, rowB]))
+
+        matrix.testingSelectCandidateCell(rowID: idA, sample: "AnimalA")
+        XCTAssertEqual(matrix.testingSelectSupportedCellsInSelectedRow(minimumReads: 1), [
+            .cell(locus: "MHC-A1", genotype: genotype, sample: "AnimalA", stableClusterID: "cluster-a"),
+            .cell(locus: "MHC-A1", genotype: genotype, sample: "AnimalB", stableClusterID: "cluster-a"),
+        ])
+
+        matrix.applyHighlight(.init(
+            target: .init(genotype: genotype, locus: "MHC-A1", stableClusterID: "cluster-a"),
+            scope: .selectedRow,
+            color: AnnotationColor(red: 0.1, green: 0.8, blue: 0.2)
+        ))
+        let highlightedA = try XCTUnwrap(matrix.testingBackgroundColor(rowID: idA, column: .alleleName))
+        XCTAssertEqual(Double(highlightedA.greenComponent), 0.8, accuracy: 0.000_001)
+        XCTAssertNotEqual(matrix.testingBackgroundColor(rowID: idB, column: .alleleName)?.usingColorSpace(.deviceRGB)?.greenComponent, 0.8)
+    }
+
+    func testCandidateTintContrastUsesCompositedNameCellBackgroundAndManualTextWins() throws {
+        let candidates = [
+            makeCandidate(id: "dark", name: "Dark_nov", classification: .novel, support: .shared, samples: ["AnimalA", "AnimalB"]),
+            makeCandidate(id: "light", name: "Light_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
+            makeCandidate(id: "semi", name: "Semi_ext", classification: .extension, support: .shared, samples: ["AnimalA", "AnimalB"]),
+            makeCandidate(id: "manual", name: "Manual_ext", classification: .extension, support: .singleton, samples: ["AnimalA"]),
+        ]
+        let observations = candidates.flatMap { candidate in
+            candidate.supportingSampleIDs.map {
+                makeCandidateObservation(cluster: candidate.stableClusterID, sample: $0, reads: 5)
+            }
+        }
+        let result = makeCandidateResult(calls: [], candidates: candidates, observations: observations)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+        sidecar.settings.mhcCandidateDisplay = ONTMHCCandidateDisplaySettings(tints: [
+            .sharedNovel: AnnotationColor(red: 0.01, green: 0.02, blue: 0.03, alpha: 1),
+            .singletonNovel: AnnotationColor(red: 0.96, green: 0.97, blue: 0.98, alpha: 1),
+            .sharedExtension: AnnotationColor(red: 0.01, green: 0.02, blue: 0.03, alpha: 0.2),
+            .singletonExtension: AnnotationColor(red: 0.01, green: 0.02, blue: 0.03, alpha: 1),
+        ])
+        sidecar.matrixStyles = [
+            .init(
+                target: .row(locus: "MHC-A1", genotype: "Manual_ext", stableClusterID: "manual"),
+                style: .init(textColor: "#CC1933"),
+                author: "test",
+                timestamp: "2026-07-20T00:00:00Z"
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: result, sidecar: sidecar)
+
+        XCTAssertEqual(try XCTUnwrap(matrix.testingRenderedTextColor(rowID: .candidate(stableClusterID: "dark"), column: .alleleName)).hexString, "#FFFFFF")
+        XCTAssertEqual(try XCTUnwrap(matrix.testingRenderedTextColor(rowID: .candidate(stableClusterID: "light"), column: .alleleName)).hexString, "#000000")
+        XCTAssertEqual(try XCTUnwrap(matrix.testingRenderedTextColor(rowID: .candidate(stableClusterID: "semi"), column: .alleleName)).hexString, "#000000")
+        XCTAssertEqual(try XCTUnwrap(matrix.testingRenderedTextColor(rowID: .candidate(stableClusterID: "manual"), column: .alleleName)).hexString, "#CC1933")
+        XCTAssertNil(matrix.testingBackgroundColor(rowID: .candidate(stableClusterID: "dark"), column: .locus))
+        XCTAssertNil(matrix.testingBackgroundColor(rowID: .candidate(stableClusterID: "dark"), column: .sample("AnimalA")))
+        XCTAssertNil(matrix.testingRenderedTextColor(rowID: .candidate(stableClusterID: "dark"), column: .locus))
+    }
+
     func testNonFullLengthBundleCannotProjectCandidateRowsSamplesSettingsOrColumns() {
         let knownCall = makeCall(sample: "AnimalA", genotype: "Known", reads: 13)
         let fullLengthResult = makeCandidateResult(

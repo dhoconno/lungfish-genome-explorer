@@ -23,11 +23,26 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let locus: String
         let genotype: String
         let sample: String
+        let stableClusterID: String?
+
+        init(locus: String, genotype: String, sample: String, stableClusterID: String? = nil) {
+            self.locus = locus
+            self.genotype = genotype
+            self.sample = sample
+            self.stableClusterID = stableClusterID
+        }
     }
 
     private struct RowKey: Hashable {
         let locus: String
         let genotype: String
+        let stableClusterID: String?
+
+        init(locus: String, genotype: String, stableClusterID: String? = nil) {
+            self.locus = locus
+            self.genotype = genotype
+            self.stableClusterID = stableClusterID
+        }
     }
 
     private struct SupportBucketKey: Hashable {
@@ -219,22 +234,22 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         sidecarColumnComments = [:]
         for annotation in sidecar?.matrixStyles ?? [] {
             switch annotation.target {
-            case let .row(locus, genotype):
-                sidecarRowStyles[RowKey(locus: locus, genotype: genotype)] = annotation.style
+            case let .row(locus, genotype, stableClusterID):
+                sidecarRowStyles[RowKey(locus: locus, genotype: genotype, stableClusterID: stableClusterID)] = annotation.style
             case let .column(sample):
                 sidecarColumnStyles[sample] = annotation.style
-            case let .cell(locus, genotype, sample):
-                sidecarCellStyles[CellKey(locus: locus, genotype: genotype, sample: sample)] = annotation.style
+            case let .cell(locus, genotype, sample, stableClusterID):
+                sidecarCellStyles[CellKey(locus: locus, genotype: genotype, sample: sample, stableClusterID: stableClusterID)] = annotation.style
             }
         }
         for comment in sidecar?.matrixComments ?? [] {
             switch comment.target {
-            case let .row(locus, genotype):
-                sidecarRowComments[RowKey(locus: locus, genotype: genotype), default: []].append(comment.body)
+            case let .row(locus, genotype, stableClusterID):
+                sidecarRowComments[RowKey(locus: locus, genotype: genotype, stableClusterID: stableClusterID), default: []].append(comment.body)
             case let .column(sample):
                 sidecarColumnComments[sample, default: []].append(comment.body)
-            case let .cell(locus, genotype, sample):
-                sidecarCellComments[CellKey(locus: locus, genotype: genotype, sample: sample), default: []].append(comment.body)
+            case let .cell(locus, genotype, sample, stableClusterID):
+                sidecarCellComments[CellKey(locus: locus, genotype: genotype, sample: sample, stableClusterID: stableClusterID), default: []].append(comment.body)
             }
         }
         if reload, candidateDisplaySettings != previousCandidateDisplaySettings {
@@ -291,34 +306,34 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         switch request.scope {
         case .selectedCell:
             guard let sample = request.target.sample else { return }
-            let key = CellKey(locus: request.target.locus, genotype: request.target.genotype, sample: sample)
+            let key = CellKey(locus: request.target.locus, genotype: request.target.genotype, sample: sample, stableClusterID: request.target.stableClusterID)
             mutateStyle(&cellStyles, key: key, channel: request.channel, color: request.color)
-            affectedTarget = .cell(locus: request.target.locus, genotype: request.target.genotype, sample: sample)
+            affectedTarget = .cell(locus: request.target.locus, genotype: request.target.genotype, sample: sample, stableClusterID: request.target.stableClusterID)
         case .selectedRow:
             mutateStyle(
                 &rowStyles,
-                key: RowKey(locus: request.target.locus, genotype: request.target.genotype),
+                key: RowKey(locus: request.target.locus, genotype: request.target.genotype, stableClusterID: request.target.stableClusterID),
                 channel: request.channel,
                 color: request.color
             )
-            affectedTarget = .row(locus: request.target.locus, genotype: request.target.genotype)
+            affectedTarget = .row(locus: request.target.locus, genotype: request.target.genotype, stableClusterID: request.target.stableClusterID)
         case .clear:
             if let sample = request.target.sample {
                 cellStyles.removeValue(
-                    forKey: CellKey(locus: request.target.locus, genotype: request.target.genotype, sample: sample)
+                    forKey: CellKey(locus: request.target.locus, genotype: request.target.genotype, sample: sample, stableClusterID: request.target.stableClusterID)
                 )
             }
-            rowStyles.removeValue(forKey: RowKey(locus: request.target.locus, genotype: request.target.genotype))
-            affectedTarget = .row(locus: request.target.locus, genotype: request.target.genotype)
+            rowStyles.removeValue(forKey: RowKey(locus: request.target.locus, genotype: request.target.genotype, stableClusterID: request.target.stableClusterID))
+            affectedTarget = .row(locus: request.target.locus, genotype: request.target.genotype, stableClusterID: request.target.stableClusterID)
         }
         reloadMatrixTargets([affectedTarget])
     }
 
     func highlightStyle(for target: GenotypeResultHighlightTarget) -> GenotypeResultHighlightStyle {
         if let sample = target.sample {
-            return cellStyles[CellKey(locus: target.locus, genotype: target.genotype, sample: sample)] ?? .default
+            return cellStyles[CellKey(locus: target.locus, genotype: target.genotype, sample: sample, stableClusterID: target.stableClusterID)] ?? .default
         }
-        return rowStyles[RowKey(locus: target.locus, genotype: target.genotype)] ?? .default
+        return rowStyles[RowKey(locus: target.locus, genotype: target.genotype, stableClusterID: target.stableClusterID)] ?? .default
     }
 
     func exportSnapshot(bundleURL: URL, analysisName: String, lens: String) -> GenotypeViewportExportSnapshot {
@@ -357,7 +372,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 sampleCount: reads.count,
                 totalUniqueReads: reads.values.reduce(0, +),
                 sampleReads: reads,
-                rowStyle: rowStyles[RowKey(locus: row.locus, genotype: row.genotype)] ?? .default,
+                rowStyle: rowStyles[RowKey(locus: row.locus, genotype: row.genotype, stableClusterID: row.stableClusterID)] ?? .default,
                 cellStyles: styles
             )
         }
@@ -1363,7 +1378,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func rowTooltip(row: GenotypeCandidateMatrixRow, fallback: String) -> String {
-        let comments = sidecarRowComments[RowKey(locus: row.locus, genotype: row.genotype)] ?? []
+        let comments = commentsForRow(row)
         var lines = [fallback]
         if let stableClusterID = row.stableClusterID {
             lines.append("Stable cluster ID: \(stableClusterID)")
@@ -1380,12 +1395,26 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         if let base, !base.isEmpty {
             lines.append(base)
         }
-        let rowKey = RowKey(locus: row.locus, genotype: row.genotype)
-        let cellKey = CellKey(locus: row.locus, genotype: row.genotype, sample: sample)
-        appendComments(sidecarRowComments[rowKey] ?? [], title: "Row comments", to: &lines)
+        appendComments(commentsForRow(row), title: "Row comments", to: &lines)
         appendComments(sidecarColumnComments[sample] ?? [], title: "Column comments", to: &lines)
-        appendComments(sidecarCellComments[cellKey] ?? [], title: "Cell comments", to: &lines)
+        appendComments(commentsForCell(row, sample: sample), title: "Cell comments", to: &lines)
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    private func commentsForRow(_ row: GenotypeCandidateMatrixRow) -> [String] {
+        let legacy = sidecarRowComments[RowKey(locus: row.locus, genotype: row.genotype)] ?? []
+        guard let stableClusterID = row.stableClusterID else { return legacy }
+        return legacy + (sidecarRowComments[
+            RowKey(locus: row.locus, genotype: row.genotype, stableClusterID: stableClusterID)
+        ] ?? [])
+    }
+
+    private func commentsForCell(_ row: GenotypeCandidateMatrixRow, sample: String) -> [String] {
+        let legacy = sidecarCellComments[CellKey(locus: row.locus, genotype: row.genotype, sample: sample)] ?? []
+        guard let stableClusterID = row.stableClusterID else { return legacy }
+        return legacy + (sidecarCellComments[
+            CellKey(locus: row.locus, genotype: row.genotype, sample: sample, stableClusterID: stableClusterID)
+        ] ?? [])
     }
 
     private func appendComments(_ comments: [String], title: String, to lines: inout [String]) {
@@ -1652,7 +1681,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedRowLocus = firstRowTarget?.locus
         selectedGenotype = firstRowTarget?.genotype
         selectedRowID = firstRowTarget.flatMap { target in
-            visibleRows.first { $0.locus == target.locus && $0.genotype == target.genotype }?.id
+            visibleRows.first {
+                $0.locus == target.locus
+                    && $0.genotype == target.genotype
+                    && (target.stableClusterID == nil || $0.stableClusterID == target.stableClusterID)
+            }?.id
         }
         selectedSampleName = firstRowTarget?.sample
         pendingColumnSelectionTargets = nil
@@ -1727,8 +1760,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func visibleRowIndex(for target: GenotypeAnnotationSidecar.MatrixTarget?) -> Int? {
         guard let target else { return nil }
         switch target {
-        case let .row(locus, genotype), let .cell(locus, genotype, _):
-            return visibleRowIndex(locus: locus, genotype: genotype)
+        case let .row(locus, genotype, stableClusterID),
+             let .cell(locus, genotype, _, stableClusterID):
+            return visibleRowIndex(locus: locus, genotype: genotype, stableClusterID: stableClusterID)
         case .column:
             return nil
         }
@@ -1737,7 +1771,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func sampleName(for target: GenotypeAnnotationSidecar.MatrixTarget?) -> String? {
         guard let target else { return nil }
         switch target {
-        case let .cell(_, _, sample), let .column(sample):
+        case let .cell(_, _, sample, _), let .column(sample):
             return sample
         case .row:
             return nil
@@ -1746,13 +1780,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     private func firstRowOrCellTarget(
         in targets: [GenotypeAnnotationSidecar.MatrixTarget]
-    ) -> (locus: String, genotype: String, sample: String?)? {
+    ) -> (locus: String, genotype: String, sample: String?, stableClusterID: String?)? {
         for target in targets {
             switch target {
-            case let .row(locus, genotype):
-                return (locus, genotype, nil)
-            case let .cell(locus, genotype, sample):
-                return (locus, genotype, sample)
+            case let .row(locus, genotype, stableClusterID):
+                return (locus, genotype, nil, stableClusterID)
+            case let .cell(locus, genotype, sample, stableClusterID):
+                return (locus, genotype, sample, stableClusterID)
             case .column:
                 continue
             }
@@ -1800,8 +1834,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
         for target in targets {
             switch target {
-            case let .row(locus, genotype):
-                if let rowIndex = visibleRowIndex(locus: locus, genotype: genotype) {
+            case let .row(locus, genotype, stableClusterID):
+                if let rowIndex = visibleRowIndex(locus: locus, genotype: genotype, stableClusterID: stableClusterID) {
                     pinnedRowIndexes.insert(rowIndex)
                     sampleRowIndexes.insert(rowIndex)
                     sampleColumnIndexes.formUnion(sampleAllColumns)
@@ -1811,8 +1845,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                     sampleRowIndexes.formUnion(IndexSet(integersIn: 0..<tableView.numberOfRows))
                     sampleColumnIndexes.insert(columnIndex)
                 }
-            case let .cell(locus, genotype, sample):
-                if let rowIndex = visibleRowIndex(locus: locus, genotype: genotype),
+            case let .cell(locus, genotype, sample, stableClusterID):
+                if let rowIndex = visibleRowIndex(locus: locus, genotype: genotype, stableClusterID: stableClusterID),
                    let columnIndex = visibleColumnIndex(sample: sample) {
                     sampleRowIndexes.insert(rowIndex)
                     sampleColumnIndexes.insert(columnIndex)
@@ -1828,8 +1862,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
     }
 
-    private func visibleRowIndex(locus: String, genotype: String) -> Int? {
-        visibleRows.firstIndex { $0.locus == locus && $0.genotype == genotype }
+    private func visibleRowIndex(
+        locus: String,
+        genotype: String,
+        stableClusterID: String? = nil
+    ) -> Int? {
+        if let stableClusterID {
+            return visibleRows.firstIndex {
+                $0.locus == locus && $0.genotype == genotype && $0.stableClusterID == stableClusterID
+            }
+        }
+        return visibleRows.firstIndex { $0.locus == locus && $0.genotype == genotype }
     }
 
     private func visibleColumnIndex(sample: String) -> Int? {
@@ -1843,7 +1886,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         } else {
             rows = Set(selectedMatrixTargets.flatMap { target -> [GenotypeCandidateMatrixRowID] in
                 switch target {
-                case let .row(locus, genotype), let .cell(locus, genotype, _):
+                case let .row(locus, genotype, stableClusterID),
+                     let .cell(locus, genotype, _, stableClusterID):
+                    if let stableClusterID {
+                        return visibleRows.filter {
+                            $0.locus == locus && $0.genotype == genotype && $0.stableClusterID == stableClusterID
+                        }.map(\.id)
+                    }
                     return visibleRows.filter { $0.locus == locus && $0.genotype == genotype }.map(\.id)
                 case .column:
                     return []
@@ -1858,7 +1907,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     func showOnlySelectedColumns() {
         let samples = Set(selectedMatrixTargets.compactMap { target -> String? in
             switch target {
-            case let .column(sample), let .cell(_, _, sample):
+            case let .column(sample), let .cell(_, _, sample, _):
                 return sample
             case .row:
                 return nil
@@ -1897,9 +1946,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         sample: String?
     ) -> GenotypeAnnotationSidecar.MatrixTarget {
         if let sample {
-            return .cell(locus: row.locus, genotype: row.genotype, sample: sample)
+            return .cell(
+                locus: row.locus,
+                genotype: row.genotype,
+                sample: sample,
+                stableClusterID: row.stableClusterID
+            )
         }
-        return .row(locus: row.locus, genotype: row.genotype)
+        return .row(locus: row.locus, genotype: row.genotype, stableClusterID: row.stableClusterID)
     }
 
     func selectSupportedCellsInSelectedRow(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
@@ -1920,7 +1974,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 GenotypeAnnotationSidecar.MatrixTarget.cell(
                     locus: row.locus,
                     genotype: row.genotype,
-                    sample: $0.sample
+                    sample: $0.sample,
+                    stableClusterID: row.stableClusterID
                 )
             }
         let previousTargets = selectedMatrixTargets
@@ -1948,13 +2003,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let visibleSamples = Set(visibleSampleNames)
         let expandedTargets = targets.flatMap { target -> [GenotypeAnnotationSidecar.MatrixTarget] in
             switch target {
-            case let .row(locus, genotype):
-                guard let row = visibleRows.first(where: { $0.locus == locus && $0.genotype == genotype }) else {
+            case let .row(locus, genotype, stableClusterID):
+                guard let rowIndex = visibleRowIndex(locus: locus, genotype: genotype, stableClusterID: stableClusterID) else {
                     return []
                 }
+                let row = visibleRows[rowIndex]
                 return row.sampleSupport
                     .filter { visibleSamples.contains($0.sample) && $0.passedUniqueReads >= threshold }
-                    .map { .cell(locus: locus, genotype: genotype, sample: $0.sample) }
+                    .map { .cell(locus: locus, genotype: genotype, sample: $0.sample, stableClusterID: row.stableClusterID) }
             case let .column(sample):
                 guard visibleSamples.contains(sample) else { return [] }
                 return visibleRows.compactMap { row in
@@ -1962,12 +2018,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                           support.passedUniqueReads >= threshold else {
                         return nil
                     }
-                    return .cell(locus: row.locus, genotype: row.genotype, sample: sample)
+                    return .cell(locus: row.locus, genotype: row.genotype, sample: sample, stableClusterID: row.stableClusterID)
                 }
-            case let .cell(locus, genotype, sample):
+            case let .cell(locus, genotype, sample, stableClusterID):
                 guard visibleSamples.contains(sample),
-                      let row = visibleRows.first(where: { $0.locus == locus && $0.genotype == genotype }),
-                      let support = row.support(for: sample),
+                      let rowIndex = visibleRowIndex(locus: locus, genotype: genotype, stableClusterID: stableClusterID) else {
+                    return []
+                }
+                let row = visibleRows[rowIndex]
+                guard let support = row.support(for: sample),
                       support.passedUniqueReads >= threshold else {
                     return []
                 }
@@ -1989,15 +2048,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         directSelectionAnchor = uniqueTargets.last
         if let firstTarget = uniqueTargets.first {
             switch firstTarget {
-            case let .row(locus, genotype):
+            case let .row(locus, genotype, stableClusterID):
                 selectedRowLocus = locus
                 selectedGenotype = genotype
-                selectedRowID = visibleRows.first { $0.locus == locus && $0.genotype == genotype }?.id
+                selectedRowID = visibleRowIndex(locus: locus, genotype: genotype, stableClusterID: stableClusterID).map { visibleRows[$0].id }
                 selectedSampleName = nil
-            case let .cell(locus, genotype, sample):
+            case let .cell(locus, genotype, sample, stableClusterID):
                 selectedRowLocus = locus
                 selectedGenotype = genotype
-                selectedRowID = visibleRows.first { $0.locus == locus && $0.genotype == genotype }?.id
+                selectedRowID = visibleRowIndex(locus: locus, genotype: genotype, stableClusterID: stableClusterID).map { visibleRows[$0].id }
                 selectedSampleName = sample
             case .column:
                 selectedRowLocus = nil
@@ -2076,9 +2135,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         return selectedMatrixTargets.contains { target in
             switch target {
-            case let .cell(locus, genotype, selectedSample):
+            case let .cell(locus, genotype, selectedSample, stableClusterID):
                 return row.locus == locus && row.genotype == genotype && sample == selectedSample
-                    && stableSelectionAllows(row)
+                    && targetIdentity(stableClusterID, allows: row)
             case .row, .column:
                 return false
             }
@@ -2092,9 +2151,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         guard let sample = sampleColumnLookup[identifier],
               selectedMatrixTargets.contains(where: { target in
                   switch target {
-                  case let .row(locus, genotype):
+                  case let .row(locus, genotype, stableClusterID):
                       return row.locus == locus && row.genotype == genotype
-                          && stableSelectionAllows(row)
+                          && targetIdentity(stableClusterID, allows: row)
                   case let .column(selectedSample):
                       return sample == selectedSample
                   case .cell:
@@ -2169,33 +2228,70 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         for identifier: NSUserInterfaceItemIdentifier,
         row: GenotypeCandidateMatrixRow
     ) -> GenotypeMatrixRenderedStyle {
-        renderedStyle(for: sampleColumnLookup[identifier], row: row)
+        var rendered = mergedRenderedStyle(for: sampleColumnLookup[identifier], row: row)
+        let effectiveBackground: AnnotationColor?
+        if displayState.cellColorMode != .none, let fillColor = rendered.fillColor {
+            effectiveBackground = fillColor
+        } else if identifier == ColumnID.genotype,
+                  let category = row.tintCategory {
+            effectiveBackground = effectiveCandidateDisplaySettings.tints[category]
+        } else {
+            effectiveBackground = nil
+        }
+        applyAutomaticTextContrast(to: &rendered, against: effectiveBackground)
+        return rendered
     }
 
     private func renderedStyle(
         for sample: String?,
         row: GenotypeCandidateMatrixRow
     ) -> GenotypeMatrixRenderedStyle {
+        var rendered = mergedRenderedStyle(for: sample, row: row)
+        let background = rendered.fillColor
+        applyAutomaticTextContrast(to: &rendered, against: background)
+        return rendered
+    }
+
+    private func mergedRenderedStyle(
+        for sample: String?,
+        row: GenotypeCandidateMatrixRow
+    ) -> GenotypeMatrixRenderedStyle {
         var rendered = GenotypeMatrixRenderedStyle.default
-        let rowKey = RowKey(locus: row.locus, genotype: row.genotype)
-        merge(sidecarRowStyles[rowKey], into: &rendered)
+        let legacyRowKey = RowKey(locus: row.locus, genotype: row.genotype)
+        let exactRowKey = RowKey(
+            locus: row.locus,
+            genotype: row.genotype,
+            stableClusterID: row.stableClusterID
+        )
+        merge(sidecarRowStyles[legacyRowKey], into: &rendered)
+        if exactRowKey != legacyRowKey {
+            merge(sidecarRowStyles[exactRowKey], into: &rendered)
+        }
         if let sample {
             merge(sidecarColumnStyles[sample], into: &rendered)
-            merge(
-                sidecarCellStyles[CellKey(locus: row.locus, genotype: row.genotype, sample: sample)],
-                into: &rendered
+            let legacyCellKey = CellKey(locus: row.locus, genotype: row.genotype, sample: sample)
+            let exactCellKey = CellKey(
+                locus: row.locus,
+                genotype: row.genotype,
+                sample: sample,
+                stableClusterID: row.stableClusterID
             )
+            merge(sidecarCellStyles[legacyCellKey], into: &rendered)
+            if exactCellKey != legacyCellKey {
+                merge(sidecarCellStyles[exactCellKey], into: &rendered)
+            }
         }
-        if let rowHighlight = rowStyles[rowKey] {
+        if let rowHighlight = rowStyles[exactRowKey] ?? rowStyles[legacyRowKey] {
             rendered.fillColor = rowHighlight.fillColor ?? rendered.fillColor
             rendered.borderColor = rowHighlight.borderColor ?? rendered.borderColor
         }
         if let sample,
-           let cellHighlight = cellStyles[CellKey(locus: row.locus, genotype: row.genotype, sample: sample)] {
+           let cellHighlight = cellStyles[
+               CellKey(locus: row.locus, genotype: row.genotype, sample: sample, stableClusterID: row.stableClusterID)
+           ] ?? cellStyles[CellKey(locus: row.locus, genotype: row.genotype, sample: sample)] {
             rendered.fillColor = cellHighlight.fillColor ?? rendered.fillColor
             rendered.borderColor = cellHighlight.borderColor ?? rendered.borderColor
         }
-        applyAutomaticTextContrast(to: &rendered)
         return rendered
     }
 
@@ -2225,16 +2321,39 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
     }
 
-    private func applyAutomaticTextContrast(to rendered: inout GenotypeMatrixRenderedStyle) {
-        guard rendered.textColor == nil, let fillColor = rendered.fillColor else { return }
+    private func applyAutomaticTextContrast(
+        to rendered: inout GenotypeMatrixRenderedStyle,
+        against background: AnnotationColor?
+    ) {
+        guard rendered.textColor == nil, let background else { return }
         let black = AnnotationColor(red: 0, green: 0, blue: 0)
         let white = AnnotationColor(red: 1, green: 1, blue: 1)
-        let fillLuminance = relativeLuminance(fillColor)
+        let alpha = max(0, min(1, background.alpha))
+        let canvas = contrastCanvasColor()
+        let composited = AnnotationColor(
+            red: background.red * alpha + canvas.red * (1 - alpha),
+            green: background.green * alpha + canvas.green * (1 - alpha),
+            blue: background.blue * alpha + canvas.blue * (1 - alpha),
+            alpha: 1
+        )
+        let fillLuminance = relativeLuminance(composited)
         let blackContrast = contrastRatio(fillLuminance, relativeLuminance(black))
         let whiteContrast = contrastRatio(fillLuminance, relativeLuminance(white))
-        if blackContrast < 4.5, whiteContrast > blackContrast {
-            rendered.textColor = white
+        rendered.textColor = whiteContrast > blackContrast ? white : black
+    }
+
+    private func contrastCanvasColor() -> AnnotationColor {
+        var resolved = AnnotationColor(red: 1, green: 1, blue: 1)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            guard let color = NSColor.controlBackgroundColor.usingColorSpace(.sRGB) else { return }
+            resolved = AnnotationColor(
+                red: Double(color.redComponent),
+                green: Double(color.greenComponent),
+                blue: Double(color.blueComponent),
+                alpha: Double(color.alphaComponent)
+            )
         }
+        return resolved
     }
 
     private func relativeLuminance(_ color: AnnotationColor) -> Double {
@@ -2275,14 +2394,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let sample = sampleColumnLookup[identifier]
         return selectedMatrixTargets.contains { target in
             switch target {
-            case let .row(locus, genotype):
+            case let .row(locus, genotype, stableClusterID):
                 return row.locus == locus && row.genotype == genotype
-                    && stableSelectionAllows(row)
+                    && targetIdentity(stableClusterID, allows: row)
             case let .column(selectedSample):
                 return sample == selectedSample
-            case let .cell(locus, genotype, selectedSample):
+            case let .cell(locus, genotype, selectedSample, stableClusterID):
                 return row.locus == locus && row.genotype == genotype && sample == selectedSample
-                    && stableSelectionAllows(row)
+                    && targetIdentity(stableClusterID, allows: row)
             }
         }
     }
@@ -2301,6 +2420,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return true
         }
         return selectedRowID == row.id
+    }
+
+    private func targetIdentity(_ stableClusterID: String?, allows row: GenotypeCandidateMatrixRow) -> Bool {
+        if let stableClusterID {
+            return row.stableClusterID == stableClusterID
+        }
+        return stableSelectionAllows(row)
     }
 
     private static func color(from annotationColor: AnnotationColor) -> NSColor {
@@ -2594,6 +2720,28 @@ extension GenotypeComparisonMatrixView {
         return backgroundColor(for: identifier, row: row, renderedStyle: renderedStyle(for: identifier, row: row))
     }
 
+    func testingRenderedTextColor(
+        rowID: GenotypeCandidateMatrixRowID,
+        column: GenotypeCandidateMatrixTestingColumn
+    ) -> AnnotationColor? {
+        guard let row = visibleRows.first(where: { $0.id == rowID }) else { return nil }
+        let identifier: NSUserInterfaceItemIdentifier
+        switch column {
+        case .alleleName:
+            identifier = ColumnID.genotype
+        case .stableClusterID:
+            identifier = ColumnID.stableClusterID
+        case .locus:
+            identifier = ColumnID.locus
+        case .sample(let sample):
+            guard let sampleIdentifier = sampleColumnLookup.first(where: { $0.value == sample })?.key else {
+                return nil
+            }
+            identifier = sampleIdentifier
+        }
+        return renderedStyle(for: identifier, row: row).textColor
+    }
+
     func testingPinnedCellValue(
         rowID: GenotypeCandidateMatrixRowID,
         column: GenotypeCandidateMatrixTestingColumn
@@ -2662,6 +2810,18 @@ extension GenotypeComparisonMatrixView {
         }
         selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
         selectVisibleRow(rowIndex, sample: sample)
+    }
+
+    func testingClickCandidateRowChiclet(
+        rowID: GenotypeCandidateMatrixRowID,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
+        guard let rowIndex = visibleRows.firstIndex(where: { $0.id == rowID }),
+              let columnIndex = pinnedTableView.tableColumns.firstIndex(where: { $0.identifier == ColumnID.rowSelector }) else {
+            onSelectionCleared?()
+            return
+        }
+        _ = handlePinnedCellClick(row: rowIndex, column: columnIndex, modifiers: modifiers)
     }
 
     func testingDrawsSelectionFocus(rowID: GenotypeCandidateMatrixRowID, sample: String) -> Bool {

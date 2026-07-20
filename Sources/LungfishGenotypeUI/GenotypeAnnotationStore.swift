@@ -857,24 +857,28 @@ public final class GenotypeAnnotationStore {
 
     private func matrixTargetParameterValue(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> ParameterValue {
         switch target {
-        case let .row(locus, genotype):
-            return .dictionary([
+        case let .row(locus, genotype, stableClusterID):
+            var values: [String: ParameterValue] = [
                 "kind": .string("row"),
                 "locus": .string(locus),
                 "genotype": .string(genotype),
-            ])
+            ]
+            if let stableClusterID { values["stableClusterID"] = .string(stableClusterID) }
+            return .dictionary(values)
         case let .column(sample):
             return .dictionary([
                 "kind": .string("column"),
                 "sample": .string(sample),
             ])
-        case let .cell(locus, genotype, sample):
-            return .dictionary([
+        case let .cell(locus, genotype, sample, stableClusterID):
+            var values: [String: ParameterValue] = [
                 "kind": .string("cell"),
                 "locus": .string(locus),
                 "genotype": .string(genotype),
                 "sample": .string(sample),
-            ])
+            ]
+            if let stableClusterID { values["stableClusterID"] = .string(stableClusterID) }
+            return .dictionary(values)
         }
     }
 

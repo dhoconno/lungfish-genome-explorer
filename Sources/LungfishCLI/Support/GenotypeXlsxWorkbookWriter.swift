@@ -561,11 +561,11 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         _ target: GenotypeAnnotationSidecar.MatrixTarget
     ) -> (kind: String, sample: String, locus: String, genotype: String) {
         switch target {
-        case let .row(locus, genotype):
+        case let .row(locus, genotype, _):
             return ("row", "", locus, genotype)
         case let .column(sample):
             return ("column", sample, "", "")
-        case let .cell(locus, genotype, sample):
+        case let .cell(locus, genotype, sample, _):
             return ("cell", sample, locus, genotype)
         }
     }

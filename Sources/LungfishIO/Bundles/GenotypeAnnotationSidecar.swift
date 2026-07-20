@@ -423,12 +423,12 @@ public extension GenotypeAnnotationSidecar {
     }
 
     enum MatrixTarget: Codable, Equatable, Hashable, Sendable {
-        case row(locus: String, genotype: String)
+        case row(locus: String, genotype: String, stableClusterID: String? = nil)
         case column(sample: String)
-        case cell(locus: String, genotype: String, sample: String)
+        case cell(locus: String, genotype: String, sample: String, stableClusterID: String? = nil)
 
         private enum CodingKeys: String, CodingKey {
-            case kind, locus, genotype, sample
+            case kind, locus, genotype, sample, stableClusterID
         }
 
         public init(from decoder: Decoder) throws {
@@ -438,7 +438,8 @@ public extension GenotypeAnnotationSidecar {
             case "row":
                 self = .row(
                     locus: try container.decode(String.self, forKey: .locus),
-                    genotype: try container.decode(String.self, forKey: .genotype)
+                    genotype: try container.decode(String.self, forKey: .genotype),
+                    stableClusterID: try container.decodeIfPresent(String.self, forKey: .stableClusterID)
                 )
             case "column":
                 self = .column(sample: try container.decode(String.self, forKey: .sample))
@@ -446,7 +447,8 @@ public extension GenotypeAnnotationSidecar {
                 self = .cell(
                     locus: try container.decode(String.self, forKey: .locus),
                     genotype: try container.decode(String.self, forKey: .genotype),
-                    sample: try container.decode(String.self, forKey: .sample)
+                    sample: try container.decode(String.self, forKey: .sample),
+                    stableClusterID: try container.decodeIfPresent(String.self, forKey: .stableClusterID)
                 )
             default:
                 throw DecodingError.dataCorruptedError(
@@ -460,18 +462,20 @@ public extension GenotypeAnnotationSidecar {
         public func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             switch self {
-            case let .row(locus, genotype):
+            case let .row(locus, genotype, stableClusterID):
                 try container.encode("row", forKey: .kind)
                 try container.encode(locus, forKey: .locus)
                 try container.encode(genotype, forKey: .genotype)
+                try container.encodeIfPresent(stableClusterID, forKey: .stableClusterID)
             case let .column(sample):
                 try container.encode("column", forKey: .kind)
                 try container.encode(sample, forKey: .sample)
-            case let .cell(locus, genotype, sample):
+            case let .cell(locus, genotype, sample, stableClusterID):
                 try container.encode("cell", forKey: .kind)
                 try container.encode(locus, forKey: .locus)
                 try container.encode(genotype, forKey: .genotype)
                 try container.encode(sample, forKey: .sample)
+                try container.encodeIfPresent(stableClusterID, forKey: .stableClusterID)
             }
         }
 
@@ -479,14 +483,14 @@ public extension GenotypeAnnotationSidecar {
             switch self {
             case .row:
                 return nil
-            case let .column(sample), let .cell(_, _, sample):
+            case let .column(sample), let .cell(_, _, sample, _):
                 return sample
             }
         }
 
         public var locus: String? {
             switch self {
-            case let .row(locus, _), let .cell(locus, _, _):
+            case let .row(locus, _, _), let .cell(locus, _, _, _):
                 return locus
             case .column:
                 return nil
@@ -495,7 +499,7 @@ public extension GenotypeAnnotationSidecar {
 
         public var genotype: String? {
             switch self {
-            case let .row(_, genotype), let .cell(_, genotype, _):
+            case let .row(_, genotype, _), let .cell(_, genotype, _, _):
                 return genotype
             case .column:
                 return nil
@@ -506,14 +510,23 @@ public extension GenotypeAnnotationSidecar {
             sample ?? "matrix"
         }
 
+        public var stableClusterID: String? {
+            switch self {
+            case let .row(_, _, stableClusterID), let .cell(_, _, _, stableClusterID):
+                return stableClusterID
+            case .column:
+                return nil
+            }
+        }
+
         public var auditDescription: String {
             switch self {
-            case let .row(locus, genotype):
-                return "row \(locus) \(genotype)"
+            case let .row(locus, genotype, stableClusterID):
+                return "row \(locus) \(genotype)" + (stableClusterID.map { " [\($0)]" } ?? "")
             case let .column(sample):
                 return "column \(sample)"
-            case let .cell(locus, genotype, sample):
-                return "cell \(sample) \(locus) \(genotype)"
+            case let .cell(locus, genotype, sample, stableClusterID):
+                return "cell \(sample) \(locus) \(genotype)" + (stableClusterID.map { " [\($0)]" } ?? "")
             }
         }
     }

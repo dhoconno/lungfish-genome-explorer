@@ -843,24 +843,52 @@ public final class GenotypeResultViewController: NSViewController {
         selectedBy selectedTarget: GenotypeAnnotationSidecar.MatrixTarget
     ) -> Bool {
         switch selectedTarget {
-        case let .row(selectedLocus, selectedGenotype):
+        case let .row(selectedLocus, selectedGenotype, selectedStableClusterID):
             switch styleTarget {
-            case let .row(locus, genotype), let .cell(locus, genotype, _):
-                return locus == selectedLocus && genotype == selectedGenotype
+            case let .row(locus, genotype, stableClusterID),
+                 let .cell(locus, genotype, _, stableClusterID):
+                return matrixRowIdentityMatches(
+                    locus: locus,
+                    genotype: genotype,
+                    stableClusterID: stableClusterID,
+                    selectedLocus: selectedLocus,
+                    selectedGenotype: selectedGenotype,
+                    selectedStableClusterID: selectedStableClusterID
+                )
             case .column:
                 return false
             }
         case let .column(selectedSample):
             switch styleTarget {
-            case let .column(sample), let .cell(_, _, sample):
+            case let .column(sample), let .cell(_, _, sample, _):
                 return sample == selectedSample
             case .row:
                 return false
             }
-        case let .cell(selectedLocus, selectedGenotype, selectedSample):
-            guard case let .cell(locus, genotype, sample) = styleTarget else { return false }
-            return locus == selectedLocus && genotype == selectedGenotype && sample == selectedSample
+        case let .cell(selectedLocus, selectedGenotype, selectedSample, selectedStableClusterID):
+            guard case let .cell(locus, genotype, sample, stableClusterID) = styleTarget else { return false }
+            return sample == selectedSample && matrixRowIdentityMatches(
+                locus: locus,
+                genotype: genotype,
+                stableClusterID: stableClusterID,
+                selectedLocus: selectedLocus,
+                selectedGenotype: selectedGenotype,
+                selectedStableClusterID: selectedStableClusterID
+            )
         }
+    }
+
+    private func matrixRowIdentityMatches(
+        locus: String,
+        genotype: String,
+        stableClusterID: String?,
+        selectedLocus: String,
+        selectedGenotype: String,
+        selectedStableClusterID: String?
+    ) -> Bool {
+        guard locus == selectedLocus, genotype == selectedGenotype else { return false }
+        guard let selectedStableClusterID else { return true }
+        return stableClusterID == selectedStableClusterID
     }
 
     private func matrixStyle(
@@ -2189,12 +2217,12 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func matrixTargetTitle(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
         switch target {
-        case let .row(locus, genotype):
-            return "\(locus) \(genotype)"
+        case let .row(locus, genotype, stableClusterID):
+            return "\(locus) \(genotype)" + (stableClusterID.map { " [\($0)]" } ?? "")
         case let .column(sample):
             return sample
-        case let .cell(locus, genotype, sample):
-            return "\(sample) \(locus) \(genotype)"
+        case let .cell(locus, genotype, sample, stableClusterID):
+            return "\(sample) \(locus) \(genotype)" + (stableClusterID.map { " [\($0)]" } ?? "")
         }
     }
 
@@ -2203,12 +2231,14 @@ public final class GenotypeResultViewController: NSViewController {
     ) -> [(String, String)] {
         if targets.count == 1, let target = targets.first {
             switch target {
-            case let .row(locus, genotype):
+            case let .row(locus, genotype, stableClusterID):
                 return [("Selection Type", "Row"), ("Locus", locus), ("Genotype", genotype)]
+                    + (stableClusterID.map { [("Cluster ID", $0)] } ?? [])
             case let .column(sample):
                 return [("Selection Type", "Column"), ("Sample", sample)]
-            case let .cell(locus, genotype, sample):
+            case let .cell(locus, genotype, sample, stableClusterID):
                 return [("Selection Type", "Cell"), ("Sample", sample), ("Locus", locus), ("Genotype", genotype)]
+                    + (stableClusterID.map { [("Cluster ID", $0)] } ?? [])
             }
         }
         return [
@@ -2234,12 +2264,12 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func matrixTargetSummary(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
         switch target {
-        case let .row(locus, genotype):
-            return "\(locus) \(genotype)"
+        case let .row(locus, genotype, stableClusterID):
+            return "\(locus) \(genotype)" + (stableClusterID.map { " [\($0)]" } ?? "")
         case let .column(sample):
             return sample
-        case let .cell(locus, genotype, sample):
-            return "\(sample) \(locus) \(genotype)"
+        case let .cell(locus, genotype, sample, stableClusterID):
+            return "\(sample) \(locus) \(genotype)" + (stableClusterID.map { " [\($0)]" } ?? "")
         }
     }
 
@@ -2283,7 +2313,8 @@ public final class GenotypeResultViewController: NSViewController {
         let target = GenotypeResultHighlightTarget(
             genotype: sharedCall.genotype,
             locus: sharedCall.locus,
-            sample: sample
+            sample: sample,
+            stableClusterID: matrixTargets.first(where: { $0.stableClusterID != nil })?.stableClusterID
         )
         let style = comparisonMatrix.highlightStyle(for: target)
         return GenotypeResultSelectionState(

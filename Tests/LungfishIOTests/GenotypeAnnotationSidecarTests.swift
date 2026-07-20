@@ -94,6 +94,40 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
         ])
     }
 
+    func testCandidateMatrixTargetStableClusterIDRoundTripsAndLegacyTargetDecodesNil() throws {
+        let candidateRow = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+            stableClusterID: "cluster-a"
+        )
+        let candidateCell = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+            sample: "AnimalA",
+            stableClusterID: "cluster-a"
+        )
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+
+        XCTAssertEqual(try decoder.decode(GenotypeAnnotationSidecar.MatrixTarget.self, from: encoder.encode(candidateRow)), candidateRow)
+        XCTAssertEqual(try decoder.decode(GenotypeAnnotationSidecar.MatrixTarget.self, from: encoder.encode(candidateCell)), candidateCell)
+        XCTAssertEqual(candidateRow.stableClusterID, "cluster-a")
+        XCTAssertEqual(candidateCell.stableClusterID, "cluster-a")
+
+        let legacyRow = try decoder.decode(
+            GenotypeAnnotationSidecar.MatrixTarget.self,
+            from: Data(#"{"kind":"row","locus":"MHC-A1","genotype":"Legacy"}"#.utf8)
+        )
+        let legacyCell = try decoder.decode(
+            GenotypeAnnotationSidecar.MatrixTarget.self,
+            from: Data(#"{"kind":"cell","locus":"MHC-A1","genotype":"Legacy","sample":"AnimalA"}"#.utf8)
+        )
+        XCTAssertNil(legacyRow.stableClusterID)
+        XCTAssertNil(legacyCell.stableClusterID)
+        XCTAssertEqual(legacyRow, .row(locus: "MHC-A1", genotype: "Legacy"))
+        XCTAssertEqual(legacyCell, .cell(locus: "MHC-A1", genotype: "Legacy", sample: "AnimalA"))
+    }
+
     func testMatrixCommentPersistsForEmptyCellTarget() throws {
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-30T00:00:00Z")
         sidecar.matrixComments = [

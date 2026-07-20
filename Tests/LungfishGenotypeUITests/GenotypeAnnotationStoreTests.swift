@@ -235,6 +235,38 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["matrixCommentCount"], .integer(1))
     }
 
+    func testCandidateCollisionMatrixAnnotationsRemainDistinctByStableClusterID() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+        let genotype = "Mafa-A1*018:01:01:01_5nt_nov"
+        let targetA = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A1",
+            genotype: genotype,
+            stableClusterID: "cluster-a"
+        )
+        let targetB = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A1",
+            genotype: genotype,
+            stableClusterID: "cluster-b"
+        )
+
+        try store.setMatrixStyles([
+            (target: targetA, style: .init(fillColor: "#112233")),
+            (target: targetB, style: .init(fillColor: "#445566")),
+        ])
+        try store.addMatrixComments([
+            (target: targetA, body: "Cluster A note"),
+            (target: targetB, body: "Cluster B note"),
+        ])
+
+        XCTAssertEqual(Set(store.sidecar.matrixStyles.map(\.target)), Set([targetA, targetB]))
+        XCTAssertEqual(Set(store.sidecar.matrixComments.map(\.target)), Set([targetA, targetB]))
+        let reloaded = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+        XCTAssertEqual(Set(reloaded.sidecar.matrixStyles.map(\.target)), Set([targetA, targetB]))
+        XCTAssertEqual(Set(reloaded.sidecar.matrixComments.map(\.target)), Set([targetA, targetB]))
+    }
+
     func testMatrixBatchAnnotationProvenanceCapturesAllTargets() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
