@@ -16,6 +16,49 @@ struct ProvenanceBuilderTests {
         case failed
     }
 
+    @Test("Builder retains step resolved options and runtime identity")
+    func builderRetainsStepResolvedOptionsAndRuntimeIdentity() throws {
+        let workingDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: workingDirectory) }
+        let outputURL = workingDirectory.appendingPathComponent("candidate.json")
+        try Data("{}".utf8).write(to: outputURL, options: .atomic)
+        let stepRuntime = ProvenanceRuntimeIdentity.fixture(
+            executablePath: "/Applications/Lungfish.app/Contents/MacOS/Lungfish",
+            condaEnvironment: "candidate-tools"
+        )
+        let output = try ProvenanceFileDescriptor.file(url: outputURL, format: .json, role: .output)
+
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "mhc.candidate",
+            workflowVersion: "2026.07",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.07"
+        )
+        .argv(["lungfish-cli", "fastq", "full-length-ont-mhc-genotype"])
+        .runtime(.fixture())
+        .step(ProvenanceStep(
+            toolName: "lungfish-in-process:render-candidates",
+            toolVersion: "2026.07",
+            argv: ["lungfish-in-process", "render-candidates", outputURL.path],
+            resolvedOptions: ["recordCount": .integer(1)],
+            runtimeIdentity: stepRuntime,
+            outputs: [output],
+            exitStatus: 0
+        ))
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 20),
+            endedAt: Date(timeIntervalSince1970: 21)
+        )
+        let decoded = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: ProvenanceJSON.encoder.encode(envelope)
+        )
+
+        #expect(decoded.steps.first?.resolvedOptions["recordCount"] == .integer(1))
+        #expect(decoded.steps.first?.runtimeIdentity == stepRuntime)
+    }
+
     @Test("Builder writes canonical signed sidecar with argv options files runtime and signature reference")
     func builderWritesCanonicalSignedSidecar() throws {
         let workingDirectory = try makeTempDirectory()

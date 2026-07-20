@@ -100,6 +100,7 @@ public struct FullLengthONTMHCInProcessTransformationRecord: Sendable, Equatable
     public let workflowVersion: String
     public let argv: [String]
     public let resolvedOptions: [String: String]
+    public let runtimeIdentity: ProvenanceRuntimeIdentity
     public let inputs: [FullLengthONTMHCArtifactDescriptor]
     public let outputs: [FullLengthONTMHCArtifactDescriptor]
     public let exitStatus: Int32
@@ -107,8 +108,87 @@ public struct FullLengthONTMHCInProcessTransformationRecord: Sendable, Equatable
     public let completedAt: Date
     public let wallTime: TimeInterval
 
+    public init(
+        workflowName: String,
+        workflowVersion: String,
+        argv: [String],
+        resolvedOptions: [String: String],
+        runtimeIdentity: ProvenanceRuntimeIdentity = ProvenanceRuntimeIdentity(),
+        inputs: [FullLengthONTMHCArtifactDescriptor],
+        outputs: [FullLengthONTMHCArtifactDescriptor],
+        exitStatus: Int32,
+        startedAt: Date,
+        completedAt: Date,
+        wallTime: TimeInterval
+    ) {
+        self.workflowName = workflowName
+        self.workflowVersion = workflowVersion
+        self.argv = argv
+        self.resolvedOptions = resolvedOptions
+        self.runtimeIdentity = runtimeIdentity
+        self.inputs = inputs
+        self.outputs = outputs
+        self.exitStatus = exitStatus
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+        self.wallTime = wallTime
+    }
+
     var capturedArtifactDescriptors: [FullLengthONTMHCArtifactDescriptor] {
         inputs + outputs
+    }
+
+    public func provenanceStep() -> ProvenanceStep {
+        ProvenanceStep(
+            toolName: workflowName,
+            toolVersion: workflowVersion,
+            argv: argv,
+            durableReplayArgv: argv,
+            reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+            resolvedOptions: resolvedOptions.mapValues(ParameterValue.string),
+            runtimeIdentity: runtimeIdentity,
+            inputs: inputs.map { $0.provenanceDescriptor(forcedRole: .input) },
+            outputs: outputs.map {
+                $0.provenanceDescriptor(
+                    forcedRole: $0.role == .evidenceBAI ? .index : .output
+                )
+            },
+            exitStatus: Int(exitStatus),
+            wallTimeSeconds: wallTime,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    }
+}
+
+private extension FullLengthONTMHCArtifactDescriptor {
+    func provenanceDescriptor(forcedRole: FileRole) -> ProvenanceFileDescriptor {
+        ProvenanceFileDescriptor(
+            path: path,
+            checksumSHA256: sha256,
+            fileSize: byteSize,
+            format: provenanceFormat,
+            role: forcedRole
+        )
+    }
+
+    var provenanceFormat: FileFormat {
+        switch role {
+        case .referenceFASTA, .sourceClusterFASTA, .snapshotClusterFASTA, .namespacedClusterFASTA:
+            return .fasta
+        case .evidenceBAM:
+            return .bam
+        case .commandStdoutLog, .commandStderrLog:
+            return path.hasSuffix(".sam") ? .sam : .text
+        case .evidenceBAI:
+            return .unknown
+        case .commandInput, .commandOutput:
+            let normalizedPath = path.lowercased()
+            if normalizedPath.hasSuffix(".bam") { return .bam }
+            if normalizedPath.hasSuffix(".sam") { return .sam }
+            if normalizedPath.hasSuffix(".fa") || normalizedPath.hasSuffix(".fasta") { return .fasta }
+            return .unknown
+        }
     }
 }
 
