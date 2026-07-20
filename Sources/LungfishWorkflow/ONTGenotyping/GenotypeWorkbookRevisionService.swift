@@ -1479,6 +1479,12 @@ public struct GenotypeWorkbookRevisionService {
             sourceURL: sourceURL,
             destinationURL: destinationURL
         )
+        try copyExtendedAttributesByDescriptorNoFollow(
+            from: sourceDescriptor,
+            to: destinationDescriptor,
+            sourceURL: sourceURL,
+            destinationURL: destinationURL
+        )
         guard Darwin.fsync(destinationDescriptor) == 0 else {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                 "Could not sync workbook bundle fallback destination: \(destinationURL.path) (errno \(errno))."
@@ -1517,6 +1523,13 @@ public struct GenotypeWorkbookRevisionService {
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                     "Could not inspect workbook bundle fallback source: \(sourceChild.path) (errno \(errno))."
                 )
+            }
+            if sourceInfo.st_mode & S_IFMT == S_IFREG,
+               try isAppleDoubleCompanionNoFollow(
+                   name: name,
+                   directoryDescriptor: sourceDescriptor
+               ) {
+                continue
             }
             switch sourceInfo.st_mode & S_IFMT {
             case S_IFREG:
@@ -1567,6 +1580,12 @@ public struct GenotypeWorkbookRevisionService {
                     try copyDirectoryContentsByDescriptorNoFollow(
                         sourceDescriptor: sourceChildDescriptor,
                         destinationDescriptor: destinationChildDescriptor,
+                        sourceURL: sourceChild,
+                        destinationURL: destinationChild
+                    )
+                    try copyExtendedAttributesByDescriptorNoFollow(
+                        from: sourceChildDescriptor,
+                        to: destinationChildDescriptor,
                         sourceURL: sourceChild,
                         destinationURL: destinationChild
                     )
@@ -1657,6 +1676,12 @@ public struct GenotypeWorkbookRevisionService {
             }
         }
         var after = stat()
+        try copyExtendedAttributesByDescriptorNoFollow(
+            from: input,
+            to: output,
+            sourceURL: sourceURL,
+            destinationURL: destinationURL
+        )
         guard Darwin.fstat(input, &after) == 0,
               after.st_dev == expected.st_dev,
               after.st_ino == expected.st_ino,
@@ -1666,6 +1691,109 @@ public struct GenotypeWorkbookRevisionService {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                 "Workbook bundle file changed or failed to sync during fallback copy: \(sourceURL.path)."
             )
+        }
+    }
+
+    private func isAppleDoubleCompanionNoFollow(
+        name: String,
+        directoryDescriptor: Int32
+    ) throws -> Bool {
+        guard name.hasPrefix("._"), name.count > 2 else { return false }
+        let baseName = String(name.dropFirst(2))
+        var baseInfo = stat()
+        let baseStatus = baseName.withCString {
+            Darwin.fstatat(directoryDescriptor, $0, &baseInfo, AT_SYMLINK_NOFOLLOW)
+        }
+        guard baseStatus == 0,
+              baseInfo.st_mode & S_IFMT == S_IFREG || baseInfo.st_mode & S_IFMT == S_IFDIR else {
+            return false
+        }
+        let descriptor = name.withCString {
+            Darwin.openat(directoryDescriptor, $0, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        }
+        guard descriptor >= 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not inspect AppleDouble companion during fallback copy: \(name) (errno \(errno))."
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        var header = [UInt8](repeating: 0, count: 8)
+        let count = Darwin.pread(descriptor, &header, header.count, 0)
+        guard count == header.count else { return false }
+        return header == [0x00, 0x05, 0x16, 0x07, 0x00, 0x02, 0x00, 0x00]
+    }
+
+    private func copyExtendedAttributesByDescriptorNoFollow(
+        from sourceDescriptor: Int32,
+        to destinationDescriptor: Int32,
+        sourceURL: URL,
+        destinationURL: URL
+    ) throws {
+        let listSize = Darwin.flistxattr(sourceDescriptor, nil, 0, 0)
+        if listSize < 0 {
+            if errno == ENOTSUP { return }
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not list fallback-copy metadata for \(sourceURL.path) (errno \(errno))."
+            )
+        }
+        guard listSize > 0 else { return }
+        var names = [CChar](repeating: 0, count: listSize)
+        let actualListSize = Darwin.flistxattr(sourceDescriptor, &names, names.count, 0)
+        guard actualListSize == listSize else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Fallback-copy metadata changed while reading \(sourceURL.path)."
+            )
+        }
+        var offset = 0
+        while offset < actualListSize {
+            let name = names.withUnsafeBufferPointer { buffer in
+                String(cString: buffer.baseAddress!.advanced(by: offset))
+            }
+            offset += name.utf8.count + 1
+            if name == "com.apple.provenance" { continue }
+            let valueSize = name.withCString {
+                Darwin.fgetxattr(sourceDescriptor, $0, nil, 0, 0, 0)
+            }
+            guard valueSize >= 0 else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Could not size fallback-copy metadata \(name) for \(sourceURL.path) (errno \(errno))."
+                )
+            }
+            var value = [UInt8](repeating: 0, count: valueSize)
+            let readSize = name.withCString { attributeName in
+                value.withUnsafeMutableBytes { bytes in
+                    Darwin.fgetxattr(
+                        sourceDescriptor,
+                        attributeName,
+                        bytes.baseAddress,
+                        bytes.count,
+                        0,
+                        0
+                    )
+                }
+            }
+            guard readSize == valueSize else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Fallback-copy metadata \(name) changed while reading \(sourceURL.path)."
+                )
+            }
+            let writeStatus = name.withCString { attributeName in
+                value.withUnsafeBytes { bytes in
+                    Darwin.fsetxattr(
+                        destinationDescriptor,
+                        attributeName,
+                        bytes.baseAddress,
+                        bytes.count,
+                        0,
+                        0
+                    )
+                }
+            }
+            guard writeStatus == 0 else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Could not preserve fallback-copy metadata \(name) at \(destinationURL.path) (errno \(errno))."
+                )
+            }
         }
     }
 

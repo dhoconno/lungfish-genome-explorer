@@ -178,6 +178,67 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         )
     }
 
+    func testDescriptorCloneRehydratesAppleDoubleMetadataWithoutCopyingCompanionBytes() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "appledouble-clone")
+        let rawDirectory = fixture.bundleURL.appendingPathComponent(
+            "samples/CR1178/savont/strict-qv90-min3/raw",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: rawDirectory, withIntermediateDirectories: true)
+        let baseURL = rawDirectory.appendingPathComponent("final_asvs.fasta")
+        let scientificBytes = Data(">cluster-1\nACGTACGT\n".utf8)
+        try scientificBytes.write(to: baseURL)
+        let attributeName = "com.lungfish.clone-test"
+        let attributeValue = Data("required-metadata".utf8)
+        let setStatus = attributeValue.withUnsafeBytes { bytes in
+            Darwin.setxattr(
+                baseURL.path,
+                attributeName,
+                bytes.baseAddress,
+                bytes.count,
+                0,
+                0
+            )
+        }
+        XCTAssertEqual(setStatus, 0)
+        let appleDoubleURL = rawDirectory.appendingPathComponent("._final_asvs.fasta")
+        try Data([0x00, 0x05, 0x16, 0x07, 0x00, 0x02, 0x00, 0x00, 0, 0, 0, 0]).write(
+            to: appleDoubleURL
+        )
+
+        _ = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            forceBundleCloneFallback: true
+        ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        let copiedBaseURL = fixture.bundleURL.appendingPathComponent(
+            "samples/CR1178/savont/strict-qv90-min3/raw/final_asvs.fasta"
+        )
+        XCTAssertEqual(try Data(contentsOf: copiedBaseURL), scientificBytes)
+        let attributeSize = Darwin.getxattr(copiedBaseURL.path, attributeName, nil, 0, 0, 0)
+        XCTAssertEqual(attributeSize, attributeValue.count)
+        var copiedAttribute = [UInt8](repeating: 0, count: max(0, attributeSize))
+        let readSize = copiedAttribute.withUnsafeMutableBytes { bytes in
+            Darwin.getxattr(
+                copiedBaseURL.path,
+                attributeName,
+                bytes.baseAddress,
+                bytes.count,
+                0,
+                0
+            )
+        }
+        XCTAssertEqual(readSize, attributeValue.count)
+        XCTAssertEqual(Data(copiedAttribute), attributeValue)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.bundleURL.appendingPathComponent(
+                "samples/CR1178/savont/strict-qv90-min3/raw/._final_asvs.fasta"
+            ).path
+        ))
+    }
+
     func testUnsupportedDirectorySwapPublishesThroughCrashSafeRotation() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
