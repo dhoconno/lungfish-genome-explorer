@@ -201,6 +201,12 @@ public class MainSplitViewController: NSSplitViewController {
     /// cannot repaint the viewport after a tool result is displayed.
     var multiDocumentLoadTask: Task<Void, Never>?
 
+    /// Cancellable off-main genotype bundle validation for the active sidebar selection.
+    var genotypeResultLoadTask: Task<Void, Never>?
+    var genotypeResultLoader: @Sendable (URL) async throws -> ONTGenotypeResultBundleData = { url in
+        try await ONTGenotypeResultBundle.loadResultAsync(from: url)
+    }
+
     var windowStateScope: WindowStateScope {
         projectSession.windowStateScope
     }

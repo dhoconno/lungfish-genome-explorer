@@ -1,9 +1,40 @@
 import CryptoKit
+import Darwin
 import Foundation
 import XCTest
 @testable import LungfishIO
 
 final class ONTGenotypeResultBundleTests: XCTestCase {
+    @MainActor
+    func testAsyncCandidateLoaderYieldsMainActorBeforeCompleting() async throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+        var heartbeatRan = false
+        DispatchQueue.main.async { heartbeatRan = true }
+
+        let result = try await ONTGenotypeResultBundle.loadResultAsync(from: fixture.bundleURL)
+
+        XCTAssertTrue(heartbeatRan, "Async bundle validation must not hash candidate evidence on the main actor")
+        XCTAssertEqual(result.calls.count, 1)
+    }
+
+    func testCancelledAsyncCandidateLoaderThrowsCancellation() async throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+        let bundleURL = fixture.bundleURL
+        let task = Task {
+            try await ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)
+        }
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+    }
+
     func testLoadsValidMHCCandidateDocumentsAndChecksummedEvidence() throws {
         let fixture = try CandidateBundleFixture()
         defer { fixture.remove() }
@@ -119,6 +150,84 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertNil(result.mhcCandidates)
         XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactChecksumMismatch)
         XCTAssertTrue(result.integrityWarnings.first?.path?.hasSuffix("genotyping.bam") == true)
+    }
+
+    func testCandidateFIFOIsRejectedPromptlyWithoutWaitingForAWriter() async throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+        try fixture.replaceCandidateJSONWithFIFO()
+        let bundleURL = fixture.bundleURL
+        let candidateJSONURL = fixture.candidateJSONURL
+        let start = Date()
+        let task = Task.detached { try ONTGenotypeResultBundle.loadResult(from: bundleURL) }
+        let emergencyUnblocker = Task.detached {
+            try await Task.sleep(for: .milliseconds(200))
+            let writerFD = candidateJSONURL.path.withCString {
+                Darwin.open($0, O_WRONLY | O_NONBLOCK | O_CLOEXEC)
+            }
+            if writerFD >= 0 { Darwin.close(writerFD) }
+        }
+        let result = try await task.value
+        emergencyUnblocker.cancel()
+
+        XCTAssertLessThan(Date().timeIntervalSince(start), 0.15, "FIFO validation must never block waiting for an external writer")
+        XCTAssertEqual(result.calls.count, 1)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactNotRegularFile)
+    }
+
+    func testAggregateParsedCandidateArtifactBudgetFailsSoft() throws {
+        let fixture = try CandidateBundleFixture()
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(
+            from: fixture.bundleURL,
+            candidateArtifactByteBudget: 32
+        )
+
+        XCTAssertEqual(result.calls.count, 1)
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactTooLarge)
+        XCTAssertTrue(result.integrityWarnings.first?.detail.contains("aggregate") == true)
+    }
+
+    func testRoleAwareEvidenceAcceptsTypedBAMPathsWithoutBAMExtensions() throws {
+        let fixture = try CandidateBundleFixture(
+            genotypingBAMPath: "artifacts/alignments/genotyping-evidence.data",
+            reciprocalBAMPath: "artifacts/alignments/reciprocal-evidence.data"
+        )
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertNotNil(result.mhcCandidates)
+        XCTAssertNotNil(result.mhcUnnameableClusters)
+        XCTAssertTrue(result.integrityWarnings.isEmpty)
+    }
+
+    func testRoleAwareEvidenceDoesNotTreatMisleadingBAMNamedBAIAsBAM() throws {
+        let fixture = try CandidateBundleFixture(
+            genotypingBAIPath: "artifacts/alignments/misleading-index.bam",
+            reciprocalBAIPath: "artifacts/alignments/other-misleading-index.bam",
+            reciprocalLocatorPathOverride: "artifacts/alignments/other-misleading-index.bam"
+        )
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactDocumentReferenceMismatch)
+    }
+
+    func testRoleAwareEvidenceRejectsSwappedGenotypingAndReciprocalLocators() throws {
+        let fixture = try CandidateBundleFixture(swappedEvidenceRoles: true)
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.calls.count, 1)
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactDocumentReferenceMismatch)
+        XCTAssertTrue(result.integrityWarnings.first?.detail.contains("reciprocal") == true)
     }
 
     func testCandidateArtifactSizeAndChecksumMismatchesFailSoft() throws {
@@ -1128,7 +1237,13 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             candidateDirectory: String = "",
             candidateSchemaVersion: Int = 1,
             candidateFASTAIDs: [String] = ["candidate-sequence"],
-            documentCandidateFASTAPath: String? = nil
+            documentCandidateFASTAPath: String? = nil,
+            genotypingBAMPath: String = "artifacts/alignments/genotyping.bam",
+            genotypingBAIPath: String = "artifacts/alignments/genotyping.bam.bai",
+            reciprocalBAMPath: String = "artifacts/alignments/reciprocal.bam",
+            reciprocalBAIPath: String = "artifacts/alignments/reciprocal.bam.bai",
+            swappedEvidenceRoles: Bool = false,
+            reciprocalLocatorPathOverride: String? = nil
         ) throws {
             rootURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("ONTGenotypeCandidateFixture-\(UUID().uuidString)", isDirectory: true)
@@ -1156,12 +1271,16 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             candidateFASTAURL = candidateRoot.appendingPathComponent("candidate_alleles.fasta")
             let unnameableJSONURL = candidateRoot.appendingPathComponent("unnameable.json")
             let unnameableFASTAURL = candidateRoot.appendingPathComponent("unnameable.fasta")
-            let alignments = bundleURL.appendingPathComponent("artifacts/alignments", isDirectory: true)
-            try FileManager.default.createDirectory(at: alignments, withIntermediateDirectories: true)
-            let genotypingBAM = alignments.appendingPathComponent("genotyping.bam")
-            let genotypingBAI = alignments.appendingPathComponent("genotyping.bam.bai")
-            let reciprocalBAM = alignments.appendingPathComponent("reciprocal.bam")
-            let reciprocalBAI = alignments.appendingPathComponent("reciprocal.bam.bai")
+            let genotypingBAM = bundleURL.appendingPathComponent(genotypingBAMPath)
+            let genotypingBAI = bundleURL.appendingPathComponent(genotypingBAIPath)
+            let reciprocalBAM = bundleURL.appendingPathComponent(reciprocalBAMPath)
+            let reciprocalBAI = bundleURL.appendingPathComponent(reciprocalBAIPath)
+            for url in [genotypingBAM, genotypingBAI, reciprocalBAM, reciprocalBAI] {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+            }
             try Data("bam-one".utf8).write(to: genotypingBAM)
             try Data("bai-one".utf8).write(to: genotypingBAI)
             try Data("bam-two".utf8).write(to: reciprocalBAM)
@@ -1180,12 +1299,12 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             let unnameableRelative = Self.relative("unnameable.json", directory: candidateDirectory)
             let unnameableFASTARelative = Self.relative("unnameable.fasta", directory: candidateDirectory)
             let genotypingPair = try Self.pair(
-                bam: genotypingBAM, bamPath: "artifacts/alignments/genotyping.bam",
-                bai: genotypingBAI, baiPath: "artifacts/alignments/genotyping.bam.bai"
+                bam: genotypingBAM, bamPath: genotypingBAMPath,
+                bai: genotypingBAI, baiPath: genotypingBAIPath
             )
             let reciprocalPair = try Self.pair(
-                bam: reciprocalBAM, bamPath: "artifacts/alignments/reciprocal.bam",
-                bai: reciprocalBAI, baiPath: "artifacts/alignments/reciprocal.bam.bai"
+                bam: reciprocalBAM, bamPath: reciprocalBAMPath,
+                bai: reciprocalBAI, baiPath: reciprocalBAIPath
             )
             let candidateFASTAReference = try Self.reference(
                 candidateFASTAURL,
@@ -1194,8 +1313,11 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             let actualCandidateFASTAReference = try Self.reference(candidateFASTAURL, path: candidateFASTARelative)
             let unnameableFASTAReference = try Self.reference(unnameableFASTAURL, path: unnameableFASTARelative)
             let evidence = [genotypingPair.bam, genotypingPair.bai, reciprocalPair.bam, reciprocalPair.bai]
+            let reciprocalLocatorPath = reciprocalLocatorPathOverride
+                ?? (swappedEvidenceRoles ? genotypingPair.bam.path : reciprocalPair.bam.path)
+            let genotypingLocatorPath = swappedEvidenceRoles ? reciprocalPair.bam.path : genotypingPair.bam.path
             let locator = ONTMHCEvidenceLocator(
-                bamPath: reciprocalPair.bam.path,
+                bamPath: reciprocalLocatorPath,
                 queryName: candidateID,
                 referenceName: "Mafa-A1*001:01",
                 readGroupID: nil,
@@ -1227,6 +1349,22 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                 sequenceSHA256: Self.sha256(Data(candidateSequence.utf8)),
                 selectedEvidence: locator
             )
+            let candidateObservation = ONTMHCCandidateObservation(
+                stableClusterID: candidateID,
+                sampleID: "SampleA",
+                readGroupID: "SampleA",
+                sourceClusterIDs: ["source-candidate"],
+                sourceClusterReadCounts: ["source-candidate": 8],
+                aggregatedSampleReadCount: 8,
+                evidence: [ONTMHCEvidenceLocator(
+                    bamPath: genotypingLocatorPath,
+                    queryName: "SampleA|source-candidate",
+                    referenceName: "Mafa-A1*001:01",
+                    readGroupID: "SampleA",
+                    referenceStart: 1,
+                    cigar: "4="
+                )]
+            )
             let candidateDocument = ONTMHCCandidateAllelesDocument(
                 schemaVersion: candidateSchemaVersion,
                 createdAt: "2026-07-19T00:00:00Z",
@@ -1235,7 +1373,15 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                 evidence: evidence,
                 sequenceFASTA: candidateFASTAReference,
                 candidates: [candidateRecord],
-                observations: []
+                observations: [candidateObservation]
+            )
+            let unnameableReciprocalLocator = ONTMHCEvidenceLocator(
+                bamPath: reciprocalLocatorPath,
+                queryName: unnameableID,
+                referenceName: "Mafa-A1*001:01",
+                readGroupID: nil,
+                referenceStart: 1,
+                cigar: "4="
             )
             let unnameableRecord = ONTMHCUnnameableRecord(
                 stableClusterID: unnameableID,
@@ -1248,7 +1394,23 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                 supportingSampleIDs: ["SampleB"],
                 fastaRecordID: unnameableID,
                 sequenceSHA256: Self.sha256(Data(unnameableSequence.utf8)),
-                evidence: []
+                evidence: [unnameableReciprocalLocator]
+            )
+            let unnameableObservation = ONTMHCCandidateObservation(
+                stableClusterID: unnameableID,
+                sampleID: "SampleB",
+                readGroupID: "SampleB",
+                sourceClusterIDs: ["source-unnameable"],
+                sourceClusterReadCounts: ["source-unnameable": 4],
+                aggregatedSampleReadCount: 4,
+                evidence: [ONTMHCEvidenceLocator(
+                    bamPath: genotypingLocatorPath,
+                    queryName: "SampleB|source-unnameable",
+                    referenceName: "Mafa-A1*001:01",
+                    readGroupID: "SampleB",
+                    referenceStart: 1,
+                    cigar: "4="
+                )]
             )
             let unnameableDocument = ONTMHCUnnameableClustersDocument(
                 schemaVersion: 1,
@@ -1257,7 +1419,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                 evidence: evidence,
                 sequenceFASTA: unnameableFASTAReference,
                 clusters: [unnameableRecord],
-                observations: []
+                observations: [unnameableObservation]
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -1300,6 +1462,29 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                     genotypingEvidence: artifacts.genotypingEvidence,
                     reciprocalEvidence: artifacts.reciprocalEvidence,
                     candidateJSON: try! Self.reference(candidateJSONURL, path: artifacts.candidateJSON!.path),
+                    candidateFASTA: artifacts.candidateFASTA,
+                    unnameableJSON: artifacts.unnameableJSON,
+                    unnameableFASTA: artifacts.unnameableFASTA
+                )
+            }
+        }
+
+        func replaceCandidateJSONWithFIFO() throws {
+            try FileManager.default.removeItem(at: candidateJSONURL)
+            let status = candidateJSONURL.path.withCString { Darwin.mkfifo($0, 0o600) }
+            guard status == 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            try rewriteManifest { artifacts in
+                ONTMHCCandidateArtifactManifest(
+                    schemaVersion: artifacts.schemaVersion,
+                    genotypingEvidence: artifacts.genotypingEvidence,
+                    reciprocalEvidence: artifacts.reciprocalEvidence,
+                    candidateJSON: ONTMHCArtifactReference(
+                        path: artifacts.candidateJSON!.path,
+                        sha256: Self.sha256(Data()),
+                        sizeBytes: 0
+                    ),
                     candidateFASTA: artifacts.candidateFASTA,
                     unnameableJSON: artifacts.unnameableJSON,
                     unnameableFASTA: artifacts.unnameableFASTA

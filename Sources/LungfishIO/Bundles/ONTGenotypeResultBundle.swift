@@ -1403,8 +1403,109 @@ public enum ONTGenotypeResultBundle {
     }
 
     private struct ParsedFASTA {
-        let sequences: [String: String]
+        let sequenceChecksums: [String: String]
         let counts: [String: Int]
+    }
+
+    private struct StreamingFASTAParser {
+        private static let maximumLineBytes = 1_048_576
+        private let path: String
+        private let requiredIDs: Set<String>
+        private var pendingLine: [UInt8] = []
+        private var currentID: String?
+        private var currentIsRequired = false
+        private var currentHasher = SHA256()
+        private var currentBaseCount = 0
+        private var counts: [String: Int] = [:]
+        private var checksums: [String: String] = [:]
+
+        init(path: String, requiredIDs: Set<String>) {
+            self.path = path
+            self.requiredIDs = requiredIDs
+        }
+
+        mutating func consume(_ data: Data) throws {
+            for byte in data {
+                if byte == 0x0a {
+                    try consumeLine(pendingLine)
+                    pendingLine.removeAll(keepingCapacity: true)
+                } else {
+                    guard pendingLine.count < Self.maximumLineBytes else {
+                        throw ONTGenotypeResultBundle.integrityFailure(
+                            .candidateArtifactMalformedFASTA,
+                            "Candidate FASTA contains a line longer than \(Self.maximumLineBytes) bytes.",
+                            path: path
+                        )
+                    }
+                    pendingLine.append(byte)
+                }
+            }
+        }
+
+        mutating func finish() throws -> ParsedFASTA {
+            if !pendingLine.isEmpty { try consumeLine(pendingLine) }
+            try finishRecord()
+            return ParsedFASTA(sequenceChecksums: checksums, counts: counts)
+        }
+
+        private mutating func consumeLine(_ rawLine: [UInt8]) throws {
+            var line = rawLine
+            if line.last == 0x0d { line.removeLast() }
+            if line.first == 0x3e {
+                try finishRecord()
+                guard let header = String(bytes: line.dropFirst(), encoding: .utf8) else {
+                    throw malformed("Candidate FASTA header is not valid UTF-8.")
+                }
+                let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let id = trimmed.split(whereSeparator: \.isWhitespace).first, !id.isEmpty else {
+                    throw malformed("Candidate FASTA contains an empty record identifier.")
+                }
+                currentID = String(id)
+                currentIsRequired = requiredIDs.contains(String(id))
+                currentHasher = SHA256()
+                currentBaseCount = 0
+                return
+            }
+            var start = 0
+            var end = line.count
+            while start < end, line[start] == 0x20 || line[start] == 0x09 { start += 1 }
+            while end > start, line[end - 1] == 0x20 || line[end - 1] == 0x09 { end -= 1 }
+            guard start < end || currentID != nil else {
+                throw malformed("Candidate FASTA contains sequence data before its first header.")
+            }
+            guard start < end else { return }
+            guard currentID != nil else {
+                throw malformed("Candidate FASTA contains sequence data before its first header.")
+            }
+            var normalized: [UInt8] = []
+            normalized.reserveCapacity(end - start)
+            for byte in line[start..<end] {
+                guard byte >= 0x21, byte <= 0x7e else {
+                    throw malformed("Candidate FASTA sequence contains non-ASCII or embedded whitespace bytes.")
+                }
+                normalized.append((0x61...0x7a).contains(byte) ? byte - 0x20 : byte)
+            }
+            if currentIsRequired { currentHasher.update(data: Data(normalized)) }
+            currentBaseCount += normalized.count
+        }
+
+        private mutating func finishRecord() throws {
+            guard let id = currentID else { return }
+            guard currentBaseCount > 0 else {
+                throw malformed("FASTA record '\(id)' has no sequence.")
+            }
+            counts[id, default: 0] += 1
+            if currentIsRequired, checksums[id] == nil {
+                checksums[id] = currentHasher.finalize().map { String(format: "%02x", $0) }.joined()
+            }
+            currentID = nil
+            currentIsRequired = false
+            currentBaseCount = 0
+        }
+
+        private func malformed(_ detail: String) -> CandidateIntegrityFailure {
+            ONTGenotypeResultBundle.integrityFailure(.candidateArtifactMalformedFASTA, detail, path: path)
+        }
     }
 
     public static func isBundleURL(_ url: URL) -> Bool {
@@ -1444,14 +1545,59 @@ public enum ONTGenotypeResultBundle {
         )
     }
 
+    /// Synchronous loader retained for CLI and non-UI callers. This method may hash
+    /// large declared BAM artifacts; AppKit call sites should use `loadResultAsync`.
     public static func loadResult(from bundleURL: URL) throws -> ONTGenotypeResultBundleData {
         let manifest = try loadManifest(from: bundleURL)
-        return try loadResult(from: bundleURL, manifest: manifest)
+        return try loadResult(
+            from: bundleURL,
+            manifest: manifest,
+            candidateArtifactByteBudget: maximumCollectedCandidateArtifactBytes
+        )
     }
 
+    public static func loadResultAsync(from bundleURL: URL) async throws -> ONTGenotypeResultBundleData {
+        try Task.checkCancellation()
+        let worker = Task.detached(priority: Task.currentPriority) {
+            try Task.checkCancellation()
+            return try loadResult(from: bundleURL)
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    static func loadResult(
+        from bundleURL: URL,
+        candidateArtifactByteBudget: Int64
+    ) throws -> ONTGenotypeResultBundleData {
+        let manifest = try loadManifest(from: bundleURL)
+        return try loadResult(
+            from: bundleURL,
+            manifest: manifest,
+            candidateArtifactByteBudget: candidateArtifactByteBudget
+        )
+    }
+
+    /// Synchronous manifest-aware variant for CLI and tests. AppKit callers
+    /// should use `loadResultAsync(from:)` so evidence hashing stays off-main.
     public static func loadResult(
         from bundleURL: URL,
         manifest: ONTGenotypeResultBundleManifest
+    ) throws -> ONTGenotypeResultBundleData {
+        try loadResult(
+            from: bundleURL,
+            manifest: manifest,
+            candidateArtifactByteBudget: maximumCollectedCandidateArtifactBytes
+        )
+    }
+
+    private static func loadResult(
+        from bundleURL: URL,
+        manifest: ONTGenotypeResultBundleManifest,
+        candidateArtifactByteBudget: Int64
     ) throws -> ONTGenotypeResultBundleData {
         let artifacts = ONTGenotypeResultArtifacts(
             workbookURL: resolvedURL(
@@ -1476,7 +1622,8 @@ public enum ONTGenotypeResultBundle {
         let haplotypeAnalysis = try loadHaplotypeAnalysisIfPresent(from: artifacts.haplotypeAnalysisURL)
         let mhcProjection = try loadMHCCandidateProjection(
             from: manifest.mhcCandidateArtifacts,
-            bundleURL: bundleURL
+            bundleURL: bundleURL,
+            parsedArtifactByteBudget: candidateArtifactByteBudget
         )
 
         let calls = callRows.compactMap(makeCall(row:)).filter { isAssignedSample($0.sample) }
@@ -1515,7 +1662,8 @@ public enum ONTGenotypeResultBundle {
 
     private static func loadMHCCandidateProjection(
         from artifactManifest: ONTMHCCandidateArtifactManifest?,
-        bundleURL: URL
+        bundleURL: URL,
+        parsedArtifactByteBudget: Int64
     ) throws -> MHCCandidateProjection {
         guard let artifactManifest else { return .absent }
         do {
@@ -1535,66 +1683,110 @@ public enum ONTGenotypeResultBundle {
                 artifactManifest.unnameableFASTA,
                 label: "un-nameable JSON and FASTA"
             )
-
-            var collectedData: [String: Data] = [:]
-            let collectedReferences = [
+            let parsedReferences = [
                 artifactManifest.candidateJSON,
                 artifactManifest.candidateFASTA,
                 artifactManifest.unnameableJSON,
                 artifactManifest.unnameableFASTA,
             ].compactMap { $0 }
-            for reference in collectedReferences {
-                collectedData[reference.path] = try validateArtifact(
-                    reference,
-                    in: bundleURL,
-                    collectData: true
+            guard parsedArtifactByteBudget >= 0 else {
+                throw integrityFailure(
+                    .candidateArtifactTooLarge,
+                    "The aggregate candidate artifact byte budget must not be negative."
                 )
+            }
+            var aggregateBytes: Int64 = 0
+            for reference in parsedReferences {
+                let (next, overflow) = aggregateBytes.addingReportingOverflow(reference.sizeBytes)
+                guard reference.sizeBytes >= 0, !overflow, next <= parsedArtifactByteBudget else {
+                    throw integrityFailure(
+                        .candidateArtifactTooLarge,
+                        "Declared candidate JSON/FASTA artifacts exceed the aggregate parsed-artifact budget of \(parsedArtifactByteBudget) bytes.",
+                        path: reference.path
+                    )
+                }
+                aggregateBytes = next
             }
             for reference in declaredBAMReferences(artifactManifest) {
                 _ = try validateArtifact(reference, in: bundleURL, collectData: false)
             }
 
-            let candidates: ONTMHCCandidateAllelesDocument? = try artifactManifest.candidateJSON.map { reference in
-                let data = try requiredCollectedData(reference, from: collectedData)
-                return try decodeCandidateDocument(data, path: reference.path)
-            }
-            let unnameable: ONTMHCUnnameableClustersDocument? = try artifactManifest.unnameableJSON.map { reference in
-                let data = try requiredCollectedData(reference, from: collectedData)
-                return try decodeUnnameableDocument(data, path: reference.path)
-            }
-
             let declaredEvidence = declaredBAMReferences(artifactManifest)
-            if let candidates, let fastaReference = artifactManifest.candidateFASTA {
+            var candidates: ONTMHCCandidateAllelesDocument?
+            if let jsonReference = artifactManifest.candidateJSON,
+               let fastaReference = artifactManifest.candidateFASTA {
+                let jsonData = try validateArtifact(jsonReference, in: bundleURL, collectData: true) ?? Data()
+                let document = try decodeCandidateDocument(jsonData, path: jsonReference.path)
                 try validateDocumentReferences(
-                    sequenceFASTA: candidates.sequenceFASTA,
-                    evidence: candidates.evidence,
+                    sequenceFASTA: document.sequenceFASTA,
+                    evidence: document.evidence,
                     expectedSequenceFASTA: fastaReference,
                     expectedEvidence: declaredEvidence,
-                    evidenceLocators: candidates.candidates.map(\.selectedEvidence)
-                        + candidates.observations.flatMap(\.evidence),
-                    documentPath: artifactManifest.candidateJSON?.path
+                    reciprocalEvidenceLocators: document.candidates.map(\.selectedEvidence),
+                    genotypingEvidenceLocators: document.observations.flatMap(\.evidence),
+                    genotypingBAMPath: artifactManifest.genotypingEvidence?.bam.path,
+                    reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
+                    documentPath: jsonReference.path
                 )
-                let fasta = try parseFASTA(
-                    requiredCollectedData(fastaReference, from: collectedData),
+                var parser = StreamingFASTAParser(
+                    path: fastaReference.path,
+                    requiredIDs: Set(document.candidates.map(\.stableClusterID))
+                )
+                var parserFailure: Error?
+                _ = try validateArtifact(
+                    fastaReference,
+                    in: bundleURL,
+                    collectData: false,
+                    chunkHandler: { chunk in
+                        guard parserFailure == nil else { return }
+                        do { try parser.consume(chunk) } catch { parserFailure = error }
+                    }
+                )
+                if let parserFailure { throw parserFailure }
+                try validateCandidateRecords(
+                    document.candidates,
+                    fasta: try parser.finish(),
                     path: fastaReference.path
                 )
-                try validateCandidateRecords(candidates.candidates, fasta: fasta, path: fastaReference.path)
+                candidates = document
             }
-            if let unnameable, let fastaReference = artifactManifest.unnameableFASTA {
+            var unnameable: ONTMHCUnnameableClustersDocument?
+            if let jsonReference = artifactManifest.unnameableJSON,
+               let fastaReference = artifactManifest.unnameableFASTA {
+                let jsonData = try validateArtifact(jsonReference, in: bundleURL, collectData: true) ?? Data()
+                let document = try decodeUnnameableDocument(jsonData, path: jsonReference.path)
                 try validateDocumentReferences(
-                    sequenceFASTA: unnameable.sequenceFASTA,
-                    evidence: unnameable.evidence,
+                    sequenceFASTA: document.sequenceFASTA,
+                    evidence: document.evidence,
                     expectedSequenceFASTA: fastaReference,
                     expectedEvidence: declaredEvidence,
-                    evidenceLocators: unnameable.clusters.flatMap(\.evidence)
-                        + unnameable.observations.flatMap(\.evidence),
-                    documentPath: artifactManifest.unnameableJSON?.path
+                    reciprocalEvidenceLocators: document.clusters.flatMap(\.evidence),
+                    genotypingEvidenceLocators: document.observations.flatMap(\.evidence),
+                    genotypingBAMPath: artifactManifest.genotypingEvidence?.bam.path,
+                    reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
+                    documentPath: jsonReference.path
                 )
-                let fasta = try parseFASTA(
-                    requiredCollectedData(fastaReference, from: collectedData),
+                var parser = StreamingFASTAParser(
+                    path: fastaReference.path,
+                    requiredIDs: Set(document.clusters.map(\.stableClusterID))
+                )
+                var parserFailure: Error?
+                _ = try validateArtifact(
+                    fastaReference,
+                    in: bundleURL,
+                    collectData: false,
+                    chunkHandler: { chunk in
+                        guard parserFailure == nil else { return }
+                        do { try parser.consume(chunk) } catch { parserFailure = error }
+                    }
+                )
+                if let parserFailure { throw parserFailure }
+                try validateUnnameableRecords(
+                    document.clusters,
+                    fasta: try parser.finish(),
                     path: fastaReference.path
                 )
-                try validateUnnameableRecords(unnameable.clusters, fasta: fasta, path: fastaReference.path)
+                unnameable = document
             }
             return MHCCandidateProjection(candidates: candidates, unnameable: unnameable, warnings: [])
         } catch let failure as CandidateIntegrityFailure {
@@ -1627,24 +1819,11 @@ public enum ONTGenotypeResultBundle {
         ].compactMap { $0 }
     }
 
-    private static func requiredCollectedData(
-        _ reference: ONTMHCArtifactReference,
-        from dataByPath: [String: Data]
-    ) throws -> Data {
-        guard let data = dataByPath[reference.path] else {
-            throw integrityFailure(
-                .candidateArtifactMissing,
-                "The declared MHC candidate artifact could not be loaded.",
-                path: reference.path
-            )
-        }
-        return data
-    }
-
     private static func validateArtifact(
         _ reference: ONTMHCArtifactReference,
         in bundleURL: URL,
-        collectData: Bool
+        collectData: Bool,
+        chunkHandler: ((Data) throws -> Void)? = nil
     ) throws -> Data? {
         let components = try safeRelativePathComponents(reference.path)
         let rootFD = bundleURL.path.withCString {
@@ -1681,7 +1860,7 @@ public enum ONTGenotypeResultBundle {
         }
 
         let finalFD = components.last!.withCString {
-            Darwin.openat(directoryFD, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+            Darwin.openat(directoryFD, $0, O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW)
         }
         guard finalFD >= 0 else {
             let code: ONTGenotypeIntegrityWarningCode = errno == ENOENT
@@ -1718,7 +1897,7 @@ public enum ONTGenotypeResultBundle {
                 path: reference.path
             )
         }
-        if collectData, actualSize > maximumCollectedCandidateArtifactBytes {
+        if (collectData || chunkHandler != nil), actualSize > maximumCollectedCandidateArtifactBytes {
             throw integrityFailure(
                 .candidateArtifactTooLarge,
                 "The candidate JSON/FASTA is \(actualSize) bytes; the safe loading limit is \(maximumCollectedCandidateArtifactBytes) bytes.",
@@ -1756,6 +1935,7 @@ public enum ONTGenotypeResultBundle {
             let chunk = Data(buffer.prefix(count))
             hasher.update(data: chunk)
             collected?.append(chunk)
+            try chunkHandler?(chunk)
         }
         guard bytesRead == actualSize else {
             throw integrityFailure(
@@ -1856,7 +2036,10 @@ public enum ONTGenotypeResultBundle {
         evidence: [ONTMHCArtifactReference],
         expectedSequenceFASTA: ONTMHCArtifactReference,
         expectedEvidence: [ONTMHCArtifactReference],
-        evidenceLocators: [ONTMHCEvidenceLocator],
+        reciprocalEvidenceLocators: [ONTMHCEvidenceLocator],
+        genotypingEvidenceLocators: [ONTMHCEvidenceLocator],
+        genotypingBAMPath: String?,
+        reciprocalBAMPath: String?,
         documentPath: String?
     ) throws {
         guard sequenceFASTA == expectedSequenceFASTA else {
@@ -1873,11 +2056,17 @@ public enum ONTGenotypeResultBundle {
                 path: documentPath
             )
         }
-        let declaredBAMPaths = Set(expectedEvidence.filter { $0.path.lowercased().hasSuffix(".bam") }.map(\.path))
-        guard evidenceLocators.allSatisfy({ declaredBAMPaths.contains($0.bamPath) }) else {
+        guard reciprocalEvidenceLocators.allSatisfy({ $0.bamPath == reciprocalBAMPath }) else {
             throw integrityFailure(
                 .candidateArtifactDocumentReferenceMismatch,
-                "At least one evidence locator names a BAM that is not declared by the artifact manifest.",
+                "Candidate and un-nameable reciprocal evidence locators must name exactly the reciprocal BAM declared by the typed manifest role.",
+                path: documentPath
+            )
+        }
+        guard genotypingEvidenceLocators.allSatisfy({ $0.bamPath == genotypingBAMPath }) else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "Candidate and un-nameable observation evidence locators must name exactly the genotyping BAM declared by the typed manifest role.",
                 path: documentPath
             )
         }
@@ -1885,62 +2074,6 @@ public enum ONTGenotypeResultBundle {
 
     private static func canonicalReferences(_ references: [ONTMHCArtifactReference]) -> [String] {
         references.map { "\($0.path)\u{0}\($0.sha256.lowercased())\u{0}\($0.sizeBytes)" }.sorted()
-    }
-
-    private static func parseFASTA(_ data: Data, path: String) throws -> ParsedFASTA {
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw integrityFailure(
-                .candidateArtifactMalformedFASTA,
-                "Candidate FASTA is not valid UTF-8.",
-                path: path
-            )
-        }
-        var sequences: [String: String] = [:]
-        var counts: [String: Int] = [:]
-        var currentID: String?
-        var currentSequence = ""
-
-        func finishRecord() throws {
-            guard let id = currentID else { return }
-            guard !currentSequence.isEmpty else {
-                throw integrityFailure(
-                    .candidateArtifactMalformedFASTA,
-                    "FASTA record '\(id)' has no sequence.",
-                    path: path
-                )
-            }
-            counts[id, default: 0] += 1
-            if sequences[id] == nil { sequences[id] = currentSequence.uppercased() }
-        }
-
-        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = rawLine.last == "\r" ? rawLine.dropLast() : rawLine[...]
-            if line.first == ">" {
-                try finishRecord()
-                let header = line.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
-                guard let id = header.split(whereSeparator: \.isWhitespace).first, !id.isEmpty else {
-                    throw integrityFailure(
-                        .candidateArtifactMalformedFASTA,
-                        "Candidate FASTA contains an empty record identifier.",
-                        path: path
-                    )
-                }
-                currentID = String(id)
-                currentSequence = ""
-            } else {
-                let sequenceLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard sequenceLine.isEmpty || currentID != nil else {
-                    throw integrityFailure(
-                        .candidateArtifactMalformedFASTA,
-                        "Candidate FASTA contains sequence data before its first header.",
-                        path: path
-                    )
-                }
-                currentSequence += sequenceLine
-            }
-        }
-        try finishRecord()
-        return ParsedFASTA(sequences: sequences, counts: counts)
     }
 
     private static func validateCandidateRecords(
@@ -2004,10 +2137,7 @@ public enum ONTGenotypeResultBundle {
             )
         }
         for record in records.sorted(by: { $0.stableID < $1.stableID }) {
-            guard let sequence = fasta.sequences[record.stableID] else { continue }
-            let checksum = SHA256.hash(data: Data(sequence.utf8))
-                .map { String(format: "%02x", $0) }
-                .joined()
+            guard let checksum = fasta.sequenceChecksums[record.stableID] else { continue }
             guard checksum == record.checksum.lowercased() else {
                 throw integrityFailure(
                     .candidateArtifactSequenceChecksumMismatch,
