@@ -73,6 +73,10 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(matrix.testingPinnedColumnTitles, ["", "Genotype", "Cluster ID", "Locus", "Samples", "Unique"])
         XCTAssertEqual(
+            matrix.testingPinnedTableAccessibilityLabel,
+            "Known and candidate genotype calls, stable cluster identifiers, loci, and summary statistics"
+        )
+        XCTAssertEqual(
             matrix.testingPinnedCellValue(
                 rowID: .known(locus: "MHC-KNOWN", genotype: "Known"),
                 column: .stableClusterID
@@ -155,6 +159,10 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(matrix.testingVisibleRows.map(\.id), [.known(locus: "MHC-KNOWN", genotype: "Known")])
         XCTAssertEqual(matrix.testingVisibleSampleNames, ["AnimalA"])
         XCTAssertEqual(matrix.testingPinnedColumnTitles, ["", "Genotype", "Locus", "Samples", "Unique"])
+        XCTAssertEqual(
+            matrix.testingPinnedTableAccessibilityLabel,
+            "Shared genotype calls, loci, and summary statistics"
+        )
     }
 
     func testMHCCandidateMatrixVisibilitySettingsFilterEachPopulationIndependently() {
@@ -292,6 +300,10 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
         matrix.configure(result: candidateResult, sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z"))
         XCTAssertEqual(matrix.testingVisibleRows.count, 2)
+        XCTAssertEqual(
+            matrix.testingPinnedTableAccessibilityLabel,
+            "Known and candidate genotype calls, stable cluster identifiers, loci, and summary statistics"
+        )
 
         let legacyManifest = makeResult(samples: candidateResult.samples, calls: candidateResult.calls).manifest
         let legacyResult = ONTGenotypeResultBundleData(
@@ -308,6 +320,10 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
         matrix.configure(result: legacyResult, sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z"))
         XCTAssertEqual(matrix.testingVisibleRows.map(\.population), [.known])
+        XCTAssertEqual(
+            matrix.testingPinnedTableAccessibilityLabel,
+            "Shared genotype calls, loci, and summary statistics"
+        )
 
         let invalidCandidateResult = ONTGenotypeResultBundleData(
             bundleURL: URL(fileURLWithPath: "/tmp/reloaded.lungfishgenotype"),
@@ -329,6 +345,10 @@ final class GenotypeResultViewportTests: XCTestCase {
             .known(locus: "MHC-KNOWN", genotype: "Known"),
         ])
         XCTAssertEqual(matrix.testingPinnedColumnTitles, ["", "Genotype", "Locus", "Samples", "Unique"])
+        XCTAssertEqual(
+            matrix.testingPinnedTableAccessibilityLabel,
+            "Shared genotype calls, loci, and summary statistics"
+        )
     }
 
     func testViewportPublishesSharedGenotypeSelectionForInspector() {

@@ -482,7 +482,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         pinnedTableView.headerView = pinnedHeaderView
         pinnedTableView.setAccessibilityIdentifier("genotype-comparison-pinned-table")
-        pinnedTableView.setAccessibilityLabel("Known and candidate genotype calls, stable cluster identifiers, loci, and summary statistics")
+        pinnedTableView.setAccessibilityLabel("Shared genotype calls, loci, and summary statistics")
         pinnedScrollView.documentView = pinnedTableView
 
         let headerView = GenotypeMatrixHeaderView()
@@ -649,6 +649,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         addColumn(to: pinnedTableView, identifier: ColumnID.locus, title: "Locus", width: 92, minWidth: 78, ascending: true)
         addColumn(to: pinnedTableView, identifier: ColumnID.samples, title: "Samples", width: 70, minWidth: 58, ascending: false)
         addColumn(to: pinnedTableView, identifier: ColumnID.uniqueReads, title: "Unique", width: 78, minWidth: 62, ascending: false)
+        updatePinnedTableAccessibilityLabel()
 
         // Display-only window: instantiate at most `columnWindow.limit` sample
         // columns. `visibleSampleNames` (the full filtered logical set) is
@@ -666,6 +667,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         pinnedTableView.headerView?.frame.size.height = 34
         tableView.headerView?.frame.size.height = 34
         syncColumnWindowBanner()
+    }
+
+    private func updatePinnedTableAccessibilityLabel() {
+        let label = isMHCCandidateViewportEnabled
+            ? "Known and candidate genotype calls, stable cluster identifiers, loci, and summary statistics"
+            : "Shared genotype calls, loci, and summary statistics"
+        pinnedTableView.setAccessibilityLabel(label)
     }
 
     /// Keep the reveal banner in sync with the current window state. Driven from
@@ -2713,6 +2721,9 @@ extension GenotypeComparisonMatrixView {
     }
     var testingPinnedColumnTitles: [String] {
         pinnedTableView.tableColumns.map(\.title)
+    }
+    var testingPinnedTableAccessibilityLabel: String? {
+        pinnedTableView.accessibilityLabel()
     }
     var testingVisibleSampleReadTitles: [String] {
         visibleSampleNames.map { sampleReadTitleByName[$0] ?? "" }
