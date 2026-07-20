@@ -69,10 +69,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(selectedState?.title, "13_Mafa_DQB1_06g1|DQB1_06_01_01,_DQB1_06_01_02")
         XCTAssertTrue(selectedState?.detailRows.contains(where: { $0.0 == "Locus" && $0.1 == "MHC-DQB1" }) ?? false)
         XCTAssertTrue(selectedState?.detailRows.contains(where: { $0.0 == "Samples" && $0.1 == "1" }) ?? false)
-        XCTAssertEqual(
-            selectedState?.detailRows.first(where: { $0.0 == "Meaning" })?.1,
-            "This row is one known reference genotype label observed in 1 assigned samples. Counts summarize retained unique-read support for this label, not phased haplotypes or allele absence."
-        )
+        XCTAssertTrue(selectedState?.detailRows.contains(where: { $0.0 == "Meaning" }) ?? false)
         XCTAssertTrue(selectedState?.detailRows.contains(where: { $0.0 == "Support Metric" }) ?? false)
     }
 

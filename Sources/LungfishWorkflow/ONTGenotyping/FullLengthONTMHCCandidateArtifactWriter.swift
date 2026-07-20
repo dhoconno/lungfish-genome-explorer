@@ -269,6 +269,24 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             outputDirectoryURL: request.outputDirectoryURL,
             workDirectoryURL: request.workDirectoryURL
         )
+        let observationGroups = try groupedClusters(request.observations)
+        let canonicalRecords = try canonicalUnmatchedRecords(callerStagedUnmatchedFASTAURL)
+        let grouped = try bindCanonicalRecords(
+            canonicalRecords,
+            to: observationGroups
+        )
+        let capturedCanonicalDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: callerStagedUnmatchedFASTAURL,
+            role: .sourceClusterFASTA,
+            phase: .input
+        )
+        let canonicalDescriptor = FullLengthONTMHCArtifactDescriptor(
+            path: "deduplicated_unmatched_clusters.fasta",
+            sha256: capturedCanonicalDescriptor.sha256,
+            byteSize: capturedCanonicalDescriptor.byteSize,
+            role: .sourceClusterFASTA,
+            phase: .final
+        )
 
         let generationURL = request.workDirectoryURL.appendingPathComponent(
             "full-length-ont-mhc-candidates-\(UUID().uuidString)", isDirectory: true
@@ -309,7 +327,6 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         ))
         let stagedStableFASTAURL = stagedRootURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta")
         let stableFASTAStartedAt = Date()
-        let grouped = try groupedClusters(request.observations)
         try writeFASTA(grouped.map { ($0.id, $0.sequence) }, to: stagedStableFASTAURL)
         let stagedStableDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: stagedStableFASTAURL, role: .sourceClusterFASTA, phase: .temporary
@@ -322,15 +339,18 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "lungfish-in-process", "construct-stable-unmatched-cluster-fasta",
                 "--stable-id", "sha256-uuid-v5-compatible",
                 "--line-width", "80",
-                stagedStableFASTAURL.path,
+                "--input", callerStagedUnmatchedFASTAURL.path,
+                "--output", stagedStableFASTAURL.path,
             ],
             resolvedOptions: [
                 "stableID": "first-128-bits-SHA256-with-UUID-version-and-variant-bits",
                 "sequenceNormalization": "remove-whitespace-and-uppercase",
                 "sequenceGrouping": "exact-normalized-sequence",
+                "canonicalValidation": "exact-stable-id-and-normalized-sequence-bijection",
+                "querySequenceSource": "canonical-deduplicated-unmatched-fasta",
                 "lineWidth": "80",
             ],
-            inputs: [],
+            inputs: [canonicalDescriptor],
             outputs: [stagedStableDescriptor],
             exitStatus: 0,
             startedAt: stableFASTAStartedAt,
@@ -670,8 +690,125 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         let observations: [ONTMHCCandidateObservation]
     }
 
+    struct CanonicalUnmatchedRecord {
+        let stableID: String
+        let sequence: String
+    }
+
+    static let maximumCanonicalFASTALineBytes = 1_048_576
+    static let maximumCanonicalSequenceBases = 100_000_000
+    static let maximumCanonicalRecordCount = 1_000_000
+
     static func normalizedSequence(_ sequence: String) -> String {
         sequence.filter { !$0.isWhitespace }.uppercased()
+    }
+
+    func canonicalUnmatchedRecords(_ url: URL) throws -> [CanonicalUnmatchedRecord] {
+        var records: [CanonicalUnmatchedRecord] = []
+        var stableIDs = Set<String>()
+        var currentHeader: String?
+        var currentSequence = ""
+        var lineNumber = 0
+
+        func finishRecord() throws {
+            guard let header = currentHeader else { return }
+            let sequence = Self.normalizedSequence(currentSequence)
+            guard !sequence.isEmpty,
+                  sequence.allSatisfy({ "ACGTRYSWKMBDHVN".contains($0) }) else {
+                throw FullLengthONTMHCCandidateArtifactWriterError(
+                    "Canonical deduplicated unmatched FASTA record '\(header)' has an invalid nucleotide sequence."
+                )
+            }
+            let firstToken = header.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+            let claimedStableID = firstToken.split(separator: "|", maxSplits: 1).first.map(String.init) ?? ""
+            let derivedStableID = Self.stableClusterID(for: sequence)
+            guard claimedStableID == derivedStableID else {
+                throw FullLengthONTMHCCandidateArtifactWriterError(
+                    "Canonical deduplicated unmatched FASTA header stable ID does not match normalized sequence: \(claimedStableID)."
+                )
+            }
+            guard stableIDs.insert(derivedStableID).inserted else {
+                throw FullLengthONTMHCCandidateArtifactWriterError(
+                    "Canonical deduplicated unmatched FASTA contains duplicate stable cluster '\(derivedStableID)'."
+                )
+            }
+            guard records.count < Self.maximumCanonicalRecordCount else {
+                throw FullLengthONTMHCCandidateArtifactWriterError(
+                    "Canonical deduplicated unmatched FASTA exceeds \(Self.maximumCanonicalRecordCount) records."
+                )
+            }
+            records.append(.init(stableID: derivedStableID, sequence: sequence))
+            currentHeader = nil
+            currentSequence = ""
+        }
+
+        try url.forEachLineAutoDecompressing { line in
+            try Task.checkCancellation()
+            lineNumber += 1
+            guard line.utf8.count <= Self.maximumCanonicalFASTALineBytes else {
+                throw FullLengthONTMHCCandidateArtifactWriterError(
+                    "Canonical deduplicated unmatched FASTA line \(lineNumber) exceeds \(Self.maximumCanonicalFASTALineBytes) bytes."
+                )
+            }
+            if line.hasPrefix(">") {
+                try finishRecord()
+                let header = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !header.isEmpty else {
+                    throw FullLengthONTMHCCandidateArtifactWriterError(
+                        "Canonical deduplicated unmatched FASTA has an empty header at line \(lineNumber)."
+                    )
+                }
+                currentHeader = header
+                return
+            }
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            guard currentHeader != nil else {
+                throw FullLengthONTMHCCandidateArtifactWriterError(
+                    "Canonical deduplicated unmatched FASTA has sequence before its first header at line \(lineNumber)."
+                )
+            }
+            guard currentSequence.utf8.count <= Self.maximumCanonicalSequenceBases - line.utf8.count else {
+                throw FullLengthONTMHCCandidateArtifactWriterError(
+                    "Canonical deduplicated unmatched FASTA sequence exceeds \(Self.maximumCanonicalSequenceBases) bases."
+                )
+            }
+            currentSequence += line
+        }
+        try finishRecord()
+        return records
+    }
+
+    func bindCanonicalRecords(
+        _ canonicalRecords: [CanonicalUnmatchedRecord],
+        to observationGroups: [Group]
+    ) throws -> [Group] {
+        let observationsByID = Dictionary(uniqueKeysWithValues: observationGroups.map { ($0.id, $0) })
+        let canonicalByID = Dictionary(uniqueKeysWithValues: canonicalRecords.map { ($0.stableID, $0) })
+        let observationIDs = Set(observationsByID.keys)
+        let canonicalIDs = Set(canonicalByID.keys)
+        if let missing = observationIDs.subtracting(canonicalIDs).sorted().first {
+            throw FullLengthONTMHCCandidateArtifactWriterError(
+                "Canonical deduplicated unmatched FASTA is missing stable cluster '\(missing)' from consolidated observations."
+            )
+        }
+        if let extra = canonicalIDs.subtracting(observationIDs).sorted().first {
+            throw FullLengthONTMHCCandidateArtifactWriterError(
+                "Canonical deduplicated unmatched FASTA contains extra stable cluster '\(extra)' absent from consolidated observations."
+            )
+        }
+        return try canonicalRecords.map { canonical in
+            guard let observed = observationsByID[canonical.stableID],
+                  observed.sequence == canonical.sequence else {
+                throw FullLengthONTMHCCandidateArtifactWriterError(
+                    "Canonical deduplicated unmatched FASTA sequence differs from consolidated observations for stable cluster '\(canonical.stableID)'."
+                )
+            }
+            return Group(
+                id: canonical.stableID,
+                sequence: canonical.sequence,
+                observations: observed.observations
+            )
+        }.sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
     }
 
     static func candidateResolvedOptions(

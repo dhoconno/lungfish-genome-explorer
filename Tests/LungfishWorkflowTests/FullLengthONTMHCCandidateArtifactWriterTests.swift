@@ -69,6 +69,17 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(classification.resolvedOptions["minimumShorterCoverage"], "0.7")
         XCTAssertEqual(classification.resolvedOptions["minimumIntronGapBases"], "20")
         XCTAssertEqual(classification.resolvedOptions["novelDistanceMetric"], "SNP-substitutions-only")
+        let construction = try XCTUnwrap(
+            transformations["lungfish-in-process:construct-stable-unmatched-cluster-fasta"]
+        )
+        XCTAssertEqual(construction.inputs.count, 1)
+        XCTAssertEqual(construction.inputs.first?.path, "deduplicated_unmatched_clusters.fasta")
+        XCTAssertEqual(construction.inputs.first?.sha256, candidate.inputs[1].sha256)
+        XCTAssertEqual(construction.inputs.first?.byteSize, UInt64(candidate.inputs[1].sizeBytes))
+        XCTAssertEqual(construction.inputs.first?.phase, .final)
+        XCTAssertEqual(construction.outputs.count, 1)
+        XCTAssertEqual(construction.outputs.first?.phase, .temporary)
+        XCTAssertEqual(commands.first?.last, construction.outputs.first?.path)
         let materialization = try XCTUnwrap(
             transformations["lungfish-in-process:materialize-mhc-candidate-staging-generation"]
         )
@@ -147,6 +158,74 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         }
         XCTAssertEqual(try Data(contentsOf: first.candidateJSONURL), oldCandidate)
         XCTAssertEqual(try fastaHeaders(first.candidateFASTAURL), [fixture.novelID, fixture.extensionID])
+    }
+
+    func testRejectsCanonicalSequenceWhoseStableHeaderDoesNotMatchBasesBeforeMapping() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let changed = String(repeating: "T", count: fixture.novelSequence.count)
+        let canonical = fixture.canonicalFASTA(records: [
+            (fixture.novelID, changed),
+            (fixture.extensionID, fixture.extensionSequence),
+            (fixture.unnameableID, fixture.unnameableSequence),
+        ])
+
+        await fixture.assertRejectedBeforeMapping(
+            observations: fixture.observations,
+            canonicalFASTA: canonical,
+            expectedMessage: "header stable ID does not match normalized sequence"
+        )
+    }
+
+    func testRejectsCanonicalFASTAWithMissingObservationSequenceBeforeMapping() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let canonical = fixture.canonicalFASTA(records: [
+            (fixture.novelID, fixture.novelSequence),
+            (fixture.extensionID, fixture.extensionSequence),
+        ])
+
+        await fixture.assertRejectedBeforeMapping(
+            observations: fixture.observations,
+            canonicalFASTA: canonical,
+            expectedMessage: "missing stable cluster"
+        )
+    }
+
+    func testRejectsCanonicalFASTAWithExtraSequenceBeforeMapping() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let extraSequence = String(repeating: "T", count: 1_100)
+        let extraID = stableID(extraSequence)
+        let canonical = fixture.canonicalFASTA(records: [
+            (fixture.novelID, fixture.novelSequence),
+            (fixture.extensionID, fixture.extensionSequence),
+            (fixture.unnameableID, fixture.unnameableSequence),
+            (extraID, extraSequence),
+        ])
+
+        await fixture.assertRejectedBeforeMapping(
+            observations: fixture.observations,
+            canonicalFASTA: canonical,
+            expectedMessage: "extra stable cluster"
+        )
+    }
+
+    func testRejectsDuplicateCanonicalStableSequenceBeforeMapping() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let canonical = fixture.canonicalFASTA(records: [
+            (fixture.novelID, fixture.novelSequence),
+            (fixture.novelID, fixture.novelSequence),
+            (fixture.extensionID, fixture.extensionSequence),
+            (fixture.unnameableID, fixture.unnameableSequence),
+        ])
+
+        await fixture.assertRejectedBeforeMapping(
+            observations: fixture.observations,
+            canonicalFASTA: canonical,
+            expectedMessage: "duplicate stable cluster"
+        )
     }
 
     func testZeroSNPGenomicIndelOnlyClusterIsReturnedForKnownCallFoldback() async throws {
@@ -333,13 +412,17 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             try writeExecutable(Self.samtoolsScript, to: toolsURL.appendingPathComponent("samtools"))
         }
 
-        func write(observations: [FullLengthONTMHCCandidateSequenceObservation]) async throws -> FullLengthONTMHCCandidateArtifactResult {
+        func write(
+            observations: [FullLengthONTMHCCandidateSequenceObservation],
+            canonicalFASTAOverride: String? = nil
+        ) async throws -> FullLengthONTMHCCandidateArtifactResult {
             try Data(samText.utf8).write(to: toolsURL.appendingPathComponent("sam-template"), options: .atomic)
             let records = Dictionary(
                 observations.map { (FullLengthONTMHCCandidateArtifactWriter.stableClusterID(for: $0.sequence), $0.sequence) },
                 uniquingKeysWith: { first, _ in first }
             ).sorted { $0.key < $1.key }
-            let stagedUnmatched = records.map { ">\($0.key)\n\($0.value)\n" }.joined()
+            let stagedUnmatched = canonicalFASTAOverride
+                ?? records.map { ">\($0.key)\n\($0.value)\n" }.joined()
             try Data(stagedUnmatched.utf8).write(
                 to: outputURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta"),
                 options: .atomic
@@ -357,6 +440,39 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
                 outputDirectoryURL: outputURL,
                 workDirectoryURL: workURL
             ))
+        }
+
+        func canonicalFASTA(records: [(String, String)]) -> String {
+            records.map { ">\($0.0)|fixture=true\n\($0.1)\n" }.joined()
+        }
+
+        func assertRejectedBeforeMapping(
+            observations: [FullLengthONTMHCCandidateSequenceObservation],
+            canonicalFASTA: String,
+            expectedMessage: String,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) async {
+            do {
+                _ = try await write(
+                    observations: observations,
+                    canonicalFASTAOverride: canonicalFASTA
+                )
+                XCTFail("Expected canonical unmatched FASTA validation failure", file: file, line: line)
+            } catch {
+                XCTAssertTrue(
+                    error.localizedDescription.contains(expectedMessage),
+                    error.localizedDescription,
+                    file: file,
+                    line: line
+                )
+            }
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: toolsURL.appendingPathComponent("commands.log").path),
+                "Reciprocal mapping/version discovery must not run before canonical FASTA validation.",
+                file: file,
+                line: line
+            )
         }
 
         func commands() throws -> [[String]] {
