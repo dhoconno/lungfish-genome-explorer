@@ -92,6 +92,8 @@ public struct GenotypeWorkbookRevisionService {
         let executable: String
         let argv: [String]
         let exitStatus: Int32
+        let startedAt: Date
+        let completedAt: Date
         let wallTimeSeconds: Double
         let stdout: String
         let stderr: String
@@ -126,17 +128,20 @@ public struct GenotypeWorkbookRevisionService {
     private let dateProvider: @Sendable () -> Date
     private let userProvider: @Sendable () -> String
     private let pythonExecutableURL: URL?
+    private let publicationFailureInjector: (@Sendable (String) throws -> Void)?
 
     public init(
         fileManager: FileManager = .default,
         dateProvider: @escaping @Sendable () -> Date = Date.init,
         userProvider: @escaping @Sendable () -> String = { NSUserName() },
-        pythonExecutableURL: URL? = nil
+        pythonExecutableURL: URL? = nil,
+        publicationFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) {
         self.fileManager = fileManager
         self.dateProvider = dateProvider
         self.userProvider = userProvider
         self.pythonExecutableURL = pythonExecutableURL
+        self.publicationFailureInjector = publicationFailureInjector
     }
 
     public func ensureCurrentWorkbook(
@@ -198,38 +203,23 @@ public struct GenotypeWorkbookRevisionService {
         into bundleURL: URL,
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws -> ONTGenotypeResultBundleManifest {
+        let workflowStartedAt = dateProvider()
         let bundle = bundleURL.standardizedFileURL
         try checkCancellation()
         let publicationLock = try DarwinFullLengthONTMHCRunLock.acquire(outputDirectoryURL: bundle)
         defer { publicationLock.release() }
-        _ = try ensureCurrentWorkbook(in: bundle)
-        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: bundle)
-        guard fileManager.fileExists(atPath: currentURL.path) else {
-            throw GenotypeWorkbookRevisionError.missingCurrentWorkbook(currentURL.path)
-        }
-        try validateRegularBundleFile(currentURL, in: bundle, role: "current workbook")
-
-        let tempDirectory = fileManager.temporaryDirectory
-            .appendingPathComponent("LungfishCurrentWorkbookOverrides-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: tempDirectory) }
-
-        let callsURL = bundle
-            .appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
-            .appendingPathComponent("\(timestampSlug())-haplotype-calls-\(UUID().uuidString.prefix(8)).json")
-        let runtimeRecordURL = bundle
-            .appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
-            .appendingPathComponent("\(timestampSlug())-openpyxl-runtime-\(UUID().uuidString.prefix(8)).json")
-        let patchedURL = currentURL.deletingLastPathComponent()
-            .appendingPathComponent(".current-\(UUID().uuidString).staging.xlsx")
-        let scriptURL = tempDirectory.appendingPathComponent("apply-current-workbook-overrides.py")
-        let configurationURL = bundle
-            .appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
-            .appendingPathComponent("\(timestampSlug())-mhc-candidate-workbook-update-\(UUID().uuidString.prefix(8)).json")
-        try fileManager.createDirectory(at: callsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(calls).write(to: callsURL)
-        try workbookOverrideScript.write(to: scriptURL, atomically: true, encoding: .utf8)
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundle)
+        let sourceWorkbookURL: URL
+        if let currentPath = manifest.currentWorkbookPath {
+            let candidate = ONTGenotypeResultBundle.resolvedURL(for: currentPath, in: bundle)
+            guard fileManager.fileExists(atPath: candidate.path) else {
+                throw GenotypeWorkbookRevisionError.missingCurrentWorkbook(candidate.path)
+            }
+            sourceWorkbookURL = candidate
+        } else {
+            sourceWorkbookURL = try ONTGenotypeResultBundle.primaryWorkbookURL(for: bundle)
+        }
+        try validateRegularBundleFile(sourceWorkbookURL, in: bundle, role: "workbook update source")
         let candidateInputs = try candidateArtifactInputURLs(from: manifest, in: bundle)
         let sidecar = try loadAnnotationSidecarIfPresent(annotationSidecarURL)
         let configuration = try makeCandidateConfiguration(
@@ -237,36 +227,118 @@ public struct GenotypeWorkbookRevisionService {
             bundleURL: bundle,
             sidecar: sidecar
         )
+        try validateOptionalUpdatesDirectory(in: bundle)
+        try checkCancellation()
+
+        let stageDirectory = bundle.deletingLastPathComponent().appendingPathComponent(
+            ".\(bundle.lastPathComponent).workbook-update-\(UUID().uuidString).staging",
+            isDirectory: true
+        )
+        try createAdjacentStageDirectory(stageDirectory, for: bundle)
+        defer { try? fileManager.removeItem(at: stageDirectory) }
+
+        let callsName = "\(timestampSlug())-haplotype-calls-\(UUID().uuidString.prefix(8)).json"
+        let configName = "\(timestampSlug())-mhc-candidate-workbook-update-\(UUID().uuidString.prefix(8)).json"
+        let runtimeName = "\(timestampSlug())-openpyxl-runtime-\(UUID().uuidString.prefix(8)).json"
+        let stagedCallsURL = stageDirectory.appendingPathComponent(callsName)
+        let stagedConfigurationURL = stageDirectory.appendingPathComponent(configName)
+        let stagedRuntimeRecordURL = stageDirectory.appendingPathComponent(runtimeName)
+        let patchedURL = stageDirectory.appendingPathComponent("current.xlsx")
+        let scriptURL = stageDirectory.appendingPathComponent("apply-current-workbook-overrides.py")
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(configuration).write(to: configurationURL, options: .atomic)
+        try writeStagedFile(try JSONEncoder().encode(calls), to: stagedCallsURL)
+        try writeStagedFile(try encoder.encode(configuration), to: stagedConfigurationURL)
+        try writeStagedFile(Data(workbookOverrideScript.utf8), to: scriptURL)
         let scriptArguments = [
-            currentURL.path,
+            sourceWorkbookURL.path,
             patchedURL.path,
-            callsURL.path,
+            stagedCallsURL.path,
             annotationSidecarURL?.path ?? "",
-            configurationURL.path,
+            stagedConfigurationURL.path,
         ]
-        defer { try? fileManager.removeItem(at: patchedURL) }
         try checkCancellation()
         let executionRecord = try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
-        try encoder.encode(executionRecord).write(to: runtimeRecordURL, options: .atomic)
+        try writeStagedFile(try encoder.encode(executionRecord), to: stagedRuntimeRecordURL)
         try validateWorkbook(patchedURL)
         try checkCancellation()
 
-        var additionalInputs = [callsURL, configurationURL, runtimeRecordURL] + candidateInputs
-        if let annotationSidecarURL, fileManager.fileExists(atPath: annotationSidecarURL.path) {
-            additionalInputs.append(annotationSidecarURL)
+        let cloneBundleURL = stageDirectory.appendingPathComponent(bundle.lastPathComponent, isDirectory: true)
+        try fileManager.copyItem(at: bundle, to: cloneBundleURL)
+        let cloneUpdatesURL = cloneBundleURL.appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
+        try fileManager.createDirectory(at: cloneUpdatesURL, withIntermediateDirectories: true)
+        let cloneCallsURL = cloneUpdatesURL.appendingPathComponent(callsName)
+        let cloneConfigurationURL = cloneUpdatesURL.appendingPathComponent(configName)
+        let cloneRuntimeURL = cloneUpdatesURL.appendingPathComponent(runtimeName)
+        let cloneSourceWorkbookURL = cloneUpdatesURL.appendingPathComponent(
+            "\(timestampSlug())-source-workbook-\(UUID().uuidString.prefix(8)).xlsx"
+        )
+        let clonePatchedWorkbookURL = cloneUpdatesURL.appendingPathComponent(
+            "\(timestampSlug())-generated-current-workbook-\(UUID().uuidString.prefix(8)).xlsx"
+        )
+        try fileManager.copyItem(at: stagedCallsURL, to: cloneCallsURL)
+        try fileManager.copyItem(at: stagedConfigurationURL, to: cloneConfigurationURL)
+        try fileManager.copyItem(at: stagedRuntimeRecordURL, to: cloneRuntimeURL)
+        try fileManager.copyItem(at: sourceWorkbookURL, to: cloneSourceWorkbookURL)
+        try fileManager.copyItem(at: patchedURL, to: clonePatchedWorkbookURL)
+
+        let cloneCandidateInputs = candidateInputs.map { input in
+            ONTGenotypeResultBundle.resolvedURL(for: relativePath(from: bundle, to: input), in: cloneBundleURL)
         }
-        return try importRevisedWorkbook(
-            from: patchedURL,
-            into: bundle,
+        var additionalInputs = [cloneCallsURL, cloneConfigurationURL, cloneRuntimeURL] + cloneCandidateInputs
+        if let annotationSidecarURL, fileManager.fileExists(atPath: annotationSidecarURL.path) {
+            let relative = relativePath(from: bundle, to: annotationSidecarURL)
+            additionalInputs.append(relative.hasPrefix("/") ? annotationSidecarURL : ONTGenotypeResultBundle.resolvedURL(for: relative, in: cloneBundleURL))
+        }
+        let pythonStep = try makePythonProvenanceStep(
+            executionRecord: executionRecord,
+            sourceWorkbookURL: cloneSourceWorkbookURL,
+            patchedWorkbookURL: clonePatchedWorkbookURL,
+            inputURLs: [cloneCallsURL, cloneConfigurationURL] + cloneCandidateInputs
+        )
+        let cloneManifest = try importRevisedWorkbook(
+            from: clonePatchedWorkbookURL,
+            into: cloneBundleURL,
             label: "Applied haplotype overrides",
-            provenanceAction: "apply-haplotype-overrides",
+            provenanceAction: "update-current-workbook",
             additionalInputURLs: additionalInputs,
             additionalExplicitOptions: candidateProvenanceOptions(configuration),
+            operationStartedAt: workflowStartedAt,
+            additionalProvenanceSteps: [pythonStep],
             provenanceContext: provenanceContext
         )
+        guard let provenancePath = cloneManifest.workbookRevisions?.last?.provenancePath else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed("Workbook update provenance path is missing.")
+        }
+        let cloneProvenanceURL = ONTGenotypeResultBundle.resolvedURL(for: provenancePath, in: cloneBundleURL)
+        try relocateProvenancePaths(in: cloneProvenanceURL, from: cloneBundleURL, to: bundle)
+        try syncDirectoryTree(cloneBundleURL)
+        try checkCancellation()
+
+        let publicationStartedAt = Date()
+        try atomicExchangeDirectories(cloneBundleURL, bundle)
+        let publicationCompletedAt = Date()
+        do {
+            try publicationFailureInjector?("before-final-provenance")
+            let finalProvenanceURL = ONTGenotypeResultBundle.resolvedURL(for: provenancePath, in: bundle)
+            try appendFinalPublicationStep(
+                to: finalProvenanceURL,
+                bundleURL: bundle,
+                workflowStartedAt: workflowStartedAt,
+                publicationStartedAt: publicationStartedAt,
+                publicationCompletedAt: publicationCompletedAt
+            )
+            try syncFile(finalProvenanceURL)
+            try syncDirectoryTree(bundle)
+            return try ONTGenotypeResultBundle.loadManifest(from: bundle)
+        } catch {
+            try? atomicExchangeDirectories(
+                cloneBundleURL,
+                bundle,
+                restoreExchangeOnSyncFailure: false
+            )
+            throw error
+        }
     }
 
     public func importRevisedWorkbook(
@@ -276,6 +348,8 @@ public struct GenotypeWorkbookRevisionService {
         provenanceAction: String = "import",
         additionalInputURLs: [URL] = [],
         additionalExplicitOptions: [String: ParameterValue] = [:],
+        operationStartedAt: Date? = nil,
+        additionalProvenanceSteps: [ProvenanceStep] = [],
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws -> ONTGenotypeResultBundleManifest {
         let source = sourceURL.standardizedFileURL
@@ -291,7 +365,7 @@ public struct GenotypeWorkbookRevisionService {
         } else {
             originalCurrentData = nil
         }
-        let startedAt = dateProvider()
+        let startedAt = operationStartedAt ?? dateProvider()
         var manifest = try ensureCurrentWorkbook(in: bundle)
         let currentPath = manifest.currentWorkbookPath ?? defaultCurrentWorkbookRelativePath
         let currentURL = ONTGenotypeResultBundle.resolvedURL(for: currentPath, in: bundle)
@@ -332,7 +406,7 @@ public struct GenotypeWorkbookRevisionService {
             )
             try ONTGenotypeResultBundle.writeManifest(manifest, to: bundle)
             try writeProvenance(
-                action: "import",
+                action: provenanceAction,
                 bundleURL: bundle,
                 sourceWorkbookURL: try ONTGenotypeResultBundle.primaryWorkbookURL(for: bundle),
                 previousCurrentURL: currentURL,
@@ -344,6 +418,7 @@ public struct GenotypeWorkbookRevisionService {
                 startedAt: startedAt,
                 additionalInputURLs: additionalInputURLs,
                 additionalExplicitOptions: additionalExplicitOptions,
+                additionalProvenanceSteps: additionalProvenanceSteps,
                 provenanceContext: provenanceContext
             )
             return manifest
@@ -444,10 +519,21 @@ public struct GenotypeWorkbookRevisionService {
         process.standardError = stderr
         let startedAt = Date()
         try process.run()
+        var cancelled = false
+        while process.isRunning {
+            if withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }) {
+                cancelled = true
+                process.terminate()
+                break
+            }
+            Darwin.usleep(50_000)
+        }
         process.waitUntilExit()
-        let wallTime = Date().timeIntervalSince(startedAt)
+        let completedAt = Date()
+        let wallTime = completedAt.timeIntervalSince(startedAt)
         let out = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let err = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        if cancelled { throw CancellationError() }
         guard process.terminationStatus == 0 else {
             let message = err.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? out.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -458,6 +544,8 @@ public struct GenotypeWorkbookRevisionService {
             executable: executable,
             argv: [executable] + processArguments,
             exitStatus: process.terminationStatus,
+            startedAt: startedAt,
+            completedAt: completedAt,
             wallTimeSeconds: wallTime,
             stdout: out,
             stderr: err
@@ -719,6 +807,7 @@ public struct GenotypeWorkbookRevisionService {
         startedAt: Date,
         additionalInputURLs: [URL],
         additionalExplicitOptions: [String: ParameterValue] = [:],
+        additionalProvenanceSteps: [ProvenanceStep] = [],
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws {
         let completedAt = dateProvider()
@@ -768,7 +857,7 @@ public struct GenotypeWorkbookRevisionService {
             files: inputs + outputs + [provenanceDescriptor],
             output: ProvenanceFileDescriptor(path: bundleURL.path, role: .output),
             outputs: outputs + [provenanceDescriptor],
-            steps: [
+            steps: additionalProvenanceSteps + [
                 ProvenanceStep(
                     toolName: "\(toolName) genotype workbook \(action)",
                     toolVersion: WorkflowRun.currentAppVersion,
@@ -804,6 +893,252 @@ public struct GenotypeWorkbookRevisionService {
             "mhcCandidateVisibilityFiltersApplied": .boolean(false),
             "ooxmlAlphaSemantics": .string(configuration.ooxmlAlphaSemantics),
         ]
+    }
+
+    private func makePythonProvenanceStep(
+        executionRecord: WorkbookOverrideExecutionRecord,
+        sourceWorkbookURL: URL,
+        patchedWorkbookURL: URL,
+        inputURLs: [URL]
+    ) throws -> ProvenanceStep {
+        let metadata = (try? JSONSerialization.jsonObject(with: Data(executionRecord.stdout.utf8))) as? [String: Any]
+        let pythonVersion = metadata?["python_version"] as? String ?? "unknown"
+        let openpyxlVersion = metadata?["openpyxl_version"] as? String ?? "unknown"
+        let inputs = try ([sourceWorkbookURL] + inputURLs).map {
+            try ProvenanceFileDescriptor.file(url: $0, role: .input)
+        }
+        let output = ProvenanceFileDescriptor(
+            path: defaultCurrentWorkbookRelativePath,
+            checksumSHA256: try ProvenanceFileHasher.sha256(of: patchedWorkbookURL),
+            fileSize: UInt64(try ProvenanceFileHasher.fileSize(of: patchedWorkbookURL)),
+            format: .unknown,
+            role: .output,
+            originPath: patchedWorkbookURL.path
+        )
+        return ProvenanceStep(
+            toolName: "python openpyxl workbook candidate update",
+            toolVersion: pythonVersion,
+            argv: executionRecord.argv,
+            resolvedOptions: [
+                "pythonVersion": .string(pythonVersion),
+                "openpyxlVersion": .string(openpyxlVersion),
+            ],
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                executablePath: executionRecord.executable,
+                condaEnvironment: "openpyxl",
+                condaPrefix: URL(fileURLWithPath: executionRecord.executable)
+                    .deletingLastPathComponent().deletingLastPathComponent().path
+            ),
+            inputs: inputs,
+            outputs: [output],
+            exitStatus: Int(executionRecord.exitStatus),
+            wallTimeSeconds: executionRecord.wallTimeSeconds,
+            stderr: executionRecord.stderr,
+            startedAt: executionRecord.startedAt,
+            completedAt: executionRecord.completedAt
+        )
+    }
+
+    private func validateOptionalUpdatesDirectory(in bundleURL: URL) throws {
+        let safety = FullLengthONTMHCAlignmentSafety()
+        let paths = [
+            (bundleURL.appendingPathComponent("artifacts", isDirectory: true), "bundle artifacts directory"),
+            (bundleURL.appendingPathComponent("artifacts/workbooks", isDirectory: true), "bundle workbooks directory"),
+            (bundleURL.appendingPathComponent("artifacts/workbooks/updates", isDirectory: true), "workbook updates directory"),
+        ]
+        for (url, role) in paths {
+            guard try safety.requireOptionalDirectoryEntryNoFollow(url, role: role) else { continue }
+            if role == "workbook updates directory" {
+                try safety.requireSafeDirectoryTree(url, role: role)
+            }
+        }
+    }
+
+    private func createAdjacentStageDirectory(_ stageURL: URL, for bundleURL: URL) throws {
+        let parent = bundleURL.deletingLastPathComponent()
+        try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(parent, role: "workbook update parent")
+        var info = stat()
+        guard Darwin.lstat(stageURL.path, &info) != 0, errno == ENOENT else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Workbook update staging path already exists or is unsafe: \(stageURL.path)"
+            )
+        }
+        guard Darwin.mkdir(stageURL.path, S_IRWXU) == 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not create workbook update staging directory: \(stageURL.path) (errno \(errno))."
+            )
+        }
+        try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(stageURL, role: "workbook update staging directory")
+    }
+
+    private func writeStagedFile(_ data: Data, to url: URL) throws {
+        let descriptor = Darwin.open(
+            url.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            S_IRUSR | S_IWUSR
+        )
+        guard descriptor >= 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not create staged workbook update file: \(url.path) (errno \(errno))."
+            )
+        }
+        do {
+            try data.withUnsafeBytes { rawBuffer in
+                guard let base = rawBuffer.baseAddress else { return }
+                var offset = 0
+                while offset < rawBuffer.count {
+                    let count = Darwin.write(descriptor, base.advanced(by: offset), rawBuffer.count - offset)
+                    guard count > 0 else {
+                        throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                            "Could not write staged workbook update file: \(url.path) (errno \(errno))."
+                        )
+                    }
+                    offset += count
+                }
+            }
+            guard Darwin.fsync(descriptor) == 0 else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Could not sync staged workbook update file: \(url.path) (errno \(errno))."
+                )
+            }
+        } catch {
+            Darwin.close(descriptor)
+            throw error
+        }
+        Darwin.close(descriptor)
+    }
+
+    private func relocateProvenancePaths(in url: URL, from sourceRoot: URL, to destinationRoot: URL) throws {
+        let data = try Data(contentsOf: url)
+        guard var text = String(data: data, encoding: .utf8) else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed("Workbook provenance is not UTF-8 JSON.")
+        }
+        text = text.replacingOccurrences(of: sourceRoot.path, with: destinationRoot.path)
+        text = text.replacingOccurrences(
+            of: sourceRoot.path.replacingOccurrences(of: "/", with: "\\/"),
+            with: destinationRoot.path.replacingOccurrences(of: "/", with: "\\/")
+        )
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        guard !text.contains(sourceRoot.path) else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Workbook provenance still references the staging bundle after path relocation."
+            )
+        }
+        let relocated = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(text.utf8))
+        guard relocated.output?.path == destinationRoot.path else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Workbook provenance bundle relocation failed (source \(sourceRoot.path), recorded \(relocated.output?.path ?? "nil"))."
+            )
+        }
+    }
+
+    private func atomicExchangeDirectories(
+        _ lhs: URL,
+        _ rhs: URL,
+        restoreExchangeOnSyncFailure: Bool = true
+    ) throws {
+        try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(lhs, role: "staged workbook bundle")
+        try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(rhs, role: "published workbook bundle")
+        guard Darwin.renameatx_np(AT_FDCWD, lhs.path, AT_FDCWD, rhs.path, UInt32(RENAME_SWAP)) == 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not atomically publish workbook bundle transaction (errno \(errno))."
+            )
+        }
+        do {
+            try syncDirectory(rhs.deletingLastPathComponent())
+        } catch {
+            if restoreExchangeOnSyncFailure {
+                _ = Darwin.renameatx_np(AT_FDCWD, lhs.path, AT_FDCWD, rhs.path, UInt32(RENAME_SWAP))
+                try? syncDirectory(rhs.deletingLastPathComponent())
+            }
+            throw error
+        }
+    }
+
+    private func appendFinalPublicationStep(
+        to provenanceURL: URL,
+        bundleURL: URL,
+        workflowStartedAt: Date,
+        publicationStartedAt: Date,
+        publicationCompletedAt: Date
+    ) throws {
+        let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: provenanceURL))
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: bundleURL)
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: bundleURL)
+        let outputs = try [currentURL, manifestURL].map { try ProvenanceFileDescriptor.file(url: $0, role: .output) }
+        let publicationStep = ProvenanceStep(
+            toolName: "lungfish-internal atomic workbook bundle exchange",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-internal", "atomic-workbook-bundle-exchange",
+                "--bundle", bundleURL.path,
+            ],
+            outputs: outputs,
+            exitStatus: 0,
+            wallTimeSeconds: publicationCompletedAt.timeIntervalSince(publicationStartedAt),
+            startedAt: publicationStartedAt,
+            completedAt: publicationCompletedAt
+        )
+        let completedAt = Date()
+        let updated = ProvenanceEnvelope(
+            schemaVersion: envelope.schemaVersion,
+            id: envelope.id,
+            createdAt: completedAt,
+            workflowName: envelope.workflowName,
+            workflowVersion: envelope.workflowVersion,
+            toolName: envelope.toolName,
+            toolVersion: envelope.toolVersion,
+            githubReleaseVersion: envelope.githubReleaseVersion,
+            tool: envelope.tool,
+            argv: envelope.argv,
+            durableReplayArgv: envelope.durableReplayArgv,
+            reproducibleCommand: envelope.reproducibleCommand,
+            options: envelope.options,
+            runtimeIdentity: envelope.runtimeIdentity,
+            files: envelope.files,
+            output: envelope.output,
+            outputs: envelope.outputs,
+            steps: envelope.steps + [publicationStep],
+            wallTimeSeconds: completedAt.timeIntervalSince(workflowStartedAt),
+            exitStatus: envelope.exitStatus,
+            stderr: envelope.stderr,
+            signatures: envelope.signatures,
+            legacyWorkflowRun: envelope.legacyRun
+        )
+        try ProvenanceWriter(signingProvider: nil).write(updated, toSidecar: provenanceURL)
+    }
+
+    private func syncFile(_ url: URL) throws {
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fsync(descriptor) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+    }
+
+    private func syncDirectory(_ url: URL) throws {
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fsync(descriptor) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+    }
+
+    private func syncDirectoryTree(_ root: URL) throws {
+        let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: nil)
+        var directories = [root]
+        while let url = enumerator?.nextObject() as? URL {
+            var info = stat()
+            guard Darwin.lstat(url.path, &info) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+            switch info.st_mode & S_IFMT {
+            case S_IFREG: try syncFile(url)
+            case S_IFDIR: directories.append(url)
+            case S_IFLNK: continue
+            default:
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Special files are not allowed in workbook bundle publication: \(url.path)"
+                )
+            }
+        }
+        for directory in directories.reversed() { try syncDirectory(directory) }
     }
 
     private func validateWorkbook(_ url: URL) throws {

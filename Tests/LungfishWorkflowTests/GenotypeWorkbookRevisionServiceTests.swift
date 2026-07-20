@@ -44,16 +44,40 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertEqual(inspection["editableNameFills"], "FFFF0000|8000FF00|FF0000FF|40FFFF00")
         XCTAssertEqual(inspection["unnameableIDs"], "cluster-u|cluster-u")
         XCTAssertEqual(inspection["unnameableQueries"], "cluster-u-a|cluster-u-z")
+        XCTAssertEqual(
+            inspection["legacyCandidateRows"],
+            Array(repeating: "reciprocal-minimap2|Mafa-A1*018:01:01:01_5nt_nov|Mafa-A1*018:01:01:01|Mafa-A1*018:01:01:01|novel|5|5|0|1000|1000|100|100||", count: 4).joined(separator: "||")
+        )
+        XCTAssertEqual(
+            inspection["legacyUnnameableRows"],
+            Array(repeating: "reciprocal-unnameable||||un-nameable|||||||||", count: 4).joined(separator: "||")
+        )
         XCTAssertFalse((inspection["allText"] ?? "").contains("_0nt_nov"))
         XCTAssertEqual(updated.mhcCandidateArtifacts?.schemaVersion, 1)
         let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
             for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
             in: fixture.bundleURL
         )
-        let provenance = try String(contentsOf: provenanceURL, encoding: .utf8)
+        let provenanceData = try Data(contentsOf: provenanceURL)
+        let provenance = try XCTUnwrap(String(data: provenanceData, encoding: .utf8))
+        let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: provenanceData)
         XCTAssertTrue(provenance.contains("mhcCandidateTints"))
         XCTAssertTrue(provenance.contains("mhcCandidateVisibilityFiltersApplied"))
         XCTAssertTrue(provenance.contains("openpyxl-runtime"))
+        XCTAssertEqual(envelope.options.explicit["action"], .string("update-current-workbook"))
+        XCTAssertTrue(provenanceURL.lastPathComponent.contains("update-current-workbook"))
+        let pythonStep = try XCTUnwrap(envelope.steps.first(where: { $0.toolName.contains("python openpyxl") }))
+        XCTAssertNotNil(pythonStep.startedAt)
+        XCTAssertNotNil(pythonStep.completedAt)
+        XCTAssertGreaterThanOrEqual(pythonStep.wallTimeSeconds ?? -1, 0)
+        XCTAssertTrue(pythonStep.inputs.allSatisfy { $0.path.hasPrefix(fixture.bundleURL.path) })
+        XCTAssertTrue(pythonStep.outputs.allSatisfy {
+            ($0.originPath ?? $0.path).hasPrefix(fixture.bundleURL.path)
+        })
+        XCTAssertEqual(envelope.steps.last?.toolName, "lungfish-internal atomic workbook bundle exchange")
+        XCTAssertEqual(envelope.output?.path, fixture.bundleURL.path)
+        XCTAssertTrue(envelope.outputs.allSatisfy { $0.path.hasPrefix(fixture.bundleURL.path) })
+        XCTAssertGreaterThanOrEqual(envelope.wallTimeSeconds ?? -1, pythonStep.wallTimeSeconds ?? 0)
     }
 
     func testCandidateUpdateUsesUnifiedPivotFallbackWhenFullSequencingSheetIsAbsent() throws {
@@ -76,20 +100,117 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-rollback")
         try installCandidateArtifacts(in: fixture.bundleURL)
-        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
-        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
-        let beforeWorkbook = try Data(contentsOf: currentURL)
-        let beforeManifest = try Data(contentsOf: manifestURL)
         let candidateJSONURL = fixture.bundleURL
             .appendingPathComponent("artifacts/mhc-candidates/candidate-alleles.json")
         try Data("{malformed".utf8).write(to: candidateJSONURL, options: .atomic)
+        let before = try bundleSnapshot(fixture.bundleURL)
 
         XCTAssertThrowsError(
             try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
                 .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
         )
-        XCTAssertEqual(try Data(contentsOf: currentURL), beforeWorkbook)
-        XCTAssertEqual(try Data(contentsOf: manifestURL), beforeManifest)
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.bundleURL.appendingPathComponent("artifacts/workbooks/updates").path
+        ))
+    }
+
+    func testMalformedCandidateDoesNotCreateInitiallyAbsentCurrentWorkbookOrRevisionArtifacts() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-no-current")
+        try installCandidateArtifacts(in: fixture.bundleURL)
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        try FileManager.default.removeItem(at: currentURL)
+        try writeManifestWithoutCurrent(in: fixture.bundleURL)
+        let candidateJSONURL = fixture.bundleURL.appendingPathComponent("artifacts/mhc-candidates/candidate-alleles.json")
+        try Data("{malformed".utf8).write(to: candidateJSONURL, options: .atomic)
+        let before = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: currentURL.path))
+    }
+
+    func testFinalProvenanceFailureAtomicallyRestoresEntireBundle() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-provenance-rollback")
+        try installCandidateArtifacts(in: fixture.bundleURL)
+        let before = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    if checkpoint == "before-final-provenance" {
+                        throw NSError(domain: "InjectedFinalProvenanceFailure", code: 1)
+                    }
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+    }
+
+    func testSymlinkUpdatesPathIsRejectedWithoutAnyBundleMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-unsafe-updates")
+        let outside = root.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let updatesURL = fixture.bundleURL.appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
+        try FileManager.default.createDirectory(at: updatesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: updatesURL, withDestinationURL: outside)
+        let before = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+    }
+
+    func testCancellationDuringPythonLeavesEntireBundleUnchanged() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-cancelled")
+        try installCandidateArtifacts(in: fixture.bundleURL)
+        let fakePythonURL = root.appendingPathComponent("slow-python")
+        try Data("#!/bin/sh\nsleep 30\n".utf8).write(to: fakePythonURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakePythonURL.path)
+        let before = try bundleSnapshot(fixture.bundleURL)
+        let service = GenotypeWorkbookRevisionService(pythonExecutableURL: fakePythonURL)
+
+        let update = Task {
+            try service.applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        }
+        let stagePrefix = ".\(fixture.bundleURL.lastPathComponent).workbook-update-"
+        var observedStage = false
+        for _ in 0..<100 {
+            let siblings = try FileManager.default.contentsOfDirectory(atPath: root.path)
+            if siblings.contains(where: { $0.hasPrefix(stagePrefix) }) {
+                observedStage = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(observedStage, "The test must cancel while the Python update transaction is staged")
+        update.cancel()
+
+        do {
+            _ = try await update.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(atPath: root.path)
+                .contains(where: { $0.hasPrefix(stagePrefix) })
+        )
     }
 
     func testSidecarDisplayEditAloneDoesNotMutateCurrentWorkbook() throws {
@@ -276,7 +397,7 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         let provenanceURL = ONTGenotypeResultBundle.resolvedURL(for: provenancePath, in: fixture.bundleURL)
         let provenance = try String(contentsOf: provenanceURL, encoding: .utf8)
         XCTAssertTrue(provenance.contains("annotations.json"))
-        XCTAssertTrue(provenance.contains("apply-haplotype-overrides"))
+        XCTAssertTrue(provenance.contains("update-current-workbook"))
     }
 
     func testApplyHaplotypeOverridesWritesMatrixAnnotationsToCurrentWorkbook() throws {
@@ -774,6 +895,22 @@ for row, label in enumerate([
     full.cell(row, 1).value = label
     full.cell(row, 4).value = "" if "DRB" in label else "old"
 
+legacy_headers = [
+    "unmatched_sequence_id", "match_source", "closest_match_id", "closest_reference", "closest_reference_name",
+    "match_class", "nucleotides_different", "snp_differences", "indel_bases", "aligned_bases", "score",
+    "percent_identity", "query_coverage", "evalue", "bitscore",
+]
+stale = ["legacy", "legacy-blast", "Mafa-A1*018:01:01:01_0SNP", "stale-ref", "stale-ref-name", "exact", 99, 99, 99, 99, 99, 12.5, 9.5, "1e-20", 777]
+for name in ["Unmatched Clusters", "Unmatched Shared Pivot", "MHC-like Unmatched Clusters", "MHC-like Unmatched Pivot"]:
+    legacy = wb.create_sheet(name)
+    legacy.append(legacy_headers)
+    candidate_row = list(stale)
+    candidate_row[0] = "cluster-1"
+    legacy.append(candidate_row)
+    unnameable_row = list(stale)
+    unnameable_row[0] = "cluster-u"
+    legacy.append(unnameable_row)
+
 custom = wb.create_sheet("Custom Sort")
 custom.append(headers)
 custom.append(["MHC heterozygous  MCM animals"] + [None for _ in headers[1:]])
@@ -861,6 +998,22 @@ payload = {
     "firstOverrideRow": row_values("Overrides", 2, 9),
     "firstAuditRow": row_values("Audit Log", 2, 10),
 }
+legacy_fields = [
+    "match_source", "closest_match_id", "closest_reference", "closest_reference_name", "match_class",
+    "nucleotides_different", "snp_differences", "indel_bases", "aligned_bases", "score",
+    "percent_identity", "query_coverage", "evalue", "bitscore",
+]
+candidate_legacy = []
+unnameable_legacy = []
+for name in ["Unmatched Clusters", "Unmatched Shared Pivot", "MHC-like Unmatched Clusters", "MHC-like Unmatched Pivot"]:
+    if name not in wb.sheetnames:
+        continue
+    ws = wb[name]
+    headers = [text(cell.value) for cell in ws[1]]
+    candidate_legacy.append("|".join(text(ws.cell(2, headers.index(field) + 1).value) for field in legacy_fields))
+    unnameable_legacy.append("|".join(text(ws.cell(3, headers.index(field) + 1).value) for field in legacy_fields))
+payload["legacyCandidateRows"] = "||".join(candidate_legacy)
+payload["legacyUnnameableRows"] = "||".join(unnameable_legacy)
 print(json.dumps(payload))
 """#
         let output = try runPython(["-c", code, url.path])
@@ -1126,6 +1279,22 @@ if "Unified Genotype Pivot" in wb.sheetnames:
 else:
     payload["unifiedCandidateCount"] = "0"
     payload["unifiedCandidateIDs"] = ""
+legacy_fields = [
+    "match_source", "closest_match_id", "closest_reference", "closest_reference_name", "match_class",
+    "nucleotides_different", "snp_differences", "indel_bases", "aligned_bases", "score",
+    "percent_identity", "query_coverage", "evalue", "bitscore",
+]
+candidate_legacy = []
+unnameable_legacy = []
+for name in ["Unmatched Clusters", "Unmatched Shared Pivot", "MHC-like Unmatched Clusters", "MHC-like Unmatched Pivot"]:
+    if name not in wb.sheetnames:
+        continue
+    ws = wb[name]
+    headers = [text(cell.value) for cell in ws[1]]
+    candidate_legacy.append("|".join(text(ws.cell(2, headers.index(field) + 1).value) for field in legacy_fields))
+    unnameable_legacy.append("|".join(text(ws.cell(3, headers.index(field) + 1).value) for field in legacy_fields))
+payload["legacyCandidateRows"] = "||".join(candidate_legacy)
+payload["legacyUnnameableRows"] = "||".join(unnameable_legacy)
 print(json.dumps(payload))
 """#
         let output = try runPython(["-c", code, url.path])
@@ -1172,6 +1341,57 @@ print(json.dumps(payload))
         var data = Data([0x50, 0x4b, 0x03, 0x04])
         data.append(Data(label.utf8))
         return data
+    }
+
+    private func bundleSnapshot(_ bundleURL: URL) throws -> [String: String] {
+        var snapshot: [String: String] = [:]
+        let rootPath = bundleURL.standardizedFileURL.path
+        guard let enumerator = FileManager.default.enumerator(
+            at: bundleURL,
+            includingPropertiesForKeys: nil,
+            options: [],
+            errorHandler: { _, _ in false }
+        ) else {
+            throw NSError(domain: "GenotypeWorkbookRevisionServiceTests", code: 2)
+        }
+        while let url = enumerator.nextObject() as? URL {
+            let path = url.standardizedFileURL.path
+            let relative = String(path.dropFirst(rootPath.count + 1))
+            var info = stat()
+            guard lstat(url.path, &info) == 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            switch info.st_mode & S_IFMT {
+            case S_IFDIR:
+                snapshot[relative] = "directory"
+            case S_IFREG:
+                snapshot[relative] = "file:\(info.st_size):\(try ProvenanceFileHasher.sha256(of: url))"
+            case S_IFLNK:
+                snapshot[relative] = "symlink:\(try FileManager.default.destinationOfSymbolicLink(atPath: url.path))"
+            default:
+                snapshot[relative] = "special:\(info.st_mode & S_IFMT)"
+            }
+        }
+        return snapshot
+    }
+
+    private func writeManifestWithoutCurrent(in bundleURL: URL) throws {
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundleURL)
+        let updated = ONTGenotypeResultBundleManifest(
+            schemaVersion: manifest.schemaVersion,
+            kind: manifest.kind,
+            outputName: manifest.outputName,
+            analysisName: manifest.analysisName,
+            primaryWorkbookPath: manifest.primaryWorkbookPath,
+            currentWorkbookPath: nil,
+            workbookRevisions: nil,
+            longSummaryCSVPath: manifest.longSummaryCSVPath,
+            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
+            statsJSONPath: manifest.statsJSONPath,
+            provenancePath: manifest.provenancePath,
+            mhcCandidateArtifacts: manifest.mhcCandidateArtifacts
+        )
+        try ONTGenotypeResultBundle.writeManifest(updated, to: bundleURL)
     }
 
     private func temporaryDirectory() throws -> URL {

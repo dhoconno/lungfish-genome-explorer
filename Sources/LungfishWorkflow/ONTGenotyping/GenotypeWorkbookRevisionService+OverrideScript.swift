@@ -932,6 +932,14 @@ def enrich_legacy_unmatched_sheets():
             candidate = candidates.get(stable_id)
             unresolved = unnameable.get(stable_id)
             if not candidate and not unresolved:
+                # Normalize only legacy display labels; raw stable identifiers stay untouched.
+                for field in ["closest_match_id", "closest_reference", "closest_reference_name"]:
+                    if field in headers:
+                        column = headers.index(field) + 1
+                        value = clean(ws.cell(row, column).value).replace("_extension", "_ext")
+                        value = re.sub(r"_0SNP", "", value)
+                        value = re.sub(r"_([1-9][0-9]*)SNP", lambda match: f"_{match.group(1)}nt_nov", value)
+                        ws.cell(row, column).value = value
                 continue
             values = {
                 "provisional_name": clean(candidate.get("provisional_name")) if candidate else "",
@@ -949,6 +957,7 @@ def enrich_legacy_unmatched_sheets():
                 ws.cell(row, headers.index(header) + 1).value = value
             if candidate:
                 authoritative = {
+                    "match_source": "reciprocal-minimap2",
                     "closest_match_id": clean(candidate.get("provisional_name")),
                     "closest_reference": clean(candidate.get("closest_reference_name")),
                     "closest_reference_name": clean(candidate.get("closest_reference_name")),
@@ -958,6 +967,36 @@ def enrich_legacy_unmatched_sheets():
                     "indel_bases": int(candidate.get("inserted_bases") or 0) + int(candidate.get("deleted_bases") or 0),
                     "aligned_bases": candidate.get("comparable_bases"),
                     "score": candidate.get("alignment_score"),
+                    "percent_identity": f"{float(candidate.get('identity') or 0) * 100:.12g}",
+                    "query_coverage": f"{float(candidate.get('shorter_coverage') or 0) * 100:.12g}",
+                    "inserted_bases": candidate.get("inserted_bases"),
+                    "deleted_bases": candidate.get("deleted_bases"),
+                    "long_gap_bases": candidate.get("long_gap_bases"),
+                    "evalue": "",
+                    "bitscore": "",
+                }
+                for header, value in authoritative.items():
+                    if header in headers:
+                        ws.cell(row, headers.index(header) + 1).value = value
+            else:
+                authoritative = {
+                    "match_source": "reciprocal-unnameable",
+                    "match_class": "un-nameable",
+                    "closest_match_id": "",
+                    "closest_reference": "",
+                    "closest_reference_name": "",
+                    "nucleotides_different": "",
+                    "snp_differences": "",
+                    "indel_bases": "",
+                    "inserted_bases": "",
+                    "deleted_bases": "",
+                    "long_gap_bases": "",
+                    "aligned_bases": "",
+                    "score": "",
+                    "percent_identity": "",
+                    "query_coverage": "",
+                    "evalue": "",
+                    "bitscore": "",
                 }
                 for header, value in authoritative.items():
                     if header in headers:
