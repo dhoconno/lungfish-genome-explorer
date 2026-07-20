@@ -1192,6 +1192,111 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: legacyReceipt.path))
     }
 
+    func testNewOutputPublicationFallsBackWhenExclusiveRenameIsUnsupported() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-exfat-publication-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            exclusivePublicationFailureInjector: { _ in ENOTSUP }
+        )
+
+        let result = try await pipeline.run(request)
+
+        XCTAssertEqual(result.outputDirectory, request.outputDirectory.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.manifestURL.path))
+        XCTAssertFalse(try Data(contentsOf: request.manifestURL).isEmpty)
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL)
+        )
+        let publication = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-internal publish-result-bundle"
+        })
+        XCTAssertEqual(
+            publication.resolvedOptions["atomicMechanism"]?.stringValue,
+            "exclusive-directory-reservation-then-rename"
+        )
+        XCTAssertEqual(
+            publication.resolvedOptions["successManifestMechanism"]?.stringValue,
+            "exclusive-file-reservation-then-rename"
+        )
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["mhcResultBundleAtomicPublication"]?.stringValue,
+            "exclusive-directory-reservation-then-rename"
+        )
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["mhcSuccessManifestAtomicPublication"]?.stringValue,
+            "exclusive-file-reservation-then-rename"
+        )
+    }
+
+    func testSuccessManifestAloneFallsBackWhenExclusiveRenameIsUnsupported() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-exfat-manifest-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            exclusivePublicationFailureInjector: { target in
+                target == .successManifest ? ENOTSUP : nil
+            }
+        )
+
+        _ = try await pipeline.run(request)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.manifestURL.path))
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL)
+        )
+        let publication = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-internal publish-result-bundle"
+        })
+        XCTAssertEqual(
+            publication.resolvedOptions["atomicMechanism"]?.stringValue,
+            "renameatx_np"
+        )
+        XCTAssertEqual(
+            publication.resolvedOptions["successManifestMechanism"]?.stringValue,
+            "exclusive-file-reservation-then-rename"
+        )
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["mhcSuccessManifestAtomicPublication"]?.stringValue,
+            "exclusive-file-reservation-then-rename"
+        )
+    }
+
+    func testUnsupportedExclusiveRenameFallbackDoesNotOverwriteRacingDestination() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-exfat-no-overwrite-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sentinel = Data("external-result".utf8)
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            exclusivePublicationFailureInjector: { target in
+                guard target == .resultBundle else { return nil }
+                try FileManager.default.createDirectory(
+                    at: root.appendingPathComponent("full-length.lungfishgenotype", isDirectory: true),
+                    withIntermediateDirectories: false
+                )
+                try sentinel.write(
+                    to: root.appendingPathComponent("full-length.lungfishgenotype/sentinel.txt")
+                )
+                return ENOTSUP
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected racing destination rejection")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("publish"), error.localizedDescription)
+        }
+
+        XCTAssertEqual(
+            try Data(contentsOf: request.outputDirectory.appendingPathComponent("sentinel.txt")),
+            sentinel
+        )
+    }
+
     func testInjectedFailureAfterProvenanceLeavesNoVisibleSuccessManifest() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-manifest-crash-window-\(UUID().uuidString)", isDirectory: true)
@@ -3512,7 +3617,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         failFinalBAMView: Bool = false,
         postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
         metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void = { _ in },
-        rollbackOperationObserver: @escaping @Sendable () throws -> Void = {}
+        rollbackOperationObserver: @escaping @Sendable () throws -> Void = {},
+        exclusivePublicationFailureInjector: @escaping @Sendable (FullLengthONTMHCExclusivePublicationTarget) throws -> Int32? = { _ in nil }
     ) throws -> (
         FullLengthONTMHCGenotypingRunRequest,
         FullLengthONTMHCGenotypingPipeline
@@ -3556,7 +3662,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             ),
             postPublicationWorkDirectoryCleaner: postPublicationWorkDirectoryCleaner,
             metadataPublicationObserver: metadataPublicationObserver,
-            rollbackOperationObserver: rollbackOperationObserver
+            rollbackOperationObserver: rollbackOperationObserver,
+            exclusivePublicationFailureInjector: exclusivePublicationFailureInjector
         )
         return (request, pipeline)
     }

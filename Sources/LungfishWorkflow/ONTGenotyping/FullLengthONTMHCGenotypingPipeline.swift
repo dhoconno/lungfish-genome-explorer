@@ -650,6 +650,11 @@ enum FullLengthONTMHCMetadataPublicationEvent: Sendable, Equatable {
     )
 }
 
+enum FullLengthONTMHCExclusivePublicationTarget: Sendable, Equatable {
+    case resultBundle
+    case successManifest
+}
+
 private struct FullLengthONTMHCSuccessManifestPublicationPlan: Sendable {
     let stagedURL: URL
     let finalURL: URL
@@ -662,6 +667,9 @@ private struct FullLengthONTMHCResultBundlePublicationRecord: Sendable {
     let finalDirectoryURL: URL
     let payloadMappings: [(staged: ProvenanceFileDescriptor, final: ProvenanceFileDescriptor)]
     let replacingExisting: Bool
+    let publicationMechanism: String
+    let successManifestMechanism: String
+    let fallbackReason: String?
     let startedAt: Date
     let completedAt: Date
 
@@ -686,20 +694,26 @@ private struct FullLengthONTMHCResultBundlePublicationRecord: Sendable {
         let argv = [
             "lungfish-internal", "publish-result-bundle",
             "--mode", mode,
-            "--atomic-mechanism", "renameatx_np",
+            "--atomic-mechanism", publicationMechanism,
+            "--success-manifest-mechanism", successManifestMechanism,
             stagedDirectoryURL.path,
             finalDirectoryURL.path,
         ]
+        var resolvedOptions: [String: ParameterValue] = [
+            "publicationMode": .string(mode),
+            "atomicMechanism": .string(publicationMechanism),
+            "successManifestMechanism": .string(successManifestMechanism),
+        ]
+        if let fallbackReason {
+            resolvedOptions["fallbackReason"] = .string(fallbackReason)
+        }
         return ProvenanceStep(
             toolName: "lungfish-internal publish-result-bundle",
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
             durableReplayArgv: argv,
             reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
-            resolvedOptions: [
-                "publicationMode": .string(mode),
-                "atomicMechanism": .string("renameatx_np"),
-            ],
+            resolvedOptions: resolvedOptions,
             runtimeIdentity: ProvenanceRuntimeIdentity(),
             inputs: payloadMappings.map(\.staged),
             outputs: payloadMappings.map(\.final),
@@ -710,6 +724,22 @@ private struct FullLengthONTMHCResultBundlePublicationRecord: Sendable {
             completedAt: receiptCompletedAt
         )
     }
+
+    func recordingSuccessManifestFallback(reason: String) -> Self {
+        .init(
+            stagedDirectoryURL: stagedDirectoryURL,
+            finalDirectoryURL: finalDirectoryURL,
+            payloadMappings: payloadMappings,
+            replacingExisting: replacingExisting,
+            publicationMechanism: publicationMechanism,
+            successManifestMechanism: "exclusive-file-reservation-then-rename",
+            fallbackReason: [fallbackReason, reason].compactMap { $0 }.joined(separator: "; "),
+            startedAt: startedAt,
+            completedAt: completedAt,
+            exitStatus: exitStatus,
+            errorMessage: errorMessage
+        )
+    }
 }
 
 private struct FullLengthONTMHCResultBundlePublicationError: Error, LocalizedError, Sendable {
@@ -717,6 +747,15 @@ private struct FullLengthONTMHCResultBundlePublicationError: Error, LocalizedErr
 
     var errorDescription: String? {
         "Could not atomically publish the complete MHC result bundle: \(record.errorMessage ?? "unknown error")"
+    }
+}
+
+private struct FullLengthONTMHCExclusiveRenameUnsupportedError: Error, LocalizedError, Sendable {
+    let targetDescription: String
+    let code: POSIXErrorCode
+
+    var errorDescription: String? {
+        "renameatx_np(RENAME_EXCL) is unavailable for \(targetDescription): \(POSIXError(code).localizedDescription)"
     }
 }
 
@@ -736,6 +775,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private let postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning
     private let metadataPublicationObserver: @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void
     private let rollbackOperationObserver: @Sendable () throws -> Void
+    private let exclusivePublicationFailureInjector: @Sendable (FullLengthONTMHCExclusivePublicationTarget) throws -> Int32?
 
     public init(
         nativeToolRunner: NativeToolRunner = .shared,
@@ -747,6 +787,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         self.postPublicationWorkDirectoryCleaner = postPublicationWorkDirectoryCleaner
         self.metadataPublicationObserver = { _ in }
         self.rollbackOperationObserver = {}
+        self.exclusivePublicationFailureInjector = { _ in nil }
     }
 
     init(
@@ -754,13 +795,15 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         condaManager: CondaManager,
         postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning,
         metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void,
-        rollbackOperationObserver: @escaping @Sendable () throws -> Void = {}
+        rollbackOperationObserver: @escaping @Sendable () throws -> Void = {},
+        exclusivePublicationFailureInjector: @escaping @Sendable (FullLengthONTMHCExclusivePublicationTarget) throws -> Int32? = { _ in nil }
     ) {
         self.nativeToolRunner = nativeToolRunner
         self.condaManager = condaManager
         self.postPublicationWorkDirectoryCleaner = postPublicationWorkDirectoryCleaner
         self.metadataPublicationObserver = metadataPublicationObserver
         self.rollbackOperationObserver = rollbackOperationObserver
+        self.exclusivePublicationFailureInjector = exclusivePublicationFailureInjector
     }
 
     public func run(
@@ -820,7 +863,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 stagedOutputURL: stagedOutputURL,
                 finalOutputURL: finalOutputURL
             )
-            let publicationRecord = try publishStagedResultBundle(
+            var publicationRecord = try publishStagedResultBundle(
                 stagedOutputURL: stagedOutputURL,
                 finalOutputURL: finalOutputURL,
                 replacingExisting: finalExisted,
@@ -846,7 +889,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     finalManifestURL: finalManifestURL,
                     provenanceURL: finalProvenanceURL
                 ))
-                try publishRelocatedSuccessManifest(in: finalOutputURL)
+                publicationRecord = try publishRelocatedSuccessManifest(
+                    in: finalOutputURL,
+                    publicationRecord: publicationRecord
+                )
+                successfulPublicationRecordSnapshot = publicationRecord
                 try metadataPublicationObserver(.successManifestPublished(
                     finalManifestURL: finalManifestURL,
                     provenanceURL: finalProvenanceURL
@@ -1875,26 +1922,109 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         let startedAt = Date()
         let flags = UInt32(replacingExisting ? RENAME_SWAP : RENAME_EXCL)
-        let status = stagedOutputURL.path.withCString { stagedPath in
-            finalOutputURL.path.withCString { finalPath in
-                renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags)
+        let initialErrorNumber: Int32?
+        if !replacingExisting,
+           let injectedError = try exclusivePublicationFailureInjector(.resultBundle) {
+            initialErrorNumber = injectedError
+        } else {
+            let status = stagedOutputURL.path.withCString { stagedPath in
+                finalOutputURL.path.withCString { finalPath in
+                    renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags)
+                }
             }
+            initialErrorNumber = status == 0 ? nil : errno
         }
-        let code = status == 0 ? nil : (POSIXErrorCode(rawValue: errno) ?? .EIO)
+        guard let initialErrorNumber else {
+            return FullLengthONTMHCResultBundlePublicationRecord(
+                stagedDirectoryURL: stagedOutputURL,
+                finalDirectoryURL: finalOutputURL,
+                payloadMappings: payloadMappings,
+                replacingExisting: replacingExisting,
+                publicationMechanism: "renameatx_np",
+                successManifestMechanism: "renameatx_np",
+                fallbackReason: nil,
+                startedAt: startedAt,
+                completedAt: Date(),
+                exitStatus: 0,
+                errorMessage: nil
+            )
+        }
+        let initialCode = POSIXErrorCode(rawValue: initialErrorNumber) ?? .EIO
+        guard !replacingExisting, isUnsupportedExclusiveRename(initialErrorNumber) else {
+            let record = FullLengthONTMHCResultBundlePublicationRecord(
+                stagedDirectoryURL: stagedOutputURL,
+                finalDirectoryURL: finalOutputURL,
+                payloadMappings: payloadMappings,
+                replacingExisting: replacingExisting,
+                publicationMechanism: "renameatx_np",
+                successManifestMechanism: "renameatx_np",
+                fallbackReason: nil,
+                startedAt: startedAt,
+                completedAt: Date(),
+                exitStatus: -1,
+                errorMessage: POSIXError(initialCode).localizedDescription
+            )
+            throw FullLengthONTMHCResultBundlePublicationError(record: record)
+        }
+        let fallbackReason = "renameatx_np(RENAME_EXCL) unavailable: \(POSIXError(initialCode).localizedDescription)"
+        let fallbackError: Error?
+        do {
+            try publishNewDirectoryUsingExclusiveReservation(
+                stagedURL: stagedOutputURL,
+                finalURL: finalOutputURL
+            )
+            fallbackError = nil
+        } catch {
+            fallbackError = error
+        }
         let record = FullLengthONTMHCResultBundlePublicationRecord(
             stagedDirectoryURL: stagedOutputURL,
             finalDirectoryURL: finalOutputURL,
             payloadMappings: payloadMappings,
             replacingExisting: replacingExisting,
+            publicationMechanism: "exclusive-directory-reservation-then-rename",
+            successManifestMechanism: "exclusive-file-reservation-then-rename",
+            fallbackReason: fallbackReason,
             startedAt: startedAt,
             completedAt: Date(),
-            exitStatus: status,
-            errorMessage: code.map { POSIXError($0).localizedDescription }
+            exitStatus: fallbackError == nil ? 0 : -1,
+            errorMessage: fallbackError?.localizedDescription
         )
-        guard status == 0 else {
+        if fallbackError != nil {
             throw FullLengthONTMHCResultBundlePublicationError(record: record)
         }
         return record
+    }
+
+    private func isUnsupportedExclusiveRename(_ errorNumber: Int32) -> Bool {
+        errorNumber == ENOTSUP || errorNumber == EOPNOTSUPP
+    }
+
+    private func publishNewDirectoryUsingExclusiveReservation(
+        stagedURL: URL,
+        finalURL: URL
+    ) throws {
+        let reservationStatus = finalURL.path.withCString { path in
+            Darwin.mkdir(path, S_IRWXU)
+        }
+        guard reservationStatus == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        var publicationSucceeded = false
+        defer {
+            if !publicationSucceeded {
+                _ = finalURL.path.withCString { Darwin.rmdir($0) }
+            }
+        }
+        let status = stagedURL.path.withCString { stagedPath in
+            finalURL.path.withCString { finalPath in
+                Darwin.rename(stagedPath, finalPath)
+            }
+        }
+        guard status == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        publicationSucceeded = true
     }
 
     private func resultBundlePublicationMappings(
@@ -1958,13 +2088,19 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         _ record: FullLengthONTMHCResultBundlePublicationRecord,
         provenanceURL: URL
     ) throws {
-        try appendExecutedPublicationReceipt(record.provenanceStep, provenanceURL: provenanceURL)
+        try writeExecutedPublicationReceipt(
+            record,
+            provenanceURL: provenanceURL,
+            replacingPriorReceipt: false
+        )
     }
 
-    private func appendExecutedPublicationReceipt(
-        _ publicationStep: ProvenanceStep,
-        provenanceURL: URL
+    private func writeExecutedPublicationReceipt(
+        _ record: FullLengthONTMHCResultBundlePublicationRecord,
+        provenanceURL: URL,
+        replacingPriorReceipt: Bool
     ) throws {
+        let publicationStep = record.provenanceStep
         guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL) else {
             throw FullLengthONTMHCGenotypingError.reportFailed(
                 "Published result bundle is missing its staged provenance receipt."
@@ -1974,6 +2110,27 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             throw FullLengthONTMHCGenotypingError.reportFailed(
                 "Executed publication receipt is missing its completion time."
             )
+        }
+        var resolvedDefaults = envelope.options.resolvedDefaults
+        resolvedDefaults["mhcResultBundleAtomicPublication"] = .string(
+            record.publicationMechanism == "renameatx_np"
+                ? "adjacent-directory-renameatx_np"
+                : record.publicationMechanism
+        )
+        resolvedDefaults["mhcSuccessManifestAtomicPublication"] = .string(record.successManifestMechanism)
+        let options = ProvenanceOptions(
+            explicit: envelope.options.explicit,
+            defaults: envelope.options.defaults,
+            resolvedDefaults: resolvedDefaults
+        )
+        var steps = envelope.steps
+        if replacingPriorReceipt,
+           let index = steps.lastIndex(where: {
+               $0.toolName == "lungfish-internal publish-result-bundle"
+           }) {
+            steps[index] = publicationStep
+        } else {
+            steps.append(publicationStep)
         }
         let updated = ProvenanceEnvelope(
             schemaVersion: envelope.schemaVersion,
@@ -1988,12 +2145,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             argv: envelope.argv,
             durableReplayArgv: envelope.durableReplayArgv,
             reproducibleCommand: envelope.reproducibleCommand,
-            options: envelope.options,
+            options: options,
             runtimeIdentity: envelope.runtimeIdentity,
             files: envelope.files,
             output: envelope.output,
             outputs: envelope.outputs,
-            steps: envelope.steps + [publicationStep],
+            steps: steps,
             wallTimeSeconds: receiptCompletedAt.timeIntervalSince(envelope.createdAt),
             exitStatus: 0,
             stderr: envelope.stderr,
@@ -2003,7 +2160,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         try ProvenanceWriter(signingProvider: nil).write(updated, toSidecar: provenanceURL)
     }
 
-    private func publishRelocatedSuccessManifest(in finalOutputURL: URL) throws {
+    private func publishRelocatedSuccessManifest(
+        in finalOutputURL: URL,
+        publicationRecord: FullLengthONTMHCResultBundlePublicationRecord
+    ) throws -> FullLengthONTMHCResultBundlePublicationRecord {
         let entries = try FileManager.default.contentsOfDirectory(
             at: finalOutputURL,
             includingPropertiesForKeys: nil
@@ -2020,7 +2180,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             try Task.checkCancellation()
         }
         let size = try ProvenanceFileHasher.fileSize(of: stagedURL)
-        try publishSuccessManifest(.init(
+        let plan = FullLengthONTMHCSuccessManifestPublicationPlan(
             stagedURL: stagedURL,
             finalURL: finalURL,
             stagedDescriptor: .init(
@@ -2036,7 +2196,33 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 role: .output,
                 originPath: stagedURL.path
             )
-        ))
+        )
+        if publicationRecord.successManifestMechanism == "exclusive-file-reservation-then-rename" {
+            try publishSuccessManifestUsingExclusiveReservation(plan)
+            return publicationRecord
+        }
+        do {
+            try publishSuccessManifestUsingRenameExclusive(plan)
+            return publicationRecord
+        } catch let error as FullLengthONTMHCExclusiveRenameUnsupportedError {
+            let updatedRecord = publicationRecord.recordingSuccessManifestFallback(
+                reason: error.localizedDescription
+            )
+            let provenanceURL = finalOutputURL.appendingPathComponent(
+                "full-length-ont-mhc-genotyping-provenance.json"
+            )
+            try writeExecutedPublicationReceipt(
+                updatedRecord,
+                provenanceURL: provenanceURL,
+                replacingPriorReceipt: true
+            )
+            try metadataPublicationObserver(.provenanceFinalizedBeforeManifestPublication(
+                finalManifestURL: finalURL,
+                provenanceURL: provenanceURL
+            ))
+            try publishSuccessManifestUsingExclusiveReservation(plan)
+            return updatedRecord
+        }
     }
 
     private func rollbackPublishedResultBundle(
@@ -4097,7 +4283,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
     }
 
-    private func publishSuccessManifest(
+    private func validateSuccessManifestPublicationPlan(
         _ plan: FullLengthONTMHCSuccessManifestPublicationPlan
     ) throws {
         guard !FileManager.default.fileExists(atPath: plan.finalURL.path) else {
@@ -4113,17 +4299,75 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "Staged success manifest no longer matches its provenance descriptor."
             )
         }
+    }
+
+    private func publishSuccessManifestUsingRenameExclusive(
+        _ plan: FullLengthONTMHCSuccessManifestPublicationPlan
+    ) throws {
+        try validateSuccessManifestPublicationPlan(plan)
+        let errorNumber: Int32?
+        if let injectedError = try exclusivePublicationFailureInjector(.successManifest) {
+            errorNumber = injectedError
+        } else {
+            let status = plan.stagedURL.path.withCString { stagedPath in
+                plan.finalURL.path.withCString { finalPath in
+                    renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, UInt32(RENAME_EXCL))
+                }
+            }
+            errorNumber = status == 0 ? nil : errno
+        }
+        guard let errorNumber else { return }
+        let code = POSIXErrorCode(rawValue: errorNumber) ?? .EIO
+        if isUnsupportedExclusiveRename(errorNumber) {
+            throw FullLengthONTMHCExclusiveRenameUnsupportedError(
+                targetDescription: "success manifest",
+                code: code
+            )
+        } else {
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Could not atomically publish success manifest last: \(POSIXError(code).localizedDescription)"
+            )
+        }
+    }
+
+    private func publishSuccessManifestUsingExclusiveReservation(
+        _ plan: FullLengthONTMHCSuccessManifestPublicationPlan
+    ) throws {
+        try validateSuccessManifestPublicationPlan(plan)
+        let descriptor = plan.finalURL.path.withCString { path in
+            Darwin.open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+        }
+        guard descriptor >= 0 else {
+            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Could not exclusively reserve success manifest destination: \(POSIXError(code).localizedDescription)"
+            )
+        }
+        guard Darwin.close(descriptor) == 0 else {
+            let closeCode = POSIXErrorCode(rawValue: errno) ?? .EIO
+            _ = plan.finalURL.path.withCString { Darwin.unlink($0) }
+            throw FullLengthONTMHCGenotypingError.reportFailed(
+                "Could not close success manifest reservation: \(POSIXError(closeCode).localizedDescription)"
+            )
+        }
+        var publicationSucceeded = false
+        defer {
+            if !publicationSucceeded {
+                _ = plan.finalURL.path.withCString { Darwin.unlink($0) }
+            }
+        }
         let status = plan.stagedURL.path.withCString { stagedPath in
             plan.finalURL.path.withCString { finalPath in
-                renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, UInt32(RENAME_EXCL))
+                Darwin.rename(stagedPath, finalPath)
             }
         }
         guard status == 0 else {
             let code = POSIXErrorCode(rawValue: errno) ?? .EIO
             throw FullLengthONTMHCGenotypingError.reportFailed(
-                "Could not atomically publish success manifest last: \(POSIXError(code).localizedDescription)"
+                "Could not publish success manifest using exclusive reservation: \(POSIXError(code).localizedDescription)"
             )
         }
+        publicationSucceeded = true
     }
 
     private func validatedEvidenceArtifactPair(
@@ -4796,7 +5040,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             durableReplayArgv: publication.argv,
             reproducibleCommand: publication.argv.map(shellEscape).joined(separator: " "),
             resolvedOptions: [
-                "atomicMechanism": .string("renameatx_np"),
+                "atomicMechanism": .string(publication.atomicMechanism),
                 "publicationScope": .string("cohort-alignment-artifacts"),
             ],
             runtimeIdentity: result.runtimeIdentity,
