@@ -279,11 +279,11 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         )
         XCTAssertEqual(
             envelope.steps.last?.toolName,
-            "lungfish-internal journaled three-rename workbook bundle rotation"
+            "lungfish-internal ExFAT journaled three-rename workbook rotation v2"
         )
         XCTAssertEqual(
             envelope.steps.last?.argv.dropFirst().first,
-            "journaled-three-rename-workbook-bundle-rotation"
+            "exfat-journaled-three-rename-v2"
         )
     }
 
@@ -326,7 +326,7 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         }
     }
 
-    func testImmutableMarkerCreateFallbackWhenRenameFlagsAreUnsupported() throws {
+    func testImmutableMarkerCreateDoesNotDependOnRenameFlags() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeMCMWorkbookBundle(in: root, outputName: "marker-rename-fallback")
@@ -356,7 +356,10 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
             ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
         )
 
-        XCTAssertEqual(renameCalls.value, 2, "The immutable marker is published once and never rewritten for phase changes")
+        XCTAssertNil(
+            renameCalls.value,
+            "The ExFAT marker hint is created O_EXCL and never published by replacement rename"
+        )
         XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
         try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
         XCTAssertFalse(FileManager.default.fileExists(
@@ -546,6 +549,100 @@ print(wb[wb.sheetnames[0]]["Z94"].value or "")
         try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
     }
 
+    func testRecoveryPreservesBothGenerationsWhenBothWorkbooksWereEdited() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "both-generations-edited")
+        let pythonURL = testPythonExecutableURL
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: pythonURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-revision-manifest-hard-stop" else { return }
+                    throw NSError(domain: "SimulatedSIGKILL", code: 9)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
+        let marker = try markerObject(at: markerURL)
+        let stagedOld = URL(
+            fileURLWithPath: try XCTUnwrap(marker["stagingBundlePath"] as? String),
+            isDirectory: true
+        )
+        let finalCurrent = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let oldCurrent = stagedOld.appendingPathComponent(try XCTUnwrap(fixture.manifest.currentWorkbookPath))
+        for (url, cell, value) in [
+            (finalCurrent, "Z91", "edited-new-generation"),
+            (oldCurrent, "Z90", "edited-old-generation"),
+        ] {
+            _ = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path, cell, value = sys.argv[1:4]
+wb = load_workbook(path)
+wb[wb.sheetnames[0]][cell] = value
+wb.save(path)
+"""#, url.path, cell, value], executableURL: pythonURL)
+        }
+        let finalBefore = try bundleSnapshot(fixture.bundleURL)
+        let stagedBefore = try bundleSnapshot(stagedOld)
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("ambiguous"))
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), finalBefore)
+        XCTAssertEqual(try bundleSnapshot(stagedOld), stagedBefore)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+    }
+
+    func testTornOrMissingMarkerRehydratesFromDetachedAttestation() throws {
+        for markerMutation in ["torn", "missing"] {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let fixture = try makeMCMWorkbookBundle(in: root, outputName: "attestation-rehydrate-\(markerMutation)")
+            let before = try bundleSnapshot(fixture.bundleURL)
+            XCTAssertThrowsError(
+                try GenotypeWorkbookRevisionService(
+                    pythonExecutableURL: testPythonExecutableURL,
+                    publicationFailureInjector: { checkpoint in
+                        guard checkpoint == "after-transaction-marker-hard-stop" else { return }
+                        throw NSError(domain: "SimulatedSIGKILL", code: 9)
+                    }
+                ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+            )
+            let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
+            if markerMutation == "torn" {
+                try Data("{".utf8).write(to: markerURL)
+            } else {
+                try FileManager.default.removeItem(at: markerURL)
+            }
+
+            _ = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+            XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: markerURL.path))
+            try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+        }
+    }
+
+    func testAutomaticFinalizationArchivesRetiredGenerationInsteadOfDeletingIt() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "retired-generation-archive")
+
+        _ = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        let archives = try FileManager.default.contentsOfDirectory(atPath: root.path).filter {
+            $0.hasPrefix(".lungfish-workbook-generation-archive-")
+        }
+        XCTAssertEqual(archives.count, 1)
+        let archivedRoot = root.appendingPathComponent(try XCTUnwrap(archives.first), isDirectory: true)
+        XCTAssertFalse(try bundleSnapshot(archivedRoot).isEmpty)
+    }
+
     func testDefaultBundleCopyPrimitiveReceivesRecursiveCloneNoFollowFlags() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -728,9 +825,7 @@ wb.save(path)
         ) { error in
             XCTAssertEqual((error as NSError).domain, "SimulatedSIGKILL")
         }
-        let markerURL = root.appendingPathComponent(
-            ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
-        )
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
         let marker = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
@@ -780,9 +875,7 @@ wb.save(path)
         XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
         try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
         XCTAssertFalse(FileManager.default.fileExists(
-            atPath: root.appendingPathComponent(
-                ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
-            ).path
+            atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL).path
         ))
     }
 
@@ -793,34 +886,20 @@ wb.save(path)
         let before = try bundleSnapshot(fixture.bundleURL)
         let foreignBytes = Data("foreign-marker-must-survive".utf8)
 
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
         XCTAssertThrowsError(
             try GenotypeWorkbookRevisionService(
                 pythonExecutableURL: testPythonExecutableURL,
-                forceBundleCloneFallback: true,
-                workbookAtomicRenamePrimitive: { _, destination, flags in
-                    guard flags == UInt32(RENAME_EXCL) else {
-                        errno = EINVAL
-                        return -1
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "before-transaction-marker-source-conflict-check" else {
+                        return
                     }
-                    let descriptor = Darwin.open(
-                        destination,
-                        O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
-                        S_IRUSR | S_IWUSR
-                    )
-                    if descriptor >= 0 {
-                        foreignBytes.withUnsafeBytes { bytes in
-                            _ = Darwin.write(descriptor, bytes.baseAddress, bytes.count)
-                        }
-                        _ = Darwin.fsync(descriptor)
-                        Darwin.close(descriptor)
-                    }
-                    errno = ENOTSUP
-                    return -1
-                }
+                    try foreignBytes.write(to: markerURL, options: .withoutOverwriting)
+                },
+                forceBundleCloneFallback: true
             ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
         )
 
-        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
         XCTAssertEqual(try Data(contentsOf: markerURL), foreignBytes)
         XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
         try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
@@ -1017,9 +1096,7 @@ wb.save(path)
                 }
             ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
         )
-        let markerURL = root.appendingPathComponent(
-            ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
-        )
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
 
         let loaded = try await ONTGenotypeResultBundle.loadResultAsync(from: fixture.bundleURL)
@@ -1056,9 +1133,7 @@ wb.save(path)
                 }
             ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
         )
-        let markerURL = root.appendingPathComponent(
-            ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
-        )
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
         let markerObject = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
         )
@@ -1223,9 +1298,7 @@ wb.save(path)
             ".\(fixture.bundleURL.lastPathComponent).workbook-update-failure.json"
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: receiptURL.path))
-        let markerURL = root.appendingPathComponent(
-            ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
-        )
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
         let marker = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
         )
@@ -2834,9 +2907,7 @@ print(json.dumps(payload))
                 }
             ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
         )
-        let markerURL = root.appendingPathComponent(
-            ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction.json"
-        )
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
         return markerURL
     }

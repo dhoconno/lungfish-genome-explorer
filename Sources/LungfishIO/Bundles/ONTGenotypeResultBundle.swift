@@ -1667,7 +1667,20 @@ public enum ONTGenotypeResultBundle {
         let marker = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: bundleURL)
         var info = stat()
         guard Darwin.lstat(marker.path, &info) == 0 else {
-            if errno == ENOENT { return false }
+            if errno == ENOENT {
+                let lock = ONTGenotypeBundlePublicationLock.lockURL(for: bundleURL)
+                var lockInfo = stat()
+                if Darwin.lstat(lock.path, &lockInfo) == 0 {
+                    guard lockInfo.st_mode & S_IFMT == S_IFREG else {
+                        throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeLock(lock.path)
+                    }
+                    return try ONTGenotypeWorkbookUpdateRecovery.recoveryAuthorityExists(
+                        for: bundleURL
+                    )
+                }
+                if errno == ENOENT { return false }
+                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(lock.path, errno)
+            }
             throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(marker.path, errno)
         }
         guard info.st_mode & S_IFMT == S_IFREG else {

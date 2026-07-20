@@ -67,7 +67,7 @@ public struct ONTGenotypeWorkbookUpdateTransaction: Codable, Equatable, Sendable
         stagingBundlePath: String,
         transactionRootPath: String,
         rotationTemporaryPath: String,
-        publicationMode: String = "atomic-swap-or-three-rename-v1",
+        publicationMode: String = "atomic-swap-or-exfat-journaled-three-rename-v2",
         workflowName: String,
         toolName: String,
         toolVersion: String,
@@ -267,7 +267,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
 
     private struct RecoveryAuthority {
         let transaction: ONTGenotypeWorkbookUpdateTransaction
-        let markerWitness: FileWitness
+        let markerURL: URL?
+        let markerWitness: FileWitness?
         let attestationWitness: FileWitness
     }
 
@@ -291,9 +292,35 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     }
 
     public static func markerURL(for bundleURL: URL) -> URL {
-        bundleURL.standardizedFileURL.deletingLastPathComponent().appendingPathComponent(
+        let bundle = bundleURL.standardizedFileURL
+        if let discovered = try? discoveredMarkerURLs(for: bundle), discovered.count == 1 {
+            return discovered[0]
+        }
+        return bundle.deletingLastPathComponent().appendingPathComponent(
             ".\(bundleURL.lastPathComponent).workbook-update-transaction.json"
         )
+    }
+
+    private static func markerURL(
+        for transaction: ONTGenotypeWorkbookUpdateTransaction,
+        bundleURL: URL
+    ) -> URL {
+        bundleURL.standardizedFileURL.deletingLastPathComponent().appendingPathComponent(
+            ".\(bundleURL.lastPathComponent).workbook-update-transaction-\(transaction.transactionID).json"
+        )
+    }
+
+    private static func discoveredMarkerURLs(for bundleURL: URL) throws -> [URL] {
+        let bundle = bundleURL.standardizedFileURL
+        let parent = bundle.deletingLastPathComponent()
+        let prefix = ".\(bundle.lastPathComponent).workbook-update-transaction-"
+        var urls = try FileManager.default.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "json" }
+        let legacy = parent.appendingPathComponent(
+            ".\(bundle.lastPathComponent).workbook-update-transaction.json"
+        )
+        if FileManager.default.fileExists(atPath: legacy.path) { urls.append(legacy) }
+        return urls.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
     public static func defaultAttestationRootURL() throws -> URL {
@@ -406,12 +433,17 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     ) throws {
         try validate(transaction, for: bundleURL)
         _ = try requireAttestationRecord(transaction, attestationRootURL: attestationRootURL)
+        guard try discoveredMarkerURLs(for: bundleURL).isEmpty else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(
+                markerURL(for: bundleURL).path
+            )
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         try atomicWriteNoFollow(
             try encoder.encode(transaction),
-            to: markerURL(for: bundleURL),
+            to: markerURL(for: transaction, bundleURL: bundleURL),
             renamePrimitive: atomicRenamePrimitive
         )
     }
@@ -505,16 +537,10 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         for bundleURL: URL,
         attestationRootURL: URL? = nil
     ) throws {
-        let marker = markerURL(for: bundleURL)
-        var markerInfo = stat()
-        guard Darwin.lstat(marker.path, &markerInfo) == 0 else {
-            if errno == ENOENT { return }
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(marker.path, errno)
-        }
-        let authority = try loadRecoveryAuthority(
+        guard let authority = try loadRecoveryAuthorityIfPresent(
             for: bundleURL,
             attestationRootURL: attestationRootURL
-        )
+        ) else { return }
         let transaction = authority.transaction
         try validateTransactionRootIfPresent(transaction)
         if try normalizeInterruptedRotation(
@@ -534,6 +560,13 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         let finalState = try generationState(at: final, transaction: transaction)
         let stagingState = try generationState(at: staging, transaction: transaction)
 
+        if (finalState == .oldWorkbookEdited && stagingState == .committedNewWorkbookEdited)
+            || (finalState == .committedNewWorkbookEdited && stagingState == .oldWorkbookEdited) {
+            throw try ambiguous(
+                transaction,
+                detail: "Both workbook generations were edited; both were preserved for explicit user resolution."
+            )
+        }
         if finalState == .oldWorkbookEdited,
            (stagingState == .committedNew || stagingState == .committedNewWorkbookEdited) {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
@@ -644,6 +677,13 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             transaction,
             detail: "final=\(finalState.rawValue), staging=\(stagingState.rawValue); both generations were preserved"
         )
+    }
+
+    public static func recoveryAuthorityExists(for bundleURL: URL) throws -> Bool {
+        try loadRecoveryAuthorityIfPresent(
+            for: bundleURL.standardizedFileURL,
+            attestationRootURL: nil
+        ) != nil
     }
 
     public static func validateCurrentWorkbook(
@@ -798,33 +838,6 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                     exclusiveError
                 )
             }
-            let reservationStatus = destination.lastPathComponent.withCString {
-                Darwin.mkdirat(destinationParent, $0, S_IRWXU)
-            }
-            guard reservationStatus == 0 else {
-                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
-                    "Rotation destination reservation could not be created without replacement: \(destination.path)"
-                )
-            }
-            let reservation = destination.lastPathComponent.withCString {
-                Darwin.openat(
-                    destinationParent,
-                    $0,
-                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
-                )
-            }
-            guard reservation >= 0 else {
-                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(destination.path, errno)
-            }
-            defer { Darwin.close(reservation) }
-            var reservationInfo = stat()
-            guard Darwin.fstat(reservation, &reservationInfo) == 0,
-                  reservationInfo.st_mode & S_IFMT == S_IFDIR,
-                  reservationInfo.st_uid == geteuid() else {
-                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
-                    "Rotation destination reservation is not owned by this process."
-                )
-            }
             try requireDirectoryDescriptorIdentity(
                 sourceParent,
                 expected: sourceParentIdentity,
@@ -841,21 +854,19 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 expected: expected,
                 role: "rotation source"
             )
-            var currentReservation = stat()
-            let reservationInspect = destination.lastPathComponent.withCString {
-                Darwin.fstatat(destinationParent, $0, &currentReservation, AT_SYMLINK_NOFOLLOW)
+            var destinationInfo = stat()
+            let destinationInspect = destination.lastPathComponent.withCString {
+                Darwin.fstatat(destinationParent, $0, &destinationInfo, AT_SYMLINK_NOFOLLOW)
             }
-            guard reservationInspect == 0,
-                  currentReservation.st_mode & S_IFMT == S_IFDIR,
-                  currentReservation.st_dev == reservationInfo.st_dev,
-                  currentReservation.st_ino == reservationInfo.st_ino else {
+            guard destinationInspect != 0, errno == ENOENT else {
                 throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
-                    "Rotation destination reservation changed before publication."
+                    "Rotation destination is no longer absent; all generations were preserved: \(destination.path)"
                 )
             }
-            // The publication lock makes this final standard rename a trusted app-owned
-            // operation. Darwin has no compare-and-rename primitive for the reservation;
-            // foreign entries observed before this point are rejected without replacement.
+            // On filesystems without RENAME_EXCL, the stable publication lock and the
+            // app-owned 0700 transaction root define the cooperative-writer boundary.
+            // Hostile same-UID replacement in the final check/rename interval cannot be
+            // prevented by Darwin on ExFAT and is intentionally outside this guarantee.
             if rename(
                 sourceParent,
                 source.lastPathComponent,
@@ -863,22 +874,9 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 destination.lastPathComponent,
                 0
             ) != 0 {
-                let publicationError = errno
-                var cleanupInfo = stat()
-                let cleanupInspect = destination.lastPathComponent.withCString {
-                    Darwin.fstatat(destinationParent, $0, &cleanupInfo, AT_SYMLINK_NOFOLLOW)
-                }
-                if cleanupInspect == 0,
-                   cleanupInfo.st_mode & S_IFMT == S_IFDIR,
-                   cleanupInfo.st_dev == reservationInfo.st_dev,
-                   cleanupInfo.st_ino == reservationInfo.st_ino {
-                    _ = destination.lastPathComponent.withCString {
-                        Darwin.unlinkat(destinationParent, $0, AT_REMOVEDIR)
-                    }
-                }
                 throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
                     destination.path,
-                    publicationError
+                    errno
                 )
             }
         }
@@ -962,7 +960,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
               transaction.newGenerationIdentity.path == transaction.stagingBundlePath,
               transaction.transactionRootIdentity.path == transaction.transactionRootPath,
               transaction.finalParentIdentity.path == final.deletingLastPathComponent().path,
-              transaction.publicationMode == "atomic-swap-or-three-rename-v1",
+              transaction.publicationMode == "atomic-swap-or-exfat-journaled-three-rename-v2",
               let attestationID = transaction.attestationID,
               let parsedAttestationID = UUID(uuidString: attestationID),
               parsedAttestationID.uuidString == attestationID else {
@@ -1317,125 +1315,30 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
               root.lastPathComponent.hasSuffix(".staging") else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction("unsafe transaction cleanup root")
         }
-        if try directoryIdentityIfPresent(at: root) != nil {
-            try requireDirectoryIdentity(
-                at: root,
-                expected: transaction.transactionRootIdentity,
-                role: "transaction root"
-            )
-            try removeTreeNoFollow(root, expected: transaction.transactionRootIdentity)
-            try syncDirectory(root.deletingLastPathComponent())
+        let archive = root.deletingLastPathComponent().appendingPathComponent(
+            ".lungfish-workbook-generation-archive-\(transaction.transactionID)",
+            isDirectory: true
+        )
+        if try directoryIdentityIfPresent(at: root) == nil {
+            if try directoryIdentityIfPresent(at: archive) != nil { return }
+            return
         }
-    }
-
-    private static func removeTreeNoFollow(
-        _ root: URL,
-        expected: ONTGenotypeWorkbookUpdateDirectoryIdentity
-    ) throws {
-        let parent = root.deletingLastPathComponent()
-        let parentDescriptor = Darwin.open(parent.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard parentDescriptor >= 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(parent.path, errno)
-        }
-        defer { Darwin.close(parentDescriptor) }
-        let rootDescriptor = root.lastPathComponent.withCString {
-            Darwin.openat(parentDescriptor, $0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        }
-        guard rootDescriptor >= 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction("cleanup root is not a real directory")
-        }
-        var rootInfo = stat()
-        guard Darwin.fstat(rootDescriptor, &rootInfo) == 0,
-              UInt64(bitPattern: Int64(rootInfo.st_dev)) == expected.device,
-              UInt64(rootInfo.st_ino) == expected.inode else {
-            Darwin.close(rootDescriptor)
-            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
-                "cleanup root identity does not match the journal"
+        try requireDirectoryIdentity(
+            at: root,
+            expected: transaction.transactionRootIdentity,
+            role: "transaction root"
+        )
+        guard try directoryIdentityIfPresent(at: archive) == nil else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The retired workbook generation archive already exists; no generation was deleted."
             )
         }
-        do {
-            try removeDirectoryContentsNoFollow(rootDescriptor, displayURL: root)
-            var pathInfo = stat()
-            let inspectStatus = root.lastPathComponent.withCString {
-                Darwin.fstatat(parentDescriptor, $0, &pathInfo, AT_SYMLINK_NOFOLLOW)
-            }
-            guard inspectStatus == 0,
-                  pathInfo.st_mode & S_IFMT == S_IFDIR,
-                  pathInfo.st_dev == rootInfo.st_dev,
-                  pathInfo.st_ino == rootInfo.st_ino else {
-                throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction("cleanup root changed during removal")
-            }
-            let removeStatus = root.lastPathComponent.withCString {
-                Darwin.unlinkat(parentDescriptor, $0, AT_REMOVEDIR)
-            }
-            guard removeStatus == 0 else {
-                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(root.path, errno)
-            }
-            Darwin.close(rootDescriptor)
-        } catch {
-            Darwin.close(rootDescriptor)
-            throw error
-        }
-    }
-
-    private static func removeDirectoryContentsNoFollow(
-        _ directoryDescriptor: Int32,
-        displayURL: URL
-    ) throws {
-        let enumerationDescriptor = Darwin.dup(directoryDescriptor)
-        guard enumerationDescriptor >= 0, let stream = Darwin.fdopendir(enumerationDescriptor) else {
-            if enumerationDescriptor >= 0 { Darwin.close(enumerationDescriptor) }
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(displayURL.path, errno)
-        }
-        defer { Darwin.closedir(stream) }
-        while let entry = Darwin.readdir(stream) {
-            let name = withUnsafePointer(to: &entry.pointee.d_name) { pointer in
-                pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN) + 1) {
-                    String(cString: $0)
-                }
-            }
-            if name == "." || name == ".." { continue }
-            let childURL = displayURL.appendingPathComponent(name)
-            var childInfo = stat()
-            let inspectStatus = name.withCString {
-                Darwin.fstatat(directoryDescriptor, $0, &childInfo, AT_SYMLINK_NOFOLLOW)
-            }
-            guard inspectStatus == 0 else {
-                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(childURL.path, errno)
-            }
-            if childInfo.st_mode & S_IFMT == S_IFDIR {
-                let childDescriptor = name.withCString {
-                    Darwin.openat(directoryDescriptor, $0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-                }
-                guard childDescriptor >= 0 else {
-                    throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(childURL.path, errno)
-                }
-                do {
-                    try removeDirectoryContentsNoFollow(childDescriptor, displayURL: childURL)
-                    var currentInfo = stat()
-                    let currentStatus = name.withCString {
-                        Darwin.fstatat(directoryDescriptor, $0, &currentInfo, AT_SYMLINK_NOFOLLOW)
-                    }
-                    guard currentStatus == 0,
-                          currentInfo.st_mode & S_IFMT == S_IFDIR,
-                          currentInfo.st_dev == childInfo.st_dev,
-                          currentInfo.st_ino == childInfo.st_ino,
-                          name.withCString({ Darwin.unlinkat(directoryDescriptor, $0, AT_REMOVEDIR) }) == 0 else {
-                        throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
-                            "cleanup directory changed during removal: \(childURL.path)"
-                        )
-                    }
-                    Darwin.close(childDescriptor)
-                } catch {
-                    Darwin.close(childDescriptor)
-                    throw error
-                }
-            } else {
-                guard name.withCString({ Darwin.unlinkat(directoryDescriptor, $0, 0) }) == 0 else {
-                    throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(childURL.path, errno)
-                }
-            }
-        }
+        try moveDirectoryNoReplace(
+            root,
+            expected: transaction.transactionRootIdentity,
+            to: archive,
+            transaction: transaction
+        )
     }
 
     private static func exchange(
@@ -1535,6 +1438,39 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         )
     }
 
+    private static func transaction(
+        from record: AttestationRecord
+    ) -> ONTGenotypeWorkbookUpdateTransaction {
+        let claim = record.claim
+        return ONTGenotypeWorkbookUpdateTransaction(
+            schemaVersion: claim.schemaVersion,
+            transactionID: claim.transactionID,
+            finalBundlePath: claim.finalBundlePath,
+            stagingBundlePath: claim.stagingBundlePath,
+            transactionRootPath: claim.transactionRootPath,
+            rotationTemporaryPath: claim.rotationTemporaryPath,
+            publicationMode: claim.publicationMode,
+            workflowName: claim.workflowName,
+            toolName: claim.toolName,
+            toolVersion: claim.toolVersion,
+            argv: claim.argv,
+            durableReplayArgv: claim.durableReplayArgv,
+            resolvedOptions: claim.resolvedOptions,
+            runtimeIdentity: claim.runtimeIdentity,
+            createdAt: claim.createdAt,
+            oldManifest: claim.oldManifest,
+            newManifest: claim.newManifest,
+            oldCurrentWorkbook: claim.oldCurrentWorkbook,
+            newCurrentWorkbook: claim.newCurrentWorkbook,
+            oldGenerationIdentity: claim.oldGenerationIdentity,
+            newGenerationIdentity: claim.newGenerationIdentity,
+            transactionRootIdentity: claim.transactionRootIdentity,
+            finalParentIdentity: claim.finalParentIdentity,
+            attestationID: record.attestationID,
+            phase: .prepared
+        )
+    }
+
     private static func attestationURL(
         for transaction: ONTGenotypeWorkbookUpdateTransaction,
         attestationRootURL: URL?
@@ -1590,7 +1526,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(root.path, errno)
         }
         defer { Darwin.close(rootDescriptor) }
-        let descriptor = url.lastPathComponent.withCString {
+        let temporaryName = ".\(url.lastPathComponent).\(UUID().uuidString).tmp"
+        let descriptor = temporaryName.withCString {
             Darwin.openat(
                 rootDescriptor,
                 $0,
@@ -1605,7 +1542,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         defer {
             Darwin.close(descriptor)
             if !succeeded {
-                _ = url.lastPathComponent.withCString { Darwin.unlinkat(rootDescriptor, $0, 0) }
+                _ = temporaryName.withCString { Darwin.unlinkat(rootDescriptor, $0, 0) }
             }
         }
         try data.withUnsafeBytes { bytes in
@@ -1629,10 +1566,25 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
               info.st_mode & S_IFMT == S_IFREG,
               info.st_uid == geteuid(),
               info.st_nlink == 1,
-              info.st_mode & 0o777 == 0o600,
-              Darwin.fsync(rootDescriptor) == 0 else {
+              info.st_mode & 0o777 == 0o600 else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
                 "The detached workbook attestation could not be made durable."
+            )
+        }
+        let publishStatus = temporaryName.withCString { sourceName in
+            url.lastPathComponent.withCString { destinationName in
+                Darwin.renameatx_np(
+                    rootDescriptor,
+                    sourceName,
+                    rootDescriptor,
+                    destinationName,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard publishStatus == 0, Darwin.fsync(rootDescriptor) == 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The detached workbook attestation could not be published atomically."
             )
         }
         succeeded = true
@@ -1669,21 +1621,70 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         for bundleURL: URL,
         attestationRootURL: URL?
     ) throws -> RecoveryAuthority {
+        guard let authority = try loadRecoveryAuthorityIfPresent(
+            for: bundleURL,
+            attestationRootURL: attestationRootURL
+        ) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "No authenticated workbook transaction exists for \(bundleURL.path)."
+            )
+        }
+        return authority
+    }
+
+    private static func loadRecoveryAuthorityIfPresent(
+        for bundleURL: URL,
+        attestationRootURL: URL?
+    ) throws -> RecoveryAuthority? {
         do {
-            let markerURL = markerURL(for: bundleURL)
-            let (data, markerWitness, _) = try readFileWithWitness(markerURL)
+            let markerURLs = try discoveredMarkerURLs(for: bundleURL)
+            guard markerURLs.count <= 1 else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "Multiple workbook transaction marker hints exist; no recovery action was taken."
+                )
+            }
+            let markerURL = markerURLs.first
+            var markerWitness: FileWitness?
+            var markerData: Data?
+            if let markerURL {
+                let read = try readFileWithWitness(markerURL)
+                markerData = read.0
+                markerWitness = read.1
+            }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            let transaction = try decoder.decode(ONTGenotypeWorkbookUpdateTransaction.self, from: data)
-            try validate(transaction, for: bundleURL)
-            let attestationWitness = try requireAttestationRecord(
-                transaction,
+            if let markerData,
+               let transaction = try? decoder.decode(
+                   ONTGenotypeWorkbookUpdateTransaction.self,
+                   from: markerData
+               ) {
+                try validate(transaction, for: bundleURL)
+                let attestationWitness = try requireAttestationRecord(
+                    transaction,
+                    attestationRootURL: attestationRootURL
+                )
+                return RecoveryAuthority(
+                    transaction: transaction,
+                    markerURL: markerURL,
+                    markerWitness: markerWitness,
+                    attestationWitness: attestationWitness
+                )
+            }
+            let candidates = try matchingAttestationCandidates(
+                for: bundleURL,
                 attestationRootURL: attestationRootURL
             )
+            guard !candidates.isEmpty || markerWitness != nil else { return nil }
+            guard candidates.count == 1, let candidate = candidates.first else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "The workbook transaction has \(candidates.count) matching detached attestations; no recovery action was taken."
+                )
+            }
             return RecoveryAuthority(
-                transaction: transaction,
+                transaction: candidate.transaction,
+                markerURL: markerURL,
                 markerWitness: markerWitness,
-                attestationWitness: attestationWitness
+                attestationWitness: candidate.witness
             )
         } catch let error as ONTGenotypeWorkbookUpdateRecoveryError {
             if case .ambiguousTransaction = error { throw error }
@@ -1697,17 +1698,66 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         }
     }
 
+    private static func matchingAttestationCandidates(
+        for bundleURL: URL,
+        attestationRootURL: URL?
+    ) throws -> [(transaction: ONTGenotypeWorkbookUpdateTransaction, witness: FileWitness)] {
+        let suppliedRoot = try (attestationRootURL ?? defaultAttestationRootURL()).standardizedFileURL
+        var rootInfo = stat()
+        guard Darwin.lstat(suppliedRoot.path, &rootInfo) == 0 else {
+            if errno == ENOENT { return [] }
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(suppliedRoot.path, errno)
+        }
+        let root = try verifyAttestationRoot(suppliedRoot)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var matches: [(ONTGenotypeWorkbookUpdateTransaction, FileWitness)] = []
+        for name in try FileManager.default.contentsOfDirectory(atPath: root.path)
+        where name.hasSuffix(".json") {
+            let url = root.appendingPathComponent(name)
+            guard let read = try? readFileWithWitness(url),
+                  read.2.st_uid == geteuid(),
+                  read.2.st_nlink == 1,
+                  read.2.st_mode & 0o777 == 0o600,
+                  let record = try? decoder.decode(AttestationRecord.self, from: read.0),
+                  record.schemaVersion == 1,
+                  UUID(uuidString: record.attestationID)?.uuidString == record.attestationID,
+                  UUID(uuidString: record.nonce)?.uuidString == record.nonce else {
+                continue
+            }
+            let reconstructed = transaction(from: record)
+            guard NSString(string: reconstructed.finalBundlePath).standardizingPath
+                    == bundleURL.standardizedFileURL.path,
+                  record.claim == claim(for: reconstructed),
+                  (try? validate(reconstructed, for: bundleURL)) != nil else {
+                continue
+            }
+            matches.append((reconstructed, read.1))
+        }
+        return matches
+    }
+
     private static func requireAuthorityUnchanged(
         _ authority: RecoveryAuthority,
         for bundleURL: URL,
         attestationRootURL: URL?
     ) throws {
-        let marker = try readFileWithWitness(markerURL(for: bundleURL)).1
+        let currentMarker: FileWitness?
+        if let markerURL = authority.markerURL {
+            currentMarker = try readFileWithWitness(markerURL).1
+        } else {
+            guard try discoveredMarkerURLs(for: bundleURL).isEmpty else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "A workbook transaction marker appeared before mutation."
+                )
+            }
+            currentMarker = nil
+        }
         let attestation = try requireAttestationRecord(
             authority.transaction,
             attestationRootURL: attestationRootURL
         )
-        guard marker == authority.markerWitness,
+        guard currentMarker == authority.markerWitness,
               attestation == authority.attestationWitness else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
                 "The workbook recovery authority changed before mutation; no recovery action was taken."
@@ -1720,10 +1770,14 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         for bundleURL: URL,
         attestationRootURL: URL?
     ) throws {
-        try unlinkExact(
-            markerURL(for: bundleURL),
-            expected: authority.markerWitness
-        )
+        if let markerWitness = authority.markerWitness {
+            guard let markerURL = authority.markerURL else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "The authenticated marker path is unavailable."
+                )
+            }
+            try unlinkExact(markerURL, expected: markerWitness)
+        }
         let recordURL = try attestationURL(
             for: authority.transaction,
             attestationRootURL: attestationRootURL
@@ -1857,19 +1911,18 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         renamePrimitive: ONTGenotypeAtomicRenamePrimitive? = nil
     ) throws {
         let parent = url.deletingLastPathComponent()
-        let temporary = parent.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        _ = renamePrimitive
         let descriptor = Darwin.open(
-            temporary.path,
+            url.path,
             O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
             S_IRUSR | S_IWUSR
         )
         guard descriptor >= 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(temporary.path, errno)
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, errno)
         }
-        var descriptorIsOpen = true
-        let rename: ONTGenotypeAtomicRenamePrimitive = renamePrimitive ?? { source, destination, flags in
-            Darwin.renameatx_np(AT_FDCWD, source, AT_FDCWD, destination, flags)
-        }
+        // A failed write intentionally leaves a torn authority hint. The atomically
+        // published detached attestation is the WAL used to rehydrate it.
+        defer { Darwin.close(descriptor) }
         do {
             try data.withUnsafeBytes { bytes in
                 var offset = 0
@@ -1878,83 +1931,23 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                     guard count > 0 else {
                         if errno == EINTR { continue }
                         if count == 0 {
-                            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(temporary.path, EIO)
+                            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, EIO)
                         }
-                        throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(temporary.path, errno)
+                        throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, errno)
                     }
                     offset += count
                 }
             }
             guard Darwin.fsync(descriptor) == 0 else {
-                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(temporary.path, errno)
+                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, errno)
             }
             var newInfo = stat()
             guard Darwin.fstat(descriptor, &newInfo) == 0,
                   newInfo.st_mode & S_IFMT == S_IFREG else {
-                throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(temporary.path)
-            }
-            Darwin.close(descriptor)
-            descriptorIsOpen = false
-            if rename(temporary.path, url.path, UInt32(RENAME_EXCL)) != 0 {
-                let exclusiveError = errno
-                guard exclusiveError == ENOTSUP || exclusiveError == EINVAL else {
-                    throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, exclusiveError)
-                }
-                let reservation = Darwin.open(
-                    url.path,
-                    O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
-                    S_IRUSR | S_IWUSR
-                )
-                guard reservation >= 0 else {
-                    throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(url.path)
-                }
-                var reservationInfo = stat()
-                guard Darwin.fstat(reservation, &reservationInfo) == 0,
-                      reservationInfo.st_mode & S_IFMT == S_IFREG,
-                      reservationInfo.st_uid == geteuid() else {
-                    Darwin.close(reservation)
-                    throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(url.path)
-                }
-                var currentReservation = stat()
-                guard Darwin.lstat(url.path, &currentReservation) == 0,
-                      currentReservation.st_mode & S_IFMT == S_IFREG,
-                      currentReservation.st_dev == reservationInfo.st_dev,
-                      currentReservation.st_ino == reservationInfo.st_ino else {
-                    Darwin.close(reservation)
-                    throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(url.path)
-                }
-                if rename(temporary.path, url.path, 0) != 0 {
-                    let publicationError = errno
-                    var cleanupInfo = stat()
-                    if Darwin.lstat(url.path, &cleanupInfo) == 0,
-                       cleanupInfo.st_mode & S_IFMT == S_IFREG,
-                       cleanupInfo.st_dev == reservationInfo.st_dev,
-                       cleanupInfo.st_ino == reservationInfo.st_ino {
-                        _ = Darwin.unlink(url.path)
-                    }
-                    Darwin.close(reservation)
-                    throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
-                        url.path,
-                        publicationError
-                    )
-                }
-                Darwin.close(reservation)
-            }
-            var publishedInfo = stat()
-            guard Darwin.lstat(url.path, &publishedInfo) == 0,
-                  publishedInfo.st_mode & S_IFMT == S_IFREG,
-                  publishedInfo.st_dev == newInfo.st_dev,
-                  publishedInfo.st_ino == newInfo.st_ino else {
                 throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(url.path)
             }
             try syncDirectory(parent)
         } catch {
-            if descriptorIsOpen { Darwin.close(descriptor) }
-            var temporaryInfo = stat()
-            if Darwin.lstat(temporary.path, &temporaryInfo) == 0,
-               temporaryInfo.st_mode & S_IFMT == S_IFREG {
-                _ = Darwin.unlink(temporary.path)
-            }
             throw error
         }
     }

@@ -2181,7 +2181,7 @@ public struct GenotypeWorkbookRevisionService {
         case .renameSwap:
             ("lungfish-internal atomic workbook bundle exchange", "atomic-workbook-bundle-exchange")
         case .journaledThreeRename:
-            ("lungfish-internal journaled three-rename workbook bundle rotation", "journaled-three-rename-workbook-bundle-rotation")
+            ("lungfish-internal ExFAT journaled three-rename workbook rotation v2", "exfat-journaled-three-rename-v2")
         }
         let publicationStep = ProvenanceStep(
             toolName: mechanismFields.toolName,
