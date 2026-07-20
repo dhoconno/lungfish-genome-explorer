@@ -626,6 +626,116 @@ wb.save(path)
         }
     }
 
+    func testPartialMarkerWriteFailureRetainsWALAndPreparedGenerationForRecovery() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "partial-marker-write")
+        let before = try bundleSnapshot(fixture.bundleURL)
+        let attestationRoot = root.appendingPathComponent("attestations", isDirectory: true)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                workbookAttestationRootURL: attestationRoot,
+                workbookMarkerWriteFailureInjector: { checkpoint in
+                    guard checkpoint == "after-marker-open-before-write" else { return }
+                    throw NSError(domain: "InjectedMarkerWriteFailure", code: 1)
+                }
+            ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
+        XCTAssertEqual(try Data(contentsOf: markerURL), Data())
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: attestationRoot.path)
+                .filter { $0.hasSuffix(".json") }.count,
+            1
+        )
+        let marker = try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(atPath: root.path).first {
+                $0.hasPrefix(".\(fixture.bundleURL.lastPathComponent).workbook-update-")
+                    && $0.hasSuffix(".staging")
+            }
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(marker).path))
+
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+            for: fixture.bundleURL,
+            attestationRootURL: attestationRoot
+        )
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: markerURL.path))
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
+    func testMultipleMarkerHintsAndMatchingAttestationsFailClosed() throws {
+        for duplicateKind in ["marker", "attestation"] {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let fixture = try makeMCMWorkbookBundle(in: root, outputName: "multiple-authority-\(duplicateKind)")
+            let attestationRoot = root.appendingPathComponent("attestations", isDirectory: true)
+            XCTAssertThrowsError(
+                try GenotypeWorkbookRevisionService(
+                    pythonExecutableURL: testPythonExecutableURL,
+                    publicationFailureInjector: { checkpoint in
+                        guard checkpoint == "after-transaction-marker-hard-stop" else { return }
+                        throw NSError(domain: "SimulatedSIGKILL", code: 9)
+                    },
+                    workbookAttestationRootURL: attestationRoot
+                ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+            )
+            let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
+            if duplicateKind == "marker" {
+                let duplicate = root.appendingPathComponent(
+                    ".\(fixture.bundleURL.lastPathComponent).workbook-update-transaction-\(UUID().uuidString).json"
+                )
+                try FileManager.default.copyItem(at: markerURL, to: duplicate)
+            } else {
+                let attestation = try XCTUnwrap(
+                    try FileManager.default.contentsOfDirectory(at: attestationRoot, includingPropertiesForKeys: nil)
+                        .first { $0.pathExtension == "json" }
+                )
+                try FileManager.default.copyItem(
+                    at: attestation,
+                    to: attestationRoot.appendingPathComponent("duplicate.json")
+                )
+            }
+            let finalBefore = try bundleSnapshot(fixture.bundleURL)
+            if duplicateKind == "marker" {
+                let lockURL = ONTGenotypeBundlePublicationLock.lockURL(for: fixture.bundleURL)
+                try FileManager.default.removeItem(at: lockURL)
+                XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)) {
+                    error in
+                    XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("multiple"))
+                }
+                XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), finalBefore)
+            }
+            let lock = try ONTGenotypeBundlePublicationLock.acquire(
+                for: fixture.bundleURL,
+                blocking: true,
+                createIfMissing: duplicateKind == "marker"
+            )
+
+            XCTAssertThrowsError(
+                try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                    for: fixture.bundleURL,
+                    attestationRootURL: attestationRoot
+                )
+            ) { error in
+                XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("multiple")
+                    || error.localizedDescription.localizedCaseInsensitiveContains("matching"))
+            }
+            lock.release()
+            XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), finalBefore)
+        }
+    }
+
     func testAutomaticFinalizationArchivesRetiredGenerationInsteadOfDeletingIt() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

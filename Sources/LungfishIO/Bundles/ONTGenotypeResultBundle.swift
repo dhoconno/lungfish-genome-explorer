@@ -1664,6 +1664,14 @@ public enum ONTGenotypeResultBundle {
     }
 
     private static func transactionMarkerExistsNoFollow(for bundleURL: URL) throws -> Bool {
+        let markerCount = try ONTGenotypeWorkbookUpdateRecovery.transactionMarkerHintCount(
+            for: bundleURL
+        )
+        guard markerCount <= 1 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Multiple workbook transaction marker hints exist; no recovery action was taken."
+            )
+        }
         let marker = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: bundleURL)
         var info = stat()
         guard Darwin.lstat(marker.path, &info) == 0 else {

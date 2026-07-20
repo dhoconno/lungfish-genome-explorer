@@ -132,7 +132,7 @@ public enum ONTGenotypeWorkbookUpdateRecoveryError: Error, LocalizedError, Senda
         case .systemFailure(let path, let code): return "Workbook transaction failed at \(path) (errno \(code))."
         case .unsafeMarker(let path): return "Workbook transaction marker is unsafe: \(path)"
         case .recoveryRequired(let path):
-            return "Workbook transaction recovery is required, but the existing publication lock could not be opened: \(path)"
+            return "Workbook transaction recovery is required before the bundle can be used: \(path)"
         case .invalidTransaction(let message): return "Workbook transaction marker is invalid: \(message)"
         case .ambiguousTransaction(let message): return "Workbook transaction recovery is ambiguous: \(message)"
         case .currentWorkbookIntegrity(let message): return "The current workbook failed integrity validation: \(message)"
@@ -323,6 +323,10 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         return urls.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
+    public static func transactionMarkerHintCount(for bundleURL: URL) throws -> Int {
+        try discoveredMarkerURLs(for: bundleURL).count
+    }
+
     public static func defaultAttestationRootURL() throws -> URL {
         guard let applicationSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -429,7 +433,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         for bundleURL: URL,
         attestationRootURL: URL? = nil,
-        atomicRenamePrimitive: ONTGenotypeAtomicRenamePrimitive? = nil
+        atomicRenamePrimitive: ONTGenotypeAtomicRenamePrimitive? = nil,
+        markerWriteFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) throws {
         try validate(transaction, for: bundleURL)
         _ = try requireAttestationRecord(transaction, attestationRootURL: attestationRootURL)
@@ -441,11 +446,22 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        try atomicWriteNoFollow(
-            try encoder.encode(transaction),
-            to: markerURL(for: transaction, bundleURL: bundleURL),
-            renamePrimitive: atomicRenamePrimitive
-        )
+        let exactMarkerURL = markerURL(for: transaction, bundleURL: bundleURL)
+        var markerWasCreated = false
+        do {
+            try atomicWriteNoFollow(
+                try encoder.encode(transaction),
+                to: exactMarkerURL,
+                renamePrimitive: atomicRenamePrimitive,
+                writeFailureInjector: markerWriteFailureInjector,
+                fileCreationObserver: { markerWasCreated = true }
+            )
+        } catch {
+            if markerWasCreated {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.recoveryRequired(exactMarkerURL.path)
+            }
+            throw error
+        }
     }
 
     public static func removeUnpublishedAttestation(
@@ -1651,6 +1667,10 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 markerData = read.0
                 markerWitness = read.1
             }
+            let candidates = try matchingAttestationCandidates(
+                for: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             if let markerData,
@@ -1659,21 +1679,19 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                    from: markerData
                ) {
                 try validate(transaction, for: bundleURL)
-                let attestationWitness = try requireAttestationRecord(
-                    transaction,
-                    attestationRootURL: attestationRootURL
-                )
+                guard candidates.count == 1, let candidate = candidates.first,
+                      candidate.transaction == transaction else {
+                    throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                        "The workbook transaction marker has \(candidates.count) matching detached attestations; no recovery action was taken."
+                    )
+                }
                 return RecoveryAuthority(
                     transaction: transaction,
                     markerURL: markerURL,
                     markerWitness: markerWitness,
-                    attestationWitness: attestationWitness
+                    attestationWitness: candidate.witness
                 )
             }
-            let candidates = try matchingAttestationCandidates(
-                for: bundleURL,
-                attestationRootURL: attestationRootURL
-            )
             guard !candidates.isEmpty || markerWitness != nil else { return nil }
             guard candidates.count == 1, let candidate = candidates.first else {
                 throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
@@ -1908,7 +1926,9 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     private static func atomicWriteNoFollow(
         _ data: Data,
         to url: URL,
-        renamePrimitive: ONTGenotypeAtomicRenamePrimitive? = nil
+        renamePrimitive: ONTGenotypeAtomicRenamePrimitive? = nil,
+        writeFailureInjector: (@Sendable (String) throws -> Void)? = nil,
+        fileCreationObserver: (() -> Void)? = nil
     ) throws {
         let parent = url.deletingLastPathComponent()
         _ = renamePrimitive
@@ -1920,10 +1940,12 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         guard descriptor >= 0 else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, errno)
         }
+        fileCreationObserver?()
         // A failed write intentionally leaves a torn authority hint. The atomically
         // published detached attestation is the WAL used to rehydrate it.
         defer { Darwin.close(descriptor) }
         do {
+            try writeFailureInjector?("after-marker-open-before-write")
             try data.withUnsafeBytes { bytes in
                 var offset = 0
                 while offset < bytes.count {

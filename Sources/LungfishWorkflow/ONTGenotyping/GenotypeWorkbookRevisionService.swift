@@ -161,6 +161,7 @@ public struct GenotypeWorkbookRevisionService {
     private let directorySwapPrimitive: ONTGenotypeDirectoryRenamePrimitive?
     private let directoryMovePrimitive: ONTGenotypeDirectoryRenamePrimitive?
     private let workbookAtomicRenamePrimitive: ONTGenotypeAtomicRenamePrimitive?
+    private let workbookMarkerWriteFailureInjector: (@Sendable (String) throws -> Void)?
 
     public init(
         fileManager: FileManager = .default,
@@ -174,7 +175,8 @@ public struct GenotypeWorkbookRevisionService {
         workbookAttestationRootURL: URL? = nil,
         directorySwapPrimitive: ONTGenotypeDirectoryRenamePrimitive? = nil,
         directoryMovePrimitive: ONTGenotypeDirectoryRenamePrimitive? = nil,
-        workbookAtomicRenamePrimitive: ONTGenotypeAtomicRenamePrimitive? = nil
+        workbookAtomicRenamePrimitive: ONTGenotypeAtomicRenamePrimitive? = nil,
+        workbookMarkerWriteFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) {
         self.fileManager = fileManager
         self.dateProvider = dateProvider
@@ -188,6 +190,7 @@ public struct GenotypeWorkbookRevisionService {
         self.directorySwapPrimitive = directorySwapPrimitive
         self.directoryMovePrimitive = directoryMovePrimitive
         self.workbookAtomicRenamePrimitive = workbookAtomicRenamePrimitive
+        self.workbookMarkerWriteFailureInjector = workbookMarkerWriteFailureInjector
     }
 
     public func ensureCurrentWorkbook(
@@ -496,8 +499,19 @@ public struct GenotypeWorkbookRevisionService {
                 workbookTransaction,
                 for: bundle,
                 attestationRootURL: workbookAttestationRootURL,
-                atomicRenamePrimitive: workbookAtomicRenamePrimitive
+                atomicRenamePrimitive: workbookAtomicRenamePrimitive,
+                markerWriteFailureInjector: workbookMarkerWriteFailureInjector
             )
+        } catch let error as ONTGenotypeWorkbookUpdateRecoveryError {
+            if case .recoveryRequired = error {
+                removeStageOnExit = false
+                throw error
+            }
+            try? ONTGenotypeWorkbookUpdateRecovery.removeUnpublishedAttestation(
+                for: workbookTransaction,
+                attestationRootURL: workbookAttestationRootURL
+            )
+            throw error
         } catch {
             try? ONTGenotypeWorkbookUpdateRecovery.removeUnpublishedAttestation(
                 for: workbookTransaction,
