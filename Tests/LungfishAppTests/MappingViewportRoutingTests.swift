@@ -171,7 +171,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
-    func testGenotypeResultWithoutHaplotypingDisplaysPrimaryWorkbookPreview() throws {
+    func testGenotypeResultWithoutHaplotypingDisplaysPrimaryWorkbookPreview() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeNoHapPreview-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -185,7 +185,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let controller = MainSplitViewController()
         _ = controller.view
 
-        controller.testingDisplayGenotypeResultBundle(bundleURL)
+        await controller.testingDisplayGenotypeResultBundleAndWait(bundleURL)
 
         XCTAssertEqual(
             controller.viewerController.testQuickLookURL?.standardizedFileURL,
@@ -194,7 +194,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertNil(controller.viewerController.genotypeResultViewController)
     }
 
-    func testGenotypeWorkbookPreviewRemovesPreviousNativeGenotypeViewport() throws {
+    func testGenotypeWorkbookPreviewRemovesPreviousNativeGenotypeViewport() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeNoHapPreviewAfterNative-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -209,7 +209,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         _ = controller.viewerController.displayGenotypeResult(makeNativeHaplotypedResult())
         XCTAssertNotNil(controller.viewerController.genotypeResultViewController)
 
-        controller.testingDisplayGenotypeResultBundle(bundleURL)
+        await controller.testingDisplayGenotypeResultBundleAndWait(bundleURL)
 
         XCTAssertNil(controller.viewerController.genotypeResultViewController)
         XCTAssertEqual(
@@ -218,7 +218,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
-    func testGenotypeResultWithoutHaplotypeAnalysisDisplaysNativeRawMatrix() throws {
+    func testGenotypeResultWithoutHaplotypeAnalysisDisplaysNativeRawMatrix() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeNoHapCallsPreview-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -256,7 +256,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let controller = MainSplitViewController()
         _ = controller.view
 
-        controller.testingDisplayGenotypeResultBundle(bundleURL)
+        await controller.testingDisplayGenotypeResultBundleAndWait(bundleURL)
 
         XCTAssertNil(controller.viewerController.testQuickLookURL)
         let resultController = try XCTUnwrap(controller.viewerController.genotypeResultViewController)

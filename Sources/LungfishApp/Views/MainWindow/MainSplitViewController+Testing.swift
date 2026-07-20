@@ -129,6 +129,12 @@ extension MainSplitViewController {
         displayGenotypeResultBundleFromSidebar(at: url)
     }
 
+    func testingDisplayGenotypeResultBundleAndWait(_ url: URL) async {
+        displayGenotypeResultBundleFromSidebar(at: url)
+        let displayTask = genotypeResultLoadTask
+        await displayTask?.value
+    }
+
     /// Drives the non-FASTQ import routing used by sidebar drops so the classification
     /// branches (standalone reference, annotation track, `.lungfishmhcref` bundle,
     /// generic copy) can be exercised deterministically without a drag session.
