@@ -322,6 +322,108 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(store.sidecar.settings, before)
     }
 
+    func testUpdateMHCCandidateDisplaySettingsIsBundleScopedAndPreservesScientificArtifacts() throws {
+        let bundleA = try makeBundleURL()
+        let bundleB = try makeBundleURL()
+        defer {
+            try? FileManager.default.removeItem(at: bundleA)
+            try? FileManager.default.removeItem(at: bundleB)
+        }
+        let scientificPaths = [
+            "manifest.json",
+            "candidate-alleles.json",
+            "artifacts/workbooks/initial.xlsx",
+            "artifacts/workbooks/current.xlsx",
+            "artifacts/alignments/genotyping-evidence.bam",
+        ]
+        for (offset, path) in scientificPaths.enumerated() {
+            let url = bundleA.appendingPathComponent(path)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("scientific-\(offset)".utf8).write(to: url)
+        }
+
+        let storeA = try GenotypeAnnotationStore(bundleURL: bundleA, author: "candidate-tester")
+        let storeB = try GenotypeAnnotationStore(bundleURL: bundleB, author: "candidate-tester")
+        let annotationA = bundleA.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let annotationB = bundleB.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let beforeAnnotationA = try Data(contentsOf: annotationA)
+        let beforeAnnotationB = try Data(contentsOf: annotationB)
+        let scientificBytes = try Dictionary(uniqueKeysWithValues: scientificPaths.map {
+            ($0, try Data(contentsOf: bundleA.appendingPathComponent($0)))
+        })
+        var display = storeA.sidecar.settings.mhcCandidateDisplay
+        display.showKnown = false
+        display.showSingletonCandidates = false
+        display.tints[.sharedNovel] = try XCTUnwrap(AnnotationColor(hex: "#123456"))
+
+        try storeA.updateMHCCandidateDisplaySettings(display)
+
+        XCTAssertNotEqual(try Data(contentsOf: annotationA), beforeAnnotationA)
+        XCTAssertEqual(try Data(contentsOf: annotationB), beforeAnnotationB)
+        XCTAssertEqual(storeB.sidecar.settings.mhcCandidateDisplay, .default)
+        for path in scientificPaths {
+            XCTAssertEqual(try Data(contentsOf: bundleA.appendingPathComponent(path)), scientificBytes[path])
+        }
+    }
+
+    func testUpdateMHCCandidateDisplaySettingsRecordsExactColorsAndFinalChecksumInProvenance() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "candidate-tester")
+        var display = store.sidecar.settings.mhcCandidateDisplay
+        display.showKnown = false
+        display.showSharedCandidates = true
+        display.showSingletonCandidates = false
+        display.tints = [
+            .sharedNovel: try XCTUnwrap(AnnotationColor(hex: "#112233")),
+            .singletonNovel: try XCTUnwrap(AnnotationColor(hex: "#223344")),
+            .sharedExtension: try XCTUnwrap(AnnotationColor(hex: "#334455")),
+            .singletonExtension: try XCTUnwrap(AnnotationColor(hex: "#445566")),
+        ]
+
+        try store.updateMHCCandidateDisplaySettings(display)
+
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(envelope.options.explicit["action"], .string("updateMHCCandidateDisplaySettings"))
+        XCTAssertEqual(envelope.options.explicit["showKnown"], .boolean(false))
+        XCTAssertEqual(envelope.options.explicit["showSharedCandidates"], .boolean(true))
+        XCTAssertEqual(envelope.options.explicit["showSingletonCandidates"], .boolean(false))
+        XCTAssertEqual(envelope.options.explicit["candidateTints"], .dictionary([
+            "sharedNovel": .string("#112233"),
+            "singletonNovel": .string("#223344"),
+            "sharedExtension": .string("#334455"),
+            "singletonExtension": .string("#445566"),
+        ]))
+        XCTAssertEqual(envelope.outputs.first?.path, annotationURL.path)
+        XCTAssertEqual(
+            envelope.outputs.first?.checksumSHA256,
+            try ProvenanceFileDescriptor.file(url: annotationURL, format: .json, role: .output).checksumSHA256
+        )
+        XCTAssertEqual(store.sidecar.auditLog.last?.action, "updateMHCCandidateDisplaySettings")
+        XCTAssertTrue(store.sidecar.auditLog.last?.after?.contains("sharedNovel=#112233") == true)
+    }
+
+    func testUpdateMHCCandidateDisplaySettingsRollsBackWhenAtomicSidecarWriteFails() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "candidate-tester")
+        let before = store.sidecar
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        try FileManager.default.removeItem(at: annotationURL)
+        try FileManager.default.createDirectory(at: annotationURL, withIntermediateDirectories: true)
+        var display = before.settings.mhcCandidateDisplay
+        display.showKnown = false
+
+        XCTAssertThrowsError(try store.updateMHCCandidateDisplaySettings(display))
+
+        XCTAssertEqual(store.sidecar, before)
+    }
+
     func testSmartCohortPersistence() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }

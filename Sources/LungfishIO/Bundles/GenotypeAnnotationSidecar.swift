@@ -1,6 +1,114 @@
 import Foundation
 import LungfishCore
 
+public enum ONTMHCCandidateTintCategory: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
+    case sharedNovel
+    case singletonNovel
+    case sharedExtension
+    case singletonExtension
+}
+
+public struct ONTMHCCandidateDisplaySettings: Codable, Equatable, Sendable {
+    public var showKnown: Bool
+    public var showSharedCandidates: Bool
+    public var showSingletonCandidates: Bool
+    public var tints: [ONTMHCCandidateTintCategory: AnnotationColor]
+
+    public static let defaultTints: [ONTMHCCandidateTintCategory: AnnotationColor] = [
+        .sharedNovel: AnnotationColor(hex: "#F5D78E")!,
+        .singletonNovel: AnnotationColor(hex: "#F5B97A")!,
+        .sharedExtension: AnnotationColor(hex: "#A8D8D0")!,
+        .singletonExtension: AnnotationColor(hex: "#AFCBF2")!,
+    ]
+
+    public static let `default` = ONTMHCCandidateDisplaySettings(
+        showKnown: true,
+        showSharedCandidates: true,
+        showSingletonCandidates: true,
+        tints: defaultTints
+    )
+
+    public init(
+        showKnown: Bool = true,
+        showSharedCandidates: Bool = true,
+        showSingletonCandidates: Bool = true,
+        tints: [ONTMHCCandidateTintCategory: AnnotationColor] = Self.defaultTints
+    ) {
+        self.showKnown = showKnown
+        self.showSharedCandidates = showSharedCandidates
+        self.showSingletonCandidates = showSingletonCandidates
+        self.tints = Self.normalizedTints(tints)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case showKnown
+        case showSharedCandidates
+        case showSingletonCandidates
+        case tints
+    }
+
+    private struct TintCodingKey: CodingKey {
+        let stringValue: String
+        let intValue: Int? = nil
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+        }
+
+        init?(intValue: Int) {
+            return nil
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        showKnown = try container.decodeIfPresent(Bool.self, forKey: .showKnown) ?? true
+        showSharedCandidates = try container.decodeIfPresent(Bool.self, forKey: .showSharedCandidates) ?? true
+        showSingletonCandidates = try container.decodeIfPresent(Bool.self, forKey: .showSingletonCandidates) ?? true
+
+        var decodedTints: [ONTMHCCandidateTintCategory: AnnotationColor] = [:]
+        if container.contains(.tints),
+           let tintContainer = try? container.nestedContainer(keyedBy: TintCodingKey.self, forKey: .tints) {
+            for key in tintContainer.allKeys {
+                guard let category = ONTMHCCandidateTintCategory(rawValue: key.stringValue) else {
+                    continue
+                }
+                if let color = try? tintContainer.decode(AnnotationColor.self, forKey: key) {
+                    decodedTints[category] = color
+                } else if let hex = try? tintContainer.decode(String.self, forKey: key),
+                          let color = AnnotationColor(hex: hex) {
+                    decodedTints[category] = color
+                }
+            }
+        }
+        tints = Self.normalizedTints(decodedTints)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(showKnown, forKey: .showKnown)
+        try container.encode(showSharedCandidates, forKey: .showSharedCandidates)
+        try container.encode(showSingletonCandidates, forKey: .showSingletonCandidates)
+        var tintContainer = container.nestedContainer(keyedBy: TintCodingKey.self, forKey: .tints)
+        for category in ONTMHCCandidateTintCategory.allCases {
+            let key = TintCodingKey(stringValue: category.rawValue)!
+            try tintContainer.encode(tints[category] ?? Self.defaultTints[category]!, forKey: key)
+        }
+    }
+
+    private static func normalizedTints(
+        _ tints: [ONTMHCCandidateTintCategory: AnnotationColor]
+    ) -> [ONTMHCCandidateTintCategory: AnnotationColor] {
+        var normalized = defaultTints
+        for category in ONTMHCCandidateTintCategory.allCases {
+            if let tint = tints[category] {
+                normalized[category] = tint
+            }
+        }
+        return normalized
+    }
+}
+
 public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
     public static let filename = "annotations.json"
     public static let currentSchemaVersion = 1
@@ -618,6 +726,9 @@ public extension GenotypeAnnotationSidecar {
         /// Optional per-bundle preference for the Summary viewport mode.
         /// nil means use the result-specific default.
         public var preferredSummaryViewMode: String?
+        /// Candidate-row visibility and tint preferences scoped to this result bundle.
+        /// Legacy sidecars synthesize the defaults when this section is absent.
+        public var mhcCandidateDisplay: ONTMHCCandidateDisplaySettings
 
         public static let `default` = Settings(
             viewMode: "outline",
@@ -630,7 +741,8 @@ public extension GenotypeAnnotationSidecar {
             locusFractionOverrides: nil,
             activeHaplotypeDefinitionSetID: nil,
             activeHaplotypeAssayID: nil,
-            preferredSummaryViewMode: nil
+            preferredSummaryViewMode: nil,
+            mhcCandidateDisplay: .default
         )
 
         public init(viewMode: String, panelLayout: String, cardDensity: String,
@@ -639,7 +751,8 @@ public extension GenotypeAnnotationSidecar {
                     locusFractionOverrides: [String: Double]? = nil,
                     activeHaplotypeDefinitionSetID: String? = nil,
                     activeHaplotypeAssayID: String? = nil,
-                    preferredSummaryViewMode: String? = nil) {
+                    preferredSummaryViewMode: String? = nil,
+                    mhcCandidateDisplay: ONTMHCCandidateDisplaySettings = .default) {
             self.viewMode = viewMode
             self.panelLayout = panelLayout
             self.cardDensity = cardDensity
@@ -651,6 +764,48 @@ public extension GenotypeAnnotationSidecar {
             self.activeHaplotypeDefinitionSetID = activeHaplotypeDefinitionSetID
             self.activeHaplotypeAssayID = activeHaplotypeAssayID
             self.preferredSummaryViewMode = preferredSummaryViewMode
+            self.mhcCandidateDisplay = mhcCandidateDisplay
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case viewMode
+            case panelLayout
+            case cardDensity
+            case cardDensityThreshold
+            case dropoutAbsolute
+            case dropoutSampleFraction
+            case dropoutLocusFraction
+            case locusFractionOverrides
+            case activeHaplotypeDefinitionSetID
+            case activeHaplotypeAssayID
+            case preferredSummaryViewMode
+            case mhcCandidateDisplay
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            viewMode = try container.decodeIfPresent(String.self, forKey: .viewMode) ?? Self.default.viewMode
+            panelLayout = try container.decodeIfPresent(String.self, forKey: .panelLayout) ?? Self.default.panelLayout
+            cardDensity = try container.decodeIfPresent(String.self, forKey: .cardDensity) ?? Self.default.cardDensity
+            cardDensityThreshold = try container.decodeIfPresent(Int.self, forKey: .cardDensityThreshold)
+                ?? Self.default.cardDensityThreshold
+            dropoutAbsolute = try container.decodeIfPresent(Int.self, forKey: .dropoutAbsolute)
+            dropoutSampleFraction = try container.decodeIfPresent(Double.self, forKey: .dropoutSampleFraction)
+            dropoutLocusFraction = try container.decodeIfPresent(Double.self, forKey: .dropoutLocusFraction)
+            locusFractionOverrides = try container.decodeIfPresent(
+                [String: Double].self,
+                forKey: .locusFractionOverrides
+            )
+            activeHaplotypeDefinitionSetID = try container.decodeIfPresent(
+                String.self,
+                forKey: .activeHaplotypeDefinitionSetID
+            )
+            activeHaplotypeAssayID = try container.decodeIfPresent(String.self, forKey: .activeHaplotypeAssayID)
+            preferredSummaryViewMode = try container.decodeIfPresent(String.self, forKey: .preferredSummaryViewMode)
+            mhcCandidateDisplay = try container.decodeIfPresent(
+                ONTMHCCandidateDisplaySettings.self,
+                forKey: .mhcCandidateDisplay
+            ) ?? .default
         }
     }
 

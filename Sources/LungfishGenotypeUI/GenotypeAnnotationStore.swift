@@ -341,6 +341,36 @@ public final class GenotypeAnnotationStore {
         }
     }
 
+    func updateMHCCandidateDisplaySettings(_ display: ONTMHCCandidateDisplaySettings) throws {
+        let original = sidecar
+        let before = sidecar.settings.mhcCandidateDisplay
+        guard display != before else { return }
+        sidecar.settings.mhcCandidateDisplay = display
+        let timestamp = now()
+        sidecar.append(audit: .init(
+            action: "updateMHCCandidateDisplaySettings",
+            sample: "bundle",
+            locus: nil,
+            slot: nil,
+            before: mhcCandidateDisplaySummary(before),
+            after: mhcCandidateDisplaySummary(display),
+            color: nil,
+            reason: "mhc-candidate-display-settings",
+            rationale: nil,
+            author: author,
+            timestamp: timestamp
+        ))
+        do {
+            try persist(
+                action: "updateMHCCandidateDisplaySettings",
+                editContext: mhcCandidateDisplayEditContext(display)
+            )
+        } catch {
+            sidecar = original
+            throw error
+        }
+    }
+
     func saveSmartCohort(_ cohort: GenotypeCohortSmartFilter) throws {
         let existing = sidecar.smartCohorts.first { $0.name == cohort.name && $0.scope == cohort.scope }
         sidecar.smartCohorts.removeAll { $0.name == cohort.name && $0.scope == cohort.scope }
@@ -437,6 +467,19 @@ public final class GenotypeAnnotationStore {
             "activeHaplotypeDefinitionSetID=\(optional(settings.activeHaplotypeDefinitionSetID))",
             "activeHaplotypeAssayID=\(optional(settings.activeHaplotypeAssayID))",
             "preferredSummaryViewMode=\(optional(settings.preferredSummaryViewMode))",
+            "mhcCandidateDisplay=\(mhcCandidateDisplaySummary(settings.mhcCandidateDisplay))",
+        ].joined(separator: "; ")
+    }
+
+    private func mhcCandidateDisplaySummary(_ display: ONTMHCCandidateDisplaySettings) -> String {
+        let tintSummary = ONTMHCCandidateTintCategory.allCases.map { category in
+            "\(category.rawValue)=\(display.tints[category]?.hexString ?? "missing")"
+        }.joined(separator: ",")
+        return [
+            "showKnown=\(display.showKnown)",
+            "showSharedCandidates=\(display.showSharedCandidates)",
+            "showSingletonCandidates=\(display.showSingletonCandidates)",
+            tintSummary,
         ].joined(separator: "; ")
     }
 
@@ -651,6 +694,29 @@ public final class GenotypeAnnotationStore {
                 "targetCount": .integer(edits.count),
                 "targets": .array(edits.map { matrixTargetParameterValue($0.target) }),
                 "commentBodies": .array(edits.map { .string($0.body) }),
+            ]
+        )
+    }
+
+    private func mhcCandidateDisplayEditContext(
+        _ display: ONTMHCCandidateDisplaySettings
+    ) -> ProvenanceEditContext {
+        ProvenanceEditContext(
+            explicitOptions: [
+                "showKnown": .boolean(display.showKnown),
+                "showSharedCandidates": .boolean(display.showSharedCandidates),
+                "showSingletonCandidates": .boolean(display.showSingletonCandidates),
+                "candidateTints": .dictionary(Dictionary(uniqueKeysWithValues:
+                    ONTMHCCandidateTintCategory.allCases.map { category in
+                        (
+                            category.rawValue,
+                            ParameterValue.string(
+                                display.tints[category]?.hexString
+                                    ?? ONTMHCCandidateDisplaySettings.defaultTints[category]!.hexString
+                            )
+                        )
+                    }
+                )),
             ]
         )
     }

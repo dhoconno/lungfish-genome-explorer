@@ -2321,9 +2321,7 @@ public extension ONTGenotypeResultBundleData {
     }
 
     static func loadOrCreateAnnotationSidecar(forBundleAt bundleURL: URL) throws -> GenotypeAnnotationSidecar {
-        let url = annotationSidecarURL(forBundleAt: bundleURL)
-        if FileManager.default.fileExists(atPath: url.path) {
-            let data = try Data(contentsOf: url)
+        if let data = try readAnnotationSidecarDataIfPresent(forBundleAt: bundleURL) {
             return try GenotypeAnnotationSidecar.decode(data)
         }
         let formatter = ISO8601DateFormatter()
@@ -2336,19 +2334,187 @@ public extension ONTGenotypeResultBundleData {
     /// this for CLI inspection commands that must not touch a possibly
     /// read-only bundle directory.
     static func loadAnnotationSidecarIfPresent(forBundleAt bundleURL: URL) throws -> GenotypeAnnotationSidecar {
-        let url = annotationSidecarURL(forBundleAt: bundleURL)
-        if FileManager.default.fileExists(atPath: url.path) {
-            let data = try Data(contentsOf: url)
+        if let data = try readAnnotationSidecarDataIfPresent(forBundleAt: bundleURL) {
             return try GenotypeAnnotationSidecar.decode(data)
         }
         return GenotypeAnnotationSidecar.empty(generatedAt: "")
     }
 
+    private static func readAnnotationSidecarDataIfPresent(forBundleAt bundleURL: URL) throws -> Data? {
+        let directoryFD = bundleURL.path.withCString {
+            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard directoryFD >= 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "open bundle directory without following symbolic links",
+                path: bundleURL.path
+            )
+        }
+        defer { Darwin.close(directoryFD) }
+
+        let filename = GenotypeAnnotationSidecar.filename
+        let sidecarFD = filename.withCString {
+            Darwin.openat(directoryFD, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard sidecarFD >= 0 else {
+            if errno == ENOENT { return nil }
+            throw annotationSidecarPOSIXError(
+                operation: "open annotation sidecar without following symbolic links",
+                path: annotationSidecarURL(forBundleAt: bundleURL).path
+            )
+        }
+        defer { Darwin.close(sidecarFD) }
+
+        var status = stat()
+        guard Darwin.fstat(sidecarFD, &status) == 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "inspect annotation sidecar",
+                path: annotationSidecarURL(forBundleAt: bundleURL).path
+            )
+        }
+        guard (status.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+            throw annotationSidecarPOSIXError(
+                operation: "validate annotation sidecar as a regular file",
+                path: annotationSidecarURL(forBundleAt: bundleURL).path,
+                code: EINVAL
+            )
+        }
+
+        var data = Data()
+        if status.st_size > 0, status.st_size <= Int.max {
+            data.reserveCapacity(Int(status.st_size))
+        }
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { rawBuffer in
+                Darwin.read(sidecarFD, rawBuffer.baseAddress, rawBuffer.count)
+            }
+            if count == 0 { break }
+            if count < 0 {
+                if errno == EINTR { continue }
+                throw annotationSidecarPOSIXError(
+                    operation: "read annotation sidecar",
+                    path: annotationSidecarURL(forBundleAt: bundleURL).path
+                )
+            }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+        return data
+    }
+
     static func writeAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar, forBundleAt bundleURL: URL) throws {
-        let url = annotationSidecarURL(forBundleAt: bundleURL)
-        let directory = url.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try sidecar.encoded()
-        try data.write(to: url, options: .atomic)
+        let directoryFD = bundleURL.path.withCString {
+            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard directoryFD >= 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "open bundle directory without following symbolic links",
+                path: bundleURL.path
+            )
+        }
+        defer { Darwin.close(directoryFD) }
+
+        let filename = GenotypeAnnotationSidecar.filename
+        var existingStatus = stat()
+        let existingResult = filename.withCString {
+            Darwin.fstatat(directoryFD, $0, &existingStatus, AT_SYMLINK_NOFOLLOW)
+        }
+        if existingResult == 0 {
+            guard (existingStatus.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+                throw annotationSidecarPOSIXError(
+                    operation: "validate existing sidecar as a regular file",
+                    path: annotationSidecarURL(forBundleAt: bundleURL).path,
+                    code: ELOOP
+                )
+            }
+        } else if errno != ENOENT {
+            throw annotationSidecarPOSIXError(
+                operation: "inspect existing sidecar without following symbolic links",
+                path: annotationSidecarURL(forBundleAt: bundleURL).path
+            )
+        }
+
+        let temporaryName = ".\(filename).\(UUID().uuidString).tmp"
+        let temporaryFD = temporaryName.withCString {
+            Darwin.openat(
+                directoryFD,
+                $0,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                mode_t(0o644)
+            )
+        }
+        guard temporaryFD >= 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "create atomic sidecar staging file",
+                path: bundleURL.appendingPathComponent(temporaryName).path
+            )
+        }
+        var shouldRemoveTemporary = true
+        defer {
+            Darwin.close(temporaryFD)
+            if shouldRemoveTemporary {
+                temporaryName.withCString { _ = Darwin.unlinkat(directoryFD, $0, 0) }
+            }
+        }
+
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+            var offset = 0
+            while offset < rawBuffer.count {
+                let written = Darwin.write(
+                    temporaryFD,
+                    baseAddress.advanced(by: offset),
+                    rawBuffer.count - offset
+                )
+                if written < 0 {
+                    if errno == EINTR { continue }
+                    throw annotationSidecarPOSIXError(
+                        operation: "write atomic sidecar staging file",
+                        path: bundleURL.appendingPathComponent(temporaryName).path
+                    )
+                }
+                offset += written
+            }
+        }
+        guard Darwin.fsync(temporaryFD) == 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "synchronize atomic sidecar staging file",
+                path: bundleURL.appendingPathComponent(temporaryName).path
+            )
+        }
+        let renameResult = temporaryName.withCString { temporaryCString in
+            filename.withCString { filenameCString in
+                Darwin.renameat(directoryFD, temporaryCString, directoryFD, filenameCString)
+            }
+        }
+        guard renameResult == 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "atomically publish annotation sidecar",
+                path: annotationSidecarURL(forBundleAt: bundleURL).path
+            )
+        }
+        shouldRemoveTemporary = false
+        guard Darwin.fsync(directoryFD) == 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "synchronize annotation sidecar directory",
+                path: bundleURL.path
+            )
+        }
+    }
+
+    private static func annotationSidecarPOSIXError(
+        operation: String,
+        path: String,
+        code: Int32 = errno
+    ) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(code),
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Could not \(operation) at \(path): \(String(cString: Darwin.strerror(code)))",
+            ]
+        )
     }
 }

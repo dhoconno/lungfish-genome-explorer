@@ -1,10 +1,142 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 import XCTest
 @testable import LungfishIO
 
 final class ONTGenotypeResultBundleTests: XCTestCase {
+    func testMHCCandidateDisplaySettingsDefaultToAllVisibleAndFourCanonicalTints() {
+        let settings = ONTMHCCandidateDisplaySettings.default
+
+        XCTAssertTrue(settings.showKnown)
+        XCTAssertTrue(settings.showSharedCandidates)
+        XCTAssertTrue(settings.showSingletonCandidates)
+        XCTAssertEqual(Set(settings.tints.keys), Set(ONTMHCCandidateTintCategory.allCases))
+        XCTAssertEqual(settings.tints[.sharedNovel]?.hexString, "#F5D78E")
+        XCTAssertEqual(settings.tints[.singletonNovel]?.hexString, "#F5B97A")
+        XCTAssertEqual(settings.tints[.sharedExtension]?.hexString, "#A8D8D0")
+        XCTAssertEqual(settings.tints[.singletonExtension]?.hexString, "#AFCBF2")
+    }
+
+    func testMHCCandidateDisplaySettingsRoundTripInAnnotationSidecar() throws {
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+        sidecar.settings.mhcCandidateDisplay.showKnown = false
+        sidecar.settings.mhcCandidateDisplay.showSingletonCandidates = false
+        sidecar.settings.mhcCandidateDisplay.tints[.sharedNovel] = try XCTUnwrap(
+            AnnotationColor(hex: "#123456")
+        )
+
+        let decoded = try GenotypeAnnotationSidecar.decode(sidecar.encoded())
+
+        XCTAssertEqual(decoded.settings.mhcCandidateDisplay, sidecar.settings.mhcCandidateDisplay)
+    }
+
+    func testLegacyAnnotationSidecarSynthesizesCandidateDisplayDefaults() throws {
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "generatedAt": "2026-07-20T00:00:00Z",
+          "settings": {
+            "viewMode": "outline",
+            "panelLayout": "aLeading",
+            "cardDensity": "auto",
+            "cardDensityThreshold": 30,
+            "dropoutAbsolute": 50,
+            "dropoutLocusFraction": 0.01
+          }
+        }
+        """#.utf8)
+
+        let decoded = try GenotypeAnnotationSidecar.decode(data)
+
+        XCTAssertEqual(decoded.settings.mhcCandidateDisplay, .default)
+    }
+
+    func testCandidateDisplayTintDecodeFillsMissingAndInvalidEntriesIndividually() throws {
+        let data = Data(#"""
+        {
+          "showKnown": false,
+          "showSharedCandidates": true,
+          "showSingletonCandidates": false,
+          "tints": {
+            "sharedNovel": "#123456",
+            "singletonNovel": "not-a-color",
+            "futureCandidateKind": "#010203"
+          }
+        }
+        """#.utf8)
+
+        let decoded = try JSONDecoder().decode(ONTMHCCandidateDisplaySettings.self, from: data)
+
+        XCTAssertFalse(decoded.showKnown)
+        XCTAssertTrue(decoded.showSharedCandidates)
+        XCTAssertFalse(decoded.showSingletonCandidates)
+        XCTAssertEqual(decoded.tints[.sharedNovel]?.hexString, "#123456")
+        XCTAssertEqual(decoded.tints[.singletonNovel]?.hexString, "#F5B97A")
+        XCTAssertEqual(decoded.tints[.sharedExtension]?.hexString, "#A8D8D0")
+        XCTAssertEqual(decoded.tints[.singletonExtension]?.hexString, "#AFCBF2")
+        XCTAssertEqual(decoded.tints.count, ONTMHCCandidateTintCategory.allCases.count)
+    }
+
+    func testAnnotationSidecarWriteRejectsSymlinkInsteadOfReplacingOrFollowingIt() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("annotation-sidecar-symlink-\(UUID().uuidString)", isDirectory: true)
+        let bundle = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        let outside = root.appendingPathComponent("outside.json")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("outside-must-not-change".utf8).write(to: outside)
+        try FileManager.default.createSymbolicLink(
+            at: bundle.appendingPathComponent(GenotypeAnnotationSidecar.filename),
+            withDestinationURL: outside
+        )
+        let sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundle))
+
+        XCTAssertEqual(try Data(contentsOf: outside), Data("outside-must-not-change".utf8))
+    }
+
+    func testAnnotationSidecarWriteRejectsSymlinkBundleRoot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("annotation-bundle-symlink-\(UUID().uuidString)", isDirectory: true)
+        let realBundle = root.appendingPathComponent("real.lungfishgenotype", isDirectory: true)
+        let linkedBundle = root.appendingPathComponent("linked.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: realBundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createSymbolicLink(at: linkedBundle, withDestinationURL: realBundle)
+        let sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
+
+        XCTAssertThrowsError(
+            try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: linkedBundle)
+        )
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: realBundle.appendingPathComponent(GenotypeAnnotationSidecar.filename).path
+            )
+        )
+    }
+
+    func testAnnotationSidecarLoadRejectsSymlinkInsteadOfReadingOutsideBundle() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("annotation-load-symlink-\(UUID().uuidString)", isDirectory: true)
+        let bundle = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        let outside = root.appendingPathComponent("outside.json")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try GenotypeAnnotationSidecar.empty(generatedAt: "outside").encoded().write(to: outside)
+        try FileManager.default.createSymbolicLink(
+            at: bundle.appendingPathComponent(GenotypeAnnotationSidecar.filename),
+            withDestinationURL: outside
+        )
+
+        XCTAssertThrowsError(
+            try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundle)
+        )
+    }
+
     @MainActor
     func testAsyncCandidateLoaderYieldsMainActorBeforeCompleting() async throws {
         let fixture = try CandidateBundleFixture()
