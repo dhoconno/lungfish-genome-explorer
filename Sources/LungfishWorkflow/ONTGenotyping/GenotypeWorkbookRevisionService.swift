@@ -208,6 +208,7 @@ public struct GenotypeWorkbookRevisionService {
         try checkCancellation()
         let publicationLock = try DarwinFullLengthONTMHCRunLock.acquire(outputDirectoryURL: bundle)
         defer { publicationLock.release() }
+        try validateSourceBundleTree(bundle)
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundle)
         let sourceWorkbookURL: URL
         if let currentPath = manifest.currentWorkbookPath {
@@ -236,6 +237,7 @@ public struct GenotypeWorkbookRevisionService {
         )
         try createAdjacentStageDirectory(stageDirectory, for: bundle)
         defer { try? fileManager.removeItem(at: stageDirectory) }
+        try publicationFailureInjector?("after-stage-created")
 
         let callsName = "\(timestampSlug())-haplotype-calls-\(UUID().uuidString.prefix(8)).json"
         let configName = "\(timestampSlug())-mhc-candidate-workbook-update-\(UUID().uuidString.prefix(8)).json"
@@ -264,7 +266,8 @@ public struct GenotypeWorkbookRevisionService {
         try checkCancellation()
 
         let cloneBundleURL = stageDirectory.appendingPathComponent(bundle.lastPathComponent, isDirectory: true)
-        try fileManager.copyItem(at: bundle, to: cloneBundleURL)
+        try copyBundleTreeNoFollow(from: bundle, to: cloneBundleURL)
+        try validateSourceBundleTree(cloneBundleURL)
         let cloneUpdatesURL = cloneBundleURL.appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
         try fileManager.createDirectory(at: cloneUpdatesURL, withIntermediateDirectories: true)
         let cloneCallsURL = cloneUpdatesURL.appendingPathComponent(callsName)
@@ -954,6 +957,112 @@ public struct GenotypeWorkbookRevisionService {
         }
     }
 
+    private func validateSourceBundleTree(_ bundleURL: URL) throws {
+        let safety = FullLengthONTMHCAlignmentSafety()
+        try safety.requireDirectoryNoFollow(bundleURL, role: "genotype bundle")
+        var enumerationError: Error?
+        guard let enumerator = fileManager.enumerator(
+            at: bundleURL,
+            includingPropertiesForKeys: nil,
+            options: [],
+            errorHandler: { url, error in
+                enumerationError = GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Could not safely enumerate genotype bundle entry \(url.path): \(error.localizedDescription)"
+                )
+                return false
+            }
+        ) else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not safely enumerate genotype bundle: \(bundleURL.path)"
+            )
+        }
+        while let url = enumerator.nextObject() as? URL {
+            var info = stat()
+            guard Darwin.lstat(url.path, &info) == 0 else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Could not inspect genotype bundle entry without following links: \(url.path) (errno \(errno))."
+                )
+            }
+            switch info.st_mode & S_IFMT {
+            case S_IFREG:
+                let descriptor = try safety.openRegularFileNoFollow(
+                    url,
+                    within: bundleURL,
+                    role: "genotype bundle file"
+                )
+                Darwin.close(descriptor)
+            case S_IFDIR:
+                try validateDirectoryPathNoFollow(url, within: bundleURL)
+            default:
+                enumerator.skipDescendants()
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Symlinks and special files are not allowed in workbook update source bundles: \(url.path)"
+                )
+            }
+        }
+        if let enumerationError { throw enumerationError }
+
+        for (relativePath, role) in [
+            ("artifacts", "bundle artifacts directory"),
+            ("artifacts/workbooks", "bundle workbooks directory"),
+            ("artifacts/workbooks/revisions", "workbook revisions directory"),
+            ("artifacts/workbooks/provenance", "workbook provenance directory"),
+            ("artifacts/workbooks/updates", "workbook updates directory"),
+        ] {
+            let url = bundleURL.appendingPathComponent(relativePath, isDirectory: true)
+            if try safety.requireOptionalDirectoryEntryNoFollow(url, role: role) {
+                try validateDirectoryPathNoFollow(url, within: bundleURL)
+            }
+        }
+    }
+
+    private func copyBundleTreeNoFollow(from sourceURL: URL, to destinationURL: URL) throws {
+        let flags = copyfile_flags_t(
+            COPYFILE_ALL | COPYFILE_RECURSIVE | COPYFILE_NOFOLLOW | COPYFILE_EXCL
+        )
+        guard Darwin.copyfile(sourceURL.path, destinationURL.path, nil, flags) == 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not clone workbook bundle without following links: \(sourceURL.path) (errno \(errno))."
+            )
+        }
+    }
+
+    private func validateDirectoryPathNoFollow(_ directoryURL: URL, within rootURL: URL) throws {
+        let root = rootURL.standardizedFileURL
+        let directory = directoryURL.standardizedFileURL
+        let rootComponents = root.pathComponents
+        let directoryComponents = directory.pathComponents
+        guard directoryComponents.count >= rootComponents.count,
+              Array(directoryComponents.prefix(rootComponents.count)) == rootComponents else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Workbook update directory escapes its bundle: \(directory.path)"
+            )
+        }
+        var descriptor = Darwin.open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not open genotype bundle without following links: \(root.path) (errno \(errno))."
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        for component in directoryComponents.dropFirst(rootComponents.count) {
+            let next = component.withCString {
+                Darwin.openat(
+                    descriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+            guard next >= 0 else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Could not traverse workbook update directory without following links: \(directory.path) (errno \(errno))."
+                )
+            }
+            Darwin.close(descriptor)
+            descriptor = next
+        }
+    }
+
     private func createAdjacentStageDirectory(_ stageURL: URL, for bundleURL: URL) throws {
         let parent = bundleURL.deletingLastPathComponent()
         try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(parent, role: "workbook update parent")
@@ -1131,10 +1240,9 @@ public struct GenotypeWorkbookRevisionService {
             switch info.st_mode & S_IFMT {
             case S_IFREG: try syncFile(url)
             case S_IFDIR: directories.append(url)
-            case S_IFLNK: continue
             default:
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                    "Special files are not allowed in workbook bundle publication: \(url.path)"
+                    "Symlinks and special files are not allowed in workbook bundle publication: \(url.path)"
                 )
             }
         }

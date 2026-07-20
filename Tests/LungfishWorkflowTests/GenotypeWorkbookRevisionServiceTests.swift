@@ -105,10 +105,12 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         try Data("{malformed".utf8).write(to: candidateJSONURL, options: .atomic)
         let before = try bundleSnapshot(fixture.bundleURL)
 
+        let service = serviceThatFailsIfStagingBegins()
         XCTAssertThrowsError(
-            try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
-                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
-        )
+            try service.applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertNotEqual((error as NSError).domain, "UnexpectedWorkbookUpdateStaging")
+        }
         XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: fixture.bundleURL.appendingPathComponent("artifacts/workbooks/updates").path
@@ -127,10 +129,12 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         try Data("{malformed".utf8).write(to: candidateJSONURL, options: .atomic)
         let before = try bundleSnapshot(fixture.bundleURL)
 
+        let service = serviceThatFailsIfStagingBegins()
         XCTAssertThrowsError(
-            try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
-                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
-        )
+            try service.applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertNotEqual((error as NSError).domain, "UnexpectedWorkbookUpdateStaging")
+        }
         XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
         XCTAssertFalse(FileManager.default.fileExists(atPath: currentURL.path))
     }
@@ -166,11 +170,117 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         try FileManager.default.createSymbolicLink(at: updatesURL, withDestinationURL: outside)
         let before = try bundleSnapshot(fixture.bundleURL)
 
+        let service = serviceThatFailsIfStagingBegins()
         XCTAssertThrowsError(
-            try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
-                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
-        )
+            try service.applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertNotEqual((error as NSError).domain, "UnexpectedWorkbookUpdateStaging")
+        }
         XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+    }
+
+    func testAbsoluteSymlinkRevisionsPathIsRejectedBeforeExternalOrBundleMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-unsafe-revisions")
+        let outside = root.appendingPathComponent("outside-revisions", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let sentinel = outside.appendingPathComponent("sentinel.txt")
+        try Data("unchanged".utf8).write(to: sentinel)
+        let revisionsURL = fixture.bundleURL.appendingPathComponent(
+            "artifacts/workbooks/revisions",
+            isDirectory: true
+        )
+        try FileManager.default.createSymbolicLink(at: revisionsURL, withDestinationURL: outside)
+        let before = try bundleSnapshot(fixture.bundleURL)
+        let outsideBefore = try Data(contentsOf: sentinel)
+
+        let service = serviceThatFailsIfStagingBegins()
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertNotEqual((error as NSError).domain, "UnexpectedWorkbookUpdateStaging")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        XCTAssertEqual(try Data(contentsOf: sentinel), outsideBefore)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
+    func testRelativeSymlinkProvenancePathIsRejectedBeforeExternalOrBundleMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-unsafe-provenance")
+        let outside = root.appendingPathComponent("outside-provenance", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let sentinel = outside.appendingPathComponent("sentinel.txt")
+        try Data("unchanged".utf8).write(to: sentinel)
+        let provenanceURL = fixture.bundleURL.appendingPathComponent(
+            "artifacts/workbooks/provenance",
+            isDirectory: true
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: provenanceURL.path,
+            withDestinationPath: "../../../outside-provenance"
+        )
+        let before = try bundleSnapshot(fixture.bundleURL)
+        let outsideBefore = try Data(contentsOf: sentinel)
+
+        let service = serviceThatFailsIfStagingBegins()
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertNotEqual((error as NSError).domain, "UnexpectedWorkbookUpdateStaging")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        XCTAssertEqual(try Data(contentsOf: sentinel), outsideBefore)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
+    func testIntermediateWorkbooksSymlinkIsRejectedBeforeHistoryOrProvenanceWrites() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-unsafe-workbooks")
+        let workbooksURL = fixture.bundleURL.appendingPathComponent("artifacts/workbooks", isDirectory: true)
+        let outside = root.appendingPathComponent("outside-workbooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: workbooksURL.appendingPathComponent("current.xlsx"),
+            to: outside.appendingPathComponent("current.xlsx")
+        )
+        let sentinel = outside.appendingPathComponent("sentinel.txt")
+        try Data("unchanged".utf8).write(to: sentinel)
+        try FileManager.default.removeItem(at: workbooksURL)
+        try FileManager.default.createSymbolicLink(at: workbooksURL, withDestinationURL: outside)
+        let before = try bundleSnapshot(fixture.bundleURL)
+        let outsideBefore = try bundleSnapshot(outside)
+
+        let service = serviceThatFailsIfStagingBegins()
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertNotEqual((error as NSError).domain, "UnexpectedWorkbookUpdateStaging")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        XCTAssertEqual(try bundleSnapshot(outside), outsideBefore)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
+    func testFIFOAnywhereInSourceBundleIsRejectedBeforeStagingOrMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-unsafe-fifo")
+        let fifoURL = fixture.bundleURL.appendingPathComponent("artifacts/unsafe.fifo")
+        XCTAssertEqual(Darwin.mkfifo(fifoURL.path, S_IRUSR | S_IWUSR), 0)
+        let before = try bundleSnapshot(fixture.bundleURL)
+
+        let service = serviceThatFailsIfStagingBegins()
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertNotEqual((error as NSError).domain, "UnexpectedWorkbookUpdateStaging")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
     }
 
     func testCancellationDuringPythonLeavesEntireBundleUnchanged() async throws {
@@ -1392,6 +1502,26 @@ print(json.dumps(payload))
             mhcCandidateArtifacts: manifest.mhcCandidateArtifacts
         )
         try ONTGenotypeResultBundle.writeManifest(updated, to: bundleURL)
+    }
+
+    private func assertNoWorkbookUpdateStage(for bundleURL: URL) throws {
+        let parent = bundleURL.deletingLastPathComponent()
+        let prefix = ".\(bundleURL.lastPathComponent).workbook-update-"
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(atPath: parent.path)
+                .contains(where: { $0.hasPrefix(prefix) })
+        )
+    }
+
+    private func serviceThatFailsIfStagingBegins() -> GenotypeWorkbookRevisionService {
+        GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            publicationFailureInjector: { checkpoint in
+                if checkpoint == "after-stage-created" {
+                    throw NSError(domain: "UnexpectedWorkbookUpdateStaging", code: 1)
+                }
+            }
+        )
     }
 
     private func temporaryDirectory() throws -> URL {
