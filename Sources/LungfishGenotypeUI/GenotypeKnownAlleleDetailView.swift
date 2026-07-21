@@ -29,6 +29,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
     private let lengthValue = NSTextField(labelWithString: "")
     private let rolesValue = NSTextField(labelWithString: "")
     private let observedSampleValue = NSTextField(labelWithString: "")
+    private let overviewCommentsView = KnownAlleleCommentsView()
     private let showGenBankButton = NSButton(title: "View GenBank", target: nil, action: nil)
     private let showFASTAButton = NSButton(title: "View FASTA", target: nil, action: nil)
 
@@ -40,6 +41,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
     private let fallbackView = NSView()
     private let fallbackFieldsStack = NSStackView()
     private let fallbackObservedSample = NSTextField(labelWithString: "")
+    private let fallbackCommentsView = KnownAlleleCommentsView()
     private let fallbackNote = NSTextField(
         wrappingLabelWithString: "A fresh analysis is required to generate graphical reference records."
     )
@@ -53,15 +55,17 @@ final class GenotypeKnownAlleleDetailView: NSView {
     private var narrowFactsHeightConstraint: NSLayoutConstraint?
     private var narrowOverviewWidthConstraint: NSLayoutConstraint?
     private var narrowFactsWidthConstraint: NSLayoutConstraint?
+    private var comments: [(String, String)] = []
 
     override var intrinsicContentSize: NSSize {
         let height: CGFloat
         if isShowingFallback {
-            height = 240
+            height = 240 + commentContentHeight(isNarrow: bounds.width <= 0 || bounds.width < 560)
         } else {
             switch currentMode {
             case .overview:
-                height = bounds.width <= 0 || bounds.width < 560 ? 610 : 340
+                let isNarrow = bounds.width <= 0 || bounds.width < 560
+                height = (isNarrow ? 610 : 340) + commentContentHeight(isNarrow: isNarrow)
             case .genBank, .fasta:
                 height = 420
             }
@@ -100,7 +104,11 @@ final class GenotypeKnownAlleleDetailView: NSView {
         super.layout()
     }
 
-    func configure(record: ONTMHCReferenceVisualizationRecord, observedSample: String?) {
+    func configure(
+        record: ONTMHCReferenceVisualizationRecord,
+        observedSample: String?,
+        comments: [(String, String)] = []
+    ) {
         isShowingFallback = false
         alleleLabel.stringValue = record.alleleName
         rawReferenceIDLabel.stringValue = record.rawReferenceID
@@ -109,6 +117,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
         rolesValue.stringValue = Self.roleText(record.roles)
         observedSampleValue.stringValue = Self.observedSampleText(observedSample)
         observedSampleValue.isHidden = observedSampleValue.stringValue.isEmpty
+        configureComments(comments)
 
         overviewView.configure(record: record)
         genBankTextView.string = record.genBankText
@@ -122,7 +131,8 @@ final class GenotypeKnownAlleleDetailView: NSView {
         alleleName: String,
         rawReferenceID: String,
         fields: [(String, String)],
-        observedSample: String?
+        observedSample: String?,
+        comments: [(String, String)] = []
     ) {
         isShowingFallback = true
         alleleLabel.stringValue = alleleName
@@ -140,6 +150,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
 
         fallbackObservedSample.stringValue = Self.observedSampleText(observedSample)
         fallbackObservedSample.isHidden = fallbackObservedSample.stringValue.isEmpty
+        configureComments(comments)
         modeSelector.isHidden = true
         currentMode = .overview
         updateModeButtonStates()
@@ -270,6 +281,8 @@ final class GenotypeKnownAlleleDetailView: NSView {
         observedSampleValue.textColor = .secondaryLabelColor
         observedSampleValue.maximumNumberOfLines = 2
         factsStack.addArrangedSubview(observedSampleValue)
+        factsStack.addArrangedSubview(overviewCommentsView)
+        overviewCommentsView.widthAnchor.constraint(equalTo: factsStack.widthAnchor).isActive = true
 
         showGenBankButton.target = self
         showGenBankButton.action = #selector(showGenBank(_:))
@@ -358,7 +371,12 @@ final class GenotypeKnownAlleleDetailView: NSView {
         fallbackNote.textColor = .secondaryLabelColor
         fallbackNote.setAccessibilityIdentifier("knownAlleleFallbackNote")
 
-        let stack = NSStackView(views: [fallbackFieldsStack, fallbackObservedSample, fallbackNote])
+        let stack = NSStackView(views: [
+            fallbackFieldsStack,
+            fallbackObservedSample,
+            fallbackCommentsView,
+            fallbackNote,
+        ])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -371,7 +389,28 @@ final class GenotypeKnownAlleleDetailView: NSView {
             stack.topAnchor.constraint(equalTo: fallbackView.topAnchor, constant: 16),
             stack.bottomAnchor.constraint(equalTo: fallbackView.bottomAnchor, constant: -16),
             stack.widthAnchor.constraint(lessThanOrEqualToConstant: 560),
+            fallbackCommentsView.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
+    }
+
+    private func configureComments(_ comments: [(String, String)]) {
+        self.comments = comments
+        overviewCommentsView.configure(comments)
+        fallbackCommentsView.configure(comments)
+        invalidateIntrinsicContentSize()
+    }
+
+    private func commentContentHeight(isNarrow: Bool) -> CGFloat {
+        guard !comments.isEmpty else { return 0 }
+        let charactersPerLine = isNarrow ? 54 : 28
+        let rowsHeight = comments.reduce(CGFloat.zero) { height, comment in
+            let bodyLineCount = max(
+                1,
+                Int(ceil(Double(max(1, comment.1.count)) / Double(charactersPerLine)))
+            )
+            return height + 17 + (CGFloat(bodyLineCount) * 14) + 7
+        }
+        return 22 + rowsHeight
     }
 
     private func makeFact(title: String, value: NSTextField) -> NSView {
@@ -517,6 +556,73 @@ final class GenotypeKnownAlleleDetailView: NSView {
     private static func observedSampleText(_ sample: String?) -> String {
         guard let sample, !sample.isEmpty else { return "" }
         return "Observed in sample \(sample)"
+    }
+}
+
+@MainActor
+private final class KnownAlleleCommentsView: NSStackView {
+    private let rowsStack = NSStackView()
+
+    init() {
+        super.init(frame: .zero)
+        buildHierarchy()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        buildHierarchy()
+    }
+
+    func configure(_ comments: [(String, String)]) {
+        rowsStack.arrangedSubviews.forEach { view in
+            rowsStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        for (index, comment) in comments.enumerated() {
+            let label = NSTextField(labelWithString: comment.0)
+            label.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+            label.textColor = .secondaryLabelColor
+            label.setAccessibilityIdentifier("knownAlleleCommentLabel.\(index)")
+
+            let body = NSTextField(wrappingLabelWithString: comment.1)
+            body.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            body.textColor = .labelColor
+            body.maximumNumberOfLines = 0
+            body.lineBreakMode = .byWordWrapping
+            body.setAccessibilityIdentifier("knownAlleleCommentBody.\(index)")
+
+            let row = NSStackView(views: [label, body])
+            row.orientation = .vertical
+            row.alignment = .width
+            row.spacing = 2
+            row.setAccessibilityRole(.group)
+            row.setAccessibilityIdentifier("knownAlleleCommentRow.\(index)")
+            rowsStack.addArrangedSubview(row)
+        }
+
+        isHidden = comments.isEmpty
+    }
+
+    private func buildHierarchy() {
+        orientation = .vertical
+        alignment = .width
+        spacing = 6
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Comments")
+        setAccessibilityIdentifier("knownAlleleCommentsSection")
+
+        let title = NSTextField(labelWithString: "Comments")
+        title.font = .systemFont(ofSize: 11, weight: .semibold)
+        title.textColor = .secondaryLabelColor
+        title.setAccessibilityIdentifier("knownAlleleCommentsTitle")
+
+        rowsStack.orientation = .vertical
+        rowsStack.alignment = .width
+        rowsStack.spacing = 7
+        addArrangedSubview(title)
+        addArrangedSubview(rowsStack)
+        isHidden = true
     }
 }
 

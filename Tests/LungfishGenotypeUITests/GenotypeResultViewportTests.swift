@@ -3189,6 +3189,106 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(rows.contains { $0 == ("Cell Comment", "Cell note") })
     }
 
+    func testKnownRowAndSupportedCellShowApplicableCommentsWithoutStaleViewsOrEvidence() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("KnownAlleleComments-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let firstID = "NHP01222"
+        let secondID = "NHP99999"
+        let first = makeCall(sample: "AnimalA", genotype: firstID, reads: 73)
+        let second = makeCall(sample: "AnimalA", genotype: secondID, reads: 41)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [ONTGenotypeSampleResult(
+                sample: "AnimalA", passedAlignments: 114, passedUniqueReads: 114,
+                sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [first, second]
+            )],
+            calls: [first, second],
+            referenceMetadata: makeGenBankReferenceMetadata(),
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact(
+                schemaVersion: 1,
+                records: [
+                    makeMHCReferenceVisualizationRecord(rawReferenceID: firstID, alleleName: "Mafa-A1*001:01"),
+                    makeMHCReferenceVisualizationRecord(rawReferenceID: secondID, alleleName: "Mafa-B*002:01"),
+                ]
+            )
+        ))
+
+        controller.testingSelectMatrixRows(genotypes: [firstID], sample: nil)
+        controller.addMatrixComment(.init(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            body: "First row note"
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.addMatrixComment(.init(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            body: "Animal column note"
+        ))
+        controller.testingSelectMatrixCell(genotype: firstID, sample: "AnimalA")
+        controller.addMatrixComment(.init(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            body: "First cell note"
+        ))
+
+        controller.testingSelectMatrixRows(genotypes: [firstID], sample: nil)
+
+        let rowDetail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        let rowText = visibleText(in: rowDetail)
+        XCTAssertTrue(rowText.contains("Row Comment"))
+        XCTAssertTrue(rowText.contains("First row note"))
+        XCTAssertFalse(rowText.contains("Animal column note"))
+        XCTAssertFalse(rowText.contains("First cell note"))
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("Row Comment", "First row note")
+        })
+        assertNoKnownAggregateEvidence(in: rowText)
+
+        controller.testingSelectMatrixCell(genotype: firstID, sample: "AnimalA")
+
+        let cellDetail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        XCTAssertTrue(rowDetail === cellDetail)
+        let cellText = visibleText(in: cellDetail)
+        for text in [
+            "Row Comment", "First row note",
+            "Column Comment", "Animal column note",
+            "Cell Comment", "First cell note",
+        ] {
+            XCTAssertTrue(cellText.contains(text), text)
+        }
+        for row in [
+            ("Row Comment", "First row note"),
+            ("Column Comment", "Animal column note"),
+            ("Cell Comment", "First cell note"),
+        ] {
+            XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == row })
+        }
+        assertNoKnownAggregateEvidence(in: cellText)
+        let cellDescendantCount = descendants(of: cellDetail).count
+
+        controller.testingSelectMatrixRows(genotypes: [secondID], sample: nil)
+        controller.addMatrixComment(.init(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            body: "Second row note"
+        ))
+
+        let replacementDetail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        XCTAssertTrue(cellDetail === replacementDetail)
+        let replacementText = visibleText(in: replacementDetail)
+        XCTAssertTrue(replacementText.contains("Second row note"))
+        XCTAssertFalse(replacementText.contains("First row note"))
+        XCTAssertFalse(replacementText.contains("Animal column note"))
+        XCTAssertFalse(replacementText.contains("First cell note"))
+        XCTAssertEqual(descendants(of: replacementDetail).filter {
+            $0.accessibilityIdentifier().hasPrefix("knownAlleleCommentRow.")
+        }.count, 1)
+        XCTAssertLessThan(descendants(of: replacementDetail).count, cellDescendantCount)
+        assertNoKnownAggregateEvidence(in: replacementText)
+    }
+
     func testMixedMatrixTargetsUseGenericMixedSummary() {
         let controller = GenotypeResultViewController()
         _ = controller.view

@@ -2314,20 +2314,41 @@ public final class GenotypeResultViewController: NSViewController {
         currentSelectedSample = sample
         let displayLabel = alleleDisplayLabel(for: sharedCall.genotype)
         let referenceRows = genBankFieldRows(for: sharedCall.genotype)
+        let resolvedMatrixTargets = matrixTargets ?? [
+            sample.map {
+                GenotypeAnnotationSidecar.MatrixTarget.cell(
+                    locus: sharedCall.locus,
+                    genotype: sharedCall.genotype,
+                    sample: $0
+                )
+            } ?? .row(locus: sharedCall.locus, genotype: sharedCall.genotype),
+        ]
+        let commentTargets = applicableCommentTargets(for: resolvedMatrixTargets)
+        let commentRows = matrixCommentDetailRows(for: commentTargets)
         if let record = result?.mhcReferenceVisualizations?.recordsByRawReferenceID[sharedCall.genotype] {
-            knownAlleleDetailView.configure(record: record, observedSample: sample)
+            knownAlleleDetailView.configure(
+                record: record,
+                observedSample: sample,
+                comments: commentRows
+            )
         } else {
             knownAlleleDetailView.configureFallback(
                 alleleName: displayLabel,
                 rawReferenceID: sharedCall.genotype,
                 fields: referenceRows,
-                observedSample: sample
+                observedSample: sample,
+                comments: commentRows
             )
         }
         removeArrangedSubviews(from: detailStack)
         detailStack.addArrangedSubview(knownAlleleDetailView)
 
-        publishSelectionState(selectionState(for: sharedCall, sample: sample, matrixTargets: matrixTargets))
+        publishSelectionState(selectionState(
+            for: sharedCall,
+            sample: sample,
+            matrixTargets: resolvedMatrixTargets,
+            providedCommentRows: commentRows
+        ))
     }
 
     private func hasSelectedCellSupport(
@@ -2809,7 +2830,8 @@ public final class GenotypeResultViewController: NSViewController {
     private func selectionState(
         for sharedCall: ONTGenotypeSharedCall,
         sample: String?,
-        matrixTargets providedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
+        matrixTargets providedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil,
+        providedCommentRows: [(String, String)]? = nil
     ) -> GenotypeResultSelectionState {
         let displayLabel = alleleDisplayLabel(for: sharedCall.genotype)
         var rows: [(String, String)] = [("Allele", displayLabel)]
@@ -2834,7 +2856,8 @@ public final class GenotypeResultViewController: NSViewController {
             } ?? .row(locus: sharedCall.locus, genotype: sharedCall.genotype),
         ]
         rows.insert(("Selection Type", matrixTargetTypeLabel(for: matrixTargets)), at: 0)
-        rows += matrixCommentDetailRows(for: applicableCommentTargets(for: matrixTargets))
+        rows += providedCommentRows
+            ?? matrixCommentDetailRows(for: applicableCommentTargets(for: matrixTargets))
         let target = GenotypeResultHighlightTarget(
             genotype: sharedCall.genotype,
             locus: sharedCall.locus,

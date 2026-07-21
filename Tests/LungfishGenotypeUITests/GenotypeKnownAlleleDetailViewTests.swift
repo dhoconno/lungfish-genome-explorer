@@ -256,6 +256,83 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         }
     }
 
+    func testCommentsAreVisibleReplaceWithoutGrowthAndIncreaseOverviewAndFallbackHeight() throws {
+        let record = makeRecord()
+        let comments = [
+            ("Row Comment", "Review the complete allele annotation before release."),
+            ("Column Comment", "Sample metadata needs independent confirmation."),
+            ("Cell Comment", "Resolve this allele and sample pairing."),
+        ]
+        let wide = makeView()
+        wide.configure(record: record, observedSample: nil)
+        let wideBaseHeight = wide.intrinsicContentSize.height
+
+        wide.configure(record: record, observedSample: "CR1178", comments: comments)
+
+        let section = try identifiedView("knownAlleleCommentsSection", in: wide)
+        XCTAssertFalse(section.isHidden)
+        XCTAssertEqual(text("knownAlleleCommentsTitle", in: wide), "Comments")
+        for (label, body) in comments {
+            XCTAssertTrue(textFields(in: section).contains { $0.stringValue == label })
+            XCTAssertTrue(textFields(in: section).contains { $0.stringValue == body })
+        }
+        XCTAssertGreaterThan(wide.intrinsicContentSize.height, wideBaseHeight)
+        let threeCommentHeight = wide.intrinsicContentSize.height
+        let threeCommentCount = descendants(of: wide).count
+
+        wide.configure(
+            record: makeRecord(rawReferenceID: "NHP0099", alleleName: "Mafa-B*099:02"),
+            observedSample: nil,
+            comments: [("Row Comment", "Replacement note")]
+        )
+
+        let replacementText = textFields(in: wide).map(\.stringValue)
+        XCTAssertTrue(replacementText.contains("Replacement note"))
+        XCTAssertFalse(replacementText.contains(comments[0].1))
+        XCTAssertEqual(descendants(of: wide).filter {
+            $0.accessibilityIdentifier().hasPrefix("knownAlleleCommentRow.")
+        }.count, 1)
+        XCTAssertLessThan(wide.intrinsicContentSize.height, threeCommentHeight)
+        XCTAssertLessThan(descendants(of: wide).count, threeCommentCount)
+
+        wide.configure(record: record, observedSample: nil, comments: [])
+        XCTAssertTrue(try identifiedView("knownAlleleCommentsSection", in: wide).isHidden)
+
+        let narrow = GenotypeKnownAlleleDetailView(
+            frame: NSRect(x: 0, y: 0, width: 500, height: 1)
+        )
+        narrow.configure(record: record, observedSample: nil)
+        let narrowBaseHeight = narrow.intrinsicContentSize.height
+        narrow.configure(record: record, observedSample: nil, comments: comments)
+        XCTAssertGreaterThan(narrow.intrinsicContentSize.height, narrowBaseHeight)
+        let narrowShortHeight = narrow.intrinsicContentSize.height
+        narrow.configure(
+            record: record,
+            observedSample: nil,
+            comments: [("Row Comment", String(repeating: "Long wrapping comment. ", count: 20))]
+        )
+        XCTAssertGreaterThan(narrow.intrinsicContentSize.height, narrowShortHeight)
+
+        let fallback = GenotypeKnownAlleleDetailView(frame: .zero)
+        fallback.configureFallback(
+            alleleName: "Mafa-DPB1*01:01",
+            rawReferenceID: "legacy_DPB1_01",
+            fields: [("Definition", "Legacy reference")],
+            observedSample: nil
+        )
+        let fallbackBaseHeight = fallback.intrinsicContentSize.height
+        fallback.configureFallback(
+            alleleName: "Mafa-DPB1*01:01",
+            rawReferenceID: "legacy_DPB1_01",
+            fields: [("Definition", "Legacy reference")],
+            observedSample: "CR1178",
+            comments: comments
+        )
+        XCTAssertGreaterThan(fallback.intrinsicContentSize.height, fallbackBaseHeight)
+        XCTAssertEqual(text("knownAlleleCommentsTitle", in: fallback), "Comments")
+        XCTAssertTrue(textFields(in: fallback).contains { $0.stringValue == comments[2].1 })
+    }
+
     func testModesAndFallbackProvideMeaningfulIntrinsicAndFittingHeightsFromZeroFrame() throws {
         let overview = GenotypeKnownAlleleDetailView(frame: .zero)
         overview.configure(record: makeRecord(), observedSample: "CR1178")
