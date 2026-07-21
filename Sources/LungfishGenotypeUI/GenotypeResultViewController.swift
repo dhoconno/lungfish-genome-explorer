@@ -98,6 +98,7 @@ public final class GenotypeResultViewController: NSViewController {
     private let detailDocumentView = FlippedDocumentView()
     private let detailStack = NSStackView()
     private let knownAlleleDetailView = GenotypeKnownAlleleDetailView()
+    private let candidateAlleleDetailView = GenotypeCandidateAlleleDetailView()
 
     private let haplotypeScrollView = NSScrollView()
     private let haplotypeStack = NSStackView()
@@ -123,6 +124,9 @@ public final class GenotypeResultViewController: NSViewController {
     private var callsBySample: [String: [ONTGenotypeCall]] = [:]
     private var sharedCallsByKey: [SharedCallKey: ONTGenotypeSharedCall] = [:]
     private var sampleSupportByCellKey: [CellEvidenceKey: ONTGenotypeSampleSupport] = [:]
+    private var candidatePresentationsByStableClusterID: [
+        String: GenotypeCandidateEvidenceProjection.IndexedPresentation
+    ] = [:]
     private var callIndexBySample: [String: CallIndex] = [:]
     private var sampleResultsByName: [String: ONTGenotypeSampleResult] = [:]
     private var diagnosticDisplayGenotypeByIdentifier: [String: String] = [:]
@@ -160,6 +164,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var candidateSelectionCallbackCount = 0
     private var knownSelectionDiagnostics = GenotypeKnownSelectionDiagnostics()
     private var knownAlleleDetailMountCount = 0
+    private var candidateAlleleDetailMountCount = 0
     private var currentSelectedSample: String?
     private var currentSelectedLocus: String?
     private var currentSelectionState: GenotypeResultSelectionState?
@@ -522,6 +527,7 @@ public final class GenotypeResultViewController: NSViewController {
         candidateSelectionCallbackCount = 0
         knownSelectionDiagnostics = GenotypeKnownSelectionDiagnostics()
         knownAlleleDetailMountCount = 0
+        candidateAlleleDetailMountCount = 0
         let knownSampleIDs = Set(
             result.samples.map(\.sample)
                 + result.calls.map(\.sample)
@@ -585,6 +591,15 @@ public final class GenotypeResultViewController: NSViewController {
         }
         callIndexBySample = callsBySample.mapValues { callIndex(for: $0) }
         sampleResultsByName = Dictionary(uniqueKeysWithValues: result.samples.map { ($0.sample, $0) })
+        if let document = validatedMHCCandidateDocument(from: result),
+           let artifacts = result.manifest.mhcCandidateArtifacts {
+            candidatePresentationsByStableClusterID = GenotypeCandidateEvidenceProjection.indexedPresentations(
+                document: document,
+                artifacts: artifacts
+            )
+        } else {
+            candidatePresentationsByStableClusterID = [:]
+        }
         observedLociIndex = GenotypeObservedLociIndex.build(from: result)
         allFilterableSampleNamesCache = []
         var bestByIdentifier: [String: ONTGenotypeCall] = [:]
@@ -1174,6 +1189,12 @@ public final class GenotypeResultViewController: NSViewController {
                 currentSharedCall,
                 sample: currentSelectedSample,
                 matrixTargets: currentSelectionState?.matrixTargets
+            )
+        } else if let currentCandidateRow {
+            showCandidateRow(
+                currentCandidateRow,
+                sample: currentSelectedSample,
+                matrixTargets: currentSelectionState?.matrixTargets ?? []
             )
         } else if let targets = currentSelectionState?.matrixTargets, !targets.isEmpty {
             showMatrixTargetSelection(targets)
@@ -2375,29 +2396,49 @@ public final class GenotypeResultViewController: NSViewController {
         matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]
     ) {
         guard let result,
-              let document = validatedMHCCandidateDocument(from: result),
-              let artifacts = result.manifest.mhcCandidateArtifacts,
-              row.candidate != nil else {
+              validatedMHCCandidateDocument(from: result) != nil,
+              let candidate = row.candidate,
+              let stableClusterID = row.stableClusterID,
+              let presentation = candidatePresentationsByStableClusterID[stableClusterID] else {
             showEmptySelection()
             return
         }
         currentSharedCall = nil
         currentCandidateRow = row
         currentSelectedSample = sample
-        let rows = GenotypeCandidateEvidenceProjection.detailRows(
-            row: row,
-            document: document,
-            artifacts: artifacts,
-            selectedSample: sample
-        ) + matrixCommentDetailRows(for: row.sharedCall, sample: sample, matrixTargets: matrixTargets)
-        removeArrangedSubviews(from: detailStack)
-        detailStack.addArrangedSubview(sectionTitle("Candidate Allele Evidence"))
-        detailStack.addArrangedSubview(wrappingText(row.alleleName, weight: .medium, maximumLines: 3))
-        detailStack.addArrangedSubview(caption("Candidate rows are display evidence only and are excluded from haplotype inference and genotype QC."))
-        if let candidatePersistenceWarning {
-            detailStack.addArrangedSubview(caption("Warning: \(candidatePersistenceWarning)"))
+        let commentRows = matrixCommentDetailRows(
+            for: row.sharedCall,
+            sample: sample,
+            matrixTargets: matrixTargets
+        )
+        let rows = presentation.detailRows(selectedSample: sample) + commentRows
+        let warning = [
+            candidatePersistenceWarning,
+            GenotypeCandidateEvidenceProjection.warningText(result.integrityWarnings),
+        ]
+            .compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: "\n")
+        candidateAlleleDetailView.configure(
+            candidate: candidate,
+            closestReference: result.mhcReferenceVisualizations?
+                .recordsByCandidateStableClusterID[stableClusterID],
+            candidateSequence: result.mhcCandidateSequencesByStableClusterID[stableClusterID],
+            selectedSampleID: sample,
+            selectedSampleReadCount: sample.flatMap {
+                presentation.selectedSampleReadCounts[$0]
+            },
+            comments: commentRows,
+            warning: warning.isEmpty ? nil : warning
+        )
+        if detailStack.arrangedSubviews.count != 1
+            || detailStack.arrangedSubviews.first !== candidateAlleleDetailView {
+            removeArrangedSubviews(from: detailStack)
+            detailStack.addArrangedSubview(candidateAlleleDetailView)
+            candidateAlleleDetailMountCount += 1
         }
-        detailStack.addArrangedSubview(detailRows(rows))
 
         let target = GenotypeResultHighlightTarget(
             genotype: row.genotype,
@@ -2426,6 +2467,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func showMatrixTargetSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
         currentSharedCall = nil
+        currentCandidateRow = nil
         currentSelectedSample = nil
         let uniqueTargets = uniqueMatrixTargets(targets)
         guard !uniqueTargets.isEmpty else {
@@ -2608,6 +2650,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func showCellSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
         currentSharedCall = nil
+        currentCandidateRow = nil
         currentSelectedSample = nil
         let cells = targets.compactMap { target -> (target: GenotypeAnnotationSidecar.MatrixTarget, locus: String, genotype: String, sample: String, stableClusterID: String?)? in
             guard case let .cell(locus, genotype, sample, stableClusterID) = target else { return nil }
@@ -6093,6 +6136,10 @@ extension GenotypeResultViewController {
         knownAlleleDetailMountCount
     }
 
+    var testingCandidateAlleleDetailMountCount: Int {
+        candidateAlleleDetailMountCount
+    }
+
     var testingComparisonMatrixIsHidden: Bool {
         comparisonMatrix.isHidden
     }
@@ -6237,6 +6284,13 @@ extension GenotypeResultViewController {
         comparisonMatrix.testingSelectCandidateCell(
             rowID: .candidate(stableClusterID: stableClusterID),
             sample: sample
+        )
+    }
+
+    func testingSelectCandidateRow(stableClusterID: String) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingClickCandidateRowChiclet(
+            rowID: .candidate(stableClusterID: stableClusterID)
         )
     }
 

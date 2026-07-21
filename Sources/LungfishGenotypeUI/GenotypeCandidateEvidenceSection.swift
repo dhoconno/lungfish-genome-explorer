@@ -130,18 +130,57 @@ public struct GenotypeCandidateEvidenceSection: View {
 }
 
 enum GenotypeCandidateEvidenceProjection {
-    static func detailRows(
-        row: GenotypeCandidateMatrixRow,
-        document: ONTMHCCandidateAllelesDocument,
-        artifacts: ONTMHCCandidateArtifactManifest,
-        selectedSample: String?
-    ) -> [(String, String)] {
-        guard let candidate = row.candidate else { return [] }
-        let observations = document.observations
-            .filter { $0.stableClusterID == candidate.stableClusterID }
-            .sorted {
-                $0.sampleID.localizedStandardCompare($1.sampleID) == .orderedAscending
+    struct IndexedPresentation {
+        let baseDetailRows: [(String, String)]
+        let selectedSampleReadCounts: [String: Int]
+
+        func detailRows(selectedSample: String?) -> [(String, String)] {
+            guard let selectedSample,
+                  let readCount = selectedSampleReadCounts[selectedSample] else {
+                return baseDetailRows
             }
+            return baseDetailRows + [
+                ("Selected Sample", selectedSample),
+                ("Selected Sample Reads", "\(readCount)"),
+            ]
+        }
+    }
+
+    static func indexedPresentations(
+        document: ONTMHCCandidateAllelesDocument,
+        artifacts: ONTMHCCandidateArtifactManifest
+    ) -> [String: IndexedPresentation] {
+        var sampleReadCountsByStableClusterID: [String: [String: Int]] = [:]
+        var evidenceCountsByStableClusterID: [String: Int] = [:]
+        sampleReadCountsByStableClusterID.reserveCapacity(document.candidates.count)
+        evidenceCountsByStableClusterID.reserveCapacity(document.candidates.count)
+        for observation in document.observations {
+            sampleReadCountsByStableClusterID[observation.stableClusterID, default: [:]][observation.sampleID, default: 0]
+                += observation.aggregatedSampleReadCount
+            evidenceCountsByStableClusterID[observation.stableClusterID, default: 0]
+                += observation.evidence.count
+        }
+
+        var presentations: [String: IndexedPresentation] = [:]
+        presentations.reserveCapacity(document.candidates.count)
+        for candidate in document.candidates {
+            presentations[candidate.stableClusterID] = IndexedPresentation(
+                baseDetailRows: detailRows(
+                    candidate: candidate,
+                    artifacts: artifacts,
+                    genotypingEvidenceCount: evidenceCountsByStableClusterID[candidate.stableClusterID] ?? 0
+                ),
+                selectedSampleReadCounts: sampleReadCountsByStableClusterID[candidate.stableClusterID] ?? [:]
+            )
+        }
+        return presentations
+    }
+
+    private static func detailRows(
+        candidate: ONTMHCCandidateRecord,
+        artifacts: ONTMHCCandidateArtifactManifest,
+        genotypingEvidenceCount: Int
+    ) -> [(String, String)] {
         var rows: [(String, String)] = [
             ("Stable Cluster ID", candidate.stableClusterID),
             ("Provisional Name", candidate.provisionalName),
@@ -153,19 +192,6 @@ enum GenotypeCandidateEvidenceProjection {
             ("Total Cluster Reads", "\(candidate.totalClusterReads)"),
             ("Supporting Sample IDs", candidate.supportingSampleIDs.sorted().joined(separator: ", ")),
         ]
-        for observation in observations {
-            rows.append(("Sample \(observation.sampleID) Aggregated Reads", "\(observation.aggregatedSampleReadCount)"))
-            rows.append(("Sample \(observation.sampleID) Source Clusters", observation.sourceClusterIDs.sorted().joined(separator: ", ")))
-            let sourceCounts = observation.sourceClusterReadCounts.keys.sorted().map {
-                "\($0)=\(observation.sourceClusterReadCounts[$0] ?? 0)"
-            }.joined(separator: ", ")
-            rows.append(("Sample \(observation.sampleID) Source Counts", sourceCounts))
-        }
-        if let selectedSample,
-           let observation = observations.first(where: { $0.sampleID == selectedSample }) {
-            rows.append(("Selected Sample", selectedSample))
-            rows.append(("Selected Sample Reads", "\(observation.aggregatedSampleReadCount)"))
-        }
         rows += [
             ("Closest Reference", candidate.closestReferenceName),
             ("Closest Reference Class", candidate.closestReferenceClass == .cDNA ? "cDNA" : "Genomic DNA"),
@@ -188,9 +214,6 @@ enum GenotypeCandidateEvidenceProjection {
         appendArtifact("Reciprocal BAM", artifacts.reciprocalEvidence?.bam, to: &rows)
         appendArtifact("Reciprocal BAI", artifacts.reciprocalEvidence?.bai, to: &rows)
         appendAlignment("Selected Alignment", candidate.selectedEvidence, to: &rows)
-        let genotypingEvidenceCount = observations.reduce(into: 0) { count, observation in
-            count += observation.evidence.count
-        }
         if genotypingEvidenceCount > 0 {
             let noun = genotypingEvidenceCount == 1 ? "alignment" : "alignments"
             rows.append((
