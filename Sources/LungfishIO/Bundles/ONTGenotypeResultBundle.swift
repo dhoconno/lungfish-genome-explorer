@@ -231,7 +231,58 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let presetVersion: String?
     public let createdAt: String?
     public let mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest?
+    public let mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts?
     public let referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        currentWorkbookPath: String? = nil,
+        workbookRevisions: [ONTGenotypeWorkbookRevision]? = nil,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil,
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts? = nil,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.kind = kind
+        self.outputName = outputName
+        self.analysisName = analysisName
+        self.primaryWorkbookPath = primaryWorkbookPath
+        self.currentWorkbookPath = currentWorkbookPath
+        self.workbookRevisions = workbookRevisions
+        self.longSummaryCSVPath = longSummaryCSVPath
+        self.sampleSummaryCSVPath = sampleSummaryCSVPath
+        self.statsJSONPath = statsJSONPath
+        self.provenancePath = provenancePath
+        self.deduplicatedUnmatchedClustersFASTAPath = deduplicatedUnmatchedClustersFASTAPath
+        self.haplotypeAnalysisPath = haplotypeAnalysisPath
+        self.activeHaplotypeAnalysisRevisionID = activeHaplotypeAnalysisRevisionID
+        self.haplotypeAnalysisRevisions = haplotypeAnalysisRevisions
+        self.haplotypeDefinitionSetID = haplotypeDefinitionSetID
+        self.haplotypeAssayID = haplotypeAssayID
+        self.presetID = presetID
+        self.presetVersion = presetVersion
+        self.createdAt = createdAt
+        self.mhcCandidateArtifacts = mhcCandidateArtifacts
+        self.mhcReferenceVisualizations = mhcReferenceVisualizations
+        self.referenceRecordStore = referenceRecordStore
+    }
 
     public init(
         schemaVersion: Int = 1,
@@ -257,28 +308,31 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
         referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil
     ) {
-        self.schemaVersion = schemaVersion
-        self.kind = kind
-        self.outputName = outputName
-        self.analysisName = analysisName
-        self.primaryWorkbookPath = primaryWorkbookPath
-        self.currentWorkbookPath = currentWorkbookPath
-        self.workbookRevisions = workbookRevisions
-        self.longSummaryCSVPath = longSummaryCSVPath
-        self.sampleSummaryCSVPath = sampleSummaryCSVPath
-        self.statsJSONPath = statsJSONPath
-        self.provenancePath = provenancePath
-        self.deduplicatedUnmatchedClustersFASTAPath = deduplicatedUnmatchedClustersFASTAPath
-        self.haplotypeAnalysisPath = haplotypeAnalysisPath
-        self.activeHaplotypeAnalysisRevisionID = activeHaplotypeAnalysisRevisionID
-        self.haplotypeAnalysisRevisions = haplotypeAnalysisRevisions
-        self.haplotypeDefinitionSetID = haplotypeDefinitionSetID
-        self.haplotypeAssayID = haplotypeAssayID
-        self.presetID = presetID
-        self.presetVersion = presetVersion
-        self.createdAt = createdAt
-        self.mhcCandidateArtifacts = mhcCandidateArtifacts
-        self.referenceRecordStore = referenceRecordStore
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            currentWorkbookPath: currentWorkbookPath,
+            workbookRevisions: workbookRevisions,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: mhcCandidateArtifacts,
+            mhcReferenceVisualizations: nil,
+            referenceRecordStore: referenceRecordStore
+        )
     }
 }
 
@@ -902,6 +956,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     public let haplotypeAnalysis: GenotypeHaplotypeAnalysis?
     public let mhcCandidates: ONTMHCCandidateAllelesDocument?
     public let mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?
+    public let mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact?
     public let integrityWarnings: [ONTGenotypeIntegrityWarning]
     public let referenceMetadata: ONTGenotypeReferenceMetadata?
 
@@ -924,6 +979,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
             haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: nil,
             mhcUnnameableClusters: nil,
+            mhcReferenceVisualizations: nil,
             integrityWarnings: [],
             referenceMetadata: nil
         )
@@ -939,6 +995,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         mhcCandidates: ONTMHCCandidateAllelesDocument?,
         mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?,
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil,
         integrityWarnings: [ONTGenotypeIntegrityWarning],
         referenceMetadata: ONTGenotypeReferenceMetadata?
     ) {
@@ -951,8 +1008,38 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         self.haplotypeAnalysis = haplotypeAnalysis
         self.mhcCandidates = mhcCandidates
         self.mhcUnnameableClusters = mhcUnnameableClusters
+        self.mhcReferenceVisualizations = mhcReferenceVisualizations
         self.integrityWarnings = integrityWarnings
         self.referenceMetadata = referenceMetadata
+    }
+
+    public init(
+        bundleURL: URL,
+        manifest: ONTGenotypeResultBundleManifest,
+        artifacts: ONTGenotypeResultArtifacts,
+        stats: ONTGenotypeRunStats,
+        calls: [ONTGenotypeCall],
+        samples: [ONTGenotypeSampleResult],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        mhcCandidates: ONTMHCCandidateAllelesDocument?,
+        mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?,
+        integrityWarnings: [ONTGenotypeIntegrityWarning],
+        referenceMetadata: ONTGenotypeReferenceMetadata?
+    ) {
+        self.init(
+            bundleURL: bundleURL,
+            manifest: manifest,
+            artifacts: artifacts,
+            stats: stats,
+            calls: calls,
+            samples: samples,
+            haplotypeAnalysis: haplotypeAnalysis,
+            mhcCandidates: mhcCandidates,
+            mhcUnnameableClusters: mhcUnnameableClusters,
+            mhcReferenceVisualizations: nil,
+            integrityWarnings: integrityWarnings,
+            referenceMetadata: referenceMetadata
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -965,6 +1052,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         case haplotypeAnalysis
         case mhcCandidates
         case mhcUnnameableClusters
+        case mhcReferenceVisualizations
         case integrityWarnings
         case referenceMetadata
     }
@@ -983,6 +1071,10 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
             mhcUnnameableClusters: try container.decodeIfPresent(
                 ONTMHCUnnameableClustersDocument.self,
                 forKey: .mhcUnnameableClusters
+            ),
+            mhcReferenceVisualizations: try container.decodeIfPresent(
+                ONTMHCReferenceVisualizationArtifact.self,
+                forKey: .mhcReferenceVisualizations
             ),
             integrityWarnings: try container.decodeIfPresent(
                 [ONTGenotypeIntegrityWarning].self,
@@ -1006,6 +1098,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         try container.encodeIfPresent(haplotypeAnalysis, forKey: .haplotypeAnalysis)
         try container.encodeIfPresent(mhcCandidates, forKey: .mhcCandidates)
         try container.encodeIfPresent(mhcUnnameableClusters, forKey: .mhcUnnameableClusters)
+        try container.encodeIfPresent(mhcReferenceVisualizations, forKey: .mhcReferenceVisualizations)
         try container.encode(integrityWarnings, forKey: .integrityWarnings)
         try container.encodeIfPresent(referenceMetadata, forKey: .referenceMetadata)
     }
@@ -1692,6 +1785,10 @@ public enum ONTGenotypeResultBundle {
             bundleURL: bundleURL,
             parsedArtifactByteBudget: candidateArtifactByteBudget
         )
+        let mhcReferenceVisualizations = try loadMHCReferenceVisualizations(
+            from: manifest.mhcReferenceVisualizations,
+            bundleURL: bundleURL
+        )
         let referenceMetadata = try loadReferenceMetadataIfPresent(
             manifest.referenceRecordStore,
             from: bundleURL
@@ -1727,9 +1824,40 @@ public enum ONTGenotypeResultBundle {
             haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: mhcProjection.candidates,
             mhcUnnameableClusters: mhcProjection.unnameable,
+            mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: mhcProjection.warnings,
             referenceMetadata: referenceMetadata
         )
+    }
+
+    private static func loadMHCReferenceVisualizations(
+        from artifacts: ONTMHCReferenceVisualizationArtifacts?,
+        bundleURL: URL
+    ) throws -> ONTMHCReferenceVisualizationArtifact? {
+        guard let artifacts else { return nil }
+        guard artifacts.schemaVersion == 1 else {
+            throw integrityFailure(
+                .candidateArtifactManifestSchemaUnsupported,
+                "MHC reference visualization artifact manifest schema \(artifacts.schemaVersion) is unsupported; expected schema 1."
+            )
+        }
+
+        let data = try validateArtifact(
+            artifacts.recordsJSON,
+            in: bundleURL,
+            collectData: true
+        ) ?? Data()
+        let artifact: ONTMHCReferenceVisualizationArtifact
+        do {
+            artifact = try JSONDecoder().decode(ONTMHCReferenceVisualizationArtifact.self, from: data)
+        } catch {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "MHC reference visualization JSON is malformed: \(error.localizedDescription)",
+                path: artifacts.recordsJSON.path
+            )
+        }
+        return try artifact.validated()
     }
 
     private static func loadReferenceMetadataIfPresent(
