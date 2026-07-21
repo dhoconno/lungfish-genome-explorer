@@ -13,10 +13,17 @@ final class GenotypeCandidateAlleleDetailView: NSView {
 
     private struct ReferencePresentationSignature: Equatable {
         let rawReferenceID: String
+        let sourceOrdinal: Int
         let alleleName: String
+        let locus: String?
+        let sequence: String
         let sequenceSHA256: String
-        let sequenceLength: Int
+        let recordFields: [String: [String]]
         let features: [ONTMHCReferenceVisualizationFeature]
+        let annotatedTranslation: String?
+        let genBankText: String
+        let fastaText: String
+        let roles: [ONTMHCReferenceVisualizationRoleAssignment]
     }
 
     private struct CandidatePresentationSignature: Equatable {
@@ -126,7 +133,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
     private var isShowingFallback = false
     private var presentationCache: [CandidatePresentationCacheEntry] = []
     private var activePresentationSignature: CandidatePresentationSignature?
-    private var activeReferenceRawID: String?
+    private var activeReferencePresentationSignature: ReferencePresentationSignature?
     private var hasAppliedReferencePresentation = false
     private static let maximumCachedPresentations = 8
 
@@ -208,7 +215,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         let referenceSignature = Self.referencePresentationSignature(for: closestReference)
         configureReferencePresentationIfNeeded(
             closestReference: closestReference,
-            rawReferenceID: closestReference?.rawReferenceID
+            signature: referenceSignature
         )
 
         configureCachedPresentation(
@@ -773,23 +780,30 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         reference.map { reference in
             ReferencePresentationSignature(
                 rawReferenceID: reference.rawReferenceID,
+                sourceOrdinal: reference.sourceOrdinal,
                 alleleName: reference.alleleName,
+                locus: reference.locus,
+                sequence: reference.sequence,
                 sequenceSHA256: reference.sequenceSHA256,
-                sequenceLength: reference.sequence.count,
-                features: reference.features
+                recordFields: reference.recordFields,
+                features: reference.features,
+                annotatedTranslation: reference.annotatedTranslation,
+                genBankText: reference.genBankText,
+                fastaText: reference.fastaText,
+                roles: reference.roles
             )
         }
     }
 
     private func configureReferencePresentationIfNeeded(
         closestReference: ONTMHCReferenceVisualizationRecord?,
-        rawReferenceID: String?
+        signature: ReferencePresentationSignature?
     ) {
         guard !hasAppliedReferencePresentation
-                || activeReferenceRawID != rawReferenceID else { return }
+                || activeReferencePresentationSignature != signature else { return }
 
         hasAppliedReferencePresentation = true
-        activeReferenceRawID = rawReferenceID
+        activeReferencePresentationSignature = signature
         if let closestReference {
             closestReferenceGeometryLabel.stringValue =
                 "Closest-reference geometry: \(closestReference.alleleName) (\(closestReference.rawReferenceID))"

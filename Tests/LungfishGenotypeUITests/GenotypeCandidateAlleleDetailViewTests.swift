@@ -359,6 +359,69 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertEqual(track.markers.first?.referenceRange, 1..<2)
     }
 
+    func testSameReferenceRawIDWithRefreshedPayloadReappliesReferenceDocumentsOnce() throws {
+        let view = makeView()
+        let candidate = makeCandidate()
+        let sequence = String(repeating: "ACGT", count: 6)
+        let originalReference = makeReference()
+        let refreshedReference = ONTMHCReferenceVisualizationRecord(
+            rawReferenceID: originalReference.rawReferenceID,
+            sourceOrdinal: 2,
+            alleleName: "Mafa-A1*064:01",
+            locus: "Mafa-A1-refreshed",
+            sequence: String(repeating: "C", count: 24),
+            sequenceSHA256: "refreshed-checksum",
+            recordFields: ["DEFINITION": ["Refreshed MHC class I allele"]],
+            features: [
+                feature(start: 3, end: 7, ordinal: 1, numberKey: "exon_number", number: "2"),
+            ],
+            annotatedTranslation: "REFRESHED",
+            genBankText: "LOCUS       NHP0068 REFRESHED 24 bp DNA\n//\n",
+            fastaText: ">NHP0068 Mafa-A1*064:01 refreshed\n" + String(repeating: "C", count: 24) + "\n",
+            roles: [.init(role: .closestNovelReference, candidateStableClusterIDs: ["cluster-a"])]
+        )
+
+        view.configure(
+            candidate: candidate,
+            closestReference: originalReference,
+            candidateSequence: sequence,
+            selectedSampleID: "CR1178",
+            selectedSampleReadCount: 8
+        )
+        view.configure(
+            candidate: candidate,
+            closestReference: refreshedReference,
+            candidateSequence: sequence,
+            selectedSampleID: "CR1178",
+            selectedSampleReadCount: 9
+        )
+        view.configure(
+            candidate: candidate,
+            closestReference: refreshedReference,
+            candidateSequence: sequence,
+            selectedSampleID: "CR1178",
+            selectedSampleReadCount: 10
+        )
+
+        XCTAssertEqual(view.referenceOverviewConfigurationCount, 2)
+        XCTAssertEqual(view.genBankTextAssignmentCount, 2)
+        XCTAssertEqual(view.differenceTrackConfigurationCount, 2)
+        XCTAssertEqual(
+            text("candidateClosestReferenceGeometryLabel", in: view),
+            "Closest-reference geometry: Mafa-A1*064:01 (NHP0068)"
+        )
+        XCTAssertEqual(
+            try textView("candidateGenBankTextView", in: view).string,
+            refreshedReference.genBankText
+        )
+        let nucleotideStrip = try XCTUnwrap(find("knownAlleleNucleotideStrip", in: view))
+        XCTAssertEqual(
+            nucleotideStrip.accessibilityValue() as? String,
+            refreshedReference.sequence
+        )
+        XCTAssertEqual(text("candidateSelectedSampleReadCount", in: view), "10")
+    }
+
     func testMissingSequenceUsesFreshAnalysisFallbackIndependently() throws {
         let view = makeView()
 
