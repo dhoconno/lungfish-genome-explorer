@@ -28,7 +28,23 @@ final class GenotypeKnownAlleleDetailView: NSView {
     private let locusValue = NSTextField(labelWithString: "")
     private let lengthValue = NSTextField(labelWithString: "")
     private let rolesValue = NSTextField(labelWithString: "")
+    private let moleculeTypeValue = NSTextField(labelWithString: "")
+    private let definitionValue = NSTextField(labelWithString: "")
+    private let organismValue = NSTextField(labelWithString: "")
+    private let productValue = NSTextField(labelWithString: "")
+    private let exonCountValue = NSTextField(labelWithString: "")
+    private let cdsLengthValue = NSTextField(labelWithString: "")
+    private let proteinLengthValue = NSTextField(labelWithString: "")
+    private let previousDesignationsValue = NSTextField(labelWithString: "")
+    private let notesValue = NSTextField(labelWithString: "")
     private let observedSampleValue = NSTextField(labelWithString: "")
+    private let factsScrollView = NSScrollView()
+    private let factsDocumentView = NSView()
+    private let factsStack = NSStackView()
+    private let featureInformation = NSView()
+    private let featureInformationText = NSTextField(
+        wrappingLabelWithString: "Hover over or select a feature to inspect its annotation."
+    )
     private let overviewCommentsView = KnownAlleleCommentsView()
     private let showGenBankButton = NSButton(title: "View GenBank", target: nil, action: nil)
     private let showFASTAButton = NSButton(title: "View FASTA", target: nil, action: nil)
@@ -115,11 +131,22 @@ final class GenotypeKnownAlleleDetailView: NSView {
         locusValue.stringValue = record.locus ?? "—"
         lengthValue.stringValue = "\(record.sequence.count) bp"
         rolesValue.stringValue = Self.roleText(record.roles)
+        moleculeTypeValue.stringValue = Self.moleculeType(in: record) ?? ""
+        definitionValue.stringValue = Self.recordField("DEFINITION", in: record) ?? ""
+        organismValue.stringValue = Self.organism(in: record) ?? ""
+        productValue.stringValue = Self.products(in: record).joined(separator: "; ")
+        exonCountValue.stringValue = Self.exonCount(in: record).map(String.init) ?? ""
+        cdsLengthValue.stringValue = Self.cdsLength(in: record).map { "\($0) bp" } ?? ""
+        proteinLengthValue.stringValue = Self.proteinLength(in: record).map { "\($0) aa" } ?? ""
+        previousDesignationsValue.stringValue = Self.previousDesignations(in: record) ?? ""
+        notesValue.stringValue = Self.notes(in: record).joined(separator: "; ")
+        updateOptionalFactVisibility()
         observedSampleValue.stringValue = Self.observedSampleText(observedSample)
         observedSampleValue.isHidden = observedSampleValue.stringValue.isEmpty
         configureComments(comments)
 
         overviewView.configure(record: record)
+        updateFeatureInformation(nil)
         genBankTextView.string = record.genBankText
         fastaTextView.string = record.fastaText
 
@@ -262,24 +289,59 @@ final class GenotypeKnownAlleleDetailView: NSView {
         locusValue.setAccessibilityIdentifier("knownAlleleLocus")
         lengthValue.setAccessibilityIdentifier("knownAlleleSequenceLength")
         rolesValue.setAccessibilityIdentifier("knownAlleleRoles")
+        moleculeTypeValue.setAccessibilityIdentifier("knownAlleleMoleculeType")
+        definitionValue.setAccessibilityIdentifier("knownAlleleDefinition")
+        organismValue.setAccessibilityIdentifier("knownAlleleOrganism")
+        productValue.setAccessibilityIdentifier("knownAlleleProduct")
+        exonCountValue.setAccessibilityIdentifier("knownAlleleExonCount")
+        cdsLengthValue.setAccessibilityIdentifier("knownAlleleCDSLength")
+        proteinLengthValue.setAccessibilityIdentifier("knownAlleleProteinLength")
+        previousDesignationsValue.setAccessibilityIdentifier("knownAllelePreviousDesignations")
+        notesValue.setAccessibilityIdentifier("knownAlleleNotes")
         observedSampleValue.setAccessibilityIdentifier("knownAlleleObservedSample")
 
-        let factsStack = NSStackView()
         factsStack.orientation = .vertical
-        factsStack.alignment = .leading
+        factsStack.alignment = .width
         factsStack.spacing = 7
         factsStack.translatesAutoresizingMaskIntoConstraints = false
-        factsRail.addSubview(factsStack)
+
+        factsScrollView.borderType = .noBorder
+        factsScrollView.drawsBackground = false
+        factsScrollView.hasVerticalScroller = true
+        factsScrollView.hasHorizontalScroller = false
+        factsScrollView.autohidesScrollers = true
+        factsScrollView.translatesAutoresizingMaskIntoConstraints = false
+        factsDocumentView.translatesAutoresizingMaskIntoConstraints = false
+        factsDocumentView.addSubview(factsStack)
+        factsScrollView.documentView = factsDocumentView
+        factsRail.addSubview(factsScrollView)
 
         factsStack.addArrangedSubview(makeFact(title: "Allele", value: alleleLabelCopy()))
         factsStack.addArrangedSubview(makeFact(title: "Reference ID", value: rawReferenceIDLabelCopy()))
         factsStack.addArrangedSubview(makeFact(title: "Locus", value: locusValue))
+        factsStack.addArrangedSubview(makeFact(title: "Molecule type", value: moleculeTypeValue))
+        factsStack.addArrangedSubview(makeFact(title: "Definition", value: definitionValue))
+        factsStack.addArrangedSubview(makeFact(title: "Organism", value: organismValue))
+        factsStack.addArrangedSubview(makeFact(title: "Product", value: productValue))
         factsStack.addArrangedSubview(makeFact(title: "Length", value: lengthValue))
+        factsStack.addArrangedSubview(makeFact(title: "Exons", value: exonCountValue))
+        factsStack.addArrangedSubview(makeFact(title: "CDS length", value: cdsLengthValue))
+        factsStack.addArrangedSubview(makeFact(title: "Protein length", value: proteinLengthValue))
+        factsStack.addArrangedSubview(makeFact(
+            title: "Previous designations",
+            value: previousDesignationsValue
+        ))
+        factsStack.addArrangedSubview(makeFact(title: "Notes", value: notesValue))
         factsStack.addArrangedSubview(makeFact(title: "Roles", value: rolesValue))
+
+        buildFeatureInformation()
+        factsStack.addArrangedSubview(featureInformation)
+        featureInformation.widthAnchor.constraint(equalTo: factsStack.widthAnchor).isActive = true
 
         observedSampleValue.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
         observedSampleValue.textColor = .secondaryLabelColor
         observedSampleValue.maximumNumberOfLines = 2
+        observedSampleValue.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         factsStack.addArrangedSubview(observedSampleValue)
         factsStack.addArrangedSubview(overviewCommentsView)
         overviewCommentsView.widthAnchor.constraint(equalTo: factsStack.widthAnchor).isActive = true
@@ -302,10 +364,54 @@ final class GenotypeKnownAlleleDetailView: NSView {
         factsStack.addArrangedSubview(actions)
 
         NSLayoutConstraint.activate([
-            factsStack.leadingAnchor.constraint(equalTo: factsRail.leadingAnchor, constant: 16),
-            factsStack.trailingAnchor.constraint(equalTo: factsRail.trailingAnchor, constant: -16),
-            factsStack.topAnchor.constraint(equalTo: factsRail.topAnchor, constant: 16),
-            factsStack.bottomAnchor.constraint(lessThanOrEqualTo: factsRail.bottomAnchor, constant: -16),
+            factsScrollView.leadingAnchor.constraint(equalTo: factsRail.leadingAnchor),
+            factsScrollView.trailingAnchor.constraint(equalTo: factsRail.trailingAnchor),
+            factsScrollView.topAnchor.constraint(equalTo: factsRail.topAnchor),
+            factsScrollView.bottomAnchor.constraint(equalTo: factsRail.bottomAnchor),
+            factsDocumentView.leadingAnchor.constraint(equalTo: factsScrollView.contentView.leadingAnchor),
+            factsDocumentView.trailingAnchor.constraint(equalTo: factsScrollView.contentView.trailingAnchor),
+            factsDocumentView.topAnchor.constraint(equalTo: factsScrollView.contentView.topAnchor),
+            factsDocumentView.widthAnchor.constraint(equalTo: factsScrollView.contentView.widthAnchor),
+            factsStack.leadingAnchor.constraint(equalTo: factsDocumentView.leadingAnchor, constant: 16),
+            factsStack.trailingAnchor.constraint(equalTo: factsDocumentView.trailingAnchor, constant: -16),
+            factsStack.topAnchor.constraint(equalTo: factsDocumentView.topAnchor, constant: 16),
+            factsStack.bottomAnchor.constraint(equalTo: factsDocumentView.bottomAnchor, constant: -16),
+        ])
+
+        overviewView.onFeatureInspection = { [weak self] feature in
+            self?.updateFeatureInformation(feature)
+        }
+    }
+
+    private func buildFeatureInformation() {
+        featureInformation.setAccessibilityIdentifier("knownAlleleFeatureInformation")
+        featureInformation.setAccessibilityRole(.group)
+        featureInformation.setAccessibilityLabel("Feature information")
+        featureInformation.translatesAutoresizingMaskIntoConstraints = false
+
+        let title = NSTextField(labelWithString: "FEATURE")
+        title.font = .systemFont(ofSize: 9, weight: .semibold)
+        title.textColor = .tertiaryLabelColor
+        title.translatesAutoresizingMaskIntoConstraints = false
+
+        featureInformationText.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        featureInformationText.textColor = .labelColor
+        featureInformationText.maximumNumberOfLines = 7
+        featureInformationText.lineBreakMode = .byTruncatingTail
+        featureInformationText.setAccessibilityIdentifier("knownAlleleFeatureInformationText")
+        featureInformationText.translatesAutoresizingMaskIntoConstraints = false
+
+        featureInformation.addSubview(title)
+        featureInformation.addSubview(featureInformationText)
+        NSLayoutConstraint.activate([
+            featureInformation.heightAnchor.constraint(equalToConstant: 126),
+            title.leadingAnchor.constraint(equalTo: featureInformation.leadingAnchor),
+            title.trailingAnchor.constraint(equalTo: featureInformation.trailingAnchor),
+            title.topAnchor.constraint(equalTo: featureInformation.topAnchor),
+            featureInformationText.leadingAnchor.constraint(equalTo: featureInformation.leadingAnchor),
+            featureInformationText.trailingAnchor.constraint(equalTo: featureInformation.trailingAnchor),
+            featureInformationText.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 3),
+            featureInformationText.bottomAnchor.constraint(lessThanOrEqualTo: featureInformation.bottomAnchor),
         ])
     }
 
@@ -413,6 +519,62 @@ final class GenotypeKnownAlleleDetailView: NSView {
         return 22 + rowsHeight
     }
 
+    private func updateOptionalFactVisibility() {
+        for value in [
+            moleculeTypeValue,
+            definitionValue,
+            organismValue,
+            productValue,
+            exonCountValue,
+            cdsLengthValue,
+            proteinLengthValue,
+            previousDesignationsValue,
+            notesValue,
+        ] {
+            value.superview?.isHidden = value.stringValue.isEmpty
+        }
+    }
+
+    private func updateFeatureInformation(
+        _ feature: ONTMHCReferenceVisualizationFeature?
+    ) {
+        guard let feature else {
+            featureInformationText.stringValue =
+                "Hover over or select a feature to inspect its annotation."
+            return
+        }
+
+        var lines = [feature.type.localizedCapitalized]
+        if let number = Self.qualifierValue(in: feature, keys: ["exon_number", "number"]) {
+            lines.append("Number: \(number)")
+        }
+        lines.append("Coordinates: \(feature.start + 1)–\(feature.end) (\(feature.end - feature.start) bp)")
+        if !feature.strand.isEmpty {
+            lines.append("Strand: \(feature.strand)")
+        }
+        if let sourceLocation = feature.rawGenBankLocation, !sourceLocation.isEmpty {
+            lines.append("Source location: \(sourceLocation)")
+        }
+
+        for key in feature.qualifiers.keys.sorted(by: {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }) {
+            guard !["exon_number", "number"].contains(where: {
+                $0.caseInsensitiveCompare(key) == .orderedSame
+            }) else { continue }
+            let values = feature.qualifiers[key, default: []].filter { !$0.isEmpty }
+            guard !values.isEmpty else { continue }
+            let title = key.replacingOccurrences(of: "_", with: " ").capitalized
+            if key.caseInsensitiveCompare("translation") == .orderedSame {
+                let length = values[0].filter { !$0.isWhitespace }.count
+                lines.append("\(title): \(length) aa")
+            } else {
+                lines.append("\(title): \(values.joined(separator: "; "))")
+            }
+        }
+        featureInformationText.stringValue = lines.joined(separator: "\n")
+    }
+
     private func makeFact(title: String, value: NSTextField) -> NSView {
         let titleField = NSTextField(labelWithString: title.uppercased())
         titleField.font = .systemFont(ofSize: 9, weight: .semibold)
@@ -421,10 +583,11 @@ final class GenotypeKnownAlleleDetailView: NSView {
         value.textColor = .labelColor
         value.maximumNumberOfLines = 2
         value.lineBreakMode = .byTruncatingTail
+        value.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let stack = NSStackView(views: [titleField, value])
         stack.orientation = .vertical
-        stack.alignment = .leading
+        stack.alignment = .width
         stack.spacing = 1
         return stack
     }
@@ -556,6 +719,138 @@ final class GenotypeKnownAlleleDetailView: NSView {
     private static func observedSampleText(_ sample: String?) -> String {
         guard let sample, !sample.isEmpty else { return "" }
         return "Observed in sample \(sample)"
+    }
+
+    private static func recordField(
+        _ key: String,
+        in record: ONTMHCReferenceVisualizationRecord
+    ) -> String? {
+        record.recordFields.keys.sorted().first(where: {
+            $0.caseInsensitiveCompare(key) == .orderedSame
+        }).flatMap { actualKey in
+            joinedUnique(record.recordFields[actualKey, default: []])
+        }
+    }
+
+    private static func moleculeType(
+        in record: ONTMHCReferenceVisualizationRecord
+    ) -> String? {
+        recordField("LOCUS.MOLECULE_TYPE", in: record)
+            ?? qualifierValues(in: record.features, key: "mol_type").first
+    }
+
+    private static func organism(
+        in record: ONTMHCReferenceVisualizationRecord
+    ) -> String? {
+        recordField("ORGANISM", in: record)
+            ?? qualifierValues(in: record.features, key: "organism").first
+            ?? recordField("SOURCE", in: record)
+    }
+
+    private static func products(
+        in record: ONTMHCReferenceVisualizationRecord
+    ) -> [String] {
+        unique(qualifierValues(
+            in: record.features.filter {
+                $0.type.caseInsensitiveCompare("CDS") == .orderedSame
+            },
+            key: "product"
+        ))
+    }
+
+    private static func exonCount(
+        in record: ONTMHCReferenceVisualizationRecord
+    ) -> Int? {
+        let ordinals = Set(record.features.filter {
+            $0.type.caseInsensitiveCompare("exon") == .orderedSame
+        }.map(\.sourceOrdinal))
+        return ordinals.isEmpty ? nil : ordinals.count
+    }
+
+    private static func cdsLength(
+        in record: ONTMHCReferenceVisualizationRecord
+    ) -> Int? {
+        let codingFeatures = record.features.filter {
+            $0.type.caseInsensitiveCompare("CDS") == .orderedSame
+        }
+        guard !codingFeatures.isEmpty else { return nil }
+        let sourceOrdinal = record.annotatedTranslation.flatMap { translation in
+            codingFeatures.first(where: {
+                qualifierValues(in: [$0], key: "translation").contains(translation)
+            })?.sourceOrdinal
+        } ?? codingFeatures[0].sourceOrdinal
+        return codingFeatures.lazy
+            .filter { $0.sourceOrdinal == sourceOrdinal }
+            .reduce(0) { $0 + ($1.end - $1.start) }
+    }
+
+    private static func proteinLength(
+        in record: ONTMHCReferenceVisualizationRecord
+    ) -> Int? {
+        guard let translation = record.annotatedTranslation, !translation.isEmpty else {
+            return nil
+        }
+        return translation.filter { !$0.isWhitespace }.count
+    }
+
+    private static func previousDesignations(
+        in record: ONTMHCReferenceVisualizationRecord
+    ) -> String? {
+        let notes = qualifierValues(in: record.features, key: "note")
+        if let note = notes.first(where: {
+            $0.range(of: "previous designations:", options: .caseInsensitive) != nil
+        }), let separator = note.firstIndex(of: ":") {
+            let value = note[note.index(after: separator)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { return value }
+        }
+        let key = record.recordFields.keys.sorted().first(where: {
+            $0.range(of: "previous designations", options: .caseInsensitive) != nil
+        })
+        return key.flatMap { joinedUnique(record.recordFields[$0, default: []]) }
+    }
+
+    private static func notes(
+        in record: ONTMHCReferenceVisualizationRecord
+    ) -> [String] {
+        unique(qualifierValues(in: record.features, key: "note").filter {
+            $0.range(of: "previous designations:", options: .caseInsensitive) == nil
+        })
+    }
+
+    private static func qualifierValue(
+        in feature: ONTMHCReferenceVisualizationFeature,
+        keys: [String]
+    ) -> String? {
+        for key in keys {
+            if let value = qualifierValues(in: [feature], key: key).first {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func qualifierValues(
+        in features: [ONTMHCReferenceVisualizationFeature],
+        key: String
+    ) -> [String] {
+        features.flatMap { feature in
+            feature.qualifiers.keys.sorted().first(where: {
+                $0.caseInsensitiveCompare(key) == .orderedSame
+            }).map { feature.qualifiers[$0, default: []] } ?? []
+        }.filter { !$0.isEmpty }
+    }
+
+    private static func joinedUnique(_ values: [String]) -> String? {
+        let values = unique(values)
+        return values.isEmpty ? nil : values.joined(separator: "; ")
+    }
+
+    private static func unique(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        return values.filter { value in
+            !value.isEmpty && seen.insert(value).inserted
+        }
     }
 }
 

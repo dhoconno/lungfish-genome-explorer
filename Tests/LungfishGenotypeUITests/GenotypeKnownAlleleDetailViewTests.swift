@@ -75,6 +75,101 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         assertGeometry(of: translationBlocks, in: try lane("translation", in: view))
     }
 
+    func testFactsRailShowsAvailableRecordAndAnnotationFacts() throws {
+        let view = makeView()
+        let record = makeRecord(
+            recordFields: [
+                "LOCUS.MOLECULE_TYPE": ["DNA"],
+                "DEFINITION": ["Mafa-A1 complete genomic allele."],
+                "ORGANISM": ["Macaca fascicularis"],
+                "COMMENT.Previous designations": ["Mafa-A1*06301; Mafa-A1*063:01:01"],
+            ],
+            features: [
+                feature(
+                    type: "gene",
+                    start: 0,
+                    end: 24,
+                    sourceOrdinal: 1,
+                    qualifiers: [
+                        "gene": ["Mafa-A1"],
+                        "note": ["curated genomic reference"],
+                    ]
+                ),
+                feature(
+                    type: "CDS",
+                    start: 0,
+                    end: 9,
+                    sourceOrdinal: 2,
+                    qualifiers: [
+                        "product": ["MHC class I antigen"],
+                        "translation": ["MKTWQ"],
+                    ]
+                ),
+                feature(type: "CDS", start: 12, end: 18, sourceOrdinal: 2),
+                feature(type: "exon", start: 0, end: 9, sourceOrdinal: 3),
+                feature(type: "exon", start: 12, end: 18, sourceOrdinal: 4),
+            ]
+        )
+
+        view.configure(record: record, observedSample: nil)
+
+        XCTAssertEqual(text("knownAlleleMoleculeType", in: view), "DNA")
+        XCTAssertEqual(
+            text("knownAlleleDefinition", in: view),
+            "Mafa-A1 complete genomic allele."
+        )
+        XCTAssertEqual(text("knownAlleleOrganism", in: view), "Macaca fascicularis")
+        XCTAssertEqual(text("knownAlleleProduct", in: view), "MHC class I antigen")
+        XCTAssertEqual(text("knownAlleleExonCount", in: view), "2")
+        XCTAssertEqual(text("knownAlleleCDSLength", in: view), "15 bp")
+        XCTAssertEqual(text("knownAlleleProteinLength", in: view), "5 aa")
+        XCTAssertEqual(
+            text("knownAllelePreviousDesignations", in: view),
+            "Mafa-A1*06301; Mafa-A1*063:01:01"
+        )
+        XCTAssertEqual(text("knownAlleleNotes", in: view), "curated genomic reference")
+
+        let facts = try identifiedView("knownAlleleFactsRail", in: view)
+        let locus = try identifiedView("knownAlleleLocus", in: view)
+        let locusInFacts = locus.convert(locus.bounds, to: facts)
+        XCTAssertGreaterThan(locusInFacts.intersection(facts.bounds).height, 0)
+    }
+
+    func testFeatureHoverAndSelectionPopulateBoundedFactsArea() throws {
+        let view = makeView()
+        view.configure(record: makeRecord(), observedSample: nil)
+
+        let featureInformation = try identifiedView("knownAlleleFeatureInformation", in: view)
+        XCTAssertLessThanOrEqual(featureInformation.frame.height, 132)
+        XCTAssertEqual(
+            text("knownAlleleFeatureInformationText", in: view),
+            "Hover over or select a feature to inspect its annotation."
+        )
+
+        let exonBlock = try XCTUnwrap(lane("exon", in: view).subviews.first)
+        exonBlock.mouseEntered(with: try mouseEvent(type: .mouseEntered, in: exonBlock))
+        let hoveredText = try XCTUnwrap(text("knownAlleleFeatureInformationText", in: view))
+        XCTAssertTrue(hoveredText.contains("Exon"))
+        XCTAssertTrue(hoveredText.contains("Number: 2"))
+        XCTAssertTrue(hoveredText.contains("Coordinates: 3–10 (8 bp)"))
+        XCTAssertTrue(hoveredText.contains("Strand: +"))
+        XCTAssertTrue(hoveredText.contains("Source location: 3..10"))
+
+        exonBlock.mouseDown(with: try mouseEvent(type: .leftMouseDown, in: exonBlock))
+        exonBlock.mouseExited(with: try mouseEvent(type: .mouseExited, in: exonBlock))
+        XCTAssertEqual(text("knownAlleleFeatureInformationText", in: view), hoveredText)
+
+        try modeButton("knownAlleleModeGenBank", in: view).performClick(nil)
+        try modeButton("knownAlleleModeOverview", in: view).performClick(nil)
+        XCTAssertEqual(text("knownAlleleFeatureInformationText", in: view), hoveredText)
+
+        let cdsBlock = try XCTUnwrap(lane("CDS", in: view).subviews.first)
+        cdsBlock.mouseEntered(with: try mouseEvent(type: .mouseEntered, in: cdsBlock))
+        let cdsText = try XCTUnwrap(text("knownAlleleFeatureInformationText", in: view))
+        XCTAssertTrue(cdsText.contains("Product: MHC class I antigen"))
+        XCTAssertTrue(cdsText.contains("Translation: 5 aa"))
+    }
+
     func testEmptyAnnotationsRemainSequenceOnlyWithoutSynthesizedFeatures() throws {
         let view = makeView()
         view.configure(
@@ -416,6 +511,7 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         alleleName: String = "Mafa-A1*063:01",
         locus: String? = "Mafa-A1",
         sequence: String = "ACGTACGTACGTACGTACGTACGT",
+        recordFields: [String: [String]] = ["definition": ["MHC class I allele"]],
         features: [ONTMHCReferenceVisualizationFeature]? = nil,
         annotatedTranslation: String? = "MKTWQ",
         genBankText: String = "LOCUS       NHP0068 24 bp DNA\nFEATURES             Location/Qualifiers\n//\n",
@@ -428,7 +524,7 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
             locus: locus,
             sequence: sequence,
             sequenceSHA256: "test-checksum",
-            recordFields: ["definition": ["MHC class I allele"]],
+            recordFields: recordFields,
             features: features ?? [
                 feature(
                     type: "gene",
@@ -553,6 +649,34 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
 
     private func visibleScrollView(in root: NSView) throws -> NSScrollView {
         try XCTUnwrap(descendants(of: root).compactMap { $0 as? NSScrollView }.first { !$0.isHidden })
+    }
+
+    private func mouseEvent(type: NSEvent.EventType, in view: NSView) throws -> NSEvent {
+        let location = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        if type == .mouseEntered || type == .mouseExited {
+            return try XCTUnwrap(NSEvent.enterExitEvent(
+                with: type,
+                location: location,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: view.window?.windowNumber ?? 0,
+                context: nil,
+                eventNumber: 0,
+                trackingNumber: 1,
+                userData: nil
+            ))
+        }
+        return try XCTUnwrap(NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: view.window?.windowNumber ?? 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 0
+        ))
     }
 
     private func assertSelfSizing(

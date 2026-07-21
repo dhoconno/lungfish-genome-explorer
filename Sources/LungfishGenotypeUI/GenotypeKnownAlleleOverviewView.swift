@@ -7,12 +7,15 @@ import LungfishIO
 /// exons, coding regions, translations, or candidate-relative differences.
 @MainActor
 final class GenotypeKnownAlleleOverviewView: NSView {
+    var onFeatureInspection: ((ONTMHCReferenceVisualizationFeature?) -> Void)?
+
     private let coordinateRuler = CoordinateRulerView()
     private let nucleotideStrip = NucleotideStripView()
     private let geneLane = FeatureLaneView(kind: "gene", color: .systemTeal)
     private let cdsLane = FeatureLaneView(kind: "CDS", color: .systemBlue)
     private let exonLane = FeatureLaneView(kind: "exon", color: .systemPurple)
     private let translationLane = FeatureLaneView(kind: "translation", color: .systemOrange)
+    private var selectedFeature: ONTMHCReferenceVisualizationFeature?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -29,6 +32,8 @@ final class GenotypeKnownAlleleOverviewView: NSView {
     }
 
     func configure(record: ONTMHCReferenceVisualizationRecord) {
+        selectedFeature = nil
+        onFeatureInspection?(nil)
         let sequenceLength = record.sequence.count
         coordinateRuler.sequenceLength = sequenceLength
         nucleotideStrip.sequence = record.sequence
@@ -67,7 +72,8 @@ final class GenotypeKnownAlleleOverviewView: NSView {
                         end: $0.end,
                         sourceOrdinal: $0.sourceOrdinal,
                         label: labelsBySource[$0.sourceOrdinal] ?? featureLabel(for: $0),
-                        help: featureHelp(for: $0, annotatedTranslation: translation)
+                        help: featureHelp(for: $0, annotatedTranslation: translation),
+                        feature: $0
                     )
                 },
                 sequenceLength: sequenceLength
@@ -79,6 +85,17 @@ final class GenotypeKnownAlleleOverviewView: NSView {
     }
 
     private func buildHierarchy() {
+        for lane in [geneLane, cdsLane, exonLane, translationLane] {
+            lane.onFeatureHover = { [weak self] feature in
+                guard let self else { return }
+                self.onFeatureInspection?(feature ?? self.selectedFeature)
+            }
+            lane.onFeatureSelect = { [weak self] feature in
+                self?.selectedFeature = feature
+                self?.onFeatureInspection?(feature)
+            }
+        }
+
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -259,7 +276,11 @@ private final class FeatureLaneView: NSView {
         let sourceOrdinal: Int
         let label: String
         let help: String?
+        let feature: ONTMHCReferenceVisualizationFeature
     }
+
+    var onFeatureHover: ((ONTMHCReferenceVisualizationFeature?) -> Void)?
+    var onFeatureSelect: ((ONTMHCReferenceVisualizationFeature) -> Void)?
 
     private let kind: String
     private let blockColor: NSColor
@@ -288,7 +309,8 @@ private final class FeatureLaneView: NSView {
                     end: $0.end,
                     sourceOrdinal: $0.sourceOrdinal,
                     label: labelsBySource[$0.sourceOrdinal] ?? featureLabel(for: $0),
-                    help: featureHelp(for: $0)
+                    help: featureHelp(for: $0),
+                    feature: $0
                 )
             },
             sequenceLength: sequenceLength
@@ -304,7 +326,13 @@ private final class FeatureLaneView: NSView {
             let blockView = FeatureBlockView(
                 color: blockColor,
                 label: block.label,
-                help: block.help
+                help: block.help,
+                onHover: { [weak self] isHovering in
+                    self?.onFeatureHover?(isHovering ? block.feature : nil)
+                },
+                onSelect: { [weak self] in
+                    self?.onFeatureSelect?(block.feature)
+                }
             )
             blockView.setAccessibilityIdentifier(
                 "knownAlleleFeatureBlock.\(kind).\(block.sourceOrdinal).\(block.start).\(block.end)"
@@ -349,10 +377,20 @@ private final class FeatureLaneView: NSView {
 private final class FeatureBlockView: NSView {
     private let color: NSColor
     private let labelField: NSTextField
+    private let onHover: (Bool) -> Void
+    private let onSelect: () -> Void
 
-    init(color: NSColor, label: String, help: String?) {
+    init(
+        color: NSColor,
+        label: String,
+        help: String?,
+        onHover: @escaping (Bool) -> Void,
+        onSelect: @escaping () -> Void
+    ) {
         self.color = color
         self.labelField = NSTextField(labelWithString: label)
+        self.onHover = onHover
+        self.onSelect = onSelect
         super.init(frame: .zero)
         toolTip = [label, help].compactMap { $0 }.joined(separator: " — ")
         labelField.font = .systemFont(ofSize: 9, weight: .semibold)
@@ -365,6 +403,29 @@ private final class FeatureBlockView: NSView {
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHover(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHover(false)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onSelect()
     }
 
     override func layout() {
