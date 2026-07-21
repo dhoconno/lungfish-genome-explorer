@@ -228,7 +228,7 @@ public struct ONTMHCReferenceVisualizationArtifact: Codable, Equatable, Sendable
                 )
             }
 
-            let sequenceLength = record.sequence.utf8.count
+            let sequenceLength = record.sequence.count
             for feature in record.features {
                 guard feature.start >= 0,
                       feature.start < feature.end,

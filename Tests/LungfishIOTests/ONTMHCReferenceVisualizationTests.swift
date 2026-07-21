@@ -45,6 +45,20 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
         assertFocusedValidationError(try artifact.validated())
     }
 
+    func testFeatureBoundsUseSequenceCharacterCountRatherThanUTF8ByteCount() {
+        let artifact = ONTMHCReferenceVisualizationArtifact(
+            schemaVersion: 1,
+            records: [
+                makeRecord(
+                    sequence: "Aé",
+                    features: [makeFeature(start: 2, end: 3)]
+                )
+            ]
+        )
+
+        assertFocusedValidationError(try artifact.validated())
+    }
+
     func testMismatchedSequenceSHA256ThrowsFocusedValidationError() {
         let artifact = ONTMHCReferenceVisualizationArtifact(
             schemaVersion: 1,
@@ -140,11 +154,11 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
     private func makeRecord(
         rawReferenceID: String = "NHP00344",
         alleleName: String = "Mafa-E*02:01:01",
+        sequence: String = "ACGT",
         sequenceSHA256: String? = nil,
         features: [ONTMHCReferenceVisualizationFeature]? = nil,
         roles: [ONTMHCReferenceVisualizationRoleAssignment]? = nil
     ) -> ONTMHCReferenceVisualizationRecord {
-        let sequence = "ACGT"
         return ONTMHCReferenceVisualizationRecord(
             rawReferenceID: rawReferenceID,
             sourceOrdinal: 3,
