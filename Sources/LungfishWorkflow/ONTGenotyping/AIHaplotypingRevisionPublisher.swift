@@ -283,6 +283,7 @@ public struct AIHaplotypingRevisionPublisher {
             activeHaplotypeAnalysisRevisionID: revision.id,
             haplotypeAnalysisRevisions: (manifest.haplotypeAnalysisRevisions ?? []) + [revision],
             mhcCandidateArtifacts: manifest.mhcCandidateArtifacts,
+            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
             referenceRecordStore: manifest.referenceRecordStore
         )
     }

@@ -7,6 +7,236 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
+    func testPublishedReferenceVisualizationsIncludeUncalledCandidateNeighbors() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-reference-visualization-candidates-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("complete.lungfishref", isDirectory: true)
+        let genomeDirectory = bundle.appendingPathComponent("genome", isDirectory: true)
+        let metadataDirectory = bundle.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: metadataDirectory, withIntermediateDirectories: true)
+        let records: [(rawID: String, allele: String, sequence: String)] = [
+            ("RAW_EXACT", "Mafa-E*02:01:01", String(repeating: "A", count: 1_200)),
+            ("RAW_NOVEL_NEIGHBOR", "Mafa-A1*018:01:01:01", String(repeating: "C", count: 1_200)),
+            ("RAW_EXTENSION_NEIGHBOR", "Mafa-B*021:01:01", String(repeating: "T", count: 1_000)),
+        ]
+        let fastaURL = genomeDirectory.appendingPathComponent("reference.fasta")
+        var fastaText = ""
+        var chromosomes: [ChromosomeInfo] = []
+        for record in records {
+            let header = ">\(record.rawID) \(record.allele)\n"
+            let offset = fastaText.utf8.count + header.utf8.count
+            fastaText += header + record.sequence + "\n"
+            chromosomes.append(ChromosomeInfo(
+                name: record.rawID,
+                length: Int64(record.sequence.count),
+                offset: Int64(offset),
+                lineBases: record.sequence.count,
+                lineWidth: record.sequence.count + 1
+            ))
+        }
+        try Data(fastaText.utf8).write(to: fastaURL)
+        try records.enumerated().map { index, record in
+            let chromosome = chromosomes[index]
+            return "\(record.rawID)\t\(record.sequence.count)\t\(chromosome.offset)\t\(record.sequence.count)\t\(record.sequence.count + 1)"
+        }.joined(separator: "\n").appending("\n").write(
+            to: genomeDirectory.appendingPathComponent("reference.fasta.fai"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let genBankRecords = try records.map { record in
+            GenBankRecord(
+                sequence: try Sequence(name: record.rawID, alphabet: .dna, bases: record.sequence),
+                annotations: [
+                    SequenceAnnotation(
+                        type: .gene,
+                        name: record.allele,
+                        start: 0,
+                        end: record.sequence.count,
+                        qualifiers: [
+                            "allele": AnnotationQualifier(record.allele),
+                            "gene": AnnotationQualifier(String(record.allele.split(separator: "*")[0])),
+                            "mol_type": AnnotationQualifier(
+                                record.rawID == "RAW_EXTENSION_NEIGHBOR" ? "mRNA" : "genomic DNA"
+                            )
+                        ]
+                    ),
+                ],
+                locus: LocusInfo(
+                    name: record.rawID,
+                    length: record.sequence.count,
+                    moleculeType: .dna,
+                    topology: .linear
+                )
+            )
+        }
+        let databaseURL = metadataDirectory.appendingPathComponent("genbank_records.sqlite")
+        let store = try GenBankRecordDatabase.create(records: genBankRecords, at: databaseURL)
+        try BundleManifest(
+            name: "Complete MHC reference",
+            identifier: "org.lungfish.tests.visualization-candidates",
+            source: SourceInfo(organism: "Macaca fascicularis", assembly: "test"),
+            genome: GenomeInfo(
+                path: "genome/reference.fasta",
+                indexPath: "genome/reference.fasta.fai",
+                totalLength: Int64(records.reduce(0) { $0 + $1.sequence.count }),
+                chromosomes: chromosomes
+            ),
+            recordStore: ReferenceRecordStoreInfo(
+                schemaVersion: GenBankRecordDatabase.schemaVersion,
+                format: ReferenceRecordStoreInfo.supportedFormat,
+                databasePath: "metadata/genbank_records.sqlite",
+                recordCount: store.recordCount
+            )
+        ).save(to: bundle)
+        XCTAssertEqual(
+            try MHCReferenceRecordCatalog.load(from: bundle)
+                .record(sequenceID: "RAW_EXTENSION_NEIGHBOR")?.moleculeClass,
+            .cDNA
+        )
+
+        let exactSequence = records[0].sequence
+        let novelSequence = String(records[1].sequence.dropLast()) + "G"
+        let extensionSequence = records[2].sequence + String(repeating: "A", count: 50)
+        let savont = """
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ]; then echo "savont 0.5.0"; exit 0; fi
+        shift
+        input="$1"
+        shift
+        output=""
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "-o" ]; then output="$2"; shift 2; else shift; fi
+        done
+        mkdir -p "$output/temp"
+        cat > "$output/final_asvs.fasta" <<'EOF'
+        >final_consensus_0_depth_7
+        \(exactSequence)
+        >final_consensus_1_depth_6
+        \(novelSequence)
+        >final_consensus_2_depth_5
+        \(extensionSequence)
+        EOF
+        printf 'savont log for %s\n' "$input" > "$output/savont.log"
+        printf 'feature table\n' > "$output/feature-table.tsv"
+        printf 'final clusters\n' > "$output/final_clusters.tsv"
+        printf 'read mappings\n' > "$output/temp/read_to_asv_mappings.tsv"
+        """
+        let minimap2 = #"""
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ]; then echo "minimap2 2.28"; exit 0; fi
+        previous=""
+        current=""
+        reciprocal="false"
+        for arg in "$@"; do
+          previous="$current"
+          current="$arg"
+          if [ "$arg" = "asm20" ]; then reciprocal="true"; fi
+        done
+        if [ "$reciprocal" = "true" ]; then
+          printf '@SQ\tSN:RAW_EXACT\tLN:1200\n@SQ\tSN:RAW_NOVEL_NEIGHBOR\tLN:1200\n@SQ\tSN:RAW_EXTENSION_NEIGHBOR\tLN:1000\n'
+          input="$current"
+        else
+          input="$previous"
+          awk '
+            /^>/ {
+              if (name != "") printf "@SQ\tSN:%s\tLN:%d\n", name, length(sequence)
+              sub(/^>/, "")
+              split($0, fields, /[[:space:]]+/)
+              name=fields[1]
+              sequence=""
+              next
+            }
+            { sequence=sequence $0 }
+            END { if (name != "") printf "@SQ\tSN:%s\tLN:%d\n", name, length(sequence) }
+          ' "$input"
+        fi
+        awk '
+          /^>/ {
+            if (name != "") emit(name, sequence)
+            sub(/^>/, "")
+            split($0, fields, /[[:space:]]+/)
+            name=fields[1]
+            sequence=""
+            next
+          }
+          { sequence=sequence $0 }
+          END { if (name != "") emit(name, sequence) }
+          function emit(query, bases, first, reference, cigar, nm, score) {
+            first=substr(bases, 1, 1)
+            if (first == "A") { reference="RAW_EXACT"; cigar="1200="; nm=0; score=1200 }
+            else if (first == "C") { reference="RAW_NOVEL_NEIGHBOR"; cigar="1199=1X"; nm=1; score=1198 }
+            else if (first == "T") { reference="RAW_EXTENSION_NEIGHBOR"; cigar="500=50I500="; nm=50; score=1000 }
+            if (reciprocal == "true") {
+              printf "%s\t0\t%s\t1\t60\t%s\t*\t0\t0\t*\t*\tNM:i:%d\tAS:i:%d\n", query, reference, cigar, nm, score
+            } else {
+              if (first == "T") cigar="500=50D500="
+              printf "%s\t0\t%s\t1\t60\t%s\t*\t0\t0\t*\t*\tNM:i:%d\tAS:i:%d\n", reference, query, cigar, nm, score
+            }
+          }
+        ' reciprocal="$reciprocal" "$input"
+        """#
+        let (baseRequest, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            savontScript: savont,
+            minimap2Script: minimap2,
+            referenceSourceURL: bundle
+        )
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: baseRequest.inputFASTQURLs,
+            referenceSourceURL: bundle,
+            outputDirectory: baseRequest.outputDirectory,
+            outputName: baseRequest.outputName,
+            threads: 2,
+            minimumLength: 900,
+            maximumLength: 1_300
+        )
+
+        _ = try await pipeline.run(request)
+
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: request.outputDirectory)
+        let candidates = try JSONDecoder().decode(
+            ONTMHCCandidateAllelesDocument.self,
+            from: Data(contentsOf: ONTGenotypeResultBundle.resolvedURL(
+                for: try XCTUnwrap(manifest.mhcCandidateArtifacts?.candidateJSON?.path),
+                in: request.outputDirectory
+            ))
+        )
+        XCTAssertEqual(Set(candidates.candidates.map(\.classification)), [.novel, .extension])
+        let descriptor = try XCTUnwrap(manifest.mhcReferenceVisualizations)
+        let document = try JSONDecoder().decode(
+            ONTMHCReferenceVisualizationArtifact.self,
+            from: Data(contentsOf: ONTGenotypeResultBundle.resolvedURL(
+                for: descriptor.recordsJSON.path,
+                in: request.outputDirectory
+            ))
+        ).validated()
+        XCTAssertEqual(Set(document.records.map(\.rawReferenceID)), Set(records.map(\.rawID)))
+        XCTAssertEqual(
+            document.recordsByRawReferenceID["RAW_EXACT"]?.roles.map(\.role),
+            [.exactKnownCall]
+        )
+        XCTAssertEqual(
+            document.recordsByRawReferenceID["RAW_NOVEL_NEIGHBOR"]?.roles.map(\.role),
+            [.closestNovelReference]
+        )
+        XCTAssertEqual(
+            document.recordsByRawReferenceID["RAW_EXTENSION_NEIGHBOR"]?.roles.map(\.role),
+            [.closestExtensionReference]
+        )
+        XCTAssertEqual(
+            try String(contentsOf: ONTGenotypeResultBundle.resolvedURL(for: descriptor.genBank.path, in: request.outputDirectory), encoding: .utf8),
+            document.records.map(\.genBankText).joined()
+        )
+        XCTAssertEqual(
+            try String(contentsOf: ONTGenotypeResultBundle.resolvedURL(for: descriptor.fasta.path, in: request.outputDirectory), encoding: .utf8),
+            document.records.map(\.fastaText).joined()
+        )
+    }
+
     func testAnnotatedReferenceMetadataIsEmbeddedInPublishedGenotypeBundle() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-embedded-reference-metadata-\(UUID().uuidString)", isDirectory: true)
@@ -98,6 +328,65 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         )
         let embeddedStore = try XCTUnwrap(resultManifestObject["referenceRecordStore"] as? [String: Any])
         XCTAssertEqual(embeddedStore["database_path"] as? String, "metadata/genbank_records.sqlite")
+
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: request.outputDirectory)
+        let visualizations = try XCTUnwrap(manifest.mhcReferenceVisualizations)
+        XCTAssertEqual(visualizations.schemaVersion, 1)
+        let references = [visualizations.recordsJSON, visualizations.genBank, visualizations.fasta]
+        XCTAssertEqual(references.map(\.path), [
+            "artifacts/reference/mhc-reference-visualizations.json",
+            "artifacts/reference/mhc-reference-records.gb",
+            "artifacts/reference/mhc-reference-records.fasta",
+        ])
+        for reference in references {
+            let url = ONTGenotypeResultBundle.resolvedURL(for: reference.path, in: request.outputDirectory)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+            XCTAssertEqual(reference.sha256, try ProvenanceFileHasher.sha256(of: url))
+            XCTAssertEqual(reference.sizeBytes, Int64(try ProvenanceFileHasher.fileSize(of: url)))
+        }
+        let visualizationURL = ONTGenotypeResultBundle.resolvedURL(
+            for: visualizations.recordsJSON.path,
+            in: request.outputDirectory
+        )
+        let visualizationDocument = try JSONDecoder().decode(
+            ONTMHCReferenceVisualizationArtifact.self,
+            from: Data(contentsOf: visualizationURL)
+        ).validated()
+        XCTAssertEqual(visualizationDocument.records.map(\.rawReferenceID), ["NHP00344"])
+        XCTAssertEqual(visualizationDocument.records.first?.roles.map(\.role), [.exactKnownCall])
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        let visualizationStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-in-process:extract-mhc-reference-visualizations"
+        })
+        XCTAssertEqual(visualizationStep.toolVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(visualizationStep.exitStatus, 0)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(visualizationStep.wallTimeSeconds), 0)
+        XCTAssertNotNil(visualizationStep.runtimeIdentity)
+        XCTAssertEqual(value(after: "--reference-bundle", in: visualizationStep.argv), bundle.path)
+        XCTAssertEqual(value(after: "--candidate-json", in: visualizationStep.argv), request.outputDirectory
+            .appendingPathComponent("candidate-alleles.json").path)
+        XCTAssertEqual(value(after: "--exact-known-reference-id", in: visualizationStep.argv), "NHP00344")
+        XCTAssertEqual(
+            Set(visualizationStep.outputs.map(\.path)),
+            Set(references.map { request.outputDirectory.appendingPathComponent($0.path).path })
+        )
+        for output in visualizationStep.outputs {
+            XCTAssertNotNil(output.checksumSHA256)
+            XCTAssertNotNil(output.fileSize)
+            XCTAssertTrue(output.path.hasPrefix(request.outputDirectory.path + "/"))
+            XCTAssertFalse(output.path.contains(".run-staging-"))
+        }
+        XCTAssertTrue(visualizationStep.inputs.contains { $0.path == fastaURL.path })
+        XCTAssertTrue(visualizationStep.inputs.contains { $0.path == manifestURL.path })
+        XCTAssertTrue(visualizationStep.inputs.contains { $0.path == databaseURL.path })
+        XCTAssertTrue(visualizationStep.inputs.contains {
+            $0.path == request.outputDirectory.appendingPathComponent("candidate-alleles.json").path
+        })
+        XCTAssertTrue(visualizationStep.inputs.contains { $0.path == request.reportCSVURL.path })
+        XCTAssertTrue(visualizationStep.inputs.allSatisfy {
+            $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
     }
 
     func testLungfishReferenceRecordStoreImportHasActualInputsCommandAndTiming() async throws {

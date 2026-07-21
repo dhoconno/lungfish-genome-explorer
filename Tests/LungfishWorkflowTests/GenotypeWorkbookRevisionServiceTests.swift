@@ -10,6 +10,10 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-workbook")
+        XCTAssertEqual(
+            try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL).mhcReferenceVisualizations,
+            fixture.manifest.mhcReferenceVisualizations
+        )
         try installCandidateArtifacts(in: fixture.bundleURL)
         let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
@@ -58,6 +62,10 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         )
         XCTAssertFalse((inspection["allText"] ?? "").contains("_0nt_nov"))
         XCTAssertEqual(updated.mhcCandidateArtifacts?.schemaVersion, 1)
+        XCTAssertEqual(
+            updated.mhcReferenceVisualizations,
+            fixture.manifest.mhcReferenceVisualizations
+        )
         let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
             for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
             in: fixture.bundleURL
@@ -2319,6 +2327,21 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: currentURL)),
             provenancePath: nil
         )
+        let referenceDirectoryURL = bundleURL.appendingPathComponent("artifacts/reference", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceDirectoryURL, withIntermediateDirectories: true)
+        let referenceVisualizationJSONURL = referenceDirectoryURL
+            .appendingPathComponent("mhc-reference-visualizations.json")
+        let referenceGenBankURL = referenceDirectoryURL.appendingPathComponent("mhc-reference-records.gb")
+        let referenceFASTAURL = referenceDirectoryURL.appendingPathComponent("mhc-reference-records.fasta")
+        let referenceVisualizationDocument = ONTMHCReferenceVisualizationArtifact(
+            schemaVersion: 1,
+            records: []
+        )
+        let referenceEncoder = JSONEncoder()
+        referenceEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try referenceEncoder.encode(referenceVisualizationDocument).write(to: referenceVisualizationJSONURL)
+        try Data().write(to: referenceGenBankURL)
+        try Data().write(to: referenceFASTAURL)
         let manifest = ONTGenotypeResultBundleManifest(
             outputName: outputName,
             analysisName: outputName,
@@ -2328,7 +2351,13 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             longSummaryCSVPath: artifacts.genotypeCSV.lastPathComponent,
             sampleSummaryCSVPath: artifacts.sampleCSV.lastPathComponent,
             statsJSONPath: artifacts.statsJSON.lastPathComponent,
-            provenancePath: artifacts.provenance.lastPathComponent
+            provenancePath: artifacts.provenance.lastPathComponent,
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts(
+                schemaVersion: 1,
+                recordsJSON: try artifactReference(referenceVisualizationJSONURL, relativeTo: bundleURL),
+                genBank: try artifactReference(referenceGenBankURL, relativeTo: bundleURL),
+                fasta: try artifactReference(referenceFASTAURL, relativeTo: bundleURL)
+            )
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
         return (bundleURL, manifest)
@@ -2766,7 +2795,9 @@ print(json.dumps(payload))
             sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
             statsJSONPath: manifest.statsJSONPath,
             provenancePath: manifest.provenancePath,
-            mhcCandidateArtifacts: artifacts
+            mhcCandidateArtifacts: artifacts,
+            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
+            referenceRecordStore: manifest.referenceRecordStore
         )
         try ONTGenotypeResultBundle.writeManifest(updated, to: bundleURL)
     }

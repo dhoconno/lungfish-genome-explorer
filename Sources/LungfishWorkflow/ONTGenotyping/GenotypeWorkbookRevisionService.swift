@@ -2331,6 +2331,7 @@ public struct GenotypeWorkbookRevisionService {
             activeHaplotypeAnalysisRevisionID: manifest.activeHaplotypeAnalysisRevisionID,
             haplotypeAnalysisRevisions: manifest.haplotypeAnalysisRevisions,
             mhcCandidateArtifacts: manifest.mhcCandidateArtifacts,
+            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
             referenceRecordStore: manifest.referenceRecordStore
         )
     }

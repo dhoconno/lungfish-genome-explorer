@@ -29,6 +29,10 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
             fixture.result.manifest.deduplicatedUnmatchedClustersFASTAPath
         )
         XCTAssertEqual(manifest.mhcCandidateArtifacts, fixture.result.manifest.mhcCandidateArtifacts)
+        XCTAssertEqual(
+            manifest.mhcReferenceVisualizations,
+            fixture.result.manifest.mhcReferenceVisualizations
+        )
         XCTAssertEqual(manifest.referenceRecordStore, fixture.result.manifest.referenceRecordStore)
     }
 
@@ -316,6 +320,11 @@ private extension AIHaplotypingRevisionPublisherTests {
             sha256: String(repeating: "c", count: 64),
             sizeBytes: 1_024
         )
+        let referenceVisualizationArtifact = ONTMHCArtifactReference(
+            path: "artifacts/reference/mhc-reference-visualizations.json",
+            sha256: String(repeating: "d", count: 64),
+            sizeBytes: 2_048
+        )
         let manifest = ONTGenotypeResultBundleManifest(
             outputName: "fixture",
             analysisName: "Fixture",
@@ -339,6 +348,20 @@ private extension AIHaplotypingRevisionPublisherTests {
                 candidateFASTA: candidateArtifact,
                 unnameableJSON: candidateArtifact,
                 unnameableFASTA: candidateArtifact
+            ),
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts(
+                schemaVersion: 1,
+                recordsJSON: referenceVisualizationArtifact,
+                genBank: ONTMHCArtifactReference(
+                    path: "artifacts/reference/mhc-reference-records.gb",
+                    sha256: String(repeating: "e", count: 64),
+                    sizeBytes: 4_096
+                ),
+                fasta: ONTMHCArtifactReference(
+                    path: "artifacts/reference/mhc-reference-records.fasta",
+                    sha256: String(repeating: "f", count: 64),
+                    sizeBytes: 1_024
+                )
             ),
             referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo(
                 databasePath: "reference/records.sqlite",
