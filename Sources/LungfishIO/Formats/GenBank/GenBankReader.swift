@@ -1249,7 +1249,7 @@ public final class GenBankWriter: Sendable {
         var content = ""
 
         for record in records {
-            content += formatRecord(record)
+            content += format(record)
         }
 
         try content.write(to: url, atomically: true, encoding: .utf8)
@@ -1260,7 +1260,7 @@ public final class GenBankWriter: Sendable {
     /// - Parameter record: The record to write
     /// - Throws: If writing fails
     public func append(_ record: GenBankRecord) throws {
-        let content = formatRecord(record)
+        let content = format(record)
         if FileManager.default.fileExists(atPath: url.path) {
             let handle = try FileHandle(forWritingTo: url)
             defer { try? handle.close() }
@@ -1274,7 +1274,8 @@ public final class GenBankWriter: Sendable {
         }
     }
 
-    private func formatRecord(_ record: GenBankRecord) -> String {
+    /// Deterministically formats one record without writing it to disk.
+    public func format(_ record: GenBankRecord) -> String {
         var lines: [String] = []
 
         // LOCUS line
