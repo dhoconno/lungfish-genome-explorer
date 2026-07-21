@@ -90,6 +90,74 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         XCTAssertNotNil(find("knownAlleleNucleotideStrip", in: view))
     }
 
+    func testTranslationGeometryBelongsOnlyToMatchingAnnotatedSource() throws {
+        let view = makeView()
+        let joinedTranslationSource = [
+            feature(
+                type: "CDS",
+                start: 2,
+                end: 10,
+                sourceOrdinal: 2,
+                qualifiers: [
+                    "product": ["Translated antigen"],
+                    "translation": ["MATCHINGPEPTIDE"],
+                ]
+            ),
+            feature(
+                type: "CDS",
+                start: 14,
+                end: 22,
+                sourceOrdinal: 2,
+                qualifiers: ["product": ["Translated antigen"]]
+            ),
+            feature(
+                type: "CDS",
+                start: 10,
+                end: 14,
+                sourceOrdinal: 7,
+                qualifiers: ["product": ["Unrelated CDS"]]
+            ),
+        ]
+
+        view.configure(
+            record: makeRecord(
+                features: joinedTranslationSource,
+                annotatedTranslation: "MATCHINGPEPTIDE"
+            ),
+            observedSample: nil
+        )
+
+        let ownedBlocks = try lane("translation", in: view).subviews
+        XCTAssertEqual(ownedBlocks.count, 2)
+        XCTAssertTrue(ownedBlocks.allSatisfy {
+            $0.accessibilityIdentifier().contains(".translation.2.")
+        })
+        XCTAssertFalse(ownedBlocks.contains {
+            $0.accessibilityIdentifier().contains(".translation.7.")
+        })
+        XCTAssertGreaterThan(ownedBlocks[1].frame.minX - ownedBlocks[0].frame.maxX, 1)
+
+        view.configure(
+            record: makeRecord(
+                features: joinedTranslationSource.map { feature in
+                    ONTMHCReferenceVisualizationFeature(
+                        type: feature.type,
+                        start: feature.start,
+                        end: feature.end,
+                        strand: feature.strand,
+                        sourceOrdinal: feature.sourceOrdinal,
+                        rawGenBankLocation: feature.rawGenBankLocation,
+                        qualifiers: feature.qualifiers.filter { $0.key != "translation" }
+                    )
+                },
+                annotatedTranslation: "MATCHINGPEPTIDE"
+            ),
+            observedSample: nil
+        )
+
+        XCTAssertEqual(try lane("translation", in: view).subviews.count, 0)
+    }
+
     func testModeAndFactsActionsShowExactSelectableFullWidthText() throws {
         let view = makeView()
         let record = makeRecord()
@@ -225,7 +293,10 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
                     start: 2,
                     end: 10,
                     sourceOrdinal: 2,
-                    qualifiers: ["product": ["MHC class I antigen"]]
+                    qualifiers: [
+                        "product": ["MHC class I antigen"],
+                        "translation": ["MKTWQ"],
+                    ]
                 ),
                 feature(
                     type: "CDS",

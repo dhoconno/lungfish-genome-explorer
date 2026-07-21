@@ -49,11 +49,19 @@ final class GenotypeKnownAlleleOverviewView: NSView {
         let codingFeatures = record.features.filter {
             $0.type.caseInsensitiveCompare("CDS") == .orderedSame
         }
-        if let translation = record.annotatedTranslation, !translation.isEmpty {
-            let labelsBySource = sourceLabels(for: codingFeatures)
+        if let translation = record.annotatedTranslation,
+           !translation.isEmpty,
+           let sourceOrdinal = translationSourceOrdinal(
+               for: translation,
+               features: record.features
+           ) {
+            let translationFeatures = codingFeatures.filter {
+                $0.sourceOrdinal == sourceOrdinal
+            }
+            let labelsBySource = sourceLabels(for: translationFeatures)
             translationLane.setAccessibilityValue(translation)
             translationLane.configure(
-                blocks: codingFeatures.map {
+                blocks: translationFeatures.map {
                     .init(
                         start: $0.start,
                         end: $0.end,
@@ -425,4 +433,18 @@ private func sourceLabels(
         labels[feature.sourceOrdinal] = featureLabel(for: feature)
     }
     return labels
+}
+
+private func translationSourceOrdinal(
+    for annotatedTranslation: String,
+    features: [ONTMHCReferenceVisualizationFeature]
+) -> Int? {
+    features.first { feature in
+        feature.qualifiers.keys.sorted().contains { key in
+            guard key.caseInsensitiveCompare("translation") == .orderedSame else {
+                return false
+            }
+            return feature.qualifiers[key]?.contains(annotatedTranslation) == true
+        }
+    }?.sourceOrdinal
 }
