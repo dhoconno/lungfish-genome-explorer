@@ -14,12 +14,10 @@ final class GenotypeKnownAlleleDetailView: NSView {
 
     private let alleleLabel = NSTextField(labelWithString: "")
     private let rawReferenceIDLabel = NSTextField(labelWithString: "")
-    private let modeControl = NSSegmentedControl(
-        labels: ["Overview", "GenBank", "FASTA"],
-        trackingMode: .selectOne,
-        target: nil,
-        action: nil
-    )
+    private let modeSelector = NSStackView()
+    private let modeOverviewButton = NSButton(title: "Overview", target: nil, action: nil)
+    private let modeGenBankButton = NSButton(title: "GenBank", target: nil, action: nil)
+    private let modeFASTAButton = NSButton(title: "FASTA", target: nil, action: nil)
     private let contentHost = NSView()
 
     private let overviewView = GenotypeKnownAlleleOverviewView()
@@ -86,8 +84,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
         genBankTextView.string = record.genBankText
         fastaTextView.string = record.fastaText
 
-        modeControl.isHidden = false
-        modeControl.selectedSegment = Mode.overview.rawValue
+        modeSelector.isHidden = false
         show(mode: .overview)
     }
 
@@ -112,9 +109,9 @@ final class GenotypeKnownAlleleDetailView: NSView {
 
         fallbackObservedSample.stringValue = Self.observedSampleText(observedSample)
         fallbackObservedSample.isHidden = fallbackObservedSample.stringValue.isEmpty
-        modeControl.isHidden = true
-        modeControl.selectedSegment = Mode.overview.rawValue
+        modeSelector.isHidden = true
         currentMode = .overview
+        updateModeButtonStates()
         installContent(fallbackView)
     }
 
@@ -139,21 +136,39 @@ final class GenotypeKnownAlleleDetailView: NSView {
         titleStack.alignment = .leading
         titleStack.spacing = 2
 
-        modeControl.selectedSegment = Mode.overview.rawValue
-        modeControl.segmentStyle = .rounded
-        modeControl.controlSize = .small
-        modeControl.target = self
-        modeControl.action = #selector(modeChanged(_:))
-        modeControl.setAccessibilityIdentifier("knownAlleleModeControl")
+        configureModeButton(
+            modeOverviewButton,
+            mode: .overview,
+            identifier: "knownAlleleModeOverview"
+        )
+        configureModeButton(
+            modeGenBankButton,
+            mode: .genBank,
+            identifier: "knownAlleleModeGenBank"
+        )
+        configureModeButton(
+            modeFASTAButton,
+            mode: .fasta,
+            identifier: "knownAlleleModeFASTA"
+        )
+        modeSelector.addArrangedSubview(modeOverviewButton)
+        modeSelector.addArrangedSubview(modeGenBankButton)
+        modeSelector.addArrangedSubview(modeFASTAButton)
+        modeSelector.orientation = .horizontal
+        modeSelector.alignment = .centerY
+        modeSelector.spacing = 0
+        modeSelector.setAccessibilityIdentifier("knownAlleleModeControl")
+        modeSelector.setAccessibilityRole(.group)
+        modeSelector.setAccessibilityLabel("Known allele detail mode")
 
-        let header = NSStackView(views: [titleStack, modeControl])
+        let header = NSStackView(views: [titleStack, modeSelector])
         header.orientation = .horizontal
         header.alignment = .centerY
         header.distribution = .fill
         header.spacing = 16
         header.translatesAutoresizingMaskIntoConstraints = false
         titleStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        modeControl.setContentHuggingPriority(.required, for: .horizontal)
+        modeSelector.setContentHuggingPriority(.required, for: .horizontal)
 
         contentHost.translatesAutoresizingMaskIntoConstraints = false
         addSubview(header)
@@ -308,24 +323,37 @@ final class GenotypeKnownAlleleDetailView: NSView {
         return label
     }
 
-    @objc private func modeChanged(_ sender: NSSegmentedControl) {
-        guard let mode = Mode(rawValue: sender.selectedSegment) else { return }
+    private func configureModeButton(
+        _ button: NSButton,
+        mode: Mode,
+        identifier: String
+    ) {
+        button.setButtonType(.toggle)
+        button.bezelStyle = .texturedRounded
+        button.controlSize = .small
+        button.target = self
+        button.action = #selector(modeButtonPressed(_:))
+        button.tag = mode.rawValue
+        button.setAccessibilityIdentifier(identifier)
+        button.setAccessibilityLabel(button.title)
+    }
+
+    @objc private func modeButtonPressed(_ sender: NSButton) {
+        guard let mode = Mode(rawValue: sender.tag) else { return }
         show(mode: mode)
     }
 
     @objc private func showGenBank(_ sender: Any?) {
-        modeControl.selectedSegment = Mode.genBank.rawValue
         show(mode: .genBank)
     }
 
     @objc private func showFASTA(_ sender: Any?) {
-        modeControl.selectedSegment = Mode.fasta.rawValue
         show(mode: .fasta)
     }
 
     private func show(mode: Mode) {
         currentMode = mode
-        modeControl.selectedSegment = mode.rawValue
+        updateModeButtonStates()
         switch mode {
         case .overview:
             installContent(overviewContent)
@@ -333,6 +361,12 @@ final class GenotypeKnownAlleleDetailView: NSView {
             installContent(genBankScrollView)
         case .fasta:
             installContent(fastaScrollView)
+        }
+    }
+
+    private func updateModeButtonStates() {
+        for button in [modeOverviewButton, modeGenBankButton, modeFASTAButton] {
+            button.state = button.tag == currentMode.rawValue ? .on : .off
         }
     }
 

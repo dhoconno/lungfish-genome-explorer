@@ -49,22 +49,23 @@ final class GenotypeKnownAlleleOverviewView: NSView {
         let codingFeatures = record.features.filter {
             $0.type.caseInsensitiveCompare("CDS") == .orderedSame
         }
-        if let translation = record.annotatedTranslation,
-           !translation.isEmpty,
-           let start = codingFeatures.map(\.start).min(),
-           let end = codingFeatures.map(\.end).max() {
+        if let translation = record.annotatedTranslation, !translation.isEmpty {
+            let labelsBySource = sourceLabels(for: codingFeatures)
+            translationLane.setAccessibilityValue(translation)
             translationLane.configure(
-                blocks: [
+                blocks: codingFeatures.map {
                     .init(
-                        start: start,
-                        end: end,
-                        sourceOrdinal: codingFeatures[0].sourceOrdinal,
-                        label: translation
+                        start: $0.start,
+                        end: $0.end,
+                        sourceOrdinal: $0.sourceOrdinal,
+                        label: labelsBySource[$0.sourceOrdinal] ?? featureLabel(for: $0),
+                        help: featureHelp(for: $0, annotatedTranslation: translation)
                     )
-                ],
+                },
                 sequenceLength: sequenceLength
             )
         } else {
+            translationLane.setAccessibilityValue(nil)
             translationLane.configure(blocks: [], sequenceLength: sequenceLength)
         }
     }
@@ -245,6 +246,7 @@ private final class FeatureLaneView: NSView {
         let end: Int
         let sourceOrdinal: Int
         let label: String
+        let help: String?
     }
 
     private let kind: String
@@ -266,13 +268,15 @@ private final class FeatureLaneView: NSView {
     }
 
     func configure(features: [ONTMHCReferenceVisualizationFeature], sequenceLength: Int) {
+        let labelsBySource = sourceLabels(for: features)
         configure(
             blocks: features.map {
                 Block(
                     start: $0.start,
                     end: $0.end,
                     sourceOrdinal: $0.sourceOrdinal,
-                    label: "\(kind) \($0.sourceOrdinal)"
+                    label: labelsBySource[$0.sourceOrdinal] ?? featureLabel(for: $0),
+                    help: featureHelp(for: $0)
                 )
             },
             sequenceLength: sequenceLength
@@ -285,12 +289,17 @@ private final class FeatureLaneView: NSView {
         subviews.forEach { $0.removeFromSuperview() }
 
         for block in blocks {
-            let blockView = FeatureBlockView(color: blockColor)
+            let blockView = FeatureBlockView(
+                color: blockColor,
+                label: block.label,
+                help: block.help
+            )
             blockView.setAccessibilityIdentifier(
                 "knownAlleleFeatureBlock.\(kind).\(block.sourceOrdinal).\(block.start).\(block.end)"
             )
             blockView.setAccessibilityRole(.group)
             blockView.setAccessibilityLabel(block.label)
+            blockView.setAccessibilityHelp(block.help)
             addSubview(blockView)
         }
         needsLayout = true
@@ -327,14 +336,30 @@ private final class FeatureLaneView: NSView {
 @MainActor
 private final class FeatureBlockView: NSView {
     private let color: NSColor
+    private let labelField: NSTextField
 
-    init(color: NSColor) {
+    init(color: NSColor, label: String, help: String?) {
         self.color = color
+        self.labelField = NSTextField(labelWithString: label)
         super.init(frame: .zero)
+        toolTip = [label, help].compactMap { $0 }.joined(separator: " — ")
+        labelField.font = .systemFont(ofSize: 9, weight: .semibold)
+        labelField.textColor = .selectedControlTextColor
+        labelField.alignment = .center
+        labelField.lineBreakMode = .byTruncatingTail
+        labelField.setAccessibilityElement(false)
+        addSubview(labelField)
     }
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func layout() {
+        super.layout()
+        labelField.frame = bounds.insetBy(dx: 4, dy: 2)
+        let usefulLabelWidth = min(labelField.intrinsicContentSize.width + 8, 120)
+        labelField.isHidden = bounds.width < usefulLabelWidth
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -342,4 +367,62 @@ private final class FeatureBlockView: NSView {
         color.withAlphaComponent(0.82).setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 3, yRadius: 3).fill()
     }
+}
+
+private func featureLabel(for feature: ONTMHCReferenceVisualizationFeature) -> String {
+    let type = feature.type.lowercased()
+    if type == "exon",
+       let number = firstQualifierValue(in: feature, keys: ["exon_number", "number"]) {
+        return "Exon \(number)"
+    }
+
+    if let biologicalName = firstQualifierValue(
+        in: feature,
+        keys: ["gene", "allele", "product", "note"]
+    ) {
+        return biologicalName
+    }
+    return feature.type
+}
+
+private func featureHelp(
+    for feature: ONTMHCReferenceVisualizationFeature,
+    annotatedTranslation: String? = nil
+) -> String? {
+    var details: [String] = []
+    if let location = feature.rawGenBankLocation, !location.isEmpty {
+        details.append(location)
+    }
+    if !feature.strand.isEmpty {
+        details.append("strand \(feature.strand)")
+    }
+    if let annotatedTranslation, !annotatedTranslation.isEmpty {
+        details.append("annotated translation: \(annotatedTranslation)")
+    }
+    return details.isEmpty ? nil : details.joined(separator: ", ")
+}
+
+private func firstQualifierValue(
+    in feature: ONTMHCReferenceVisualizationFeature,
+    keys: [String]
+) -> String? {
+    for key in keys {
+        for actualKey in feature.qualifiers.keys.sorted()
+        where actualKey.caseInsensitiveCompare(key) == .orderedSame {
+            if let value = feature.qualifiers[actualKey]?.first(where: { !$0.isEmpty }) {
+                return value
+            }
+        }
+    }
+    return nil
+}
+
+private func sourceLabels(
+    for features: [ONTMHCReferenceVisualizationFeature]
+) -> [Int: String] {
+    var labels: [Int: String] = [:]
+    for feature in features where labels[feature.sourceOrdinal] == nil {
+        labels[feature.sourceOrdinal] = featureLabel(for: feature)
+    }
+    return labels
 }

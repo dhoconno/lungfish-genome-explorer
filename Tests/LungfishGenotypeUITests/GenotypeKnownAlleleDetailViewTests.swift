@@ -11,7 +11,9 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         view.configure(record: makeRecord(), observedSample: "CR1178")
 
         XCTAssertEqual(view.currentMode, .overview)
-        XCTAssertEqual(try segmentedControl(in: view).selectedSegment, 0)
+        XCTAssertEqual(try modeButton("knownAlleleModeOverview", in: view).state, .on)
+        XCTAssertEqual(try modeButton("knownAlleleModeGenBank", in: view).state, .off)
+        XCTAssertEqual(try modeButton("knownAlleleModeFASTA", in: view).state, .off)
         XCTAssertEqual(text("knownAlleleAlleleLabel", in: view), "Mafa-A1*063:01")
         XCTAssertEqual(text("knownAlleleRawReferenceID", in: view), "NHP0068")
         XCTAssertEqual(text("knownAlleleLocus", in: view), "Mafa-A1")
@@ -42,7 +44,7 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         XCTAssertEqual(try lane("gene", in: view).subviews.count, 1)
         XCTAssertEqual(try lane("CDS", in: view).subviews.count, 2)
         XCTAssertEqual(try lane("exon", in: view).subviews.count, 2)
-        XCTAssertEqual(try lane("translation", in: view).subviews.count, 1)
+        XCTAssertEqual(try lane("translation", in: view).subviews.count, 2)
 
         let joinedCDSBlocks = try lane("CDS", in: view).subviews
         XCTAssertNotEqual(
@@ -53,7 +55,24 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
             joinedCDSBlocks[0].accessibilityLabel(),
             joinedCDSBlocks[1].accessibilityLabel()
         )
-        XCTAssertEqual(joinedCDSBlocks[0].accessibilityLabel(), "CDS 2")
+        XCTAssertEqual(joinedCDSBlocks[0].accessibilityLabel(), "MHC class I antigen")
+        XCTAssertTrue(joinedCDSBlocks[0].toolTip?.contains("3..10") == true)
+
+        let geneBlock = try XCTUnwrap(lane("gene", in: view).subviews.first)
+        XCTAssertEqual(geneBlock.accessibilityLabel(), "Mafa-A1")
+        XCTAssertEqual(visibleBlockLabel(in: geneBlock), "Mafa-A1")
+
+        let exonBlocks = try lane("exon", in: view).subviews
+        XCTAssertEqual(exonBlocks.map { $0.accessibilityLabel() ?? "" }, ["Exon 2", "Exon 3"])
+        XCTAssertEqual(exonBlocks.map(visibleBlockLabel), ["Exon 2", "Exon 3"])
+
+        assertGeometry(of: joinedCDSBlocks, in: try lane("CDS", in: view))
+        let translationBlocks = try lane("translation", in: view).subviews
+        XCTAssertEqual(
+            translationBlocks.map { $0.accessibilityLabel() ?? "" },
+            ["MHC class I antigen", "MHC class I antigen"]
+        )
+        assertGeometry(of: translationBlocks, in: try lane("translation", in: view))
     }
 
     func testEmptyAnnotationsRemainSequenceOnlyWithoutSynthesizedFeatures() throws {
@@ -71,15 +90,16 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         XCTAssertNotNil(find("knownAlleleNucleotideStrip", in: view))
     }
 
-    func testSegmentAndFactsActionsShowExactSelectableFullWidthText() throws {
+    func testModeAndFactsActionsShowExactSelectableFullWidthText() throws {
         let view = makeView()
         let record = makeRecord()
         view.configure(record: record, observedSample: "CR1178")
-        let modeControl = try segmentedControl(in: view)
 
-        select(segment: 1, in: modeControl)
+        try modeButton("knownAlleleModeGenBank", in: view).performClick(nil)
 
         XCTAssertEqual(view.currentMode, .genBank)
+        XCTAssertEqual(try modeButton("knownAlleleModeOverview", in: view).state, .off)
+        XCTAssertEqual(try modeButton("knownAlleleModeGenBank", in: view).state, .on)
         let genBank = try XCTUnwrap(find("knownAlleleGenBankTextView", in: view) as? NSTextView)
         XCTAssertEqual(genBank.string, record.genBankText)
         XCTAssertFalse(genBank.isEditable)
@@ -87,7 +107,8 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         XCTAssertNil(find("knownAlleleFactsRail", in: view))
         XCTAssertEqual(try visibleScrollView(in: view).frame.width, view.bounds.width, accuracy: 0.5)
 
-        select(segment: 0, in: modeControl)
+        try modeButton("knownAlleleModeOverview", in: view).performClick(nil)
+        XCTAssertEqual(view.currentMode, .overview)
         let fastaButton = try XCTUnwrap(find("knownAlleleShowFASTAButton", in: view) as? NSButton)
         fastaButton.performClick(nil)
 
@@ -99,16 +120,20 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         XCTAssertNil(find("knownAlleleFactsRail", in: view))
         XCTAssertEqual(try visibleScrollView(in: view).frame.width, view.bounds.width, accuracy: 0.5)
 
-        select(segment: 0, in: modeControl)
+        try modeButton("knownAlleleModeOverview", in: view).performClick(nil)
         let genBankButton = try XCTUnwrap(find("knownAlleleShowGenBankButton", in: view) as? NSButton)
         genBankButton.performClick(nil)
         XCTAssertEqual(view.currentMode, .genBank)
+
+        try modeButton("knownAlleleModeFASTA", in: view).performClick(nil)
+        XCTAssertEqual(view.currentMode, .fasta)
+        XCTAssertEqual(try modeButton("knownAlleleModeFASTA", in: view).state, .on)
     }
 
     func testReconfigureResetsModeUpdatesContentAndDoesNotGrowHierarchy() throws {
         let view = makeView()
         view.configure(record: makeRecord(), observedSample: "CR1178")
-        select(segment: 2, in: try segmentedControl(in: view))
+        try modeButton("knownAlleleModeFASTA", in: view).performClick(nil)
 
         let replacement = makeRecord(
             rawReferenceID: "NHP0099",
@@ -125,7 +150,7 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         view.configure(record: replacement, observedSample: "CR2000")
 
         XCTAssertEqual(view.currentMode, .overview)
-        XCTAssertEqual(try segmentedControl(in: view).selectedSegment, 0)
+        XCTAssertEqual(try modeButton("knownAlleleModeOverview", in: view).state, .on)
         XCTAssertEqual(text("knownAlleleAlleleLabel", in: view), "Mafa-B*099:02")
         XCTAssertEqual(text("knownAlleleRawReferenceID", in: view), "NHP0099")
         XCTAssertEqual(text("knownAlleleObservedSample", in: view), "Observed in sample CR2000")
@@ -188,11 +213,41 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
             sequenceSHA256: "test-checksum",
             recordFields: ["definition": ["MHC class I allele"]],
             features: features ?? [
-                feature(type: "gene", start: 0, end: 24, sourceOrdinal: 1),
-                feature(type: "CDS", start: 2, end: 10, sourceOrdinal: 2),
-                feature(type: "CDS", start: 14, end: 22, sourceOrdinal: 2),
-                feature(type: "exon", start: 2, end: 10, sourceOrdinal: 3),
-                feature(type: "exon", start: 14, end: 22, sourceOrdinal: 4),
+                feature(
+                    type: "gene",
+                    start: 0,
+                    end: 24,
+                    sourceOrdinal: 1,
+                    qualifiers: ["gene": ["Mafa-A1"]]
+                ),
+                feature(
+                    type: "CDS",
+                    start: 2,
+                    end: 10,
+                    sourceOrdinal: 2,
+                    qualifiers: ["product": ["MHC class I antigen"]]
+                ),
+                feature(
+                    type: "CDS",
+                    start: 14,
+                    end: 22,
+                    sourceOrdinal: 2,
+                    qualifiers: ["product": ["Conflicting duplicate interval label"]]
+                ),
+                feature(
+                    type: "exon",
+                    start: 2,
+                    end: 10,
+                    sourceOrdinal: 3,
+                    qualifiers: ["exon_number": ["2"]]
+                ),
+                feature(
+                    type: "exon",
+                    start: 14,
+                    end: 22,
+                    sourceOrdinal: 4,
+                    qualifiers: ["number": ["3"]]
+                ),
             ],
             annotatedTranslation: annotatedTranslation,
             genBankText: genBankText,
@@ -210,7 +265,8 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         type: String,
         start: Int,
         end: Int,
-        sourceOrdinal: Int
+        sourceOrdinal: Int,
+        qualifiers: [String: [String]] = [:]
     ) -> ONTMHCReferenceVisualizationFeature {
         ONTMHCReferenceVisualizationFeature(
             type: type,
@@ -219,12 +275,12 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
             strand: "+",
             sourceOrdinal: sourceOrdinal,
             rawGenBankLocation: "\(start + 1)..\(end)",
-            qualifiers: [:]
+            qualifiers: qualifiers
         )
     }
 
-    private func segmentedControl(in view: NSView) throws -> NSSegmentedControl {
-        try XCTUnwrap(find("knownAlleleModeControl", in: view) as? NSSegmentedControl)
+    private func modeButton(_ identifier: String, in view: NSView) throws -> NSButton {
+        try XCTUnwrap(find(identifier, in: view) as? NSButton)
     }
 
     private func lane(_ name: String, in view: NSView) throws -> NSView {
@@ -253,9 +309,26 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         (find(identifier, in: root) as? NSTextField)?.stringValue
     }
 
-    private func select(segment: Int, in control: NSSegmentedControl) {
-        control.selectedSegment = segment
-        control.sendAction(control.action, to: control.target)
+    private func visibleBlockLabel(in block: NSView) -> String {
+        descendants(of: block).compactMap { $0 as? NSTextField }.first { !$0.isHidden }?.stringValue ?? ""
+    }
+
+    private func assertGeometry(
+        of blocks: [NSView],
+        in lane: NSView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard blocks.count == 2 else {
+            XCTFail("Expected two interval blocks, found \(blocks.count)", file: file, line: line)
+            return
+        }
+        let expectedWidth = lane.bounds.width * 8 / 24
+        XCTAssertEqual(blocks[0].frame.minX, lane.bounds.width * 2 / 24, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(blocks[0].frame.width, expectedWidth, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(blocks[1].frame.minX, lane.bounds.width * 14 / 24, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(blocks[1].frame.width, expectedWidth, accuracy: 1, file: file, line: line)
+        XCTAssertGreaterThan(blocks[1].frame.minX - blocks[0].frame.maxX, 1, file: file, line: line)
     }
 
     private func visibleScrollView(in root: NSView) throws -> NSScrollView {
