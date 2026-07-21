@@ -2579,16 +2579,28 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingSelectMatrixRows(genotypes: [firstID], sample: nil)
         let detail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
         let baselineDescendantCount = descendants(of: detail).count
+        let baselineContentConstraintIdentifiers = detail.testingActiveContentConstraintIdentifiers
+        let baselineOverviewConfigurationCount = detail.testingOverviewConfigurationCount
         var maximumDescendantCount = baselineDescendantCount
 
         let start = CFAbsoluteTimeGetCurrent()
-        for _ in 0..<12 {
+        for iteration in 0..<12 {
             controller.testingSelectMatrixCell(genotype: firstID, sample: sampleNames[0])
             controller.testingSelectMatrixRows(genotypes: [secondID], sample: nil)
             controller.testingSelectMatrixCell(genotype: secondID, sample: sampleNames[239])
             controller.testingSelectMatrixRows(genotypes: [firstID], sample: nil)
             let current = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
             XCTAssertTrue(detail === current)
+            XCTAssertEqual(
+                current.testingActiveContentConstraintIdentifiers,
+                baselineContentConstraintIdentifiers,
+                "Reconfiguring an already-visible overview must not replace its layout constraints."
+            )
+            XCTAssertEqual(
+                current.testingOverviewConfigurationCount,
+                baselineOverviewConfigurationCount + ((iteration + 1) * 2),
+                "Only a changed reference allele should rebuild graphical feature lanes."
+            )
             maximumDescendantCount = max(maximumDescendantCount, descendants(of: current).count)
         }
         let elapsed = CFAbsoluteTimeGetCurrent() - start

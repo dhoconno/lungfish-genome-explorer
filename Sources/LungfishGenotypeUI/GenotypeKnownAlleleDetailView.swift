@@ -72,6 +72,16 @@ final class GenotypeKnownAlleleDetailView: NSView {
     private var narrowOverviewWidthConstraint: NSLayoutConstraint?
     private var narrowFactsWidthConstraint: NSLayoutConstraint?
     private var comments: [(String, String)] = []
+    private var overviewConfigurationCount = 0
+    private var configuredOverviewRecord: ONTMHCReferenceVisualizationRecord?
+
+    var testingActiveContentConstraintIdentifiers: [ObjectIdentifier] {
+        activeContentConstraints.map(ObjectIdentifier.init)
+    }
+
+    var testingOverviewConfigurationCount: Int {
+        overviewConfigurationCount
+    }
 
     override var intrinsicContentSize: NSSize {
         let height: CGFloat
@@ -145,13 +155,21 @@ final class GenotypeKnownAlleleDetailView: NSView {
         observedSampleValue.isHidden = observedSampleValue.stringValue.isEmpty
         configureComments(comments)
 
-        overviewView.configure(record: record)
+        let shouldReconfigureOverview = configuredOverviewRecord != record
+        if shouldReconfigureOverview {
+            configuredOverviewRecord = record
+            overviewConfigurationCount += 1
+            overviewView.configure(record: record)
+        }
         updateFeatureInformation(nil)
         genBankTextView.string = record.genBankText
         fastaTextView.string = record.fastaText
 
         modeSelector.isHidden = false
         show(mode: .overview)
+        if shouldReconfigureOverview {
+            layoutSubtreeIfNeeded()
+        }
     }
 
     func configureFallback(
@@ -162,6 +180,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
         comments: [(String, String)] = []
     ) {
         isShowingFallback = true
+        configuredOverviewRecord = nil
         alleleLabel.stringValue = alleleName
         rawReferenceIDLabel.stringValue = rawReferenceID
         fallbackFieldsStack.arrangedSubviews.forEach {
@@ -654,6 +673,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
     }
 
     private func installContent(_ view: NSView) {
+        guard activeContent !== view else { return }
         NSLayoutConstraint.deactivate(activeContentConstraints)
         activeContent?.removeFromSuperview()
 
