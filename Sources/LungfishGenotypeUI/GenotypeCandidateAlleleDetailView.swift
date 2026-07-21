@@ -85,7 +85,6 @@ final class GenotypeCandidateAlleleDetailView: NSView {
 
     private let fallbackContent = NSView()
     private let fallbackNote = NSTextField(wrappingLabelWithString: "")
-    private let fallbackWarning = NSTextField(wrappingLabelWithString: "")
 
     private var isShowingFallback = false
     private var configuredOverviewRecord: ONTMHCReferenceVisualizationRecord?
@@ -93,7 +92,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
     override var intrinsicContentSize: NSSize {
         let height: CGFloat
         if isShowingFallback {
-            height = 250
+            height = closestReferenceOverviewCanvas.isHidden ? 250 : 560
         } else {
             height = currentMode == .overview ? 560 : 460
         }
@@ -210,20 +209,21 @@ final class GenotypeCandidateAlleleDetailView: NSView {
             }
         warningValue.stringValue = displayWarnings.joined(separator: "\n")
         warningValue.superview?.isHidden = warningValue.stringValue.isEmpty
-        fallbackWarning.stringValue = warning ?? ""
-        fallbackWarning.isHidden = fallbackWarning.stringValue.isEmpty
 
         let missingSequence = candidateSequence == nil
         let missingReference = closestReference == nil
         isShowingFallback = missingSequence || missingReference
+        updateOverviewFallbackVisibility(
+            isFallback: isShowingFallback,
+            hidesReferenceGeometry: missingReference
+        )
         if isShowingFallback {
             fallbackNote.stringValue = Self.fallbackText(
                 missingSequence: missingSequence,
                 missingReference: missingReference
             )
             modeControl.isHidden = true
-            currentMode = .overview
-            showOnly(fallbackContent)
+            show(mode: .overview)
         } else {
             modeControl.isHidden = false
             show(mode: .overview)
@@ -255,7 +255,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
             contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
-        for content in [overviewContent, genBankContent, fastaContent, fallbackContent] {
+        for content in [overviewContent, genBankContent, fastaContent] {
             content.translatesAutoresizingMaskIntoConstraints = false
             contentHost.addSubview(content)
             NSLayoutConstraint.activate([
@@ -545,12 +545,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         fallbackNote.maximumNumberOfLines = 0
         fallbackNote.setAccessibilityIdentifier("candidateFallbackNote")
 
-        fallbackWarning.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-        fallbackWarning.textColor = .systemOrange
-        fallbackWarning.maximumNumberOfLines = 0
-        fallbackWarning.setAccessibilityIdentifier("candidateFallbackWarning")
-
-        let stack = NSStackView(views: [fallbackNote, fallbackWarning])
+        let stack = NSStackView(views: [fallbackNote])
         stack.orientation = .vertical
         stack.alignment = .width
         stack.spacing = 10
@@ -560,8 +555,11 @@ final class GenotypeCandidateAlleleDetailView: NSView {
             stack.leadingAnchor.constraint(equalTo: fallbackContent.leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: fallbackContent.trailingAnchor, constant: -16),
             stack.topAnchor.constraint(equalTo: fallbackContent.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: fallbackContent.bottomAnchor, constant: -16),
             stack.widthAnchor.constraint(lessThanOrEqualToConstant: 620),
         ])
+        closestReferenceColumn.insertArrangedSubview(fallbackContent, at: 0)
+        fallbackContent.isHidden = true
     }
 
     private func configureModeButton(_ button: NSButton, mode: Mode, identifier: String) {
@@ -605,9 +603,20 @@ final class GenotypeCandidateAlleleDetailView: NSView {
     }
 
     private func showOnly(_ visibleContent: NSView) {
-        for content in [overviewContent, genBankContent, fastaContent, fallbackContent] {
+        for content in [overviewContent, genBankContent, fastaContent] {
             content.isHidden = content !== visibleContent
         }
+    }
+
+    private func updateOverviewFallbackVisibility(
+        isFallback: Bool,
+        hidesReferenceGeometry: Bool
+    ) {
+        fallbackContent.isHidden = !isFallback
+        closestReferenceGeometryLabel.isHidden = hidesReferenceGeometry
+        closestReferenceOverviewCanvas.isHidden = hidesReferenceGeometry
+        differenceLabel.isHidden = hidesReferenceGeometry
+        differenceTrack.isHidden = hidesReferenceGeometry
     }
 
     private func updateModeButtons() {

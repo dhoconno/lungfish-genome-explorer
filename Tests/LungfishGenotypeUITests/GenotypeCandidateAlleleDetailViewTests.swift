@@ -299,7 +299,8 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
             closestReference: makeReference(),
             candidateSequence: nil,
             selectedSampleID: "CR1178",
-            selectedSampleReadCount: 8
+            selectedSampleReadCount: 8,
+            comments: [("Candidate note", "Review before release.")]
         )
 
         XCTAssertTrue(try XCTUnwrap(find("candidateModeControl", in: view)).isHidden)
@@ -307,6 +308,19 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertTrue(fallback.contains("candidate sequence"))
         XCTAssertFalse(fallback.contains("closest-reference visualization"))
         XCTAssertTrue(fallback.contains("fresh analysis"))
+        XCTAssertEqual(text("candidateClosestRawReferenceID", in: view), "NHP0068")
+        XCTAssertFalse(
+            try XCTUnwrap(find("candidateClosestReferenceOverview", in: view))
+                .isHiddenOrHasHiddenAncestor
+        )
+        XCTAssertEqual(view.intrinsicContentSize.height, 560)
+        assertFallbackNoteOccupiesVisibleLayout(in: view)
+        assertCandidateFactsAndCommentsAreVisible(in: view)
+
+        let visible = visibleText(in: view)
+        XCTAssertFalse(visible.contains("unmatched-to-reference.bam"))
+        XCTAssertFalse(visible.contains("selected-read"))
+        XCTAssertFalse(visible.contains("2=1X"))
     }
 
     func testMissingReferenceUsesBoundedFreshAnalysisFallbackIndependently() throws {
@@ -319,6 +333,7 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
             candidateSequence: String(repeating: "ACGT", count: 6),
             selectedSampleID: "CR1178",
             selectedSampleReadCount: 8,
+            comments: [("Candidate note", "Review before release.")],
             warning: "Saved result predates candidate visualization artifacts."
         )
 
@@ -330,10 +345,18 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertTrue(fallback.contains("fresh analysis"))
         XCTAssertEqual(text("candidateAlleleName", in: view), "Mafa-A1*067:01_2nt_nov")
         XCTAssertEqual(text("candidateStableClusterID", in: view), "cluster-a")
+        XCTAssertEqual(text("candidateClosestRawReferenceID", in: view), "Unavailable")
+        XCTAssertTrue(
+            try XCTUnwrap(find("candidateClosestReferenceOverview", in: view))
+                .isHiddenOrHasHiddenAncestor
+        )
+        XCTAssertEqual(view.intrinsicContentSize.height, 250)
         XCTAssertEqual(
             text("candidateWarning", in: view),
             "Saved result predates candidate visualization artifacts."
         )
+        assertFallbackNoteOccupiesVisibleLayout(in: view)
+        assertCandidateFactsAndCommentsAreVisible(in: view)
 
         let descendantCount = descendants(of: view).count
         let activeConstraintIDs = Set(activeConstraints(in: view).map(ObjectIdentifier.init))
@@ -343,7 +366,9 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
                 closestReference: nil,
                 candidateSequence: String(repeating: "ACGT", count: 6),
                 selectedSampleID: "CR1178",
-                selectedSampleReadCount: 8
+                selectedSampleReadCount: 8,
+                comments: [("Candidate note", "Review before release.")],
+                warning: "Saved result predates candidate visualization artifacts."
             )
         }
         XCTAssertEqual(descendants(of: view).count, descendantCount)
@@ -353,6 +378,11 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertFalse(visible.contains("unmatched-to-reference.bam"))
         XCTAssertFalse(visible.contains("selected-read"))
         XCTAssertFalse(visible.contains("2=1X"))
+        XCTAssertEqual(
+            visible.components(separatedBy: "Saved result predates candidate visualization artifacts.").count,
+            2,
+            "The warning should be rendered once."
+        )
     }
 
     private func makeView() -> GenotypeCandidateAlleleDetailView {
@@ -463,6 +493,64 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
 
     private func text(_ identifier: String, in root: NSView) -> String? {
         (find(identifier, in: root) as? NSTextField)?.stringValue
+    }
+
+    private func assertCandidateFactsAndCommentsAreVisible(
+        in root: NSView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for identifier in [
+            "candidateStableClusterID",
+            "candidateClassification",
+            "candidateSupportClass",
+            "candidateTotalReads",
+            "candidateClosestAllele",
+            "candidateClosestRawReferenceID",
+            "candidateClosestReferenceClass",
+            "candidateCommentLabel.0",
+            "candidateCommentBody.0",
+            "candidateFallbackNote",
+        ] {
+            guard let identified = find(identifier, in: root) else {
+                XCTFail("Missing \(identifier)", file: file, line: line)
+                continue
+            }
+            XCTAssertFalse(
+                identified.isHiddenOrHasHiddenAncestor,
+                "\(identifier) should remain visible in fallback.",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertFallbackNoteOccupiesVisibleLayout(
+        in root: NSView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        root.layoutSubtreeIfNeeded()
+        guard let fallback = find("candidateFallback", in: root),
+              let note = find("candidateFallbackNote", in: root) else {
+            XCTFail("Missing fallback layout", file: file, line: line)
+            return
+        }
+        let noteFrame = note.convert(note.bounds, to: fallback)
+        XCTAssertLessThan(
+            fallback.bounds.height,
+            1_000,
+            "Fallback layout should remain bounded.",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThan(
+            noteFrame.intersection(fallback.bounds).height,
+            0,
+            "Fallback explanation should occupy visible layout.",
+            file: file,
+            line: line
+        )
     }
 
     private func visibleText(in root: NSView) -> String {
