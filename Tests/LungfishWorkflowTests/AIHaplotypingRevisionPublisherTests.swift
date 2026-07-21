@@ -33,6 +33,12 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
             manifest.mhcReferenceVisualizations,
             fixture.result.manifest.mhcReferenceVisualizations
         )
+        let visualizations = try XCTUnwrap(manifest.mhcReferenceVisualizations)
+        for reference in [visualizations.recordsJSON, visualizations.genBank, visualizations.fasta] {
+            let url = ONTGenotypeResultBundle.resolvedURL(for: reference.path, in: fixture.bundleURL)
+            XCTAssertEqual(reference.sha256, try ProvenanceFileHasher.sha256(of: url))
+            XCTAssertEqual(reference.sizeBytes, Int64(try ProvenanceFileHasher.fileSize(of: url)))
+        }
         XCTAssertEqual(manifest.referenceRecordStore, fixture.result.manifest.referenceRecordStore)
     }
 
@@ -320,11 +326,26 @@ private extension AIHaplotypingRevisionPublisherTests {
             sha256: String(repeating: "c", count: 64),
             sizeBytes: 1_024
         )
-        let referenceVisualizationArtifact = ONTMHCArtifactReference(
-            path: "artifacts/reference/mhc-reference-visualizations.json",
-            sha256: String(repeating: "d", count: 64),
-            sizeBytes: 2_048
+        let referenceDirectoryURL = bundleURL.appendingPathComponent("artifacts/reference", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceDirectoryURL, withIntermediateDirectories: true)
+        let referenceVisualizationJSONURL = referenceDirectoryURL
+            .appendingPathComponent("mhc-reference-visualizations.json")
+        let referenceGenBankURL = referenceDirectoryURL.appendingPathComponent("mhc-reference-records.gb")
+        let referenceFASTAURL = referenceDirectoryURL.appendingPathComponent("mhc-reference-records.fasta")
+        let referenceVisualizationDocument = ONTMHCReferenceVisualizationArtifact(
+            schemaVersion: 1,
+            records: []
         )
+        try prettyJSONEncoder.encode(referenceVisualizationDocument).write(to: referenceVisualizationJSONURL)
+        try Data().write(to: referenceGenBankURL)
+        try Data().write(to: referenceFASTAURL)
+        func visualizationArtifactReference(_ url: URL) throws -> ONTMHCArtifactReference {
+            ONTMHCArtifactReference(
+                path: "artifacts/reference/\(url.lastPathComponent)",
+                sha256: try ProvenanceFileHasher.sha256(of: url),
+                sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: url))
+            )
+        }
         let manifest = ONTGenotypeResultBundleManifest(
             outputName: "fixture",
             analysisName: "Fixture",
@@ -351,17 +372,9 @@ private extension AIHaplotypingRevisionPublisherTests {
             ),
             mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts(
                 schemaVersion: 1,
-                recordsJSON: referenceVisualizationArtifact,
-                genBank: ONTMHCArtifactReference(
-                    path: "artifacts/reference/mhc-reference-records.gb",
-                    sha256: String(repeating: "e", count: 64),
-                    sizeBytes: 4_096
-                ),
-                fasta: ONTMHCArtifactReference(
-                    path: "artifacts/reference/mhc-reference-records.fasta",
-                    sha256: String(repeating: "f", count: 64),
-                    sizeBytes: 1_024
-                )
+                recordsJSON: try visualizationArtifactReference(referenceVisualizationJSONURL),
+                genBank: try visualizationArtifactReference(referenceGenBankURL),
+                fasta: try visualizationArtifactReference(referenceFASTAURL)
             ),
             referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo(
                 databasePath: "reference/records.sqlite",

@@ -673,6 +673,16 @@ private struct FullLengthONTMHCReferenceVisualizationPublication: Sendable {
     }
 }
 
+private struct FullLengthONTMHCReferenceVisualizationPublicationError: Error, LocalizedError {
+    let step: FullLengthONTMHCProvenanceStep
+    let provenanceStepSnapshot: ProvenanceStep
+    let underlyingLocalizedDescription: String
+
+    var errorDescription: String? {
+        "MHC reference visualization extraction failed: \(underlyingLocalizedDescription)"
+    }
+}
+
 private struct FullLengthONTMHCResultBundlePublicationRecord: Sendable {
     let stagedDirectoryURL: URL
     let finalDirectoryURL: URL
@@ -4296,41 +4306,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let fastaURL = referenceDirectoryURL
             .appendingPathComponent("mhc-reference-records.fasta")
         let startedAt = Date()
-        let output = try MHCReferenceVisualizationArtifactBuilder().build(.init(
-            referenceBundleURL: referenceBundleURL,
-            exactKnownRawReferenceIDs: exactKnownRawReferenceIDs,
-            candidates: candidateDocument
-        ))
-        try FileManager.default.createDirectory(
-            at: referenceDirectoryURL,
-            withIntermediateDirectories: true
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try encoder.encode(output.document).write(to: recordsJSONURL, options: .atomic)
-        try Data(output.genBankText.utf8).write(to: genBankURL, options: .atomic)
-        try Data(output.fastaText.utf8).write(to: fastaURL, options: .atomic)
-
-        func artifactReference(_ url: URL) throws -> ONTMHCArtifactReference {
-            ONTMHCArtifactReference(
-                path: relativePath(from: outputDirectoryURL, to: url),
-                sha256: try ProvenanceFileHasher.sha256(of: url) {
-                    try Task.checkCancellation()
-                },
-                sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: url))
-            )
-        }
-        let publication = try FullLengthONTMHCReferenceVisualizationPublication(
-            descriptor: ONTMHCReferenceVisualizationArtifacts(
-                schemaVersion: 1,
-                recordsJSON: artifactReference(recordsJSONURL),
-                genBank: artifactReference(genBankURL),
-                fasta: artifactReference(fastaURL)
-            ),
-            recordsJSONURL: recordsJSONURL,
-            genBankURL: genBankURL,
-            fastaURL: fastaURL
-        )
         let sourceReferenceURLs = try mhcReferenceCatalogInputURLs(
             sourceURL: referenceBundleURL,
             fastaURL: referenceFASTAURL
@@ -4343,6 +4318,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             }) else { return }
             unique.append(url.standardizedFileURL)
         }
+        let outputURLs = [recordsJSONURL, genBankURL, fastaURL]
         var argv = [
             "lungfish-in-process", "extract-mhc-reference-visualizations",
             "--reference-bundle", referenceBundleURL.path,
@@ -4357,29 +4333,98 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "--genbank", genBankURL.path,
             "--fasta", fastaURL.path,
         ]
-        steps.append(FullLengthONTMHCProvenanceStep(
-            toolName: "lungfish-in-process:extract-mhc-reference-visualizations",
-            toolVersion: WorkflowRun.currentAppVersion,
-            argv: argv,
-            resolvedOptions: [
+        func provenanceStep(
+            recordCount: Int?,
+            outputs: [URL],
+            exitStatus: Int32,
+            stderr: String?,
+            completedAt: Date
+        ) -> FullLengthONTMHCProvenanceStep {
+            var resolvedOptions: [String: ParameterValue] = [
                 "schemaVersion": .integer(1),
                 "exactKnownRawReferenceIDs": .array(
                     exactKnownRawReferenceIDs.sorted().map(ParameterValue.string)
                 ),
                 "includeCandidateClosestReferences": .boolean(true),
                 "candidateCount": .integer(candidateDocument.candidates.count),
-                "recordCount": .integer(output.document.records.count),
                 "jsonEncoding": .string("pretty-printed-sorted-keys-without-escaped-slashes"),
                 "companionOrdering": .string("source-ordinal-then-raw-reference-id"),
-            ],
-            inputs: inputs,
-            outputs: publication.outputURLs,
-            exitStatus: 0,
-            stderr: nil,
-            startedAt: startedAt,
-            completedAt: Date()
-        ))
-        return publication
+            ]
+            if let recordCount {
+                resolvedOptions["recordCount"] = .integer(recordCount)
+            }
+            return FullLengthONTMHCProvenanceStep(
+                toolName: "lungfish-in-process:extract-mhc-reference-visualizations",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: argv,
+                resolvedOptions: resolvedOptions,
+                inputs: inputs,
+                outputs: outputs,
+                exitStatus: exitStatus,
+                stderr: stderr,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        }
+
+        do {
+            let output = try MHCReferenceVisualizationArtifactBuilder().build(.init(
+                referenceBundleURL: referenceBundleURL,
+                exactKnownRawReferenceIDs: exactKnownRawReferenceIDs,
+                candidates: candidateDocument
+            ))
+            try FileManager.default.createDirectory(
+                at: referenceDirectoryURL,
+                withIntermediateDirectories: true
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            try encoder.encode(output.document).write(to: recordsJSONURL, options: .atomic)
+            try Data(output.genBankText.utf8).write(to: genBankURL, options: .atomic)
+            try Data(output.fastaText.utf8).write(to: fastaURL, options: .atomic)
+
+            func artifactReference(_ url: URL) throws -> ONTMHCArtifactReference {
+                ONTMHCArtifactReference(
+                    path: relativePath(from: outputDirectoryURL, to: url),
+                    sha256: try ProvenanceFileHasher.sha256(of: url) {
+                        try Task.checkCancellation()
+                    },
+                    sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: url))
+                )
+            }
+            let publication = try FullLengthONTMHCReferenceVisualizationPublication(
+                descriptor: ONTMHCReferenceVisualizationArtifacts(
+                    schemaVersion: 1,
+                    recordsJSON: artifactReference(recordsJSONURL),
+                    genBank: artifactReference(genBankURL),
+                    fasta: artifactReference(fastaURL)
+                ),
+                recordsJSONURL: recordsJSONURL,
+                genBankURL: genBankURL,
+                fastaURL: fastaURL
+            )
+            steps.append(provenanceStep(
+                recordCount: output.document.records.count,
+                outputs: publication.outputURLs,
+                exitStatus: 0,
+                stderr: nil,
+                completedAt: Date()
+            ))
+            return publication
+        } catch {
+            let failedStep = provenanceStep(
+                recordCount: nil,
+                outputs: outputURLs.filter { FileManager.default.fileExists(atPath: $0.path) },
+                exitStatus: (error is CancellationError || Task.isCancelled) ? 130 : 1,
+                stderr: error.localizedDescription,
+                completedAt: Date()
+            )
+            throw FullLengthONTMHCReferenceVisualizationPublicationError(
+                step: failedStep,
+                provenanceStepSnapshot: try failedStep.provenanceStep(),
+                underlyingLocalizedDescription: error.localizedDescription
+            )
+        }
     }
 
     private func stageManifest(
@@ -4967,6 +5012,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 }
             }
             steps.append(contentsOf: cohortError.transformationRecords.map { $0.provenanceStep() })
+        }
+        if let visualizationError = error as? FullLengthONTMHCReferenceVisualizationPublicationError {
+            appendIfMissing(visualizationError.provenanceStepSnapshot)
         }
         if let successfulPublicationRecord {
             appendIfMissing(successfulPublicationRecord.provenanceStep)

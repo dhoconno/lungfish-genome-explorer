@@ -371,9 +371,14 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             Set(visualizationStep.outputs.map(\.path)),
             Set(references.map { request.outputDirectory.appendingPathComponent($0.path).path })
         )
-        for output in visualizationStep.outputs {
-            XCTAssertNotNil(output.checksumSHA256)
-            XCTAssertNotNil(output.fileSize)
+        let provenanceOutputsByPath = Dictionary(uniqueKeysWithValues: visualizationStep.outputs.map {
+            ($0.path, $0)
+        })
+        for reference in references {
+            let path = request.outputDirectory.appendingPathComponent(reference.path).path
+            let output = try XCTUnwrap(provenanceOutputsByPath[path])
+            XCTAssertEqual(output.checksumSHA256, reference.sha256)
+            XCTAssertEqual(output.fileSize, UInt64(reference.sizeBytes))
             XCTAssertTrue(output.path.hasPrefix(request.outputDirectory.path + "/"))
             XCTAssertFalse(output.path.contains(".run-staging-"))
         }
@@ -387,6 +392,79 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(visualizationStep.inputs.allSatisfy {
             $0.checksumSHA256 != nil && $0.fileSize != nil
         })
+    }
+
+    func testReferenceVisualizationBuilderFailureWritesFocusedFailureProvenanceWithoutPublishingArtifacts() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-reference-visualization-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeAnnotatedReferenceBundle(
+            at: root.appendingPathComponent("corruptible.lungfishref", isDirectory: true)
+        )
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            referenceSourceURL: reference.bundleURL,
+            metadataPublicationObserver: { event in
+                guard case .candidateArtifactsStaged = event else { return }
+                try Data("not-a-sqlite-record-store".utf8).write(
+                    to: reference.databaseURL,
+                    options: .atomic
+                )
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected reference visualization extraction to fail")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains("not a database"),
+                error.localizedDescription
+            )
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.manifestURL.path))
+        for relativePath in [
+            "artifacts/reference/mhc-reference-visualizations.json",
+            "artifacts/reference/mhc-reference-records.gb",
+            "artifacts/reference/mhc-reference-records.fasta",
+        ] {
+            XCTAssertFalse(FileManager.default.fileExists(
+                atPath: request.outputDirectory.appendingPathComponent(relativePath).path
+            ))
+        }
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        XCTAssertNotEqual(envelope.exitStatus, 0)
+        let step = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-in-process:extract-mhc-reference-visualizations"
+        })
+        XCTAssertEqual(step.toolVersion, WorkflowRun.currentAppVersion)
+        XCTAssertNotEqual(step.exitStatus, 0)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(step.wallTimeSeconds), 0)
+        XCTAssertTrue(step.stderr?.localizedCaseInsensitiveContains("not a database") == true)
+        XCTAssertEqual(value(after: "--reference-bundle", in: step.argv), reference.bundleURL.path)
+        XCTAssertEqual(value(after: "--exact-known-reference-id", in: step.argv), "NHP00344")
+        XCTAssertEqual(step.resolvedOptions["schemaVersion"], .integer(1))
+        XCTAssertEqual(step.resolvedOptions["includeCandidateClosestReferences"], .boolean(true))
+        XCTAssertEqual(
+            step.resolvedOptions["exactKnownRawReferenceIDs"],
+            .array([.string("NHP00344")])
+        )
+        XCTAssertTrue(step.inputs.contains { $0.path == reference.fastaURL.path })
+        XCTAssertTrue(step.inputs.contains { $0.path == reference.manifestURL.path })
+        XCTAssertTrue(step.inputs.contains { $0.path == reference.databaseURL.path })
+        let candidateInputPath = try XCTUnwrap(value(after: "--candidate-json", in: step.argv))
+        let exactCallInputPath = try XCTUnwrap(value(after: "--exact-call-input", in: step.argv))
+        XCTAssertTrue(step.inputs.contains { $0.path == candidateInputPath })
+        XCTAssertTrue(step.inputs.contains { $0.path == exactCallInputPath })
+        XCTAssertTrue(step.inputs.allSatisfy {
+            $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(step.outputs.isEmpty)
     }
 
     func testLungfishReferenceRecordStoreImportHasActualInputsCommandAndTiming() async throws {
@@ -4112,6 +4190,67 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             exclusivePublicationFailureInjector: exclusivePublicationFailureInjector
         )
         return (request, pipeline)
+    }
+
+    private func makeAnnotatedReferenceBundle(
+        at bundleURL: URL
+    ) throws -> (bundleURL: URL, fastaURL: URL, manifestURL: URL, databaseURL: URL) {
+        let genomeDirectoryURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        let metadataDirectoryURL = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectoryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: metadataDirectoryURL, withIntermediateDirectories: true)
+        let fastaURL = genomeDirectoryURL.appendingPathComponent("reference.fasta")
+        let fastaIndexURL = genomeDirectoryURL.appendingPathComponent("reference.fasta.fai")
+        let databaseURL = metadataDirectoryURL.appendingPathComponent("genbank_records.sqlite")
+        let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+        try ">NHP00344 Mafa-E*02:01:01\nACGTACGT\n".write(
+            to: fastaURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try "NHP00344\t8\t26\t8\t9\n".write(
+            to: fastaIndexURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let record = GenBankRecord(
+            sequence: try Sequence(name: "NHP00344", alphabet: .dna, bases: "ACGTACGT"),
+            annotations: [
+                SequenceAnnotation(
+                    type: .gene,
+                    name: "Mafa-E*02:01:01",
+                    start: 0,
+                    end: 8,
+                    qualifiers: [
+                        "allele": AnnotationQualifier("Mafa-E*02:01:01"),
+                        "gene": AnnotationQualifier("E"),
+                        "mol_type": AnnotationQualifier("genomic DNA"),
+                    ]
+                ),
+            ],
+            locus: LocusInfo(name: "NHP00344", length: 8, moleculeType: .dna, topology: .linear)
+        )
+        let store = try GenBankRecordDatabase.create(records: [record], at: databaseURL)
+        try BundleManifest(
+            name: "Corruptible annotated MHC reference",
+            identifier: "org.lungfish.tests.corruptible-annotated-mhc",
+            source: SourceInfo(organism: "Macaca fascicularis", assembly: "test"),
+            genome: GenomeInfo(
+                path: "genome/reference.fasta",
+                indexPath: "genome/reference.fasta.fai",
+                totalLength: 8,
+                chromosomes: [
+                    ChromosomeInfo(name: "NHP00344", length: 8, offset: 26, lineBases: 8, lineWidth: 9),
+                ]
+            ),
+            recordStore: ReferenceRecordStoreInfo(
+                schemaVersion: GenBankRecordDatabase.schemaVersion,
+                format: ReferenceRecordStoreInfo.supportedFormat,
+                databasePath: "metadata/genbank_records.sqlite",
+                recordCount: store.recordCount
+            )
+        ).save(to: bundleURL)
+        return (bundleURL, fastaURL, manifestURL, databaseURL)
     }
 
     private func assertSuccessfulPublishedEvidence(
