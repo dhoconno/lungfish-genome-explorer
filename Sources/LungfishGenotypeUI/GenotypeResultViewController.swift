@@ -2325,7 +2325,7 @@ public final class GenotypeResultViewController: NSViewController {
         ]
         let commentTargets = applicableCommentTargets(for: resolvedMatrixTargets)
         let commentRows = matrixCommentDetailRows(for: commentTargets)
-        if let record = result?.mhcReferenceVisualizations?.recordsByRawReferenceID[sharedCall.genotype] {
+        if let record = result?.mhcReferenceVisualizations?.recordsByKnownCallGenotype[sharedCall.genotype] {
             knownAlleleDetailView.configure(
                 record: record,
                 observedSample: sample,

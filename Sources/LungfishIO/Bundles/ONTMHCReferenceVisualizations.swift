@@ -198,11 +198,13 @@ public struct ONTMHCReferenceVisualizationArtifact: Codable, Equatable, Sendable
     public let schemaVersion: Int
     public let records: [ONTMHCReferenceVisualizationRecord]
     public let recordsByRawReferenceID: [String: ONTMHCReferenceVisualizationRecord]
+    public let recordsByKnownCallGenotype: [String: ONTMHCReferenceVisualizationRecord]
 
     public init(schemaVersion: Int, records: [ONTMHCReferenceVisualizationRecord]) {
         self.schemaVersion = schemaVersion
         self.records = records
         self.recordsByRawReferenceID = Self.makeIndex(records)
+        self.recordsByKnownCallGenotype = Self.makeKnownCallIndex(records)
     }
 
     public func validated() throws -> Self {
@@ -280,6 +282,28 @@ public struct ONTMHCReferenceVisualizationArtifact: Codable, Equatable, Sendable
         for record in records {
             index[record.rawReferenceID] = record
         }
+        return index
+    }
+
+    private static func makeKnownCallIndex(
+        _ records: [ONTMHCReferenceVisualizationRecord]
+    ) -> [String: ONTMHCReferenceVisualizationRecord] {
+        var index = makeIndex(records)
+        var aliases: [String: ONTMHCReferenceVisualizationRecord] = [:]
+        var ambiguousAliases: Set<String> = []
+
+        for record in records where record.roles.contains(where: { $0.role == .exactKnownCall }) {
+            let alias = record.alleleName
+            guard !alias.isEmpty, index[alias] == nil, !ambiguousAliases.contains(alias) else {
+                continue
+            }
+            if aliases.removeValue(forKey: alias) != nil {
+                ambiguousAliases.insert(alias)
+            } else {
+                aliases[alias] = record
+            }
+        }
+        index.merge(aliases) { existing, _ in existing }
         return index
     }
 }

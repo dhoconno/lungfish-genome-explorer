@@ -2485,6 +2485,31 @@ final class GenotypeResultViewportTests: XCTestCase {
         assertNoKnownAggregateEvidence(in: state.detailRows.map { "\($0.0) \($0.1)" }.joined(separator: "\n"))
     }
 
+    func testReciprocalKnownRowUsingDisplayAlleleNameResolvesGraphicalRecordByAlias() throws {
+        let rawReferenceID = "NHP01222"
+        let displayAlleleName = "Mafa-A1*001:01"
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: displayAlleleName, reads: 73)],
+            referenceMetadata: makeGenBankReferenceMetadata(),
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact(
+                schemaVersion: 1,
+                records: [makeMHCReferenceVisualizationRecord(
+                    rawReferenceID: rawReferenceID,
+                    alleleName: displayAlleleName
+                )]
+            )
+        ))
+
+        controller.testingSelectMatrixRows(genotypes: [displayAlleleName], sample: nil)
+
+        let detail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        XCTAssertEqual(text("knownAlleleAlleleLabel", in: detail), displayAlleleName)
+        XCTAssertEqual(text("knownAlleleRawReferenceID", in: detail), rawReferenceID)
+    }
+
     func testSupportedKnownCellReusesGraphicalDetailAndRowClearsObservedSample() throws {
         let rawReferenceID = "NHP01222"
         let call = makeCall(sample: "AnimalA", genotype: rawReferenceID, reads: 73)

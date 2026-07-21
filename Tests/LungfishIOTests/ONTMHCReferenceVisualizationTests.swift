@@ -13,16 +13,30 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
             artifact.recordsByRawReferenceID["NHP00344"]?.alleleName,
             "Mafa-E*02:01:01"
         )
+        XCTAssertEqual(
+            artifact.recordsByKnownCallGenotype["NHP00344"]?.rawReferenceID,
+            "NHP00344"
+        )
+        XCTAssertEqual(
+            artifact.recordsByKnownCallGenotype["Mafa-E*02:01:01"]?.rawReferenceID,
+            "NHP00344"
+        )
         XCTAssertEqual(artifact.records[0].features[0].interval, 0..<4)
 
         let data = try JSONEncoder().encode(artifact)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertNil(json["recordsByRawReferenceID"])
         XCTAssertNil(json["records_by_raw_reference_id"])
+        XCTAssertNil(json["recordsByKnownCallGenotype"])
+        XCTAssertNil(json["records_by_known_call_genotype"])
 
         let decoded = try JSONDecoder().decode(ONTMHCReferenceVisualizationArtifact.self, from: data)
         XCTAssertEqual(try decoded.validated(), artifact)
         XCTAssertEqual(decoded.recordsByRawReferenceID["NHP00344"], decoded.records[0])
+        XCTAssertEqual(
+            decoded.recordsByKnownCallGenotype["Mafa-E*02:01:01"],
+            decoded.records[0]
+        )
     }
 
     func testDuplicateRawReferenceIDsThrowFocusedValidationError() {
@@ -36,6 +50,27 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
             from: try artifact.validated()
         )
         XCTAssertEqual(artifact.records.count, 2)
+    }
+
+    func testAmbiguousKnownCallAlleleAliasDoesNotConflateDistinctRawReferences() {
+        let alleleName = "Mafa-E*02:01:01"
+        let artifact = ONTMHCReferenceVisualizationArtifact(
+            schemaVersion: 1,
+            records: [
+                makeRecord(rawReferenceID: "NHP00344", alleleName: alleleName),
+                makeRecord(rawReferenceID: "NHP00999", alleleName: alleleName),
+            ]
+        )
+
+        XCTAssertEqual(
+            artifact.recordsByKnownCallGenotype["NHP00344"]?.rawReferenceID,
+            "NHP00344"
+        )
+        XCTAssertEqual(
+            artifact.recordsByKnownCallGenotype["NHP00999"]?.rawReferenceID,
+            "NHP00999"
+        )
+        XCTAssertNil(artifact.recordsByKnownCallGenotype[alleleName])
     }
 
     func testOutOfBoundsFeatureThrowsFocusedValidationError() {
