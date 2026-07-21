@@ -30,9 +30,11 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         )
 
         XCTAssertEqual(text("candidateClassification", in: view), "Novel")
+        XCTAssertEqual(text("candidateLocus", in: view), "Mafa-A1")
         XCTAssertEqual(text("candidateSupportClass", in: view), "Shared")
         XCTAssertEqual(text("candidateSampleCount", in: view), "2")
         XCTAssertEqual(text("candidateSampleIDs", in: view), "CR1178, CR1180")
+        XCTAssertEqual(text("candidateOccurrenceCount", in: view), "2")
         XCTAssertEqual(text("candidateTotalReads", in: view), "14")
         XCTAssertEqual(text("candidateSelectedSample", in: view), "CR1178")
         XCTAssertEqual(text("candidateSelectedSampleReadCount", in: view), "8")
@@ -43,11 +45,13 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertEqual(text("candidateInsertedBases", in: view), "2")
         XCTAssertEqual(text("candidateDeletedBases", in: view), "2")
         XCTAssertEqual(text("candidateLongGapBases", in: view), "20")
+        XCTAssertEqual(text("candidateComparableBases", in: view), "20")
         XCTAssertEqual(text("candidateCoverage", in: view), "95.00%")
         XCTAssertEqual(text("candidateIdentity", in: view), "99.00%")
         XCTAssertEqual(text("candidateMappingQuality", in: view), "60")
         XCTAssertEqual(text("candidateAlignmentScore", in: view), "1800")
         XCTAssertEqual(text("candidateSequenceLength", in: view), "24 bp")
+        XCTAssertEqual(text("candidateFASTARecordID", in: view), "cluster-a")
         XCTAssertEqual(text("candidateSequenceSHA256", in: view), String(repeating: "b", count: 64))
         XCTAssertEqual(text("candidateCommentLabel.0", in: view), "Candidate note")
         XCTAssertEqual(text("candidateCommentBody.0", in: view), "Review before release.")
@@ -64,6 +68,36 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertFalse(visible.localizedCaseInsensitiveContains("candidate translation"))
         XCTAssertFalse(visible.contains("unmatched-to-reference.bam"))
         XCTAssertFalse(visible.contains("selected-read"))
+    }
+
+    func testPrincipalViewsExposeStableAccessibilityIdentifiers() throws {
+        let view = makeView()
+        view.configure(
+            candidate: makeCandidate(),
+            closestReference: makeReference(),
+            candidateSequence: String(repeating: "ACGT", count: 6),
+            selectedSampleID: "CR1178",
+            selectedSampleReadCount: 8
+        )
+
+        for identifier in [
+            "candidateHeader",
+            "candidateAlleleName",
+            "candidateStableClusterID",
+            "candidateModeControl",
+            "candidateModeOverview",
+            "candidateModeGenBank",
+            "candidateModeFASTA",
+            "candidateClosestReferenceOverview",
+            "candidateClosestReferenceRenderer",
+            "candidateFactsRail",
+            "candidateGenBankTextView",
+            "candidateFASTATextView",
+            "candidateFallbackNote",
+        ] {
+            let identified = try XCTUnwrap(find(identifier, in: view), identifier)
+            XCTAssertEqual(identified.accessibilityIdentifier(), identifier)
+        }
     }
 
     func testGenBankAndFASTAModesShowExactReadOnlyCanonicalContent() throws {
@@ -179,6 +213,47 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertTrue((track.accessibilityValue() as? String)?.hasPrefix("Difference track unavailable:") == true)
     }
 
+    func testDifferenceTrackAppliesPositiveOneBasedReferenceStartToMarkerCoordinates() {
+        let track = GenotypeCandidateDifferenceTrackView(frame: .zero)
+
+        track.configure(
+            referenceLength: 24,
+            referenceStart: 5,
+            cigar: "2=1X1I2D",
+            features: []
+        )
+
+        XCTAssertNil(track.parsingIssue)
+        XCTAssertEqual(track.markers, [
+            .init(kind: .mismatch(.intronOrNonExon), referenceRange: 6..<7, length: 1),
+            .init(kind: .insertion, referenceRange: 7..<7, length: 1),
+            .init(kind: .deletion, referenceRange: 7..<9, length: 2),
+        ])
+    }
+
+    func testDifferenceTrackEnforcesTenThousandOperationBound() {
+        let track = GenotypeCandidateDifferenceTrackView(frame: .zero)
+        let boundedCIGAR = String(repeating: "1I", count: 10_000)
+
+        track.configure(
+            referenceLength: 24,
+            referenceStart: 1,
+            cigar: boundedCIGAR,
+            features: []
+        )
+        XCTAssertNil(track.parsingIssue)
+        XCTAssertEqual(track.markers.count, 10_000)
+
+        track.configure(
+            referenceLength: 24,
+            referenceStart: 1,
+            cigar: boundedCIGAR + "1I",
+            features: []
+        )
+        XCTAssertTrue(track.markers.isEmpty)
+        XCTAssertTrue(track.parsingIssue?.contains("10000-operation display limit") == true)
+    }
+
     func testOneHundredReconfigurationsAndModeSwitchesKeepHierarchyAndConstraintsBounded() throws {
         let view = makeView()
         let candidate = makeCandidate()
@@ -216,14 +291,32 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertEqual(view.differenceTrackConfigurationCount, 101)
     }
 
-    func testMissingSequenceOrReferenceUsesBoundedFreshAnalysisFallback() throws {
+    func testMissingSequenceUsesFreshAnalysisFallbackIndependently() throws {
+        let view = makeView()
+
+        view.configure(
+            candidate: makeCandidate(),
+            closestReference: makeReference(),
+            candidateSequence: nil,
+            selectedSampleID: "CR1178",
+            selectedSampleReadCount: 8
+        )
+
+        XCTAssertTrue(try XCTUnwrap(find("candidateModeControl", in: view)).isHidden)
+        let fallback = try XCTUnwrap(text("candidateFallbackNote", in: view))
+        XCTAssertTrue(fallback.contains("candidate sequence"))
+        XCTAssertFalse(fallback.contains("closest-reference visualization"))
+        XCTAssertTrue(fallback.contains("fresh analysis"))
+    }
+
+    func testMissingReferenceUsesBoundedFreshAnalysisFallbackIndependently() throws {
         let view = makeView()
         let candidate = makeCandidate()
 
         view.configure(
             candidate: candidate,
             closestReference: nil,
-            candidateSequence: nil,
+            candidateSequence: String(repeating: "ACGT", count: 6),
             selectedSampleID: "CR1178",
             selectedSampleReadCount: 8,
             warning: "Saved result predates candidate visualization artifacts."
@@ -232,7 +325,7 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertEqual(view.currentMode, .overview)
         XCTAssertTrue(try XCTUnwrap(find("candidateModeControl", in: view)).isHidden)
         let fallback = try XCTUnwrap(text("candidateFallbackNote", in: view))
-        XCTAssertTrue(fallback.contains("candidate sequence"))
+        XCTAssertFalse(fallback.contains("candidate sequence"))
         XCTAssertTrue(fallback.contains("closest-reference visualization"))
         XCTAssertTrue(fallback.contains("fresh analysis"))
         XCTAssertEqual(text("candidateAlleleName", in: view), "Mafa-A1*067:01_2nt_nov")
@@ -248,7 +341,7 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
             view.configure(
                 candidate: candidate,
                 closestReference: nil,
-                candidateSequence: nil,
+                candidateSequence: String(repeating: "ACGT", count: 6),
                 selectedSampleID: "CR1178",
                 selectedSampleReadCount: 8
             )

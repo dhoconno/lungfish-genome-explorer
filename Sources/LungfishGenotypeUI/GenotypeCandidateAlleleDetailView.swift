@@ -42,10 +42,12 @@ final class GenotypeCandidateAlleleDetailView: NSView {
 
     private let factAlleleName = NSTextField(labelWithString: "")
     private let factStableClusterID = NSTextField(labelWithString: "")
+    private let locusValue = NSTextField(labelWithString: "")
     private let classificationValue = NSTextField(labelWithString: "")
     private let supportClassValue = NSTextField(labelWithString: "")
     private let sampleCountValue = NSTextField(labelWithString: "")
     private let sampleIDsValue = NSTextField(labelWithString: "")
+    private let occurrenceCountValue = NSTextField(labelWithString: "")
     private let totalReadsValue = NSTextField(labelWithString: "")
     private let selectedSampleValue = NSTextField(labelWithString: "")
     private let selectedSampleReadCountValue = NSTextField(labelWithString: "")
@@ -56,11 +58,13 @@ final class GenotypeCandidateAlleleDetailView: NSView {
     private let insertedBasesValue = NSTextField(labelWithString: "")
     private let deletedBasesValue = NSTextField(labelWithString: "")
     private let longGapBasesValue = NSTextField(labelWithString: "")
+    private let comparableBasesValue = NSTextField(labelWithString: "")
     private let coverageValue = NSTextField(labelWithString: "")
     private let identityValue = NSTextField(labelWithString: "")
     private let mappingQualityValue = NSTextField(labelWithString: "")
     private let alignmentScoreValue = NSTextField(labelWithString: "")
     private let candidateLengthValue = NSTextField(labelWithString: "")
+    private let fastaRecordIDValue = NSTextField(labelWithString: "")
     private let sequenceSHA256Value = NSTextField(labelWithString: "")
     private let commentsView = CandidateCommentsView()
     private let limitationValue = NSTextField(
@@ -135,10 +139,12 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         stableClusterIDLabel.stringValue = candidate.stableClusterID
         factAlleleName.stringValue = candidate.provisionalName
         factStableClusterID.stringValue = candidate.stableClusterID
+        locusValue.stringValue = candidate.locus
         classificationValue.stringValue = Self.classificationText(candidate.classification)
         supportClassValue.stringValue = Self.supportClassText(candidate.supportClass)
         sampleCountValue.stringValue = String(candidate.independentSampleCount)
         sampleIDsValue.stringValue = candidate.supportingSampleIDs.sorted().joined(separator: ", ")
+        occurrenceCountValue.stringValue = String(candidate.occurrenceCount)
         totalReadsValue.stringValue = String(candidate.totalClusterReads)
         selectedSampleValue.stringValue = Self.availableText(selectedSampleID)
         selectedSampleReadCountValue.stringValue = selectedSampleReadCount.map(String.init) ?? "—"
@@ -149,11 +155,13 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         insertedBasesValue.stringValue = String(candidate.insertedBases)
         deletedBasesValue.stringValue = String(candidate.deletedBases)
         longGapBasesValue.stringValue = String(candidate.longGapBases)
+        comparableBasesValue.stringValue = String(candidate.comparableBases)
         coverageValue.stringValue = Self.percentText(candidate.shorterCoverage)
         identityValue.stringValue = Self.percentText(candidate.identity)
         mappingQualityValue.stringValue = String(candidate.mappingQuality)
         alignmentScoreValue.stringValue = String(candidate.alignmentScore)
         candidateLengthValue.stringValue = candidateSequence.map { "\($0.count) bp" } ?? "Unavailable"
+        fastaRecordIDValue.stringValue = candidate.fastaRecordID
         sequenceSHA256Value.stringValue = candidate.sequenceSHA256
         commentsView.configure(comments)
 
@@ -300,6 +308,9 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         headerStack.distribution = .fill
         headerStack.spacing = 16
         headerStack.translatesAutoresizingMaskIntoConstraints = false
+        headerStack.setAccessibilityIdentifier("candidateHeader")
+        headerStack.setAccessibilityRole(.group)
+        headerStack.setAccessibilityLabel("Candidate header")
     }
 
     private func buildOverview() {
@@ -320,6 +331,8 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         )
         closestReferenceOverviewCanvas.setAccessibilityRole(.group)
         closestReferenceOverviewCanvas.setAccessibilityLabel("Closest-reference geometry")
+        closestReferenceOverview.setAccessibilityIdentifier("candidateClosestReferenceRenderer")
+        closestReferenceOverview.setAccessibilityLabel("Closest-reference feature renderer")
         closestReferenceOverview.translatesAutoresizingMaskIntoConstraints = false
         closestReferenceOverviewCanvas.addSubview(closestReferenceOverview)
         NSLayoutConstraint.activate([
@@ -394,10 +407,12 @@ final class GenotypeCandidateAlleleDetailView: NSView {
 
         addFact("Name", value: factAlleleName, identifier: "candidateFactAlleleName")
         addFact("Stable ID", value: factStableClusterID, identifier: "candidateFactStableClusterID", monospaced: true)
+        addFact("Locus", value: locusValue, identifier: "candidateLocus")
         addFact("Classification", value: classificationValue, identifier: "candidateClassification")
         addFact("Support", value: supportClassValue, identifier: "candidateSupportClass")
         addFact("Sample count", value: sampleCountValue, identifier: "candidateSampleCount")
         addFact("Sample IDs", value: sampleIDsValue, identifier: "candidateSampleIDs")
+        addFact("Occurrences", value: occurrenceCountValue, identifier: "candidateOccurrenceCount")
         addFact("Total reads", value: totalReadsValue, identifier: "candidateTotalReads")
         addFact("Selected sample", value: selectedSampleValue, identifier: "candidateSelectedSample")
         addFact("Selected sample reads", value: selectedSampleReadCountValue, identifier: "candidateSelectedSampleReadCount")
@@ -408,11 +423,13 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         addFact("Inserted bases", value: insertedBasesValue, identifier: "candidateInsertedBases")
         addFact("Deleted bases", value: deletedBasesValue, identifier: "candidateDeletedBases")
         addFact("Long-gap bases", value: longGapBasesValue, identifier: "candidateLongGapBases")
+        addFact("Comparable bases", value: comparableBasesValue, identifier: "candidateComparableBases")
         addFact("Coverage", value: coverageValue, identifier: "candidateCoverage")
         addFact("Identity", value: identityValue, identifier: "candidateIdentity")
         addFact("MAPQ", value: mappingQualityValue, identifier: "candidateMappingQuality")
         addFact("AS", value: alignmentScoreValue, identifier: "candidateAlignmentScore")
         addFact("Candidate length", value: candidateLengthValue, identifier: "candidateSequenceLength")
+        addFact("FASTA record ID", value: fastaRecordIDValue, identifier: "candidateFASTARecordID", monospaced: true)
         addFact("Candidate SHA-256", value: sequenceSHA256Value, identifier: "candidateSequenceSHA256", monospaced: true)
 
         factsStack.addArrangedSubview(commentsView)
