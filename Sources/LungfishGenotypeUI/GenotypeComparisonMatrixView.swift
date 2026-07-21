@@ -1227,6 +1227,18 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         reloadSelectionTransition(from: previousTargets, to: survivors)
         setHeaderViewsNeedDisplay()
+        if survivors.count == 1,
+           let target = firstRowOrCellTarget(in: survivors),
+           let rowIndex = visibleRowIndex(
+               locus: target.locus,
+               genotype: target.genotype,
+               stableClusterID: target.stableClusterID
+           ),
+           visibleRows[rowIndex].population != .known {
+            let row = visibleRows[rowIndex]
+            onCandidateRowSelected?(row, target.sample, survivors)
+            return
+        }
         onMatrixTargetsSelected?(survivors)
     }
 
