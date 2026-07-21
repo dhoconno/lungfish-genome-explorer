@@ -57,6 +57,14 @@ Candidate rows retain their current detail implementation until that dedicated t
 - Resolving reference data through an external path when a result bundle is viewed.
 - Inferring exon structure when the source reference does not provide feature annotations.
 - Changing known-call, candidate-classification, provisional-naming, Excel, or haplotyping semantics.
+- Building a new generalized artifact-security, filesystem-transaction, or viewer framework.
+- Exhaustive adversarial hardening before the graphical interaction has been validated in debug use.
+
+### Implementation phasing
+
+This first implementation prioritizes a functional, responsive graphical detail pane and the scientific artifact needed to drive it. It reuses the result bundle's existing safe relative-path, checksum, size, and atomic-publication mechanisms. New validation is limited to the visualization format's essential invariants: supported schema, unique record identity, sequence checksum, required-role coverage, and in-bounds feature coordinates.
+
+Broader fuzzing, a comprehensive malicious-filesystem matrix, generalized renderer extraction, additional cache layers, and performance micro-optimization are deferred until the detail-pane design has been exercised and approved in debug testing.
 
 ## Design Decisions
 
@@ -316,7 +324,8 @@ A valid sequence-only visualization shows the ruler, nucleotide strip, FASTA, an
 ### Artifact model and validation
 
 - Round-trip the version 1 manifest descriptor and JSON document.
-- Reject unsafe paths, symlinks, schema mismatch, size mismatch, checksum mismatch, duplicate identities, invalid sequence checksums, out-of-bounds intervals, invalid strands, and inconsistent canonical text.
+- Reuse the existing result-bundle artifact loader to reject unsafe paths, special files, size mismatch, and checksum mismatch.
+- Reject schema mismatch, duplicate identities, invalid sequence checksums, out-of-bounds intervals, invalid strands, and inconsistent canonical text with focused fixtures.
 - Verify legacy manifest decoding with no visualization descriptor.
 
 ### Extraction and canonical formats
