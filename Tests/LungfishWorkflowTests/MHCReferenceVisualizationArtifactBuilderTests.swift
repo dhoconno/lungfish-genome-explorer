@@ -3,6 +3,7 @@ import Foundation
 import XCTest
 import LungfishCore
 import LungfishIO
+import SQLite3
 @testable import LungfishWorkflow
 
 final class MHCReferenceVisualizationArtifactBuilderTests: XCTestCase {
@@ -235,6 +236,25 @@ final class MHCReferenceVisualizationArtifactBuilderTests: XCTestCase {
         }
     }
 
+    func testBuildFailsWhenRecordFieldValueIsUnexpectedlyNull() throws {
+        let fixture = try makeReferenceBundle()
+        let databaseURL = fixture.bundleURL
+            .appendingPathComponent("metadata/genbank_records.sqlite")
+        try replaceRecordFieldsTableAllowingNullValue(at: databaseURL)
+
+        XCTAssertThrowsError(
+            try MHCReferenceVisualizationArtifactBuilder().build(.init(
+                referenceBundleURL: fixture.bundleURL,
+                exactKnownRawReferenceIDs: ["NHP00344"],
+                candidates: nil
+            ))
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("Unexpected NULL field_values.value")
+            )
+        }
+    }
+
     func testBuildKeepsSequenceOnlyRecordWithoutSynthesizingFeatures() throws {
         let fixture = try makeReferenceBundle()
         let manifestURL = fixture.bundleURL.appendingPathComponent(BundleManifest.filename)
@@ -401,6 +421,42 @@ final class MHCReferenceVisualizationArtifactBuilderTests: XCTestCase {
                 GenBankRecordField(key: "DBLINK", value: "INSDC: SECOND", ordinal: 4),
             ]
         )
+    }
+
+    private func replaceRecordFieldsTableAllowingNullValue(at databaseURL: URL) throws {
+        var database: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(databaseURL.path, &database), SQLITE_OK)
+        let connection = try XCTUnwrap(database)
+        defer { sqlite3_close(connection) }
+
+        let sql = """
+        PRAGMA foreign_keys = OFF;
+        BEGIN IMMEDIATE TRANSACTION;
+        ALTER TABLE field_values RENAME TO field_values_original;
+        CREATE TABLE field_values (
+            record_id INTEGER,
+            field_key TEXT,
+            value_ordinal INTEGER,
+            value TEXT,
+            PRIMARY KEY (record_id, field_key, value_ordinal)
+        );
+        INSERT INTO field_values(record_id, field_key, value_ordinal, value)
+            SELECT record_id, field_key, value_ordinal, value FROM field_values_original;
+        DROP TABLE field_values_original;
+        CREATE INDEX idx_field_values_key_value
+            ON field_values(field_key, value COLLATE NOCASE);
+        CREATE INDEX idx_field_values_record_key
+            ON field_values(record_id, field_key);
+        UPDATE field_values
+            SET value = NULL
+            WHERE field_key = 'record.DBLINK' AND value_ordinal = 0;
+        COMMIT;
+        """
+        var errorMessage: UnsafeMutablePointer<CChar>?
+        let result = sqlite3_exec(connection, sql, nil, nil, &errorMessage)
+        let message = errorMessage.map { String(cString: $0) }
+        sqlite3_free(errorMessage)
+        XCTAssertEqual(result, SQLITE_OK, message ?? "SQLite mutation failed")
     }
 
     private func makeCandidateDocument(

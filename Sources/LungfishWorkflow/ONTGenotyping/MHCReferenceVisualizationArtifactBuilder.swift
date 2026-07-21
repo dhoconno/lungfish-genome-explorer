@@ -259,10 +259,20 @@ private extension MHCReferenceVisualizationArtifactBuilder {
 
         var fieldsByRawID: [String: [String: [String]]] = [:]
         while sqlite3_step(statement) == SQLITE_ROW {
-            guard let rawReferenceIDText = sqlite3_column_text(statement, 0),
-                  let fieldKeyText = sqlite3_column_text(statement, 1),
-                  let valueText = sqlite3_column_text(statement, 2) else {
-                continue
+            guard let rawReferenceIDText = sqlite3_column_text(statement, 0) else {
+                throw GenBankRecordDatabase.Error.operationFailed(
+                    "Unexpected NULL records.sequence_name while loading record fields"
+                )
+            }
+            guard let fieldKeyText = sqlite3_column_text(statement, 1) else {
+                throw GenBankRecordDatabase.Error.operationFailed(
+                    "Unexpected NULL field_values.field_key while loading record fields"
+                )
+            }
+            guard let valueText = sqlite3_column_text(statement, 2) else {
+                throw GenBankRecordDatabase.Error.operationFailed(
+                    "Unexpected NULL field_values.value while loading record fields"
+                )
             }
             let rawReferenceID = String(cString: rawReferenceIDText)
             let storedKey = String(cString: fieldKeyText)
