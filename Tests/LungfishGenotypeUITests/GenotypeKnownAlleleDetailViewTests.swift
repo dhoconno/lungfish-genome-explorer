@@ -256,6 +256,77 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         }
     }
 
+    func testModesAndFallbackProvideMeaningfulIntrinsicAndFittingHeightsFromZeroFrame() throws {
+        let overview = GenotypeKnownAlleleDetailView(frame: .zero)
+        overview.configure(record: makeRecord(), observedSample: "CR1178")
+        assertSelfSizing(overview, minimumHeight: 280)
+
+        let genBank = GenotypeKnownAlleleDetailView(frame: .zero)
+        genBank.configure(record: makeRecord(), observedSample: nil)
+        try modeButton("knownAlleleModeGenBank", in: genBank).performClick(nil)
+        assertSelfSizing(genBank, minimumHeight: 320)
+        XCTAssertGreaterThan(try visibleScrollView(in: genBank).frame.height, 200)
+
+        let fasta = GenotypeKnownAlleleDetailView(frame: .zero)
+        fasta.configure(record: makeRecord(), observedSample: nil)
+        try modeButton("knownAlleleModeFASTA", in: fasta).performClick(nil)
+        assertSelfSizing(fasta, minimumHeight: 320)
+        XCTAssertGreaterThan(try visibleScrollView(in: fasta).frame.height, 200)
+
+        let fallback = GenotypeKnownAlleleDetailView(frame: .zero)
+        fallback.configureFallback(
+            alleleName: "Mafa-DPB1*01:01",
+            rawReferenceID: "legacy_DPB1_01",
+            fields: [("Locus", "Mafa-DPB1"), ("Definition", "Legacy reference")],
+            observedSample: "CR1178"
+        )
+        assertSelfSizing(fallback, minimumHeight: 180)
+    }
+
+    func testOverviewAdaptsWithoutAmbiguityAtControllerMinimumWidth() throws {
+        let view = GenotypeKnownAlleleDetailView(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 1)
+        )
+        view.configure(record: makeRecord(), observedSample: "CR1178")
+        view.frame.size.height = view.intrinsicContentSize.height
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(view.hasAmbiguousLayout)
+        XCTAssertTrue(descendants(of: view).allSatisfy { !$0.hasAmbiguousLayout })
+
+        let overview = try identifiedView("knownAlleleOverview", in: view)
+        let facts = try identifiedView("knownAlleleFactsRail", in: view)
+        let canvasRect = overview.convert(overview.bounds, to: view)
+        let factsRect = facts.convert(facts.bounds, to: view)
+        assertContained(canvasRect, in: view.bounds)
+        assertContained(factsRect, in: view.bounds)
+        XCTAssertGreaterThan(canvasRect.width, 220)
+        XCTAssertGreaterThan(factsRect.width, 220)
+        XCTAssertGreaterThan(factsRect.height, 220)
+        XCTAssertLessThanOrEqual(canvasRect.intersection(factsRect).height, 1)
+
+        let ruler = try identifiedView("knownAlleleCoordinateRuler", in: view)
+        let rulerRect = ruler.convert(ruler.bounds, to: view)
+        assertContained(rulerRect, in: view.bounds)
+        XCTAssertGreaterThan(rulerRect.width, 100)
+    }
+
+    func testFactsRailBackgroundUpdatesAcrossEffectiveAppearances() throws {
+        let view = makeView()
+        view.configure(record: makeRecord(), observedSample: nil)
+        let facts = try identifiedView("knownAlleleFactsRail", in: view)
+
+        view.appearance = try XCTUnwrap(NSAppearance(named: .aqua))
+        view.layoutSubtreeIfNeeded()
+        let lightComponents = try backgroundComponents(of: facts)
+
+        view.appearance = try XCTUnwrap(NSAppearance(named: .darkAqua))
+        view.layoutSubtreeIfNeeded()
+        let darkComponents = try backgroundComponents(of: facts)
+
+        XCTAssertNotEqual(lightComponents, darkComponents)
+    }
+
     private func makeView() -> GenotypeKnownAlleleDetailView {
         let view = GenotypeKnownAlleleDetailView(frame: NSRect(x: 0, y: 0, width: 900, height: 560))
         view.layoutSubtreeIfNeeded()
@@ -404,5 +475,34 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
 
     private func visibleScrollView(in root: NSView) throws -> NSScrollView {
         try XCTUnwrap(descendants(of: root).compactMap { $0 as? NSScrollView }.first { !$0.isHidden })
+    }
+
+    private func assertSelfSizing(
+        _ view: GenotypeKnownAlleleDetailView,
+        minimumHeight: CGFloat,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let intrinsicHeight = view.intrinsicContentSize.height
+        XCTAssertGreaterThan(intrinsicHeight, minimumHeight, file: file, line: line)
+        view.frame.size = NSSize(width: 600, height: intrinsicHeight)
+        view.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(view.fittingSize.height, minimumHeight, file: file, line: line)
+    }
+
+    private func assertContained(
+        _ rect: NSRect,
+        in bounds: NSRect,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertGreaterThanOrEqual(rect.minX, bounds.minX - 0.5, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(rect.minY, bounds.minY - 0.5, file: file, line: line)
+        XCTAssertLessThanOrEqual(rect.maxX, bounds.maxX + 0.5, file: file, line: line)
+        XCTAssertLessThanOrEqual(rect.maxY, bounds.maxY + 0.5, file: file, line: line)
+    }
+
+    private func backgroundComponents(of view: NSView) throws -> [CGFloat] {
+        Array(try XCTUnwrap(view.layer?.backgroundColor?.components))
     }
 }

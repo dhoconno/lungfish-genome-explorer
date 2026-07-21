@@ -86,12 +86,18 @@ final class GenotypeKnownAlleleOverviewView: NSView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
-        stack.addArrangedSubview(makeRow(title: "Coordinates", track: coordinateRuler, height: 30))
-        stack.addArrangedSubview(makeRow(title: "Sequence", track: nucleotideStrip, height: 28))
-        stack.addArrangedSubview(makeRow(title: "Gene", track: geneLane, height: 26))
-        stack.addArrangedSubview(makeRow(title: "CDS", track: cdsLane, height: 26))
-        stack.addArrangedSubview(makeRow(title: "Exon", track: exonLane, height: 26))
-        stack.addArrangedSubview(makeRow(title: "Translation", track: translationLane, height: 30))
+        let rows = [
+            makeRow(title: "Coordinates", track: coordinateRuler, height: 30),
+            makeRow(title: "Sequence", track: nucleotideStrip, height: 28),
+            makeRow(title: "Gene", track: geneLane, height: 26),
+            makeRow(title: "CDS", track: cdsLane, height: 26),
+            makeRow(title: "Exon", track: exonLane, height: 26),
+            makeRow(title: "Translation", track: translationLane, height: 30),
+        ]
+        for row in rows {
+            stack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
 
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
@@ -117,9 +123,7 @@ final class GenotypeKnownAlleleOverviewView: NSView {
         row.alignment = .centerY
         row.spacing = 10
         row.translatesAutoresizingMaskIntoConstraints = false
-        track.widthAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
         track.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        row.widthAnchor.constraint(greaterThanOrEqualToConstant: 246).isActive = true
         return row
     }
 }
