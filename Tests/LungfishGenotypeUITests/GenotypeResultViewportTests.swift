@@ -2574,6 +2574,72 @@ final class GenotypeResultViewportTests: XCTestCase {
         assertNoKnownAggregateEvidence(in: visibleText(in: detail))
     }
 
+    func testKnownSelectionUsesIndexedCellSupportWithoutEvidenceWorkOrReloading() async throws {
+        let rawReferenceID = "NHP01222"
+        let sampleNames = (0..<600).map { String(format: "Animal%03d", $0) }
+        let calls = sampleNames.map {
+            makeCall(sample: $0, genotype: rawReferenceID, reads: 10)
+        }
+        let result = makeResult(
+            samples: [],
+            calls: calls,
+            referenceMetadata: makeGenBankReferenceMetadata(),
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact(
+                schemaVersion: 1,
+                records: [makeMHCReferenceVisualizationRecord(
+                    rawReferenceID: rawReferenceID,
+                    alleleName: "Mafa-A1*001:01"
+                )]
+            )
+        )
+        let loaderSpy = KnownSelectionResultLoaderSpy(result: result)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.genotypeResultLoader = { url in
+            await loaderSpy.load(url)
+        }
+        controller.configure(result: result)
+        let baseline = controller.testingKnownSelectionDiagnostics
+
+        for _ in 0..<10 {
+            controller.testingSelectMatrixCell(
+                genotype: rawReferenceID,
+                sample: sampleNames.last!
+            )
+            controller.testingSelectMatrixRows(genotypes: [rawReferenceID], sample: nil)
+        }
+
+        let diagnostics = controller.testingKnownSelectionDiagnostics
+        XCTAssertEqual(
+            diagnostics.indexedCellSupportLookupCount,
+            baseline.indexedCellSupportLookupCount + 10
+        )
+        XCTAssertEqual(
+            diagnostics.aggregateEvidenceHelperEntryCount,
+            baseline.aggregateEvidenceHelperEntryCount
+        )
+        let loaderInvocationCount = await loaderSpy.currentInvocationCount()
+        XCTAssertEqual(loaderInvocationCount, 0)
+
+        let detail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        let storedCallbacks = Mirror(reflecting: detail).children.compactMap { child -> String? in
+            let typeName = String(reflecting: type(of: child.value))
+            return typeName.contains("->") ? child.label ?? typeName : nil
+        }
+        XCTAssertTrue(
+            storedCallbacks.isEmpty,
+            "Known detail configuration must remain value-only, without disk/BAM/SQLite/FASTA callbacks: \(storedCallbacks)"
+        )
+        assertNoKnownAggregateEvidence(in: visibleText(in: detail))
+        let forbiddenStateLabels: Set<String> = [
+            "Support", "Samples", "Top Sample", "Unique Reads", "Alignments",
+            "Support Metric", "Aggregate Samples", "Aggregate Unique Reads", "Aggregate Alignments",
+        ]
+        XCTAssertTrue(forbiddenStateLabels.isDisjoint(
+            with: Set(controller.testingCurrentSelectionDetailRows.map(\.0))
+        ))
+    }
+
     func testLegacyKnownRowUsesFallbackMetadataAndFreshAnalysisNote() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -7618,8 +7684,13 @@ final class GenotypeResultViewportTests: XCTestCase {
         for phrase in [
             "Support Summary", "Unique Reads", "Alignments", "Support Metric",
             "Anchor Evidence", "Same-Locus Co-occurrence", "Supporting Samples",
+            "Top Sample", "Aggregate Samples", "Aggregate Unique Reads", "Aggregate Alignments",
         ] {
             XCTAssertFalse(text.localizedCaseInsensitiveContains(phrase), phrase, file: file, line: line)
+        }
+        let lines = Set(text.components(separatedBy: .newlines))
+        for label in ["Support", "Samples"] {
+            XCTAssertFalse(lines.contains(label), label, file: file, line: line)
         }
     }
 
@@ -7901,6 +7972,24 @@ private actor DeferredGenotypeResultLoader {
     func resume(returning result: ONTGenotypeResultBundleData) {
         continuation?.resume(returning: result)
         continuation = nil
+    }
+}
+
+private actor KnownSelectionResultLoaderSpy {
+    private let result: ONTGenotypeResultBundleData
+    private(set) var invocationCount = 0
+
+    init(result: ONTGenotypeResultBundleData) {
+        self.result = result
+    }
+
+    func load(_ url: URL) -> ONTGenotypeResultBundleData {
+        invocationCount += 1
+        return result
+    }
+
+    func currentInvocationCount() -> Int {
+        invocationCount
     }
 }
 

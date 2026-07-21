@@ -30,6 +30,25 @@ struct GenotypeCandidateSelectionCallbackCounts: Equatable {
     let candidate: Int
 }
 
+struct GenotypeKnownSelectionDiagnostics: Equatable {
+    fileprivate(set) var indexedCellSupportLookupCount = 0
+    fileprivate(set) var supportFractionLabelEntryCount = 0
+    fileprivate(set) var sameLocusCoOccurrenceEntryCount = 0
+    fileprivate(set) var anchorSummaryEntryCount = 0
+    fileprivate(set) var anchorSummariesEntryCount = 0
+    fileprivate(set) var supportingSampleTableEntryCount = 0
+    fileprivate(set) var coOccurrenceTableEntryCount = 0
+
+    var aggregateEvidenceHelperEntryCount: Int {
+        supportFractionLabelEntryCount
+            + sameLocusCoOccurrenceEntryCount
+            + anchorSummaryEntryCount
+            + anchorSummariesEntryCount
+            + supportingSampleTableEntryCount
+            + coOccurrenceTableEntryCount
+    }
+}
+
 @MainActor
 public final class GenotypeResultViewController: NSViewController {
     typealias Lens = GenotypeResultViewportLens
@@ -139,6 +158,7 @@ public final class GenotypeResultViewController: NSViewController {
     )?
     private var knownSelectionCallbackCount = 0
     private var candidateSelectionCallbackCount = 0
+    private var knownSelectionDiagnostics = GenotypeKnownSelectionDiagnostics()
     private var currentSelectedSample: String?
     private var currentSelectedLocus: String?
     private var currentSelectionState: GenotypeResultSelectionState?
@@ -499,6 +519,7 @@ public final class GenotypeResultViewController: NSViewController {
         onCandidatePersistenceWarningChanged?(nil)
         knownSelectionCallbackCount = 0
         candidateSelectionCallbackCount = 0
+        knownSelectionDiagnostics = GenotypeKnownSelectionDiagnostics()
         let knownSampleIDs = Set(
             result.samples.map(\.sample)
                 + result.calls.map(\.sample)
@@ -2282,7 +2303,7 @@ public final class GenotypeResultViewController: NSViewController {
         sample: String? = nil,
         matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
     ) {
-        if let sample, sharedCall.support(for: sample) == nil {
+        if let sample, !hasSelectedCellSupport(for: sharedCall, sample: sample) {
             showCellSelection(matrixTargets ?? [
                 .cell(locus: sharedCall.locus, genotype: sharedCall.genotype, sample: sample),
             ])
@@ -2307,6 +2328,18 @@ public final class GenotypeResultViewController: NSViewController {
         detailStack.addArrangedSubview(knownAlleleDetailView)
 
         publishSelectionState(selectionState(for: sharedCall, sample: sample, matrixTargets: matrixTargets))
+    }
+
+    private func hasSelectedCellSupport(
+        for sharedCall: ONTGenotypeSharedCall,
+        sample: String
+    ) -> Bool {
+        knownSelectionDiagnostics.indexedCellSupportLookupCount += 1
+        return sampleSupportByCellKey[CellEvidenceKey(
+            locus: sharedCall.locus,
+            genotype: sharedCall.genotype,
+            sample: sample
+        )] != nil
     }
 
     private func showCandidateRow(
@@ -2955,10 +2988,7 @@ public final class GenotypeResultViewController: NSViewController {
     private func rebuildAnchorLens() {
         removeArrangedSubviews(from: anchorStack)
         guard let result else { return }
-        let anchors = result.anchorSummaries(
-            minimumSupportPercent: displayState.activeMinimumSupportPercent,
-            denominator: displayState.supportDenominator
-        )
+        let anchors = anchorSummaries(in: result)
         anchorStack.addArrangedSubview(sectionTitle("Anchor-Oriented Review"))
         anchorStack.addArrangedSubview(caption("Anchor groups are derived from source labels and sample-level co-observation. They are not phased haplotype calls, zygosity calls, copy-number calls, absence calls, or inheritance assertions."))
         if anchors.isEmpty {
@@ -5582,6 +5612,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func sampleSupportTable(_ supports: [ONTGenotypeSampleSupport]) -> NSView {
+        knownSelectionDiagnostics.supportingSampleTableEntryCount += 1
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -5626,6 +5657,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func coOccurrenceTable(_ coOccurrences: [ONTGenotypeCoOccurrence]) -> NSView {
+        knownSelectionDiagnostics.coOccurrenceTableEntryCount += 1
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -5802,6 +5834,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func supportFractionLabel(genotype: String, sample: String) -> String {
+        knownSelectionDiagnostics.supportFractionLabelEntryCount += 1
         guard let result,
               let call = result.calls.first(where: { $0.sample == sample && $0.genotype == genotype }),
               let fraction = result.supportFraction(for: call, denominator: displayState.supportDenominator) else {
@@ -5811,7 +5844,8 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func sameLocusCoOccurrences(for sharedCall: ONTGenotypeSharedCall) -> [ONTGenotypeCoOccurrence] {
-        result?.sameLocusCoOccurrences(
+        knownSelectionDiagnostics.sameLocusCoOccurrenceEntryCount += 1
+        return result?.sameLocusCoOccurrences(
             for: sharedCall.genotype,
             minimumSupportPercent: displayState.activeMinimumSupportPercent,
             denominator: displayState.supportDenominator
@@ -5819,12 +5853,19 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func anchorSummary(for sharedCall: ONTGenotypeSharedCall) -> ONTGenotypeAnchorSummary? {
-        result?.anchorSummaries(
-            minimumSupportPercent: displayState.activeMinimumSupportPercent,
-            denominator: displayState.supportDenominator
-        ).first { anchor in
+        knownSelectionDiagnostics.anchorSummaryEntryCount += 1
+        guard let result else { return nil }
+        return anchorSummaries(in: result).first { anchor in
             anchor.sharedCalls.contains { $0.genotype == sharedCall.genotype && $0.locus == sharedCall.locus }
         }
+    }
+
+    private func anchorSummaries(in result: ONTGenotypeResultBundleData) -> [ONTGenotypeAnchorSummary] {
+        knownSelectionDiagnostics.anchorSummariesEntryCount += 1
+        return result.anchorSummaries(
+            minimumSupportPercent: displayState.activeMinimumSupportPercent,
+            denominator: displayState.supportDenominator
+        )
     }
 
     private func compactGenotypeLabel(_ genotype: String) -> String {
@@ -6172,6 +6213,10 @@ extension GenotypeResultViewController {
 
     var testingCandidateSelectionCallbackCounts: GenotypeCandidateSelectionCallbackCounts {
         .init(known: knownSelectionCallbackCount, candidate: candidateSelectionCallbackCount)
+    }
+
+    var testingKnownSelectionDiagnostics: GenotypeKnownSelectionDiagnostics {
+        knownSelectionDiagnostics
     }
 
     var testingCandidateIntegrityWarningText: String {

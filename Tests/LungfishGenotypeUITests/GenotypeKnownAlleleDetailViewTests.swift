@@ -315,14 +315,15 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         let view = makeView()
         view.configure(record: makeRecord(), observedSample: nil)
         let facts = try identifiedView("knownAlleleFactsRail", in: view)
+        XCTAssertFalse(facts.wantsLayer)
 
         view.appearance = try XCTUnwrap(NSAppearance(named: .aqua))
         view.layoutSubtreeIfNeeded()
-        let lightComponents = try backgroundComponents(of: facts)
+        let lightComponents = try renderedBackgroundComponents(of: facts)
 
         view.appearance = try XCTUnwrap(NSAppearance(named: .darkAqua))
         view.layoutSubtreeIfNeeded()
-        let darkComponents = try backgroundComponents(of: facts)
+        let darkComponents = try renderedBackgroundComponents(of: facts)
 
         XCTAssertNotEqual(lightComponents, darkComponents)
     }
@@ -502,7 +503,10 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         XCTAssertLessThanOrEqual(rect.maxY, bounds.maxY + 0.5, file: file, line: line)
     }
 
-    private func backgroundComponents(of view: NSView) throws -> [CGFloat] {
-        Array(try XCTUnwrap(view.layer?.backgroundColor?.components))
+    private func renderedBackgroundComponents(of view: NSView) throws -> [CGFloat] {
+        let representation = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: representation)
+        let color = try XCTUnwrap(representation.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB))
+        return [color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent]
     }
 }

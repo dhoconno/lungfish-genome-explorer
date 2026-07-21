@@ -522,29 +522,15 @@ final class GenotypeKnownAlleleDetailView: NSView {
 
 @MainActor
 private final class SemanticBackgroundView: NSView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        configureLayer()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        configureLayer()
+    override func draw(_ dirtyRect: NSRect) {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            NSColor.controlBackgroundColor.setFill()
+            dirtyRect.fill()
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        updateBackgroundColor()
-    }
-
-    private func configureLayer() {
-        wantsLayer = true
-        updateBackgroundColor()
-    }
-
-    private func updateBackgroundColor() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        }
+        needsDisplay = true
     }
 }
