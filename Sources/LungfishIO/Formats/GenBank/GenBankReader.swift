@@ -1297,6 +1297,17 @@ public final class GenBankWriter: Sendable {
             lines.append("VERSION     \(version)")
         }
 
+        // Preserve the remaining ordered GenBank header fields. DEFINITION,
+        // ACCESSION, and VERSION are emitted from their structured properties
+        // above; LOCUS is emitted from `LocusInfo`. Parser-derived COMMENT.*
+        // values are conveniences for metadata columns and would duplicate the
+        // original COMMENT text if written here.
+        for field in record.recordFields.sorted(by: { $0.ordinal < $1.ordinal }) {
+            if let line = formatRecordField(field) {
+                lines.append(line)
+            }
+        }
+
         // FEATURES
         if !record.annotations.isEmpty {
             lines.append("FEATURES             Location/Qualifiers")
@@ -1314,6 +1325,28 @@ public final class GenBankWriter: Sendable {
         lines.append("")
 
         return lines.joined(separator: "\n")
+    }
+
+    private func formatRecordField(_ field: GenBankRecordField) -> String? {
+        let key = field.key.uppercased()
+        guard !field.value.isEmpty else { return nil }
+        guard key != "DEFINITION", key != "ACCESSION", key != "VERSION" else { return nil }
+        guard key != "LOCUS", !key.hasPrefix("LOCUS.") else { return nil }
+        guard !key.hasPrefix("COMMENT.") else { return nil }
+
+        if key == "TAXONOMY" {
+            return String(repeating: " ", count: 12) + field.value
+        }
+        if key == "ORGANISM" {
+            return "  ORGANISM".padding(toLength: 12, withPad: " ", startingAt: 0) + field.value
+        }
+        if key.hasPrefix("REFERENCE."),
+           let subfield = key.split(separator: ".", maxSplits: 2).last,
+           !subfield.isEmpty {
+            return "  \(subfield)".padding(toLength: 12, withPad: " ", startingAt: 0) + field.value
+        }
+
+        return key.padding(toLength: 12, withPad: " ", startingAt: 0) + field.value
     }
 
     private func formatLocusLine(_ locus: LocusInfo) -> String {

@@ -350,8 +350,72 @@ private extension MHCReferenceVisualizationArtifactBuilder {
             ),
             definition: recordFields["DEFINITION"]?.first,
             accession: recordFields["ACCESSION"]?.first,
-            version: recordFields["VERSION"]?.first
+            version: recordFields["VERSION"]?.first,
+            recordFields: orderedGenBankRecordFields(recordFields)
         )
+    }
+
+    func orderedGenBankRecordFields(
+        _ fields: [String: [String]]
+    ) -> [GenBankRecordField] {
+        var ordered: [GenBankRecordField] = []
+        var consumedKeys: Set<String> = []
+
+        func append(key: String) {
+            guard let values = fields[key] else { return }
+            consumedKeys.insert(key)
+            for value in values {
+                ordered.append(GenBankRecordField(
+                    key: key,
+                    value: value,
+                    ordinal: ordered.count
+                ))
+            }
+        }
+
+        // Canonical GenBank header order for the record-level fields retained
+        // by the reference metadata store.
+        for key in [
+            "DEFINITION", "ACCESSION", "VERSION", "DBLINK", "KEYWORDS",
+            "SOURCE", "ORGANISM", "TAXONOMY",
+        ] {
+            append(key: key)
+        }
+
+        let references = fields["REFERENCE"] ?? []
+        consumedKeys.insert("REFERENCE")
+        for (offset, value) in references.enumerated() {
+            ordered.append(GenBankRecordField(
+                key: "REFERENCE",
+                value: value,
+                ordinal: ordered.count
+            ))
+            let prefix = "REFERENCE.\(offset + 1)."
+            let subfieldOrder = ["AUTHORS", "CONSRTM", "TITLE", "JOURNAL", "PUBMED", "REMARK"]
+            let matchingKeys = fields.keys.filter { $0.hasPrefix(prefix) }.sorted { lhs, rhs in
+                let lhsSuffix = String(lhs.dropFirst(prefix.count))
+                let rhsSuffix = String(rhs.dropFirst(prefix.count))
+                let lhsRank = subfieldOrder.firstIndex(of: lhsSuffix) ?? subfieldOrder.count
+                let rhsRank = subfieldOrder.firstIndex(of: rhsSuffix) ?? subfieldOrder.count
+                return lhsRank == rhsRank ? lhs < rhs : lhsRank < rhsRank
+            }
+            for key in matchingKeys {
+                append(key: key)
+            }
+        }
+
+        // COMMENT follows references. COMMENT.<label> values remain attached
+        // for metadata consumers; GenBankWriter intentionally avoids emitting
+        // them twice because COMMENT already contains the source text.
+        append(key: "COMMENT")
+        for key in fields.keys.filter({ $0.hasPrefix("COMMENT.") }).sorted() {
+            append(key: key)
+        }
+
+        for key in fields.keys.sorted() where !consumedKeys.contains(key) {
+            append(key: key)
+        }
+        return ordered
     }
 
     func makeRoles(
