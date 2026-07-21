@@ -288,7 +288,55 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertEqual(activeConstraints(in: view).count, activeConstraintCount)
         XCTAssertEqual(Set(activeConstraints(in: view).map(ObjectIdentifier.init)), activeConstraintIDs)
         XCTAssertEqual(view.currentMode, .overview)
-        XCTAssertEqual(view.differenceTrackConfigurationCount, 101)
+        XCTAssertEqual(view.differenceTrackConfigurationCount, 1)
+        XCTAssertEqual(view.fastaFormattingCount, 1)
+    }
+
+    func testAlternatingSeenCandidatesReuseTwoCachedPresentationsWithoutGrowingHierarchy() {
+        let view = makeView()
+        let reference = makeReference()
+        let candidateA = makeCandidate()
+        let candidateB = makeCandidate(
+            stableClusterID: "cluster-b",
+            provisionalName: "Mafa-A1*068:01_1nt_nov",
+            cigar: "1=1X22="
+        )
+        let sequenceA = String(repeating: "ACGT", count: 6)
+        let sequenceB = String(repeating: "TGCA", count: 6)
+
+        view.configure(
+            candidate: candidateA,
+            closestReference: reference,
+            candidateSequence: sequenceA,
+            selectedSampleID: "CR1178",
+            selectedSampleReadCount: 8
+        )
+        view.configure(
+            candidate: candidateB,
+            closestReference: reference,
+            candidateSequence: sequenceB,
+            selectedSampleID: "CR1180",
+            selectedSampleReadCount: 6
+        )
+        let descendantCount = descendants(of: view).count
+        let activeConstraintCount = activeConstraints(in: view).count
+
+        for index in 0..<100 {
+            let usesA = index.isMultiple(of: 2)
+            view.configure(
+                candidate: usesA ? candidateA : candidateB,
+                closestReference: reference,
+                candidateSequence: usesA ? sequenceA : sequenceB,
+                selectedSampleID: usesA ? "CR1178" : "CR1180",
+                selectedSampleReadCount: index
+            )
+        }
+
+        XCTAssertEqual(view.differenceTrackConfigurationCount, 2)
+        XCTAssertEqual(view.fastaFormattingCount, 2)
+        XCTAssertEqual(descendants(of: view).count, descendantCount)
+        XCTAssertEqual(activeConstraints(in: view).count, activeConstraintCount)
+        XCTAssertEqual(text("candidateSelectedSampleReadCount", in: view), "99")
     }
 
     func testMissingSequenceUsesFreshAnalysisFallbackIndependently() throws {
@@ -393,10 +441,14 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         return view
     }
 
-    private func makeCandidate(cigar: String = "2=1X2=2I2=2D1=1X3=1X") -> ONTMHCCandidateRecord {
+    private func makeCandidate(
+        stableClusterID: String = "cluster-a",
+        provisionalName: String = "Mafa-A1*067:01_2nt_nov",
+        cigar: String = "2=1X2=2I2=2D1=1X3=1X"
+    ) -> ONTMHCCandidateRecord {
         ONTMHCCandidateRecord(
-            stableClusterID: "cluster-a",
-            provisionalName: "Mafa-A1*067:01_2nt_nov",
+            stableClusterID: stableClusterID,
+            provisionalName: provisionalName,
             locus: "Mafa-A1",
             classification: .novel,
             supportClass: .shared,
@@ -415,11 +467,11 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
             occurrenceCount: 2,
             totalClusterReads: 14,
             supportingSampleIDs: ["CR1178", "CR1180"],
-            fastaRecordID: "cluster-a",
+            fastaRecordID: stableClusterID,
             sequenceSHA256: String(repeating: "b", count: 64),
             selectedEvidence: .init(
                 bamPath: "artifacts/alignments/unmatched-to-reference.bam",
-                queryName: "selected-read",
+                queryName: "selected-read-\(stableClusterID)",
                 referenceName: "NHP0068",
                 readGroupID: "CR1178",
                 referenceStart: 1,

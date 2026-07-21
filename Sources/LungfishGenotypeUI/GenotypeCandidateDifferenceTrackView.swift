@@ -25,9 +25,22 @@ final class GenotypeCandidateDifferenceTrackView: NSView {
         let length: Int
     }
 
+    struct Presentation: Equatable {
+        let referenceLength: Int
+        let markers: [Marker]
+        let parsingIssue: String?
+        let accessibilitySummary: String
+    }
+
     private(set) var markers: [Marker] = []
     private(set) var parsingIssue: String?
     private(set) var configurationCount = 0
+    private(set) var currentPresentation = Presentation(
+        referenceLength: 0,
+        markers: [],
+        parsingIssue: nil,
+        accessibilitySummary: "No candidate difference data configured"
+    )
 
     private var referenceLength = 0
     private static let maximumOperationCount = 10_000
@@ -53,26 +66,46 @@ final class GenotypeCandidateDifferenceTrackView: NSView {
         features: [ONTMHCReferenceVisualizationFeature]
     ) {
         configurationCount += 1
-        self.referenceLength = max(0, referenceLength)
 
+        let presentation: Presentation
         do {
-            markers = try Self.parseMarkers(
+            let markers = try Self.parseMarkers(
                 referenceLength: referenceLength,
                 referenceStart: referenceStart,
                 cigar: cigar,
                 features: features
             )
-            parsingIssue = nil
-            setAccessibilityValue(Self.accessibilitySummary(for: markers))
+            presentation = Presentation(
+                referenceLength: max(0, referenceLength),
+                markers: markers,
+                parsingIssue: nil,
+                accessibilitySummary: Self.accessibilitySummary(for: markers)
+            )
         } catch let error as CIGARParseError {
-            markers = []
-            parsingIssue = error.message
-            setAccessibilityValue("Difference track unavailable: \(error.message)")
+            presentation = Presentation(
+                referenceLength: max(0, referenceLength),
+                markers: [],
+                parsingIssue: error.message,
+                accessibilitySummary: "Difference track unavailable: \(error.message)"
+            )
         } catch {
-            markers = []
-            parsingIssue = "The persisted extended CIGAR could not be parsed."
-            setAccessibilityValue("Difference track unavailable: \(parsingIssue!)")
+            let issue = "The persisted extended CIGAR could not be parsed."
+            presentation = Presentation(
+                referenceLength: max(0, referenceLength),
+                markers: [],
+                parsingIssue: issue,
+                accessibilitySummary: "Difference track unavailable: \(issue)"
+            )
         }
+        apply(presentation: presentation)
+    }
+
+    func apply(presentation: Presentation) {
+        currentPresentation = presentation
+        referenceLength = presentation.referenceLength
+        markers = presentation.markers
+        parsingIssue = presentation.parsingIssue
+        setAccessibilityValue(presentation.accessibilitySummary)
         needsDisplay = true
     }
 

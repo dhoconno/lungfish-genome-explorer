@@ -11,7 +11,36 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         case fasta
     }
 
+    private struct ReferencePresentationSignature: Equatable {
+        let rawReferenceID: String
+        let alleleName: String
+        let sequenceSHA256: String
+        let sequenceLength: Int
+        let features: [ONTMHCReferenceVisualizationFeature]
+    }
+
+    private struct CandidatePresentationSignature: Equatable {
+        let stableClusterID: String
+        let provisionalName: String
+        let classification: String
+        let supportClass: String
+        let independentSampleCount: Int
+        let totalClusterReads: Int
+        let sequenceSHA256: String
+        let candidateSequence: String?
+        let referenceStart: Int
+        let cigar: String
+        let reference: ReferencePresentationSignature?
+    }
+
+    private struct CandidatePresentationCacheEntry {
+        let signature: CandidatePresentationSignature
+        let differenceTrack: GenotypeCandidateDifferenceTrackView.Presentation
+        let fastaText: String
+    }
+
     private(set) var currentMode: Mode = .overview
+    private(set) var fastaFormattingCount = 0
 
     var differenceTrackConfigurationCount: Int {
         differenceTrack.configurationCount
@@ -88,6 +117,8 @@ final class GenotypeCandidateAlleleDetailView: NSView {
 
     private var isShowingFallback = false
     private var configuredOverviewRecord: ONTMHCReferenceVisualizationRecord?
+    private var presentationCache: [CandidatePresentationCacheEntry] = []
+    private static let maximumCachedPresentations = 8
 
     override var intrinsicContentSize: NSSize {
         let height: CGFloat
@@ -171,33 +202,21 @@ final class GenotypeCandidateAlleleDetailView: NSView {
                 configuredOverviewRecord = closestReference
                 closestReferenceOverview.configure(record: closestReference)
             }
-            differenceTrack.configure(
-                referenceLength: closestReference.sequence.count,
-                referenceStart: candidate.selectedEvidence.referenceStart,
-                cigar: candidate.selectedEvidence.cigar,
-                features: closestReference.features
-            )
             genBankContext.stringValue =
                 "Canonical closest-reference GenBank: \(closestReference.alleleName) (\(closestReference.rawReferenceID))"
             genBankTextView.string = closestReference.genBankText
         } else {
             configuredOverviewRecord = nil
             closestReferenceGeometryLabel.stringValue = "Closest-reference geometry unavailable"
-            differenceTrack.configure(
-                referenceLength: 0,
-                referenceStart: candidate.selectedEvidence.referenceStart,
-                cigar: candidate.selectedEvidence.cigar,
-                features: []
-            )
             genBankContext.stringValue = "Canonical closest-reference GenBank unavailable"
             genBankTextView.string = ""
         }
 
-        if let candidateSequence {
-            fastaTextView.string = Self.candidateFASTA(candidate: candidate, sequence: candidateSequence)
-        } else {
-            fastaTextView.string = ""
-        }
+        configureCachedPresentation(
+            candidate: candidate,
+            closestReference: closestReference,
+            candidateSequence: candidateSequence
+        )
 
         let warningCandidates: [String?] = [
             warning,
@@ -685,6 +704,69 @@ final class GenotypeCandidateAlleleDetailView: NSView {
 
     private static func percentText(_ fraction: Double) -> String {
         String(format: "%.2f%%", locale: Locale(identifier: "en_US_POSIX"), fraction * 100)
+    }
+
+    private func configureCachedPresentation(
+        candidate: ONTMHCCandidateRecord,
+        closestReference: ONTMHCReferenceVisualizationRecord?,
+        candidateSequence: String?
+    ) {
+        let referenceSignature = closestReference.map { reference in
+            ReferencePresentationSignature(
+                rawReferenceID: reference.rawReferenceID,
+                alleleName: reference.alleleName,
+                sequenceSHA256: reference.sequenceSHA256,
+                sequenceLength: reference.sequence.count,
+                features: reference.features
+            )
+        }
+        let signature = CandidatePresentationSignature(
+            stableClusterID: candidate.stableClusterID,
+            provisionalName: candidate.provisionalName,
+            classification: candidate.classification.rawValue,
+            supportClass: candidate.supportClass.rawValue,
+            independentSampleCount: candidate.independentSampleCount,
+            totalClusterReads: candidate.totalClusterReads,
+            sequenceSHA256: candidate.sequenceSHA256,
+            candidateSequence: candidateSequence,
+            referenceStart: candidate.selectedEvidence.referenceStart,
+            cigar: candidate.selectedEvidence.cigar,
+            reference: referenceSignature
+        )
+
+        if let cachedIndex = presentationCache.firstIndex(where: {
+            $0.signature == signature
+        }) {
+            let cached = presentationCache.remove(at: cachedIndex)
+            presentationCache.append(cached)
+            differenceTrack.apply(presentation: cached.differenceTrack)
+            fastaTextView.string = cached.fastaText
+            return
+        }
+
+        differenceTrack.configure(
+            referenceLength: closestReference?.sequence.count ?? 0,
+            referenceStart: candidate.selectedEvidence.referenceStart,
+            cigar: candidate.selectedEvidence.cigar,
+            features: closestReference?.features ?? []
+        )
+        let fastaText: String
+        if let candidateSequence {
+            fastaFormattingCount += 1
+            fastaText = Self.candidateFASTA(candidate: candidate, sequence: candidateSequence)
+        } else {
+            fastaText = ""
+        }
+        fastaTextView.string = fastaText
+
+        if presentationCache.count == Self.maximumCachedPresentations {
+            presentationCache.removeFirst()
+        }
+        presentationCache.append(CandidatePresentationCacheEntry(
+            signature: signature,
+            differenceTrack: differenceTrack.currentPresentation,
+            fastaText: fastaText
+        ))
     }
 
     private static func candidateFASTA(
