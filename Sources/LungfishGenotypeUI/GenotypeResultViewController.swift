@@ -1319,14 +1319,14 @@ public final class GenotypeResultViewController: NSViewController {
         view.addSubview(contentHost)
 
         contentHostTopConstraint = contentHost.topAnchor.constraint(
-            equalTo: view.topAnchor,
+            equalTo: view.safeAreaLayoutGuide.topAnchor,
             constant: isGenotypeOnlyResult ? 0 : 48
         )
         lensControl.isHidden = isGenotypeOnlyResult
 
         NSLayoutConstraint.activate([
             lensControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            lensControl.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            lensControl.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
 
             contentHostTopConstraint,
             contentHost.leadingAnchor.constraint(equalTo: view.leadingAnchor),

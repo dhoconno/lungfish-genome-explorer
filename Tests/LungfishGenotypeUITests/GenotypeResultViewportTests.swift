@@ -1116,6 +1116,46 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingContentHostTopInset, 0)
     }
 
+    func testFullSizeContentKeepsFullLengthCandidateSearchBelowSafeAreaTop() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_500, height: 900),
+            styleMask: [.titled, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = GenotypeResultViewController()
+        controller.view.frame = try XCTUnwrap(window.contentView).bounds
+        window.contentViewController = controller
+        controller.configure(result: makeCandidateResult(
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
+            candidates: [
+                makeCandidate(
+                    id: "candidate",
+                    name: "Candidate_nov",
+                    classification: .novel,
+                    support: .singleton,
+                    samples: ["AnimalA"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5),
+            ]
+        ))
+
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        let quickFilterBar = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: GenotypeQuickFilterBarView.self)
+        )
+        let searchField = try XCTUnwrap(quickFilterBar.firstDescendant(ofType: NSSearchField.self))
+        let searchFrame = searchField.convert(searchField.bounds, to: controller.view)
+        let safeAreaTop = controller.view.safeAreaLayoutGuide.frame.maxY
+
+        XCTAssertGreaterThan(controller.view.safeAreaInsets.top, 0)
+        XCTAssertLessThanOrEqual(searchFrame.maxY, safeAreaTop)
+    }
+
     func testGenotypeOnlyResultDirectLensSelectionCannotEscapeSummary() {
         let controller = GenotypeResultViewController()
         _ = controller.view
