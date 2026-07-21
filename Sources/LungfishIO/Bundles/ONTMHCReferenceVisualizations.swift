@@ -159,6 +159,8 @@ public enum ONTMHCReferenceVisualizationError: Error, Equatable, LocalizedError,
     case emptyRawReferenceID(sourceOrdinal: Int)
     case duplicateRawReferenceID(String)
     case emptyRoles(rawReferenceID: String)
+    case emptyCandidateStableClusterID(rawReferenceID: String)
+    case ambiguousCandidateStableClusterID(String)
     case sequenceChecksumMismatch(rawReferenceID: String, expected: String, actual: String)
     case featureOutOfBounds(
         rawReferenceID: String,
@@ -180,6 +182,10 @@ public enum ONTMHCReferenceVisualizationError: Error, Equatable, LocalizedError,
             return "MHC reference visualization contains duplicate raw reference ID \(rawReferenceID)."
         case .emptyRoles(let rawReferenceID):
             return "MHC reference visualization record \(rawReferenceID) has no role assignments."
+        case .emptyCandidateStableClusterID(let rawReferenceID):
+            return "MHC reference visualization record \(rawReferenceID) has an empty candidate stable cluster ID."
+        case .ambiguousCandidateStableClusterID(let stableClusterID):
+            return "MHC reference visualization candidate stable cluster ID \(stableClusterID) is assigned to multiple raw references."
         case .sequenceChecksumMismatch(let rawReferenceID, let expected, let actual):
             return "MHC reference visualization record \(rawReferenceID) declares sequence SHA-256 \(expected), but its sequence hashes to \(actual)."
         case .featureOutOfBounds(
@@ -199,12 +205,14 @@ public struct ONTMHCReferenceVisualizationArtifact: Codable, Equatable, Sendable
     public let records: [ONTMHCReferenceVisualizationRecord]
     public let recordsByRawReferenceID: [String: ONTMHCReferenceVisualizationRecord]
     public let recordsByKnownCallGenotype: [String: ONTMHCReferenceVisualizationRecord]
+    public let recordsByCandidateStableClusterID: [String: ONTMHCReferenceVisualizationRecord]
 
     public init(schemaVersion: Int, records: [ONTMHCReferenceVisualizationRecord]) {
         self.schemaVersion = schemaVersion
         self.records = records
         self.recordsByRawReferenceID = Self.makeIndex(records)
         self.recordsByKnownCallGenotype = Self.makeKnownCallIndex(records)
+        self.recordsByCandidateStableClusterID = Self.makeCandidateStableClusterIndex(records)
     }
 
     public func validated() throws -> Self {
@@ -213,6 +221,7 @@ public struct ONTMHCReferenceVisualizationArtifact: Codable, Equatable, Sendable
         }
 
         var rawReferenceIDs: Set<String> = []
+        var rawReferenceIDByCandidateStableClusterID: [String: String] = [:]
         for record in records {
             guard !record.rawReferenceID.isEmpty else {
                 throw ONTMHCReferenceVisualizationError.emptyRawReferenceID(
@@ -224,6 +233,20 @@ public struct ONTMHCReferenceVisualizationArtifact: Codable, Equatable, Sendable
             }
             guard !record.roles.isEmpty else {
                 throw ONTMHCReferenceVisualizationError.emptyRoles(rawReferenceID: record.rawReferenceID)
+            }
+            for stableClusterID in record.roles.flatMap(\.candidateStableClusterIDs) {
+                guard !stableClusterID.isEmpty else {
+                    throw ONTMHCReferenceVisualizationError.emptyCandidateStableClusterID(
+                        rawReferenceID: record.rawReferenceID
+                    )
+                }
+                if let existingRawReferenceID = rawReferenceIDByCandidateStableClusterID[stableClusterID],
+                   existingRawReferenceID != record.rawReferenceID {
+                    throw ONTMHCReferenceVisualizationError.ambiguousCandidateStableClusterID(
+                        stableClusterID
+                    )
+                }
+                rawReferenceIDByCandidateStableClusterID[stableClusterID] = record.rawReferenceID
             }
 
             let checksum = SHA256.hash(data: Data(record.sequence.utf8))
@@ -304,6 +327,22 @@ public struct ONTMHCReferenceVisualizationArtifact: Codable, Equatable, Sendable
             }
         }
         index.merge(aliases) { existing, _ in existing }
+        return index
+    }
+
+    private static func makeCandidateStableClusterIndex(
+        _ records: [ONTMHCReferenceVisualizationRecord]
+    ) -> [String: ONTMHCReferenceVisualizationRecord] {
+        var index: [String: ONTMHCReferenceVisualizationRecord] = [:]
+        for record in records {
+            for stableClusterID in record.roles.flatMap(\.candidateStableClusterIDs)
+            where !stableClusterID.isEmpty {
+                if index[stableClusterID]?.rawReferenceID == nil
+                    || index[stableClusterID]?.rawReferenceID == record.rawReferenceID {
+                    index[stableClusterID] = record
+                }
+            }
+        }
         return index
     }
 }

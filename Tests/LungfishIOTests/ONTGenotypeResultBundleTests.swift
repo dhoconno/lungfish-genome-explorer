@@ -182,6 +182,37 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertTrue(result.integrityWarnings.isEmpty)
     }
 
+    func testLoaderRetainsNormalizedNamedCandidateSequenceOnly() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateID: "cluster-a",
+            candidateSequence: "acgt"
+        )
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.mhcCandidateSequencesByStableClusterID["cluster-a"], "ACGT")
+        XCTAssertNil(result.mhcCandidateSequencesByStableClusterID[fixture.unnameableID])
+        XCTAssertEqual(result.mhcCandidateSequencesByStableClusterID.count, 1)
+    }
+
+    func testCandidateSequenceIndexRoundTripsThroughCodable() throws {
+        let fixture = try CandidateBundleFixture(candidateID: "cluster-a")
+        defer { fixture.remove() }
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        let decoded = try JSONDecoder().decode(
+            ONTGenotypeResultBundleData.self,
+            from: JSONEncoder().encode(result)
+        )
+
+        XCTAssertEqual(decoded.mhcCandidateSequencesByStableClusterID, ["cluster-a": "ACGT"])
+    }
+
+    func testCompatibilityInitializerDefaultsCandidateSequenceIndexToEmpty() {
+        XCTAssertEqual(makeResult(calls: []).mhcCandidateSequencesByStableClusterID, [:])
+    }
+
     func testStableLoaderRetriesWhenWriterPublishesANewManifestGeneration() throws {
         let fixture = try CandidateBundleFixture()
         defer { fixture.remove() }
@@ -1525,14 +1556,16 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         let bundleURL: URL
         let candidateJSONURL: URL
         let candidateFASTAURL: URL
-        let candidateID = "candidate-sequence"
+        let candidateID: String
         let unnameableID = "unnameable-sequence"
 
         init(
             includeCandidateArtifacts: Bool = true,
             candidateDirectory: String = "",
             candidateSchemaVersion: Int = 1,
-            candidateFASTAIDs: [String] = ["candidate-sequence"],
+            candidateID: String = "candidate-sequence",
+            candidateSequence: String = "ACGT",
+            candidateFASTAIDs: [String]? = nil,
             documentCandidateFASTAPath: String? = nil,
             genotypingBAMPath: String = "artifacts/alignments/genotyping.bam",
             genotypingBAIPath: String = "artifacts/alignments/genotyping.bam.bai",
@@ -1541,6 +1574,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             swappedEvidenceRoles: Bool = false,
             reciprocalLocatorPathOverride: String? = nil
         ) throws {
+            self.candidateID = candidateID
             rootURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("ONTGenotypeCandidateFixture-\(UUID().uuidString)", isDirectory: true)
             bundleURL = rootURL.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1582,9 +1616,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             try Data("bam-two".utf8).write(to: reciprocalBAM)
             try Data("bai-two".utf8).write(to: reciprocalBAI)
 
-            let candidateSequence = "ACGT"
             let unnameableSequence = "TGCA"
-            let candidateFASTA = candidateFASTAIDs
+            let candidateFASTA = (candidateFASTAIDs ?? [candidateID])
                 .map { ">\($0)\n\($0 == "extra" ? "AAAA" : candidateSequence)\n" }
                 .joined()
             try Data(candidateFASTA.utf8).write(to: candidateFASTAURL)
@@ -1642,7 +1675,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                 totalClusterReads: 8,
                 supportingSampleIDs: ["SampleA"],
                 fastaRecordID: candidateID,
-                sequenceSHA256: Self.sha256(Data(candidateSequence.utf8)),
+                sequenceSHA256: Self.sha256(Data(candidateSequence.uppercased().utf8)),
                 selectedEvidence: locator
             )
             let candidateObservation = ONTMHCCandidateObservation(

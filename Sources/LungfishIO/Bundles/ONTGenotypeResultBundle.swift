@@ -956,6 +956,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     public let haplotypeAnalysis: GenotypeHaplotypeAnalysis?
     public let mhcCandidates: ONTMHCCandidateAllelesDocument?
     public let mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?
+    public let mhcCandidateSequencesByStableClusterID: [String: String]
     public let mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact?
     public let integrityWarnings: [ONTGenotypeIntegrityWarning]
     public let referenceMetadata: ONTGenotypeReferenceMetadata?
@@ -979,6 +980,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
             haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: nil,
             mhcUnnameableClusters: nil,
+            mhcCandidateSequencesByStableClusterID: [:],
             mhcReferenceVisualizations: nil,
             integrityWarnings: [],
             referenceMetadata: nil
@@ -995,6 +997,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         mhcCandidates: ONTMHCCandidateAllelesDocument?,
         mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?,
+        mhcCandidateSequencesByStableClusterID: [String: String],
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil,
         integrityWarnings: [ONTGenotypeIntegrityWarning],
         referenceMetadata: ONTGenotypeReferenceMetadata?
@@ -1008,9 +1011,41 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         self.haplotypeAnalysis = haplotypeAnalysis
         self.mhcCandidates = mhcCandidates
         self.mhcUnnameableClusters = mhcUnnameableClusters
+        self.mhcCandidateSequencesByStableClusterID = mhcCandidateSequencesByStableClusterID
         self.mhcReferenceVisualizations = mhcReferenceVisualizations
         self.integrityWarnings = integrityWarnings
         self.referenceMetadata = referenceMetadata
+    }
+
+    public init(
+        bundleURL: URL,
+        manifest: ONTGenotypeResultBundleManifest,
+        artifacts: ONTGenotypeResultArtifacts,
+        stats: ONTGenotypeRunStats,
+        calls: [ONTGenotypeCall],
+        samples: [ONTGenotypeSampleResult],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        mhcCandidates: ONTMHCCandidateAllelesDocument?,
+        mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?,
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil,
+        integrityWarnings: [ONTGenotypeIntegrityWarning],
+        referenceMetadata: ONTGenotypeReferenceMetadata?
+    ) {
+        self.init(
+            bundleURL: bundleURL,
+            manifest: manifest,
+            artifacts: artifacts,
+            stats: stats,
+            calls: calls,
+            samples: samples,
+            haplotypeAnalysis: haplotypeAnalysis,
+            mhcCandidates: mhcCandidates,
+            mhcUnnameableClusters: mhcUnnameableClusters,
+            mhcCandidateSequencesByStableClusterID: [:],
+            mhcReferenceVisualizations: mhcReferenceVisualizations,
+            integrityWarnings: integrityWarnings,
+            referenceMetadata: referenceMetadata
+        )
     }
 
     public init(
@@ -1036,6 +1071,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
             haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: mhcCandidates,
             mhcUnnameableClusters: mhcUnnameableClusters,
+            mhcCandidateSequencesByStableClusterID: [:],
             mhcReferenceVisualizations: nil,
             integrityWarnings: integrityWarnings,
             referenceMetadata: referenceMetadata
@@ -1052,6 +1088,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         case haplotypeAnalysis
         case mhcCandidates
         case mhcUnnameableClusters
+        case mhcCandidateSequencesByStableClusterID
         case mhcReferenceVisualizations
         case integrityWarnings
         case referenceMetadata
@@ -1072,6 +1109,10 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
                 ONTMHCUnnameableClustersDocument.self,
                 forKey: .mhcUnnameableClusters
             ),
+            mhcCandidateSequencesByStableClusterID: try container.decodeIfPresent(
+                [String: String].self,
+                forKey: .mhcCandidateSequencesByStableClusterID
+            ) ?? [:],
             mhcReferenceVisualizations: try container.decodeIfPresent(
                 ONTMHCReferenceVisualizationArtifact.self,
                 forKey: .mhcReferenceVisualizations
@@ -1098,6 +1139,10 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         try container.encodeIfPresent(haplotypeAnalysis, forKey: .haplotypeAnalysis)
         try container.encodeIfPresent(mhcCandidates, forKey: .mhcCandidates)
         try container.encodeIfPresent(mhcUnnameableClusters, forKey: .mhcUnnameableClusters)
+        try container.encode(
+            mhcCandidateSequencesByStableClusterID,
+            forKey: .mhcCandidateSequencesByStableClusterID
+        )
         try container.encodeIfPresent(mhcReferenceVisualizations, forKey: .mhcReferenceVisualizations)
         try container.encode(integrityWarnings, forKey: .integrityWarnings)
         try container.encodeIfPresent(referenceMetadata, forKey: .referenceMetadata)
@@ -1419,9 +1464,15 @@ public enum ONTGenotypeResultBundle {
     private struct MHCCandidateProjection {
         let candidates: ONTMHCCandidateAllelesDocument?
         let unnameable: ONTMHCUnnameableClustersDocument?
+        let candidateSequencesByStableClusterID: [String: String]
         let warnings: [ONTGenotypeIntegrityWarning]
 
-        static let absent = MHCCandidateProjection(candidates: nil, unnameable: nil, warnings: [])
+        static let absent = MHCCandidateProjection(
+            candidates: nil,
+            unnameable: nil,
+            candidateSequencesByStableClusterID: [:],
+            warnings: []
+        )
     }
 
     private struct CandidateIntegrityFailure: Error, LocalizedError {
@@ -1438,23 +1489,28 @@ public enum ONTGenotypeResultBundle {
     private struct ParsedFASTA {
         let sequenceChecksums: [String: String]
         let counts: [String: Int]
+        let sequencesByID: [String: String]
     }
 
     private struct StreamingFASTAParser {
         private static let maximumLineBytes = 1_048_576
         private let path: String
         private let requiredIDs: Set<String>
+        private let retainRequiredSequences: Bool
         private var pendingLine: [UInt8] = []
         private var currentID: String?
         private var currentIsRequired = false
         private var currentHasher = SHA256()
         private var currentBaseCount = 0
+        private var currentSequence: [UInt8] = []
         private var counts: [String: Int] = [:]
         private var checksums: [String: String] = [:]
+        private var sequences: [String: String] = [:]
 
-        init(path: String, requiredIDs: Set<String>) {
+        init(path: String, requiredIDs: Set<String>, retainRequiredSequences: Bool = false) {
             self.path = path
             self.requiredIDs = requiredIDs
+            self.retainRequiredSequences = retainRequiredSequences
         }
 
         mutating func consume(_ data: Data) throws {
@@ -1478,7 +1534,11 @@ public enum ONTGenotypeResultBundle {
         mutating func finish() throws -> ParsedFASTA {
             if !pendingLine.isEmpty { try consumeLine(pendingLine) }
             try finishRecord()
-            return ParsedFASTA(sequenceChecksums: checksums, counts: counts)
+            return ParsedFASTA(
+                sequenceChecksums: checksums,
+                counts: counts,
+                sequencesByID: sequences
+            )
         }
 
         private mutating func consumeLine(_ rawLine: [UInt8]) throws {
@@ -1497,6 +1557,7 @@ public enum ONTGenotypeResultBundle {
                 currentIsRequired = requiredIDs.contains(String(id))
                 currentHasher = SHA256()
                 currentBaseCount = 0
+                currentSequence.removeAll(keepingCapacity: true)
                 return
             }
             var start = 0
@@ -1518,7 +1579,10 @@ public enum ONTGenotypeResultBundle {
                 }
                 normalized.append((0x61...0x7a).contains(byte) ? byte - 0x20 : byte)
             }
-            if currentIsRequired { currentHasher.update(data: Data(normalized)) }
+            if currentIsRequired {
+                currentHasher.update(data: Data(normalized))
+                if retainRequiredSequences { currentSequence.append(contentsOf: normalized) }
+            }
             currentBaseCount += normalized.count
         }
 
@@ -1530,10 +1594,14 @@ public enum ONTGenotypeResultBundle {
             counts[id, default: 0] += 1
             if currentIsRequired, checksums[id] == nil {
                 checksums[id] = currentHasher.finalize().map { String(format: "%02x", $0) }.joined()
+                if retainRequiredSequences {
+                    sequences[id] = String(decoding: currentSequence, as: UTF8.self)
+                }
             }
             currentID = nil
             currentIsRequired = false
             currentBaseCount = 0
+            currentSequence.removeAll(keepingCapacity: true)
         }
 
         private func malformed(_ detail: String) -> CandidateIntegrityFailure {
@@ -1831,6 +1899,7 @@ public enum ONTGenotypeResultBundle {
             haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: mhcProjection.candidates,
             mhcUnnameableClusters: mhcProjection.unnameable,
+            mhcCandidateSequencesByStableClusterID: mhcProjection.candidateSequencesByStableClusterID,
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: mhcProjection.warnings,
             referenceMetadata: referenceMetadata
@@ -1982,6 +2051,7 @@ public enum ONTGenotypeResultBundle {
 
             let declaredEvidence = declaredBAMReferences(artifactManifest)
             var candidates: ONTMHCCandidateAllelesDocument?
+            var candidateSequencesByStableClusterID: [String: String] = [:]
             if let jsonReference = artifactManifest.candidateJSON,
                let fastaReference = artifactManifest.candidateFASTA {
                 let jsonData = try validateArtifact(jsonReference, in: bundleURL, collectData: true) ?? Data()
@@ -1999,7 +2069,8 @@ public enum ONTGenotypeResultBundle {
                 )
                 var parser = StreamingFASTAParser(
                     path: fastaReference.path,
-                    requiredIDs: Set(document.candidates.map(\.stableClusterID))
+                    requiredIDs: Set(document.candidates.map(\.stableClusterID)),
+                    retainRequiredSequences: true
                 )
                 var parserFailure: Error?
                 _ = try validateArtifact(
@@ -2012,12 +2083,14 @@ public enum ONTGenotypeResultBundle {
                     }
                 )
                 if let parserFailure { throw parserFailure }
+                let parsedFASTA = try parser.finish()
                 try validateCandidateRecords(
                     document.candidates,
-                    fasta: try parser.finish(),
+                    fasta: parsedFASTA,
                     path: fastaReference.path
                 )
                 candidates = document
+                candidateSequencesByStableClusterID = parsedFASTA.sequencesByID
             }
             var unnameable: ONTMHCUnnameableClustersDocument?
             if let jsonReference = artifactManifest.unnameableJSON,
@@ -2057,9 +2130,19 @@ public enum ONTGenotypeResultBundle {
                 )
                 unnameable = document
             }
-            return MHCCandidateProjection(candidates: candidates, unnameable: unnameable, warnings: [])
+            return MHCCandidateProjection(
+                candidates: candidates,
+                unnameable: unnameable,
+                candidateSequencesByStableClusterID: candidateSequencesByStableClusterID,
+                warnings: []
+            )
         } catch let failure as CandidateIntegrityFailure {
-            return MHCCandidateProjection(candidates: nil, unnameable: nil, warnings: [failure.warning])
+            return MHCCandidateProjection(
+                candidates: nil,
+                unnameable: nil,
+                candidateSequencesByStableClusterID: [:],
+                warnings: [failure.warning]
+            )
         }
     }
 

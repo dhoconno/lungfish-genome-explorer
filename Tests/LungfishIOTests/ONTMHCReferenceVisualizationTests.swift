@@ -29,6 +29,8 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
         XCTAssertNil(json["records_by_raw_reference_id"])
         XCTAssertNil(json["recordsByKnownCallGenotype"])
         XCTAssertNil(json["records_by_known_call_genotype"])
+        XCTAssertNil(json["recordsByCandidateStableClusterID"])
+        XCTAssertNil(json["records_by_candidate_stable_cluster_id"])
 
         let decoded = try JSONDecoder().decode(ONTMHCReferenceVisualizationArtifact.self, from: data)
         XCTAssertEqual(try decoded.validated(), artifact)
@@ -36,6 +38,78 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
         XCTAssertEqual(
             decoded.recordsByKnownCallGenotype["Mafa-E*02:01:01"],
             decoded.records[0]
+        )
+    }
+
+    func testIndexesClosestReferenceByEveryCandidateStableClusterID() throws {
+        let record = makeRecord(
+            roles: [
+                ONTMHCReferenceVisualizationRoleAssignment(
+                    role: .closestNovelReference,
+                    candidateStableClusterIDs: ["cluster-a", "cluster-b"]
+                ),
+                ONTMHCReferenceVisualizationRoleAssignment(
+                    role: .closestExtensionReference,
+                    candidateStableClusterIDs: ["cluster-c"]
+                ),
+            ]
+        )
+        let artifact = try ONTMHCReferenceVisualizationArtifact(
+            schemaVersion: 1,
+            records: [record]
+        ).validated()
+
+        XCTAssertEqual(
+            artifact.recordsByCandidateStableClusterID["cluster-a"]?.rawReferenceID,
+            "NHP00344"
+        )
+        XCTAssertEqual(
+            artifact.recordsByCandidateStableClusterID["cluster-b"]?.rawReferenceID,
+            "NHP00344"
+        )
+        XCTAssertEqual(
+            artifact.recordsByCandidateStableClusterID["cluster-c"]?.rawReferenceID,
+            "NHP00344"
+        )
+    }
+
+    func testEmptyCandidateStableClusterIDThrowsFocusedValidationError() {
+        let artifact = ONTMHCReferenceVisualizationArtifact(
+            schemaVersion: 1,
+            records: [
+                makeRecord(
+                    roles: [
+                        ONTMHCReferenceVisualizationRoleAssignment(
+                            role: .closestNovelReference,
+                            candidateStableClusterIDs: [""]
+                        )
+                    ]
+                )
+            ]
+        )
+
+        assertValidationError(
+            .emptyCandidateStableClusterID(rawReferenceID: "NHP00344"),
+            from: try artifact.validated()
+        )
+    }
+
+    func testAmbiguousCandidateStableClusterIDThrowsFocusedValidationError() {
+        let candidateRole = ONTMHCReferenceVisualizationRoleAssignment(
+            role: .closestNovelReference,
+            candidateStableClusterIDs: ["cluster-a"]
+        )
+        let artifact = ONTMHCReferenceVisualizationArtifact(
+            schemaVersion: 1,
+            records: [
+                makeRecord(rawReferenceID: "NHP00344", roles: [candidateRole]),
+                makeRecord(rawReferenceID: "NHP00999", roles: [candidateRole]),
+            ]
+        )
+
+        assertValidationError(
+            .ambiguousCandidateStableClusterID("cluster-a"),
+            from: try artifact.validated()
         )
     }
 
