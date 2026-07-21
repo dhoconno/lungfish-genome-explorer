@@ -171,6 +171,25 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
         XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
     }
 
+    func testResultLoaderRejectsDescriptorRecordCountMismatchWithFocusedError() throws {
+        let fixture = try ResultBundleFixture(
+            referenceArtifactData: encodedArtifact(),
+            declaredReferenceRecordCount: 2
+        )
+        defer { fixture.remove() }
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)) { error in
+            XCTAssertEqual(
+                error as? ONTMHCReferenceVisualizationError,
+                .descriptorRecordCountMismatch(expected: 2, actual: 1)
+            )
+            XCTAssertTrue(
+                error.localizedDescription.contains("declares 2 records, but the validated document contains 1"),
+                error.localizedDescription
+            )
+        }
+    }
+
     private func assertValidationError<T>(
         _ expected: ONTMHCReferenceVisualizationError,
         from expression: @autoclosure () throws -> T,
@@ -246,7 +265,10 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
         let bundleURL: URL
         let referenceArtifactURL: URL
 
-        init(referenceArtifactData: Data?) throws {
+        init(
+            referenceArtifactData: Data?,
+            declaredReferenceRecordCount: Int = 1
+        ) throws {
             rootURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("MHCReferenceVisualizationFixture-\(UUID().uuidString)")
             bundleURL = rootURL.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -272,6 +294,7 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
                 try referenceArtifactData.write(to: referenceArtifactURL)
                 descriptor = ONTMHCReferenceVisualizationArtifacts(
                     schemaVersion: 1,
+                    recordCount: 1,
                     recordsJSON: Self.reference(
                         path: referenceArtifactURL.lastPathComponent,
                         data: referenceArtifactData
@@ -302,6 +325,19 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
                 mhcReferenceVisualizations: descriptor
             )
             try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+            if referenceArtifactData != nil {
+                let manifestURL = ONTGenotypeResultBundle.manifestURL(in: bundleURL)
+                var object = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+                )
+                var visualizations = try XCTUnwrap(
+                    object["mhcReferenceVisualizations"] as? [String: Any]
+                )
+                visualizations["record_count"] = declaredReferenceRecordCount
+                object["mhcReferenceVisualizations"] = visualizations
+                try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+                    .write(to: manifestURL, options: .atomic)
+            }
         }
 
         func remove() {

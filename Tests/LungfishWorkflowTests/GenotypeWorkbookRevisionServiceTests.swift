@@ -2354,6 +2354,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             provenancePath: artifacts.provenance.lastPathComponent,
             mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts(
                 schemaVersion: 1,
+                recordCount: 0,
                 recordsJSON: try artifactReference(referenceVisualizationJSONURL, relativeTo: bundleURL),
                 genBank: try artifactReference(referenceGenBankURL, relativeTo: bundleURL),
                 fasta: try artifactReference(referenceFASTAURL, relativeTo: bundleURL)

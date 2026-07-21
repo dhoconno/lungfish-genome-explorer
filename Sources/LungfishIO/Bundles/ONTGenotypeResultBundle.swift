@@ -1864,7 +1864,14 @@ public enum ONTGenotypeResultBundle {
                 path: artifacts.recordsJSON.path
             )
         }
-        return try artifact.validated()
+        let validated = try artifact.validated()
+        guard artifacts.recordCount == validated.records.count else {
+            throw ONTMHCReferenceVisualizationError.descriptorRecordCountMismatch(
+                expected: artifacts.recordCount,
+                actual: validated.records.count
+            )
+        }
+        return validated
     }
 
     private static func loadReferenceMetadataIfPresent(

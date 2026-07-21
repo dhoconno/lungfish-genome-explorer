@@ -372,6 +372,7 @@ private extension AIHaplotypingRevisionPublisherTests {
             ),
             mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts(
                 schemaVersion: 1,
+                recordCount: 0,
                 recordsJSON: try visualizationArtifactReference(referenceVisualizationJSONURL),
                 genBank: try visualizationArtifactReference(referenceGenBankURL),
                 fasta: try visualizationArtifactReference(referenceFASTAURL)

@@ -674,8 +674,7 @@ private struct FullLengthONTMHCReferenceVisualizationPublication: Sendable {
 }
 
 private struct FullLengthONTMHCReferenceVisualizationPublicationError: Error, LocalizedError {
-    let step: FullLengthONTMHCProvenanceStep
-    let provenanceStepSnapshot: ProvenanceStep
+    let step: ProvenanceStep
     let underlyingLocalizedDescription: String
 
     var errorDescription: String? {
@@ -1373,6 +1372,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             candidateDocument: candidateDocument,
             candidateJSONURL: candidateArtifactResult.candidateJSONURL,
             outputDirectoryURL: request.outputDirectory,
+            finalOutputDirectoryURL: logicalFinalOutputURL,
             steps: &pipelineSteps
         )
         let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
@@ -2500,6 +2500,24 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         fastaURL: URL
     ) throws -> [URL] {
         try mhcReferenceCatalogInputs(sourceURL: sourceURL, fastaURL: fastaURL).allURLs
+    }
+
+    private func mhcReferenceVisualizationInputURLs(
+        sourceURL: URL,
+        fastaURL: URL
+    ) throws -> [URL] {
+        var urls = try mhcReferenceCatalogInputURLs(sourceURL: sourceURL, fastaURL: fastaURL)
+        let manifest = try BundleManifest.load(from: sourceURL)
+        guard let genome = manifest.genome else { return urls }
+        let fastaIndexURL = try BundleManifest.validatedBundleMemberURL(
+            for: genome.indexPath,
+            in: sourceURL,
+            field: "genome.index_path"
+        ).standardizedFileURL
+        if !urls.contains(where: { $0.standardizedFileURL == fastaIndexURL }) {
+            urls.append(fastaIndexURL)
+        }
+        return urls
     }
 
     private func mhcReferenceCatalogInputs(
@@ -4279,6 +4297,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         candidateDocument: ONTMHCCandidateAllelesDocument,
         candidateJSONURL: URL,
         outputDirectoryURL: URL,
+        finalOutputDirectoryURL: URL,
         steps: inout [FullLengthONTMHCProvenanceStep]
     ) throws -> FullLengthONTMHCReferenceVisualizationPublication? {
         guard referenceBundleURL.pathExtension.lowercased() == "lungfishref",
@@ -4305,8 +4324,16 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             .appendingPathComponent("mhc-reference-records.gb")
         let fastaURL = referenceDirectoryURL
             .appendingPathComponent("mhc-reference-records.fasta")
+        let finalReferenceDirectoryURL = finalOutputDirectoryURL
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("reference", isDirectory: true)
+        let finalOutputURLs = [
+            finalReferenceDirectoryURL.appendingPathComponent("mhc-reference-visualizations.json"),
+            finalReferenceDirectoryURL.appendingPathComponent("mhc-reference-records.gb"),
+            finalReferenceDirectoryURL.appendingPathComponent("mhc-reference-records.fasta"),
+        ]
         let startedAt = Date()
-        let sourceReferenceURLs = try mhcReferenceCatalogInputURLs(
+        let sourceReferenceURLs = try mhcReferenceVisualizationInputURLs(
             sourceURL: referenceBundleURL,
             fastaURL: referenceFASTAURL
         )
@@ -4319,28 +4346,38 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             unique.append(url.standardizedFileURL)
         }
         let outputURLs = [recordsJSONURL, genBankURL, fastaURL]
-        var argv = [
-            "lungfish-in-process", "extract-mhc-reference-visualizations",
-            "--reference-bundle", referenceBundleURL.path,
-            "--candidate-json", candidateJSONURL.path,
-            "--exact-call-input", exactCallInputURL.path,
-        ]
-        for rawReferenceID in exactKnownRawReferenceIDs.sorted() {
-            argv += ["--exact-known-reference-id", rawReferenceID]
+        func extractionArgv(
+            candidateJSONURL: URL?,
+            exactCallInputURL: URL?,
+            outputURLs: [URL]
+        ) -> [String] {
+            var values = [
+                "lungfish-in-process", "extract-mhc-reference-visualizations",
+                "--reference-bundle", referenceBundleURL.path,
+            ]
+            if let candidateJSONURL {
+                values += ["--candidate-json", candidateJSONURL.path]
+            }
+            if let exactCallInputURL {
+                values += ["--exact-call-input", exactCallInputURL.path]
+            }
+            for rawReferenceID in exactKnownRawReferenceIDs.sorted() {
+                values += ["--exact-known-reference-id", rawReferenceID]
+            }
+            values += [
+                "--records-json", outputURLs[0].path,
+                "--genbank", outputURLs[1].path,
+                "--fasta", outputURLs[2].path,
+            ]
+            return values
         }
-        argv += [
-            "--records-json", recordsJSONURL.path,
-            "--genbank", genBankURL.path,
-            "--fasta", fastaURL.path,
-        ]
-        func provenanceStep(
-            recordCount: Int?,
-            outputs: [URL],
-            exitStatus: Int32,
-            stderr: String?,
-            completedAt: Date
-        ) -> FullLengthONTMHCProvenanceStep {
-            var resolvedOptions: [String: ParameterValue] = [
+        let argv = extractionArgv(
+            candidateJSONURL: candidateJSONURL,
+            exactCallInputURL: exactCallInputURL,
+            outputURLs: outputURLs
+        )
+        func resolvedOptions(recordCount: Int?) -> [String: ParameterValue] {
+            var values: [String: ParameterValue] = [
                 "schemaVersion": .integer(1),
                 "exactKnownRawReferenceIDs": .array(
                     exactKnownRawReferenceIDs.sorted().map(ParameterValue.string)
@@ -4351,13 +4388,22 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "companionOrdering": .string("source-ordinal-then-raw-reference-id"),
             ]
             if let recordCount {
-                resolvedOptions["recordCount"] = .integer(recordCount)
+                values["recordCount"] = .integer(recordCount)
             }
+            return values
+        }
+        func provenanceStep(
+            recordCount: Int?,
+            outputs: [URL],
+            exitStatus: Int32,
+            stderr: String?,
+            completedAt: Date
+        ) -> FullLengthONTMHCProvenanceStep {
             return FullLengthONTMHCProvenanceStep(
                 toolName: "lungfish-in-process:extract-mhc-reference-visualizations",
                 toolVersion: WorkflowRun.currentAppVersion,
                 argv: argv,
-                resolvedOptions: resolvedOptions,
+                resolvedOptions: resolvedOptions(recordCount: recordCount),
                 inputs: inputs,
                 outputs: outputs,
                 exitStatus: exitStatus,
@@ -4395,6 +4441,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             let publication = try FullLengthONTMHCReferenceVisualizationPublication(
                 descriptor: ONTMHCReferenceVisualizationArtifacts(
                     schemaVersion: 1,
+                    recordCount: output.document.records.count,
                     recordsJSON: artifactReference(recordsJSONURL),
                     genBank: artifactReference(genBankURL),
                     fasta: artifactReference(fastaURL)
@@ -4412,16 +4459,88 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ))
             return publication
         } catch {
-            let failedStep = provenanceStep(
-                recordCount: nil,
-                outputs: outputURLs.filter { FileManager.default.fileExists(atPath: $0.path) },
+            let completedAt = Date()
+            let failureInputDirectoryURL = URL(
+                fileURLWithPath: finalOutputDirectoryURL.standardizedFileURL.path
+                    + ".failed.lungfish-provenance.json.inputs",
+                isDirectory: true
+            )
+            let preparedFailureInputDirectory: Bool = {
+                do {
+                    let safety = FullLengthONTMHCAlignmentSafety()
+                    if try safety.requireOptionalDirectoryEntryNoFollow(
+                        failureInputDirectoryURL,
+                        role: "MHC visualization failure input directory"
+                    ) {
+                        try safety.requireSafeDirectoryTree(
+                            failureInputDirectoryURL,
+                            role: "MHC visualization failure input directory"
+                        )
+                        try FileManager.default.removeItem(at: failureInputDirectoryURL)
+                    }
+                    try FileManager.default.createDirectory(
+                        at: failureInputDirectoryURL,
+                        withIntermediateDirectories: false
+                    )
+                    return true
+                } catch {
+                    return false
+                }
+            }()
+            func retainFailureInput(_ sourceURL: URL, name: String) -> URL? {
+                guard preparedFailureInputDirectory else { return nil }
+                let retainedURL = failureInputDirectoryURL.appendingPathComponent(name)
+                do {
+                    try Data(contentsOf: sourceURL).write(to: retainedURL, options: .atomic)
+                    return retainedURL
+                } catch {
+                    return nil
+                }
+            }
+            let retainedCandidateJSONURL = retainFailureInput(
+                candidateJSONURL,
+                name: "candidate-alleles.json"
+            )
+            let retainedExactCallInputURL = retainFailureInput(
+                exactCallInputURL,
+                name: "exact-calls.csv"
+            )
+            let failedArgv = extractionArgv(
+                candidateJSONURL: retainedCandidateJSONURL,
+                exactCallInputURL: retainedExactCallInputURL,
+                outputURLs: finalOutputURLs
+            )
+            var seenInputPaths = Set<String>()
+            let failedInputs = (sourceReferenceURLs + [
+                retainedCandidateJSONURL,
+                retainedExactCallInputURL,
+            ].compactMap { $0 }).compactMap { url -> ProvenanceFileDescriptor? in
+                let path = url.standardizedFileURL.path
+                guard seenInputPaths.insert(path).inserted else { return nil }
+                return try? ProvenanceFileDescriptor.file(
+                    url: url,
+                    format: failureFileFormat(url),
+                    role: .input
+                )
+            }
+            let failedStep = ProvenanceStep(
+                toolName: "lungfish-in-process:extract-mhc-reference-visualizations",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: failedArgv,
+                durableReplayArgv: failedArgv,
+                reproducibleCommand: failedArgv.map(shellEscape).joined(separator: " "),
+                resolvedOptions: resolvedOptions(recordCount: nil),
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                inputs: failedInputs,
+                outputs: [],
                 exitStatus: (error is CancellationError || Task.isCancelled) ? 130 : 1,
+                wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
                 stderr: error.localizedDescription,
-                completedAt: Date()
+                startedAt: startedAt,
+                completedAt: completedAt
             )
             throw FullLengthONTMHCReferenceVisualizationPublicationError(
                 step: failedStep,
-                provenanceStepSnapshot: try failedStep.provenanceStep(),
                 underlyingLocalizedDescription: error.localizedDescription
             )
         }
@@ -5014,7 +5133,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             steps.append(contentsOf: cohortError.transformationRecords.map { $0.provenanceStep() })
         }
         if let visualizationError = error as? FullLengthONTMHCReferenceVisualizationPublicationError {
-            appendIfMissing(visualizationError.provenanceStepSnapshot)
+            appendIfMissing(visualizationError.step)
         }
         if let successfulPublicationRecord {
             appendIfMissing(successfulPublicationRecord.provenanceStep)
@@ -5088,6 +5207,21 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         for url in [request.failureProvenanceURL, request.legacyPublicationFailureProvenanceURL]
             where FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
+        }
+        let failureInputDirectoryURL = URL(
+            fileURLWithPath: request.failureProvenanceURL.path + ".inputs",
+            isDirectory: true
+        )
+        let safety = FullLengthONTMHCAlignmentSafety()
+        if try safety.requireOptionalDirectoryEntryNoFollow(
+            failureInputDirectoryURL,
+            role: "MHC visualization failure input directory"
+        ) {
+            try safety.requireSafeDirectoryTree(
+                failureInputDirectoryURL,
+                role: "MHC visualization failure input directory"
+            )
+            try FileManager.default.removeItem(at: failureInputDirectoryURL)
         }
     }
 

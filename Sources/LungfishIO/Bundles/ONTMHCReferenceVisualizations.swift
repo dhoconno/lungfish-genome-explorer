@@ -3,17 +3,20 @@ import Foundation
 
 public struct ONTMHCReferenceVisualizationArtifacts: Codable, Equatable, Sendable {
     public let schemaVersion: Int
+    public let recordCount: Int
     public let recordsJSON: ONTMHCArtifactReference
     public let genBank: ONTMHCArtifactReference
     public let fasta: ONTMHCArtifactReference
 
     public init(
         schemaVersion: Int,
+        recordCount: Int,
         recordsJSON: ONTMHCArtifactReference,
         genBank: ONTMHCArtifactReference,
         fasta: ONTMHCArtifactReference
     ) {
         self.schemaVersion = schemaVersion
+        self.recordCount = recordCount
         self.recordsJSON = recordsJSON
         self.genBank = genBank
         self.fasta = fasta
@@ -21,6 +24,7 @@ public struct ONTMHCReferenceVisualizationArtifacts: Codable, Equatable, Sendabl
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
+        case recordCount = "record_count"
         case recordsJSON = "records_json"
         case genBank = "genbank"
         case fasta
@@ -151,6 +155,7 @@ public struct ONTMHCReferenceVisualizationRecord: Codable, Equatable, Sendable {
 
 public enum ONTMHCReferenceVisualizationError: Error, Equatable, LocalizedError, Sendable {
     case unsupportedSchemaVersion(Int)
+    case descriptorRecordCountMismatch(expected: Int, actual: Int)
     case emptyRawReferenceID(sourceOrdinal: Int)
     case duplicateRawReferenceID(String)
     case emptyRoles(rawReferenceID: String)
@@ -167,6 +172,8 @@ public enum ONTMHCReferenceVisualizationError: Error, Equatable, LocalizedError,
         switch self {
         case .unsupportedSchemaVersion(let version):
             return "MHC reference visualization schema \(version) is unsupported; expected schema 1."
+        case .descriptorRecordCountMismatch(let expected, let actual):
+            return "The MHC reference visualization descriptor declares \(expected) records, but the validated document contains \(actual)."
         case .emptyRawReferenceID(let sourceOrdinal):
             return "MHC reference visualization record \(sourceOrdinal) has an empty raw reference ID."
         case .duplicateRawReferenceID(let rawReferenceID):

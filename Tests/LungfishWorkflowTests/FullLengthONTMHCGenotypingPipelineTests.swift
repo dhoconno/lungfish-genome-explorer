@@ -352,6 +352,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             ONTMHCReferenceVisualizationArtifact.self,
             from: Data(contentsOf: visualizationURL)
         ).validated()
+        XCTAssertEqual(visualizations.recordCount, visualizationDocument.records.count)
         XCTAssertEqual(visualizationDocument.records.map(\.rawReferenceID), ["NHP00344"])
         XCTAssertEqual(visualizationDocument.records.first?.roles.map(\.role), [.exactKnownCall])
 
@@ -383,6 +384,9 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             XCTAssertFalse(output.path.contains(".run-staging-"))
         }
         XCTAssertTrue(visualizationStep.inputs.contains { $0.path == fastaURL.path })
+        XCTAssertTrue(visualizationStep.inputs.contains {
+            $0.path == genomeDirectory.appendingPathComponent("reference.fasta.fai").path
+        })
         XCTAssertTrue(visualizationStep.inputs.contains { $0.path == manifestURL.path })
         XCTAssertTrue(visualizationStep.inputs.contains { $0.path == databaseURL.path })
         XCTAssertTrue(visualizationStep.inputs.contains {
@@ -455,16 +459,85 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             .array([.string("NHP00344")])
         )
         XCTAssertTrue(step.inputs.contains { $0.path == reference.fastaURL.path })
+        XCTAssertTrue(step.inputs.contains { $0.path == reference.fastaIndexURL.path })
         XCTAssertTrue(step.inputs.contains { $0.path == reference.manifestURL.path })
         XCTAssertTrue(step.inputs.contains { $0.path == reference.databaseURL.path })
         let candidateInputPath = try XCTUnwrap(value(after: "--candidate-json", in: step.argv))
         let exactCallInputPath = try XCTUnwrap(value(after: "--exact-call-input", in: step.argv))
         XCTAssertTrue(step.inputs.contains { $0.path == candidateInputPath })
         XCTAssertTrue(step.inputs.contains { $0.path == exactCallInputPath })
-        XCTAssertTrue(step.inputs.allSatisfy {
-            $0.checksumSHA256 != nil && $0.fileSize != nil
-        })
+        XCTAssertFalse(step.argv.contains { $0.contains(".run-staging-") })
+        for input in step.inputs {
+            XCTAssertFalse(input.path.contains(".run-staging-"), input.path)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: input.path), input.path)
+            let inputURL = URL(fileURLWithPath: input.path)
+            XCTAssertEqual(input.checksumSHA256, try ProvenanceFileHasher.sha256(of: inputURL))
+            XCTAssertEqual(input.fileSize, UInt64(try ProvenanceFileHasher.fileSize(of: inputURL)))
+        }
+        let retainedInputDirectory = URL(
+            fileURLWithPath: request.failureProvenanceURL.path + ".inputs",
+            isDirectory: true
+        )
+        XCTAssertTrue(candidateInputPath.hasPrefix(retainedInputDirectory.path + "/"))
+        XCTAssertTrue(exactCallInputPath.hasPrefix(retainedInputDirectory.path + "/"))
         XCTAssertTrue(step.outputs.isEmpty)
+    }
+
+    func testMissingReferenceMemberDoesNotReplaceOriginalVisualizationBuilderFailure() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-reference-visualization-missing-input-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeAnnotatedReferenceBundle(
+            at: root.appendingPathComponent("missing-member.lungfishref", isDirectory: true)
+        )
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            referenceSourceURL: reference.bundleURL,
+            metadataPublicationObserver: { event in
+                guard case .candidateArtifactsStaged = event else { return }
+                try FileManager.default.removeItem(at: reference.databaseURL)
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected reference visualization extraction to fail")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("Could not open the MHC reference record store"),
+                error.localizedDescription
+            )
+        }
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        XCTAssertTrue(
+            envelope.stderr?.contains("Could not open the MHC reference record store") == true,
+            envelope.stderr ?? "missing root stderr"
+        )
+        let step = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-in-process:extract-mhc-reference-visualizations"
+        })
+        XCTAssertTrue(
+            step.stderr?.contains("Could not open the MHC reference record store") == true,
+            step.stderr ?? "missing extraction stderr"
+        )
+        XCTAssertFalse(step.inputs.contains { $0.path == reference.databaseURL.path })
+        XCTAssertTrue(step.inputs.contains { $0.path == reference.fastaURL.path })
+        XCTAssertTrue(step.inputs.contains { $0.path == reference.fastaIndexURL.path })
+        XCTAssertTrue(step.inputs.contains { $0.path == reference.manifestURL.path })
+        XCTAssertFalse(step.argv.contains { $0.contains(".run-staging-") })
+        for input in step.inputs {
+            XCTAssertFalse(input.path.contains(".run-staging-"), input.path)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: input.path), input.path)
+            let inputURL = URL(fileURLWithPath: input.path)
+            XCTAssertEqual(input.checksumSHA256, try ProvenanceFileHasher.sha256(of: inputURL))
+            XCTAssertEqual(input.fileSize, UInt64(try ProvenanceFileHasher.fileSize(of: inputURL)))
+        }
+        XCTAssertTrue(step.outputs.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.manifestURL.path))
     }
 
     func testLungfishReferenceRecordStoreImportHasActualInputsCommandAndTiming() async throws {
@@ -1674,10 +1747,19 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let (request, pipeline) = try makeFakeFullLengthRun(root: root)
         try "stale".write(to: request.failureProvenanceURL, atomically: true, encoding: .utf8)
+        let staleInputDirectory = URL(
+            fileURLWithPath: request.failureProvenanceURL.path + ".inputs",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: staleInputDirectory, withIntermediateDirectories: true)
+        try Data("stale-input".utf8).write(
+            to: staleInputDirectory.appendingPathComponent("candidate-alleles.json")
+        )
 
         _ = try await pipeline.run(request)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.failureProvenanceURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleInputDirectory.path))
     }
 
     func testSuccessfulRunAfterPriorRenameFailureRemovesEveryAdjacentFailureReceipt() async throws {
@@ -4194,7 +4276,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
     private func makeAnnotatedReferenceBundle(
         at bundleURL: URL
-    ) throws -> (bundleURL: URL, fastaURL: URL, manifestURL: URL, databaseURL: URL) {
+    ) throws -> (
+        bundleURL: URL,
+        fastaURL: URL,
+        fastaIndexURL: URL,
+        manifestURL: URL,
+        databaseURL: URL
+    ) {
         let genomeDirectoryURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
         let metadataDirectoryURL = bundleURL.appendingPathComponent("metadata", isDirectory: true)
         try FileManager.default.createDirectory(at: genomeDirectoryURL, withIntermediateDirectories: true)
@@ -4250,7 +4338,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 recordCount: store.recordCount
             )
         ).save(to: bundleURL)
-        return (bundleURL, fastaURL, manifestURL, databaseURL)
+        return (bundleURL, fastaURL, fastaIndexURL, manifestURL, databaseURL)
     }
 
     private func assertSuccessfulPublishedEvidence(
