@@ -78,6 +78,7 @@ public final class GenotypeResultViewController: NSViewController {
     private let detailScrollView = NSScrollView()
     private let detailDocumentView = FlippedDocumentView()
     private let detailStack = NSStackView()
+    private let knownAlleleDetailView = GenotypeKnownAlleleDetailView()
 
     private let haplotypeScrollView = NSScrollView()
     private let haplotypeStack = NSStackView()
@@ -2290,89 +2291,20 @@ public final class GenotypeResultViewController: NSViewController {
         currentSharedCall = sharedCall
         currentCandidateRow = nil
         currentSelectedSample = sample
-        removeArrangedSubviews(from: detailStack)
-
         let displayLabel = alleleDisplayLabel(for: sharedCall.genotype)
-        detailStack.addArrangedSubview(sectionTitle("Selected Allele"))
-        detailStack.addArrangedSubview(wrappingText(displayLabel, weight: .medium))
-        if displayLabel != sharedCall.genotype {
-            detailStack.addArrangedSubview(detailRows([("Reference Sequence", sharedCall.genotype)]))
-        }
-        detailStack.addArrangedSubview(caption(sharedCallMeaning(for: sharedCall)))
-        detailStack.addArrangedSubview(sectionTitle("Support Summary"))
-        detailStack.addArrangedSubview(detailRows([
-            ("Locus", sharedCall.locus),
-            ("Samples", "\(sharedCall.sampleCount)"),
-            ("Unique Reads", integer(sharedCall.totalUniqueReads)),
-            ("Alignments", integer(sharedCall.totalAlignments)),
-            ("Top Sample", sharedCall.topSupport.map { "\($0.sample) - \(integer($0.passedUniqueReads)) unique" } ?? "Unavailable"),
-            ("Support Metric", supportMetricLabel),
-        ]))
-
-        if let sample,
-           let support = sharedCall.support(for: sample) {
-            detailStack.addArrangedSubview(sectionTitle("Selected Cell"))
-            detailStack.addArrangedSubview(wrappingText("\(sample) — \(displayLabel)", weight: .medium))
-            detailStack.addArrangedSubview(detailRows([
-                ("Sample", sample),
-                ("Allele", displayLabel),
-                ("Unique Reads", integer(support.passedUniqueReads)),
-                ("Alignments", integer(support.passedAlignments)),
-                ("Support", supportFractionLabel(genotype: sharedCall.genotype, sample: sample)),
-            ]))
-        }
-
         let referenceRows = genBankFieldRows(for: sharedCall.genotype)
-        if !referenceRows.isEmpty {
-            detailStack.addArrangedSubview(sectionTitle("GenBank Fields"))
-            detailStack.addArrangedSubview(detailRows(referenceRows))
-        }
-
-        if let aliases = sharedCall.aliasDisplay {
-            detailStack.addArrangedSubview(sectionTitle("Ambiguous Alleles"))
-            detailStack.addArrangedSubview(wrappingText(aliases, maximumLines: 5))
-        }
-
-        if let anchorSummary = anchorSummary(for: sharedCall) {
-            detailStack.addArrangedSubview(sectionTitle("Anchor Evidence"))
-            detailStack.addArrangedSubview(detailRows([
-                ("Anchor", anchorSummary.label),
-                ("Source", anchorSummary.source.displayName),
-                ("Loci", anchorSummary.loci.joined(separator: ", ")),
-                ("Samples", "\(anchorSummary.sampleCount)"),
-                ("Unique Reads", integer(anchorSummary.totalUniqueReads)),
-            ]))
-            detailStack.addArrangedSubview(caption(anchorSummary.caveat))
-        }
-
-        let coOccurrences = sameLocusCoOccurrences(for: sharedCall)
-        if !coOccurrences.isEmpty {
-            detailStack.addArrangedSubview(sectionTitle("Same-Locus Co-occurrence"))
-            detailStack.addArrangedSubview(caption("These values show sample-level co-observation within \(sharedCall.locus). They are not phase, haplotype, zygosity, copy-number, or absence calls."))
-            detailStack.addArrangedSubview(coOccurrenceTable(Array(coOccurrences.prefix(8))))
-        }
-
-        detailStack.addArrangedSubview(sectionTitle("Supporting Samples"))
-        if sharedCall.sampleSupport.isEmpty {
-            detailStack.addArrangedSubview(caption("No assigned samples support this genotype."))
+        if let record = result?.mhcReferenceVisualizations?.recordsByRawReferenceID[sharedCall.genotype] {
+            knownAlleleDetailView.configure(record: record, observedSample: sample)
         } else {
-            detailStack.addArrangedSubview(sampleSupportTable(Array(sharedCall.sampleSupport.prefix(24))))
-            if sharedCall.sampleSupport.count > 24 {
-                detailStack.addArrangedSubview(caption("\(sharedCall.sampleSupport.count - 24) additional samples are visible in the matrix."))
-            }
+            knownAlleleDetailView.configureFallback(
+                alleleName: displayLabel,
+                rawReferenceID: sharedCall.genotype,
+                fields: referenceRows,
+                observedSample: sample
+            )
         }
-
-        let targets = matrixTargets ?? [
-            sample.map { .cell(locus: sharedCall.locus, genotype: sharedCall.genotype, sample: $0) }
-                ?? .row(locus: sharedCall.locus, genotype: sharedCall.genotype),
-        ]
-        let commentRows = matrixCommentDetailRows(
-            for: applicableCommentTargets(for: targets)
-        )
-        if !commentRows.isEmpty {
-            detailStack.addArrangedSubview(sectionTitle("Comments"))
-            detailStack.addArrangedSubview(detailRows(commentRows))
-        }
+        removeArrangedSubviews(from: detailStack)
+        detailStack.addArrangedSubview(knownAlleleDetailView)
 
         publishSelectionState(selectionState(for: sharedCall, sample: sample, matrixTargets: matrixTargets))
     }
@@ -2847,37 +2779,14 @@ public final class GenotypeResultViewController: NSViewController {
         matrixTargets providedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
     ) -> GenotypeResultSelectionState {
         let displayLabel = alleleDisplayLabel(for: sharedCall.genotype)
-        var rows: [(String, String)] = [
-            ("Meaning", sharedCallMeaning(for: sharedCall)),
-        ]
+        var rows: [(String, String)] = [("Allele", displayLabel)]
         if let sample {
-            rows += [("Sample", sample), ("Allele", displayLabel)]
+            rows.append(("Sample", sample))
         }
         if displayLabel != sharedCall.genotype {
             rows.append(("Reference Sequence", sharedCall.genotype))
         }
         rows.append(("Locus", sharedCall.locus))
-        if let sample, let support = sharedCall.support(for: sample) {
-            rows += [
-                ("Unique Reads", integer(support.passedUniqueReads)),
-                ("Alignments", integer(support.passedAlignments)),
-                ("Support", supportFractionLabel(genotype: sharedCall.genotype, sample: sample)),
-                ("Support Metric", supportMetricLabel),
-                ("Aggregate Samples", "\(sharedCall.sampleCount)"),
-                ("Aggregate Unique Reads", integer(sharedCall.totalUniqueReads)),
-                ("Aggregate Alignments", integer(sharedCall.totalAlignments)),
-            ]
-        } else {
-            rows += [
-                ("Samples", "\(sharedCall.sampleCount)"),
-                ("Unique Reads", integer(sharedCall.totalUniqueReads)),
-                ("Alignments", integer(sharedCall.totalAlignments)),
-                ("Support Metric", supportMetricLabel),
-            ]
-        }
-        if let topSupport = sharedCall.topSupport {
-            rows.append(("Top Sample", "\(topSupport.sample) - \(integer(topSupport.passedUniqueReads)) unique"))
-        }
         if let aliases = sharedCall.aliasDisplay {
             rows.append(("Aliases", aliases))
         }
@@ -2902,7 +2811,7 @@ public final class GenotypeResultViewController: NSViewController {
         let style = comparisonMatrix.highlightStyle(for: target)
         return GenotypeResultSelectionState(
             title: displayLabel,
-            subtitle: "\(sharedCall.locus) - \(sharedCall.sampleCount) samples",
+            subtitle: "\(sharedCall.locus) known allele",
             detailRows: rows,
             highlightTarget: target,
             highlightStyle: style,

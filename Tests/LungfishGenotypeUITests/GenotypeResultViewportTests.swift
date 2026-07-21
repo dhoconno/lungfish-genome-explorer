@@ -1278,9 +1278,11 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(selectedState?.title, "13_Mafa_DQB1_06g1|DQB1_06_01_01,_DQB1_06_01_02")
         XCTAssertTrue(selectedState?.detailRows.contains(where: { $0.0 == "Locus" && $0.1 == "MHC-DQB1" }) ?? false)
-        XCTAssertTrue(selectedState?.detailRows.contains(where: { $0.0 == "Samples" && $0.1 == "1" }) ?? false)
-        XCTAssertTrue(selectedState?.detailRows.contains(where: { $0.0 == "Meaning" }) ?? false)
-        XCTAssertTrue(selectedState?.detailRows.contains(where: { $0.0 == "Support Metric" }) ?? false)
+        XCTAssertTrue(selectedState?.detailRows.contains(where: { $0.0 == "Allele" }) ?? false)
+        XCTAssertFalse(selectedState?.subtitle?.localizedCaseInsensitiveContains("samples") ?? true)
+        XCTAssertFalse(selectedState?.detailRows.contains(where: {
+            ["Samples", "Unique Reads", "Alignments", "Support", "Support Metric", "Top Sample"].contains($0.0)
+        }) ?? true)
     }
 
     func testViewportDoesNotGrowToFitLongGenotypeLabels() {
@@ -2451,7 +2453,128 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(matrix.testingAvailableReferenceColumnTitles.isEmpty)
     }
 
-    func testSelectedGenBankRowShowsAlleleLabelReferenceAndEveryField() throws {
+    func testKnownRowUsesGraphicalAlleleDetailWithoutAggregateEvidence() throws {
+        let rawReferenceID = "NHP01222"
+        let record = makeMHCReferenceVisualizationRecord(
+            rawReferenceID: rawReferenceID,
+            alleleName: "Mafa-A1*001:01"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        var selection: GenotypeResultSelectionState?
+        controller.onSelectionStateChanged = { selection = $0 }
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: rawReferenceID, reads: 73)],
+            referenceMetadata: makeGenBankReferenceMetadata(),
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact(schemaVersion: 1, records: [record])
+        ))
+
+        controller.testingSelectMatrixRows(genotypes: [rawReferenceID], sample: nil)
+
+        let detail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        XCTAssertEqual(detail.currentMode, .overview)
+        XCTAssertEqual(text("knownAlleleAlleleLabel", in: detail), "Mafa-A1*001:01")
+        XCTAssertEqual(text("knownAlleleRawReferenceID", in: detail), rawReferenceID)
+        XCTAssertTrue(descendants(of: detail).compactMap { $0 as? NSTableView }.isEmpty)
+        assertNoKnownAggregateEvidence(in: visibleText(in: detail))
+        let state = try XCTUnwrap(selection)
+        XCTAssertEqual(state.detailRows.first?.0, "Selection Type")
+        XCTAssertTrue(state.detailRows.contains { $0 == ("Allele", "Mafa-A1*001:01") })
+        XCTAssertTrue(state.detailRows.contains { $0 == ("Reference Sequence", rawReferenceID) })
+        assertNoKnownAggregateEvidence(in: state.detailRows.map { "\($0.0) \($0.1)" }.joined(separator: "\n"))
+    }
+
+    func testSupportedKnownCellReusesGraphicalDetailAndRowClearsObservedSample() throws {
+        let rawReferenceID = "NHP01222"
+        let call = makeCall(sample: "AnimalA", genotype: rawReferenceID, reads: 73)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [ONTGenotypeSampleResult(
+                sample: "AnimalA", passedAlignments: 73, passedUniqueReads: 73,
+                sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [call]
+            )],
+            calls: [call],
+            referenceMetadata: makeGenBankReferenceMetadata(),
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact(
+                schemaVersion: 1,
+                records: [makeMHCReferenceVisualizationRecord(rawReferenceID: rawReferenceID, alleleName: "Mafa-A1*001:01")]
+            )
+        ))
+        controller.testingSelectMatrixRows(genotypes: [rawReferenceID], sample: nil)
+        let rowDetail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+
+        controller.testingSelectMatrixCell(genotype: rawReferenceID, sample: "AnimalA")
+
+        let cellDetail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        XCTAssertTrue(rowDetail === cellDetail)
+        XCTAssertEqual(text("knownAlleleObservedSample", in: cellDetail), "Observed in sample AnimalA")
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Sample", "AnimalA") })
+        assertNoKnownAggregateEvidence(in: visibleText(in: cellDetail))
+        assertNoKnownAggregateEvidence(in: controller.testingCurrentSelectionDetailRows.map { $0.0 }.joined(separator: "\n"))
+
+        controller.testingSelectMatrixRows(genotypes: [rawReferenceID], sample: nil)
+
+        let returnedRowDetail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        XCTAssertTrue(rowDetail === returnedRowDetail)
+        XCTAssertFalse(visibleText(in: returnedRowDetail).contains("Observed in sample"))
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == "Sample" })
+    }
+
+    func testRepeatedKnownRowAndCellSelectionsStayBoundedForLargeCohort() throws {
+        let firstID = "NHP01222"
+        let secondID = "NHP99999"
+        let sampleNames = (0..<240).map { String(format: "Animal%03d", $0) }
+        let calls = sampleNames.flatMap { sample in
+            [
+                makeCall(sample: sample, genotype: firstID, reads: 10),
+                makeCall(sample: sample, genotype: secondID, reads: 9),
+            ]
+        }
+        let samples = sampleNames.map { sample in
+            let sampleCalls = calls.filter { $0.sample == sample }
+            return ONTGenotypeSampleResult(
+                sample: sample, passedAlignments: 19, passedUniqueReads: 19,
+                sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: sampleCalls
+            )
+        }
+        let records = [
+            makeMHCReferenceVisualizationRecord(rawReferenceID: firstID, alleleName: "Mafa-A1*001:01"),
+            makeMHCReferenceVisualizationRecord(rawReferenceID: secondID, alleleName: "Mafa-B*002:01"),
+        ]
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: samples,
+            calls: calls,
+            referenceMetadata: makeGenBankReferenceMetadata(),
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact(schemaVersion: 1, records: records)
+        ))
+        controller.testingSelectMatrixRows(genotypes: [firstID], sample: nil)
+        let detail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        let baselineDescendantCount = descendants(of: detail).count
+        var maximumDescendantCount = baselineDescendantCount
+
+        let start = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<12 {
+            controller.testingSelectMatrixCell(genotype: firstID, sample: sampleNames[0])
+            controller.testingSelectMatrixRows(genotypes: [secondID], sample: nil)
+            controller.testingSelectMatrixCell(genotype: secondID, sample: sampleNames[239])
+            controller.testingSelectMatrixRows(genotypes: [firstID], sample: nil)
+            let current = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+            XCTAssertTrue(detail === current)
+            maximumDescendantCount = max(maximumDescendantCount, descendants(of: current).count)
+        }
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+
+        XCTAssertEqual(maximumDescendantCount, baselineDescendantCount)
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 1)
+        XCTAssertLessThan(elapsed, 5, "Repeated known selections took \(elapsed) seconds")
+        assertNoKnownAggregateEvidence(in: visibleText(in: detail))
+    }
+
+    func testLegacyKnownRowUsesFallbackMetadataAndFreshAnalysisNote() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(
@@ -2462,24 +2585,37 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         controller.testingSelectMatrixRows(genotypes: ["NHP01222"], sample: nil)
 
-        let text = controller.testingDetailText
-        XCTAssertTrue(text.contains("Selected Allele"))
-        XCTAssertTrue(text.contains("Mafa-A1*001:01"))
-        XCTAssertTrue(text.contains("Reference Sequence\nNHP01222"))
-        XCTAssertTrue(text.contains("GenBank Fields"))
+        let detail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        let detailText = visibleText(in: detail)
+        XCTAssertEqual(detail.currentMode, .overview)
+        XCTAssertEqual(text("knownAlleleAlleleLabel", in: detail), "Mafa-A1*001:01")
+        XCTAssertEqual(text("knownAlleleRawReferenceID", in: detail), "NHP01222")
+        XCTAssertEqual(
+            text("knownAlleleFallbackNote", in: detail),
+            "A fresh analysis is required to generate graphical reference records."
+        )
         for value in [
             "Macaca fascicularis",
             "MHC class I A1 antigen",
             "Mafa-A1 complete coding sequence",
         ] {
-            XCTAssertTrue(text.contains(value), "Missing GenBank value: \(value)")
+            XCTAssertTrue(detailText.contains(value), "Missing GenBank value: \(value)")
         }
+        assertNoKnownAggregateEvidence(in: detailText)
         let rows = controller.testingCurrentSelectionDetailRows
         XCTAssertTrue(rows.contains { $0 == ("Reference Sequence", "NHP01222") })
         XCTAssertTrue(rows.contains { $0 == ("Allele", "Mafa-A1*001:01") })
         XCTAssertTrue(rows.contains { $0 == ("Organism", "Macaca fascicularis") })
         XCTAssertTrue(rows.contains { $0 == ("Product", "MHC class I A1 antigen") })
         XCTAssertTrue(rows.contains { $0 == ("Definition", "Mafa-A1 complete coding sequence") })
+        assertNoKnownAggregateEvidence(in: rows.map { $0.0 }.joined(separator: "\n"))
+
+        controller.testingSelectMatrixCell(genotype: "NHP01222", sample: "AnimalA")
+
+        let cellDetail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        XCTAssertTrue(detail === cellDetail)
+        XCTAssertEqual(text("knownAlleleObservedSample", in: cellDetail), "Observed in sample AnimalA")
+        assertNoKnownAggregateEvidence(in: visibleText(in: cellDetail))
     }
 
     func testSelectedFASTARowFallsBackToGenotypeWithoutGenBankSection() {
@@ -2493,8 +2629,13 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         controller.testingSelectMatrixRows(genotypes: [genotype], sample: nil)
 
-        XCTAssertTrue(controller.testingDetailText.contains(genotype))
-        XCTAssertFalse(controller.testingDetailText.contains("GenBank Fields"))
+        let detail = onlyKnownAlleleDetail(in: controller.view)
+        XCTAssertEqual(text("knownAlleleAlleleLabel", in: detail), genotype)
+        XCTAssertEqual(text("knownAlleleRawReferenceID", in: detail), genotype)
+        XCTAssertEqual(
+            text("knownAlleleFallbackNote", in: detail),
+            "A fresh analysis is required to generate graphical reference records."
+        )
         XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == "Reference Sequence" })
     }
 
@@ -2818,7 +2959,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(text.contains("MHC class I B antigen"))
     }
 
-    func testSelectedSupportedCellShowsEvidenceAndReferenceFields() {
+    func testSelectedSupportedCellPublishesAlleleContextWithoutEvidenceMetrics() {
         let controller = GenotypeResultViewController()
         _ = controller.view
         let call = ONTGenotypeCall(
@@ -2840,10 +2981,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(rows.contains { $0 == ("Sample", "AnimalA") })
         XCTAssertTrue(rows.contains { $0 == ("Allele", "Mafa-A1*001:01") })
         XCTAssertTrue(rows.contains { $0 == ("Reference Sequence", "NHP01222") })
-        XCTAssertTrue(rows.contains { $0 == ("Unique Reads", "73") })
-        XCTAssertTrue(rows.contains { $0 == ("Alignments", "91") })
-        XCTAssertTrue(rows.contains { $0 == ("Support", "100.0%") })
         XCTAssertTrue(rows.contains { $0 == ("Product", "MHC class I A1 antigen") })
+        XCTAssertFalse(rows.contains { ["Unique Reads", "Alignments", "Support", "Support Metric"].contains($0.0) })
     }
 
     func testSelectedEmptyCellShowsNoSupportingReadsWithoutZeroCounts() {
@@ -7379,7 +7518,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         haplotypeDefinitionSetID: String? = nil,
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
         stats: ONTGenotypeRunStats = ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60),
-        referenceMetadata: ONTGenotypeReferenceMetadata? = nil
+        referenceMetadata: ONTGenotypeReferenceMetadata? = nil,
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
@@ -7408,9 +7548,79 @@ final class GenotypeResultViewportTests: XCTestCase {
             haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: nil,
             mhcUnnameableClusters: nil,
+            mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: [],
             referenceMetadata: referenceMetadata
         )
+    }
+
+    private func makeMHCReferenceVisualizationRecord(
+        rawReferenceID: String,
+        alleleName: String
+    ) -> ONTMHCReferenceVisualizationRecord {
+        ONTMHCReferenceVisualizationRecord(
+            rawReferenceID: rawReferenceID,
+            sourceOrdinal: 1,
+            alleleName: alleleName,
+            locus: alleleName.components(separatedBy: "*").first,
+            sequence: "ACGTACGTACGT",
+            sequenceSHA256: "test-checksum",
+            recordFields: ["definition": ["Synthetic known allele"]],
+            features: [],
+            annotatedTranslation: nil,
+            genBankText: "LOCUS       \(rawReferenceID) 12 bp DNA\n//\n",
+            fastaText: ">\(rawReferenceID) \(alleleName)\nACGTACGTACGT\n",
+            roles: [ONTMHCReferenceVisualizationRoleAssignment(
+                role: .exactKnownCall,
+                candidateStableClusterIDs: []
+            )]
+        )
+    }
+
+    private func knownAlleleDetails(in root: NSView) -> [GenotypeKnownAlleleDetailView] {
+        ([root] + descendants(of: root)).compactMap { $0 as? GenotypeKnownAlleleDetailView }
+    }
+
+    private func onlyKnownAlleleDetail(
+        in root: NSView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> GenotypeKnownAlleleDetailView? {
+        let details = knownAlleleDetails(in: root)
+        XCTAssertEqual(details.count, 1, file: file, line: line)
+        return details.first
+    }
+
+    private func descendants(of root: NSView) -> [NSView] {
+        root.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    private func text(_ identifier: String, in root: NSView?) -> String? {
+        guard let root else { return nil }
+        return ([root] + descendants(of: root))
+            .first { $0.accessibilityIdentifier() == identifier }
+            .flatMap { ($0 as? NSTextField)?.stringValue }
+    }
+
+    private func visibleText(in root: NSView) -> String {
+        ([root] + descendants(of: root))
+            .compactMap { $0 as? NSTextField }
+            .filter { !$0.isHiddenOrHasHiddenAncestor }
+            .map(\.stringValue)
+            .joined(separator: "\n")
+    }
+
+    private func assertNoKnownAggregateEvidence(
+        in text: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for phrase in [
+            "Support Summary", "Unique Reads", "Alignments", "Support Metric",
+            "Anchor Evidence", "Same-Locus Co-occurrence", "Supporting Samples",
+        ] {
+            XCTAssertFalse(text.localizedCaseInsensitiveContains(phrase), phrase, file: file, line: line)
+        }
     }
 
     private func makeGenBankReferenceMetadata() -> ONTGenotypeReferenceMetadata {
