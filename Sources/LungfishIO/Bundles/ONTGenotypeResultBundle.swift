@@ -1424,8 +1424,15 @@ public enum ONTGenotypeResultBundle {
         static let absent = MHCCandidateProjection(candidates: nil, unnameable: nil, warnings: [])
     }
 
-    private struct CandidateIntegrityFailure: Error {
+    private struct CandidateIntegrityFailure: Error, LocalizedError {
         let warning: ONTGenotypeIntegrityWarning
+
+        var errorDescription: String? {
+            if let path = warning.path {
+                return "MHC artifact integrity failure for \(path): \(warning.detail)"
+            }
+            return "MHC artifact integrity failure: \(warning.detail)"
+        }
     }
 
     private struct ParsedFASTA {

@@ -31,7 +31,10 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
             records: [makeRecord(), makeRecord(alleleName: "Mafa-E*02:01:02")]
         )
 
-        assertFocusedValidationError(try artifact.validated())
+        assertValidationError(
+            .duplicateRawReferenceID("NHP00344"),
+            from: try artifact.validated()
+        )
         XCTAssertEqual(artifact.records.count, 2)
     }
 
@@ -42,7 +45,16 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
             records: [makeRecord(features: [feature])]
         )
 
-        assertFocusedValidationError(try artifact.validated())
+        assertValidationError(
+            .featureOutOfBounds(
+                rawReferenceID: "NHP00344",
+                featureSourceOrdinal: 1,
+                start: 0,
+                end: 5,
+                sequenceLength: 4
+            ),
+            from: try artifact.validated()
+        )
     }
 
     func testFeatureBoundsUseSequenceCharacterCountRatherThanUTF8ByteCount() {
@@ -56,7 +68,16 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
             ]
         )
 
-        assertFocusedValidationError(try artifact.validated())
+        assertValidationError(
+            .featureOutOfBounds(
+                rawReferenceID: "NHP00344",
+                featureSourceOrdinal: 1,
+                start: 2,
+                end: 3,
+                sequenceLength: 2
+            ),
+            from: try artifact.validated()
+        )
     }
 
     func testMismatchedSequenceSHA256ThrowsFocusedValidationError() {
@@ -65,7 +86,14 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
             records: [makeRecord(sequenceSHA256: String(repeating: "0", count: 64))]
         )
 
-        assertFocusedValidationError(try artifact.validated())
+        assertValidationError(
+            .sequenceChecksumMismatch(
+                rawReferenceID: "NHP00344",
+                expected: String(repeating: "0", count: 64),
+                actual: Self.sha256(Data("ACGT".utf8))
+            ),
+            from: try artifact.validated()
+        )
     }
 
     func testEmptyRoleListThrowsFocusedValidationError() {
@@ -74,7 +102,10 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
             records: [makeRecord(roles: [])]
         )
 
-        assertFocusedValidationError(try artifact.validated())
+        assertValidationError(
+            .emptyRoles(rawReferenceID: "NHP00344"),
+            from: try artifact.validated()
+        )
     }
 
     func testEmptyRawReferenceIDThrowsFocusedValidationError() {
@@ -83,7 +114,10 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
             records: [makeRecord(rawReferenceID: "")]
         )
 
-        assertFocusedValidationError(try artifact.validated())
+        assertValidationError(
+            .emptyRawReferenceID(sourceOrdinal: 3),
+            from: try artifact.validated()
+        )
     }
 
     func testResultLoaderRetainsDeclaredJSONWithoutReadingCompanionArtifacts() throws {
@@ -118,9 +152,16 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
     func testResultLoaderThrowsForChecksumInvalidReferenceVisualizationJSON() throws {
         let fixture = try ResultBundleFixture(referenceArtifactData: encodedArtifact())
         defer { fixture.remove() }
-        try Data("tampered".utf8).write(to: fixture.referenceArtifactURL)
+        var damagedData = try Data(contentsOf: fixture.referenceArtifactURL)
+        damagedData[damagedData.startIndex] ^= 0x01
+        try damagedData.write(to: fixture.referenceArtifactURL)
 
-        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("SHA-256"))
+            XCTAssertTrue(
+                error.localizedDescription.contains(fixture.referenceArtifactURL.lastPathComponent)
+            )
+        }
     }
 
     func testResultLoaderThrowsForMalformedReferenceVisualizationJSON() throws {
@@ -130,15 +171,16 @@ final class ONTMHCReferenceVisualizationTests: XCTestCase {
         XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
     }
 
-    private func assertFocusedValidationError<T>(
-        _ expression: @autoclosure () throws -> T,
+    private func assertValidationError<T>(
+        _ expected: ONTMHCReferenceVisualizationError,
+        from expression: @autoclosure () throws -> T,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         XCTAssertThrowsError(try expression(), file: file, line: line) { error in
-            XCTAssertTrue(
-                error is ONTMHCReferenceVisualizationError,
-                "Expected ONTMHCReferenceVisualizationError, received \(error)",
+            XCTAssertEqual(
+                error as? ONTMHCReferenceVisualizationError,
+                expected,
                 file: file,
                 line: line
             )
