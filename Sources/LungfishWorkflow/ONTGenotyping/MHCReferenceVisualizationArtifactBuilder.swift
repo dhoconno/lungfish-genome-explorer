@@ -132,8 +132,14 @@ struct MHCReferenceVisualizationArtifactBuilder {
             )
             let sequence = try bundle.fetchSequenceSync(region: region).uppercased()
             let annotations = try annotations(in: bundle, region: region)
-            let features = annotations.enumerated().map { sourceOrdinal, annotation in
-                makeVisualizationFeature(annotation, sourceOrdinal: sourceOrdinal)
+            let features = annotations.enumerated().flatMap { sourceOrdinal, annotation in
+                annotation.intervals.map { interval in
+                    makeVisualizationFeature(
+                        annotation,
+                        interval: interval,
+                        sourceOrdinal: sourceOrdinal
+                    )
+                }
             }
             let canonicalAnnotations = annotations.map(sanitizedAnnotation)
             let genBankRecord = try makeGenBankRecord(
@@ -191,7 +197,22 @@ private extension MHCReferenceVisualizationArtifactBuilder {
     func annotations(in bundle: ReferenceBundle, region: GenomicRegion) throws -> [SequenceAnnotation] {
         var annotations: [SequenceAnnotation] = []
         for trackID in bundle.annotationTrackIds {
-            annotations.append(contentsOf: try bundle.getAnnotationsSync(trackId: trackID, region: region))
+            let queried = try bundle.getAnnotationsSync(trackId: trackID, region: region)
+            let sourceOrdered = queried.enumerated().sorted { lhs, rhs in
+                let lhsRowID = lhs.element.qualifier("annotation_db_row_id").flatMap(Int.init)
+                let rhsRowID = rhs.element.qualifier("annotation_db_row_id").flatMap(Int.init)
+                switch (lhsRowID, rhsRowID) {
+                case let (.some(lhsRowID), .some(rhsRowID)) where lhsRowID != rhsRowID:
+                    return lhsRowID < rhsRowID
+                case (.some, .none):
+                    return true
+                case (.none, .some):
+                    return false
+                default:
+                    return lhs.offset < rhs.offset
+                }
+            }.map(\.element)
+            annotations.append(contentsOf: sourceOrdered)
         }
         return annotations
     }
@@ -260,6 +281,7 @@ private extension MHCReferenceVisualizationArtifactBuilder {
 
     func makeVisualizationFeature(
         _ annotation: SequenceAnnotation,
+        interval: AnnotationInterval,
         sourceOrdinal: Int
     ) -> ONTMHCReferenceVisualizationFeature {
         let rawFeatureType = annotation.qualifier(GenBankReader.rawFeatureTypeQualifierKey)
@@ -271,8 +293,8 @@ private extension MHCReferenceVisualizationArtifactBuilder {
         }
         return ONTMHCReferenceVisualizationFeature(
             type: rawFeatureType,
-            start: annotation.start,
-            end: annotation.end,
+            start: interval.start,
+            end: interval.end,
             strand: annotation.strand.rawValue,
             sourceOrdinal: sourceOrdinal,
             rawGenBankLocation: rawLocation,

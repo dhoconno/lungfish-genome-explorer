@@ -69,12 +69,12 @@ final class MHCReferenceVisualizationArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(exact.recordFields["DEFINITION"], ["Mafa-E exact known reference"])
         XCTAssertEqual(exact.recordFields["DBLINK"], ["INSDC: FIRST", "INSDC: SECOND"])
         XCTAssertEqual(exact.annotatedTranslation, "TY")
-        XCTAssertEqual(exact.features.map(\.type), ["exon", "CDS"])
+        XCTAssertEqual(exact.features.map(\.type), ["CDS", "exon"])
         XCTAssertEqual(exact.features.map(\.sourceOrdinal), [0, 1])
-        XCTAssertEqual(exact.features.map(\.interval), [0..<4, 0..<8])
+        XCTAssertEqual(exact.features.map(\.interval), [0..<8, 0..<4])
         XCTAssertEqual(exact.features[0].strand, "+")
-        XCTAssertEqual(exact.features[0].rawGenBankLocation, "1..4")
-        XCTAssertEqual(exact.features[0].qualifiers["exon_number"], ["1"])
+        XCTAssertEqual(exact.features[0].rawGenBankLocation, "1..8")
+        XCTAssertEqual(exact.features[1].qualifiers["exon_number"], ["1"])
         XCTAssertNil(exact.features[0].qualifiers[GenBankReader.rawLocationQualifierKey])
         XCTAssertNil(exact.features[0].qualifiers["annotation_db_row_id"])
         XCTAssertEqual(exact.roles, [
@@ -87,12 +87,32 @@ final class MHCReferenceVisualizationArtifactBuilderTests: XCTestCase {
                 candidateStableClusterIDs: ["cluster-known-neighbor"]
             ),
         ])
-
         let novel = try XCTUnwrap(
             output.document.recordsByRawReferenceID["UNCALLED_NOVEL_NEIGHBOR"]
         )
+        XCTAssertEqual(novel.sourceOrdinal, 2)
         XCTAssertEqual(novel.alleleName, "Mafa-A1*018:01:01:01")
         XCTAssertNotEqual(novel.rawReferenceID, novel.alleleName)
+        XCTAssertEqual(novel.sequence, "GGGGAAAA")
+        XCTAssertEqual(novel.sequenceSHA256, sha256("GGGGAAAA"))
+        XCTAssertEqual(novel.recordFields["DEFINITION"], ["Novel closest reference"])
+        XCTAssertNil(novel.annotatedTranslation)
+        XCTAssertEqual(novel.features.map(\.type), ["gene", "gene"])
+        XCTAssertEqual(novel.features.map(\.sourceOrdinal), [0, 0])
+        XCTAssertEqual(novel.features.map(\.interval), [1..<3, 5..<7])
+        XCTAssertEqual(novel.features.map(\.strand), ["+", "+"])
+        XCTAssertEqual(
+            novel.features.map(\.rawGenBankLocation),
+            ["join(2..3,6..7)", "join(2..3,6..7)"]
+        )
+        XCTAssertEqual(
+            novel.features.map { $0.qualifiers["allele"] },
+            [["Mafa-A1*018:01:01:01"], ["Mafa-A1*018:01:01:01"]]
+        )
+        XCTAssertEqual(
+            novel.features.map { $0.qualifiers["gene"] },
+            [["A1"], ["A1"]]
+        )
         XCTAssertEqual(novel.roles, [
             ONTMHCReferenceVisualizationRoleAssignment(
                 role: .closestNovelReference,
@@ -103,14 +123,81 @@ final class MHCReferenceVisualizationArtifactBuilderTests: XCTestCase {
         let extensionRecord = try XCTUnwrap(
             output.document.recordsByRawReferenceID["UNCALLED_EXTENSION_NEIGHBOR"]
         )
+        XCTAssertEqual(extensionRecord.sourceOrdinal, 0)
         XCTAssertEqual(extensionRecord.alleleName, "Mafa-B*021:01:01")
         XCTAssertNotEqual(extensionRecord.rawReferenceID, extensionRecord.alleleName)
+        XCTAssertEqual(extensionRecord.sequence, "TTTTCCCC")
+        XCTAssertEqual(extensionRecord.sequenceSHA256, sha256("TTTTCCCC"))
+        XCTAssertEqual(
+            extensionRecord.recordFields["DEFINITION"],
+            ["Extension closest reference"]
+        )
+        XCTAssertEqual(extensionRecord.annotatedTranslation, "KF")
+        XCTAssertEqual(extensionRecord.features.map(\.type), ["CDS"])
+        XCTAssertEqual(extensionRecord.features.map(\.sourceOrdinal), [0])
+        XCTAssertEqual(extensionRecord.features.map(\.interval), [0..<8])
+        XCTAssertEqual(extensionRecord.features.map(\.strand), ["-"])
+        XCTAssertEqual(
+            extensionRecord.features.map(\.rawGenBankLocation),
+            ["complement(1..8)"]
+        )
         XCTAssertEqual(extensionRecord.roles, [
             ONTMHCReferenceVisualizationRoleAssignment(
                 role: .closestExtensionReference,
                 candidateStableClusterIDs: ["cluster-extension"]
             ),
         ])
+
+        let expectedGenBankByRawReferenceID = [
+            "UNCALLED_EXTENSION_NEIGHBOR": [
+                "LOCUS       UNCALLED_EXTENSI          8 bp    DNA  linear",
+                "DEFINITION  Extension closest reference",
+                "ACCESSION   UNCALLED_EXTENSION_NEIGHBOR",
+                "VERSION     UNCALLED_EXTENSION_NEIGHBOR.1",
+                "FEATURES             Location/Qualifiers",
+                "     cds             complement(1..8)",
+                "                     /allele=\"Mafa-B*021:01:01\"",
+                "                     /translation=\"KF\"",
+                "ORIGIN      ",
+                "        1 ttttcccc",
+                "//",
+            ].joined(separator: "\n") + "\n",
+            "NHP00344": [
+                "LOCUS       NHP00344\(String(repeating: " ", count: 18))8 bp    DNA  linear",
+                "DEFINITION  Mafa-E exact known reference",
+                "ACCESSION   NHP00344",
+                "VERSION     NHP00344.1",
+                "FEATURES             Location/Qualifiers",
+                "     cds             1..8",
+                "                     /allele=\"Mafa-E*02:01:01\"",
+                "                     /translation=\"TY\"",
+                "     exon            1..4",
+                "                     /allele=\"Mafa-E*02:01:01\"",
+                "                     /exon_number=\"1\"",
+                "ORIGIN      ",
+                "        1 acgtacgt",
+                "//",
+            ].joined(separator: "\n") + "\n",
+            "UNCALLED_NOVEL_NEIGHBOR": [
+                "LOCUS       UNCALLED_NOVEL_N          8 bp    DNA  linear",
+                "DEFINITION  Novel closest reference",
+                "ACCESSION   UNCALLED_NOVEL_NEIGHBOR",
+                "VERSION     UNCALLED_NOVEL_NEIGHBOR.1",
+                "FEATURES             Location/Qualifiers",
+                "     gene            join(2..3,6..7)",
+                "                     /allele=\"Mafa-A1*018:01:01:01\"",
+                "                     /gene=\"A1\"",
+                "ORIGIN      ",
+                "        1 ggggaaaa",
+                "//",
+            ].joined(separator: "\n") + "\n",
+        ]
+        XCTAssertEqual(
+            Dictionary(uniqueKeysWithValues: output.document.records.map {
+                ($0.rawReferenceID, $0.genBankText)
+            }),
+            expectedGenBankByRawReferenceID
+        )
 
         for record in output.document.records {
             XCTAssertTrue(record.genBankText.hasPrefix("LOCUS       "))
@@ -121,12 +208,16 @@ final class MHCReferenceVisualizationArtifactBuilderTests: XCTestCase {
             )
         }
         XCTAssertEqual(
-            output.genBankText,
-            output.document.records.map(\.genBankText).joined()
+            Data(output.genBankText.utf8),
+            output.document.records.reduce(into: Data()) {
+                $0.append(Data($1.genBankText.utf8))
+            }
         )
         XCTAssertEqual(
-            output.fastaText,
-            output.document.records.map(\.fastaText).joined()
+            Data(output.fastaText.utf8),
+            output.document.records.reduce(into: Data()) {
+                $0.append(Data($1.fastaText.utf8))
+            }
         )
     }
 
@@ -237,9 +328,9 @@ final class MHCReferenceVisualizationArtifactBuilderTests: XCTestCase {
         let exactRawLocationKey = GenBankReader.rawLocationQualifierKey
         let bed = """
         UNCALLED_EXTENSION_NEIGHBOR\t0\t8\tMafa-B*021:01:01\t0\t-\t0\t8\t0,0,0\t1\t8,\t0,\tCDS\tallele=Mafa-B*021:01:01;translation=KF;\(exactRawLocationKey)=complement(1..8)
-        NHP00344\t0\t4\tMafa-E*02:01:01\t0\t+\t0\t4\t0,0,0\t1\t4,\t0,\texon\tallele=Mafa-E*02:01:01;exon_number=1;\(exactRawLocationKey)=1..4
         NHP00344\t0\t8\tMafa-E*02:01:01\t0\t+\t0\t8\t0,0,0\t1\t8,\t0,\tCDS\tallele=Mafa-E*02:01:01;translation=TY;\(exactRawLocationKey)=1..8
-        UNCALLED_NOVEL_NEIGHBOR\t1\t7\tMafa-A1*018:01:01:01\t0\t+\t1\t7\t0,0,0\t1\t6,\t0,\tgene\tallele=Mafa-A1*018:01:01:01;gene=A1;\(exactRawLocationKey)=2..7
+        NHP00344\t0\t4\tMafa-E*02:01:01\t0\t+\t0\t4\t0,0,0\t1\t4,\t0,\texon\tallele=Mafa-E*02:01:01;exon_number=1;\(exactRawLocationKey)=1..4
+        UNCALLED_NOVEL_NEIGHBOR\t1\t7\tMafa-A1*018:01:01:01\t0\t+\t1\t7\t0,0,0\t2\t2,2,\t0,4,\tgene\tallele=Mafa-A1*018:01:01:01;gene=A1;\(exactRawLocationKey)=join(2..3,6..7)
         """
         try bed.write(to: bedURL, atomically: true, encoding: .utf8)
         let annotationDatabaseURL = annotationDirectory.appendingPathComponent("features.sqlite")
