@@ -75,12 +75,12 @@ The workflow publishes a compact, versioned artifact containing only the referen
 The record set is the deduplicated union of:
 
 1. Every raw reference sequence ID used by an exact known genotype call.
-2. The persisted `closest_reference_name` for every classified `_nov` candidate.
-3. The persisted `closest_reference_name` for every classified `_ext` candidate.
+2. The persisted raw reference identity in `selected_evidence.reference_name` for every classified `_nov` candidate, paired with its display/provisional-naming value in `closest_reference_name`.
+3. The persisted raw reference identity in `selected_evidence.reference_name` for every classified `_ext` candidate, paired with its display/provisional-naming value in `closest_reference_name`.
 
 The second and third sets come from the all-reference candidate mapping and classification output. They are not derived from, filtered by, or intersected with exact genotype calls observed in the cohort.
 
-The extraction step consumes the closest-reference identity already selected by the candidate-classification workflow. It does not independently choose another closest reference and cannot change a provisional candidate name.
+The extraction step consumes the raw closest-reference identity already selected by the candidate-classification workflow from `selected_evidence.reference_name`. It uses `closest_reference_name` as the resolved allele label, not as the reference-bundle sequence key. It does not independently choose another closest reference and cannot change a provisional candidate name.
 
 ### 2. Lightweight genotype-specific renderer
 
@@ -183,7 +183,7 @@ The files provide interoperable scientific artifacts while the JSON provides O(1
 After exact calls and candidate classifications are finalized, the workflow:
 
 1. Collects exact-call raw reference identities.
-2. Collects persisted closest-reference identities from every classified `_nov` and `_ext` candidate.
+2. Collects persisted raw closest-reference identities from every classified `_nov` and `_ext` candidate's selected evidence while retaining `closest_reference_name` as the allele label used for naming.
 3. Deduplicates the union while preserving usage roles and stable candidate cluster IDs.
 4. Fetches each sequence from the indexed reference FASTA.
 5. Fetches feature rows for each raw identity from the declared reference annotation database.
