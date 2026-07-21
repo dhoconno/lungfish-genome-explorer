@@ -290,9 +290,14 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertEqual(view.currentMode, .overview)
         XCTAssertEqual(view.differenceTrackConfigurationCount, 1)
         XCTAssertEqual(view.fastaFormattingCount, 1)
+        XCTAssertEqual(view.immutablePresentationApplicationCount, 1)
+        XCTAssertEqual(view.differenceTrackPresentationApplicationCount, 1)
+        XCTAssertEqual(view.fastaTextAssignmentCount, 1)
+        XCTAssertEqual(view.genBankTextAssignmentCount, 1)
+        XCTAssertEqual(view.referenceOverviewConfigurationCount, 1)
     }
 
-    func testAlternatingSeenCandidatesReuseTwoCachedPresentationsWithoutGrowingHierarchy() {
+    func testAlternatingSeenCandidatesReuseTwoCachedPresentationsWithoutGrowingHierarchy() throws {
         let view = makeView()
         let reference = makeReference()
         let candidateA = makeCandidate()
@@ -334,9 +339,24 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
 
         XCTAssertEqual(view.differenceTrackConfigurationCount, 2)
         XCTAssertEqual(view.fastaFormattingCount, 2)
+        XCTAssertEqual(view.immutablePresentationApplicationCount, 102)
+        XCTAssertEqual(view.differenceTrackPresentationApplicationCount, 102)
+        XCTAssertEqual(view.fastaTextAssignmentCount, 102)
+        XCTAssertEqual(view.genBankTextAssignmentCount, 1)
+        XCTAssertEqual(view.referenceOverviewConfigurationCount, 1)
         XCTAssertEqual(descendants(of: view).count, descendantCount)
         XCTAssertEqual(activeConstraints(in: view).count, activeConstraintCount)
         XCTAssertEqual(text("candidateSelectedSampleReadCount", in: view), "99")
+        XCTAssertEqual(
+            try textView("candidateFASTATextView", in: view).string,
+            ">cluster-b Mafa-A1*068:01_1nt_nov classification=novel support=shared samples=2 reads=14\n"
+                + sequenceB + "\n"
+        )
+        let track = try XCTUnwrap(
+            find("candidateDifferenceTrack", in: view) as? GenotypeCandidateDifferenceTrackView
+        )
+        XCTAssertEqual(track.markers.count, 1)
+        XCTAssertEqual(track.markers.first?.referenceRange, 1..<2)
     }
 
     func testMissingSequenceUsesFreshAnalysisFallbackIndependently() throws {

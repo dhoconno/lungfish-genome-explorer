@@ -35,6 +35,7 @@ final class GenotypeCandidateDifferenceTrackView: NSView {
     private(set) var markers: [Marker] = []
     private(set) var parsingIssue: String?
     private(set) var configurationCount = 0
+    private(set) var presentationApplicationCount = 0
     private(set) var currentPresentation = Presentation(
         referenceLength: 0,
         markers: [],
@@ -101,6 +102,7 @@ final class GenotypeCandidateDifferenceTrackView: NSView {
     }
 
     func apply(presentation: Presentation) {
+        presentationApplicationCount += 1
         currentPresentation = presentation
         referenceLength = presentation.referenceLength
         markers = presentation.markers

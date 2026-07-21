@@ -41,9 +41,17 @@ final class GenotypeCandidateAlleleDetailView: NSView {
 
     private(set) var currentMode: Mode = .overview
     private(set) var fastaFormattingCount = 0
+    private(set) var immutablePresentationApplicationCount = 0
+    private(set) var fastaTextAssignmentCount = 0
+    private(set) var genBankTextAssignmentCount = 0
+    private(set) var referenceOverviewConfigurationCount = 0
 
     var differenceTrackConfigurationCount: Int {
         differenceTrack.configurationCount
+    }
+
+    var differenceTrackPresentationApplicationCount: Int {
+        differenceTrack.presentationApplicationCount
     }
 
     private let alleleNameLabel = NSTextField(labelWithString: "")
@@ -116,8 +124,10 @@ final class GenotypeCandidateAlleleDetailView: NSView {
     private let fallbackNote = NSTextField(wrappingLabelWithString: "")
 
     private var isShowingFallback = false
-    private var configuredOverviewRecord: ONTMHCReferenceVisualizationRecord?
     private var presentationCache: [CandidatePresentationCacheEntry] = []
+    private var activePresentationSignature: CandidatePresentationSignature?
+    private var activeReferenceRawID: String?
+    private var hasAppliedReferencePresentation = false
     private static let maximumCachedPresentations = 8
 
     override var intrinsicContentSize: NSSize {
@@ -195,27 +205,17 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         sequenceSHA256Value.stringValue = candidate.sequenceSHA256
         commentsView.configure(comments)
 
-        if let closestReference {
-            closestReferenceGeometryLabel.stringValue =
-                "Closest-reference geometry: \(closestReference.alleleName) (\(closestReference.rawReferenceID))"
-            if configuredOverviewRecord != closestReference {
-                configuredOverviewRecord = closestReference
-                closestReferenceOverview.configure(record: closestReference)
-            }
-            genBankContext.stringValue =
-                "Canonical closest-reference GenBank: \(closestReference.alleleName) (\(closestReference.rawReferenceID))"
-            genBankTextView.string = closestReference.genBankText
-        } else {
-            configuredOverviewRecord = nil
-            closestReferenceGeometryLabel.stringValue = "Closest-reference geometry unavailable"
-            genBankContext.stringValue = "Canonical closest-reference GenBank unavailable"
-            genBankTextView.string = ""
-        }
+        let referenceSignature = Self.referencePresentationSignature(for: closestReference)
+        configureReferencePresentationIfNeeded(
+            closestReference: closestReference,
+            rawReferenceID: closestReference?.rawReferenceID
+        )
 
         configureCachedPresentation(
             candidate: candidate,
             closestReference: closestReference,
-            candidateSequence: candidateSequence
+            candidateSequence: candidateSequence,
+            referenceSignature: referenceSignature
         )
 
         let warningCandidates: [String?] = [
@@ -709,17 +709,9 @@ final class GenotypeCandidateAlleleDetailView: NSView {
     private func configureCachedPresentation(
         candidate: ONTMHCCandidateRecord,
         closestReference: ONTMHCReferenceVisualizationRecord?,
-        candidateSequence: String?
+        candidateSequence: String?,
+        referenceSignature: ReferencePresentationSignature?
     ) {
-        let referenceSignature = closestReference.map { reference in
-            ReferencePresentationSignature(
-                rawReferenceID: reference.rawReferenceID,
-                alleleName: reference.alleleName,
-                sequenceSHA256: reference.sequenceSHA256,
-                sequenceLength: reference.sequence.count,
-                features: reference.features
-            )
-        }
         let signature = CandidatePresentationSignature(
             stableClusterID: candidate.stableClusterID,
             provisionalName: candidate.provisionalName,
@@ -734,13 +726,17 @@ final class GenotypeCandidateAlleleDetailView: NSView {
             reference: referenceSignature
         )
 
+        guard activePresentationSignature != signature else { return }
+
         if let cachedIndex = presentationCache.firstIndex(where: {
             $0.signature == signature
         }) {
             let cached = presentationCache.remove(at: cachedIndex)
             presentationCache.append(cached)
             differenceTrack.apply(presentation: cached.differenceTrack)
-            fastaTextView.string = cached.fastaText
+            assignFASTAText(cached.fastaText)
+            immutablePresentationApplicationCount += 1
+            activePresentationSignature = signature
             return
         }
 
@@ -757,7 +753,9 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         } else {
             fastaText = ""
         }
-        fastaTextView.string = fastaText
+        assignFASTAText(fastaText)
+        immutablePresentationApplicationCount += 1
+        activePresentationSignature = signature
 
         if presentationCache.count == Self.maximumCachedPresentations {
             presentationCache.removeFirst()
@@ -767,6 +765,54 @@ final class GenotypeCandidateAlleleDetailView: NSView {
             differenceTrack: differenceTrack.currentPresentation,
             fastaText: fastaText
         ))
+    }
+
+    private static func referencePresentationSignature(
+        for reference: ONTMHCReferenceVisualizationRecord?
+    ) -> ReferencePresentationSignature? {
+        reference.map { reference in
+            ReferencePresentationSignature(
+                rawReferenceID: reference.rawReferenceID,
+                alleleName: reference.alleleName,
+                sequenceSHA256: reference.sequenceSHA256,
+                sequenceLength: reference.sequence.count,
+                features: reference.features
+            )
+        }
+    }
+
+    private func configureReferencePresentationIfNeeded(
+        closestReference: ONTMHCReferenceVisualizationRecord?,
+        rawReferenceID: String?
+    ) {
+        guard !hasAppliedReferencePresentation
+                || activeReferenceRawID != rawReferenceID else { return }
+
+        hasAppliedReferencePresentation = true
+        activeReferenceRawID = rawReferenceID
+        if let closestReference {
+            closestReferenceGeometryLabel.stringValue =
+                "Closest-reference geometry: \(closestReference.alleleName) (\(closestReference.rawReferenceID))"
+            closestReferenceOverview.configure(record: closestReference)
+            referenceOverviewConfigurationCount += 1
+            genBankContext.stringValue =
+                "Canonical closest-reference GenBank: \(closestReference.alleleName) (\(closestReference.rawReferenceID))"
+            assignGenBankText(closestReference.genBankText)
+        } else {
+            closestReferenceGeometryLabel.stringValue = "Closest-reference geometry unavailable"
+            genBankContext.stringValue = "Canonical closest-reference GenBank unavailable"
+            assignGenBankText("")
+        }
+    }
+
+    private func assignFASTAText(_ text: String) {
+        fastaTextAssignmentCount += 1
+        fastaTextView.string = text
+    }
+
+    private func assignGenBankText(_ text: String) {
+        genBankTextAssignmentCount += 1
+        genBankTextView.string = text
     }
 
     private static func candidateFASTA(
