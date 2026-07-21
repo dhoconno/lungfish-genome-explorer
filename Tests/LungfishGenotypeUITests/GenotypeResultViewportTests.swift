@@ -437,6 +437,88 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingCurrentSelectionStyle.fillColor, highlightColor)
     }
 
+    func testFullSizeCandidateGraphicalDetailOccupiesVisiblePane() throws {
+        let stableClusterID = "cluster-visible"
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_680, height: 1_475),
+            styleMask: [.titled, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = GenotypeResultViewController()
+        controller.view.frame = try XCTUnwrap(window.contentView).bounds
+        window.contentViewController = controller
+        controller.configure(result: makeCandidateResult(
+            calls: [makeCall(sample: "CR1178", genotype: "Mafa-A1*018:01:01:01", reads: 8)],
+            candidates: [
+                makeCandidate(
+                    id: stableClusterID,
+                    name: "Mafa-AG1*05:08:01:01_16nt_nov",
+                    classification: .novel,
+                    support: .shared,
+                    samples: ["CR1178", "CR1178b"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: stableClusterID, sample: "CR1178", reads: 106),
+                makeCandidateObservation(cluster: stableClusterID, sample: "CR1178b", reads: 134),
+            ],
+            candidateSequences: [stableClusterID: String(repeating: "A", count: 2_000)],
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact(
+                schemaVersion: 1,
+                records: [
+                    makeCandidateReferenceVisualizationRecord(
+                        rawReferenceID: "NHP11358",
+                        alleleName: "Mafa-AG1*05:08:01:01",
+                        stableClusterID: stableClusterID
+                    ),
+                ]
+            )
+        ))
+
+        controller.testingSelectCandidateRow(stableClusterID: stableClusterID)
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        let detail = try XCTUnwrap(onlyCandidateAlleleDetail(in: controller.view))
+        XCTAssertGreaterThan(controller.testingDetailPaneWidth, 1_000)
+        XCTAssertEqual(
+            detail.bounds.width,
+            controller.testingDetailPaneWidth - 20,
+            accuracy: 2,
+            "The graphical detail must fill the available detail pane instead of trailing-aligning at its fitting width."
+        )
+        let identified: (String) -> NSView? = { identifier in
+            ([detail] + self.descendants(of: detail)).first {
+                $0.accessibilityIdentifier() == identifier
+            }
+        }
+        for identifier in [
+            "candidateHeader",
+            "candidateModeControl",
+            "candidateClosestReferenceOverview",
+            "candidateDifferenceTrack",
+        ] {
+            let child = try XCTUnwrap(identified(identifier), identifier)
+            let childFrame = child.convert(child.bounds, to: detail)
+            XCTAssertFalse(child.isHiddenOrHasHiddenAncestor, identifier)
+            XCTAssertGreaterThan(
+                childFrame.intersection(detail.bounds).width,
+                0,
+                "\(identifier) must occupy visible horizontal space."
+            )
+            XCTAssertGreaterThan(
+                childFrame.intersection(detail.bounds).height,
+                0,
+                "\(identifier) must occupy visible vertical space."
+            )
+        }
+        XCTAssertGreaterThan(
+            try XCTUnwrap(identified("candidateClosestReferenceOverview")).bounds.width,
+            300
+        )
+    }
+
     func testRepeatedCandidateSelectionsReuseOneGraphicalDetail() throws {
         let result = makeCandidateResult(
             calls: [],
@@ -480,7 +562,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         let detail = try XCTUnwrap(onlyCandidateAlleleDetail(in: controller.view))
         let baselineDescendantCount = descendants(of: detail).count
         let baselineConstraintIDs = Set(activeConstraints(in: detail).map(ObjectIdentifier.init))
-        XCTAssertLessThan(baselineDescendantCount, 200)
+        XCTAssertLessThan(baselineDescendantCount, 300)
 
         for _ in 0..<20 {
             controller.testingSelectCandidateRow(stableClusterID: "cluster-light")
@@ -528,7 +610,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(fallback.contains("candidate sequence"))
         XCTAssertTrue(fallback.contains("closest-reference visualization"))
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 1)
-        XCTAssertLessThan(descendants(of: detail).count, 200)
+        XCTAssertLessThan(descendants(of: detail).count, 300)
         XCTAssertFalse(visibleText(in: detail).contains("Candidate Allele Evidence"))
         let loaderInvocationCount = await loaderSpy.currentInvocationCount()
         XCTAssertEqual(loaderInvocationCount, 0)

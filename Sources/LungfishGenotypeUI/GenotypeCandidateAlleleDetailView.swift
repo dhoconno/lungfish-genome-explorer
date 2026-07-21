@@ -71,6 +71,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
     private let contentHost = NSView()
 
     private let overviewContent = NSView()
+    private let overviewLayoutStack = NSStackView()
     private let closestReferenceColumn = NSStackView()
     private let closestReferenceGeometryLabel = NSTextField(labelWithString: "")
     private let closestReferenceOverviewCanvas = NSView()
@@ -130,19 +131,35 @@ final class GenotypeCandidateAlleleDetailView: NSView {
     private let fallbackContent = NSView()
     private let fallbackNote = NSTextField(wrappingLabelWithString: "")
 
+    private var activeContent: NSView?
+    private var activeContentConstraints: [NSLayoutConstraint] = []
+    private var contentConstraintsByView: [ObjectIdentifier: [NSLayoutConstraint]] = [:]
     private var isShowingFallback = false
     private var presentationCache: [CandidatePresentationCacheEntry] = []
     private var activePresentationSignature: CandidatePresentationSignature?
     private var activeReferencePresentationSignature: ReferencePresentationSignature?
     private var hasAppliedReferencePresentation = false
+    private var usesNarrowOverviewLayout: Bool?
+    private var factsRailWidthConstraint: NSLayoutConstraint?
+    private var narrowReferenceHeightConstraint: NSLayoutConstraint?
+    private var narrowFactsHeightConstraint: NSLayoutConstraint?
+    private var narrowHeaderWidthConstraint: NSLayoutConstraint?
+    private var narrowOverviewStackWidthConstraint: NSLayoutConstraint?
+    private var narrowReferenceWidthConstraint: NSLayoutConstraint?
+    private var narrowFactsWidthConstraint: NSLayoutConstraint?
     private static let maximumCachedPresentations = 8
 
     override var intrinsicContentSize: NSSize {
+        let isNarrow = bounds.width <= 0 || bounds.width < 560
         let height: CGFloat
         if isShowingFallback {
-            height = closestReferenceOverviewCanvas.isHidden ? 250 : 560
+            if isNarrow {
+                height = 740
+            } else {
+                height = closestReferenceOverviewCanvas.isHidden ? 250 : 560
+            }
         } else {
-            height = currentMode == .overview ? 560 : 460
+            height = currentMode == .overview ? (isNarrow ? 740 : 560) : 460
         }
         return NSSize(width: NSView.noIntrinsicMetric, height: height)
     }
@@ -171,6 +188,11 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         )
         super.init(coder: coder)
         buildHierarchy()
+    }
+
+    override func layout() {
+        updateOverviewLayout(for: bounds.width)
+        super.layout()
     }
 
     func configure(
@@ -283,20 +305,25 @@ final class GenotypeCandidateAlleleDetailView: NSView {
 
         for content in [overviewContent, genBankContent, fastaContent] {
             content.translatesAutoresizingMaskIntoConstraints = false
+            content.isHidden = true
             contentHost.addSubview(content)
-            NSLayoutConstraint.activate([
+            contentConstraintsByView[ObjectIdentifier(content)] = [
                 content.leadingAnchor.constraint(equalTo: contentHost.leadingAnchor),
                 content.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor),
                 content.topAnchor.constraint(equalTo: contentHost.topAnchor),
                 content.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor),
-            ])
+            ]
         }
+        show(mode: .genBank)
+        show(mode: .fasta)
         show(mode: .overview)
+        updateOverviewLayout(for: bounds.width)
     }
 
     private func buildHeader() {
         alleleNameLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         alleleNameLabel.lineBreakMode = .byTruncatingMiddle
+        alleleNameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         alleleNameLabel.setAccessibilityIdentifier("candidateAlleleName")
 
         stableClusterIDLabel.font = .monospacedSystemFont(
@@ -305,6 +332,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         )
         stableClusterIDLabel.textColor = .secondaryLabelColor
         stableClusterIDLabel.lineBreakMode = .byTruncatingMiddle
+        stableClusterIDLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         stableClusterIDLabel.setAccessibilityIdentifier("candidateStableClusterID")
 
         let titleStack = NSStackView(views: [alleleNameLabel, stableClusterIDLabel])
@@ -312,10 +340,15 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         titleStack.alignment = .leading
         titleStack.spacing = 2
         titleStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleStack.setClippingResistancePriority(.defaultLow, for: .horizontal)
 
         configureModeButton(overviewModeButton, mode: .overview, identifier: "candidateModeOverview")
         configureModeButton(genBankModeButton, mode: .genBank, identifier: "candidateModeGenBank")
         configureModeButton(fastaModeButton, mode: .fasta, identifier: "candidateModeFASTA")
+        for button in [overviewModeButton, genBankModeButton, fastaModeButton] {
+            button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
         modeControl.addArrangedSubview(overviewModeButton)
         modeControl.addArrangedSubview(genBankModeButton)
         modeControl.addArrangedSubview(fastaModeButton)
@@ -326,6 +359,8 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         modeControl.setAccessibilityRole(.group)
         modeControl.setAccessibilityLabel("Candidate detail mode")
         modeControl.setContentHuggingPriority(.required, for: .horizontal)
+        modeControl.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        modeControl.setClippingResistancePriority(.defaultLow, for: .horizontal)
 
         headerStack.addArrangedSubview(titleStack)
         headerStack.addArrangedSubview(modeControl)
@@ -334,6 +369,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         headerStack.distribution = .fill
         headerStack.spacing = 16
         headerStack.translatesAutoresizingMaskIntoConstraints = false
+        headerStack.setClippingResistancePriority(.defaultLow, for: .horizontal)
         headerStack.setAccessibilityIdentifier("candidateHeader")
         headerStack.setAccessibilityRole(.group)
         headerStack.setAccessibilityLabel("Candidate header")
@@ -348,6 +384,11 @@ final class GenotypeCandidateAlleleDetailView: NSView {
             weight: .semibold
         )
         closestReferenceGeometryLabel.textColor = .secondaryLabelColor
+        closestReferenceGeometryLabel.lineBreakMode = .byTruncatingTail
+        closestReferenceGeometryLabel.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
         closestReferenceGeometryLabel.setAccessibilityIdentifier(
             "candidateClosestReferenceGeometryLabel"
         )
@@ -379,6 +420,8 @@ final class GenotypeCandidateAlleleDetailView: NSView {
 
         differenceLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
         differenceLabel.textColor = .secondaryLabelColor
+        differenceLabel.lineBreakMode = .byTruncatingTail
+        differenceLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         differenceLabel.setAccessibilityIdentifier("candidateDifferenceTrackLabel")
         differenceTrack.translatesAutoresizingMaskIntoConstraints = false
         differenceTrack.heightAnchor.constraint(equalToConstant: 58).isActive = true
@@ -391,22 +434,104 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         closestReferenceColumn.alignment = .width
         closestReferenceColumn.spacing = 7
         closestReferenceColumn.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
+        closestReferenceColumn.setClippingResistancePriority(.defaultLow, for: .horizontal)
 
         buildFactsRail()
-        let overviewStack = NSStackView(views: [closestReferenceColumn, factsRail])
-        overviewStack.orientation = .horizontal
-        overviewStack.alignment = .height
-        overviewStack.distribution = .fill
-        overviewStack.spacing = 0
-        overviewStack.translatesAutoresizingMaskIntoConstraints = false
-        overviewContent.addSubview(overviewStack)
+        overviewLayoutStack.addArrangedSubview(closestReferenceColumn)
+        overviewLayoutStack.addArrangedSubview(factsRail)
+        overviewLayoutStack.distribution = .fill
+        overviewLayoutStack.translatesAutoresizingMaskIntoConstraints = false
+        overviewLayoutStack.setClippingResistancePriority(.defaultLow, for: .horizontal)
+        overviewContent.addSubview(overviewLayoutStack)
         NSLayoutConstraint.activate([
-            overviewStack.leadingAnchor.constraint(equalTo: overviewContent.leadingAnchor),
-            overviewStack.trailingAnchor.constraint(equalTo: overviewContent.trailingAnchor),
-            overviewStack.topAnchor.constraint(equalTo: overviewContent.topAnchor),
-            overviewStack.bottomAnchor.constraint(equalTo: overviewContent.bottomAnchor),
-            factsRail.widthAnchor.constraint(equalToConstant: 280),
+            overviewLayoutStack.leadingAnchor.constraint(equalTo: overviewContent.leadingAnchor),
+            overviewLayoutStack.trailingAnchor.constraint(equalTo: overviewContent.trailingAnchor),
+            overviewLayoutStack.topAnchor.constraint(equalTo: overviewContent.topAnchor),
+            overviewLayoutStack.bottomAnchor.constraint(equalTo: overviewContent.bottomAnchor),
         ])
+        factsRailWidthConstraint = factsRail.widthAnchor.constraint(equalToConstant: 280)
+        narrowReferenceHeightConstraint = closestReferenceColumn.heightAnchor.constraint(
+            greaterThanOrEqualToConstant: 400
+        )
+        narrowFactsHeightConstraint = factsRail.heightAnchor.constraint(
+            greaterThanOrEqualToConstant: 240
+        )
+        narrowHeaderWidthConstraint = headerStack.widthAnchor.constraint(
+            equalTo: widthAnchor,
+            constant: -32
+        )
+        narrowOverviewStackWidthConstraint = overviewLayoutStack.widthAnchor.constraint(
+            equalTo: widthAnchor
+        )
+        narrowReferenceWidthConstraint = closestReferenceColumn.widthAnchor.constraint(
+            equalTo: overviewLayoutStack.widthAnchor
+        )
+        narrowFactsWidthConstraint = factsRail.widthAnchor.constraint(
+            equalTo: overviewLayoutStack.widthAnchor
+        )
+    }
+
+    private func updateOverviewLayout(for width: CGFloat) {
+        guard let factsRailWidthConstraint,
+              let narrowReferenceHeightConstraint,
+              let narrowFactsHeightConstraint,
+              let narrowHeaderWidthConstraint,
+              let narrowOverviewStackWidthConstraint,
+              let narrowReferenceWidthConstraint,
+              let narrowFactsWidthConstraint else { return }
+        let shouldUseNarrowLayout = width <= 0 || width < 560
+        guard usesNarrowOverviewLayout != shouldUseNarrowLayout else { return }
+        usesNarrowOverviewLayout = shouldUseNarrowLayout
+
+        if shouldUseNarrowLayout {
+            headerStack.orientation = .vertical
+            headerStack.alignment = .leading
+            headerStack.spacing = 6
+            modeControl.distribution = .fillEqually
+            factsRailWidthConstraint.isActive = false
+            overviewLayoutStack.orientation = .vertical
+            overviewLayoutStack.alignment = .leading
+            overviewLayoutStack.spacing = 8
+            closestReferenceColumn.edgeInsets = NSEdgeInsets(
+                top: 14,
+                left: 8,
+                bottom: 14,
+                right: 8
+            )
+            NSLayoutConstraint.activate([
+                narrowReferenceHeightConstraint,
+                narrowFactsHeightConstraint,
+                narrowHeaderWidthConstraint,
+                narrowOverviewStackWidthConstraint,
+                narrowReferenceWidthConstraint,
+                narrowFactsWidthConstraint,
+            ])
+        } else {
+            headerStack.orientation = .horizontal
+            headerStack.alignment = .centerY
+            headerStack.spacing = 16
+            modeControl.distribution = .fill
+            NSLayoutConstraint.deactivate([
+                narrowReferenceHeightConstraint,
+                narrowFactsHeightConstraint,
+                narrowHeaderWidthConstraint,
+                narrowOverviewStackWidthConstraint,
+                narrowReferenceWidthConstraint,
+                narrowFactsWidthConstraint,
+            ])
+            overviewLayoutStack.orientation = .horizontal
+            overviewLayoutStack.alignment = .height
+            overviewLayoutStack.spacing = 0
+            closestReferenceColumn.edgeInsets = NSEdgeInsets(
+                top: 14,
+                left: 16,
+                bottom: 14,
+                right: 16
+            )
+            factsRailWidthConstraint.isActive = true
+        }
+        invalidateIntrinsicContentSize()
+        overviewContent.needsLayout = true
     }
 
     private func buildFactsRail() {
@@ -419,6 +544,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         factsStack.alignment = .width
         factsStack.spacing = 7
         factsStack.translatesAutoresizingMaskIntoConstraints = false
+        factsStack.setClippingResistancePriority(.defaultLow, for: .horizontal)
 
         factsScrollView.borderType = .noBorder
         factsScrollView.drawsBackground = false
@@ -619,19 +745,25 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         updateModeButtons()
         switch mode {
         case .overview:
-            showOnly(overviewContent)
+            installContent(overviewContent)
         case .genBank:
-            showOnly(genBankContent)
+            installContent(genBankContent)
         case .fasta:
-            showOnly(fastaContent)
+            installContent(fastaContent)
         }
         invalidateIntrinsicContentSize()
     }
 
-    private func showOnly(_ visibleContent: NSView) {
-        for content in [overviewContent, genBankContent, fastaContent] {
-            content.isHidden = content !== visibleContent
-        }
+    private func installContent(_ view: NSView) {
+        guard activeContent !== view else { return }
+        NSLayoutConstraint.deactivate(activeContentConstraints)
+        activeContent?.isHidden = true
+
+        view.isHidden = false
+        activeContent = view
+        activeContentConstraints = contentConstraintsByView[ObjectIdentifier(view)] ?? []
+        NSLayoutConstraint.activate(activeContentConstraints)
+        layoutSubtreeIfNeeded()
     }
 
     private func updateOverviewFallbackVisibility(

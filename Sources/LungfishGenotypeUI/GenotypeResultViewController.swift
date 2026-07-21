@@ -165,6 +165,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var knownSelectionDiagnostics = GenotypeKnownSelectionDiagnostics()
     private var knownAlleleDetailMountCount = 0
     private var candidateAlleleDetailMountCount = 0
+    private var candidateAlleleDetailWidthConstraint: NSLayoutConstraint?
     private var currentSelectedSample: String?
     private var currentSelectedLocus: String?
     private var currentSelectionState: GenotypeResultSelectionState?
@@ -2437,6 +2438,10 @@ public final class GenotypeResultViewController: NSViewController {
             || detailStack.arrangedSubviews.first !== candidateAlleleDetailView {
             removeArrangedSubviews(from: detailStack)
             detailStack.addArrangedSubview(candidateAlleleDetailView)
+            candidateAlleleDetailWidthConstraint = candidateAlleleDetailView.widthAnchor.constraint(
+                equalTo: detailStack.widthAnchor
+            )
+            candidateAlleleDetailWidthConstraint?.isActive = true
             candidateAlleleDetailMountCount += 1
         }
 
@@ -5973,6 +5978,10 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func removeArrangedSubviews(from stack: NSStackView) {
         stack.arrangedSubviews.forEach { view in
+            if stack === detailStack, view === candidateAlleleDetailView {
+                candidateAlleleDetailWidthConstraint?.isActive = false
+                candidateAlleleDetailWidthConstraint = nil
+            }
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }

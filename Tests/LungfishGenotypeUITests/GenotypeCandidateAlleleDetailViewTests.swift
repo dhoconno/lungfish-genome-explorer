@@ -100,6 +100,43 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         }
     }
 
+    func testOverviewAdaptsWithoutClippingAtControllerMinimumWidth() throws {
+        let view = GenotypeCandidateAlleleDetailView(
+            frame: NSRect(x: 0, y: 0, width: 220, height: 1)
+        )
+        view.configure(
+            candidate: makeCandidate(),
+            closestReference: makeReference(),
+            candidateSequence: String(repeating: "ACGT", count: 6),
+            selectedSampleID: "CR1178",
+            selectedSampleReadCount: 8
+        )
+        view.frame.size.height = view.intrinsicContentSize.height
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(view.hasAmbiguousLayout)
+        XCTAssertTrue(descendants(of: view).allSatisfy { !$0.hasAmbiguousLayout })
+
+        let header = try XCTUnwrap(find("candidateHeader", in: view))
+        let selector = try XCTUnwrap(find("candidateModeControl", in: view))
+        let canvas = try XCTUnwrap(find("candidateClosestReferenceOverview", in: view))
+        let difference = try XCTUnwrap(find("candidateDifferenceTrack", in: view))
+        let facts = try XCTUnwrap(find("candidateFactsRail", in: view))
+        let headerRect = header.convert(header.bounds, to: view)
+        let selectorRect = selector.convert(selector.bounds, to: view)
+        let canvasRect = canvas.convert(canvas.bounds, to: view)
+        let differenceRect = difference.convert(difference.bounds, to: view)
+        let factsRect = facts.convert(facts.bounds, to: view)
+        for rect in [headerRect, selectorRect, canvasRect, differenceRect, factsRect] {
+            assertContained(rect, in: view.bounds)
+        }
+        XCTAssertGreaterThan(canvasRect.width, 200)
+        XCTAssertGreaterThan(differenceRect.width, 200)
+        XCTAssertGreaterThan(factsRect.width, 200)
+        XCTAssertGreaterThan(factsRect.height, 220)
+        XCTAssertLessThanOrEqual(canvasRect.intersection(factsRect).height, 1)
+    }
+
     func testGenBankAndFASTAModesShowExactReadOnlyCanonicalContent() throws {
         let view = makeView()
         let reference = makeReference()
@@ -266,6 +303,12 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
             selectedSampleReadCount: 8,
             comments: [("Candidate note", "Review before release.")]
         )
+        // Warm each persistent mode once so AppKit's lazily-created text-system constraints
+        // are included in the baseline; subsequent switching must remain strictly bounded.
+        try modeButton("candidateModeGenBank", in: view).performClick(nil)
+        try modeButton("candidateModeFASTA", in: view).performClick(nil)
+        try modeButton("candidateModeOverview", in: view).performClick(nil)
+        view.layoutSubtreeIfNeeded()
         let descendantCount = descendants(of: view).count
         let activeConstraintCount = activeConstraints(in: view).count
         let activeConstraintIDs = Set(activeConstraints(in: view).map(ObjectIdentifier.init))
@@ -694,5 +737,17 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
             .filter { !$0.isHiddenOrHasHiddenAncestor }
             .map(\.stringValue)
             .joined(separator: "\n")
+    }
+
+    private func assertContained(
+        _ rect: NSRect,
+        in bounds: NSRect,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertGreaterThanOrEqual(rect.minX, bounds.minX - 0.5, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(rect.minY, bounds.minY - 0.5, file: file, line: line)
+        XCTAssertLessThanOrEqual(rect.maxX, bounds.maxX + 0.5, file: file, line: line)
+        XCTAssertLessThanOrEqual(rect.maxY, bounds.maxY + 0.5, file: file, line: line)
     }
 }
