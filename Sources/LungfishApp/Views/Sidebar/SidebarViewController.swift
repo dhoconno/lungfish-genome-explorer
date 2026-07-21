@@ -513,10 +513,14 @@ public class SidebarViewController: NSViewController {
     /// this only updates index entries for the specific files that changed.
     private func updateSearchIndex(changedPaths: [URL]) {
         guard let projectURL else { return }
+        let sourcePaths = changedPaths.filter {
+            !FileSystemWatcher.isUniversalSearchInternalPath($0)
+        }
+        guard !sourcePaths.isEmpty else { return }
         Task {
-            await universalSearchService.update(
+            await universalSearchService.scheduleUpdate(
                 projectURL: projectURL,
-                changedPaths: changedPaths
+                changedPaths: sourcePaths
             )
         }
     }

@@ -177,6 +177,30 @@ struct FileSystemWatcherTests {
         #expect(callbackCount == 0, "Callback should not be invoked after stopWatching()")
     }
 
+    @Test("Watcher reports when its root directory is moved")
+    @MainActor
+    func watcherReportsMovedRoot() async throws {
+        let tempDir = try createTempDirectory()
+        let movedDir = tempDir.deletingLastPathComponent()
+            .appendingPathComponent(tempDir.lastPathComponent + "-moved")
+        defer {
+            removeTempDirectory(tempDir)
+            removeTempDirectory(movedDir)
+        }
+
+        var rootChanged = false
+        let watcher = FileSystemWatcher(
+            onChange: { _ in },
+            onRootChanged: { rootChanged = true }
+        )
+        watcher.startWatching(directory: tempDir)
+
+        try FileManager.default.moveItem(at: tempDir, to: movedDir)
+        try await Task.sleep(for: .seconds(5))
+
+        #expect(rootChanged, "Moving the watched project root must invoke onRootChanged")
+    }
+
     @Test("Watcher filters hidden files from visible changes")
     @MainActor
     func watcherFiltersHiddenFiles() async throws {
@@ -308,6 +332,57 @@ struct FileSystemWatcherTests {
         #expect(FileSystemWatcher.isSidecarPath(dbURL) == true)
         #expect(FileSystemWatcher.isSidecarPath(walURL) == true)
         #expect(FileSystemWatcher.isSidecarPath(shmURL) == true)
+    }
+
+    @Test("Universal search artifacts are excluded from their own filesystem updates")
+    func universalSearchArtifactsAreInternal() {
+        let projectURL = URL(fileURLWithPath: "/project")
+        let artifactNames = [
+            ".universal-search.db",
+            ".universal-search.db-wal",
+            ".universal-search.db-shm",
+            ".universal-search.db.lungfish-provenance.json",
+            "._.universal-search.db.lungfish-provenance.json.sb-12345678-AbCdEf",
+        ]
+
+        for name in artifactNames {
+            #expect(
+                FileSystemWatcher.isUniversalSearchInternalPath(
+                    projectURL.appendingPathComponent(name)
+                )
+            )
+        }
+
+        #expect(
+            FileSystemWatcher.isUniversalSearchInternalPath(
+                projectURL.appendingPathComponent("sample.fastq.lungfish-meta.json")
+            ) == false
+        )
+    }
+
+    @Test("Writing the search index and provenance does not notify its own watcher")
+    @MainActor
+    func searchIndexWritesDoNotFeedBackIntoWatcher() async throws {
+        let tempDir = try createTempDirectory()
+        defer { removeTempDirectory(tempDir) }
+
+        var callbackCount = 0
+        var receivedPaths: [String] = []
+        let watcher = FileSystemWatcher { changes in
+            callbackCount += 1
+            receivedPaths.append(contentsOf: changes.all.map(\.lastPathComponent))
+        }
+        watcher.startWatching(directory: tempDir)
+
+        let service = UniversalProjectSearchService()
+        _ = try await service.rebuild(projectURL: tempDir)
+        try await Task.sleep(for: .seconds(5))
+
+        watcher.stopWatching()
+        #expect(
+            callbackCount == 0,
+            "Search-index output must not trigger another search update; received \(receivedPaths)"
+        )
     }
 
     @Test("isSidecarPath identifies metadata.csv")

@@ -24,6 +24,8 @@ public actor UniversalProjectSearchService {
 
     private var indexes: [URL: ProjectUniversalSearchIndex] = [:]
     private var scheduledRebuildTasks: [URL: Task<Void, Never>] = [:]
+    private var scheduledUpdateTasks: [URL: Task<Void, Never>] = [:]
+    private var pendingUpdatePaths: [URL: Set<URL>] = [:]
     private var hasIndexedOnce: Set<URL> = []
 
     public init() {}
@@ -139,13 +141,55 @@ public actor UniversalProjectSearchService {
         }
     }
 
+    /// Coalesces a burst of filesystem changes into one incremental update.
+    public func scheduleUpdate(
+        projectURL: URL,
+        changedPaths: [URL],
+        delaySeconds: TimeInterval = 0.25
+    ) {
+        let canonical = projectURL.standardizedFileURL
+        let sourcePaths = changedPaths
+            .map(\.standardizedFileURL)
+            .filter {
+                $0 != canonical && !FileSystemWatcher.isUniversalSearchInternalPath($0)
+            }
+        guard !sourcePaths.isEmpty else { return }
+
+        pendingUpdatePaths[canonical, default: []].formUnion(sourcePaths)
+        scheduledUpdateTasks[canonical]?.cancel()
+        scheduledUpdateTasks[canonical] = Task { [weak self] in
+            if delaySeconds > 0 {
+                let nanoseconds = UInt64(max(0, delaySeconds) * 1_000_000_000)
+                do {
+                    try await Task.sleep(nanoseconds: nanoseconds)
+                } catch {
+                    return
+                }
+            }
+
+            guard !Task.isCancelled else { return }
+            await self?.flushScheduledUpdate(projectURL: canonical)
+        }
+    }
+
     /// Clears cached state for a project (used when closing/changing projects).
     public func clearProject(_ projectURL: URL) {
         let canonical = projectURL.standardizedFileURL
         scheduledRebuildTasks[canonical]?.cancel()
         scheduledRebuildTasks.removeValue(forKey: canonical)
+        scheduledUpdateTasks[canonical]?.cancel()
+        scheduledUpdateTasks.removeValue(forKey: canonical)
+        pendingUpdatePaths.removeValue(forKey: canonical)
         indexes.removeValue(forKey: canonical)
         hasIndexedOnce.remove(canonical)
+    }
+
+    private func flushScheduledUpdate(projectURL: URL) {
+        scheduledUpdateTasks.removeValue(forKey: projectURL)
+        let changedPaths = Array(pendingUpdatePaths.removeValue(forKey: projectURL) ?? [])
+            .sorted { $0.path < $1.path }
+        guard !changedPaths.isEmpty else { return }
+        update(projectURL: projectURL, changedPaths: changedPaths)
     }
 
     private func index(for projectURL: URL) throws -> ProjectUniversalSearchIndex {
@@ -179,6 +223,7 @@ public actor UniversalProjectSearchService {
                 defaults: [:],
                 resolvedDefaults: ["operation": .string(operation)],
                 buildStats: stats,
+                captureProjectInputSnapshot: false,
                 startedAt: startedAt,
                 completedAt: Date()
             )
