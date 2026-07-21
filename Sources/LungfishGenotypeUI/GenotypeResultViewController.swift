@@ -159,6 +159,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var knownSelectionCallbackCount = 0
     private var candidateSelectionCallbackCount = 0
     private var knownSelectionDiagnostics = GenotypeKnownSelectionDiagnostics()
+    private var knownAlleleDetailMountCount = 0
     private var currentSelectedSample: String?
     private var currentSelectedLocus: String?
     private var currentSelectionState: GenotypeResultSelectionState?
@@ -520,6 +521,7 @@ public final class GenotypeResultViewController: NSViewController {
         knownSelectionCallbackCount = 0
         candidateSelectionCallbackCount = 0
         knownSelectionDiagnostics = GenotypeKnownSelectionDiagnostics()
+        knownAlleleDetailMountCount = 0
         let knownSampleIDs = Set(
             result.samples.map(\.sample)
                 + result.calls.map(\.sample)
@@ -2340,8 +2342,12 @@ public final class GenotypeResultViewController: NSViewController {
                 comments: commentRows
             )
         }
-        removeArrangedSubviews(from: detailStack)
-        detailStack.addArrangedSubview(knownAlleleDetailView)
+        if detailStack.arrangedSubviews.count != 1
+            || detailStack.arrangedSubviews.first !== knownAlleleDetailView {
+            removeArrangedSubviews(from: detailStack)
+            detailStack.addArrangedSubview(knownAlleleDetailView)
+            knownAlleleDetailMountCount += 1
+        }
 
         publishSelectionState(selectionState(
             for: sharedCall,
@@ -6081,6 +6087,10 @@ extension GenotypeResultViewController {
 
     var testingDetailArrangedSubviewCount: Int {
         detailStack.arrangedSubviews.count
+    }
+
+    var testingKnownAlleleDetailMountCount: Int {
+        knownAlleleDetailMountCount
     }
 
     var testingComparisonMatrixIsHidden: Bool {

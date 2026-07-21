@@ -274,9 +274,48 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(details["Reciprocal BAI Path"], "artifacts/alignments/unmatched-to-reference.bam.bai")
         XCTAssertEqual(details["Selected Alignment Query"], "cluster-b")
         XCTAssertEqual(details["Selected Alignment CIGAR"], "2000M")
-        XCTAssertEqual(details["Genotyping Alignment Query"], "cluster-b|AnimalA")
+        XCTAssertEqual(details["Genotyping Evidence"], "1 alignment in indexed BAM")
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains {
+            $0.0.hasPrefix("Genotyping Alignment")
+        })
         XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0.localizedCaseInsensitiveContains("sequence bases") })
         XCTAssertEqual(controller.testingCandidateSelectionCallbackCounts, .init(known: 0, candidate: 1))
+    }
+
+    func testCandidateSelectionSummarizesLargeBAMEvidenceWithoutBuildingOneViewPerAlignment() {
+        let result = makeCandidateResult(
+            calls: [],
+            candidates: [
+                makeCandidate(
+                    id: "cluster-heavy",
+                    name: "Mafa-A1*018:01:01:01_5nt_nov",
+                    classification: .novel,
+                    support: .singleton,
+                    samples: ["AnimalA"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(
+                    cluster: "cluster-heavy",
+                    sample: "AnimalA",
+                    reads: 1_573,
+                    evidenceCount: 1_573
+                ),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        controller.testingSelectCandidateCell(stableClusterID: "cluster-heavy", sample: "AnimalA")
+
+        let rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertEqual(
+            rows.first(where: { $0.0 == "Genotyping Evidence" })?.1,
+            "1,573 alignments in indexed BAM"
+        )
+        XCTAssertFalse(rows.contains { $0.0.hasPrefix("Genotyping Alignment") })
+        XCTAssertLessThan(rows.count, 60, "Detail metadata must stay bounded as BAM evidence grows.")
     }
 
     func testSampleAlleleDetailsPreserveCandidateClusterIdentity() {
@@ -2609,6 +2648,46 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 1)
         XCTAssertLessThan(elapsed, 5, "Repeated known selections took \(elapsed) seconds")
         assertNoKnownAggregateEvidence(in: visibleText(in: detail))
+    }
+
+    func testKnownDetailIsMountedOnlyOnceAcrossKnownRowChanges() throws {
+        let firstID = "NHP01222"
+        let secondID = "NHP99999"
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: firstID, reads: 10),
+                makeCall(sample: "AnimalA", genotype: secondID, reads: 9),
+            ],
+            referenceMetadata: makeGenBankReferenceMetadata(),
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact(
+                schemaVersion: 1,
+                records: [
+                    makeMHCReferenceVisualizationRecord(
+                        rawReferenceID: firstID,
+                        alleleName: "Mafa-A1*001:01"
+                    ),
+                    makeMHCReferenceVisualizationRecord(
+                        rawReferenceID: secondID,
+                        alleleName: "Mafa-B*002:01"
+                    ),
+                ]
+            )
+        ))
+        controller.testingSelectMatrixRows(genotypes: [firstID], sample: nil)
+        let detail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
+        XCTAssertEqual(controller.testingKnownAlleleDetailMountCount, 1)
+
+        controller.testingSelectMatrixRows(genotypes: [secondID], sample: nil)
+
+        XCTAssertTrue(detail === onlyKnownAlleleDetail(in: controller.view))
+        XCTAssertEqual(
+            controller.testingKnownAlleleDetailMountCount,
+            1,
+            "Changing known rows must update the persistent detail view without remounting it."
+        )
     }
 
     func testKnownSelectionUsesIndexedCellSupportWithoutEvidenceWorkOrReloading() async throws {
@@ -7973,22 +8052,32 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
-    private func makeCandidateObservation(cluster: String, sample: String, reads: Int) -> ONTMHCCandidateObservation {
-        ONTMHCCandidateObservation(
+    private func makeCandidateObservation(
+        cluster: String,
+        sample: String,
+        reads: Int,
+        evidenceCount: Int = 1
+    ) -> ONTMHCCandidateObservation {
+        let evidence = (0..<evidenceCount).map { index in
+            ONTMHCEvidenceLocator(
+                bamPath: "artifacts/alignments/genotyping-evidence.bam",
+                queryName: evidenceCount == 1
+                    ? "\(cluster)|\(sample)"
+                    : "\(cluster)|\(sample)|\(index)",
+                referenceName: "Mafa-A1*018:01:01:01",
+                readGroupID: sample,
+                referenceStart: 1,
+                cigar: "2000M"
+            )
+        }
+        return ONTMHCCandidateObservation(
             stableClusterID: cluster,
             sampleID: sample,
             readGroupID: sample,
             sourceClusterIDs: ["source-\(cluster)-\(sample)"],
             sourceClusterReadCounts: ["source-\(cluster)-\(sample)": reads],
             aggregatedSampleReadCount: reads,
-            evidence: [.init(
-                bamPath: "artifacts/alignments/genotyping-evidence.bam",
-                queryName: "\(cluster)|\(sample)",
-                referenceName: "Mafa-A1*018:01:01:01",
-                readGroupID: sample,
-                referenceStart: 1,
-                cigar: "2000M"
-            )]
+            evidence: evidence
         )
     }
 

@@ -323,6 +323,22 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         XCTAssertEqual(try lane("CDS", in: view).subviews.count, 0)
     }
 
+    func testRepeatedIdenticalCommentsDoNotRebuildTheFactsRailStack() {
+        let view = makeView()
+        let record = makeRecord()
+        let comments = [("Row Comment", "Review this allele before release.")]
+        view.configure(record: record, observedSample: "CR1178", comments: comments)
+        XCTAssertEqual(view.testingCommentContentReplacementCount, 1)
+
+        view.configure(record: record, observedSample: "CR1178", comments: comments)
+
+        XCTAssertEqual(
+            view.testingCommentContentReplacementCount,
+            1,
+            "Identical comments must not rebuild nested NSStackView constraints."
+        )
+    }
+
     func testFallbackShowsCompactMetadataAndFreshAnalysisRequirement() throws {
         let view = makeView()
 

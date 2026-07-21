@@ -74,6 +74,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
     private var comments: [(String, String)] = []
     private var overviewConfigurationCount = 0
     private var configuredOverviewRecord: ONTMHCReferenceVisualizationRecord?
+    private(set) var testingCommentContentReplacementCount = 0
 
     var testingActiveContentConstraintIdentifiers: [ObjectIdentifier] {
         activeContentConstraints.map(ObjectIdentifier.init)
@@ -519,6 +520,12 @@ final class GenotypeKnownAlleleDetailView: NSView {
     }
 
     private func configureComments(_ comments: [(String, String)]) {
+        let commentsChanged = self.comments.count != comments.count
+            || zip(self.comments, comments).contains { pair in
+                pair.0.0 != pair.1.0 || pair.0.1 != pair.1.1
+            }
+        guard commentsChanged else { return }
+        testingCommentContentReplacementCount += 1
         self.comments = comments
         overviewCommentsView.configure(comments)
         fallbackCommentsView.configure(comments)
@@ -916,7 +923,10 @@ private final class KnownAlleleCommentsView: NSStackView {
             rowsStack.addArrangedSubview(row)
         }
 
-        isHidden = comments.isEmpty
+        let shouldHide = comments.isEmpty
+        if isHidden != shouldHide {
+            isHidden = shouldHide
+        }
     }
 
     private func buildHierarchy() {

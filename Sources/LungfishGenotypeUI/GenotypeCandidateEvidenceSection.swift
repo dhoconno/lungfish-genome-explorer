@@ -188,12 +188,15 @@ enum GenotypeCandidateEvidenceProjection {
         appendArtifact("Reciprocal BAM", artifacts.reciprocalEvidence?.bam, to: &rows)
         appendArtifact("Reciprocal BAI", artifacts.reciprocalEvidence?.bai, to: &rows)
         appendAlignment("Selected Alignment", candidate.selectedEvidence, to: &rows)
-        var index = 0
-        for observation in observations {
-            for evidence in observation.evidence {
-                index += 1
-                appendAlignment(index == 1 ? "Genotyping Alignment" : "Genotyping Alignment \(index)", evidence, to: &rows)
-            }
+        let genotypingEvidenceCount = observations.reduce(into: 0) { count, observation in
+            count += observation.evidence.count
+        }
+        if genotypingEvidenceCount > 0 {
+            let noun = genotypingEvidenceCount == 1 ? "alignment" : "alignments"
+            rows.append((
+                "Genotyping Evidence",
+                "\(genotypingEvidenceCount.formatted(.number)) \(noun) in indexed BAM"
+            ))
         }
         return rows
     }
