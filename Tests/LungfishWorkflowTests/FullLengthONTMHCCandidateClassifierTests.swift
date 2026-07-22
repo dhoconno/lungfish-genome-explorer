@@ -101,6 +101,31 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         }
     }
 
+    func testCompleteCDNAExtensionRecognizesIntronInsertionAdjacentToOrdinaryDeletion() throws {
+        let reference = MHCReferenceRecord(
+            sequenceID: "ref-cdna-adjacent-deletion",
+            alleleName: cdnaReference.alleleName,
+            locus: cdnaReference.locus,
+            moleculeClass: .cDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_001
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_050,
+            alignments: [alignment(reference: reference, cigar: "500=1D50I500=")]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected structural cDNA extension across adjacent deletion")
+        }
+        XCTAssertEqual(candidate.classification, .extension)
+        XCTAssertEqual(candidate.provisionalName, "Mafa-A1*018:01:01:01_ext")
+        XCTAssertEqual(candidate.snpCount, 0)
+        XCTAssertEqual(candidate.insertedBases, 50)
+        XCTAssertEqual(candidate.deletedBases, 1)
+        XCTAssertEqual(candidate.longGapBases, 50)
+    }
+
     func testTerminallyTruncatedCDNAWithIntronInsertionIsKnownNotExtension() throws {
         let longCDNA = MHCReferenceRecord(
             sequenceID: "ref-long-cdna",

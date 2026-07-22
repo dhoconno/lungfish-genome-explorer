@@ -981,7 +981,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "minimumShorterCoverage": String(thresholds.minimumShorterCoverage),
             "minimumIntronGapBases": String(thresholds.minimumIntronGapBases),
             "novelDistanceMetric": "SNP-substitutions-only",
-            "zeroSNPIndelClassification": "known-existing-allele",
+            "zeroSNPClassificationOrder": "1:eligible-genomic-zero-snp=known;2:eligible-cdna-zero-snp-complete-reference-and-query-intron-fill=extension;3:eligible-other-cdna-zero-snp=known",
             "extensionRule": "complete-cdna-zero-snp-intron-fill-indels-allowed",
         ]
     }

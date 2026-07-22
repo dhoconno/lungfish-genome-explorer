@@ -781,14 +781,27 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             token = ""
         }
 
+        func hasComparableContext(from insertionIndex: Int, step: Int) -> Bool {
+            var index = insertionIndex + step
+            while operations.indices.contains(index) {
+                let operation = operations[index]
+                if operation.isComparable {
+                    return true
+                }
+                guard operation.code == "D" else {
+                    return false
+                }
+                index += step
+            }
+            return false
+        }
+
         var total = 0
         for index in operations.indices where operations[index].code == "I" {
             let operation = operations[index]
             guard operation.length >= minimumLength,
-                  index > operations.startIndex,
-                  index < operations.index(before: operations.endIndex),
-                  operations[operations.index(before: index)].isComparable,
-                  operations[operations.index(after: index)].isComparable else {
+                  hasComparableContext(from: index, step: -1),
+                  hasComparableContext(from: index, step: 1) else {
                 continue
             }
             let sum = total.addingReportingOverflow(operation.length)
