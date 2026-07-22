@@ -78,16 +78,39 @@ final class GenotypeResultViewportTests: XCTestCase {
             "raw-k",
             candidateNames["cluster-other"]!,
         ]
+        let expectedIdentities = [
+            "\(candidateNames["cluster-a1"]!)|cluster-a1",
+            "raw-a2|known",
+            "raw-b|known",
+            "\(candidateNames["cluster-b02ps"]!)|cluster-b02ps",
+            "\(candidateNames["cluster-b16"]!)|cluster-b16",
+            "\(candidateNames["cluster-i"]!)|cluster-i",
+            "raw-f|known",
+            "\(candidateNames["cluster-g-a"]!)|cluster-g-a",
+            "\(candidateNames["cluster-g-z"]!)|cluster-g-z",
+            "raw-ag|known",
+            "\(candidateNames["cluster-j"]!)|cluster-j",
+            "raw-k|known",
+            "\(candidateNames["cluster-other"]!)|cluster-other",
+        ]
+        let visibleIdentities = {
+            matrix.testingVisibleRows.map {
+                "\($0.alleleName)|\($0.stableClusterID ?? "known")"
+            }
+        }
 
         XCTAssertEqual(matrix.testingVisibleGenotypes, expected)
+        XCTAssertEqual(visibleIdentities(), expectedIdentities)
         let alleleSortKey = try XCTUnwrap(matrix.testingActiveSortDescriptorKey)
         XCTAssertEqual(alleleSortKey, "reference.\(alleleFieldKey)")
 
         matrix.testingSetSortDescriptor(key: alleleSortKey, ascending: true)
         XCTAssertEqual(matrix.testingVisibleGenotypes, expected)
+        XCTAssertEqual(visibleIdentities(), expectedIdentities)
 
         matrix.testingSetSortDescriptor(key: alleleSortKey, ascending: false)
         XCTAssertEqual(matrix.testingVisibleGenotypes, expected.reversed())
+        XCTAssertEqual(visibleIdentities(), expectedIdentities.reversed())
     }
 
     func testFullLengthMHCFASTAProjectionUsesBiologicalAlleleOrderAndStableCandidateTies() throws {
@@ -120,7 +143,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         let projectedRows = GenotypeCandidateMatrixProjection.rows(
             knownRows: result.locusSummaries.flatMap(\.sharedCalls),
             candidateDocument: try XCTUnwrap(result.mhcCandidates),
-            settings: .default
+            settings: .default,
+            usesBiologicalAlleleOrder: true
         )
 
         XCTAssertEqual(projectedRows.map {
@@ -133,6 +157,54 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(matrix.testingVisibleRows.map {
             "\($0.alleleName)|\($0.stableClusterID ?? "known")"
         }, expectedIdentities)
+    }
+
+    func testNonFullLengthGenotypeAndAlleleSortsKeepLocalizedStandardOrder() throws {
+        let expectedGenotypes = ["Mamu-E*001:01", "Mamu-K*001:01"]
+        let fastaMatrix = GenotypeComparisonMatrixView()
+        fastaMatrix.configure(result: makeResult(
+            samples: [],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: expectedGenotypes[1], reads: 10),
+                makeCall(sample: "AnimalA", genotype: expectedGenotypes[0], reads: 10),
+            ]
+        ))
+
+        XCTAssertEqual(fastaMatrix.testingVisibleGenotypes, expectedGenotypes)
+        let genotypeSortKey = try XCTUnwrap(fastaMatrix.testingActiveSortDescriptorKey)
+        XCTAssertEqual(genotypeSortKey, "genotype")
+        fastaMatrix.testingSetSortDescriptor(key: genotypeSortKey, ascending: true)
+        XCTAssertEqual(fastaMatrix.testingVisibleGenotypes, expectedGenotypes)
+
+        let alleleFieldKey = "feature.allele"
+        let genBankMatrix = GenotypeComparisonMatrixView()
+        genBankMatrix.configure(result: makeResult(
+            samples: [],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: "raw-k", reads: 10),
+                makeCall(sample: "AnimalA", genotype: "raw-e", reads: 10),
+            ],
+            referenceMetadata: ONTGenotypeReferenceMetadata(
+                fields: [GenBankRecordDatabase.FieldDefinition(
+                    key: alleleFieldKey,
+                    displayTitle: "Allele",
+                    valueType: "text",
+                    sourceCategory: "feature",
+                    preferredOrder: 0
+                )],
+                recordsBySequenceName: [
+                    "raw-k": [alleleFieldKey: expectedGenotypes[1]],
+                    "raw-e": [alleleFieldKey: expectedGenotypes[0]],
+                ],
+                alleleFieldKey: alleleFieldKey
+            )
+        ))
+
+        XCTAssertEqual(genBankMatrix.testingVisibleGenotypes, ["raw-e", "raw-k"])
+        let alleleSortKey = try XCTUnwrap(genBankMatrix.testingActiveSortDescriptorKey)
+        XCTAssertEqual(alleleSortKey, "reference.\(alleleFieldKey)")
+        genBankMatrix.testingSetSortDescriptor(key: alleleSortKey, ascending: true)
+        XCTAssertEqual(genBankMatrix.testingVisibleGenotypes, ["raw-e", "raw-k"])
     }
 
     func testFullLengthCandidateControlsExposeExactLabelsDefaultsAndIndependentTintReset() throws {

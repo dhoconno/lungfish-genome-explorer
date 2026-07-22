@@ -64,7 +64,8 @@ enum GenotypeCandidateMatrixProjection {
     static func rows(
         knownRows: [ONTGenotypeSharedCall],
         candidateDocument: ONTMHCCandidateAllelesDocument?,
-        settings: ONTMHCCandidateDisplaySettings
+        settings: ONTMHCCandidateDisplaySettings,
+        usesBiologicalAlleleOrder: Bool = false
     ) -> [GenotypeCandidateMatrixRow] {
         var rows: [GenotypeCandidateMatrixRow] = settings.showKnown
             ? knownRows.map(GenotypeCandidateMatrixRow.known)
@@ -103,7 +104,9 @@ enum GenotypeCandidateMatrixProjection {
             }
         }
 
-        return rows.sorted(by: rowComesBefore)
+        return rows.sorted {
+            rowComesBefore($0, $1, usesBiologicalAlleleOrder: usesBiologicalAlleleOrder)
+        }
     }
 
     private static func isVisible(
@@ -127,14 +130,22 @@ enum GenotypeCandidateMatrixProjection {
 
     private static func rowComesBefore(
         _ lhs: GenotypeCandidateMatrixRow,
-        _ rhs: GenotypeCandidateMatrixRow
+        _ rhs: GenotypeCandidateMatrixRow,
+        usesBiologicalAlleleOrder: Bool
     ) -> Bool {
-        MHCAlleleDisplayOrder.compare(
-            lhs.alleleName,
-            rhs.alleleName,
-            lhsStableID: lhs.biologicalSortTieID,
-            rhsStableID: rhs.biologicalSortTieID
-        ) == .orderedAscending
+        if usesBiologicalAlleleOrder {
+            return MHCAlleleDisplayOrder.compare(
+                lhs.alleleName,
+                rhs.alleleName,
+                lhsStableID: lhs.biologicalSortTieID,
+                rhsStableID: rhs.biologicalSortTieID
+            ) == .orderedAscending
+        }
+        let locusOrder = lhs.locus.localizedStandardCompare(rhs.locus)
+        if locusOrder != .orderedSame { return locusOrder == .orderedAscending }
+        let nameOrder = lhs.alleleName.localizedStandardCompare(rhs.alleleName)
+        if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+        return lhs.id.deterministicSortKey < rhs.id.deterministicSortKey
     }
 
     private static func evidenceComesBefore(_ lhs: ONTMHCEvidenceLocator, _ rhs: ONTMHCEvidenceLocator) -> Bool {

@@ -994,7 +994,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         allRows = GenotypeCandidateMatrixProjection.rows(
             knownRows: filteredSummaries.flatMap(\.sharedCalls),
             candidateDocument: candidateDocument,
-            settings: effectiveCandidateDisplaySettings
+            settings: effectiveCandidateDisplaySettings,
+            usesBiologicalAlleleOrder: usesBiologicalAlleleOrder
         )
         if globalThreshold > 0 || matrixThreshold > 0 || minimumReads > 0 {
             allRows = allRows.compactMap { row in
@@ -1064,6 +1065,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var effectiveCandidateDisplaySettings: ONTMHCCandidateDisplaySettings {
         guard isMHCCandidateViewportEnabled else { return .default }
         return displayState.mhcCandidateDisplaySettings ?? candidateDisplaySettings
+    }
+
+    private var usesBiologicalAlleleOrder: Bool {
+        result?.manifest.kind == "full-length-ont-mhc-genotype"
     }
 
     /// Candidate projection is deliberately confined to the full-length MHC
@@ -1440,6 +1445,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func isBiologicalAlleleSortKey(_ key: String) -> Bool {
+        guard usesBiologicalAlleleOrder else { return false }
         if key == ColumnID.genotype.rawValue { return true }
         guard let alleleFieldKey else { return false }
         return key == ColumnID.reference(alleleFieldKey).rawValue
