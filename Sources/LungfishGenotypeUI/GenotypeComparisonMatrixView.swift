@@ -1388,27 +1388,36 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         ascending: Bool
     ) -> Bool {
         let ordered: ComparisonResult
-        switch key {
-        case ColumnID.stableClusterID.rawValue:
-            ordered = (lhs.stableClusterID ?? "").localizedStandardCompare(rhs.stableClusterID ?? "")
-        case ColumnID.locus.rawValue:
-            ordered = lhs.locus.localizedStandardCompare(rhs.locus)
-        case ColumnID.samples.rawValue:
-            ordered = compare(lhs.sampleCount, rhs.sampleCount)
-        case ColumnID.uniqueReads.rawValue:
-            ordered = compare(lhs.totalUniqueReads, rhs.totalUniqueReads)
-        default:
-            if key.hasPrefix(ColumnID.referencePrefix) {
-                let fieldKey = String(key.dropFirst(ColumnID.referencePrefix.count))
-                ordered = referenceValue(for: lhs, fieldKey: fieldKey)
-                    .localizedStandardCompare(referenceValue(for: rhs, fieldKey: fieldKey))
-            } else if let sample = sampleColumnLookup[NSUserInterfaceItemIdentifier(key)] {
-                ordered = compare(
-                    support(for: sample, row: lhs)?.passedUniqueReads ?? 0,
-                    support(for: sample, row: rhs)?.passedUniqueReads ?? 0
-                )
-            } else {
-                ordered = lhs.genotype.localizedStandardCompare(rhs.genotype)
+        if isBiologicalAlleleSortKey(key) {
+            ordered = MHCAlleleDisplayOrder.compare(
+                biologicalAlleleDisplayName(for: lhs),
+                biologicalAlleleDisplayName(for: rhs),
+                lhsStableID: lhs.biologicalSortTieID,
+                rhsStableID: rhs.biologicalSortTieID
+            )
+        } else {
+            switch key {
+            case ColumnID.stableClusterID.rawValue:
+                ordered = (lhs.stableClusterID ?? "").localizedStandardCompare(rhs.stableClusterID ?? "")
+            case ColumnID.locus.rawValue:
+                ordered = lhs.locus.localizedStandardCompare(rhs.locus)
+            case ColumnID.samples.rawValue:
+                ordered = compare(lhs.sampleCount, rhs.sampleCount)
+            case ColumnID.uniqueReads.rawValue:
+                ordered = compare(lhs.totalUniqueReads, rhs.totalUniqueReads)
+            default:
+                if key.hasPrefix(ColumnID.referencePrefix) {
+                    let fieldKey = String(key.dropFirst(ColumnID.referencePrefix.count))
+                    ordered = referenceValue(for: lhs, fieldKey: fieldKey)
+                        .localizedStandardCompare(referenceValue(for: rhs, fieldKey: fieldKey))
+                } else if let sample = sampleColumnLookup[NSUserInterfaceItemIdentifier(key)] {
+                    ordered = compare(
+                        support(for: sample, row: lhs)?.passedUniqueReads ?? 0,
+                        support(for: sample, row: rhs)?.passedUniqueReads ?? 0
+                    )
+                } else {
+                    ordered = lhs.genotype.localizedStandardCompare(rhs.genotype)
+                }
             }
         }
         let resolvedOrder: ComparisonResult
@@ -1428,6 +1437,18 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             resolvedOrder = ordered
         }
         return ascending ? resolvedOrder == .orderedAscending : resolvedOrder == .orderedDescending
+    }
+
+    private func isBiologicalAlleleSortKey(_ key: String) -> Bool {
+        if key == ColumnID.genotype.rawValue { return true }
+        guard let alleleFieldKey else { return false }
+        return key == ColumnID.reference(alleleFieldKey).rawValue
+    }
+
+    private func biologicalAlleleDisplayName(for row: GenotypeCandidateMatrixRow) -> String {
+        guard row.population == .known, let alleleFieldKey else { return row.alleleName }
+        let value = referenceRecords[row.alleleName]?[alleleFieldKey] ?? ""
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? row.alleleName : value
     }
 
     private func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {

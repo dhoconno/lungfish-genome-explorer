@@ -8,6 +8,133 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeResultViewportTests: XCTestCase {
+    func testFullLengthMHCRowsUseSpeciesAgnosticBiologicalAlleleOrder() throws {
+        let alleleFieldKey = "feature.allele"
+        let knownAlleles = [
+            "raw-k": "Mamu-K*001:01",
+            "raw-a2": "Mamu-A2*001:01",
+            "raw-ag": "Mamu-AG*001:01",
+            "raw-b": "Mamu-B*001:01",
+            "raw-f": "Mamu-F*001:01",
+        ]
+        let candidateNames = [
+            "cluster-other": "Mamu-E*001:01_nov",
+            "cluster-g-z": "Mamu-G*009:01_nov",
+            "cluster-b16": "Mamu-B16*001:01_nov",
+            "cluster-a1": "Mamu-A1*001:01_nov",
+            "cluster-i": "Mamu-I*001:01_nov",
+            "cluster-g-a": "Mamu-G*009:01_nov",
+            "cluster-j": "Mamu-J*001:01_nov",
+            "cluster-b02ps": "Mamu-B02ps*001:01_nov",
+        ]
+        let calls = ["raw-k", "raw-a2", "raw-ag", "raw-b", "raw-f"].map {
+            makeCall(sample: "AnimalA", genotype: $0, reads: 10)
+        }
+        let candidates = [
+            "cluster-other", "cluster-g-z", "cluster-b16", "cluster-a1",
+            "cluster-i", "cluster-g-a", "cluster-j", "cluster-b02ps",
+        ].map { id in
+            makeCandidate(
+                id: id,
+                name: candidateNames[id]!,
+                classification: .novel,
+                support: .singleton,
+                samples: ["AnimalA"]
+            )
+        }
+        let observations = candidates.map {
+            makeCandidateObservation(cluster: $0.stableClusterID, sample: "AnimalA", reads: 5)
+        }
+        let metadata = ONTGenotypeReferenceMetadata(
+            fields: [GenBankRecordDatabase.FieldDefinition(
+                key: alleleFieldKey,
+                displayTitle: "Allele",
+                valueType: "text",
+                sourceCategory: "feature",
+                preferredOrder: 0
+            )],
+            recordsBySequenceName: knownAlleles.mapValues { [alleleFieldKey: $0] },
+            alleleFieldKey: alleleFieldKey
+        )
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: makeCandidateResult(
+            calls: calls,
+            candidates: candidates,
+            observations: observations,
+            referenceMetadata: metadata
+        ))
+        let expected = [
+            candidateNames["cluster-a1"]!,
+            "raw-a2",
+            "raw-b",
+            candidateNames["cluster-b02ps"]!,
+            candidateNames["cluster-b16"]!,
+            candidateNames["cluster-i"]!,
+            "raw-f",
+            candidateNames["cluster-g-a"]!,
+            candidateNames["cluster-g-z"]!,
+            "raw-ag",
+            candidateNames["cluster-j"]!,
+            "raw-k",
+            candidateNames["cluster-other"]!,
+        ]
+
+        XCTAssertEqual(matrix.testingVisibleGenotypes, expected)
+        let alleleSortKey = try XCTUnwrap(matrix.testingActiveSortDescriptorKey)
+        XCTAssertEqual(alleleSortKey, "reference.\(alleleFieldKey)")
+
+        matrix.testingSetSortDescriptor(key: alleleSortKey, ascending: true)
+        XCTAssertEqual(matrix.testingVisibleGenotypes, expected)
+
+        matrix.testingSetSortDescriptor(key: alleleSortKey, ascending: false)
+        XCTAssertEqual(matrix.testingVisibleGenotypes, expected.reversed())
+    }
+
+    func testFullLengthMHCFASTAProjectionUsesBiologicalAlleleOrderAndStableCandidateTies() throws {
+        let candidates = [
+            makeCandidate(id: "cluster-other", name: "Mamu-E*001:01_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
+            makeCandidate(id: "cluster-g-z", name: "Mamu-G*009:01_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
+            makeCandidate(id: "cluster-a1", name: "Mamu-A1*001:01_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
+            makeCandidate(id: "cluster-g-a", name: "Mamu-G*009:01_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
+        ]
+        let result = makeCandidateResult(
+            calls: [
+                makeCall(sample: "AnimalA", genotype: "Mamu-K*001:01", reads: 10),
+                makeCall(sample: "AnimalA", genotype: "Mamu-B*001:01", reads: 10),
+                makeCall(sample: "AnimalA", genotype: "Mamu-A2*001:01", reads: 10),
+            ],
+            candidates: candidates,
+            observations: candidates.map {
+                makeCandidateObservation(cluster: $0.stableClusterID, sample: "AnimalA", reads: 5)
+            }
+        )
+        let expectedIdentities = [
+            "Mamu-A1*001:01_nov|cluster-a1",
+            "Mamu-A2*001:01|known",
+            "Mamu-B*001:01|known",
+            "Mamu-G*009:01_nov|cluster-g-a",
+            "Mamu-G*009:01_nov|cluster-g-z",
+            "Mamu-K*001:01|known",
+            "Mamu-E*001:01_nov|cluster-other",
+        ]
+        let projectedRows = GenotypeCandidateMatrixProjection.rows(
+            knownRows: result.locusSummaries.flatMap(\.sharedCalls),
+            candidateDocument: try XCTUnwrap(result.mhcCandidates),
+            settings: .default
+        )
+
+        XCTAssertEqual(projectedRows.map {
+            "\($0.alleleName)|\($0.stableClusterID ?? "known")"
+        }, expectedIdentities)
+
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: result)
+        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, "genotype")
+        XCTAssertEqual(matrix.testingVisibleRows.map {
+            "\($0.alleleName)|\($0.stableClusterID ?? "known")"
+        }, expectedIdentities)
+    }
+
     func testFullLengthCandidateControlsExposeExactLabelsDefaultsAndIndependentTintReset() throws {
         let viewModel = GenotypeResultDisplaySectionViewModel()
         let result = makeCandidateResult(
@@ -8499,7 +8626,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         candidateSequences: [String: String] = [:],
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil,
         integrityWarnings: [ONTGenotypeIntegrityWarning] = [],
-        candidateDocumentSchemaVersion: Int = 1
+        candidateDocumentSchemaVersion: Int = 1,
+        referenceMetadata: ONTGenotypeReferenceMetadata? = nil
     ) -> ONTGenotypeResultBundleData {
         let sampleIDs = Set(calls.map(\.sample) + observations.map(\.sampleID))
         let samples = sampleIDs.sorted().map { sample in
@@ -8542,7 +8670,8 @@ final class GenotypeResultViewportTests: XCTestCase {
                 candidateFASTA: fastaReference,
                 unnameableJSON: nil,
                 unnameableFASTA: nil
-            )
+            ),
+            referenceMetadata: referenceMetadata
         )
         let document = ONTMHCCandidateAllelesDocument(
             schemaVersion: candidateDocumentSchemaVersion,
@@ -8567,7 +8696,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             mhcCandidateSequencesByStableClusterID: candidateSequences,
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: integrityWarnings,
-            referenceMetadata: nil
+            referenceMetadata: referenceMetadata
         )
     }
 

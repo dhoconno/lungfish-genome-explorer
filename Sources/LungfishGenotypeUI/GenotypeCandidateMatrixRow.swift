@@ -35,6 +35,7 @@ struct GenotypeCandidateMatrixRow: Equatable, Sendable {
     var genotype: String { alleleName }
     var sampleCount: Int { sampleSupport.count }
     var totalUniqueReads: Int { sampleSupport.reduce(0) { $0 + $1.passedUniqueReads } }
+    var biologicalSortTieID: String { stableClusterID ?? id.deterministicSortKey }
 
     func support(for sample: String) -> ONTGenotypeSampleSupport? {
         sampleSupport.first { $0.sample == sample }
@@ -128,11 +129,12 @@ enum GenotypeCandidateMatrixProjection {
         _ lhs: GenotypeCandidateMatrixRow,
         _ rhs: GenotypeCandidateMatrixRow
     ) -> Bool {
-        let locusOrder = lhs.locus.localizedStandardCompare(rhs.locus)
-        if locusOrder != .orderedSame { return locusOrder == .orderedAscending }
-        let nameOrder = lhs.alleleName.localizedStandardCompare(rhs.alleleName)
-        if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
-        return lhs.id.deterministicSortKey < rhs.id.deterministicSortKey
+        MHCAlleleDisplayOrder.compare(
+            lhs.alleleName,
+            rhs.alleleName,
+            lhsStableID: lhs.biologicalSortTieID,
+            rhsStableID: rhs.biologicalSortTieID
+        ) == .orderedAscending
     }
 
     private static func evidenceComesBefore(_ lhs: ONTMHCEvidenceLocator, _ rhs: ONTMHCEvidenceLocator) -> Bool {
