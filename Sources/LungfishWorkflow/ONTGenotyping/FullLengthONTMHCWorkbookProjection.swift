@@ -200,10 +200,12 @@ enum FullLengthONTMHCUnmatchedWorksheetBuilder {
         _ lhs: FullLengthONTMHCNormalizedUnmatchedRow,
         _ rhs: FullLengthONTMHCNormalizedUnmatchedRow
     ) -> Bool {
-        if lhs.recordCategory != rhs.recordCategory {
-            return lhs.recordCategory == .candidate
-        }
-        return lhs.stableClusterID.localizedStandardCompare(rhs.stableClusterID) == .orderedAscending
+        MHCAlleleDisplayOrder.compare(
+            lhs.provisionalAlleleName ?? "",
+            rhs.provisionalAlleleName ?? "",
+            lhsStableID: lhs.stableClusterID,
+            rhsStableID: rhs.stableClusterID
+        ) == .orderedAscending
     }
 
     private static func tintCategory(

@@ -6827,6 +6827,7 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
             "sample_count",
             "total_cluster_reads",
         ] + sampleNames]
+        var dataRows: [[String]] = []
 
         let knownCounts = reportRows.reduce(into: [String: [String: Int]]()) { counts, row in
             counts[row.genotype, default: [:]][row.sample, default: 0] += row.passedUniqueReads
@@ -6837,7 +6838,7 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
             let displayName = knownAlleleDisplayNames[callID]
                 .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
                 ?? callID
-            rows.append([
+            dataRows.append([
                 "known-allele",
                 callID,
                 displayName,
@@ -6857,7 +6858,7 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
         }
 
         for candidate in projection.candidateRows {
-            rows.append([
+            dataRows.append([
                 "candidate-\(candidate.classification)",
                 candidate.stableClusterID,
                 candidate.provisionalName,
@@ -6875,6 +6876,16 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
                 return String(count)
             })
         }
+
+        dataRows.sort { lhs, rhs in
+            MHCAlleleDisplayOrder.compare(
+                lhs[2],
+                rhs[2],
+                lhsStableID: lhs[3].isEmpty ? lhs[1] : lhs[3],
+                rhsStableID: rhs[3].isEmpty ? rhs[1] : rhs[3]
+            ) == .orderedAscending
+        }
+        rows.append(contentsOf: dataRows)
 
         return rows
     }

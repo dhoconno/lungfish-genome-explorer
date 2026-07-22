@@ -90,6 +90,51 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(cells[2][statusColumn].value, .text("incomplete/unresolved"))
     }
 
+    func testUnmatchedAllelesWorksheetSortsAllCategoriesByProvisionalNameAndStableID() throws {
+        let rows = [
+            normalizedUnmatchedRow(category: .candidate, stableID: "blank-10", provisionalName: "   "),
+            normalizedUnmatchedRow(category: .unnameable, stableID: "i-10", provisionalName: "Mamu-I*001"),
+            normalizedUnmatchedRow(category: .candidate, stableID: "g-1", provisionalName: "Mamu-G*001"),
+            normalizedUnmatchedRow(category: .unnameable, stableID: "a1-1", provisionalName: "Mamu-A1*010"),
+            normalizedUnmatchedRow(category: .candidate, stableID: "b02-1", provisionalName: "Mamu-B02ps*001"),
+            normalizedUnmatchedRow(category: .unnameable, stableID: "b-1", provisionalName: "Mamu-B*010"),
+            normalizedUnmatchedRow(category: .candidate, stableID: "i-2", provisionalName: "Mamu-I*001"),
+            normalizedUnmatchedRow(category: .candidate, stableID: "a2-1", provisionalName: "Mamu-A2*002"),
+            normalizedUnmatchedRow(category: .unnameable, stableID: "blank-2", provisionalName: nil),
+        ]
+
+        let cells = FullLengthONTMHCUnmatchedWorksheetBuilder.buildCells(
+            rows: rows,
+            sampleOrder: []
+        )
+        let headers = cells[0].map(\.value)
+        let stableIDColumn = try XCTUnwrap(headers.firstIndex(of: .text("Stable Cluster ID")))
+        let nameColumn = try XCTUnwrap(headers.firstIndex(of: .text("Provisional Allele Name")))
+
+        XCTAssertEqual(cells.dropFirst().map { $0[stableIDColumn].value }, [
+            .text("a1-1"),
+            .text("a2-1"),
+            .text("b-1"),
+            .text("b02-1"),
+            .text("i-2"),
+            .text("i-10"),
+            .text("g-1"),
+            .text("blank-2"),
+            .text("blank-10"),
+        ])
+        XCTAssertEqual(cells.dropFirst().map { $0[nameColumn].value }, [
+            .text("Mamu-A1*010"),
+            .text("Mamu-A2*002"),
+            .text("Mamu-B*010"),
+            .text("Mamu-B02ps*001"),
+            .text("Mamu-I*001"),
+            .text("Mamu-I*001"),
+            .text("Mamu-G*001"),
+            .blank,
+            .text("   "),
+        ])
+    }
+
     func testUnnameableClosestReferenceSeparatesMappedAlleleLabelFromRawIdentityAndDoesNotInventFallback() throws {
         let documents = makeDocuments()
         let original = try XCTUnwrap(documents.unnameable.clusters.first)
@@ -553,6 +598,45 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         }
     }
 
+    func testUnifiedPivotInterleavesKnownAndCandidateCallsInBiologicalDisplayOrder() throws {
+        let projection = try orderingProjection(candidateSpecs: [
+            (stableID: "tie-10", name: "Mamu-B*010", locus: "Mamu-B"),
+            (stableID: "g-1", name: "Mamu-G*001", locus: "Mamu-G"),
+            (stableID: "a2-1", name: "Mamu-A2*002", locus: "Mamu-A2"),
+            (stableID: "b02-1", name: "Mamu-B02ps*001", locus: "Mamu-B02ps"),
+            (stableID: "tie-2", name: "Mamu-B*010", locus: "Mamu-B"),
+        ])
+        let reportRows = [
+            reportRow(sample: "sample-a", genotype: "raw-i", reads: 1),
+            reportRow(sample: "sample-a", genotype: "tie-1", reads: 2),
+            reportRow(sample: "sample-a", genotype: "raw-a1", reads: 3),
+        ]
+
+        let rows = FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildRows(
+            reportRows: reportRows,
+            projection: projection,
+            sampleOrder: ["sample-a"],
+            knownAlleleDisplayNames: [
+                "raw-i": "Mamu-I*001",
+                "tie-1": "Mamu-B*010",
+                "raw-a1": "Mamu-A1*010",
+            ]
+        )
+
+        XCTAssertEqual(rows[0][0], "call_type", "The header must remain fixed")
+        XCTAssertEqual(rows.dropFirst().map { "\($0[2])|\($0[3].isEmpty ? $0[1] : $0[3])" }, [
+            "Mamu-A1*010|raw-a1",
+            "Mamu-A2*002|a2-1",
+            "Mamu-B*010|tie-1",
+            "Mamu-B*010|tie-2",
+            "Mamu-B*010|tie-10",
+            "Mamu-B02ps*001|b02-1",
+            "Mamu-I*001|raw-i",
+            "Mamu-G*001|g-1",
+        ])
+        XCTAssertEqual(rows.filter { $0[2] == "Mamu-B*010" }.count, 3)
+    }
+
     func testLegacyUnmatchedSheetsRetainRowsButUseCandidateNamesAndMetrics() throws {
         let documents = makeDocuments()
         let projection = try FullLengthONTMHCWorkbookProjection(
@@ -857,6 +941,109 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             overallInputReads: 20,
             overallUniqueRetainedReads: reads,
             overallUniqueRetainedPercent: Double(reads) / 20 * 100
+        )
+    }
+
+    private func orderingProjection(
+        candidateSpecs: [(stableID: String, name: String, locus: String)]
+    ) throws -> FullLengthONTMHCWorkbookProjection {
+        let candidates = candidateSpecs.map { spec in
+            ONTMHCCandidateRecord(
+                stableClusterID: spec.stableID,
+                provisionalName: spec.name,
+                locus: spec.locus,
+                classification: .novel,
+                supportClass: .singleton,
+                closestReferenceName: spec.name,
+                closestReferenceClass: .genomicDNA,
+                snpCount: 1,
+                insertedBases: 0,
+                deletedBases: 0,
+                longGapBases: 0,
+                comparableBases: 1_000,
+                shorterCoverage: 1,
+                identity: 0.999,
+                mappingQuality: 60,
+                alignmentScore: 999,
+                independentSampleCount: 1,
+                occurrenceCount: 1,
+                totalClusterReads: 1,
+                supportingSampleIDs: ["sample-a"],
+                fastaRecordID: spec.stableID,
+                sequenceSHA256: String(repeating: "c", count: 64),
+                selectedEvidence: ONTMHCEvidenceLocator(
+                    bamPath: "artifacts/alignments/ordering.bam",
+                    queryName: spec.stableID,
+                    referenceName: spec.name,
+                    readGroupID: "sample-a",
+                    referenceStart: 0,
+                    cigar: "1000M"
+                )
+            )
+        }
+        let candidateDocument = ONTMHCCandidateAllelesDocument(
+            schemaVersion: 1,
+            createdAt: "2026-07-22T00:00:00Z",
+            thresholds: .defaults,
+            inputs: [],
+            evidence: [],
+            sequenceFASTA: ONTMHCArtifactReference(
+                path: "candidate_alleles.fasta",
+                sha256: String(repeating: "a", count: 64),
+                sizeBytes: 1
+            ),
+            candidates: candidates,
+            observations: candidateSpecs.map { observation($0.stableID, "sample-a", 1) }
+        )
+        let unnameableDocument = ONTMHCUnnameableClustersDocument(
+            schemaVersion: 1,
+            createdAt: "2026-07-22T00:00:00Z",
+            thresholds: .defaults,
+            sequenceFASTA: ONTMHCArtifactReference(
+                path: "unnameable_unmatched_clusters.fasta",
+                sha256: String(repeating: "b", count: 64),
+                sizeBytes: 0
+            ),
+            clusters: [],
+            observations: []
+        )
+        return try FullLengthONTMHCWorkbookProjection(
+            candidateDocument: candidateDocument,
+            unnameableDocument: unnameableDocument,
+            sampleOrder: ["sample-a"]
+        )
+    }
+
+    private func normalizedUnmatchedRow(
+        category: FullLengthONTMHCUnmatchedRecordCategory,
+        stableID: String,
+        provisionalName: String?
+    ) -> FullLengthONTMHCNormalizedUnmatchedRow {
+        FullLengthONTMHCNormalizedUnmatchedRow(
+            recordCategory: category,
+            stableClusterID: stableID,
+            provisionalAlleleName: provisionalName,
+            locus: nil,
+            classificationOrReason: category == .candidate ? "novel" : "unresolved-locus",
+            closestReferenceAllele: nil,
+            closestReferenceRawID: nil,
+            snpCount: nil,
+            insertedBases: nil,
+            deletedBases: nil,
+            longGapBases: nil,
+            comparableBases: nil,
+            failedMetrics: [:],
+            supportClass: "singleton",
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 1,
+            supportingSampleIDs: ["sample-a"],
+            readsBySample: ["sample-a": 1],
+            fastaRecordID: stableID,
+            sequenceSHA256: String(repeating: "d", count: 64),
+            nucleotideSequence: "ACGT",
+            putativeAminoAcidTranslation: nil,
+            translationStatus: .incompleteUnresolved
         )
     }
 
