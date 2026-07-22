@@ -89,15 +89,35 @@ final class MHCAlleleDisplayOrderTests: XCTestCase {
     }
 
     func testMalformedNamesPrecedeBlankNamesButFollowBiologicalLoci() {
-        let names = ["   ", "not-an-allele", "", "Mamu-K*001", "Mamu-A1*001"]
+        let names = ["not-an-allele", "", "Mamu-K*001", "Mamu-A1*001"]
 
         XCTAssertEqual(names.sorted(by: MHCAlleleDisplayOrder.lessThan), [
             "Mamu-A1*001",
             "Mamu-K*001",
             "not-an-allele",
             "",
-            "   ",
         ])
+    }
+
+    func testBlankNamesNormalizeCompleteNameBeforeStableIDComparison() {
+        XCTAssertEqual(
+            MHCAlleleDisplayOrder.compare(
+                "   ",
+                "",
+                lhsStableID: "cluster-z",
+                rhsStableID: "cluster-a"
+            ),
+            .orderedDescending
+        )
+        XCTAssertEqual(
+            MHCAlleleDisplayOrder.compare(
+                "   ",
+                "",
+                lhsStableID: "cluster-a",
+                rhsStableID: "cluster-z"
+            ),
+            .orderedAscending
+        )
     }
 
     func testSameDisplayNameUsesStableIDAsFinalTieBreaker() {
@@ -120,6 +140,79 @@ final class MHCAlleleDisplayOrderTests: XCTestCase {
                 rhsStableID: "record-2"
             ),
             .orderedSame
+        )
+    }
+
+    func testStableIDNaturalTiesUseExactDeterministicFallback() {
+        let displayName = "Mamu-A1*001"
+
+        for (lhsStableID, rhsStableID) in [
+            ("record-2", "record-02"),
+            ("record-a", "record-A"),
+        ] {
+            XCTAssertEqual(
+                MHCAlleleDisplayOrder.compare(
+                    displayName,
+                    displayName,
+                    lhsStableID: lhsStableID,
+                    rhsStableID: rhsStableID
+                ),
+                .orderedDescending
+            )
+            XCTAssertEqual(
+                MHCAlleleDisplayOrder.compare(
+                    displayName,
+                    displayName,
+                    lhsStableID: rhsStableID,
+                    rhsStableID: lhsStableID
+                ),
+                .orderedAscending
+            )
+        }
+    }
+
+    func testFullNameNaturalTiesUseExactDeterministicFallback() {
+        for (lhs, rhs) in [
+            ("Mamu-A1*2", "Mamu-A1*02"),
+            ("Mamu-A1*abc", "Mamu-A1*ABC"),
+        ] {
+            XCTAssertEqual(
+                MHCAlleleDisplayOrder.compare(
+                    lhs,
+                    rhs,
+                    lhsStableID: "record-1",
+                    rhsStableID: "record-1"
+                ),
+                .orderedDescending
+            )
+            XCTAssertEqual(
+                MHCAlleleDisplayOrder.compare(
+                    rhs,
+                    lhs,
+                    lhsStableID: "record-1",
+                    rhsStableID: "record-1"
+                ),
+                .orderedAscending
+            )
+        }
+    }
+
+    func testStableIDNaturalOrderPrecedesExactFullNameFallback() {
+        XCTAssertEqual(
+            MHCAlleleDisplayOrder.compare(
+                "Mamu-A1*2",
+                "Mamu-A1*02",
+                lhsStableID: "record-1",
+                rhsStableID: "record-2"
+            ),
+            .orderedAscending
+        )
+    }
+
+    func testCompareDefaultsStableIDsToEmptyStrings() {
+        XCTAssertEqual(
+            MHCAlleleDisplayOrder.compare("Mamu-A1*001", "Mamu-A2*001"),
+            .orderedAscending
         )
     }
 }

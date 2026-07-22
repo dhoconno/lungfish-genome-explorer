@@ -1,11 +1,18 @@
 import Foundation
 
 public enum MHCAlleleDisplayOrder {
+    /// Compares two MHC allele display names in biological display order.
+    ///
+    /// - Parameters:
+    ///   - lhs: The left display name.
+    ///   - rhs: The right display name.
+    ///   - lhsStableID: A stable identifier used to break display-name ties. Defaults to `""`.
+    ///   - rhsStableID: A stable identifier used to break display-name ties. Defaults to `""`.
     public static func compare(
         _ lhs: String,
         _ rhs: String,
-        lhsStableID: String,
-        rhsStableID: String
+        lhsStableID: String = "",
+        rhsStableID: String = ""
     ) -> ComparisonResult {
         let left = ParsedName(lhs)
         let right = ParsedName(rhs)
@@ -18,10 +25,20 @@ public enum MHCAlleleDisplayOrder {
             (left.locus, right.locus),
             (left.allele, right.allele),
             (left.speciesPrefix, right.speciesPrefix),
-            (lhs, rhs),
+            (left.completeName, right.completeName),
             (lhsStableID, rhsStableID),
         ] {
             let result = naturalCompare(leftValue, rightValue)
+            if result != .orderedSame {
+                return result
+            }
+        }
+
+        for (leftValue, rightValue) in [
+            (left.completeName, right.completeName),
+            (lhsStableID, rhsStableID),
+        ] {
+            let result = exactCompare(leftValue, rightValue)
             if result != .orderedSame {
                 return result
             }
@@ -43,10 +60,23 @@ public enum MHCAlleleDisplayOrder {
         )
     }
 
+    private static func exactCompare(_ lhs: String, _ rhs: String) -> ComparisonResult {
+        let leftScalars = lhs.unicodeScalars
+        let rightScalars = rhs.unicodeScalars
+        if leftScalars.elementsEqual(rightScalars) {
+            return .orderedSame
+        }
+        return leftScalars.lexicographicallyPrecedes(
+            rightScalars,
+            by: { $0.value < $1.value }
+        ) ? .orderedAscending : .orderedDescending
+    }
+
     private struct ParsedName {
         let speciesPrefix: String
         let locus: String
         let allele: String
+        let completeName: String
         let groupRank: Int
 
         init(_ name: String) {
@@ -54,6 +84,7 @@ public enum MHCAlleleDisplayOrder {
                 speciesPrefix = ""
                 locus = ""
                 allele = ""
+                completeName = ""
                 groupRank = 10
                 return
             }
@@ -65,6 +96,7 @@ public enum MHCAlleleDisplayOrder {
                 speciesPrefix = ""
                 locus = name
                 allele = ""
+                completeName = name
                 groupRank = 9
                 return
             }
@@ -83,6 +115,7 @@ public enum MHCAlleleDisplayOrder {
                 speciesPrefix = ""
                 locus = name
                 allele = ""
+                completeName = name
                 groupRank = 9
                 return
             }
@@ -90,6 +123,7 @@ public enum MHCAlleleDisplayOrder {
             speciesPrefix = parsedSpeciesPrefix
             locus = parsedLocus
             allele = parsedAllele
+            completeName = name
             groupRank = Self.groupRank(for: parsedLocus)
         }
 
