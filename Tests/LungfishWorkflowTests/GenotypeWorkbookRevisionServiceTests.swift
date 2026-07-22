@@ -267,6 +267,11 @@ wb.save(path)
         XCTAssertEqual(inspection["sampleBDPBHaplotype1"], "analyst-dpb")
         XCTAssertEqual(inspection["mappedTotal"], "303")
         XCTAssertEqual(inspection["mappedAverage"], "151.5")
+        XCTAssertEqual(inspection["mappedTotalType"], "n")
+        XCTAssertEqual(inspection["mappedAverageType"], "n")
+        XCTAssertEqual(inspection["sampleAMappedType"], "n")
+        XCTAssertEqual(inspection["sampleATotalReadType"], "n")
+        XCTAssertEqual(inspection["sampleAUnmappedPercentType"], "n")
         XCTAssertEqual(inspection["knownDisplayName"], "Mafa-A1*001:01:01:01")
         XCTAssertEqual(inspection["knownClosestReference"], "Mafa-A1*001:01:01:01")
         XCTAssertEqual(inspection["knownSampleAReads"], "101")
@@ -3594,6 +3599,11 @@ payload = {
     "analystComment": text(unified.cell(row_for_label("Comments"), sample_a_col).value) if row_for_label("Comments") and sample_a_col else "",
     "mappedTotal": text(unified.cell(row_for_label("Mapped Read Count"), 2).value) if row_for_label("Mapped Read Count") else "",
     "mappedAverage": text(unified.cell(row_for_label("Mapped Read Count"), 3).value) if row_for_label("Mapped Read Count") else "",
+    "mappedTotalType": text(unified.cell(row_for_label("Mapped Read Count"), 2).data_type) if row_for_label("Mapped Read Count") else "",
+    "mappedAverageType": text(unified.cell(row_for_label("Mapped Read Count"), 3).data_type) if row_for_label("Mapped Read Count") else "",
+    "sampleAMappedType": text(unified.cell(row_for_label("Mapped Read Count"), sample_a_col).data_type) if row_for_label("Mapped Read Count") and sample_a_col else "",
+    "sampleATotalReadType": text(unified.cell(row_for_label("total_read_count"), sample_a_col).data_type) if row_for_label("total_read_count") and sample_a_col else "",
+    "sampleAUnmappedPercentType": text(unified.cell(row_for_label("percent_reads_unmapped"), sample_a_col).data_type) if row_for_label("percent_reads_unmapped") and sample_a_col else "",
     "sampleADQAHaplotype1": text(unified.cell(row_for_label("MHC-DQA Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DQA Haplotype 1") and sample_a_col else "",
     "sampleADQBHaplotype1": text(unified.cell(row_for_label("MHC-DQB Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DQB Haplotype 1") and sample_a_col else "",
     "sampleADPAHaplotype1": text(unified.cell(row_for_label("MHC-DPA Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DPA Haplotype 1") and sample_a_col else "",

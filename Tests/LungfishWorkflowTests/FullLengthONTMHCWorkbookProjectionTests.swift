@@ -289,7 +289,8 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             }
         }
         XCTAssertEqual(textRows[0].first, "Client ID")
-        XCTAssertTrue(textRows.contains { $0.first == "Mapped Read Count" && $0.last == "17" })
+        let mappedReadRow = try XCTUnwrap(textRows.firstIndex { $0.first == "Mapped Read Count" })
+        XCTAssertEqual(cells[mappedReadRow].last?.value, .integer(17))
         XCTAssertTrue(textRows.contains { $0.first == "MHC-A Haplotype 1" })
         XCTAssertTrue(textRows.contains { $0.first == "Comments" })
 
@@ -309,6 +310,57 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             "NHP00003",
         ])
         XCTAssertEqual(known.count, 3, "Distinct raw references must not be merged when display labels collide")
+    }
+
+    func testUnifiedWorkbookAnalystSummaryUsesTypedNumbersWithoutParsingIdentifiers() throws {
+        let documents = makeDocuments()
+        let projection = try FullLengthONTMHCWorkbookProjection(
+            candidateDocument: documents.candidates,
+            unnameableDocument: documents.unnameable,
+            sampleOrder: ["00123"]
+        )
+        let samples = [
+            FullLengthONTMHCPivotSample(
+                sample: "00123",
+                mappedReadCount: 17,
+                totalReadCount: 20,
+                retainedPercent: 85
+            ),
+        ]
+
+        let cells = FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildWorkbookCells(
+            reportRows: [],
+            projection: projection,
+            samples: samples,
+            haplotypeAnalysis: nil,
+            knownAlleleDisplayNames: [:]
+        )
+
+        XCTAssertEqual(cells[0][12].value, .text("00123"), "Numeric-looking sample identifiers must remain text")
+        XCTAssertEqual(cells[2][1].value, .integer(17))
+        XCTAssertEqual(cells[2][2].value, .decimal(17))
+        XCTAssertEqual(cells[2][12].value, .integer(17))
+        XCTAssertEqual(cells[3][12].value, .integer(20))
+        XCTAssertEqual(cells[4][12].value, .decimal(15))
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("typed-unified-summary-\(UUID().uuidString).xlsx")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FullLengthONTMHCXLSXPackageWriter.write(
+            sheets: [.init(name: "Unified Genotype Pivot", cells: cells)],
+            to: url
+        )
+
+        let sheet = try unzip("xl/worksheets/sheet1.xml", from: url)
+        XCTAssertTrue(sheet.contains("<c r=\"M1\" s=\"1\" t=\"inlineStr\"><is><t xml:space=\"preserve\">00123</t></is></c>"), sheet)
+        XCTAssertTrue(sheet.contains("<c r=\"B3\"><v>17</v></c>"), sheet)
+        XCTAssertTrue(sheet.contains("<c r=\"C3\"><v>17</v></c>"), sheet)
+        XCTAssertTrue(sheet.contains("<c r=\"M3\"><v>17</v></c>"), sheet)
+        XCTAssertTrue(sheet.contains("<c r=\"M4\"><v>20</v></c>"), sheet)
+        XCTAssertTrue(sheet.contains("<c r=\"M5\"><v>15</v></c>"), sheet)
+        XCTAssertFalse(sheet.contains("<c r=\"M3\" t=\"inlineStr\">"), sheet)
+        XCTAssertFalse(sheet.contains("<c r=\"M4\" t=\"inlineStr\">"), sheet)
+        XCTAssertFalse(sheet.contains("<c r=\"M5\" t=\"inlineStr\">"), sheet)
     }
 
     func testNormalizedUnmatchedRowsRejectDocumentSequenceChecksumMismatch() throws {

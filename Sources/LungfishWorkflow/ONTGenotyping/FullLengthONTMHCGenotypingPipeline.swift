@@ -6747,19 +6747,19 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
         knownAlleleDisplayNames: [String: String]
     ) -> [[FullLengthONTMHCWorkbookCell]] {
         let unifiedMetadataColumnCount = 12
-        let headerRows = FullLengthONTMHCPivotWorkbookBuilder.buildHeaderRows(
+        let headerRows = buildAnalystHeaderCells(
             reportRows: reportRows,
             samples: samples,
             haplotypeAnalysis: haplotypeAnalysis
         ).map { row -> [FullLengthONTMHCWorkbookCell] in
             let legacyMetadata = Array(row.prefix(3))
             let sampleValues = Array(row.dropFirst(3))
-            return legacyMetadata.map { FullLengthONTMHCWorkbookCell($0) }
+            return legacyMetadata
                 + Array(
                     repeating: FullLengthONTMHCWorkbookCell.blank,
                     count: unifiedMetadataColumnCount - legacyMetadata.count
                 )
-                + sampleValues.map { FullLengthONTMHCWorkbookCell($0) }
+                + sampleValues
         }
         let table = buildCells(
             reportRows: reportRows,
@@ -6774,6 +6774,52 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
         return headerRows
             + [Array(repeating: FullLengthONTMHCWorkbookCell.blank, count: separatorWidth)]
             + table
+    }
+
+    static func buildAnalystHeaderCells(
+        reportRows: [FullLengthONTMHCReportRow],
+        samples: [FullLengthONTMHCPivotSample],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?
+    ) -> [[FullLengthONTMHCWorkbookCell]] {
+        FullLengthONTMHCPivotWorkbookBuilder.buildHeaderRows(
+            reportRows: reportRows,
+            samples: samples,
+            haplotypeAnalysis: haplotypeAnalysis
+        ).map { row in
+            let label = row.first ?? ""
+            return row.enumerated().map { columnIndex, value in
+                analystHeaderCell(label: label, columnIndex: columnIndex, value: value)
+            }
+        }
+    }
+
+    private static func analystHeaderCell(
+        label: String,
+        columnIndex: Int,
+        value: String
+    ) -> FullLengthONTMHCWorkbookCell {
+        switch label {
+        case "Mapped Read Count" where columnIndex == 2:
+            return decimalMetricCell(value)
+        case "Mapped Read Count" where columnIndex >= 1:
+            return integerMetricCell(value)
+        case "total_read_count" where columnIndex >= 3:
+            return integerMetricCell(value)
+        case "percent_reads_unmapped" where columnIndex >= 3:
+            return decimalMetricCell(value)
+        default:
+            return FullLengthONTMHCWorkbookCell(value)
+        }
+    }
+
+    private static func integerMetricCell(_ value: String) -> FullLengthONTMHCWorkbookCell {
+        guard let integer = Int(value) else { return FullLengthONTMHCWorkbookCell(value) }
+        return FullLengthONTMHCWorkbookCell(integer)
+    }
+
+    private static func decimalMetricCell(_ value: String) -> FullLengthONTMHCWorkbookCell {
+        guard let decimal = Double(value) else { return FullLengthONTMHCWorkbookCell(value) }
+        return FullLengthONTMHCWorkbookCell(decimal)
     }
 
     static func buildCells(
