@@ -65,6 +65,207 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         ])
     }
 
+    func testUnmatchedAllelesWorksheetCombinesCategoriesWithSeparateSequenceTranslationAndStatusColumns() throws {
+        let documents = makeDocuments()
+        let projection = try singleCandidateProjection(from: documents)
+        let rows = try normalizedRows(projection: projection)
+
+        let cells = FullLengthONTMHCUnmatchedWorksheetBuilder.buildCells(
+            rows: rows,
+            sampleOrder: ["sample-a", "sample-b"]
+        )
+        let headers = cells[0].map(\.value)
+        let stableIDColumn = try XCTUnwrap(headers.firstIndex(of: .text("Stable Cluster ID")))
+        let nucleotideColumn = try XCTUnwrap(headers.firstIndex(of: .text("Nucleotide Sequence")))
+        let translationColumn = try XCTUnwrap(headers.firstIndex(of: .text("Putative Amino Acid Translation")))
+        let statusColumn = try XCTUnwrap(headers.firstIndex(of: .text("Translation Status")))
+
+        XCTAssertEqual(cells.count, 3, "Header plus exactly one row per stable unmatched sequence")
+        XCTAssertEqual(cells.dropFirst().map { $0[stableIDColumn].value }, [.text("cluster-1"), .text("cluster-u")])
+        XCTAssertEqual(cells[1][nucleotideColumn].value, .text("ATGGCTTAA"))
+        XCTAssertEqual(cells[1][translationColumn].value, .text("MA"))
+        XCTAssertEqual(cells[1][statusColumn].value, .text("full-length"))
+        XCTAssertEqual(cells[2][nucleotideColumn].value, .text("ACGTACGT"))
+        XCTAssertEqual(cells[2][translationColumn].value, .blank)
+        XCTAssertEqual(cells[2][statusColumn].value, .text("incomplete/unresolved"))
+    }
+
+    func testUnnameableClosestReferenceSeparatesMappedAlleleLabelFromRawIdentityAndDoesNotInventFallback() throws {
+        let documents = makeDocuments()
+        let original = try XCTUnwrap(documents.unnameable.clusters.first)
+        let selectedEvidence = try XCTUnwrap(original.evidence.first { $0.referenceName == "ref-a" })
+        let summary = try ONTMHCReciprocalQueryHitSummary(
+            bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+            queryName: original.stableClusterID,
+            alignmentCount: 1,
+            targetAlignmentCounts: ["ref-a": 1],
+            exactMatchTargetNames: [],
+            closestMatchTargetNames: ["ref-a"]
+        )
+        let unnameableDocument = ONTMHCUnnameableClustersDocument(
+            schemaVersion: 2,
+            createdAt: documents.unnameable.createdAt,
+            thresholds: documents.unnameable.thresholds,
+            sequenceFASTA: documents.unnameable.sequenceFASTA,
+            clusters: [
+                ONTMHCUnnameableRecord(
+                    stableClusterID: original.stableClusterID,
+                    reason: original.reason,
+                    failedMetrics: original.failedMetrics,
+                    supportClass: original.supportClass,
+                    independentSampleCount: original.independentSampleCount,
+                    occurrenceCount: original.occurrenceCount,
+                    totalClusterReads: original.totalClusterReads,
+                    supportingSampleIDs: original.supportingSampleIDs,
+                    fastaRecordID: original.fastaRecordID,
+                    sequenceSHA256: original.sequenceSHA256,
+                    reciprocalHitSummary: summary,
+                    selectedEvidence: selectedEvidence
+                ),
+            ],
+            observations: documents.unnameable.observations
+        )
+        let projection = try singleCandidateProjection(from: (
+            candidates: documents.candidates,
+            unnameable: unnameableDocument
+        ))
+        let mapped = try normalizedRows(
+            projection: projection,
+            knownAlleleDisplayNames: ["ref-a": "Mafa-A1*001:01:01:01"]
+        )
+        let mappedUnnameable = try XCTUnwrap(mapped.first { $0.recordCategory == .unnameable })
+        XCTAssertEqual(mappedUnnameable.closestReferenceRawID, "ref-a")
+        XCTAssertEqual(mappedUnnameable.closestReferenceAllele, "Mafa-A1*001:01:01:01")
+
+        let missingMetadata = try normalizedRows(projection: projection)
+        let unresolvedUnnameable = try XCTUnwrap(missingMetadata.first { $0.recordCategory == .unnameable })
+        XCTAssertEqual(unresolvedUnnameable.closestReferenceRawID, "ref-a")
+        XCTAssertNil(
+            unresolvedUnnameable.closestReferenceAllele,
+            "Missing reference metadata must not copy a raw ID into the allele-label field"
+        )
+
+        let legacyProjection = try singleCandidateProjection(from: documents)
+        let legacyUnnameable = try XCTUnwrap(
+            normalizedRows(projection: legacyProjection).first { $0.recordCategory == .unnameable }
+        )
+        XCTAssertNil(
+            legacyUnnameable.closestReferenceRawID,
+            "Legacy evidence order is not a scientific closest-match ranking"
+        )
+    }
+
+    func testReciprocalKnownRowsKeepDistinctRawCallIDsWhenDisplayAlleleLabelsCollide() throws {
+        let genotypeRows = [
+            FullLengthONTMHCClusterGenotypeRow(
+                sample: "sample-a", cluster: "cluster-0", clusterReads: 7,
+                allele: "AAA_RAW_1", alleleLength: 1_200,
+                alignedBases: 1_200, score: 1_200
+            ),
+            FullLengthONTMHCClusterGenotypeRow(
+                sample: "sample-a", cluster: "cluster-0", clusterReads: 7,
+                allele: "AAA_RAW_1", alleleLength: 1_200,
+                alignedBases: 1_200, score: 1_200, referenceSequenceID: "AAA_RAW_1"
+            ),
+            FullLengthONTMHCClusterGenotypeRow(
+                sample: "sample-a", cluster: "cluster-0", clusterReads: 7,
+                allele: "Mafa-A1*001:01:01:01", alleleLength: 1_200,
+                alignedBases: 1_200, score: 1_200, referenceSequenceID: "AAA_RAW_1"
+            ),
+            FullLengthONTMHCClusterGenotypeRow(
+                sample: "sample-a", cluster: "cluster-0", clusterReads: 7,
+                allele: "Mafa-A1*001:01:01:01", alleleLength: 1_200,
+                alignedBases: 1_200, score: 1_200, referenceSequenceID: "AAA_RAW_2"
+            ),
+        ]
+        let reportRows = FullLengthONTMHCClusterReportBuilder.reportRows(
+            genotypeRows: genotypeRows,
+            sampleReadCounts: ["sample-a": 20]
+        )
+        XCTAssertEqual(reportRows.map(\.genotype), ["AAA_RAW_1", "AAA_RAW_2"])
+        XCTAssertEqual(reportRows.map(\.passedUniqueReads), [7, 7])
+
+        let projection = try FullLengthONTMHCWorkbookProjection(
+            candidateDocument: makeDocuments().candidates,
+            unnameableDocument: makeDocuments().unnameable,
+            sampleOrder: ["sample-a"]
+        )
+        let unifiedRows = FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildRows(
+            reportRows: reportRows,
+            projection: projection,
+            sampleOrder: ["sample-a"],
+            knownAlleleDisplayNames: [
+                "AAA_RAW_1": "Mafa-A1*001:01:01:01",
+                "AAA_RAW_2": "Mafa-A1*001:01:01:01",
+            ]
+        ).filter { $0.first == "known-allele" }
+        XCTAssertEqual(unifiedRows.map { $0[1] }, ["AAA_RAW_1", "AAA_RAW_2"])
+        XCTAssertEqual(unifiedRows.map { $0[2] }, [
+            "Mafa-A1*001:01:01:01",
+            "Mafa-A1*001:01:01:01",
+        ])
+    }
+
+    func testUnifiedWorkbookCellsPrependAnalystHeaderAndMapKnownDisplayNamesWithoutConflation() throws {
+        let documents = makeDocuments()
+        let projection = try FullLengthONTMHCWorkbookProjection(
+            candidateDocument: documents.candidates,
+            unnameableDocument: documents.unnameable,
+            sampleOrder: ["sample-a"]
+        )
+        let knownRows = [
+            reportRow(sample: "sample-a", genotype: "NHP00001", reads: 9),
+            reportRow(sample: "sample-a", genotype: "NHP00002", reads: 5),
+            reportRow(sample: "sample-a", genotype: "NHP00003", reads: 3),
+        ]
+        let samples = [
+            FullLengthONTMHCPivotSample(
+                sample: "sample-a",
+                mappedReadCount: 17,
+                totalReadCount: 20,
+                retainedPercent: 85
+            ),
+        ]
+
+        let cells = FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildWorkbookCells(
+            reportRows: knownRows,
+            projection: projection,
+            samples: samples,
+            haplotypeAnalysis: nil,
+            knownAlleleDisplayNames: [
+                "NHP00001": "Mafa-A1*001:01:01:01",
+                "NHP00002": "Mafa-A1*001:01:01:01",
+            ]
+        )
+        let textRows = cells.map { row in
+            row.map { cell -> String in
+                if case .text(let value) = cell.value { return value }
+                return ""
+            }
+        }
+        XCTAssertEqual(textRows[0].first, "Client ID")
+        XCTAssertTrue(textRows.contains { $0.first == "Mapped Read Count" && $0.last == "17" })
+        XCTAssertTrue(textRows.contains { $0.first == "MHC-A Haplotype 1" })
+        XCTAssertTrue(textRows.contains { $0.first == "Comments" })
+
+        let tableHeaderIndex = try XCTUnwrap(textRows.firstIndex { $0.first == "call_type" })
+        XCTAssertTrue(cells[tableHeaderIndex - 1].allSatisfy { $0.value == .blank }, "A separator row must precede the unified table")
+        XCTAssertEqual(
+            textRows[0].firstIndex(of: "sample-a"),
+            textRows[tableHeaderIndex].firstIndex(of: "sample-a"),
+            "Analyst-header and unified-table sample columns must align"
+        )
+        let tableRows = textRows.dropFirst(tableHeaderIndex + 1)
+        let known = tableRows.filter { $0.first == "known-allele" }
+        XCTAssertEqual(known.map { $0[1] }, ["NHP00001", "NHP00002", "NHP00003"])
+        XCTAssertEqual(known.map { $0[2] }, [
+            "Mafa-A1*001:01:01:01",
+            "Mafa-A1*001:01:01:01",
+            "NHP00003",
+        ])
+        XCTAssertEqual(known.count, 3, "Distinct raw references must not be merged when display labels collide")
+    }
+
     func testNormalizedUnmatchedRowsRejectDocumentSequenceChecksumMismatch() throws {
         let documents = makeDocuments(candidateSequenceSHA256Overrides: [
             "cluster-1": String(repeating: "0", count: 64),
@@ -644,6 +845,21 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         )
     }
 
+    private func reportRow(sample: String, genotype: String, reads: Int) -> FullLengthONTMHCReportRow {
+        FullLengthONTMHCReportRow(
+            sample: sample,
+            genotype: genotype,
+            passedAlignments: reads,
+            passedUniqueReads: reads,
+            sampleTotalReads: 20,
+            sampleUniqueRetainedReads: reads,
+            sampleUniqueRetainedPercent: Double(reads) / 20 * 100,
+            overallInputReads: 20,
+            overallUniqueRetainedReads: reads,
+            overallUniqueRetainedPercent: Double(reads) / 20 * 100
+        )
+    }
+
     private func normalizedGenBankRecord(
         stableID: String,
         sequence: String,
@@ -715,7 +931,8 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
 
     private func normalizedRows(
         projection: FullLengthONTMHCWorkbookProjection,
-        candidateGenBankRecord: GenBankRecord? = nil
+        candidateGenBankRecord: GenBankRecord? = nil,
+        knownAlleleDisplayNames: [String: String] = [:]
     ) throws -> [FullLengthONTMHCNormalizedUnmatchedRow] {
         let candidateSequence = "ATGGCTTAA"
         let unnameableSequence = "ACGTACGT"
@@ -741,7 +958,8 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
                     translation: nil,
                     status: "incomplete/unresolved"
                 ),
-            ]
+            ],
+            knownAlleleDisplayNames: knownAlleleDisplayNames
         )
     }
 

@@ -559,7 +559,7 @@ private enum FullLengthONTMHCWorkbookTintDefaults {
 }
 
 struct FullLengthONTMHCWorkbookProjectionInputDocument: Codable, Equatable, Sendable {
-    static let schemaVersion = 1
+    static let schemaVersion = 2
 
     struct SourceSummary: Codable, Equatable, Sendable {
         let reportRowCount: Int
@@ -570,6 +570,8 @@ struct FullLengthONTMHCWorkbookProjectionInputDocument: Codable, Equatable, Send
         let includesHaplotypeAnalysis: Bool
         let candidateRecordCount: Int
         let unnameableRecordCount: Int
+        let normalizedUnmatchedRowCount: Int
+        let referenceRecordCount: Int
     }
 
     let schemaVersion: Int
@@ -1457,6 +1459,24 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             unnameableDocument: unnameableDocument,
             sampleOrder: sampleSummaries.map(\.sample)
         )
+        let knownAlleleDisplayNames = Dictionary(
+            uniqueKeysWithValues: candidateReferenceRecords.map { ($0.sequenceID, $0.alleleName) }
+        )
+        let normalizedUnmatchedRows = try workbookProjection.normalizedUnmatchedRows(
+            candidateFASTARecords: FullLengthONTMHCClusterGenotyper.readFASTARecords(
+                from: candidateArtifactResult.candidateFASTAURL
+            ),
+            unnameableFASTARecords: FullLengthONTMHCClusterGenotyper.readFASTARecords(
+                from: candidateArtifactResult.unnameableFASTAURL
+            ),
+            candidateGenBankRecords: try GenBankReader(
+                url: candidateArtifactResult.candidateGenBankURL
+            ).readAllSync(),
+            unnameableGenBankRecords: try GenBankReader(
+                url: candidateArtifactResult.unnameableGenBankURL
+            ).readAllSync(),
+            knownAlleleDisplayNames: knownAlleleDisplayNames
+        )
         let workbookProjectionInputURL = request.outputDirectory
             .appendingPathComponent("artifacts", isDirectory: true)
             .appendingPathComponent("projections", isDirectory: true)
@@ -1470,17 +1490,17 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 orderedAlleleCount: orderedAlleles.count,
                 includesHaplotypeAnalysis: haplotypeAnalysis != nil,
                 candidateRecordCount: candidateDocument.candidates.count,
-                unnameableRecordCount: unnameableDocument.clusters.count
+                unnameableRecordCount: unnameableDocument.clusters.count,
+                normalizedUnmatchedRowCount: normalizedUnmatchedRows.count,
+                referenceRecordCount: candidateReferenceRecords.count
             ),
             sheets: workbookSheets(
-                request: request,
                 reportRows: reportRows,
                 sampleSummaries: sampleSummaries,
-                genotypeRows: allGenotypeRows,
-                unmatchedClosestMatchRows: unmatchedClosestMatchRows,
-                orderedAlleles: orderedAlleles,
                 haplotypeAnalysis: haplotypeAnalysis,
-                projection: workbookProjection
+                projection: workbookProjection,
+                normalizedUnmatchedRows: normalizedUnmatchedRows,
+                knownAlleleDisplayNames: knownAlleleDisplayNames
             )
         )
         try FileManager.default.createDirectory(
@@ -1497,8 +1517,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         var workbookAssemblyInputs = [
             candidateArtifactResult.candidateJSONURL,
             candidateArtifactResult.candidateFASTAURL,
+            candidateArtifactResult.candidateGenBankURL,
             candidateArtifactResult.unnameableJSONURL,
             candidateArtifactResult.unnameableFASTAURL,
+            candidateArtifactResult.unnameableGenBankURL,
             cohortAlignmentResult.bamURL,
             cohortAlignmentResult.baiURL,
             candidateArtifactResult.reciprocalBAMURL,
@@ -1507,6 +1529,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             request.sampleSummaryCSVURL,
             request.deduplicatedUnmatchedClustersFASTAURL,
             referenceFASTAURL,
+            referenceCatalogProjectionURL,
         ]
         if haplotypeAnalysis != nil,
            FileManager.default.fileExists(atPath: request.haplotypeAnalysisURL.path) {
@@ -1516,8 +1539,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "lungfish-in-process", "assemble-mhc-workbook-projection-input",
             "--candidate-json", candidateArtifactResult.candidateJSONURL.path,
             "--candidate-fasta", candidateArtifactResult.candidateFASTAURL.path,
+            "--candidate-genbank", candidateArtifactResult.candidateGenBankURL.path,
             "--unnameable-json", candidateArtifactResult.unnameableJSONURL.path,
             "--unnameable-fasta", candidateArtifactResult.unnameableFASTAURL.path,
+            "--unnameable-genbank", candidateArtifactResult.unnameableGenBankURL.path,
             "--genotyping-bam", cohortAlignmentResult.bamURL.path,
             "--genotyping-bai", cohortAlignmentResult.baiURL.path,
             "--reciprocal-bam", candidateArtifactResult.reciprocalBAMURL.path,
@@ -1526,6 +1551,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "--sample-summary-csv", request.sampleSummaryCSVURL.path,
             "--unmatched-fasta", request.deduplicatedUnmatchedClustersFASTAURL.path,
             "--reference-fasta", referenceFASTAURL.path,
+            "--reference-catalog", referenceCatalogProjectionURL.path,
             "--output", workbookProjectionInputURL.path,
         ]
         if let assayID = request.haplotypeAssayID {
@@ -1547,6 +1573,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "genotypeRowCount": .integer(allGenotypeRows.count),
                 "unmatchedClusterRowCount": .integer(unmatchedClosestMatchRows.count),
                 "orderedAlleleCount": .integer(orderedAlleles.count),
+                "normalizedUnmatchedRowCount": .integer(normalizedUnmatchedRows.count),
+                "referenceRecordCount": .integer(candidateReferenceRecords.count),
+                "projectionSchemaVersion": .integer(FullLengthONTMHCWorkbookProjectionInputDocument.schemaVersion),
                 "includesHaplotypeAnalysis": .boolean(haplotypeAnalysis != nil),
                 "inProcessSourceException": .string("typed row arrays are fully materialized in deterministic projection JSON"),
             ],
@@ -4033,87 +4062,41 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     }
 
     private func workbookSheets(
-        request: FullLengthONTMHCGenotypingRunRequest,
         reportRows: [FullLengthONTMHCReportRow],
         sampleSummaries: [FullLengthONTMHCSampleSummary],
-        genotypeRows: [FullLengthONTMHCClusterGenotypeRow],
-        unmatchedClosestMatchRows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow],
-        orderedAlleles: [String],
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
-        projection: FullLengthONTMHCWorkbookProjection
+        projection: FullLengthONTMHCWorkbookProjection,
+        normalizedUnmatchedRows: [FullLengthONTMHCNormalizedUnmatchedRow],
+        knownAlleleDisplayNames: [String: String]
     ) -> [FullLengthONTMHCXLSXPackageWriter.Sheet] {
         [
-                .init(
-                    name: "Interpretation Guide",
-                    rows: interpretationWorkbookRows(
-                        request: request,
-                        sampleSummaries: sampleSummaries,
-                        haplotypeAnalysis: haplotypeAnalysis
-                    )
-                ),
-                .init(name: "Samples", rows: sampleWorkbookRows(sampleSummaries)),
-                .init(name: "Genotypes", rows: genotypeWorkbookRows(genotypeRows)),
-                .init(
-                    name: "Genotyping pivot",
-                    rows: FullLengthONTMHCPivotWorkbookBuilder.buildRows(
-                        reportRows: reportRows,
-                        samples: sampleSummaries.map {
-                            let retainedPercent = $0.totalInputReads > 0
-                                ? Double($0.assignedReads) / Double($0.totalInputReads) * 100.0
-                                : nil
-                            return FullLengthONTMHCPivotSample(
-                                sample: $0.sample,
-                                mappedReadCount: $0.assignedReads,
-                                totalReadCount: $0.totalInputReads,
-                                retainedPercent: retainedPercent
-                            )
-                        },
-                        orderedAlleles: orderedAlleles,
-                        haplotypeAnalysis: haplotypeAnalysis
-                    )
-                ),
-                .init(
-                    name: "Unmatched Clusters",
-                    rows: projection.enrichingLegacyUnmatchedRows(
-                        FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.detailRows(unmatchedClosestMatchRows)
-                    )
-                ),
-                .init(
-                    name: "Unmatched Shared Pivot",
-                    rows: projection.enrichingLegacyUnmatchedRows(
-                        FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.pivotRows(
-                            unmatchedClosestMatchRows,
-                            sampleOrder: sampleSummaries.map(\.sample)
+            .init(
+                name: "Unified Genotype Pivot",
+                cells: FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildWorkbookCells(
+                    reportRows: reportRows,
+                    projection: projection,
+                    samples: sampleSummaries.map {
+                        let retainedPercent = $0.totalInputReads > 0
+                            ? Double($0.assignedReads) / Double($0.totalInputReads) * 100.0
+                            : nil
+                        return FullLengthONTMHCPivotSample(
+                            sample: $0.sample,
+                            mappedReadCount: $0.assignedReads,
+                            totalReadCount: $0.totalInputReads,
+                            retainedPercent: retainedPercent
                         )
-                    )
-                ),
-                .init(
-                    name: "MHC-like Unmatched Clusters",
-                    rows: projection.enrichingLegacyUnmatchedRows(
-                        FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.mhcLikeDetailRows(
-                            unmatchedClosestMatchRows
-                        )
-                    )
-                ),
-                .init(
-                    name: "MHC-like Unmatched Pivot",
-                    rows: projection.enrichingLegacyUnmatchedRows(
-                        FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.mhcLikePivotRows(
-                            unmatchedClosestMatchRows,
-                            sampleOrder: sampleSummaries.map(\.sample)
-                        )
-                    )
-                ),
-                .init(
-                    name: "Unified Genotype Pivot",
-                    cells: FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildCells(
-                        reportRows: reportRows,
-                        projection: projection,
-                        sampleOrder: sampleSummaries.map(\.sample)
-                    )
-                ),
-                .init(name: "Candidate Alleles", cells: projection.candidateWorksheetRows),
-                .init(name: "Un-nameable Clusters", cells: projection.unnameableWorksheetRows),
+                    },
+                    haplotypeAnalysis: haplotypeAnalysis,
+                    knownAlleleDisplayNames: knownAlleleDisplayNames
+                )
+            ),
+            .init(
+                name: "Unmatched Alleles",
+                cells: FullLengthONTMHCUnmatchedWorksheetBuilder.buildCells(
+                    rows: normalizedUnmatchedRows,
+                    sampleOrder: sampleSummaries.map(\.sample)
+                )
+            ),
         ]
     }
 
@@ -5820,7 +5803,6 @@ enum FullLengthONTMHCPivotWorkbookBuilder {
         let pivotSamples = completeSamples(samples, with: reportRows)
         let sampleNames = pivotSamples.map(\.sample)
         let speciesPrefix = inferSpeciesPrefix(reportRows: reportRows, haplotypeAnalysis: haplotypeAnalysis)
-        let callsBySampleLocus = haplotypeCallsBySampleLocus(haplotypeAnalysis)
         let countsBySampleAllele = alleleCounts(reportRows)
         let observedAlleles = Set(countsBySampleAllele.keys)
         let orderedObservedAlleles = orderedObservedAlleles(
@@ -5828,37 +5810,10 @@ enum FullLengthONTMHCPivotWorkbookBuilder {
             orderedAlleles: orderedAlleles
         )
 
-        var rows: [[String]] = []
-        rows.append(["Client ID", "", ""] + sampleNames)
-        rows.append(["GS ID", "Total", "Average"] + sampleNames)
-
-        let mappedCounts = pivotSamples.map(\.mappedReadCount)
-        rows.append(
-            ["Mapped Read Count", formatNumber(mappedCounts.compactMap { $0 }.reduce(0, +)), formatNumber(average(mappedCounts))]
-            + mappedCounts.map { formatNumber($0) }
-        )
-        rows.append(["total_read_count", "", ""] + pivotSamples.map { formatNumber($0.totalReadCount) })
-        rows.append(
-            ["percent_reads_unmapped", "", ""]
-            + pivotSamples.map { sample in
-                sample.retainedPercent.map { formatNumber(max(0.0, min(100.0, 100.0 - $0))) } ?? ""
-            }
-        )
-
-        for locus in canonicalLoci {
-            for slot in 1...2 {
-                rows.append(
-                    ["\(locus) Haplotype \(slot)", "", ""]
-                    + sampleNames.map { sample in
-                        haplotypeValue(callsBySampleLocus[sample]?[locus], slot: slot) ?? ""
-                    }
-                )
-            }
-        }
-
-        rows.append(
-            ["Comments", "Subtotal", "# Obs."]
-            + sampleNames.map { sample in haplotypeComments(callsBySampleLocus[sample] ?? [:]) }
+        var rows = buildHeaderRows(
+            reportRows: reportRows,
+            samples: samples,
+            haplotypeAnalysis: haplotypeAnalysis
         )
 
         let sectionOrder = sectionSuffixOrder.map { speciesPrefix + $0 }
@@ -5882,6 +5837,47 @@ enum FullLengthONTMHCPivotWorkbookBuilder {
             }
         }
 
+        return rows
+    }
+
+    static func buildHeaderRows(
+        reportRows: [FullLengthONTMHCReportRow],
+        samples: [FullLengthONTMHCPivotSample],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?
+    ) -> [[String]] {
+        let pivotSamples = completeSamples(samples, with: reportRows)
+        let sampleNames = pivotSamples.map(\.sample)
+        let callsBySampleLocus = haplotypeCallsBySampleLocus(haplotypeAnalysis)
+        var rows = [
+            ["Client ID", "", ""] + sampleNames,
+            ["GS ID", "Total", "Average"] + sampleNames,
+        ]
+        let mappedCounts = pivotSamples.map(\.mappedReadCount)
+        rows.append(
+            ["Mapped Read Count", formatNumber(mappedCounts.compactMap { $0 }.reduce(0, +)), formatNumber(average(mappedCounts))]
+            + mappedCounts.map { formatNumber($0) }
+        )
+        rows.append(["total_read_count", "", ""] + pivotSamples.map { formatNumber($0.totalReadCount) })
+        rows.append(
+            ["percent_reads_unmapped", "", ""]
+            + pivotSamples.map { sample in
+                sample.retainedPercent.map { formatNumber(max(0.0, min(100.0, 100.0 - $0))) } ?? ""
+            }
+        )
+        for locus in canonicalLoci {
+            for slot in 1...2 {
+                rows.append(
+                    ["\(locus) Haplotype \(slot)", "", ""]
+                    + sampleNames.map { sample in
+                        haplotypeValue(callsBySampleLocus[sample]?[locus], slot: slot) ?? ""
+                    }
+                )
+            }
+        }
+        rows.append(
+            ["Comments", "Subtotal", "# Obs."]
+            + sampleNames.map { sample in haplotypeComments(callsBySampleLocus[sample] ?? [:]) }
+        )
         return rows
     }
 
@@ -6743,10 +6739,48 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
 }
 
 enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
+    static func buildWorkbookCells(
+        reportRows: [FullLengthONTMHCReportRow],
+        projection: FullLengthONTMHCWorkbookProjection,
+        samples: [FullLengthONTMHCPivotSample],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        knownAlleleDisplayNames: [String: String]
+    ) -> [[FullLengthONTMHCWorkbookCell]] {
+        let unifiedMetadataColumnCount = 12
+        let headerRows = FullLengthONTMHCPivotWorkbookBuilder.buildHeaderRows(
+            reportRows: reportRows,
+            samples: samples,
+            haplotypeAnalysis: haplotypeAnalysis
+        ).map { row -> [FullLengthONTMHCWorkbookCell] in
+            let legacyMetadata = Array(row.prefix(3))
+            let sampleValues = Array(row.dropFirst(3))
+            return legacyMetadata.map { FullLengthONTMHCWorkbookCell($0) }
+                + Array(
+                    repeating: FullLengthONTMHCWorkbookCell.blank,
+                    count: unifiedMetadataColumnCount - legacyMetadata.count
+                )
+                + sampleValues.map { FullLengthONTMHCWorkbookCell($0) }
+        }
+        let table = buildCells(
+            reportRows: reportRows,
+            projection: projection,
+            sampleOrder: samples.map(\.sample),
+            knownAlleleDisplayNames: knownAlleleDisplayNames
+        )
+        let separatorWidth = max(
+            headerRows.map(\.count).max() ?? 0,
+            table.map(\.count).max() ?? 0
+        )
+        return headerRows
+            + [Array(repeating: FullLengthONTMHCWorkbookCell.blank, count: separatorWidth)]
+            + table
+    }
+
     static func buildCells(
         reportRows: [FullLengthONTMHCReportRow],
         projection: FullLengthONTMHCWorkbookProjection,
-        sampleOrder: [String]
+        sampleOrder: [String],
+        knownAlleleDisplayNames: [String: String] = [:]
     ) -> [[FullLengthONTMHCWorkbookCell]] {
         let tintsByStableID = Dictionary(uniqueKeysWithValues: projection.candidateRows.map {
             ($0.stableClusterID, $0.tintCategory)
@@ -6754,7 +6788,8 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
         return buildRows(
             reportRows: reportRows,
             projection: projection,
-            sampleOrder: sampleOrder
+            sampleOrder: sampleOrder,
+            knownAlleleDisplayNames: knownAlleleDisplayNames
         ).enumerated().map { rowIndex, row in
             let tint = rowIndex == 0 || row.count < 3 ? nil : tintsByStableID[row[1]]
             return row.enumerated().map { columnIndex, value in
@@ -6770,7 +6805,8 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
     static func buildRows(
         reportRows: [FullLengthONTMHCReportRow],
         projection: FullLengthONTMHCWorkbookProjection,
-        sampleOrder: [String]
+        sampleOrder: [String],
+        knownAlleleDisplayNames: [String: String] = [:]
     ) -> [[String]] {
         let sampleNames = completeSampleOrder(
             sampleOrder,
@@ -6795,18 +6831,21 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
         let knownCounts = reportRows.reduce(into: [String: [String: Int]]()) { counts, row in
             counts[row.genotype, default: [:]][row.sample, default: 0] += row.passedUniqueReads
         }
-        for genotype in knownCounts.keys.sorted(by: localizedStandardLessThan) {
-            let counts = knownCounts[genotype] ?? [:]
+        for callID in knownCounts.keys.sorted(by: localizedStandardLessThan) {
+            let counts = knownCounts[callID] ?? [:]
             let total = counts.values.reduce(0, +)
+            let displayName = knownAlleleDisplayNames[callID]
+                .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                ?? callID
             rows.append([
                 "known-allele",
-                genotype,
-                genotype,
+                callID,
+                displayName,
                 "",
                 "",
                 "known",
                 "",
-                genotype,
+                displayName,
                 "exact",
                 String(counts.values.filter { $0 > 0 }.count),
                 String(counts.values.filter { $0 > 0 }.count),

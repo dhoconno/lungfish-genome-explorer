@@ -137,6 +137,7 @@ public struct FullLengthONTMHCReportRow: Codable, Equatable, Sendable {
     public let overallInputReads: Int
     public let overallUniqueRetainedReads: Int
     public let overallUniqueRetainedPercent: Double?
+
 }
 
 public enum FullLengthONTMHCClusterGenotyper {
@@ -554,6 +555,11 @@ public enum FullLengthONTMHCClusterGenotyper {
 }
 
 public enum FullLengthONTMHCClusterReportBuilder {
+    private struct CallKey: Hashable {
+        let sample: String
+        let referenceSequenceID: String
+    }
+
     public static func reportRows(
         genotypeRows: [FullLengthONTMHCClusterGenotypeRow],
         sampleReadCounts: [String: Int]
@@ -569,22 +575,21 @@ public enum FullLengthONTMHCClusterReportBuilder {
             ? Double(overallRetainedReads) / Double(overallInputReads) * 100.0
             : nil
 
-        var rowsBySampleAndAllele: [String: [FullLengthONTMHCClusterGenotypeRow]] = [:]
-        for row in genotypeRows {
-            rowsBySampleAndAllele["\(row.sample)\u{0}\(row.allele)", default: []].append(row)
+        let rowsByCall = Dictionary(grouping: genotypeRows) { row in
+            CallKey(
+                sample: row.sample,
+                referenceSequenceID: row.referenceSequenceID ?? row.allele
+            )
         }
-        let readsBySampleAndAllele = rowsBySampleAndAllele.mapValues { rows in
+        let readsByCall = rowsByCall.mapValues { rows in
             Dictionary(grouping: rows, by: \.cluster).values.reduce(0) { total, clusterRows in
                 total + (clusterRows.map(\.clusterReads).max() ?? 0)
             }
         }
 
-        return readsBySampleAndAllele.keys.sorted().compactMap { key in
-            let parts = key.split(separator: "\u{0}", omittingEmptySubsequences: false).map(String.init)
-            guard parts.count == 2 else { return nil }
-            let sample = parts[0]
-            let allele = parts[1]
-            let readCount = readsBySampleAndAllele[key] ?? 0
+        return readsByCall.keys.sorted(by: callKeyLess).map { key in
+            let sample = key.sample
+            let readCount = readsByCall[key] ?? 0
             let sampleTotal = sampleReadCounts[sample]
             let sampleRetained = sampleAssignedReads[sample] ?? 0
             let samplePercent = sampleTotal.flatMap { total -> Double? in
@@ -592,7 +597,7 @@ public enum FullLengthONTMHCClusterReportBuilder {
             }
             return FullLengthONTMHCReportRow(
                 sample: sample,
-                genotype: allele,
+                genotype: key.referenceSequenceID,
                 passedAlignments: readCount,
                 passedUniqueReads: readCount,
                 sampleTotalReads: sampleTotal,
@@ -603,5 +608,12 @@ public enum FullLengthONTMHCClusterReportBuilder {
                 overallUniqueRetainedPercent: overallRetainedPercent
             )
         }
+    }
+
+    private static func callKeyLess(_ lhs: CallKey, _ rhs: CallKey) -> Bool {
+        if lhs.sample != rhs.sample {
+            return lhs.sample.localizedStandardCompare(rhs.sample) == .orderedAscending
+        }
+        return lhs.referenceSequenceID.localizedStandardCompare(rhs.referenceSequenceID) == .orderedAscending
     }
 }

@@ -348,7 +348,14 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             root: root,
             referenceSourceURL: bundle
         )
-        _ = try await pipeline.run(request)
+        let result = try await pipeline.run(request)
+
+        let unifiedSheet = try Self.unzippedText(
+            path: "xl/worksheets/sheet1.xml",
+            from: result.primaryWorkbookURL
+        )
+        XCTAssertTrue(unifiedSheet.contains("NHP00344"), "Raw reference ID must remain available as call_id")
+        XCTAssertTrue(unifiedSheet.contains("Mafa-E*02:01:01"), "Display name must use feature.allele metadata")
 
         let embeddedDatabaseURL = request.outputDirectory
             .appendingPathComponent("metadata", isDirectory: true)
@@ -1506,66 +1513,25 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let workbookXML = try Self.unzippedText(path: "xl/workbook.xml", from: result.workbookURL)
         XCTAssertEqual(
             Self.sheetNames(in: workbookXML),
-            [
-                "Interpretation Guide",
-                "Samples",
-                "Genotypes",
-                "Genotyping pivot",
-                "Unmatched Clusters",
-                "Unmatched Shared Pivot",
-                "MHC-like Unmatched Clusters",
-                "MHC-like Unmatched Pivot",
-                "Unified Genotype Pivot",
-                "Candidate Alleles",
-                "Un-nameable Clusters",
-            ]
+            ["Unified Genotype Pivot", "Unmatched Alleles"]
         )
         XCTAssertFalse(workbookXML.contains("Cluster Alignments"))
         XCTAssertFalse(workbookXML.contains("Unmatched Closest Matches"))
         XCTAssertFalse(workbookXML.contains("Full Sequencing Results 1"))
 
-        let guideSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet1.xml", from: result.workbookURL)
-        XCTAssertTrue(guideSheetXML.contains("Full-length ONT MHC genotyping"))
-        XCTAssertTrue(guideSheetXML.contains("score = aligned_bases - (100 * snp_differences) - (10 * indel_bases)"))
-        XCTAssertTrue(guideSheetXML.contains(
-            "Known genotype calls require zero SNP differences. Indel-only genomic-reference alignments remain calls to the existing allele; true genomic extensions of cDNA references are classified separately with the _ext suffix."
-        ))
-        XCTAssertTrue(guideSheetXML.contains("Cluster-level known genotype evidence."))
-        XCTAssertFalse(guideSheetXML.contains("zero SNP differences and zero indel bases"))
-        XCTAssertTrue(guideSheetXML.contains("Blank closest-match fields mean the unmatched cluster had no mapped SAM hit."))
-        XCTAssertTrue(guideSheetXML.contains("MHC-like unmatched rescue"))
-        XCTAssertTrue(guideSheetXML.contains("local-blast-rescue"))
+        let unifiedSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet1.xml", from: result.workbookURL)
+        XCTAssertTrue(unifiedSheetXML.contains("Client ID"))
+        XCTAssertTrue(unifiedSheetXML.contains("Mapped Read Count"))
+        XCTAssertTrue(unifiedSheetXML.contains("MHC-A Haplotype 1"))
+        XCTAssertTrue(unifiedSheetXML.contains("Comments"))
+        XCTAssertTrue(unifiedSheetXML.contains("call_type"))
+        XCTAssertTrue(unifiedSheetXML.contains("display_name"))
 
-        let samplesSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet2.xml", from: result.workbookURL)
-        XCTAssertTrue(samplesSheetXML.contains("sample_unique_retained_percent"))
-        XCTAssertTrue(samplesSheetXML.contains("overall_unique_retained_percent"))
-
-        let genotypesSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet3.xml", from: result.workbookURL)
-        XCTAssertTrue(genotypesSheetXML.contains("genotype"))
-        XCTAssertTrue(genotypesSheetXML.contains("cluster"))
-        XCTAssertTrue(genotypesSheetXML.contains("allele_length"))
-        XCTAssertTrue(genotypesSheetXML.contains("aligned_bases"))
-        XCTAssertFalse(genotypesSheetXML.contains("overall_unique_retained_percent"))
-
-        let pivotSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet4.xml", from: result.workbookURL)
-        XCTAssertTrue(pivotSheetXML.contains("Client ID"))
-        for sheetNumber in 5...8 {
-            let unmatchedXML = try Self.unzippedText(
-                path: "xl/worksheets/sheet\(sheetNumber).xml",
-                from: result.workbookURL
-            )
-            XCTAssertFalse(unmatchedXML.contains("_extension"), "Legacy extension label leaked into sheet \(sheetNumber)")
-            XCTAssertNil(
-                unmatchedXML.range(of: #"_[0-9]+SNP"#, options: .regularExpression),
-                "Legacy SNP label leaked into sheet \(sheetNumber)"
-            )
-        }
-        let candidateSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet10.xml", from: result.workbookURL)
-        XCTAssertTrue(candidateSheetXML.contains("Stable Cluster ID"))
-        XCTAssertTrue(candidateSheetXML.contains("Provisional Name"))
-        let unnameableSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet11.xml", from: result.workbookURL)
-        XCTAssertTrue(unnameableSheetXML.contains("Stable Cluster ID"))
-        XCTAssertTrue(unnameableSheetXML.contains("Reason"))
+        let unmatchedSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet2.xml", from: result.workbookURL)
+        XCTAssertTrue(unmatchedSheetXML.contains("Stable Cluster ID"))
+        XCTAssertTrue(unmatchedSheetXML.contains("Nucleotide Sequence"))
+        XCTAssertTrue(unmatchedSheetXML.contains("Putative Amino Acid Translation"))
+        XCTAssertTrue(unmatchedSheetXML.contains("Translation Status"))
         XCTAssertTrue(try Self.unzippedText(path: "xl/styles.xml", from: result.workbookURL).contains("FFF5D78E"))
     }
 
@@ -2674,7 +2640,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(workbookProjectionStep.resolvedOptions["singletonExtensionTint"]?.stringValue, "AFCBF2")
         XCTAssertGreaterThan(workbookProjectionInput.sourceSummary.reportRowCount, 0)
         XCTAssertEqual(workbookProjectionInput.sourceSummary.sampleSummaryCount, 1)
-        XCTAssertFalse(workbookProjectionInput.sheets.isEmpty)
+        XCTAssertEqual(workbookProjectionInput.schemaVersion, 2)
+        XCTAssertEqual(workbookProjectionInput.sheets.map(\.name), ["Unified Genotype Pivot", "Unmatched Alleles"])
         XCTAssertEqual(workbookProjectionStep.outputs.map(\.path), [result.primaryWorkbookURL.path])
         for descriptor in workbookProjectionStep.inputs + workbookProjectionStep.outputs {
             XCTAssertNotNil(descriptor.checksumSHA256)
@@ -2688,8 +2655,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(Set(workbookAssemblyStep.inputs.map(\.path)).isSuperset(of: [
             try XCTUnwrap(result.candidateAllelesJSONURL).path,
             try XCTUnwrap(result.candidateAllelesFASTAURL).path,
+            try XCTUnwrap(result.candidateAllelesGenBankURL).path,
             try XCTUnwrap(result.unnameableClustersJSONURL).path,
             try XCTUnwrap(result.unnameableClustersFASTAURL).path,
+            try XCTUnwrap(result.unnameableClustersGenBankURL).path,
             try XCTUnwrap(result.genotypingEvidenceBAMURL).path,
             try XCTUnwrap(result.genotypingEvidenceBAIURL).path,
             try XCTUnwrap(result.reciprocalEvidenceBAMURL).path,
@@ -2699,6 +2668,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             result.deduplicatedUnmatchedClustersFASTAURL.path,
             result.referenceFASTAURL.path,
         ]))
+        XCTAssertTrue(workbookAssemblyStep.inputs.contains { $0.path.hasSuffix("/artifacts/reference/mhc-reference-catalog.json") })
         XCTAssertEqual(
             value(after: "--candidate-fasta", in: workbookAssemblyStep.argv),
             try XCTUnwrap(result.candidateAllelesFASTAURL).path
@@ -2706,6 +2676,14 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(
             value(after: "--unnameable-fasta", in: workbookAssemblyStep.argv),
             try XCTUnwrap(result.unnameableClustersFASTAURL).path
+        )
+        XCTAssertEqual(
+            value(after: "--candidate-genbank", in: workbookAssemblyStep.argv),
+            try XCTUnwrap(result.candidateAllelesGenBankURL).path
+        )
+        XCTAssertEqual(
+            value(after: "--unnameable-genbank", in: workbookAssemblyStep.argv),
+            try XCTUnwrap(result.unnameableClustersGenBankURL).path
         )
         XCTAssertEqual(
             value(after: "--genotyping-bam", in: workbookAssemblyStep.argv),
@@ -3653,14 +3631,14 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(report.contains("DL46,ref-b,7,7,"), report)
 
         let genotypeSheet = try Self.unzippedText(
-            path: "xl/worksheets/sheet3.xml",
+            path: "xl/worksheets/sheet1.xml",
             from: result.primaryWorkbookURL
         )
-        XCTAssertTrue(genotypeSheet.contains("reference_sequence_id"), genotypeSheet)
+        XCTAssertTrue(genotypeSheet.contains("call_id"), genotypeSheet)
+        XCTAssertTrue(genotypeSheet.contains("display_name"), genotypeSheet)
         XCTAssertTrue(genotypeSheet.contains("ref-a"), genotypeSheet)
         XCTAssertTrue(genotypeSheet.contains("ref-b"), genotypeSheet)
-        XCTAssertTrue(genotypeSheet.contains("cigar"), genotypeSheet)
-        XCTAssertTrue(genotypeSheet.contains("evidence_bam_path"), genotypeSheet)
+        XCTAssertTrue(genotypeSheet.contains("known-allele"), genotypeSheet)
     }
 
     func testFullLengthPivotWorkbookRowsMatchMiSeqFullSequencingFormatAndSorting() {
