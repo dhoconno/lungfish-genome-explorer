@@ -27,9 +27,11 @@ Parse an allele display name in the general form `<species-prefix>-<locus>*<alle
 10. Any other named locus, ordered naturally by the complete display name.
 11. Rows without a provisional display name.
 
-Within a locus group, compare the locus and allele components with numeric-aware natural ordering. Species prefix is used only after locus and allele when different species prefixes appear in one result. When two distinct sequences have the same display name, use stable cluster ID and then the existing deterministic row identity as tie-breakers. Blank provisional names sort by stable cluster ID.
+Within a locus group, compare the locus and allele components with a locale-independent ASCII-natural ordering. Split expected MHC identifiers into ASCII digit and non-digit chunks; compare numeric chunks by overflow-free magnitude and non-digit chunks by ASCII-lowercased scalar order. This makes Swift viewport/initial-workbook ordering and Python explicit-update ordering identical, including expression suffixes and generated `_nov`/`_ext` suffixes. Species prefix is used only after locus and allele when different species prefixes appear in one result. When two distinct sequences have the same display name, use stable cluster ID and then exact scalar fallbacks as deterministic tie-breakers. Blank provisional names sort by stable cluster ID.
 
 The parser must match the exact locus token between the species-prefix separator and `*`; for example, `G` and `AG` are distinct groups. It must not contain hard-coded `Mafa` or `Mamu` behavior.
+
+Numbered A/B loci use ASCII digits, and optional B-locus suffixes use ASCII letters. Non-ASCII names are retained as unspecified loci rather than being assigned different biological ranks by different runtime libraries.
 
 ## Architecture
 
@@ -51,6 +53,7 @@ Add test-first coverage for:
 - the same ordering fixtures under at least `Mafa-` and `Mamu-` prefixes;
 - `B*` before numbered/suffixed B loci;
 - natural numeric order within A, B, and allele-number groups;
+- identical Swift/Python order for expression suffixes and `_nov`/`_ext` names;
 - exact separation of `G` and `AG`;
 - unspecified and blank names at the bottom;
 - duplicate provisional names remaining as separate stable-ID rows;

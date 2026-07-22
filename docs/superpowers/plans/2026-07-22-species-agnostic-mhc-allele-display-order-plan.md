@@ -6,7 +6,7 @@
 
 **Architecture:** Add one public Swift comparator to `LungfishIO`, which is already imported by the workflow and genotype UI targets. Initial workbook generation and the viewport call that comparator directly; the embedded Python workbook updater mirrors the same documented tuple key because it executes outside Swift. No scientific schema or artifact changes are required.
 
-**Tech Stack:** Swift 6.2, Foundation natural string comparison, XCTest, Python/openpyxl embedded by the workbook revision service, Swift Package Manager.
+**Tech Stack:** Swift 6.2, locale-independent ASCII-natural string comparison, XCTest, Python/openpyxl embedded by the workbook revision service, Swift Package Manager.
 
 ---
 
@@ -67,7 +67,7 @@ public enum MHCAlleleDisplayOrder {
 }
 ```
 
-Parse the final `-` before the first `*` as the species/locus separator. Build a structured key whose group is: numbered `A` = 0, exact `B` = 1, numbered/suffixed `B` = 2, exact `I` = 3, `F` = 4, `G` = 5, `AG` = 6, `J` = 7, `K` = 8, unspecified nonblank = 9, blank = 10. Compare group, locus with `localizedStandardCompare`, allele with `localizedStandardCompare`, species prefix, complete name, stable ID. Treat comparisons that remain equal as `.orderedSame`.
+Parse the final `-` before the first `*` as the species/locus separator. Build a structured key whose group is: numbered `A` = 0, exact `B` = 1, numbered/suffixed `B` = 2, exact `I` = 3, `F` = 4, `G` = 5, `AG` = 6, `J` = 7, `K` = 8, unspecified nonblank = 9, blank = 10. Compare group, locus, allele, species prefix, complete name, and stable ID with the same locale-independent ASCII digit/non-digit token comparator used by the embedded Python updater, followed by exact scalar fallbacks. Treat comparisons that remain equal as `.orderedSame`.
 
 - [ ] **Step 4: Run the shared tests and verify GREEN**
 
@@ -180,7 +180,7 @@ def mhc_display_sort_key(display_name, stable_id=""):
     return (group, natural_key(locus), natural_key(allele), natural_key(species), natural_key(name), natural_key(stable_id))
 ```
 
-Implement `natural_key` with case-folded digit/non-digit chunks and `mhc_locus_group` with the same exact groups as Swift. Build one combined Unified row list before appending it, and sort normalized unmatched rows solely by provisional-name key plus stable ID.
+Implement `natural_key` with ASCII-lowercased digit/non-digit chunks and `mhc_locus_group` with the same exact groups as Swift. Numeric chunks compare by overflow-free magnitude, and exact string fallbacks resolve natural ties. Build one combined Unified row list before appending it, and sort normalized unmatched rows solely by provisional-name key plus stable ID.
 
 - [ ] **Step 4: Run revision and related projection tests**
 
