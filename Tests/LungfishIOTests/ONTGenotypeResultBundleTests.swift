@@ -525,6 +525,30 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertTrue(result.integrityWarnings.first?.detail.contains("aggregate") == true)
     }
 
+    func testGenBankCompanionsAreValidatedWithoutCountingTowardParsedArtifactBudget() throws {
+        let fixture = try CandidateBundleFixture(includeGenBankArtifacts: true)
+        defer { fixture.remove() }
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let artifacts = try XCTUnwrap(manifest.mhcCandidateArtifacts)
+        let parsedBytes = [
+            artifacts.candidateJSON,
+            artifacts.candidateFASTA,
+            artifacts.unnameableJSON,
+            artifacts.unnameableFASTA,
+        ].compactMap { $0 }.reduce(Int64(0)) { $0 + $1.sizeBytes }
+
+        let result = try ONTGenotypeResultBundle.loadResult(
+            from: fixture.bundleURL,
+            candidateArtifactByteBudget: parsedBytes
+        )
+
+        XCTAssertNotNil(result.mhcCandidates)
+        XCTAssertNotNil(result.mhcUnnameableClusters)
+        XCTAssertTrue(result.integrityWarnings.isEmpty)
+        XCTAssertNotNil(artifacts.candidateGenBank)
+        XCTAssertNotNil(artifacts.unnameableGenBank)
+    }
+
     func testRoleAwareEvidenceAcceptsTypedBAMPathsWithoutBAMExtensions() throws {
         let fixture = try CandidateBundleFixture(
             genotypingBAMPath: "artifacts/alignments/genotyping-evidence.data",
@@ -1697,6 +1721,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
 
         init(
             includeCandidateArtifacts: Bool = true,
+            includeGenBankArtifacts: Bool = false,
             candidateDirectory: String = "",
             candidateArtifactManifestSchemaVersion: Int = 1,
             candidateSchemaVersion: Int = 1,
@@ -1746,6 +1771,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             candidateFASTAURL = candidateRoot.appendingPathComponent("candidate_alleles.fasta")
             let unnameableJSONURL = candidateRoot.appendingPathComponent("unnameable.json")
             let unnameableFASTAURL = candidateRoot.appendingPathComponent("unnameable.fasta")
+            let candidateGenBankURL = candidateRoot.appendingPathComponent("candidate_alleles.gb")
+            let unnameableGenBankURL = candidateRoot.appendingPathComponent("unnameable_unmatched_clusters.gb")
             let genotypingBAM = bundleURL.appendingPathComponent(genotypingBAMPath)
             let genotypingBAI = bundleURL.appendingPathComponent(genotypingBAIPath)
             let reciprocalBAM = bundleURL.appendingPathComponent(reciprocalBAMPath)
@@ -1767,6 +1794,10 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                 .joined()
             try Data(candidateFASTA.utf8).write(to: candidateFASTAURL)
             try Data(">\(unnameableID)\n\(unnameableSequence)\n".utf8).write(to: unnameableFASTAURL)
+            if includeGenBankArtifacts {
+                try Data("LOCUS       \(candidateID)\n//\n".utf8).write(to: candidateGenBankURL)
+                try Data("LOCUS       \(unnameableID)\n//\n".utf8).write(to: unnameableGenBankURL)
+            }
 
             let candidateRelative = Self.relative("candidate-alleles.json", directory: candidateDirectory)
             let candidateFASTARelative = Self.relative("candidate_alleles.fasta", directory: candidateDirectory)
@@ -2000,8 +2031,20 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                     reciprocalEvidence: reciprocalPair,
                     candidateJSON: Self.reference(candidateJSONURL, path: candidateRelative),
                     candidateFASTA: actualCandidateFASTAReference,
+                    candidateGenBank: includeGenBankArtifacts
+                        ? Self.reference(
+                            candidateGenBankURL,
+                            path: Self.relative("candidate_alleles.gb", directory: candidateDirectory)
+                        )
+                        : nil,
                     unnameableJSON: Self.reference(unnameableJSONURL, path: unnameableRelative),
-                    unnameableFASTA: unnameableFASTAReference
+                    unnameableFASTA: unnameableFASTAReference,
+                    unnameableGenBank: includeGenBankArtifacts
+                        ? Self.reference(
+                            unnameableGenBankURL,
+                            path: Self.relative("unnameable_unmatched_clusters.gb", directory: candidateDirectory)
+                        )
+                        : nil
                 )
                 : nil
             let manifest = ONTGenotypeResultBundleManifest(

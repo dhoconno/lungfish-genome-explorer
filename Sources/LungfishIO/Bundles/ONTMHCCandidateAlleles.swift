@@ -39,8 +39,10 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
     public let reciprocalEvidence: ONTMHCBAMArtifactPair?
     public let candidateJSON: ONTMHCArtifactReference?
     public let candidateFASTA: ONTMHCArtifactReference?
+    public let candidateGenBank: ONTMHCArtifactReference?
     public let unnameableJSON: ONTMHCArtifactReference?
     public let unnameableFASTA: ONTMHCArtifactReference?
+    public let unnameableGenBank: ONTMHCArtifactReference?
 
     public init(
         schemaVersion: Int,
@@ -51,13 +53,39 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
         unnameableJSON: ONTMHCArtifactReference?,
         unnameableFASTA: ONTMHCArtifactReference?
     ) {
+        self.init(
+            schemaVersion: schemaVersion,
+            genotypingEvidence: genotypingEvidence,
+            reciprocalEvidence: reciprocalEvidence,
+            candidateJSON: candidateJSON,
+            candidateFASTA: candidateFASTA,
+            candidateGenBank: nil,
+            unnameableJSON: unnameableJSON,
+            unnameableFASTA: unnameableFASTA,
+            unnameableGenBank: nil
+        )
+    }
+
+    public init(
+        schemaVersion: Int,
+        genotypingEvidence: ONTMHCBAMArtifactPair?,
+        reciprocalEvidence: ONTMHCBAMArtifactPair?,
+        candidateJSON: ONTMHCArtifactReference?,
+        candidateFASTA: ONTMHCArtifactReference?,
+        candidateGenBank: ONTMHCArtifactReference? = nil,
+        unnameableJSON: ONTMHCArtifactReference?,
+        unnameableFASTA: ONTMHCArtifactReference?,
+        unnameableGenBank: ONTMHCArtifactReference? = nil
+    ) {
         self.schemaVersion = schemaVersion
         self.genotypingEvidence = genotypingEvidence
         self.reciprocalEvidence = reciprocalEvidence
         self.candidateJSON = candidateJSON
         self.candidateFASTA = candidateFASTA
+        self.candidateGenBank = candidateGenBank
         self.unnameableJSON = unnameableJSON
         self.unnameableFASTA = unnameableFASTA
+        self.unnameableGenBank = unnameableGenBank
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -66,8 +94,10 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
         case reciprocalEvidence = "reciprocal_evidence"
         case candidateJSON = "candidate_json"
         case candidateFASTA = "candidate_fasta"
+        case candidateGenBank = "candidate_genbank"
         case unnameableJSON = "unnameable_json"
         case unnameableFASTA = "unnameable_fasta"
+        case unnameableGenBank = "unnameable_genbank"
     }
 }
 
@@ -639,6 +669,7 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
     public let sequenceSHA256: String
     public let reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary
     public let selectedEvidence: ONTMHCEvidenceLocator
+    public let selectedAlignmentIsReverse: Bool?
 
     public var reciprocalAlignmentCount: Int { reciprocalHitSummary.alignmentCount }
     public var reciprocalEdgeCount: Int { reciprocalHitSummary.targetEdgeCount }
@@ -694,6 +725,63 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
             sequenceSHA256: sequenceSHA256,
             reciprocalHitSummary: reciprocalHitSummary,
             selectedEvidence: selectedEvidence,
+            selectedAlignmentIsReverse: nil
+        )
+    }
+
+    public init(
+        stableClusterID: String,
+        provisionalName: String,
+        locus: String,
+        classification: ONTMHCCandidateClassification,
+        supportClass: ONTMHCCandidateSupportClass,
+        closestReferenceName: String,
+        closestReferenceClass: MHCReferenceMoleculeClass,
+        snpCount: Int,
+        insertedBases: Int,
+        deletedBases: Int,
+        longGapBases: Int,
+        comparableBases: Int,
+        shorterCoverage: Double,
+        identity: Double,
+        mappingQuality: Int,
+        alignmentScore: Int,
+        independentSampleCount: Int,
+        occurrenceCount: Int,
+        totalClusterReads: Int,
+        supportingSampleIDs: [String],
+        fastaRecordID: String,
+        sequenceSHA256: String,
+        reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
+        selectedEvidence: ONTMHCEvidenceLocator,
+        selectedAlignmentIsReverse: Bool? = nil
+    ) {
+        self.init(
+            stableClusterID: stableClusterID,
+            provisionalName: provisionalName,
+            locus: locus,
+            classification: classification,
+            supportClass: supportClass,
+            closestReferenceName: closestReferenceName,
+            closestReferenceClass: closestReferenceClass,
+            snpCount: snpCount,
+            insertedBases: insertedBases,
+            deletedBases: deletedBases,
+            longGapBases: longGapBases,
+            comparableBases: comparableBases,
+            shorterCoverage: shorterCoverage,
+            identity: identity,
+            mappingQuality: mappingQuality,
+            alignmentScore: alignmentScore,
+            independentSampleCount: independentSampleCount,
+            occurrenceCount: occurrenceCount,
+            totalClusterReads: totalClusterReads,
+            supportingSampleIDs: supportingSampleIDs,
+            fastaRecordID: fastaRecordID,
+            sequenceSHA256: sequenceSHA256,
+            reciprocalHitSummary: reciprocalHitSummary,
+            selectedEvidence: selectedEvidence,
+            selectedAlignmentIsReverse: selectedAlignmentIsReverse,
             initialize: ()
         )
     }
@@ -722,6 +810,60 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         fastaRecordID: String,
         sequenceSHA256: String,
         selectedEvidence: ONTMHCEvidenceLocator
+    ) {
+        self.init(
+            stableClusterID: stableClusterID,
+            provisionalName: provisionalName,
+            locus: locus,
+            classification: classification,
+            supportClass: supportClass,
+            closestReferenceName: closestReferenceName,
+            closestReferenceClass: closestReferenceClass,
+            snpCount: snpCount,
+            insertedBases: insertedBases,
+            deletedBases: deletedBases,
+            longGapBases: longGapBases,
+            comparableBases: comparableBases,
+            shorterCoverage: shorterCoverage,
+            identity: identity,
+            mappingQuality: mappingQuality,
+            alignmentScore: alignmentScore,
+            independentSampleCount: independentSampleCount,
+            occurrenceCount: occurrenceCount,
+            totalClusterReads: totalClusterReads,
+            supportingSampleIDs: supportingSampleIDs,
+            fastaRecordID: fastaRecordID,
+            sequenceSHA256: sequenceSHA256,
+            selectedEvidence: selectedEvidence,
+            selectedAlignmentIsReverse: nil
+        )
+    }
+
+    public init(
+        stableClusterID: String,
+        provisionalName: String,
+        locus: String,
+        classification: ONTMHCCandidateClassification,
+        supportClass: ONTMHCCandidateSupportClass,
+        closestReferenceName: String,
+        closestReferenceClass: MHCReferenceMoleculeClass,
+        snpCount: Int,
+        insertedBases: Int,
+        deletedBases: Int,
+        longGapBases: Int,
+        comparableBases: Int,
+        shorterCoverage: Double,
+        identity: Double,
+        mappingQuality: Int,
+        alignmentScore: Int,
+        independentSampleCount: Int,
+        occurrenceCount: Int,
+        totalClusterReads: Int,
+        supportingSampleIDs: [String],
+        fastaRecordID: String,
+        sequenceSHA256: String,
+        selectedEvidence: ONTMHCEvidenceLocator,
+        selectedAlignmentIsReverse: Bool? = nil
     ) {
         let reciprocalHitSummary = ONTMHCReciprocalQueryHitSummary(
             uncheckedBAMPath: selectedEvidence.bamPath,
@@ -756,6 +898,7 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
             sequenceSHA256: sequenceSHA256,
             reciprocalHitSummary: reciprocalHitSummary,
             selectedEvidence: selectedEvidence,
+            selectedAlignmentIsReverse: selectedAlignmentIsReverse,
             initialize: ()
         )
     }
@@ -785,6 +928,7 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         sequenceSHA256: String,
         reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
         selectedEvidence: ONTMHCEvidenceLocator,
+        selectedAlignmentIsReverse: Bool?,
         initialize: Void
     ) {
         self.stableClusterID = stableClusterID
@@ -811,6 +955,7 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         self.sequenceSHA256 = sequenceSHA256
         self.reciprocalHitSummary = reciprocalHitSummary
         self.selectedEvidence = selectedEvidence
+        self.selectedAlignmentIsReverse = selectedAlignmentIsReverse
     }
 
     public init(from decoder: Decoder) throws {
@@ -853,6 +998,10 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
             sequenceSHA256: try container.decode(String.self, forKey: .sequenceSHA256),
             reciprocalHitSummary: reciprocalHitSummary,
             selectedEvidence: selectedEvidence,
+            selectedAlignmentIsReverse: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .selectedAlignmentIsReverse
+            ),
             initialize: ()
         )
     }
@@ -883,6 +1032,7 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         try container.encode(sequenceSHA256, forKey: .sequenceSHA256)
         try container.encode(reciprocalHitSummary, forKey: .reciprocalHitSummary)
         try container.encode(selectedEvidence, forKey: .selectedEvidence)
+        try container.encodeIfPresent(selectedAlignmentIsReverse, forKey: .selectedAlignmentIsReverse)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -910,6 +1060,7 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         case sequenceSHA256 = "sequence_sha256"
         case reciprocalHitSummary = "reciprocal_hit_summary"
         case selectedEvidence = "selected_evidence"
+        case selectedAlignmentIsReverse = "selected_alignment_is_reverse"
     }
 }
 
@@ -926,6 +1077,7 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
     public let sequenceSHA256: String
     public let reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary
     public let selectedEvidence: ONTMHCEvidenceLocator?
+    public let selectedAlignmentIsReverse: Bool?
     /// Retained only when decoding or constructing schema-version 1 records.
     public let evidence: [ONTMHCEvidenceLocator]
     private let evidenceWireShape: ONTMHCEvidenceWireShape
@@ -947,6 +1099,38 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
         selectedEvidence: ONTMHCEvidenceLocator?
     ) {
+        self.init(
+            stableClusterID: stableClusterID,
+            reason: reason,
+            failedMetrics: failedMetrics,
+            supportClass: supportClass,
+            independentSampleCount: independentSampleCount,
+            occurrenceCount: occurrenceCount,
+            totalClusterReads: totalClusterReads,
+            supportingSampleIDs: supportingSampleIDs,
+            fastaRecordID: fastaRecordID,
+            sequenceSHA256: sequenceSHA256,
+            reciprocalHitSummary: reciprocalHitSummary,
+            selectedEvidence: selectedEvidence,
+            selectedAlignmentIsReverse: nil
+        )
+    }
+
+    public init(
+        stableClusterID: String,
+        reason: ONTMHCUnnameableReason,
+        failedMetrics: [String: Double],
+        supportClass: ONTMHCCandidateSupportClass,
+        independentSampleCount: Int,
+        occurrenceCount: Int,
+        totalClusterReads: Int,
+        supportingSampleIDs: [String],
+        fastaRecordID: String,
+        sequenceSHA256: String,
+        reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
+        selectedEvidence: ONTMHCEvidenceLocator?,
+        selectedAlignmentIsReverse: Bool? = nil
+    ) {
         self.stableClusterID = stableClusterID
         self.reason = reason
         self.failedMetrics = failedMetrics
@@ -959,6 +1143,7 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         self.sequenceSHA256 = sequenceSHA256
         self.reciprocalHitSummary = reciprocalHitSummary
         self.selectedEvidence = selectedEvidence
+        self.selectedAlignmentIsReverse = selectedAlignmentIsReverse
         self.evidence = []
         self.evidenceWireShape = .compactSummaries
     }
@@ -991,6 +1176,7 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
             evidence: evidence
         )
         self.selectedEvidence = nil
+        self.selectedAlignmentIsReverse = nil
         self.evidence = evidence
         self.evidenceWireShape = .legacyLocators
     }
@@ -1026,6 +1212,10 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
                 selectedEvidence: try container.decodeIfPresent(
                     ONTMHCEvidenceLocator.self,
                     forKey: .selectedEvidence
+                ),
+                selectedAlignmentIsReverse: try container.decodeIfPresent(
+                    Bool.self,
+                    forKey: .selectedAlignmentIsReverse
                 )
             )
         } else {
@@ -1066,6 +1256,7 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         case .compactSummaries:
             try container.encode(reciprocalHitSummary, forKey: .reciprocalHitSummary)
             try container.encodeIfPresent(selectedEvidence, forKey: .selectedEvidence)
+            try container.encodeIfPresent(selectedAlignmentIsReverse, forKey: .selectedAlignmentIsReverse)
         }
     }
 
@@ -1101,6 +1292,7 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         case sequenceSHA256 = "sequence_sha256"
         case reciprocalHitSummary = "reciprocal_hit_summary"
         case selectedEvidence = "selected_evidence"
+        case selectedAlignmentIsReverse = "selected_alignment_is_reverse"
         case evidence
     }
 }

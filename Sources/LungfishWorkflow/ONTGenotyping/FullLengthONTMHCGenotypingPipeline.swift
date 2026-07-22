@@ -374,8 +374,10 @@ public struct FullLengthONTMHCGenotypingResult: Sendable, Codable, Equatable {
     public let reciprocalEvidenceBAIURL: URL?
     public let candidateAllelesJSONURL: URL?
     public let candidateAllelesFASTAURL: URL?
+    public let candidateAllelesGenBankURL: URL?
     public let unnameableClustersJSONURL: URL?
     public let unnameableClustersFASTAURL: URL?
+    public let unnameableClustersGenBankURL: URL?
     public let cleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning]
 }
 
@@ -399,8 +401,10 @@ extension FullLengthONTMHCGenotypingResult {
         case reciprocalEvidenceBAIURL
         case candidateAllelesJSONURL
         case candidateAllelesFASTAURL
+        case candidateAllelesGenBankURL
         case unnameableClustersJSONURL
         case unnameableClustersFASTAURL
+        case unnameableClustersGenBankURL
         case cleanupWarnings
     }
 
@@ -427,8 +431,10 @@ extension FullLengthONTMHCGenotypingResult {
         reciprocalEvidenceBAIURL = try container.decodeIfPresent(URL.self, forKey: .reciprocalEvidenceBAIURL)
         candidateAllelesJSONURL = try container.decodeIfPresent(URL.self, forKey: .candidateAllelesJSONURL)
         candidateAllelesFASTAURL = try container.decodeIfPresent(URL.self, forKey: .candidateAllelesFASTAURL)
+        candidateAllelesGenBankURL = try container.decodeIfPresent(URL.self, forKey: .candidateAllelesGenBankURL)
         unnameableClustersJSONURL = try container.decodeIfPresent(URL.self, forKey: .unnameableClustersJSONURL)
         unnameableClustersFASTAURL = try container.decodeIfPresent(URL.self, forKey: .unnameableClustersFASTAURL)
+        unnameableClustersGenBankURL = try container.decodeIfPresent(URL.self, forKey: .unnameableClustersGenBankURL)
         cleanupWarnings = try container.decodeIfPresent(
             [FullLengthONTMHCGenotypingCleanupWarning].self,
             forKey: .cleanupWarnings
@@ -455,8 +461,10 @@ extension FullLengthONTMHCGenotypingResult {
         try container.encodeIfPresent(reciprocalEvidenceBAIURL, forKey: .reciprocalEvidenceBAIURL)
         try container.encodeIfPresent(candidateAllelesJSONURL, forKey: .candidateAllelesJSONURL)
         try container.encodeIfPresent(candidateAllelesFASTAURL, forKey: .candidateAllelesFASTAURL)
+        try container.encodeIfPresent(candidateAllelesGenBankURL, forKey: .candidateAllelesGenBankURL)
         try container.encodeIfPresent(unnameableClustersJSONURL, forKey: .unnameableClustersJSONURL)
         try container.encodeIfPresent(unnameableClustersFASTAURL, forKey: .unnameableClustersFASTAURL)
+        try container.encodeIfPresent(unnameableClustersGenBankURL, forKey: .unnameableClustersGenBankURL)
         try container.encode(cleanupWarnings, forKey: .cleanupWarnings)
     }
 }
@@ -1278,6 +1286,15 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         let candidateReferenceRecords = referenceCatalog.records
         pipelineSteps.append(referenceCatalog.step)
+        let candidateReferenceAnnotationInputURLs = request.referenceSourceURL.pathExtension.lowercased() == "lungfishref"
+            ? try mhcReferenceVisualizationInputURLs(
+                sourceURL: request.referenceSourceURL,
+                fastaURL: referenceFASTAURL
+            )
+            : try mhcReferenceCatalogInputURLs(
+                sourceURL: request.referenceSourceURL,
+                fastaURL: referenceFASTAURL
+            )
         let candidateArtifactResult = try await candidateWriter.stage(.init(
             observations: unmatchedClosestMatchRows.map {
                 FullLengthONTMHCCandidateSequenceObservation(
@@ -1290,12 +1307,16 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 )
             },
             referenceAlleleFASTAURL: referenceFASTAURL,
+            referenceBundleURL: request.referenceSourceURL,
+            referenceAnnotationInputURLs: candidateReferenceAnnotationInputURLs,
             referenceRecords: candidateReferenceRecords,
             genotypingEvidence: evidenceArtifactPair,
             threads: request.threads,
             outputDirectoryURL: request.outputDirectory,
             finalOutputDirectoryURL: logicalFinalOutputURL,
-            workDirectoryURL: candidateWorkDirectory
+            workDirectoryURL: candidateWorkDirectory,
+            analysisName: request.outputName,
+            projectBundleName: request.projectURL?.lastPathComponent
         ))
         pipelineSteps.append(FullLengthONTMHCProvenanceStep(
             toolName: "lungfish MHC genotyping hit summary accumulator",
@@ -1404,6 +1425,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ONTMHCCandidateAllelesDocument.self,
             from: Data(contentsOf: candidateArtifactResult.candidateJSONURL)
         )
+        let unnameableDocument = try JSONDecoder().decode(
+            ONTMHCUnnameableClustersDocument.self,
+            from: Data(contentsOf: candidateArtifactResult.unnameableJSONURL)
+        )
         let referenceVisualizationPublication = try publishMHCReferenceVisualizations(
             referenceBundleURL: request.referenceSourceURL,
             referenceFASTAURL: referenceFASTAURL,
@@ -1412,6 +1437,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             exactCallInputURL: request.reportCSVURL,
             candidateDocument: candidateDocument,
             candidateJSONURL: candidateArtifactResult.candidateJSONURL,
+            unnameableDocument: unnameableDocument,
+            unnameableJSONURL: candidateArtifactResult.unnameableJSONURL,
             outputDirectoryURL: request.outputDirectory,
             finalOutputDirectoryURL: logicalFinalOutputURL,
             steps: &pipelineSteps
@@ -1425,10 +1452,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             .readFASTARecords(from: referenceFASTAURL)
             .map(\.name)
         let workbookAssemblyStartedAt = Date()
-        let unnameableDocument = try JSONDecoder().decode(
-            ONTMHCUnnameableClustersDocument.self,
-            from: Data(contentsOf: candidateArtifactResult.unnameableJSONURL)
-        )
         let workbookProjection = try FullLengthONTMHCWorkbookProjection(
             candidateDocument: candidateDocument,
             unnameableDocument: unnameableDocument,
@@ -1711,8 +1734,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             reciprocalEvidenceBAIURL: candidateArtifactResult.reciprocalBAIURL,
             candidateAllelesJSONURL: candidateArtifactResult.candidateJSONURL,
             candidateAllelesFASTAURL: candidateArtifactResult.candidateFASTAURL,
+            candidateAllelesGenBankURL: candidateArtifactResult.candidateGenBankURL,
             unnameableClustersJSONURL: candidateArtifactResult.unnameableJSONURL,
             unnameableClustersFASTAURL: candidateArtifactResult.unnameableFASTAURL,
+            unnameableClustersGenBankURL: candidateArtifactResult.unnameableGenBankURL,
             cleanupWarnings: cleanupWarnings
         )
     }
@@ -2466,8 +2491,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             reciprocalEvidenceBAIURL: relocated(result.reciprocalEvidenceBAIURL),
             candidateAllelesJSONURL: relocated(result.candidateAllelesJSONURL),
             candidateAllelesFASTAURL: relocated(result.candidateAllelesFASTAURL),
+            candidateAllelesGenBankURL: relocated(result.candidateAllelesGenBankURL),
             unnameableClustersJSONURL: relocated(result.unnameableClustersJSONURL),
             unnameableClustersFASTAURL: relocated(result.unnameableClustersFASTAURL),
+            unnameableClustersGenBankURL: relocated(result.unnameableClustersGenBankURL),
             cleanupWarnings: result.cleanupWarnings.map { warning in
                 guard warning.path.hasPrefix(stagedOutputURL.path) else { return warning }
                 return FullLengthONTMHCGenotypingCleanupWarning(
@@ -2549,14 +2576,29 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     ) throws -> [URL] {
         var urls = try mhcReferenceCatalogInputURLs(sourceURL: sourceURL, fastaURL: fastaURL)
         let manifest = try BundleManifest.load(from: sourceURL)
-        guard let genome = manifest.genome else { return urls }
-        let fastaIndexURL = try BundleManifest.validatedBundleMemberURL(
-            for: genome.indexPath,
-            in: sourceURL,
-            field: "genome.index_path"
-        ).standardizedFileURL
-        if !urls.contains(where: { $0.standardizedFileURL == fastaIndexURL }) {
-            urls.append(fastaIndexURL)
+        func appendBundleMember(_ path: String, field: String) throws {
+            let url = try BundleManifest.validatedBundleMemberURL(
+                for: path,
+                in: sourceURL,
+                field: field
+            ).standardizedFileURL
+            if !urls.contains(where: { $0.standardizedFileURL == url }) {
+                urls.append(url)
+            }
+        }
+        if let genome = manifest.genome {
+            try appendBundleMember(genome.indexPath, field: "genome.index_path")
+            if let gzipIndexPath = genome.gzipIndexPath {
+                try appendBundleMember(gzipIndexPath, field: "genome.gzip_index_path")
+            }
+        }
+        for annotation in manifest.annotations {
+            if let databasePath = annotation.databasePath, !databasePath.isEmpty {
+                try appendBundleMember(
+                    databasePath,
+                    field: "annotations[\(annotation.id)].database_path"
+                )
+            }
         }
         return urls
     }
@@ -4300,6 +4342,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         exactCallInputURL: URL,
         candidateDocument: ONTMHCCandidateAllelesDocument,
         candidateJSONURL: URL,
+        unnameableDocument: ONTMHCUnnameableClustersDocument,
+        unnameableJSONURL: URL,
         outputDirectoryURL: URL,
         finalOutputDirectoryURL: URL,
         steps: inout [FullLengthONTMHCProvenanceStep]
@@ -4341,7 +4385,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             sourceURL: referenceBundleURL,
             fastaURL: referenceFASTAURL
         )
-        let inputs = (sourceReferenceURLs + [candidateJSONURL, exactCallInputURL]).reduce(
+        let inputs = (sourceReferenceURLs + [candidateJSONURL, unnameableJSONURL, exactCallInputURL]).reduce(
             into: [URL]()
         ) { unique, url in
             guard !unique.contains(where: {
@@ -4352,6 +4396,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let outputURLs = [recordsJSONURL, genBankURL, fastaURL]
         func extractionArgv(
             candidateJSONURL: URL?,
+            unnameableJSONURL: URL?,
             exactCallInputURL: URL?,
             outputURLs: [URL]
         ) -> [String] {
@@ -4361,6 +4406,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ]
             if let candidateJSONURL {
                 values += ["--candidate-json", candidateJSONURL.path]
+            }
+            if let unnameableJSONURL {
+                values += ["--unnameable-json", unnameableJSONURL.path]
             }
             if let exactCallInputURL {
                 values += ["--exact-call-input", exactCallInputURL.path]
@@ -4377,6 +4425,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         }
         let argv = extractionArgv(
             candidateJSONURL: candidateJSONURL,
+            unnameableJSONURL: unnameableJSONURL,
             exactCallInputURL: exactCallInputURL,
             outputURLs: outputURLs
         )
@@ -4387,7 +4436,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     exactKnownRawReferenceIDs.sorted().map(ParameterValue.string)
                 ),
                 "includeCandidateClosestReferences": .boolean(true),
+                "includeUnnameableClosestReferences": .boolean(true),
                 "candidateCount": .integer(candidateDocument.candidates.count),
+                "unnameableCount": .integer(unnameableDocument.clusters.count),
                 "jsonEncoding": .string("pretty-printed-sorted-keys-without-escaped-slashes"),
                 "companionOrdering": .string("source-ordinal-then-raw-reference-id"),
             ]
@@ -4421,7 +4472,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             let output = try MHCReferenceVisualizationArtifactBuilder().build(.init(
                 referenceBundleURL: referenceBundleURL,
                 exactKnownRawReferenceIDs: exactKnownRawReferenceIDs,
-                candidates: candidateDocument
+                candidates: candidateDocument,
+                unnameable: unnameableDocument
             ))
             try FileManager.default.createDirectory(
                 at: referenceDirectoryURL,
@@ -4505,18 +4557,24 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 candidateJSONURL,
                 name: "candidate-alleles.json"
             )
+            let retainedUnnameableJSONURL = retainFailureInput(
+                unnameableJSONURL,
+                name: "unnameable-unmatched-clusters.json"
+            )
             let retainedExactCallInputURL = retainFailureInput(
                 exactCallInputURL,
                 name: "exact-calls.csv"
             )
             let failedArgv = extractionArgv(
                 candidateJSONURL: retainedCandidateJSONURL,
+                unnameableJSONURL: retainedUnnameableJSONURL,
                 exactCallInputURL: retainedExactCallInputURL,
                 outputURLs: finalOutputURLs
             )
             var seenInputPaths = Set<String>()
             let failedInputs = (sourceReferenceURLs + [
                 retainedCandidateJSONURL,
+                retainedUnnameableJSONURL,
                 retainedExactCallInputURL,
             ].compactMap { $0 }).compactMap { url -> ProvenanceFileDescriptor? in
                 let path = url.standardizedFileURL.path
@@ -4903,8 +4961,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         explicit["mhcCandidateReciprocalBAI"] = .file(candidateArtifactResult.reciprocalBAIURL)
         explicit["mhcCandidateJSON"] = .file(candidateArtifactResult.candidateJSONURL)
         explicit["mhcCandidateFASTA"] = .file(candidateArtifactResult.candidateFASTAURL)
+        explicit["mhcCandidateGenBank"] = .file(candidateArtifactResult.candidateGenBankURL)
         explicit["mhcUnnameableJSON"] = .file(candidateArtifactResult.unnameableJSONURL)
         explicit["mhcUnnameableFASTA"] = .file(candidateArtifactResult.unnameableFASTAURL)
+        explicit["mhcUnnameableGenBank"] = .file(candidateArtifactResult.unnameableGenBankURL)
         if let referenceVisualizationPublication {
             explicit["mhcReferenceVisualizationRecords"] = .file(
                 referenceVisualizationPublication.recordsJSONURL
@@ -4986,8 +5046,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         .output(candidateArtifactResult.reciprocalBAIURL, format: .unknown, role: .index)
         .output(candidateArtifactResult.candidateJSONURL, format: .json, role: .output)
         .output(candidateArtifactResult.candidateFASTAURL, format: .fasta, role: .output)
+        .output(candidateArtifactResult.candidateGenBankURL, format: .genBank, role: .output)
         .output(candidateArtifactResult.unnameableJSONURL, format: .json, role: .output)
         .output(candidateArtifactResult.unnameableFASTAURL, format: .fasta, role: .output)
+        .output(candidateArtifactResult.unnameableGenBankURL, format: .genBank, role: .output)
 
         if let referenceVisualizationPublication {
             for outputURL in referenceVisualizationPublication.outputURLs {

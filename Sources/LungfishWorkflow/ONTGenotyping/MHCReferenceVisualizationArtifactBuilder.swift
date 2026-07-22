@@ -34,6 +34,19 @@ struct MHCReferenceVisualizationArtifactBuilder {
         let referenceBundleURL: URL
         let exactKnownRawReferenceIDs: Set<String>
         let candidates: ONTMHCCandidateAllelesDocument?
+        let unnameable: ONTMHCUnnameableClustersDocument?
+
+        init(
+            referenceBundleURL: URL,
+            exactKnownRawReferenceIDs: Set<String>,
+            candidates: ONTMHCCandidateAllelesDocument?,
+            unnameable: ONTMHCUnnameableClustersDocument? = nil
+        ) {
+            self.referenceBundleURL = referenceBundleURL
+            self.exactKnownRawReferenceIDs = exactKnownRawReferenceIDs
+            self.candidates = candidates
+            self.unnameable = unnameable
+        }
     }
 
     struct Output {
@@ -77,6 +90,16 @@ struct MHCReferenceVisualizationArtifactBuilder {
                 : .closestExtensionReference
             roleClusters[rawReferenceID, default: [:]][role.rawValue, default: []]
                 .insert(candidate.stableClusterID)
+        }
+
+        for cluster in inputs.unnameable?.clusters ?? [] {
+            guard let selectedEvidence = cluster.selectedEvidence else { continue }
+            let rawReferenceID = selectedEvidence.referenceName
+            requestedRawIDs.insert(rawReferenceID)
+            roleClusters[rawReferenceID, default: [:]][
+                ONTMHCReferenceVisualizationRole.closestUnnameableReference.rawValue,
+                default: []
+            ].insert(cluster.stableClusterID)
         }
 
         for rawReferenceID in requestedRawIDs.sorted() {
@@ -425,6 +448,7 @@ private extension MHCReferenceVisualizationArtifactBuilder {
             .exactKnownCall,
             .closestNovelReference,
             .closestExtensionReference,
+            .closestUnnameableReference,
         ]
         return roleOrder.compactMap { role in
             guard let clusters = roleClusters[role.rawValue] else { return nil }

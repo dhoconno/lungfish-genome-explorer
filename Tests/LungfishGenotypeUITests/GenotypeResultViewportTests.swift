@@ -65,7 +65,22 @@ final class GenotypeResultViewportTests: XCTestCase {
                 ),
             ],
             observations: [
-                makeCandidateObservation(cluster: stableClusterID, sample: "AnimalA", reads: 7),
+                ONTMHCCandidateObservation(
+                    stableClusterID: stableClusterID,
+                    sampleID: "AnimalA",
+                    readGroupID: "AnimalA",
+                    sourceClusterIDs: ["source-compact"],
+                    sourceClusterReadCounts: ["source-compact": 7],
+                    aggregatedSampleReadCount: 7,
+                    genotypingHitSummaries: [try ONTMHCGenotypingTargetHitSummary(
+                        bamPath: "artifacts/alignments/genotyping-evidence.bam",
+                        targetName: "AnimalA|source-compact",
+                        alignmentCount: 7,
+                        queryAlignmentCounts: ["compact-reference": 7],
+                        exactMatchQueryNames: [],
+                        closestMatchQueryNames: ["compact-reference"]
+                    )]
+                ),
             ],
             candidateSequences: [stableClusterID: String(repeating: "A", count: 24)],
             mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact(
@@ -92,6 +107,12 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.configure(result: result)
         controller.testingSelectCandidateRow(stableClusterID: stableClusterID)
         XCTAssertNotNil(onlyCandidateAlleleDetail(in: controller.view))
+        XCTAssertEqual(
+            controller.testingCurrentSelectionDetailRows.first {
+                $0.0 == "Genotyping Evidence"
+            }?.1,
+            "7 alignments in indexed BAM"
+        )
     }
 
     func testLegacyAndInvalidCandidateBundlesDoNotExposeControlsAndInvalidWarningIsNonfatal() {

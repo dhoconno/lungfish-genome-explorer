@@ -14,8 +14,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let bundle = root.appendingPathComponent("complete.lungfishref", isDirectory: true)
         let genomeDirectory = bundle.appendingPathComponent("genome", isDirectory: true)
         let metadataDirectory = bundle.appendingPathComponent("metadata", isDirectory: true)
+        let annotationDirectory = bundle.appendingPathComponent("annotations", isDirectory: true)
         try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: metadataDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: annotationDirectory, withIntermediateDirectories: true)
         let records: [(rawID: String, allele: String, sequence: String)] = [
             ("RAW_EXACT", "Mafa-E*02:01:01", String(repeating: "A", count: 1_200)),
             ("RAW_NOVEL_NEIGHBOR", "Mafa-A1*018:01:01:01", String(repeating: "C", count: 1_200)),
@@ -73,6 +75,20 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         }
         let databaseURL = metadataDirectory.appendingPathComponent("genbank_records.sqlite")
         let store = try GenBankRecordDatabase.create(records: genBankRecords, at: databaseURL)
+        let annotationBEDURL = annotationDirectory.appendingPathComponent("features.bed")
+        try records.map { record in
+            "\(record.rawID)\t0\t\(record.sequence.count)\t\(record.allele)\t0\t+\t0\t\(record.sequence.count)\t0,0,0\t1\t\(record.sequence.count),\t0,\tgene\tallele=\(record.allele)"
+        }.joined(separator: "\n").appending("\n").write(
+            to: annotationBEDURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let annotationDatabaseURL = annotationDirectory.appendingPathComponent("features.sqlite")
+        _ = try AnnotationDatabase.createFromBED(
+            bedURL: annotationBEDURL,
+            outputURL: annotationDatabaseURL
+        )
+        try Data().write(to: annotationDirectory.appendingPathComponent("features.bb"))
         try BundleManifest(
             name: "Complete MHC reference",
             identifier: "org.lungfish.tests.visualization-candidates",
@@ -83,6 +99,15 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 totalLength: Int64(records.reduce(0) { $0 + $1.sequence.count }),
                 chromosomes: chromosomes
             ),
+            annotations: [
+                AnnotationTrackInfo(
+                    id: "imported_annotations",
+                    name: "Imported Annotations",
+                    path: "annotations/features.bb",
+                    databasePath: "annotations/features.sqlite",
+                    featureCount: records.count
+                ),
+            ],
             recordStore: ReferenceRecordStoreInfo(
                 schemaVersion: GenBankRecordDatabase.schemaVersion,
                 format: ReferenceRecordStoreInfo.supportedFormat,
@@ -235,6 +260,15 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             try String(contentsOf: ONTGenotypeResultBundle.resolvedURL(for: descriptor.fasta.path, in: request.outputDirectory), encoding: .utf8),
             document.records.map(\.fastaText).joined()
         )
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+        let visualizationStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-in-process:extract-mhc-reference-visualizations"
+        })
+        XCTAssertTrue(visualizationStep.inputs.contains { $0.path == annotationDatabaseURL.path })
+        let candidateGenBankStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName.contains("render-mhc-candidate-genbank")
+        })
+        XCTAssertTrue(candidateGenBankStep.inputs.contains { $0.path == annotationDatabaseURL.path })
     }
 
     func testAnnotatedReferenceMetadataIsEmbeddedInPublishedGenotypeBundle() async throws {

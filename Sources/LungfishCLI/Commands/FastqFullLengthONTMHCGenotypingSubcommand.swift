@@ -177,8 +177,10 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             reciprocalEvidenceBAIPath: result.reciprocalEvidenceBAIURL?.path,
             candidateAllelesJSONPath: result.candidateAllelesJSONURL?.path,
             candidateAllelesFASTAPath: result.candidateAllelesFASTAURL?.path,
+            candidateAllelesGenBankPath: result.candidateAllelesGenBankURL?.path,
             unnameableClustersJSONPath: result.unnameableClustersJSONURL?.path,
             unnameableClustersFASTAPath: result.unnameableClustersFASTAURL?.path,
+            unnameableClustersGenBankPath: result.unnameableClustersGenBankURL?.path,
             referenceCatalogJSONPath: result.outputDirectory
                 .appendingPathComponent("artifacts/reference/mhc-reference-catalog.json").path,
             workbookProjectionInputJSONPath: result.outputDirectory
@@ -228,8 +230,10 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let reciprocalEvidenceBAIPath: String?
     let candidateAllelesJSONPath: String?
     let candidateAllelesFASTAPath: String?
+    let candidateAllelesGenBankPath: String?
     let unnameableClustersJSONPath: String?
     let unnameableClustersFASTAPath: String?
+    let unnameableClustersGenBankPath: String?
     let referenceCatalogJSONPath: String
     let workbookProjectionInputJSONPath: String
     let cleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning]
@@ -241,7 +245,8 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
         "cdnaClustersFASTAPath", "provenancePath", "manifestPath", "referenceFASTAPath",
         "genotypingEvidenceBAMPath", "genotypingEvidenceBAIPath", "reciprocalEvidenceBAMPath",
         "reciprocalEvidenceBAIPath", "candidateAllelesJSONPath", "candidateAllelesFASTAPath",
-        "unnameableClustersJSONPath", "unnameableClustersFASTAPath", "referenceCatalogJSONPath",
+        "candidateAllelesGenBankPath", "unnameableClustersJSONPath", "unnameableClustersFASTAPath",
+        "unnameableClustersGenBankPath", "referenceCatalogJSONPath",
         "workbookProjectionInputJSONPath", "cleanupWarnings",
     ]
 
@@ -266,8 +271,10 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
             ("Reciprocal evidence BAI", reciprocalEvidenceBAIPath),
             ("Candidate alleles JSON", candidateAllelesJSONPath),
             ("Candidate alleles FASTA", candidateAllelesFASTAPath),
+            ("Candidate alleles GenBank", candidateAllelesGenBankPath),
             ("Un-nameable clusters JSON", unnameableClustersJSONPath),
             ("Un-nameable clusters FASTA", unnameableClustersFASTAPath),
+            ("Un-nameable clusters GenBank", unnameableClustersGenBankPath),
             ("MHC reference catalog JSON", referenceCatalogJSONPath),
             ("Workbook projection input JSON", workbookProjectionInputJSONPath),
         ]
@@ -292,7 +299,8 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
             genotypingEvidenceBAMPath ?? "", genotypingEvidenceBAIPath ?? "",
             reciprocalEvidenceBAMPath ?? "", reciprocalEvidenceBAIPath ?? "",
             candidateAllelesJSONPath ?? "", candidateAllelesFASTAPath ?? "",
-            unnameableClustersJSONPath ?? "", unnameableClustersFASTAPath ?? "",
+            candidateAllelesGenBankPath ?? "", unnameableClustersJSONPath ?? "",
+            unnameableClustersFASTAPath ?? "", unnameableClustersGenBankPath ?? "",
             referenceCatalogJSONPath, workbookProjectionInputJSONPath, cleanupWarningsJSON,
         ]
         precondition(values.count == Self.tsvHeader.count)

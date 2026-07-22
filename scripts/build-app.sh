@@ -12,7 +12,7 @@ DEBUG_BUNDLE_ID="com.lungfish.browser.debug"
 BUNDLE_NAME="Lungfish"
 DEBUG_BUNDLE_NAME="Lungfish Debug"
 BUNDLE_DISPLAY_NAME="Lungfish Genome Explorer"
-DEBUG_BUNDLE_DISPLAY_NAME="Lungfish Genome Explorer Debug"
+DEBUG_BUNDLE_DISPLAY_NAME="Lungfish Debug"
 # VERSION is sourced from Lungfish.xcodeproj's MARKETING_VERSION below (after
 # PROJECT_ROOT is resolved) so the debug bundle and the notarized build share a
 # single version source of truth.

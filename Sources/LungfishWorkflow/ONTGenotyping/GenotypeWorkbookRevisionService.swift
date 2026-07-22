@@ -919,6 +919,7 @@ public struct GenotypeWorkbookRevisionService {
                     reference: candidateJSON,
                     in: bundleURL
                 )
+                try validateCandidateDocumentSchema(document.schemaVersion, label: "candidate")
                 try validateArtifact(document.sequenceFASTA, equals: artifacts.candidateFASTA, label: "candidate FASTA")
                 try validateCandidateLabels(document.candidates)
             }
@@ -928,6 +929,7 @@ public struct GenotypeWorkbookRevisionService {
                     reference: unnameableJSON,
                     in: bundleURL
                 )
+                try validateCandidateDocumentSchema(document.schemaVersion, label: "un-nameable")
                 try validateArtifact(document.sequenceFASTA, equals: artifacts.unnameableFASTA, label: "un-nameable FASTA")
             }
             if let candidatesReference = artifacts.candidateJSON,
@@ -942,6 +944,11 @@ public struct GenotypeWorkbookRevisionService {
                     reference: unnameableReference,
                     in: bundleURL
                 )
+                guard candidates.schemaVersion == unnameable.schemaVersion else {
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                        "Candidate and un-nameable workbook documents must use the same schema version."
+                    )
+                }
                 _ = try FullLengthONTMHCWorkbookProjection(
                     candidateDocument: candidates,
                     unnameableDocument: unnameable,
@@ -972,6 +979,14 @@ public struct GenotypeWorkbookRevisionService {
             tints: tints,
             ooxmlAlphaSemantics: "The leading OOXML ARGB byte is alpha: 00 is transparent and FF is opaque; RGB and alpha are rounded from the exact bundle RGBA values."
         )
+    }
+
+    private func validateCandidateDocumentSchema(_ schemaVersion: Int, label: String) throws {
+        guard schemaVersion == 1 || schemaVersion == 2 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Unsupported \(label) workbook document schema \(schemaVersion)."
+            )
+        }
     }
 
     private func candidateArtifactInputURLs(

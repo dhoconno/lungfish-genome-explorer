@@ -158,7 +158,9 @@ enum GenotypeCandidateEvidenceProjection {
             sampleReadCountsByStableClusterID[observation.stableClusterID, default: [:]][observation.sampleID, default: 0]
                 += observation.aggregatedSampleReadCount
             evidenceCountsByStableClusterID[observation.stableClusterID, default: 0]
-                += observation.evidence.count
+                += observation.genotypingHitSummaries.isEmpty
+                    ? observation.evidence.count
+                    : observation.genotypingAlignmentCount
         }
 
         var presentations: [String: IndexedPresentation] = [:]

@@ -35,6 +35,7 @@ public enum ONTMHCReferenceVisualizationRole: String, Codable, Equatable, Sendab
     case exactKnownCall = "exact_known_call"
     case closestNovelReference = "closest_novel_reference"
     case closestExtensionReference = "closest_extension_reference"
+    case closestUnnameableReference = "closest_unnameable_reference"
 }
 
 public struct ONTMHCReferenceVisualizationRoleAssignment: Codable, Equatable, Sendable {

@@ -38,6 +38,40 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(projection.unnameableWorksheetRows[2][queryColumn].value, .text("cluster-u-z"))
     }
 
+    func testSchemaVersionTwoUsesOneCompactRowPerStableSequenceWithReciprocalSummary() throws {
+        let documents = try makeVersionTwoDocuments()
+
+        let projection = try FullLengthONTMHCWorkbookProjection(
+            candidateDocument: documents.candidates,
+            unnameableDocument: documents.unnameable,
+            sampleOrder: ["sample-a", "sample-b"]
+        )
+
+        XCTAssertEqual(projection.candidateRows.count, 4, "Workbook projection must never filter candidates")
+        XCTAssertEqual(projection.unnameableWorksheetRows.count, 2, "Header plus one compact stable-sequence row")
+
+        let candidateHeaders = projection.candidateWorksheetRows[0].map(\.value)
+        let candidateAlignmentColumn = try XCTUnwrap(candidateHeaders.firstIndex(of: .text("Reciprocal Alignment Count")))
+        let candidateClosestColumn = try XCTUnwrap(candidateHeaders.firstIndex(of: .text("Closest Match Target Names")))
+        XCTAssertEqual(projection.candidateWorksheetRows.count, 5)
+        XCTAssertEqual(projection.candidateWorksheetRows[1][candidateAlignmentColumn].value, .integer(1))
+        XCTAssertEqual(projection.candidateWorksheetRows[1][candidateClosestColumn].value, .text("ref-1"))
+
+        let headers = projection.unnameableWorksheetRows[0].map(\.value)
+        func value(_ header: String) throws -> FullLengthONTMHCWorkbookCellValue {
+            let column = try XCTUnwrap(headers.firstIndex(of: .text(header)))
+            return projection.unnameableWorksheetRows[1][column].value
+        }
+
+        XCTAssertEqual(try value("Reciprocal Alignment Count"), .integer(3))
+        XCTAssertEqual(try value("Reciprocal Target Count"), .integer(2))
+        XCTAssertEqual(try value("Reciprocal Target Alignment Counts"), .text("ref-a=2;ref-b=1"))
+        XCTAssertEqual(try value("Exact Match Target Names"), .text("ref-a"))
+        XCTAssertEqual(try value("Closest Match Target Names"), .text("ref-a;ref-b"))
+        XCTAssertEqual(try value("Selected Evidence Query Name"), .text("cluster-u"))
+        XCTAssertFalse(headers.contains(.text("Evidence Ordinal")))
+    }
+
     func testWorkbookWritesFourTintStylesOnlyOnCandidateNameCellsAndUsesTypedNumbers() throws {
         let documents = makeDocuments()
         let projection = try FullLengthONTMHCWorkbookProjection(
@@ -363,6 +397,62 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             sequenceFASTA: ONTMHCArtifactReference(path: "unnameable_unmatched_clusters.fasta", sha256: String(repeating: "b", count: 64), sizeBytes: 100),
             clusters: [unnameableRecord],
             observations: [observation("cluster-u", "sample-a", 4)]
+        )
+        return (candidateDocument, unnameableDocument)
+    }
+
+    private func makeVersionTwoDocuments() throws -> (
+        candidates: ONTMHCCandidateAllelesDocument,
+        unnameable: ONTMHCUnnameableClustersDocument
+    ) {
+        let legacy = makeDocuments()
+        let candidateDocument = ONTMHCCandidateAllelesDocument(
+            schemaVersion: 2,
+            createdAt: legacy.candidates.createdAt,
+            thresholds: legacy.candidates.thresholds,
+            inputs: legacy.candidates.inputs,
+            evidence: legacy.candidates.evidence,
+            sequenceFASTA: legacy.candidates.sequenceFASTA,
+            candidates: legacy.candidates.candidates,
+            observations: legacy.candidates.observations
+        )
+        let summary = try ONTMHCReciprocalQueryHitSummary(
+            bamPath: "artifacts/alignments/reciprocal.bam",
+            queryName: "cluster-u",
+            alignmentCount: 3,
+            targetAlignmentCounts: ["ref-b": 1, "ref-a": 2],
+            exactMatchTargetNames: ["ref-a"],
+            closestMatchTargetNames: ["ref-b", "ref-a"]
+        )
+        let selected = ONTMHCEvidenceLocator(
+            bamPath: summary.bamPath,
+            queryName: "cluster-u",
+            referenceName: "ref-a",
+            readGroupID: "sample-a",
+            referenceStart: 10,
+            cigar: "800M"
+        )
+        let record = ONTMHCUnnameableRecord(
+            stableClusterID: "cluster-u",
+            reason: .unresolvedLocus,
+            failedMetrics: ["identity": 0.7],
+            supportClass: .singleton,
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 4,
+            supportingSampleIDs: ["sample-a"],
+            fastaRecordID: "cluster-u",
+            sequenceSHA256: String(repeating: "f", count: 64),
+            reciprocalHitSummary: summary,
+            selectedEvidence: selected
+        )
+        let unnameableDocument = ONTMHCUnnameableClustersDocument(
+            schemaVersion: 2,
+            createdAt: legacy.unnameable.createdAt,
+            thresholds: legacy.unnameable.thresholds,
+            sequenceFASTA: legacy.unnameable.sequenceFASTA,
+            clusters: [record],
+            observations: legacy.unnameable.observations
         )
         return (candidateDocument, unnameableDocument)
     }

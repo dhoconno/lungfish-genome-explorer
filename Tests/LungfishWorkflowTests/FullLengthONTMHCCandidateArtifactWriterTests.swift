@@ -33,6 +33,17 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
 
         XCTAssertEqual(try fastaHeaders(result.candidateFASTAURL), [fixture.novelID, fixture.extensionID])
         XCTAssertEqual(try fastaHeaders(result.unnameableFASTAURL), [fixture.unnameableID])
+        let candidateGenBank = try String(contentsOf: result.candidateGenBankURL, encoding: .utf8)
+        let unnameableGenBank = try String(contentsOf: result.unnameableGenBankURL, encoding: .utf8)
+        XCTAssertTrue(candidateGenBank.contains(fixture.novelID))
+        XCTAssertTrue(candidateGenBank.contains("Lungfish project: Fixture Project.lungfish"))
+        XCTAssertTrue(candidateGenBank.contains("sample-a, sample-b"))
+        XCTAssertTrue(candidateGenBank.contains("Lungfish selected reference raw ID:"))
+        XCTAssertFalse(candidateGenBank.contains("annotation unavailable: no selected reciprocal alignment"))
+        XCTAssertTrue(unnameableGenBank.contains(fixture.unnameableID))
+        XCTAssertTrue(unnameableGenBank.contains("annotation unavailable: no selected reciprocal alignment"))
+        XCTAssertEqual(result.manifest.candidateGenBank?.path, "candidate_alleles.gb")
+        XCTAssertEqual(result.manifest.unnameableGenBank?.path, "unnameable_unmatched_clusters.gb")
         let candidate = try JSONDecoder().decode(
             ONTMHCCandidateAllelesDocument.self,
             from: Data(contentsOf: result.candidateJSONURL)
@@ -86,6 +97,8 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             "lungfish-in-process:render-mhc-unnameable-fasta",
             "lungfish-in-process:render-mhc-candidate-json",
             "lungfish-in-process:render-mhc-unnameable-json",
+            "lungfish-in-process:render-mhc-candidate-genbank",
+            "lungfish-in-process:render-mhc-unnameable-genbank",
             "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
             "lungfish-in-process:materialize-mhc-candidate-staging-generation",
         ])
@@ -114,6 +127,19 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             candidateRender.resolvedOptions["evidenceArtifacts"]?.contains(
                 "artifacts/alignments/unmatched-to-reference.bam|sha256="
             ) == true
+        )
+        let candidateGenBankRender = try XCTUnwrap(
+            transformations["lungfish-in-process:render-mhc-candidate-genbank"]
+        )
+        XCTAssertTrue(candidateGenBankRender.inputs.allSatisfy {
+            candidateGenBankRender.argv.contains($0.path)
+        })
+        XCTAssertTrue(candidateGenBankRender.outputs.allSatisfy {
+            candidateGenBankRender.argv.contains($0.path)
+        })
+        XCTAssertEqual(
+            candidateGenBankRender.resolvedOptions["translationRule"],
+            "recomputed-from-lifted-candidate-CDS;terminal-stop-removed;internal-stops-retained-and-counted"
         )
         let construction = try XCTUnwrap(
             transformations["lungfish-in-process:construct-stable-unmatched-cluster-fasta"]
@@ -147,8 +173,10 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             result.reciprocalBAIURL.path,
             result.candidateFASTAURL.path,
             result.candidateJSONURL.path,
+            result.candidateGenBankURL.path,
             result.unnameableFASTAURL.path,
             result.unnameableJSONURL.path,
+            result.unnameableGenBankURL.path,
         ].sorted())
         XCTAssertEqual(candidate.candidates.map(\.stableClusterID), [fixture.novelID, fixture.extensionID])
         XCTAssertEqual(candidate.candidates.map(\.provisionalName), [
@@ -226,7 +254,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             $0.workflowName == "lungfish-in-process:capture-mhc-candidate-artifact-checksums"
         })
         let captures = provider.captures
-        XCTAssertEqual(captures.count, 6)
+        XCTAssertEqual(captures.count, 8)
         XCTAssertLessThanOrEqual(checksum.startedAt, try XCTUnwrap(captures.first).startedAt)
         XCTAssertGreaterThanOrEqual(checksum.completedAt, try XCTUnwrap(captures.last).completedAt)
         XCTAssertEqual(
@@ -234,7 +262,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             checksum.completedAt.timeIntervalSince(checksum.startedAt),
             accuracy: 0.000_001
         )
-        XCTAssertGreaterThanOrEqual(checksum.wallTime, 0.06)
+        XCTAssertGreaterThanOrEqual(checksum.wallTime, 0.08)
     }
 
     func testWriterRejectsReuseOfNonFreshCallerOwnedStagingDirectory() async throws {
@@ -381,6 +409,28 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
                 XCTAssertTrue($0.localizedDescription.contains(expected), $0.localizedDescription)
             }
         }
+    }
+
+    func testReciprocalSAMParserPreservesSelectedAlignmentOrientation() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("orientation.sam")
+        try Data("cluster-forward\t0\tref\t1\t60\t4=\t*\t0\t0\t*\t*\tNM:i:0\tAS:i:4\ncluster-reverse\t16\tref\t1\t60\t4=\t*\t0\t0\t*\t*\tNM:i:0\tAS:i:4\n".utf8).write(to: url)
+        let reference = MHCReferenceRecord(
+            sequenceID: "ref", alleleName: "Mafa-A1*001", locus: "Mafa-A1",
+            moleculeClass: .genomicDNA, classEvidence: .annotatedMetadata, sequenceLength: 4
+        )
+
+        let parsed = try FullLengthONTMHCReciprocalSAMParser().parse(
+            url,
+            clusterIDs: ["cluster-forward", "cluster-reverse"],
+            references: [reference],
+            finalBAMPath: "evidence.bam"
+        )
+
+        XCTAssertEqual(parsed["cluster-forward"]?.first?.isReverse, false)
+        XCTAssertEqual(parsed["cluster-reverse"]?.first?.isReverse, true)
     }
 
     func testReciprocalSAMParserStreamsLargeInputAndHonorsCancellation() async throws {
@@ -540,7 +590,9 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
                 threads: 14,
                 outputDirectoryURL: outputURL,
                 finalOutputDirectoryURL: finalOutputDirectoryURL,
-                workDirectoryURL: workURL
+                workDirectoryURL: workURL,
+                analysisName: "fixture-run",
+                projectBundleName: "Fixture Project.lungfish"
             ))
         }
 

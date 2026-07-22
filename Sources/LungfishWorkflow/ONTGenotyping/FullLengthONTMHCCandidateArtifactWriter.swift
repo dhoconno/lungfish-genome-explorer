@@ -31,6 +31,8 @@ struct FullLengthONTMHCCandidateSequenceObservation: Sendable, Equatable {
 struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     let observations: [FullLengthONTMHCCandidateSequenceObservation]
     let referenceAlleleFASTAURL: URL
+    let referenceBundleURL: URL?
+    let referenceAnnotationInputURLs: [URL]
     let referenceRecords: [MHCReferenceRecord]
     let genotypingEvidence: ONTMHCBAMArtifactPair?
     let threads: Int
@@ -38,20 +40,28 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     let finalOutputDirectoryURL: URL
     let workDirectoryURL: URL
     let thresholds: ONTMHCCandidateThresholds
+    let analysisName: String
+    let projectBundleName: String?
 
     init(
         observations: [FullLengthONTMHCCandidateSequenceObservation],
         referenceAlleleFASTAURL: URL,
+        referenceBundleURL: URL? = nil,
+        referenceAnnotationInputURLs: [URL] = [],
         referenceRecords: [MHCReferenceRecord],
         genotypingEvidence: ONTMHCBAMArtifactPair?,
         threads: Int,
         outputDirectoryURL: URL,
         finalOutputDirectoryURL: URL? = nil,
         workDirectoryURL: URL,
-        thresholds: ONTMHCCandidateThresholds = .defaults
+        thresholds: ONTMHCCandidateThresholds = .defaults,
+        analysisName: String = "full-length-ont-mhc-genotype",
+        projectBundleName: String? = nil
     ) {
         self.observations = observations
         self.referenceAlleleFASTAURL = referenceAlleleFASTAURL.standardizedFileURL
+        self.referenceBundleURL = referenceBundleURL?.standardizedFileURL
+        self.referenceAnnotationInputURLs = referenceAnnotationInputURLs.map(\.standardizedFileURL)
         self.referenceRecords = referenceRecords
         self.genotypingEvidence = genotypingEvidence
         self.threads = max(1, threads)
@@ -59,6 +69,8 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
         self.finalOutputDirectoryURL = (finalOutputDirectoryURL ?? outputDirectoryURL).standardizedFileURL
         self.workDirectoryURL = workDirectoryURL.standardizedFileURL
         self.thresholds = thresholds
+        self.analysisName = analysisName
+        self.projectBundleName = projectBundleName
     }
 }
 
@@ -68,8 +80,10 @@ struct FullLengthONTMHCCandidateArtifactResult: Sendable, Equatable {
     let reciprocalBAIURL: URL
     let candidateFASTAURL: URL
     let candidateJSONURL: URL
+    let candidateGenBankURL: URL
     let unnameableFASTAURL: URL
     let unnameableJSONURL: URL
+    let unnameableGenBankURL: URL
     let manifest: ONTMHCCandidateArtifactManifest
     let classifiedClusters: [FullLengthONTMHCCandidateCluster]
     let classifications: [FullLengthONTMHCCandidateClassificationResult]
@@ -85,8 +99,10 @@ struct FullLengthONTMHCCandidateArtifactResult: Sendable, Equatable {
             manifest.reciprocalEvidence?.bai,
             manifest.candidateJSON,
             manifest.candidateFASTA,
+            manifest.candidateGenBank,
             manifest.unnameableJSON,
             manifest.unnameableFASTA,
+            manifest.unnameableGenBank,
         ].compactMap { $0 }
     }
 }
@@ -156,7 +172,8 @@ struct FullLengthONTMHCReciprocalSAMParser: Sendable {
                 nm: nm,
                 mappingQuality: mapq,
                 alignmentScore: score,
-                evidence: locator
+                evidence: locator,
+                isReverse: flag & 0x10 != 0
             ))
             result[fields[0]] = alignments
         }
@@ -622,6 +639,102 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let candidateJSONReference = try artifactReference(candidateJSONURL, finalRelativePath: "candidate-alleles.json")
         let unnameableJSONReference = try artifactReference(unnameableJSONURL, finalRelativePath: "unnameable-unmatched-clusters.json")
 
+        let referenceVisualization: ONTMHCReferenceVisualizationArtifact?
+        if let referenceBundleURL = request.referenceBundleURL,
+           referenceBundleURL.pathExtension.lowercased() == "lungfishref",
+           fileManager.fileExists(atPath: referenceBundleURL.path) {
+            referenceVisualization = try MHCReferenceVisualizationArtifactBuilder().build(.init(
+                referenceBundleURL: referenceBundleURL,
+                exactKnownRawReferenceIDs: [],
+                candidates: candidateDocument,
+                unnameable: unnameableDocument
+            )).document
+        } else {
+            referenceVisualization = nil
+        }
+        let genBankBuilder = FullLengthONTMHCCandidateGenBankArtifactBuilder()
+        let candidateGenBankURL = stagedRootURL.appendingPathComponent("candidate_alleles.gb")
+        let candidateGenBankStartedAt = Date()
+        let candidateGenBankRecords = try genBankBuilder.records(from: candidates.map { candidate in
+            FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+                subject: .candidate(candidate),
+                sequence: sequenceByID[candidate.stableClusterID]!,
+                selectedAlignmentIsReverse: candidate.selectedAlignmentIsReverse,
+                closestReference: referenceVisualization?.recordsByRawReferenceID[
+                    candidate.selectedEvidence.referenceName
+                ],
+                analysisName: request.analysisName,
+                projectBundleName: request.projectBundleName,
+                minimumIntronGapBases: request.thresholds.minimumIntronGapBases
+            )
+        })
+        try GenBankWriter(url: candidateGenBankURL).write(candidateGenBankRecords)
+        let candidateGenBankDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: candidateGenBankURL, role: .commandOutput, phase: .staging
+        )
+        let candidateGenBankCompletedAt = Date()
+
+        let unnameableGenBankURL = stagedRootURL.appendingPathComponent("unnameable_unmatched_clusters.gb")
+        let unnameableGenBankStartedAt = Date()
+        let unnameableGenBankRecords = try genBankBuilder.records(from: unnameable.map { cluster in
+            FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+                subject: .unnameable(cluster),
+                sequence: sequenceByID[cluster.stableClusterID]!,
+                selectedAlignmentIsReverse: cluster.selectedAlignmentIsReverse,
+                closestReference: cluster.selectedEvidence.flatMap {
+                    referenceVisualization?.recordsByRawReferenceID[$0.referenceName]
+                },
+                analysisName: request.analysisName,
+                projectBundleName: request.projectBundleName,
+                minimumIntronGapBases: request.thresholds.minimumIntronGapBases
+            )
+        })
+        try GenBankWriter(url: unnameableGenBankURL).write(unnameableGenBankRecords)
+        let unnameableGenBankDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: unnameableGenBankURL, role: .commandOutput, phase: .staging
+        )
+        let unnameableGenBankCompletedAt = Date()
+        let annotationInputDescriptors = try request.referenceAnnotationInputURLs.map {
+            try FullLengthONTMHCArtifactDescriptor(url: $0, role: .commandInput, phase: .input)
+        }
+        let genBankResolvedOptions: [String: String] = [
+            "analysisName": request.analysisName,
+            "projectBundleName": request.projectBundleName ?? "unavailable",
+            "recordIdentity": "stable-cluster-id",
+            "referenceCoordinateConvention": "zero-based-half-open",
+            "reciprocalCIGARCoordinateSource": "one-based-reference-start-plus-SAM-CIGAR",
+            "reverseAlignmentRule": "project-oriented-query-then-convert-to-stored-candidate-coordinates",
+            "minimumIntronGapBases": String(request.thresholds.minimumIntronGapBases),
+            "translationRule": "recomputed-from-lifted-candidate-CDS;terminal-stop-removed;internal-stops-retained-and-counted",
+            "supportMetadata": "all-supporting-samples-independent-count-occurrence-count-total-cluster-reads",
+        ]
+        transformations.append(Self.renderTransformation(
+            name: "render-mhc-candidate-genbank",
+            inputs: [candidateJSONDescriptor, candidateFASTADescriptor] + annotationInputDescriptors,
+            output: candidateGenBankDescriptor,
+            recordCount: candidateGenBankRecords.count,
+            additionalResolvedOptions: genBankResolvedOptions,
+            startedAt: candidateGenBankStartedAt,
+            completedAt: candidateGenBankCompletedAt
+        ))
+        transformations.append(Self.renderTransformation(
+            name: "render-mhc-unnameable-genbank",
+            inputs: [unnameableJSONDescriptor, unnameableFASTADescriptor] + annotationInputDescriptors,
+            output: unnameableGenBankDescriptor,
+            recordCount: unnameableGenBankRecords.count,
+            additionalResolvedOptions: genBankResolvedOptions,
+            startedAt: unnameableGenBankStartedAt,
+            completedAt: unnameableGenBankCompletedAt
+        ))
+        let candidateGenBankReference = try artifactReference(
+            candidateGenBankURL,
+            finalRelativePath: "candidate_alleles.gb"
+        )
+        let unnameableGenBankReference = try artifactReference(
+            unnameableGenBankURL,
+            finalRelativePath: "unnameable_unmatched_clusters.gb"
+        )
+
         try Task.checkCancellation()
         try safety.revalidatePathContext(pathContext)
         let stagedPublicationDescriptors = [
@@ -629,8 +742,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             try FullLengthONTMHCArtifactDescriptor(url: stagedBAIURL, role: .evidenceBAI, phase: .staging),
             candidateFASTADescriptor,
             candidateJSONDescriptor,
+            candidateGenBankDescriptor,
             unnameableFASTADescriptor,
             unnameableJSONDescriptor,
+            unnameableGenBankDescriptor,
         ]
         let materializationStartedAt = Date()
         try materializeStagingGeneration(
@@ -640,7 +755,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "artifacts/alignments/unmatched-to-reference.bam",
                 "artifacts/alignments/unmatched-to-reference.bam.bai",
                 "candidate_alleles.fasta", "candidate-alleles.json",
+                "candidate_alleles.gb",
                 "unnameable_unmatched_clusters.fasta", "unnameable-unmatched-clusters.json",
+                "unnameable_unmatched_clusters.gb",
             ]
         )
         let materializationCompletedAt = Date()
@@ -649,8 +766,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             (finalBAIURL, .evidenceBAI),
             (request.outputDirectoryURL.appendingPathComponent("candidate_alleles.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("candidate-alleles.json"), .commandOutput),
+            (request.outputDirectoryURL.appendingPathComponent("candidate_alleles.gb"), .commandOutput),
             (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("unnameable-unmatched-clusters.json"), .commandOutput),
+            (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.gb"), .commandOutput),
         ]
         let checksumStartedAt = Date()
         let finalPublicationDescriptors = try finalPublicationURLs.map {
@@ -698,8 +817,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             reciprocalEvidence: .init(bam: reciprocalBAMReference, bai: reciprocalBAIReference),
             candidateJSON: candidateJSONReference,
             candidateFASTA: candidateFASTAReference,
+            candidateGenBank: candidateGenBankReference,
             unnameableJSON: unnameableJSONReference,
-            unnameableFASTA: unnameableFASTAReference
+            unnameableFASTA: unnameableFASTAReference,
+            unnameableGenBank: unnameableGenBankReference
         )
         return FullLengthONTMHCCandidateArtifactResult(
             stableUnmatchedFASTAURL: request.outputDirectoryURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta"),
@@ -707,8 +828,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             reciprocalBAIURL: finalBAIURL,
             candidateFASTAURL: request.outputDirectoryURL.appendingPathComponent("candidate_alleles.fasta"),
             candidateJSONURL: request.outputDirectoryURL.appendingPathComponent("candidate-alleles.json"),
+            candidateGenBankURL: request.outputDirectoryURL.appendingPathComponent("candidate_alleles.gb"),
             unnameableFASTAURL: request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.fasta"),
             unnameableJSONURL: request.outputDirectoryURL.appendingPathComponent("unnameable-unmatched-clusters.json"),
+            unnameableGenBankURL: request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.gb"),
             manifest: manifest,
             classifiedClusters: clusters,
             classifications: classifications,
@@ -910,15 +1033,15 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         startedAt: Date,
         completedAt: Date
     ) -> FullLengthONTMHCInProcessTransformationRecord {
-        FullLengthONTMHCInProcessTransformationRecord(
+        let inputArguments = inputs.flatMap { ["--input", $0.path] }
+        return FullLengthONTMHCInProcessTransformationRecord(
             workflowName: "lungfish-in-process:\(name)",
             workflowVersion: WorkflowRun.currentAppVersion,
             argv: [
                 "lungfish-in-process", name,
                 "--canonical-order", "stable-cluster-id",
                 "--record-count", String(recordCount),
-                output.path,
-            ],
+            ] + inputArguments + ["--output", output.path],
             resolvedOptions: [
                 "canonicalOrder": "stable-cluster-id",
                 "recordCount": String(recordCount),
@@ -1089,8 +1212,10 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "artifacts/alignments/unmatched-to-reference.bam.bai",
             "candidate_alleles.fasta",
             "candidate-alleles.json",
+            "candidate_alleles.gb",
             "unnameable_unmatched_clusters.fasta",
             "unnameable-unmatched-clusters.json",
+            "unnameable_unmatched_clusters.gb",
         ]
     }
 

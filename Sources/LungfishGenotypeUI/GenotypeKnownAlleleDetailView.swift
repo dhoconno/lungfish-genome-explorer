@@ -739,6 +739,8 @@ final class GenotypeKnownAlleleDetailView: NSView {
                 return "Closest novel reference"
             case .closestExtensionReference:
                 return "Closest extension reference"
+            case .closestUnnameableReference:
+                return "Closest un-nameable reference"
             }
         }.joined(separator: ", ")
     }

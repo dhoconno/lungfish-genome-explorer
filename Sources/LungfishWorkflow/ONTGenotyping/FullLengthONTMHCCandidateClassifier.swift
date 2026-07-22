@@ -38,6 +38,7 @@ public struct FullLengthONTMHCCandidateAlignment: Equatable, Sendable {
     public let mappingQuality: Int
     public let alignmentScore: Int
     public let evidence: ONTMHCEvidenceLocator
+    public let isReverse: Bool
 
     public init(
         reference: FullLengthONTMHCCandidateReferenceResolution,
@@ -45,7 +46,8 @@ public struct FullLengthONTMHCCandidateAlignment: Equatable, Sendable {
         nm: Int?,
         mappingQuality: Int,
         alignmentScore: Int,
-        evidence: ONTMHCEvidenceLocator
+        evidence: ONTMHCEvidenceLocator,
+        isReverse: Bool = false
     ) {
         self.reference = reference
         self.cigar = cigar
@@ -53,6 +55,7 @@ public struct FullLengthONTMHCCandidateAlignment: Equatable, Sendable {
         self.mappingQuality = mappingQuality
         self.alignmentScore = alignmentScore
         self.evidence = evidence
+        self.isReverse = isReverse
     }
 }
 
@@ -660,7 +663,8 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             fastaRecordID: cluster.fastaRecordID,
             sequenceSHA256: cluster.sequenceSHA256,
             reciprocalHitSummary: reciprocalHitSummary,
-            selectedEvidence: hit.input.evidence
+            selectedEvidence: hit.input.evidence,
+            selectedAlignmentIsReverse: hit.input.isReverse
         )
     }
 
@@ -696,7 +700,8 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             fastaRecordID: cluster.fastaRecordID,
             sequenceSHA256: cluster.sequenceSHA256,
             reciprocalHitSummary: reciprocalHitSummary,
-            selectedEvidence: selectedHit?.input.evidence
+            selectedEvidence: selectedHit?.input.evidence,
+            selectedAlignmentIsReverse: selectedHit?.input.isReverse
         )
     }
 

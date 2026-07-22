@@ -39,10 +39,10 @@ if configuration_path:
 def load_json_path(key, collection):
     path = candidate_configuration.get(key)
     if not path:
-        return {collection: [], "observations": []}
+        return {"schema_version": 1, collection: [], "observations": []}
     with open(path) as handle:
         document = json.load(handle)
-    if int(document.get("schema_version", 0)) != 1:
+    if int(document.get("schema_version", 0)) not in (1, 2):
         raise ValueError(f"Unsupported candidate workbook JSON schema in {path}")
     if not isinstance(document.get(collection), list) or not isinstance(document.get("observations"), list):
         raise ValueError(f"Malformed candidate workbook JSON in {path}")
@@ -55,6 +55,8 @@ candidate_records = sorted(candidate_document.get("candidates", []), key=lambda 
 unnameable_records = sorted(unnameable_document.get("clusters", []), key=lambda item: str(item.get("stable_cluster_id") or ""))
 candidate_observations = candidate_document.get("observations", [])
 unnameable_observations = unnameable_document.get("observations", [])
+candidate_schema_version = int(candidate_document.get("schema_version", 1))
+unnameable_schema_version = int(unnameable_document.get("schema_version", 1))
 
 wb = load_workbook(input_path)
 
@@ -758,11 +760,40 @@ CANDIDATE_HEADERS = [
     "Shorter Coverage", "Identity", "Mapping Quality", "Alignment Score",
 ]
 
+COMPACT_RECIPROCAL_HEADERS = [
+    "Reciprocal BAM Path", "Reciprocal Query Name", "Reciprocal Alignment Count", "Reciprocal Target Count",
+    "Reciprocal Target Alignment Counts", "Exact Match Target Names", "Closest Match Target Names",
+]
+
+SELECTED_EVIDENCE_HEADERS = [
+    "Selected Evidence BAM Path", "Selected Evidence Query Name", "Selected Evidence Reference Name",
+    "Selected Evidence Read Group ID", "Selected Evidence Reference Start", "Selected Evidence CIGAR",
+]
+
+
+def named_counts_text(values):
+    values = values or {}
+    return ";".join(f"{name}={values[name]}" for name in sorted(values))
+
+
+def reciprocal_values(record):
+    summary = record.get("reciprocal_hit_summary") or {}
+    counts = summary.get("target_alignment_counts") or {}
+    return [
+        clean(summary.get("bam_path")),
+        clean(summary.get("query_name")),
+        summary.get("alignment_count"),
+        len(counts),
+        named_counts_text(counts),
+        ";".join(sorted(summary.get("exact_match_target_names") or [])),
+        ";".join(sorted(summary.get("closest_match_target_names") or [])),
+    ]
+
 
 def candidate_row(record, samples):
     stable_id = clean(record.get("stable_cluster_id"))
     reads = sample_read_counts(stable_id)
-    return [
+    prefix = [
         stable_id,
         clean(record.get("provisional_name")),
         clean(record.get("locus")),
@@ -774,7 +805,12 @@ def candidate_row(record, samples):
         ";".join(record.get("supporting_sample_ids") or []),
         clean(record.get("fasta_record_id")),
         clean(record.get("sequence_sha256")),
-    ] + evidence_values(record.get("selected_evidence")) + [
+    ]
+    if candidate_schema_version == 2:
+        prefix += reciprocal_values(record) + evidence_values(record.get("selected_evidence"))
+    else:
+        prefix += evidence_values(record.get("selected_evidence"))
+    return prefix + [
         clean(record.get("closest_reference_name")),
         clean(record.get("closest_reference_class")),
         record.get("snp_count"),
@@ -797,6 +833,23 @@ def failed_metrics_text(record):
 def unnameable_rows(record, samples):
     stable_id = clean(record.get("stable_cluster_id"))
     reads = sample_read_counts(stable_id)
+    prefix = [
+        stable_id,
+        clean(record.get("reason")),
+        clean(record.get("support_class")),
+        record.get("independent_sample_count"),
+        record.get("occurrence_count"),
+        record.get("total_cluster_reads"),
+        ";".join(record.get("supporting_sample_ids") or []),
+        clean(record.get("fasta_record_id")),
+        clean(record.get("sequence_sha256")),
+        failed_metrics_text(record),
+    ]
+    if unnameable_schema_version == 2:
+        return [
+            prefix + reciprocal_values(record) + evidence_values(record.get("selected_evidence"))
+            + [reads.get(sample) for sample in samples]
+        ]
     evidence = sorted(record.get("evidence") or [], key=lambda item: (
         clean(item.get("bam_path")), clean(item.get("query_name")), clean(item.get("reference_name")),
         clean(item.get("read_group_id")), int(item.get("reference_start") or 0), clean(item.get("cigar")),
@@ -804,17 +857,7 @@ def unnameable_rows(record, samples):
     evidence = evidence or [None]
     rows = []
     for index, locator in enumerate(evidence, start=1):
-        rows.append([
-            stable_id,
-            clean(record.get("reason")),
-            clean(record.get("support_class")),
-            record.get("independent_sample_count"),
-            record.get("occurrence_count"),
-            record.get("total_cluster_reads"),
-            ";".join(record.get("supporting_sample_ids") or []),
-            clean(record.get("fasta_record_id")),
-            clean(record.get("sequence_sha256")),
-            failed_metrics_text(record),
+        rows.append(prefix + [
             index if locator else None,
             len(record.get("evidence") or []),
         ] + evidence_values(locator) + [reads.get(sample) for sample in samples])
@@ -824,7 +867,10 @@ def unnameable_rows(record, samples):
 def write_candidate_artifact_sheets():
     samples = candidate_samples()
     candidate_ws = replace_sheet("Candidate Alleles")
-    candidate_ws.append(CANDIDATE_HEADERS + [f"Sample Reads: {sample}" for sample in samples])
+    candidate_headers = list(CANDIDATE_HEADERS)
+    if candidate_schema_version == 2:
+        candidate_headers = candidate_headers[:11] + COMPACT_RECIPROCAL_HEADERS + SELECTED_EVIDENCE_HEADERS + candidate_headers[17:]
+    candidate_ws.append(candidate_headers + [f"Sample Reads: {sample}" for sample in samples])
     for record in candidate_records:
         candidate_ws.append(candidate_row(record, samples))
         # This is the only tinted cell on this machine-readable sheet.
@@ -837,12 +883,18 @@ def write_candidate_artifact_sheets():
     candidate_ws.freeze_panes = "A2"
 
     unnameable_ws = replace_sheet("Un-nameable Clusters")
-    unnameable_ws.append([
+    unnameable_headers = [
         "Stable Cluster ID", "Reason", "Support Class", "Independent Sample Count", "Occurrence Count",
         "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256", "Failed Metrics",
-        "Evidence Ordinal", "Evidence Count", "Evidence BAM Path", "Evidence Query Name", "Evidence Reference Name",
-        "Evidence Read Group ID", "Evidence Reference Start", "Evidence CIGAR",
-    ] + [f"Sample Reads: {sample}" for sample in samples])
+    ]
+    if unnameable_schema_version == 2:
+        unnameable_headers += COMPACT_RECIPROCAL_HEADERS + SELECTED_EVIDENCE_HEADERS
+    else:
+        unnameable_headers += [
+            "Evidence Ordinal", "Evidence Count", "Evidence BAM Path", "Evidence Query Name", "Evidence Reference Name",
+            "Evidence Read Group ID", "Evidence Reference Start", "Evidence CIGAR",
+        ]
+    unnameable_ws.append(unnameable_headers + [f"Sample Reads: {sample}" for sample in samples])
     for record in unnameable_records:
         for row in unnameable_rows(record, samples):
             unnameable_ws.append(row)
@@ -951,34 +1003,42 @@ def write_candidates_to_editable_view():
             "total_cluster_reads",
         ] + samples)
     headers = [clean(cell.value) for cell in ws[1]]
-    call_type_col = headers.index("call_type") + 1 if "call_type" in headers else 1
-    stable_id_col = headers.index("stable_cluster_id") + 1 if "stable_cluster_id" in headers else None
-    classification_col = headers.index("classification") + 1 if "classification" in headers else None
+    columns = {header: index + 1 for index, header in enumerate(headers) if header}
+    call_type_col = columns.get("call_type", 1)
+    stable_id_col = columns.get("stable_cluster_id")
+    classification_col = columns.get("classification")
     for row in range(ws.max_row, 1, -1):
         call_type = clean(ws.cell(row, call_type_col).value)
         stable_id = clean(ws.cell(row, stable_id_col).value) if stable_id_col else ""
         classification = clean(ws.cell(row, classification_col).value) if classification_col else ""
         if call_type in {"candidate-novel", "candidate-extension"} and stable_id and call_type == f"candidate-{classification}":
             ws.delete_rows(row, 1)
-    sample_headers = headers[12:] if len(headers) > 12 else samples
+    def pivot_value(record, reads, header):
+        values = {
+            "call_type": f"candidate-{clean(record.get('classification'))}",
+            "call_id": clean(record.get("stable_cluster_id")),
+            "display_name": clean(record.get("provisional_name")),
+            "stable_cluster_id": clean(record.get("stable_cluster_id")),
+            "locus": clean(record.get("locus")),
+            "classification": clean(record.get("classification")),
+            "support_class": clean(record.get("support_class")),
+            "closest_reference": clean(record.get("closest_reference_name")),
+            "match_class": clean(record.get("classification")),
+            "occurrence_count": record.get("occurrence_count"),
+            "sample_count": record.get("independent_sample_count"),
+            "total_cluster_reads": record.get("total_cluster_reads"),
+        }
+        if header in values:
+            return values[header]
+        sample = header[len("Sample Reads: "):] if header.startswith("Sample Reads: ") else header
+        return reads.get(sample) if sample in samples else None
+
     for record in candidate_records:
         reads = sample_read_counts(clean(record.get("stable_cluster_id")))
-        ws.append([
-            f"candidate-{clean(record.get('classification'))}",
-            clean(record.get("stable_cluster_id")),
-            clean(record.get("provisional_name")),
-            clean(record.get("stable_cluster_id")),
-            clean(record.get("locus")),
-            clean(record.get("classification")),
-            clean(record.get("support_class")),
-            clean(record.get("closest_reference_name")),
-            clean(record.get("classification")),
-            record.get("occurrence_count"),
-            record.get("independent_sample_count"),
-            record.get("total_cluster_reads"),
-        ] + [reads.get(sample) for sample in sample_headers])
-        # Unified pivot provisional/display name is column 3.
-        ws.cell(ws.max_row, 3).fill = PatternFill(fill_type="solid", fgColor=candidate_argb(record))
+        ws.append([pivot_value(record, reads, header) for header in headers])
+        # Only the header-named provisional/display-name cell receives the category tint.
+        display_col = columns.get("display_name", 3)
+        ws.cell(ws.max_row, display_col).fill = PatternFill(fill_type="solid", fgColor=candidate_argb(record))
 
 
 def enrich_legacy_unmatched_sheets():

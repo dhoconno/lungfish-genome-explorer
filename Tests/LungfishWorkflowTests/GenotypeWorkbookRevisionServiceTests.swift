@@ -130,6 +130,41 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertEqual(inspection["unifiedCandidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
     }
 
+    func testSchemaVersionTwoCandidateUpdateUsesCompactRowsAndHeaderNamedPivotColumns() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "candidate-v2")
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 2)
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb.create_sheet("Unified Genotype Pivot")
+ws.append([
+    "display_name", "Sample Reads: sample-b", "classification", "stable_cluster_id", "call_type",
+    "Sample Reads: sample-a", "locus", "support_class", "closest_reference", "match_class",
+    "occurrence_count", "sample_count", "total_cluster_reads", "call_id",
+])
+wb.save(path)
+"""#, currentURL.path])
+
+        _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+            .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        let inspection = try inspectCandidateWorkbook(currentURL)
+        XCTAssertEqual(inspection["candidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
+        XCTAssertEqual(inspection["unnameableIDs"], "cluster-u")
+        XCTAssertEqual(inspection["unnameableQueries"], "cluster-u")
+        XCTAssertEqual(inspection["unnameableReciprocalAlignmentCounts"], "3")
+        XCTAssertEqual(inspection["unnameableExactTargets"], "ref-a")
+        XCTAssertEqual(inspection["unifiedCandidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
+        XCTAssertEqual(inspection["unifiedSampleAReads"], "7|4|4|4")
+        XCTAssertEqual(inspection["unifiedSampleBReads"], "3||2|")
+    }
+
     func testBundleCloneAttemptsCopyOnWriteAndFallbackPublishesEquivalentWorkbook() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2666,7 +2701,7 @@ print(json.dumps(payload))
         return try XCTUnwrap(object as? [String: String])
     }
 
-    private func installCandidateArtifacts(in bundleURL: URL) throws {
+    private func installCandidateArtifacts(in bundleURL: URL, schemaVersion: Int = 1) throws {
         let directory = bundleURL.appendingPathComponent("artifacts/mhc-candidates", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let candidateFASTAURL = directory.appendingPathComponent("candidate-alleles.fasta")
@@ -2693,8 +2728,24 @@ print(json.dumps(payload))
             ("cluster-3", "Mafa-B*001:01_ext", .extension, .shared, 0),
             ("cluster-4", "Mafa-B*002:01_ext", .extension, .singleton, 0),
         ]
-        let candidates = specs.map { id, name, classification, support, snps in
-            ONTMHCCandidateRecord(
+        let candidates = try specs.map { id, name, classification, support, snps in
+            let selectedEvidence = ONTMHCEvidenceLocator(
+                bamPath: selected.bamPath,
+                queryName: id,
+                referenceName: selected.referenceName,
+                readGroupID: nil,
+                referenceStart: selected.referenceStart,
+                cigar: selected.cigar
+            )
+            let reciprocalSummary = try ONTMHCReciprocalQueryHitSummary(
+                bamPath: selected.bamPath,
+                queryName: id,
+                alignmentCount: 3,
+                targetAlignmentCounts: [selected.referenceName: 3],
+                exactMatchTargetNames: [],
+                closestMatchTargetNames: [selected.referenceName]
+            )
+            return ONTMHCCandidateRecord(
                 stableClusterID: id,
                 provisionalName: name,
                 locus: name.hasPrefix("Mafa-A") ? "Mafa-A1" : "Mafa-B",
@@ -2717,25 +2768,19 @@ print(json.dumps(payload))
                 supportingSampleIDs: support == .shared ? ["sample-a", "sample-b"] : ["sample-a"],
                 fastaRecordID: id,
                 sequenceSHA256: String(repeating: String(id.last!), count: 64),
-                selectedEvidence: ONTMHCEvidenceLocator(
-                    bamPath: selected.bamPath,
-                    queryName: id,
-                    referenceName: selected.referenceName,
-                    readGroupID: nil,
-                    referenceStart: selected.referenceStart,
-                    cigar: selected.cigar
-                )
+                reciprocalHitSummary: reciprocalSummary,
+                selectedEvidence: selectedEvidence
             )
         }
         var observations: [ONTMHCCandidateObservation] = []
         for candidate in candidates {
-            observations.append(candidateObservation(candidate.stableClusterID, sample: "sample-a", reads: candidate.stableClusterID == "cluster-1" ? 7 : 4))
+            observations.append(candidateObservation(candidate.stableClusterID, sample: "sample-a", reads: candidate.stableClusterID == "cluster-1" ? 7 : 4, schemaVersion: schemaVersion))
             if candidate.supportClass == .shared {
-                observations.append(candidateObservation(candidate.stableClusterID, sample: "sample-b", reads: candidate.stableClusterID == "cluster-1" ? 3 : 2))
+                observations.append(candidateObservation(candidate.stableClusterID, sample: "sample-b", reads: candidate.stableClusterID == "cluster-1" ? 3 : 2, schemaVersion: schemaVersion))
             }
         }
         let candidateDocument = ONTMHCCandidateAllelesDocument(
-            schemaVersion: 1,
+            schemaVersion: schemaVersion,
             createdAt: "2026-07-20T00:00:00Z",
             thresholds: .defaults,
             inputs: [],
@@ -2744,29 +2789,61 @@ print(json.dumps(payload))
             candidates: candidates.reversed(),
             observations: observations.reversed()
         )
-        let unnameable = ONTMHCUnnameableRecord(
-            stableClusterID: "cluster-u",
-            reason: .unresolvedLocus,
-            failedMetrics: ["identity": 0.7],
-            supportClass: .singleton,
-            independentSampleCount: 1,
-            occurrenceCount: 1,
-            totalClusterReads: 4,
-            supportingSampleIDs: ["sample-a"],
-            fastaRecordID: "cluster-u",
-            sequenceSHA256: String(repeating: "f", count: 64),
-            evidence: [
-                .init(bamPath: "artifacts/alignments/z.bam", queryName: "cluster-u-z", referenceName: "ref-z", readGroupID: "sample-z", referenceStart: 90, cigar: "900M"),
-                .init(bamPath: "artifacts/alignments/a.bam", queryName: "cluster-u-a", referenceName: "ref-a", readGroupID: "sample-a", referenceStart: 10, cigar: "800M"),
-            ]
-        )
+        let unnameable: ONTMHCUnnameableRecord
+        if schemaVersion == 2 {
+            unnameable = ONTMHCUnnameableRecord(
+                stableClusterID: "cluster-u",
+                reason: .unresolvedLocus,
+                failedMetrics: ["identity": 0.7],
+                supportClass: .singleton,
+                independentSampleCount: 1,
+                occurrenceCount: 1,
+                totalClusterReads: 4,
+                supportingSampleIDs: ["sample-a"],
+                fastaRecordID: "cluster-u",
+                sequenceSHA256: String(repeating: "f", count: 64),
+                reciprocalHitSummary: try ONTMHCReciprocalQueryHitSummary(
+                    bamPath: "artifacts/alignments/reciprocal.bam",
+                    queryName: "cluster-u",
+                    alignmentCount: 3,
+                    targetAlignmentCounts: ["ref-b": 1, "ref-a": 2],
+                    exactMatchTargetNames: ["ref-a"],
+                    closestMatchTargetNames: ["ref-a", "ref-b"]
+                ),
+                selectedEvidence: .init(
+                    bamPath: "artifacts/alignments/reciprocal.bam",
+                    queryName: "cluster-u",
+                    referenceName: "ref-a",
+                    readGroupID: "sample-a",
+                    referenceStart: 10,
+                    cigar: "800M"
+                )
+            )
+        } else {
+            unnameable = ONTMHCUnnameableRecord(
+                stableClusterID: "cluster-u",
+                reason: .unresolvedLocus,
+                failedMetrics: ["identity": 0.7],
+                supportClass: .singleton,
+                independentSampleCount: 1,
+                occurrenceCount: 1,
+                totalClusterReads: 4,
+                supportingSampleIDs: ["sample-a"],
+                fastaRecordID: "cluster-u",
+                sequenceSHA256: String(repeating: "f", count: 64),
+                evidence: [
+                    .init(bamPath: "artifacts/alignments/z.bam", queryName: "cluster-u-z", referenceName: "ref-z", readGroupID: "sample-z", referenceStart: 90, cigar: "900M"),
+                    .init(bamPath: "artifacts/alignments/a.bam", queryName: "cluster-u-a", referenceName: "ref-a", readGroupID: "sample-a", referenceStart: 10, cigar: "800M"),
+                ]
+            )
+        }
         let unnameableDocument = ONTMHCUnnameableClustersDocument(
-            schemaVersion: 1,
+            schemaVersion: schemaVersion,
             createdAt: "2026-07-20T00:00:00Z",
             thresholds: .defaults,
             sequenceFASTA: unnameableFASTA,
             clusters: [unnameable],
-            observations: [candidateObservation("cluster-u", sample: "sample-a", reads: 4)]
+            observations: [candidateObservation("cluster-u", sample: "sample-a", reads: 4, schemaVersion: schemaVersion)]
         )
         let candidateJSONURL = directory.appendingPathComponent("candidate-alleles.json")
         let unnameableJSONURL = directory.appendingPathComponent("unnameable-clusters.json")
@@ -2811,8 +2888,24 @@ print(json.dumps(payload))
         )
     }
 
-    private func candidateObservation(_ cluster: String, sample: String, reads: Int) -> ONTMHCCandidateObservation {
-        ONTMHCCandidateObservation(
+    private func candidateObservation(
+        _ cluster: String,
+        sample: String,
+        reads: Int,
+        schemaVersion: Int = 1
+    ) -> ONTMHCCandidateObservation {
+        if schemaVersion == 2 {
+            return ONTMHCCandidateObservation(
+                stableClusterID: cluster,
+                sampleID: sample,
+                readGroupID: sample,
+                sourceClusterIDs: ["source-\(cluster)-\(sample)"],
+                sourceClusterReadCounts: ["source-\(cluster)-\(sample)": reads],
+                aggregatedSampleReadCount: reads,
+                genotypingHitSummaries: []
+            )
+        }
+        return ONTMHCCandidateObservation(
             stableClusterID: cluster,
             sampleID: sample,
             readGroupID: sample,
@@ -2840,15 +2933,20 @@ def argb(cell):
 
 candidate = wb["Candidate Alleles"]
 unnameable = wb["Un-nameable Clusters"]
+candidate_headers = {text(cell.value): cell.column for cell in candidate[1] if text(cell.value)}
+unnameable_headers = {text(cell.value): cell.column for cell in unnameable[1] if text(cell.value)}
 candidate_ids = [text(candidate.cell(row, 1).value) for row in range(2, candidate.max_row + 1)]
 candidate_names = [text(candidate.cell(row, 2).value) for row in range(2, candidate.max_row + 1)]
+unnameable_query_col = unnameable_headers.get("Selected Evidence Query Name") or unnameable_headers.get("Evidence Query Name")
 payload = {
     "candidateIDs": "|".join(candidate_ids),
     "candidateNames": "|".join(candidate_names),
     "candidateNameFills": "|".join(argb(candidate.cell(row, 2)) for row in range(2, candidate.max_row + 1)),
     "candidateIDFills": "|".join(argb(candidate.cell(row, 1)) for row in range(2, candidate.max_row + 1)),
     "unnameableIDs": "|".join(text(unnameable.cell(row, 1).value) for row in range(2, unnameable.max_row + 1)),
-    "unnameableQueries": "|".join(text(unnameable.cell(row, 14).value) for row in range(2, unnameable.max_row + 1)),
+    "unnameableQueries": "|".join(text(unnameable.cell(row, unnameable_query_col).value) for row in range(2, unnameable.max_row + 1)) if unnameable_query_col else "",
+    "unnameableReciprocalAlignmentCounts": "|".join(text(unnameable.cell(row, unnameable_headers["Reciprocal Alignment Count"]).value) for row in range(2, unnameable.max_row + 1)) if "Reciprocal Alignment Count" in unnameable_headers else "",
+    "unnameableExactTargets": "|".join(text(unnameable.cell(row, unnameable_headers["Exact Match Target Names"]).value) for row in range(2, unnameable.max_row + 1)) if "Exact Match Target Names" in unnameable_headers else "",
     "allText": "|".join(text(cell.value) for ws in wb.worksheets for row in ws.iter_rows() for cell in row),
 }
 if "Full Sequencing Results 1" in wb.sheetnames:
@@ -2877,12 +2975,19 @@ else:
     payload["managedEndCount"] = "0"
 if "Unified Genotype Pivot" in wb.sheetnames:
     ws = wb["Unified Genotype Pivot"]
-    rows = [row for row in range(2, ws.max_row + 1) if text(ws.cell(row, 1).value).startswith("candidate-")]
+    headers = {text(cell.value): cell.column for cell in ws[1] if text(cell.value)}
+    call_type_col = headers.get("call_type", 1)
+    stable_id_col = headers.get("stable_cluster_id", 4)
+    rows = [row for row in range(2, ws.max_row + 1) if text(ws.cell(row, call_type_col).value).startswith("candidate-")]
     payload["unifiedCandidateCount"] = str(len(rows))
-    payload["unifiedCandidateIDs"] = "|".join(text(ws.cell(row, 4).value) for row in rows)
+    payload["unifiedCandidateIDs"] = "|".join(text(ws.cell(row, stable_id_col).value) for row in rows)
+    payload["unifiedSampleAReads"] = "|".join(text(ws.cell(row, headers["Sample Reads: sample-a"]).value) for row in rows) if "Sample Reads: sample-a" in headers else ""
+    payload["unifiedSampleBReads"] = "|".join(text(ws.cell(row, headers["Sample Reads: sample-b"]).value) for row in rows) if "Sample Reads: sample-b" in headers else ""
 else:
     payload["unifiedCandidateCount"] = "0"
     payload["unifiedCandidateIDs"] = ""
+    payload["unifiedSampleAReads"] = ""
+    payload["unifiedSampleBReads"] = ""
 legacy_fields = [
     "match_source", "closest_match_id", "closest_reference", "closest_reference_name", "match_class",
     "nucleotides_different", "snp_differences", "indel_bases", "aligned_bases", "score",

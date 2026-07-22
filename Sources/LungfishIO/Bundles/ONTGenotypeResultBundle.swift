@@ -2021,6 +2021,20 @@ public enum ONTGenotypeResultBundle {
                 artifactManifest.unnameableFASTA,
                 label: "un-nameable JSON and FASTA"
             )
+            if artifactManifest.candidateGenBank != nil,
+               artifactManifest.candidateJSON == nil || artifactManifest.candidateFASTA == nil {
+                throw integrityFailure(
+                    .candidateArtifactDocumentReferenceMismatch,
+                    "Candidate GenBank requires the corresponding candidate JSON and FASTA declarations."
+                )
+            }
+            if artifactManifest.unnameableGenBank != nil,
+               artifactManifest.unnameableJSON == nil || artifactManifest.unnameableFASTA == nil {
+                throw integrityFailure(
+                    .candidateArtifactDocumentReferenceMismatch,
+                    "Un-nameable GenBank requires the corresponding un-nameable JSON and FASTA declarations."
+                )
+            }
             let parsedReferences = [
                 artifactManifest.candidateJSON,
                 artifactManifest.candidateFASTA,
@@ -2046,6 +2060,12 @@ public enum ONTGenotypeResultBundle {
                 aggregateBytes = next
             }
             for reference in declaredBAMReferences(artifactManifest) {
+                _ = try validateArtifact(reference, in: bundleURL, collectData: false)
+            }
+            for reference in [
+                artifactManifest.candidateGenBank,
+                artifactManifest.unnameableGenBank,
+            ].compactMap({ $0 }) {
                 _ = try validateArtifact(reference, in: bundleURL, collectData: false)
             }
 

@@ -43,7 +43,8 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
                 "cdnaClustersFASTAPath", "provenancePath", "manifestPath", "referenceFASTAPath",
                 "genotypingEvidenceBAMPath", "genotypingEvidenceBAIPath", "reciprocalEvidenceBAMPath",
                 "reciprocalEvidenceBAIPath", "candidateAllelesJSONPath", "candidateAllelesFASTAPath",
-                "unnameableClustersJSONPath", "unnameableClustersFASTAPath", "referenceCatalogJSONPath",
+                "candidateAllelesGenBankPath", "unnameableClustersJSONPath", "unnameableClustersFASTAPath",
+                "unnameableClustersGenBankPath", "referenceCatalogJSONPath",
                 "workbookProjectionInputJSONPath", "cleanupWarnings",
             ].joined(separator: "\t")
         )
@@ -86,8 +87,10 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
             "reciprocalEvidenceBAIPath": "/tmp/result.lungfishgenotype/artifacts/alignments/unmatched-to-reference.bam.bai",
             "candidateAllelesJSONPath": "/tmp/result.lungfishgenotype/candidate-alleles.json",
             "candidateAllelesFASTAPath": "/tmp/result.lungfishgenotype/candidate_alleles.fasta",
+            "candidateAllelesGenBankPath": "/tmp/result.lungfishgenotype/candidate_alleles.gb",
             "unnameableClustersJSONPath": "/tmp/result.lungfishgenotype/unnameable-unmatched-clusters.json",
             "unnameableClustersFASTAPath": "/tmp/result.lungfishgenotype/unnameable_unmatched_clusters.fasta",
+            "unnameableClustersGenBankPath": "/tmp/result.lungfishgenotype/unnameable_unmatched_clusters.gb",
             "referenceCatalogJSONPath": "/tmp/result.lungfishgenotype/artifacts/reference/mhc-reference-catalog.json",
             "workbookProjectionInputJSONPath": "/tmp/result.lungfishgenotype/artifacts/projections/mhc-workbook-projection-input.json",
         ]
@@ -142,8 +145,10 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
             reciprocalEvidenceBAIPath: "/tmp/result.lungfishgenotype/artifacts/alignments/unmatched-to-reference.bam.bai",
             candidateAllelesJSONPath: "/tmp/result.lungfishgenotype/candidate-alleles.json",
             candidateAllelesFASTAPath: "/tmp/result.lungfishgenotype/candidate_alleles.fasta",
+            candidateAllelesGenBankPath: "/tmp/result.lungfishgenotype/candidate_alleles.gb",
             unnameableClustersJSONPath: "/tmp/result.lungfishgenotype/unnameable-unmatched-clusters.json",
             unnameableClustersFASTAPath: "/tmp/result.lungfishgenotype/unnameable_unmatched_clusters.fasta",
+            unnameableClustersGenBankPath: "/tmp/result.lungfishgenotype/unnameable_unmatched_clusters.gb",
             referenceCatalogJSONPath: "/tmp/result.lungfishgenotype/artifacts/reference/mhc-reference-catalog.json",
             workbookProjectionInputJSONPath: "/tmp/result.lungfishgenotype/artifacts/projections/mhc-workbook-projection-input.json",
             cleanupWarnings: [

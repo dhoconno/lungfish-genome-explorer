@@ -78,6 +78,7 @@ struct FullLengthONTMHCCandidateWorkbookRow: Equatable, Sendable {
     let readsBySample: [String: Int]
     let fastaRecordID: String
     let sequenceSHA256: String
+    let reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary
     let bamPath: String
     let queryName: String
     let referenceName: String
@@ -110,6 +111,8 @@ struct FullLengthONTMHCUnnameableWorkbookRow: Equatable, Sendable {
     let fastaRecordID: String
     let sequenceSHA256: String
     let failedMetrics: [String: Double]
+    let reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary
+    let selectedEvidence: ONTMHCEvidenceLocator?
     let evidence: [ONTMHCEvidenceLocator]
 }
 
@@ -117,12 +120,16 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
     let sampleOrder: [String]
     let candidateRows: [FullLengthONTMHCCandidateWorkbookRow]
     let unnameableRows: [FullLengthONTMHCUnnameableWorkbookRow]
+    private let candidateSchemaVersion: Int
+    private let unnameableSchemaVersion: Int
 
     init(
         candidateDocument: ONTMHCCandidateAllelesDocument,
         unnameableDocument: ONTMHCUnnameableClustersDocument,
         sampleOrder requestedSampleOrder: [String]
     ) throws {
+        candidateSchemaVersion = candidateDocument.schemaVersion
+        unnameableSchemaVersion = unnameableDocument.schemaVersion
         let candidateIDs = try Self.uniqueIDs(candidateDocument.candidates.map(\.stableClusterID))
         let unnameableIDs = try Self.uniqueIDs(unnameableDocument.clusters.map(\.stableClusterID))
         if let overlap = candidateIDs.intersection(unnameableIDs).sorted(by: Self.less).first {
@@ -165,6 +172,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 readsBySample: reads,
                 fastaRecordID: record.fastaRecordID,
                 sequenceSHA256: record.sequenceSHA256,
+                reciprocalHitSummary: record.reciprocalHitSummary,
                 bamPath: record.selectedEvidence.bamPath,
                 queryName: record.selectedEvidence.queryName,
                 referenceName: record.selectedEvidence.referenceName,
@@ -208,12 +216,17 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 fastaRecordID: record.fastaRecordID,
                 sequenceSHA256: record.sequenceSHA256,
                 failedMetrics: record.failedMetrics,
+                reciprocalHitSummary: record.reciprocalHitSummary,
+                selectedEvidence: record.selectedEvidence,
                 evidence: record.evidence.sorted(by: Self.evidenceLess)
             )
         }
     }
 
     var candidateWorksheetRows: [[FullLengthONTMHCWorkbookCell]] {
+        if candidateSchemaVersion == 2 {
+            return compactCandidateWorksheetRows
+        }
         let header = [
             "Stable Cluster ID", "Provisional Name", "Locus", "Classification", "Support Class",
             "Independent Sample Count", "Occurrence Count", "Total Cluster Reads", "Supporting Sample IDs",
@@ -244,6 +257,9 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
     }
 
     var unnameableWorksheetRows: [[FullLengthONTMHCWorkbookCell]] {
+        if unnameableSchemaVersion == 2 {
+            return compactUnnameableWorksheetRows
+        }
         let header = [
             "Stable Cluster ID", "Reason", "Support Class", "Independent Sample Count", "Occurrence Count",
             "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256", "Failed Metrics",
@@ -276,6 +292,82 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 })
                 result.append(cells)
             }
+        }
+        return result
+    }
+
+    private var compactCandidateWorksheetRows: [[FullLengthONTMHCWorkbookCell]] {
+        let header = [
+            "Stable Cluster ID", "Provisional Name", "Locus", "Classification", "Support Class",
+            "Independent Sample Count", "Occurrence Count", "Total Cluster Reads", "Supporting Sample IDs",
+            "FASTA Record ID", "Sequence SHA-256", "Reciprocal BAM Path", "Reciprocal Query Name",
+            "Reciprocal Alignment Count", "Reciprocal Target Count", "Reciprocal Target Alignment Counts",
+            "Exact Match Target Names", "Closest Match Target Names", "Selected Evidence BAM Path",
+            "Selected Evidence Query Name", "Selected Evidence Reference Name", "Selected Evidence Read Group ID",
+            "Selected Evidence Reference Start", "Selected Evidence CIGAR", "Closest Reference Name",
+            "Closest Reference Class", "SNP Count", "Inserted Bases", "Deleted Bases", "Long Gap Bases",
+            "Comparable Bases", "Shorter Coverage", "Identity", "Mapping Quality", "Alignment Score",
+        ] + sampleOrder.map { "Sample Reads: \($0)" }
+        var result = [header.map { FullLengthONTMHCWorkbookCell($0) }]
+        for row in candidateRows {
+            let summary = row.reciprocalHitSummary
+            var cells: [FullLengthONTMHCWorkbookCell] = [
+                .init(row.stableClusterID), .init(row.provisionalName, tint: row.tintCategory), .init(row.locus),
+                .init(row.classification), .init(row.supportClass), .init(row.independentSampleCount),
+                .init(row.occurrenceCount), .init(row.totalClusterReads), .init(row.supportingSampleIDs.joined(separator: ";")),
+                .init(row.fastaRecordID), .init(row.sequenceSHA256), .init(summary.bamPath), .init(summary.queryName),
+                .init(summary.alignmentCount), .init(summary.targetEdgeCount),
+                .init(Self.countText(summary.targetAlignmentCounts)),
+                .init(summary.exactMatchTargetNames.sorted(by: Self.less).joined(separator: ";")),
+                .init(summary.closestMatchTargetNames.sorted(by: Self.less).joined(separator: ";")),
+                .init(row.bamPath), .init(row.queryName), .init(row.referenceName),
+                row.readGroupID.map { FullLengthONTMHCWorkbookCell($0) } ?? .blank,
+                .init(row.referenceStart), .init(row.cigar), .init(row.closestReferenceName),
+                .init(row.closestReferenceClass), .init(row.snpCount), .init(row.insertedBases),
+                .init(row.deletedBases), .init(row.longGapBases), .init(row.comparableBases),
+                .init(row.shorterCoverage), .init(row.identity), .init(row.mappingQuality), .init(row.alignmentScore),
+            ]
+            cells.append(contentsOf: sampleOrder.map { sample in
+                row.readsBySample[sample].map { FullLengthONTMHCWorkbookCell($0) } ?? .blank
+            })
+            result.append(cells)
+        }
+        return result
+    }
+
+    private var compactUnnameableWorksheetRows: [[FullLengthONTMHCWorkbookCell]] {
+        let header = [
+            "Stable Cluster ID", "Reason", "Support Class", "Independent Sample Count", "Occurrence Count",
+            "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256", "Failed Metrics",
+            "Reciprocal BAM Path", "Reciprocal Query Name", "Reciprocal Alignment Count", "Reciprocal Target Count",
+            "Reciprocal Target Alignment Counts", "Exact Match Target Names", "Closest Match Target Names",
+            "Selected Evidence BAM Path", "Selected Evidence Query Name", "Selected Evidence Reference Name",
+            "Selected Evidence Read Group ID", "Selected Evidence Reference Start", "Selected Evidence CIGAR",
+        ] + sampleOrder.map { "Sample Reads: \($0)" }
+        var result = [header.map { FullLengthONTMHCWorkbookCell($0) }]
+        for row in unnameableRows {
+            let summary = row.reciprocalHitSummary
+            let selected = row.selectedEvidence
+            var cells: [FullLengthONTMHCWorkbookCell] = [
+                .init(row.stableClusterID), .init(row.reason), .init(row.supportClass),
+                .init(row.independentSampleCount), .init(row.occurrenceCount), .init(row.totalClusterReads),
+                .init(row.supportingSampleIDs.joined(separator: ";")), .init(row.fastaRecordID),
+                .init(row.sequenceSHA256), .init(Self.metricText(row.failedMetrics)), .init(summary.bamPath),
+                .init(summary.queryName), .init(summary.alignmentCount), .init(summary.targetEdgeCount),
+                .init(Self.countText(summary.targetAlignmentCounts)),
+                .init(summary.exactMatchTargetNames.sorted(by: Self.less).joined(separator: ";")),
+                .init(summary.closestMatchTargetNames.sorted(by: Self.less).joined(separator: ";")),
+                selected.map { .init($0.bamPath) } ?? .blank,
+                selected.map { .init($0.queryName) } ?? .blank,
+                selected.map { .init($0.referenceName) } ?? .blank,
+                selected?.readGroupID.map { FullLengthONTMHCWorkbookCell($0) } ?? .blank,
+                selected.map { .init($0.referenceStart) } ?? .blank,
+                selected.map { .init($0.cigar) } ?? .blank,
+            ]
+            cells.append(contentsOf: sampleOrder.map { sample in
+                row.readsBySample[sample].map { FullLengthONTMHCWorkbookCell($0) } ?? .blank
+            })
+            result.append(cells)
         }
         return result
     }
@@ -388,6 +480,10 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
 
     private static func metricText(_ metrics: [String: Double]) -> String {
         metrics.keys.sorted(by: less).map { key in "\(key)=\(metrics[key]!)" }.joined(separator: ";")
+    }
+
+    private static func countText(_ counts: [String: Int]) -> String {
+        counts.keys.sorted(by: less).map { key in "\(key)=\(counts[key]!)" }.joined(separator: ";")
     }
 
     private static func inserting(_ values: [String], afterFirstCellOf row: [String]) -> [String] {

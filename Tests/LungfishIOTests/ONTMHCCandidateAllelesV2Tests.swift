@@ -170,6 +170,56 @@ final class ONTMHCCandidateAllelesV2Tests: XCTestCase {
         XCTAssertEqual(unnameable.reciprocalEdgeCount, 2)
     }
 
+    func testSelectedReciprocalOrientationRoundTripsForFreshCompactRecords() throws {
+        let reciprocal = try ONTMHCReciprocalQueryHitSummary(
+            bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+            queryName: "stable-1",
+            alignmentCount: 1,
+            targetAlignmentCounts: ["target-a": 1],
+            exactMatchTargetNames: [],
+            closestMatchTargetNames: ["target-a"]
+        )
+        let selected = reciprocalLocator(referenceName: "target-a")
+        let candidate = makeCandidate(
+            reciprocalHitSummary: reciprocal,
+            selectedEvidence: selected,
+            selectedAlignmentIsReverse: true
+        )
+        let unnameable = ONTMHCUnnameableRecord(
+            stableClusterID: "stable-1",
+            reason: .insufficientIdentity,
+            failedMetrics: ["identity": 0.5],
+            supportClass: .singleton,
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 8,
+            supportingSampleIDs: ["SampleA"],
+            fastaRecordID: "stable-1",
+            sequenceSHA256: String(repeating: "a", count: 64),
+            reciprocalHitSummary: reciprocal,
+            selectedEvidence: selected,
+            selectedAlignmentIsReverse: false
+        )
+
+        let candidateData = try JSONEncoder().encode(candidate)
+        let candidateObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: candidateData) as? [String: Any]
+        )
+        XCTAssertEqual(candidateObject["selected_alignment_is_reverse"] as? Bool, true)
+        XCTAssertEqual(
+            try JSONDecoder().decode(ONTMHCCandidateRecord.self, from: candidateData)
+                .selectedAlignmentIsReverse,
+            true
+        )
+
+        let unnameableData = try JSONEncoder().encode(unnameable)
+        XCTAssertEqual(
+            try JSONDecoder().decode(ONTMHCUnnameableRecord.self, from: unnameableData)
+                .selectedAlignmentIsReverse,
+            false
+        )
+    }
+
     private func reciprocalLocator(referenceName: String) -> ONTMHCEvidenceLocator {
         ONTMHCEvidenceLocator(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",
@@ -183,7 +233,8 @@ final class ONTMHCCandidateAllelesV2Tests: XCTestCase {
 
     private func makeCandidate(
         reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
-        selectedEvidence: ONTMHCEvidenceLocator
+        selectedEvidence: ONTMHCEvidenceLocator,
+        selectedAlignmentIsReverse: Bool? = nil
     ) -> ONTMHCCandidateRecord {
         ONTMHCCandidateRecord(
             stableClusterID: "stable-1",
@@ -209,7 +260,8 @@ final class ONTMHCCandidateAllelesV2Tests: XCTestCase {
             fastaRecordID: "stable-1",
             sequenceSHA256: String(repeating: "a", count: 64),
             reciprocalHitSummary: reciprocalHitSummary,
-            selectedEvidence: selectedEvidence
+            selectedEvidence: selectedEvidence,
+            selectedAlignmentIsReverse: selectedAlignmentIsReverse
         )
     }
 }
