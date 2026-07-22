@@ -94,6 +94,77 @@ def clean(value):
     return str(value).strip()
 
 
+def natural_sort_key(value):
+    text = "" if value is None else str(value)
+    return tuple(
+        (0, int(chunk)) if chunk.isdigit() else (1, chunk.casefold())
+        for chunk in re.findall(r"\d+|\D+", text)
+    )
+
+
+def numbered_locus(locus, prefix, allows_letter_suffix):
+    if not locus.startswith(prefix):
+        return False
+    remainder = locus[len(prefix):]
+    digit_count = 0
+    while digit_count < len(remainder) and remainder[digit_count].isdigit():
+        digit_count += 1
+    if digit_count == 0:
+        return False
+    suffix = remainder[digit_count:]
+    return not suffix or (allows_letter_suffix and suffix.isalpha())
+
+
+def locus_group_rank(locus):
+    if numbered_locus(locus, "A", False):
+        return 0
+    if locus == "B":
+        return 1
+    if numbered_locus(locus, "B", True):
+        return 2
+    return {
+        "I": 3,
+        "F": 4,
+        "G": 5,
+        "AG": 6,
+        "J": 7,
+        "K": 8,
+    }.get(locus, 9)
+
+
+def allele_display_parts(value):
+    complete_name = "" if value is None else str(value)
+    if not complete_name.strip():
+        return 10, "", "", "", ""
+
+    star = complete_name.find("*")
+    separator = complete_name.rfind("-", 0, star) if star >= 0 else -1
+    if star < 0 or separator < 0:
+        return 9, complete_name, "", "", complete_name
+
+    species_prefix = complete_name[:separator]
+    locus = complete_name[separator + 1:star]
+    allele = complete_name[star + 1:]
+    if not species_prefix or not locus or not allele:
+        return 9, complete_name, "", "", complete_name
+    return locus_group_rank(locus), locus, allele, species_prefix, complete_name
+
+
+def allele_display_sort_key(display_name, stable_id):
+    group, locus, allele, species, complete_name = allele_display_parts(display_name)
+    exact_stable_id = "" if stable_id is None else str(stable_id)
+    return (
+        group,
+        natural_sort_key(locus),
+        natural_sort_key(allele),
+        natural_sort_key(species),
+        natural_sort_key(complete_name),
+        natural_sort_key(exact_stable_id),
+        complete_name,
+        exact_stable_id,
+    )
+
+
 def family(value):
     text = clean(value)
     if not text or text == "-" or text.startswith("ERR"):
@@ -1313,20 +1384,25 @@ def write_two_sheet_mhc_contract():
     header_row = unified.max_row
     headers = {header: index + 1 for index, header in enumerate(table_headers)}
 
+    unified_data_rows = []
     for known in workbook_known_calls:
         call_id = clean(known.get("call_id"))
         reads = known.get("reads_by_sample") or {}
         display_name = clean(known_allele_display_names.get(call_id)) or call_id
         positive_counts = [int(value) for value in reads.values() if int(value) > 0]
-        unified.append([
-            "known-allele", call_id, display_name, "", "", "known", "", display_name, "exact",
-            len(positive_counts), len(positive_counts), sum(positive_counts),
-        ] + [reads.get(sample) if int(reads.get(sample) or 0) > 0 else None for sample in sample_names])
+        unified_data_rows.append((
+            allele_display_sort_key(display_name, call_id),
+            [
+                "known-allele", call_id, display_name, "", "", "known", "", display_name, "exact",
+                len(positive_counts), len(positive_counts), sum(positive_counts),
+            ] + [reads.get(sample) if int(reads.get(sample) or 0) > 0 else None for sample in sample_names],
+            None,
+        ))
 
-    candidate_rows = sorted(
-        [row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "candidate"],
-        key=lambda row: clean(row.get("stable_cluster_id")),
-    )
+    candidate_rows = [
+        row for row in normalized_unmatched_rows
+        if clean(row.get("record_category")) == "candidate"
+    ]
     for record in candidate_rows:
         values = {
             "call_type": f"candidate-{clean(record.get('classification_or_reason'))}",
@@ -1345,10 +1421,18 @@ def write_two_sheet_mhc_contract():
         reads = record.get("reads_by_sample") or {}
         for sample in sample_names:
             values[sample] = reads.get(sample)
-        unified.append([values.get(header) for header in table_headers])
-        unified.cell(unified.max_row, headers["display_name"]).fill = PatternFill(
-            fill_type="solid", fgColor=normalized_candidate_argb(record)
-        )
+        unified_data_rows.append((
+            allele_display_sort_key(values["display_name"], values["stable_cluster_id"]),
+            [values.get(header) for header in table_headers],
+            normalized_candidate_argb(record),
+        ))
+
+    for _sort_key, row, tint in sorted(unified_data_rows, key=lambda item: item[0]):
+        unified.append(row)
+        if tint:
+            unified.cell(unified.max_row, headers["display_name"]).fill = PatternFill(
+                fill_type="solid", fgColor=tint
+            )
 
     unified.freeze_panes = unified.cell(header_row + 1, 1).coordinate
 
@@ -1367,10 +1451,13 @@ def write_two_sheet_mhc_contract():
         "Nucleotide Sequence", "Putative Amino Acid Translation", "Translation Status",
     ] + [f"Sample Reads: {sample}" for sample in sample_order]
     unmatched.append(unmatched_headers)
-    for record in sorted(normalized_unmatched_rows, key=lambda row: (
-        0 if clean(row.get("record_category")) == "candidate" else 1,
-        clean(row.get("stable_cluster_id")),
-    )):
+    for record in sorted(
+        normalized_unmatched_rows,
+        key=lambda row: allele_display_sort_key(
+            clean(row.get("provisional_allele_name")),
+            clean(row.get("stable_cluster_id")),
+        ),
+    ):
         failed_metrics = record.get("failed_metrics") or {}
         row = [
             clean(record.get("record_category")), clean(record.get("stable_cluster_id")),

@@ -7,6 +7,198 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testFullLengthMHCUpdateUsesSpeciesAgnosticBiologicalAlleleOrder() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "mamu-biological-order")
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 2)
+
+        var manifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let artifacts = try XCTUnwrap(manifest.mhcCandidateArtifacts)
+        let candidateJSONURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(artifacts.candidateJSON).path,
+            in: fixture.bundleURL
+        )
+        var candidateJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: candidateJSONURL)) as? [String: Any]
+        )
+        var candidates = try XCTUnwrap(candidateJSON["candidates"] as? [[String: Any]])
+        let candidateNames: [String: (name: String, locus: String, reference: String)] = [
+            "cluster-1": ("Mamu-B02ps*001_5nt_nov", "Mamu-B02ps", "Mamu-B02ps*001"),
+            "cluster-2": ("Mamu-B02ps*001_5nt_nov", "Mamu-B02ps", "Mamu-B02ps*001"),
+            "cluster-3": ("Mamu-K*002_ext", "Mamu-K", "Mamu-K*002"),
+            "cluster-4": ("Mamu-A2*003_ext", "Mamu-A2", "Mamu-A2*003"),
+        ]
+        for index in candidates.indices {
+            let stableID = try XCTUnwrap(candidates[index]["stable_cluster_id"] as? String)
+            let replacement = try XCTUnwrap(candidateNames[stableID])
+            candidates[index]["provisional_name"] = replacement.name
+            candidates[index]["locus"] = replacement.locus
+            candidates[index]["closest_reference_name"] = replacement.reference
+        }
+        candidateJSON["candidates"] = candidates
+        try JSONSerialization.data(
+            withJSONObject: candidateJSON,
+            options: [.prettyPrinted, .sortedKeys]
+        ).write(to: candidateJSONURL, options: .atomic)
+
+        let knownNames: [(id: String, name: String)] = [
+            ("raw-01", "Mamu-DRB*001"),
+            ("raw-02", "Mamu-K*001"),
+            ("raw-03", "Mamu-J*001"),
+            ("raw-04", "Mamu-AG*001"),
+            ("raw-05", "Mamu-G*001"),
+            ("raw-06", "Mamu-F*001"),
+            ("raw-07", "Mamu-I*001"),
+            ("raw-08", "Mamu-B16*001"),
+            ("raw-09", "Mamu-B*010"),
+            ("raw-10", "Mamu-B*002"),
+            ("raw-11", "Mamu-A10*001"),
+            ("raw-12", "Mamu-A2*010"),
+            ("raw-13", "Mamu-A1*001"),
+        ]
+        let referenceArtifacts = try XCTUnwrap(manifest.mhcReferenceVisualizations)
+        let referenceJSONURL = ONTGenotypeResultBundle.resolvedURL(
+            for: referenceArtifacts.recordsJSON.path,
+            in: fixture.bundleURL
+        )
+        let referenceSequence = "ATGGCTTAA"
+        let referenceRecords = knownNames.enumerated().map { index, item in
+            ONTMHCReferenceVisualizationRecord(
+                rawReferenceID: item.id,
+                sourceOrdinal: index,
+                alleleName: item.name,
+                locus: String(item.name.prefix { $0 != "*" }).split(separator: "-").last.map(String.init),
+                sequence: referenceSequence,
+                sequenceSHA256: sha256Hex(referenceSequence),
+                recordFields: ["feature.allele": [item.name]],
+                features: [],
+                annotatedTranslation: "MA",
+                genBankText: "LOCUS \(item.id)",
+                fastaText: ">\(item.id)\n\(referenceSequence)\n",
+                roles: [.init(role: .exactKnownCall, candidateStableClusterIDs: [])]
+            )
+        }
+        try JSONEncoder().encode(
+            ONTMHCReferenceVisualizationArtifact(schemaVersion: 1, records: referenceRecords)
+        ).write(to: referenceJSONURL, options: .atomic)
+
+        let longSummaryURL = ONTGenotypeResultBundle.resolvedURL(
+            for: manifest.longSummaryCSVPath,
+            in: fixture.bundleURL
+        )
+        let longRows = knownNames.enumerated().map { index, item in
+            "sample-a,\(item.id),\(index + 1),\(index + 1),1000,100,10,1000,100,10"
+        }
+        try ([
+            "sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent",
+        ] + longRows).joined(separator: "\n").appending("\n").write(
+            to: longSummaryURL,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let revisedCandidateArtifacts = ONTMHCCandidateArtifactManifest(
+            schemaVersion: artifacts.schemaVersion,
+            genotypingEvidence: artifacts.genotypingEvidence,
+            reciprocalEvidence: artifacts.reciprocalEvidence,
+            candidateJSON: try artifactReference(candidateJSONURL, relativeTo: fixture.bundleURL),
+            candidateFASTA: artifacts.candidateFASTA,
+            candidateGenBank: artifacts.candidateGenBank,
+            unnameableJSON: artifacts.unnameableJSON,
+            unnameableFASTA: artifacts.unnameableFASTA,
+            unnameableGenBank: artifacts.unnameableGenBank
+        )
+        let revisedReferenceArtifacts = ONTMHCReferenceVisualizationArtifacts(
+            schemaVersion: referenceArtifacts.schemaVersion,
+            recordCount: referenceRecords.count,
+            recordsJSON: try artifactReference(referenceJSONURL, relativeTo: fixture.bundleURL),
+            genBank: referenceArtifacts.genBank,
+            fasta: referenceArtifacts.fasta
+        )
+        manifest = ONTGenotypeResultBundleManifest(
+            schemaVersion: manifest.schemaVersion,
+            kind: manifest.kind,
+            outputName: manifest.outputName,
+            analysisName: manifest.analysisName,
+            primaryWorkbookPath: manifest.primaryWorkbookPath,
+            currentWorkbookPath: manifest.currentWorkbookPath,
+            workbookRevisions: manifest.workbookRevisions,
+            longSummaryCSVPath: manifest.longSummaryCSVPath,
+            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
+            statsJSONPath: manifest.statsJSONPath,
+            provenancePath: manifest.provenancePath,
+            mhcCandidateArtifacts: revisedCandidateArtifacts,
+            mhcReferenceVisualizations: revisedReferenceArtifacts,
+            referenceRecordStore: manifest.referenceRecordStore
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: fixture.bundleURL)
+
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+if "Unified Genotype Pivot" in wb.sheetnames:
+    del wb["Unified Genotype Pivot"]
+ws = wb.create_sheet("Unified Genotype Pivot")
+ws.append(["Client ID", "", ""] + [""] * 9 + ["sample-a"])
+ws.append(["MHC-A Haplotype 1", "", ""] + [""] * 9 + ["analyst-h1"])
+ws.append(["Comments", "Subtotal", "# Obs."] + [""] * 9 + ["analyst-comment"])
+ws.append([])
+ws.append([
+    "call_type", "call_id", "display_name", "stable_cluster_id", "locus", "classification",
+    "support_class", "closest_reference", "match_class", "occurrence_count", "sample_count",
+    "total_cluster_reads", "sample-a",
+])
+wb.save(path)
+"""#, currentURL.path])
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_150) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        let inspection = try inspectBiologicallyOrderedTwoSheetWorkbook(currentURL)
+        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles")
+        XCTAssertEqual(inspection["analystHaplotype"], "analyst-h1")
+        XCTAssertEqual(inspection["analystComment"], "analyst-comment")
+        XCTAssertEqual(inspection["unifiedDisplayNames"], [
+            "Mamu-A1*001",
+            "Mamu-A2*003_ext",
+            "Mamu-A2*010",
+            "Mamu-A10*001",
+            "Mamu-B*002",
+            "Mamu-B*010",
+            "Mamu-B02ps*001_5nt_nov",
+            "Mamu-B02ps*001_5nt_nov",
+            "Mamu-B16*001",
+            "Mamu-I*001",
+            "Mamu-F*001",
+            "Mamu-G*001",
+            "Mamu-AG*001",
+            "Mamu-J*001",
+            "Mamu-K*001",
+            "Mamu-K*002_ext",
+            "Mamu-DRB*001",
+        ].joined(separator: "|"))
+        XCTAssertEqual(inspection["unmatchedNames"], [
+            "Mamu-A2*003_ext",
+            "Mamu-B02ps*001_5nt_nov",
+            "Mamu-B02ps*001_5nt_nov",
+            "Mamu-K*002_ext",
+            "",
+        ].joined(separator: "|"))
+        XCTAssertEqual(
+            inspection["unmatchedIDs"],
+            "cluster-4|cluster-1|cluster-2|cluster-3|cluster-u",
+            "Duplicate provisional names and the blank un-nameable row must remain distinct"
+        )
+    }
+
     func testExplicitUpdateWritesTwoSheetContractFromEmbeddedUnifiedHeaderAndNormalizedUnmatchedRows() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -3409,6 +3601,57 @@ payload = {
     "candidateTranslationStatus": text(unmatched.cell(candidate_row, unmatched_headers["Translation Status"]).value) if candidate_row else "",
     "unnameableSequence": text(unmatched.cell(unnameable_row, unmatched_headers["Nucleotide Sequence"]).value) if unnameable_row else "",
     "unnameableTranslationStatus": text(unmatched.cell(unnameable_row, unmatched_headers["Translation Status"]).value) if unnameable_row else "",
+}
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path])
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: String])
+    }
+
+    private func inspectBiologicallyOrderedTwoSheetWorkbook(_ url: URL) throws -> [String: String] {
+        let code = #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+
+def text(value):
+    return "" if value is None else str(value)
+
+unified = wb["Unified Genotype Pivot"]
+table_header_row = next(
+    row for row in range(1, unified.max_row + 1)
+    if any(text(unified.cell(row, column).value) == "call_type" for column in range(1, unified.max_column + 1))
+)
+headers = {
+    text(unified.cell(table_header_row, column).value): column
+    for column in range(1, unified.max_column + 1)
+    if text(unified.cell(table_header_row, column).value)
+}
+data_rows = range(table_header_row + 1, unified.max_row + 1)
+sample_a_col = next(
+    column for column in range(1, unified.max_column + 1)
+    if text(unified.cell(1, column).value) == "sample-a"
+)
+def row_for_label(label):
+    return next(row for row in range(1, unified.max_row + 1) if text(unified.cell(row, 1).value) == label)
+
+unmatched = wb["Unmatched Alleles"]
+unmatched_headers = {text(cell.value): cell.column for cell in unmatched[1] if text(cell.value)}
+payload = {
+    "sheetNames": "|".join(wb.sheetnames),
+    "analystHaplotype": text(unified.cell(row_for_label("MHC-A Haplotype 1"), sample_a_col).value),
+    "analystComment": text(unified.cell(row_for_label("Comments"), sample_a_col).value),
+    "unifiedDisplayNames": "|".join(text(unified.cell(row, headers["display_name"]).value) for row in data_rows),
+    "unmatchedNames": "|".join(
+        text(unmatched.cell(row, unmatched_headers["Provisional Allele Name"]).value)
+        for row in range(2, unmatched.max_row + 1)
+    ),
+    "unmatchedIDs": "|".join(
+        text(unmatched.cell(row, unmatched_headers["Stable Cluster ID"]).value)
+        for row in range(2, unmatched.max_row + 1)
+    ),
 }
 print(json.dumps(payload))
 """#
