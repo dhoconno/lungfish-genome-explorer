@@ -982,7 +982,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "minimumIntronGapBases": String(thresholds.minimumIntronGapBases),
             "novelDistanceMetric": "SNP-substitutions-only",
             "zeroSNPIndelClassification": "known-existing-allele",
-            "extensionRule": "identical-except-long-intron-gaps",
+            "extensionRule": "complete-cdna-zero-snp-intron-fill-indels-allowed",
         ]
     }
 

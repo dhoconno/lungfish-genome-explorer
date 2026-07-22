@@ -72,6 +72,72 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(candidate.longGapBases, 110)
     }
 
+    func testCompleteCDNAExtensionAllowsOrdinaryIndelsWhenThereAreNoSNPs() throws {
+        let deletionReference = MHCReferenceRecord(
+            sequenceID: "ref-cdna-1001",
+            alleleName: cdnaReference.alleleName,
+            locus: cdnaReference.locus,
+            moleculeClass: .cDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_001
+        )
+        for (cigar, sequenceLength, reference, insertedBases, deletedBases) in [
+            ("499=1D1=50I500=", 1_050, deletionReference, 50, 1),
+            ("499=1I1=50I500=", 1_051, cdnaReference, 51, 0),
+        ] {
+            let cluster = makeCluster(
+                sequenceLength: sequenceLength,
+                alignments: [alignment(reference: reference, cigar: cigar)]
+            )
+
+            guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+                return XCTFail("Expected structural cDNA extension for \(cigar)")
+            }
+            XCTAssertEqual(candidate.classification, .extension)
+            XCTAssertEqual(candidate.snpCount, 0)
+            XCTAssertEqual(candidate.insertedBases, insertedBases)
+            XCTAssertEqual(candidate.deletedBases, deletedBases)
+            XCTAssertEqual(candidate.provisionalName, "Mafa-A1*018:01:01:01_ext")
+        }
+    }
+
+    func testTerminallyTruncatedCDNAWithIntronInsertionIsKnownNotExtension() throws {
+        let longCDNA = MHCReferenceRecord(
+            sequenceID: "ref-long-cdna",
+            alleleName: "Mafa-A2*024:01:01:01",
+            locus: "Mafa-A2",
+            moleculeClass: .cDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_150,
+            alignments: [alignment(
+                reference: longCDNA,
+                cigar: "500=50I600=",
+                referenceStart: 101
+            )]
+        )
+
+        guard case .known(let calls) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected existing cDNA genotype")
+        }
+        XCTAssertEqual(calls.map(\.reference.sequenceID), ["ref-long-cdna"])
+    }
+
+    func testCDNAIntronFillWithSNPIsNovelNotExtension() throws {
+        let cluster = makeCluster(
+            sequenceLength: 1_050,
+            alignments: [alignment(reference: cdnaReference, cigar: "499=1X50I500=")]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected novel candidate")
+        }
+        XCTAssertEqual(candidate.classification, .novel)
+        XCTAssertEqual(candidate.provisionalName, "Mafa-A1*018:01:01:01_1nt_nov")
+    }
+
     func testTerminalLongInsertionsAreKnownCDNAAllelesRatherThanExtensions() throws {
         for cigar in ["50I1000=", "1000=50I"] {
             let cluster = makeCluster(

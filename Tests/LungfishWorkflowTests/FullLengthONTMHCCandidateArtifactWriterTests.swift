@@ -110,6 +110,10 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(classification.resolvedOptions["minimumShorterCoverage"], "0.7")
         XCTAssertEqual(classification.resolvedOptions["minimumIntronGapBases"], "20")
         XCTAssertEqual(classification.resolvedOptions["novelDistanceMetric"], "SNP-substitutions-only")
+        XCTAssertEqual(
+            classification.resolvedOptions["extensionRule"],
+            "complete-cdna-zero-snp-intron-fill-indels-allowed"
+        )
         XCTAssertEqual(classification.resolvedOptions["documentSchemaVersion"], "2")
         XCTAssertEqual(
             classification.resolvedOptions["reciprocalAlignmentCountRule"],

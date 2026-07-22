@@ -233,13 +233,13 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             return .known(knownCalls(knownGenomic))
         }
 
-        if let extensionHit = best(eligible.filter { isExactCDNAExtension($0, cluster: cluster) }) {
+        if let extensionHit = best(eligible.filter { isCDNAExtension($0, cluster: cluster) }) {
             return .candidate(try candidateRecord(
                 cluster: cluster,
                 support: support,
                 hit: extensionHit,
                 analyzed: analyzed,
-                closestHits: eligible.filter { isExactCDNAExtension($0, cluster: cluster) },
+                closestHits: eligible.filter { isCDNAExtension($0, cluster: cluster) },
                 classification: .extension
             ))
         }
@@ -512,18 +512,16 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         )
     }
 
-    private func isExactCDNAExtension(
+    private func isCDNAExtension(
         _ hit: AnalyzedAlignment,
         cluster: FullLengthONTMHCCandidateCluster
     ) -> Bool {
         guard let reference = hit.resolvedReference,
               reference.moleculeClass == .cDNA,
               hit.metrics.snps == 0,
-              hit.metrics.comparableBases == reference.sequenceLength,
-              hit.identity == 1,
+              hit.input.evidence.referenceStart == 1,
+              hit.metrics.referenceSpan == reference.sequenceLength,
               hit.longGapBases > 0,
-              hit.nonIntronIndelBases == 0,
-              hit.metrics.deletedBases == 0,
               hit.metrics.skippedReferenceBases == 0,
               hit.metrics.softClippedBases == 0,
               hit.metrics.querySpan == cluster.sequenceLength else {
