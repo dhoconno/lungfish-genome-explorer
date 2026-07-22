@@ -57,6 +57,8 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
             ("raw-11", "Mamu-A10*001"),
             ("raw-12", "Mamu-A2*010"),
             ("raw-13", "Mamu-A1*001"),
+            ("raw-14", "Mamu-B*001:01N"),
+            ("raw-15", "Mamu-B*001:01_ext"),
         ]
         let referenceArtifacts = try XCTUnwrap(manifest.mhcReferenceVisualizations)
         let referenceJSONURL = ONTGenotypeResultBundle.resolvedURL(
@@ -166,11 +168,21 @@ wb.save(path)
         XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles")
         XCTAssertEqual(inspection["analystHaplotype"], "analyst-h1")
         XCTAssertEqual(inspection["analystComment"], "analyst-comment")
+        let swiftOrderedDisplayNames = (
+            knownNames.map { $0.name } + candidateNames.values.map { $0.name }
+        ).sorted(by: MHCAlleleDisplayOrder.lessThan)
+        XCTAssertEqual(
+            inspection["unifiedDisplayNames"],
+            swiftOrderedDisplayNames.joined(separator: "|"),
+            "Explicit workbook refresh and Swift viewport ordering must remain identical"
+        )
         XCTAssertEqual(inspection["unifiedDisplayNames"], [
             "Mamu-A1*001",
             "Mamu-A2*003_ext",
             "Mamu-A2*010",
             "Mamu-A10*001",
+            "Mamu-B*001:01_ext",
+            "Mamu-B*001:01N",
             "Mamu-B*002",
             "Mamu-B*010",
             "Mamu-B02ps*001_5nt_nov",

@@ -2,6 +2,9 @@ import Foundation
 
 public enum MHCAlleleDisplayOrder {
     /// Compares two MHC allele display names in biological display order.
+    /// Natural fields are tokenized into ASCII digit and non-digit runs. Digit runs sort
+    /// before non-digit runs and compare by overflow-free numeric magnitude; non-digit
+    /// runs compare by ASCII-lowercased Unicode scalar value.
     ///
     /// - Parameters:
     ///   - lhs: The left display name.
@@ -52,24 +55,82 @@ public enum MHCAlleleDisplayOrder {
     }
 
     private static func naturalCompare(_ lhs: String, _ rhs: String) -> ComparisonResult {
-        lhs.compare(
-            rhs,
-            options: [.caseInsensitive, .numeric],
-            range: nil,
-            locale: Locale(identifier: "en_US_POSIX")
-        )
+        let leftTokens = asciiNaturalTokens(lhs)
+        let rightTokens = asciiNaturalTokens(rhs)
+
+        for (left, right) in zip(leftTokens, rightTokens) {
+            if left.isDigits != right.isDigits {
+                return left.isDigits ? .orderedAscending : .orderedDescending
+            }
+            if left.isDigits, left.values.count != right.values.count {
+                return left.values.count < right.values.count ? .orderedAscending : .orderedDescending
+            }
+            let result = scalarCompare(left.values, right.values)
+            if result != .orderedSame {
+                return result
+            }
+        }
+
+        if leftTokens.count != rightTokens.count {
+            return leftTokens.count < rightTokens.count ? .orderedAscending : .orderedDescending
+        }
+        return .orderedSame
     }
 
     private static func exactCompare(_ lhs: String, _ rhs: String) -> ComparisonResult {
-        let leftScalars = lhs.unicodeScalars
-        let rightScalars = rhs.unicodeScalars
-        if leftScalars.elementsEqual(rightScalars) {
+        scalarCompare(
+            lhs.unicodeScalars.map(\.value),
+            rhs.unicodeScalars.map(\.value)
+        )
+    }
+
+    private static func scalarCompare(_ lhs: [UInt32], _ rhs: [UInt32]) -> ComparisonResult {
+        if lhs.elementsEqual(rhs) {
             return .orderedSame
         }
-        return leftScalars.lexicographicallyPrecedes(
-            rightScalars,
-            by: { $0.value < $1.value }
-        ) ? .orderedAscending : .orderedDescending
+        return lhs.lexicographicallyPrecedes(rhs) ? .orderedAscending : .orderedDescending
+    }
+
+    private static func asciiNaturalTokens(_ value: String) -> [ASCIINaturalToken] {
+        var tokens: [ASCIINaturalToken] = []
+        var currentValues: [UInt32] = []
+        var currentIsDigits: Bool?
+
+        func appendCurrentToken() {
+            guard let isDigits = currentIsDigits else { return }
+            let values: [UInt32]
+            if isDigits {
+                values = Array(currentValues.drop(while: { $0 == 48 }))
+            } else {
+                values = currentValues
+            }
+            tokens.append(ASCIINaturalToken(isDigits: isDigits, values: values))
+        }
+
+        for scalar in value.unicodeScalars {
+            let isDigits = isASCIIDigit(scalar.value)
+            if let currentIsDigits, currentIsDigits != isDigits {
+                appendCurrentToken()
+                currentValues.removeAll(keepingCapacity: true)
+            }
+            currentIsDigits = isDigits
+            currentValues.append(isDigits ? scalar.value : asciiLowercased(scalar.value))
+        }
+        appendCurrentToken()
+        return tokens
+    }
+
+    private static func isASCIIDigit(_ value: UInt32) -> Bool {
+        value >= 48 && value <= 57
+    }
+
+    private static func asciiLowercased(_ value: UInt32) -> UInt32 {
+        value >= 65 && value <= 90 ? value + 32 : value
+    }
+
+    private struct ASCIINaturalToken {
+        let isDigits: Bool
+        let values: [UInt32]
     }
 
     private struct ParsedName {
@@ -148,13 +209,16 @@ public enum MHCAlleleDisplayOrder {
             prefix: Character,
             allowsLetterSuffix: Bool
         ) -> Bool {
-            guard locus.first == prefix else { return false }
-            let remainder = locus.dropFirst()
-            let digits = remainder.prefix(while: \Character.isNumber)
+            let prefixByte = String(prefix).utf8.first
+            guard locus.utf8.first == prefixByte else { return false }
+            let remainder = locus.utf8.dropFirst()
+            let digits = remainder.prefix(while: { $0 >= 48 && $0 <= 57 })
             guard !digits.isEmpty else { return false }
 
             let suffix = remainder.dropFirst(digits.count)
-            return suffix.isEmpty || (allowsLetterSuffix && suffix.allSatisfy(\.isLetter))
+            return suffix.isEmpty || (allowsLetterSuffix && suffix.allSatisfy {
+                ($0 >= 65 && $0 <= 90) || ($0 >= 97 && $0 <= 122)
+            })
         }
     }
 }

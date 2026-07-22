@@ -79,12 +79,52 @@ final class MHCAlleleDisplayOrderTests: XCTestCase {
     }
 
     func testAllelesUseNaturalNumericOrder() {
-        let names = ["Mamu-B*010", "Mamu-B*002", "Mamu-B*100"]
+        let names = [
+            "Mamu-B*100000000000000000000",
+            "Mamu-B*010",
+            "Mamu-B*99999999999999999999",
+            "Mamu-B*002",
+            "Mamu-B*100",
+        ]
 
         XCTAssertEqual(names.sorted(by: MHCAlleleDisplayOrder.lessThan), [
             "Mamu-B*002",
             "Mamu-B*010",
             "Mamu-B*100",
+            "Mamu-B*99999999999999999999",
+            "Mamu-B*100000000000000000000",
+        ])
+    }
+
+    func testASCIINaturalOrderPlacesExtensionBeforeSuffixLetter() {
+        let names = [
+            "Mamu-B*001:10",
+            "Mamu-B*001:01N",
+            "Mamu-B*001:2",
+            "Mamu-B*001:01_ext",
+        ]
+
+        XCTAssertEqual(names.sorted(by: MHCAlleleDisplayOrder.lessThan), [
+            "Mamu-B*001:01_ext",
+            "Mamu-B*001:01N",
+            "Mamu-B*001:2",
+            "Mamu-B*001:10",
+        ])
+    }
+
+    func testNumberedLociUseOnlyASCIIDigitsAndSuffixLetters() {
+        let names = [
+            "Mamu-B1é*001",
+            "Mamu-A١*001",
+            "Mamu-K*001",
+            "Mamu-A2*001",
+        ]
+
+        XCTAssertEqual(names.sorted(by: MHCAlleleDisplayOrder.lessThan), [
+            "Mamu-A2*001",
+            "Mamu-K*001",
+            "Mamu-A١*001",
+            "Mamu-B1é*001",
         ])
     }
 

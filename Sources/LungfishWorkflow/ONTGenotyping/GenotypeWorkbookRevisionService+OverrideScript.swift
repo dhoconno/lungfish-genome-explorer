@@ -95,11 +95,27 @@ def clean(value):
 
 
 def natural_sort_key(value):
+    # Keep this ASCII token contract in lockstep with MHCAlleleDisplayOrder.
     text = "" if value is None else str(value)
-    return tuple(
-        (0, int(chunk)) if chunk.isdigit() else (1, chunk.casefold())
-        for chunk in re.findall(r"\d+|\D+", text)
-    )
+    tokens = []
+    start = 0
+    while start < len(text):
+        is_digits = "0" <= text[start] <= "9"
+        end = start + 1
+        while end < len(text) and ("0" <= text[end] <= "9") == is_digits:
+            end += 1
+        chunk = text[start:end]
+        if is_digits:
+            normalized = chunk.lstrip("0")
+            tokens.append((0, len(normalized), normalized))
+        else:
+            lowered = "".join(
+                chr(ord(character) + 32) if "A" <= character <= "Z" else character
+                for character in chunk
+            )
+            tokens.append((1, lowered))
+        start = end
+    return tuple(tokens)
 
 
 def numbered_locus(locus, prefix, allows_letter_suffix):
@@ -107,12 +123,15 @@ def numbered_locus(locus, prefix, allows_letter_suffix):
         return False
     remainder = locus[len(prefix):]
     digit_count = 0
-    while digit_count < len(remainder) and remainder[digit_count].isdigit():
+    while digit_count < len(remainder) and "0" <= remainder[digit_count] <= "9":
         digit_count += 1
     if digit_count == 0:
         return False
     suffix = remainder[digit_count:]
-    return not suffix or (allows_letter_suffix and suffix.isalpha())
+    return not suffix or (allows_letter_suffix and all(
+        "A" <= character <= "Z" or "a" <= character <= "z"
+        for character in suffix
+    ))
 
 
 def locus_group_rank(locus):
