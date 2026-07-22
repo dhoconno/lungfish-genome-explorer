@@ -1,0 +1,81 @@
+# MHC Candidate GenBank Consequence Comments Implementation Plan
+
+## Goal
+
+Add deterministic, feature-aware nucleotide and protein consequence comments to the forward full-length ONT MHC `candidate_alleles.gb` artifact, using only data already available to the renderer.
+
+## Task 1: Define aligned change events in the existing projection
+
+Files:
+
+- Modify `Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCCandidateGenBankArtifactBuilder.swift`
+- Modify `Tests/LungfishWorkflowTests/FullLengthONTMHCCandidateGenBankArtifactBuilderTests.swift`
+
+Steps:
+
+1. Add failing tests for substitutions, insertions, deletions, skipped regions, reverse orientation, and deterministic coordinates.
+2. Extend the builder's single CIGAR pass to retain change events while preserving existing liftover behavior.
+3. Compare bases for both `M` and explicit `X`, in reference orientation.
+4. Keep reference-to-query and stored-candidate coordinate conversion in one projection implementation.
+5. Run the focused builder tests.
+
+## Task 2: Add a pure feature-aware consequence summarizer
+
+Files:
+
+- Create `Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCCandidateConsequenceAnnotator.swift`
+- Modify `Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCCandidateGenBankArtifactBuilder.swift`
+- Modify `Tests/LungfishWorkflowTests/FullLengthONTMHCCandidateGenBankArtifactBuilderTests.swift`
+
+Steps:
+
+1. Add failing genomic tests containing an exon-2 missense, exon-3 synonymous change, another CDS missense, and an intron change.
+2. Add failing tests for two substitutions in one codon, reverse-strand CDS, frame-preserving/frame-disrupting indels, ambiguous/partial CDS, and missing annotations.
+3. Select and validate the primary CDS; order intervals by transcript strand and honor `codon_start` and `transl_table`.
+4. Group substitutions per codon and produce deterministic `CDS-NS`, `CDS-SYN`, or `CDS-UNRESOLVED` details.
+5. Annotate coding indels conservatively using frame delta and whole-product translation status.
+6. Use explicit exon/intron numbers when present and deterministic transcript-order inference otherwise.
+7. Emit the four required stable summaries and ordered detail comments.
+8. Run the focused builder tests.
+
+## Task 3: Separate cDNA intron fills from coding indels
+
+Files:
+
+- Modify `Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCCandidateConsequenceAnnotator.swift`
+- Modify `Tests/LungfishWorkflowTests/FullLengthONTMHCCandidateGenBankArtifactBuilderTests.swift`
+
+Steps:
+
+1. Add a failing cDNA extension test with an internal long insertion and no coding changes.
+2. Add a failing regression with an ordinary deletion adjacent to the long insertion.
+3. Emit `INTRON-FILL` details for eligible long cDNA insertions and exclude those bases from coding-indel consequences.
+4. Preserve independent reporting of adjacent ordinary indels.
+5. Verify terminal insertions and partial alignments are not overinterpreted.
+
+## Task 4: Publish comments and provenance
+
+Files:
+
+- Modify `Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCCandidateArtifactWriter.swift`
+- Modify `Tests/LungfishWorkflowTests/FullLengthONTMHCCandidateArtifactWriterTests.swift`
+- Modify `Tests/LungfishWorkflowTests/FullLengthONTMHCGenotypingPipelineTests.swift`
+
+Steps:
+
+1. Add failing assertions for exact provenance rule values.
+2. Add a pipeline fixture assertion that the published `candidate_alleles.gb` contains all four summaries and representative detail comments.
+3. Record the change source, coordinate convention, coding consequence, cDNA intron-fill, and ambiguity rules in both GenBank render transformations.
+4. Confirm existing provenance inputs/outputs, checksums, sizes, argv, runtime, status, and timing remain complete.
+5. Run builder, artifact-writer, and pipeline tests.
+
+## Task 5: Review and integrated verification
+
+1. Run specification review, then code-quality review; fix and rereview any findings.
+2. Run the combined focused MHC classifier, GenBank builder/writer, pipeline, workbook projection/revision, viewport, and debug-launch tests.
+3. Build a fresh signed `Lungfish Debug` app.
+4. Run the established four-sample CLI analysis with the newly bundled CLI.
+5. Verify sorted/indexed BAMs, candidate/un-nameable FASTA/JSON/GenBank artifacts, manifest entries, and complete provenance.
+6. Inspect representative GenBank comments for genomic novel alleles and cDNA extensions.
+7. Verify the two-sheet workbook cell types and render both sheets.
+8. Quit other Lungfish processes and launch only the exact fresh debug bundle for testing.
