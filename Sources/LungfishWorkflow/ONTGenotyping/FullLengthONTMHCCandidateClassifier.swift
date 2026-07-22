@@ -130,6 +130,8 @@ public enum FullLengthONTMHCCandidateClassifierError: Error, LocalizedError, Equ
 }
 
 public struct FullLengthONTMHCCandidateClassifier: Sendable {
+    public static let defaultReciprocalBAMPath = "artifacts/alignments/unmatched-to-reference.bam"
+
     private struct Support: Sendable {
         let supportClass: ONTMHCCandidateSupportClass
         let independentSampleCount: Int
@@ -174,9 +176,14 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
     }
 
     public let thresholds: ONTMHCCandidateThresholds
+    public let reciprocalBAMPath: String
 
-    public init(thresholds: ONTMHCCandidateThresholds = .defaults) {
+    public init(
+        thresholds: ONTMHCCandidateThresholds = .defaults,
+        reciprocalBAMPath: String = Self.defaultReciprocalBAMPath
+    ) {
         self.thresholds = thresholds
+        self.reciprocalBAMPath = reciprocalBAMPath
     }
 
     public func classify(
@@ -204,12 +211,13 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             try analyze(alignment, index: index, cluster: cluster)
         }
         guard !analyzed.isEmpty else {
-            return .unnameable(unnameableRecord(
+            return .unnameable(try unnameableRecord(
                 cluster: cluster,
                 support: support,
                 reason: .noAlignment,
                 failedMetrics: [:],
-                evidence: []
+                analyzed: [],
+                selectedHit: nil
             ))
         }
 
@@ -223,10 +231,12 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         }
 
         if let extensionHit = best(eligible.filter { isExactCDNAExtension($0, cluster: cluster) }) {
-            return .candidate(candidateRecord(
+            return .candidate(try candidateRecord(
                 cluster: cluster,
                 support: support,
                 hit: extensionHit,
+                analyzed: analyzed,
+                closestHits: eligible.filter { isExactCDNAExtension($0, cluster: cluster) },
                 classification: .extension
             ))
         }
@@ -239,22 +249,25 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         }
 
         if let novel = best(eligible.filter { $0.metrics.snps > 0 }) {
-            return .candidate(candidateRecord(
+            return .candidate(try candidateRecord(
                 cluster: cluster,
                 support: support,
                 hit: novel,
+                analyzed: analyzed,
+                closestHits: eligible.filter { $0.metrics.snps > 0 },
                 classification: .novel
             ))
         }
 
         let closest = best(analyzed)!
         let failure = closest.failure ?? .unresolvedLocus
-        return .unnameable(unnameableRecord(
+        return .unnameable(try unnameableRecord(
             cluster: cluster,
             support: support,
             reason: failure.reason,
             failedMetrics: closest.failedMetrics,
-            evidence: sortedUniqueEvidence(analyzed.map(\.input.evidence))
+            analyzed: analyzed,
+            selectedHit: closest
         ))
     }
 
@@ -337,6 +350,19 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             for locator in observation.evidence {
                 try validate(locator: locator, cluster: cluster, observationIndex: index)
             }
+            let summaryTargetNames = observation.genotypingHitSummaries.map(\.targetName)
+            let expectedTargetNames = Set(observation.sourceClusterIDs.map {
+                "\(observation.sampleID)|\($0)"
+            })
+            guard Set(summaryTargetNames).count == summaryTargetNames.count,
+                  Set(summaryTargetNames).isSubset(of: expectedTargetNames) else {
+                throw invalidObservation(
+                    cluster,
+                    index,
+                    "genotypingHitSummaries.targetName",
+                    "duplicate target or target outside the observation sample/source clusters"
+                )
+            }
             let sum = totalClusterReads.addingReportingOverflow(observation.aggregatedSampleReadCount)
             guard !sum.overflow else {
                 throw FullLengthONTMHCCandidateClassifierError.arithmeticOverflow(
@@ -389,6 +415,9 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         }
         guard alignment.evidence.referenceName == alignment.reference.referenceName else {
             throw invalidAlignment(cluster, index, "evidence.referenceName", alignment.evidence.referenceName)
+        }
+        guard alignment.evidence.bamPath == reciprocalBAMPath else {
+            throw invalidAlignment(cluster, index, "evidence.bamPath", alignment.evidence.bamPath)
         }
 
         let metrics: FullLengthONTMHCSAMMetrics
@@ -583,8 +612,10 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         cluster: FullLengthONTMHCCandidateCluster,
         support: Support,
         hit: AnalyzedAlignment,
+        analyzed: [AnalyzedAlignment],
+        closestHits: [AnalyzedAlignment],
         classification: ONTMHCCandidateClassification
-    ) -> ONTMHCCandidateRecord {
+    ) throws -> ONTMHCCandidateRecord {
         let reference = hit.resolvedReference!
         let provisionalName: String
         switch classification {
@@ -593,6 +624,17 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         case .novel:
             precondition(hit.metrics.snps > 0, "Novel candidates must contain at least one SNP substitution")
             provisionalName = "\(reference.alleleName)_\(hit.metrics.snps)nt_nov"
+        }
+        let reciprocalHitSummary = try reciprocalHitSummary(
+            cluster: cluster,
+            analyzed: analyzed,
+            closestHits: closestHits
+        )
+        guard reciprocalHitSummary.closestMatchTargetNames.contains(hit.input.evidence.referenceName) else {
+            throw FullLengthONTMHCCandidateClassifierError.invalidCluster(
+                field: "selectedEvidence.referenceName",
+                value: hit.input.evidence.referenceName
+            )
         }
         return ONTMHCCandidateRecord(
             stableClusterID: cluster.stableClusterID,
@@ -617,6 +659,7 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             supportingSampleIDs: support.supportingSampleIDs,
             fastaRecordID: cluster.fastaRecordID,
             sequenceSHA256: cluster.sequenceSHA256,
+            reciprocalHitSummary: reciprocalHitSummary,
             selectedEvidence: hit.input.evidence
         )
     }
@@ -626,9 +669,22 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         support: Support,
         reason: ONTMHCUnnameableReason,
         failedMetrics: [String: Double],
-        evidence: [ONTMHCEvidenceLocator]
-    ) -> ONTMHCUnnameableRecord {
-        ONTMHCUnnameableRecord(
+        analyzed: [AnalyzedAlignment],
+        selectedHit: AnalyzedAlignment?
+    ) throws -> ONTMHCUnnameableRecord {
+        let reciprocalHitSummary = try reciprocalHitSummary(
+            cluster: cluster,
+            analyzed: analyzed,
+            closestHits: selectedHit == nil ? [] : analyzed
+        )
+        if let selectedHit,
+           !reciprocalHitSummary.closestMatchTargetNames.contains(selectedHit.input.evidence.referenceName) {
+            throw FullLengthONTMHCCandidateClassifierError.invalidCluster(
+                field: "selectedEvidence.referenceName",
+                value: selectedHit.input.evidence.referenceName
+            )
+        }
+        return ONTMHCUnnameableRecord(
             stableClusterID: cluster.stableClusterID,
             reason: reason,
             failedMetrics: failedMetrics,
@@ -639,25 +695,58 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             supportingSampleIDs: support.supportingSampleIDs,
             fastaRecordID: cluster.fastaRecordID,
             sequenceSHA256: cluster.sequenceSHA256,
-            evidence: evidence
+            reciprocalHitSummary: reciprocalHitSummary,
+            selectedEvidence: selectedHit?.input.evidence
         )
     }
 
-    private func sortedUniqueEvidence(
-        _ evidence: [ONTMHCEvidenceLocator]
-    ) -> [ONTMHCEvidenceLocator] {
-        let sorted = evidence.sorted {
-            [
-                $0.bamPath, $0.queryName, $0.referenceName, $0.readGroupID ?? "",
-                String($0.referenceStart), $0.cigar,
-            ].lexicographicallyPrecedes([
-                $1.bamPath, $1.queryName, $1.referenceName, $1.readGroupID ?? "",
-                String($1.referenceStart), $1.cigar,
-            ])
+    private func reciprocalHitSummary(
+        cluster: FullLengthONTMHCCandidateCluster,
+        analyzed: [AnalyzedAlignment],
+        closestHits: [AnalyzedAlignment]
+    ) throws -> ONTMHCReciprocalQueryHitSummary {
+        struct LocatorIdentity: Hashable {
+            let bamPath: String
+            let queryName: String
+            let referenceName: String
+            let readGroupID: String?
+            let referenceStart: Int
+            let cigar: String
+
+            init(_ locator: ONTMHCEvidenceLocator) {
+                bamPath = locator.bamPath
+                queryName = locator.queryName
+                referenceName = locator.referenceName
+                readGroupID = locator.readGroupID
+                referenceStart = locator.referenceStart
+                cigar = locator.cigar
+            }
         }
-        return sorted.enumerated().compactMap { index, value in
-            index == 0 || sorted[index - 1] != value ? value : nil
+
+        var seenLocators = Set<LocatorIdentity>()
+        var targetAlignmentCounts: [String: Int] = [:]
+        for hit in analyzed where seenLocators.insert(LocatorIdentity(hit.input.evidence)).inserted {
+            targetAlignmentCounts[hit.input.evidence.referenceName, default: 0] += 1
         }
+        let exactMatchTargetNames = Set(analyzed.lazy.filter {
+            $0.failure == nil && $0.metrics.snps == 0
+        }.map(\.input.evidence.referenceName)).sorted(by: localizedStandardLessThan)
+        let closestMatchTargetNames: [String]
+        if let closest = best(closestHits) {
+            closestMatchTargetNames = Set(closestHits.lazy.filter {
+                hasEquivalentBiologicalRank($0, closest)
+            }.map(\.input.evidence.referenceName)).sorted(by: localizedStandardLessThan)
+        } else {
+            closestMatchTargetNames = []
+        }
+        return try ONTMHCReciprocalQueryHitSummary(
+            bamPath: reciprocalBAMPath,
+            queryName: cluster.stableClusterID,
+            alignmentCount: targetAlignmentCounts.values.reduce(0, +),
+            targetAlignmentCounts: targetAlignmentCounts,
+            exactMatchTargetNames: exactMatchTargetNames,
+            closestMatchTargetNames: closestMatchTargetNames
+        )
     }
 
     private func intronSizedQueryInsertionBases(

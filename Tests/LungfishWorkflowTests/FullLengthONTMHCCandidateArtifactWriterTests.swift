@@ -41,14 +41,36 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             ONTMHCUnnameableClustersDocument.self,
             from: Data(contentsOf: result.unnameableJSONURL)
         )
-        XCTAssertEqual(candidate.schemaVersion, 1)
+        let candidateObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: result.candidateJSONURL)) as? [String: Any]
+        )
+        let unnameableObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: result.unnameableJSONURL)) as? [String: Any]
+        )
+        let observationObjects = try XCTUnwrap(candidateObject["observations"] as? [[String: Any]])
+        let unnameableObjects = try XCTUnwrap(unnameableObject["clusters"] as? [[String: Any]])
+        XCTAssertTrue(observationObjects.allSatisfy { $0["evidence"] == nil })
+        XCTAssertTrue(unnameableObjects.allSatisfy { $0["evidence"] == nil })
+        XCTAssertEqual(candidate.schemaVersion, 2)
         XCTAssertEqual(candidate.inputs.map(\.path), [
             fixture.referenceFASTAURL.path,
             "deduplicated_unmatched_clusters.fasta",
         ])
-        XCTAssertTrue(candidate.observations.allSatisfy { !$0.evidence.isEmpty })
+        XCTAssertTrue(candidate.observations.allSatisfy { !$0.genotypingHitSummaries.isEmpty })
+        XCTAssertTrue(candidate.observations.flatMap(\.genotypingHitSummaries).allSatisfy {
+            $0.alignmentCount == $0.queryAlignmentCounts.values.reduce(0, +)
+        })
         XCTAssertTrue(candidate.candidates.allSatisfy {
             $0.selectedEvidence.bamPath == "artifacts/alignments/unmatched-to-reference.bam"
+        })
+        XCTAssertTrue(candidate.candidates.allSatisfy {
+            $0.reciprocalHitSummary.bamPath == "artifacts/alignments/unmatched-to-reference.bam"
+                && $0.reciprocalHitSummary.queryName == $0.stableClusterID
+                && $0.reciprocalHitSummary.alignmentCount
+                    == $0.reciprocalHitSummary.targetAlignmentCounts.values.reduce(0, +)
+                && $0.reciprocalHitSummary.closestMatchTargetNames.contains(
+                    $0.selectedEvidence.referenceName
+                )
         })
         XCTAssertEqual(result.toolVersions.map(\.toolName), ["minimap2", "samtools"])
         XCTAssertEqual(result.toolVersions.map(\.version), ["2.28-fake", "samtools 1.21-fake"])
@@ -75,6 +97,24 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(classification.resolvedOptions["minimumShorterCoverage"], "0.7")
         XCTAssertEqual(classification.resolvedOptions["minimumIntronGapBases"], "20")
         XCTAssertEqual(classification.resolvedOptions["novelDistanceMetric"], "SNP-substitutions-only")
+        XCTAssertEqual(classification.resolvedOptions["documentSchemaVersion"], "2")
+        XCTAssertEqual(
+            classification.resolvedOptions["reciprocalAlignmentCountRule"],
+            "unique-locator-count-equals-sum-of-target-alignment-counts"
+        )
+        XCTAssertEqual(classification.resolvedOptions["unnameableBulkEvidence"], "omitted")
+        XCTAssertTrue(classification.inputs.contains { $0.role == .evidenceBAM })
+        XCTAssertTrue(classification.inputs.contains { $0.role == .evidenceBAI })
+        let candidateRender = try XCTUnwrap(
+            transformations["lungfish-in-process:render-mhc-candidate-json"]
+        )
+        XCTAssertEqual(candidateRender.resolvedOptions["documentSchemaVersion"], "2")
+        XCTAssertEqual(candidateRender.resolvedOptions["perAlignmentLocatorArrays"], "omitted")
+        XCTAssertTrue(
+            candidateRender.resolvedOptions["evidenceArtifacts"]?.contains(
+                "artifacts/alignments/unmatched-to-reference.bam|sha256="
+            ) == true
+        )
         let construction = try XCTUnwrap(
             transformations["lungfish-in-process:construct-stable-unmatched-cluster-fasta"]
         )
@@ -124,6 +164,11 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             Set(unnameable.clusters.map(\.stableClusterID))
         )
         XCTAssertEqual(unnameable.clusters.first?.reason, .noAlignment)
+        XCTAssertEqual(unnameable.clusters.first?.reciprocalHitSummary.alignmentCount, 0)
+        XCTAssertEqual(unnameable.clusters.first?.reciprocalHitSummary.targetAlignmentCounts, [:])
+        XCTAssertEqual(unnameable.clusters.first?.reciprocalHitSummary.exactMatchTargetNames, [])
+        XCTAssertEqual(unnameable.clusters.first?.reciprocalHitSummary.closestMatchTargetNames, [])
+        XCTAssertNil(unnameable.clusters.first?.selectedEvidence)
         XCTAssertEqual(unnameable.inputs, candidate.inputs)
         XCTAssertEqual(unnameable.evidence, candidate.evidence)
         XCTAssertEqual(result.manifest.reciprocalEvidence?.bam.path, "artifacts/alignments/unmatched-to-reference.bam")
@@ -147,7 +192,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let collisionID = stableID(collisionSequence)
         let collision = FullLengthONTMHCCandidateSequenceObservation(
             sampleID: "sample-c", readGroupID: "sample-c", sourceClusterID: "source-c",
-            clusterReadCount: 9, sequence: collisionSequence, genotypingEvidence: []
+            clusterReadCount: 9, sequence: collisionSequence, genotypingHitSummaries: []
         )
         first.additionalSAM = "\(collisionID)\t0\tref-genomic\t1\t60\t1194=5X1=\t*\t0\t0\t*\t*\tNM:i:5\tAS:i:1189\n"
         second.additionalSAM = first.additionalSAM
@@ -290,13 +335,13 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             sourceClusterID: "known-source",
             clusterReadCount: 13,
             sequence: knownSequence,
-            genotypingEvidence: [.init(
+            genotypingHitSummaries: [try ONTMHCGenotypingTargetHitSummary(
                 bamPath: "artifacts/alignments/genotyping-evidence.bam",
-                queryName: "ref-genomic",
-                referenceName: "known-sample|known-source",
-                readGroupID: "known-sample",
-                referenceStart: 1,
-                cigar: "600=1I600="
+                targetName: "known-sample|known-source",
+                alignmentCount: 1,
+                queryAlignmentCounts: ["ref-genomic": 1],
+                exactMatchQueryNames: ["ref-genomic"],
+                closestMatchQueryNames: ["ref-genomic"]
             )]
         )
 
@@ -371,7 +416,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         }
     }
 
-    func testReciprocalSAMAndObservationEvidenceAreDeterministicallySortedAndDeduplicated() async throws {
+    func testReciprocalSAMAndObservationSummariesAreDeterministicallySortedAndDeduplicated() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let original = fixture.observations[0]
@@ -381,13 +426,13 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             sourceClusterID: original.sourceClusterID,
             clusterReadCount: original.clusterReadCount,
             sequence: original.sequence,
-            genotypingEvidence: original.genotypingEvidence + original.genotypingEvidence
+            genotypingHitSummaries: original.genotypingHitSummaries + original.genotypingHitSummaries
         )
         fixture.additionalSAM = "\(fixture.novelID)\t0\tref-genomic\t1\t60\t595=5X600=\t*\t0\t0\t*\t*\tNM:i:5\tAS:i:1190\n"
         let result = try await fixture.write(observations: [duplicatedObservation] + Array(fixture.observations.dropFirst()))
         let novelCluster = try XCTUnwrap(result.classifiedClusters.first { $0.stableClusterID == fixture.novelID })
         XCTAssertEqual(novelCluster.alignments.count, 1)
-        XCTAssertTrue(novelCluster.observations.allSatisfy { $0.evidence.count == 1 })
+        XCTAssertTrue(novelCluster.observations.allSatisfy { $0.genotypingHitSummaries.count == 1 })
     }
 
     private func fastaHeaders(_ url: URL) throws -> [String] {
@@ -431,20 +476,20 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
         var unnameableID: String { FullLengthONTMHCCandidateArtifactWriter.stableClusterID(for: unnameableSequence) }
 
         var observations: [FullLengthONTMHCCandidateSequenceObservation] { [
-            .init(sampleID: "sample-b", readGroupID: "sample-b", sourceClusterID: "b1", clusterReadCount: 7, sequence: novelSequence, genotypingEvidence: evidence(sample: "sample-b", source: "b1")),
-            .init(sampleID: "sample-a", readGroupID: "sample-a", sourceClusterID: "a1", clusterReadCount: 5, sequence: novelSequence, genotypingEvidence: evidence(sample: "sample-a", source: "a1")),
-            .init(sampleID: "sample-a", readGroupID: "sample-a", sourceClusterID: "a2", clusterReadCount: 11, sequence: extensionSequence, genotypingEvidence: evidence(sample: "sample-a", source: "a2")),
-            .init(sampleID: "sample-z", readGroupID: "sample-z", sourceClusterID: "z1", clusterReadCount: 3, sequence: unnameableSequence, genotypingEvidence: evidence(sample: "sample-z", source: "z1")),
+            .init(sampleID: "sample-b", readGroupID: "sample-b", sourceClusterID: "b1", clusterReadCount: 7, sequence: novelSequence, genotypingHitSummaries: evidence(sample: "sample-b", source: "b1")),
+            .init(sampleID: "sample-a", readGroupID: "sample-a", sourceClusterID: "a1", clusterReadCount: 5, sequence: novelSequence, genotypingHitSummaries: evidence(sample: "sample-a", source: "a1")),
+            .init(sampleID: "sample-a", readGroupID: "sample-a", sourceClusterID: "a2", clusterReadCount: 11, sequence: extensionSequence, genotypingHitSummaries: evidence(sample: "sample-a", source: "a2")),
+            .init(sampleID: "sample-z", readGroupID: "sample-z", sourceClusterID: "z1", clusterReadCount: 3, sequence: unnameableSequence, genotypingHitSummaries: evidence(sample: "sample-z", source: "z1")),
         ] }
 
-        private func evidence(sample: String, source: String) -> [ONTMHCEvidenceLocator] {
-            [.init(
+        private func evidence(sample: String, source: String) -> [ONTMHCGenotypingTargetHitSummary] {
+            [try! ONTMHCGenotypingTargetHitSummary(
                 bamPath: "artifacts/alignments/genotyping-evidence.bam",
-                queryName: "ref-genomic",
-                referenceName: "\(sample)|\(source)",
-                readGroupID: sample,
-                referenceStart: 1,
-                cigar: "1200="
+                targetName: "\(sample)|\(source)",
+                alignmentCount: 1,
+                queryAlignmentCounts: ["ref-genomic": 1],
+                exactMatchQueryNames: ["ref-genomic"],
+                closestMatchQueryNames: ["ref-genomic"]
             )]
         }
 

@@ -1175,10 +1175,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             temporaryWorkDirectoryURL: cohortAlignmentResult.temporaryWorkDirectoryURL,
             samtoolsVersion: samtoolsVersion
         )
-        let genotypingEvidenceByTarget = try genotypingEvidenceLocators(
-            samURL: bamView.samURL,
-            bamPath: "artifacts/alignments/genotyping-evidence.bam"
-        )
         let summariesBySample = try genotypeSummariesFromFinalCohortBAM(
             orderedResults: orderedResults,
             samURL: bamView.samURL,
@@ -1186,6 +1182,19 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             referenceFASTAURL: referenceFASTAURL,
             request: request
         )
+        let hitSummaryDerivationStartedAt = Date()
+        let referenceLengths = try FullLengthONTMHCClusterGenotyper
+            .readFASTARecords(from: referenceFASTAURL)
+            .reduce(into: [String: Int]()) { lengths, record in
+                lengths[record.name] = record.sequence.count
+            }
+        let genotypingHitSummariesByTarget = try FullLengthONTMHCGenotypingHitSummaryAccumulator.summaries(
+            samURL: bamView.samURL,
+            bamPath: "artifacts/alignments/genotyping-evidence.bam",
+            referenceLengths: referenceLengths,
+            cdnaThreshold: request.cdnaThreshold
+        )
+        let hitSummaryDerivationCompletedAt = Date()
         let authoritativeResults = try orderedResults.map { result in
             guard let summary = summariesBySample[result.sample] else {
                 throw FullLengthONTMHCGenotypingError.reportFailed(
@@ -1277,7 +1286,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     sourceClusterID: $0.cluster,
                     clusterReadCount: $0.clusterReads,
                     sequence: $0.sequence,
-                    genotypingEvidence: genotypingEvidenceByTarget["\($0.sample)|\($0.cluster)"] ?? []
+                    genotypingHitSummaries: genotypingHitSummariesByTarget["\($0.sample)|\($0.cluster)"].map { [$0] } ?? []
                 )
             },
             referenceAlleleFASTAURL: referenceFASTAURL,
@@ -1287,6 +1296,38 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             outputDirectoryURL: request.outputDirectory,
             finalOutputDirectoryURL: logicalFinalOutputURL,
             workDirectoryURL: candidateWorkDirectory
+        ))
+        pipelineSteps.append(FullLengthONTMHCProvenanceStep(
+            toolName: "lungfish MHC genotyping hit summary accumulator",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-in-process", "summarize-full-length-ont-mhc-genotyping-hits",
+                "--bam-path", "artifacts/alignments/genotyping-evidence.bam",
+                "--cdna-threshold", String(request.cdnaThreshold),
+                bamView.samURL.path,
+                referenceFASTAURL.path,
+            ],
+            resolvedOptions: [
+                "alignmentIdentity": .array([
+                    .string("bam_path"), .string("query_name"), .string("reference_name"),
+                    .string("read_group_id"), .string("reference_start"), .string("cigar"),
+                ]),
+                "alignmentCountSemantics": .string("unique-schema-v1-locator-tuples"),
+                "queryCountSemantics": .string("unique-locator-count-per-query-and-target"),
+                "exactMatchRule": .string("snps == 0 && (non_intron_indel_bases == 0 || reference_length >= cdna_threshold)"),
+                "closestBiologicalRank": .array([
+                    .string("snps-ascending"), .string("non-intron-indel-bases-ascending"),
+                    .string("matched-bases-descending"), .string("alignment-score-descending"),
+                ]),
+                "closestTieSemantics": .string("retain-all-query-names-before-lexical-tie-break"),
+                "cdnaThreshold": .integer(request.cdnaThreshold),
+            ],
+            inputs: [cohortAlignmentResult.bamURL, bamView.samURL, referenceFASTAURL],
+            outputs: [candidateArtifactResult.candidateJSONURL],
+            exitStatus: 0,
+            stderr: nil,
+            startedAt: hitSummaryDerivationStartedAt,
+            completedAt: hitSummaryDerivationCompletedAt
         ))
         try metadataPublicationObserver(.candidateArtifactsStaged(
             outputDirectoryURL: request.outputDirectory
@@ -2880,43 +2921,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             cdnaThreshold: request.cdnaThreshold,
             minUnmatchedReads: request.minUnmatchedReads
         )
-    }
-
-    private func genotypingEvidenceLocators(
-        samURL: URL,
-        bamPath: String
-    ) throws -> [String: [ONTMHCEvidenceLocator]] {
-        var locators: [String: [ONTMHCEvidenceLocator]] = [:]
-        try samURL.forEachLineAutoDecompressing { line in
-            try Task.checkCancellation()
-            guard !line.isEmpty, !line.hasPrefix("@") else { return }
-            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            guard fields.count >= 11,
-                  let flag = Int(fields[1]),
-                  flag & 0x4 == 0,
-                  fields[2] != "*",
-                  let position = Int(fields[3]), position > 0,
-                  fields[5] != "*" else { return }
-            let readGroupID = fields.dropFirst(11).first(where: { $0.hasPrefix("RG:Z:") }).map {
-                String($0.dropFirst(5))
-            }
-            locators[fields[2], default: []].append(ONTMHCEvidenceLocator(
-                bamPath: bamPath,
-                queryName: fields[0],
-                referenceName: fields[2],
-                readGroupID: readGroupID,
-                referenceStart: position,
-                cigar: fields[5]
-            ))
-        }
-        return locators.mapValues { values in
-            values.sorted {
-                [$0.queryName, $0.referenceName, $0.readGroupID ?? "", String($0.referenceStart), $0.cigar]
-                    .lexicographicallyPrecedes([
-                        $1.queryName, $1.referenceName, $1.readGroupID ?? "", String($1.referenceStart), $1.cigar,
-                    ])
-            }
-        }
     }
 
     private func reciprocalKnownGenotypeRows(

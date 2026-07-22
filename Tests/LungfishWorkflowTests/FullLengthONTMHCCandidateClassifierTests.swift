@@ -233,6 +233,22 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
                     readGroupID: "rg-inconsistent"
                 )]
             ),
+            ONTMHCCandidateObservation(
+                stableClusterID: "cluster-1",
+                sampleID: "sample-2",
+                readGroupID: "rg-wrong-target",
+                sourceClusterIDs: ["source-2"],
+                sourceClusterReadCounts: ["source-2": 5],
+                aggregatedSampleReadCount: 5,
+                genotypingHitSummaries: [try ONTMHCGenotypingTargetHitSummary(
+                    bamPath: "artifacts/alignments/genotyping-evidence.bam",
+                    targetName: "another-sample|source-2",
+                    alignmentCount: 1,
+                    queryAlignmentCounts: ["ref-genomic": 1],
+                    exactMatchQueryNames: [],
+                    closestMatchQueryNames: ["ref-genomic"]
+                )]
+            ),
         ]
 
         for invalid in invalidObservations {
@@ -294,6 +310,95 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(candidate.snpCount, 1)
         XCTAssertEqual(candidate.comparableBases, 1_200)
         XCTAssertEqual(candidate.alignmentScore, 1_000)
+    }
+
+    func testReciprocalSummaryCountsTargetsAndPreservesBiologicalClosestTies() throws {
+        let tiedReference = MHCReferenceRecord(
+            sequenceID: "ref-tied",
+            alleleName: "Mafa-A2*001:01",
+            locus: "Mafa-A2",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let cluster = makeCluster(alignments: [
+            alignment(reference: genomicReference, cigar: "595=5X600=", referenceStart: 1),
+            alignment(reference: genomicReference, cigar: "594=5X601=", referenceStart: 1),
+            alignment(reference: tiedReference, cigar: "595=5X600=", referenceStart: 1),
+        ])
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected candidate")
+        }
+        let summary = candidate.reciprocalHitSummary
+        XCTAssertEqual(summary.queryName, cluster.stableClusterID)
+        XCTAssertEqual(summary.alignmentCount, 3)
+        XCTAssertEqual(summary.targetAlignmentCounts, ["ref-genomic": 2, "ref-tied": 1])
+        XCTAssertEqual(summary.exactMatchTargetNames, [])
+        XCTAssertEqual(summary.closestMatchTargetNames, ["ref-genomic", "ref-tied"])
+        XCTAssertTrue(summary.closestMatchTargetNames.contains(candidate.selectedEvidence.referenceName))
+    }
+
+    func testReciprocalSummaryRecordsZeroSNPExactRelationshipForExtension() throws {
+        let cluster = makeCluster(
+            sequenceLength: 1_050,
+            alignments: [
+                alignment(reference: cdnaReference, cigar: "500=50I500="),
+                alignment(reference: genomicReference, cigar: "500=1X499="),
+            ]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected extension candidate")
+        }
+        XCTAssertEqual(candidate.reciprocalHitSummary.exactMatchTargetNames, ["ref-cdna"])
+        XCTAssertEqual(candidate.reciprocalHitSummary.closestMatchTargetNames, ["ref-cdna"])
+        XCTAssertEqual(candidate.selectedEvidence.referenceName, "ref-cdna")
+    }
+
+    func testUnnameableStoresOnlyClassifierSelectedClosestLocator() throws {
+        let lexicalFirstButWorse = MHCReferenceRecord(
+            sequenceID: "ref-a-worse",
+            alleleName: "Mafa-A1*001:01",
+            locus: "Mafa-A1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let biologicalBest = MHCReferenceRecord(
+            sequenceID: "ref-z-best",
+            alleleName: "Mafa-A1*999:01",
+            locus: "Mafa-A1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let cluster = makeCluster(alignments: [
+            alignment(reference: lexicalFirstButWorse, cigar: "400X800="),
+            alignment(reference: biologicalBest, cigar: "301X899="),
+        ])
+
+        guard case .unnameable(let record) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected un-nameable result")
+        }
+        XCTAssertEqual(record.reciprocalHitSummary.alignmentCount, 2)
+        XCTAssertEqual(record.reciprocalHitSummary.closestMatchTargetNames, ["ref-z-best"])
+        XCTAssertEqual(record.selectedEvidence?.referenceName, "ref-z-best")
+    }
+
+    func testNoAlignmentUnnameableHasEmptyReciprocalSummaryAndNoSelectedLocator() throws {
+        guard case .unnameable(let record) = try FullLengthONTMHCCandidateClassifier().classify(
+            makeCluster(alignments: [])
+        ) else {
+            return XCTFail("Expected un-nameable result")
+        }
+
+        XCTAssertEqual(record.reciprocalHitSummary.queryName, record.stableClusterID)
+        XCTAssertEqual(record.reciprocalHitSummary.alignmentCount, 0)
+        XCTAssertEqual(record.reciprocalHitSummary.targetAlignmentCounts, [:])
+        XCTAssertEqual(record.reciprocalHitSummary.exactMatchTargetNames, [])
+        XCTAssertEqual(record.reciprocalHitSummary.closestMatchTargetNames, [])
+        XCTAssertNil(record.selectedEvidence)
     }
 
     func testEveryUnnameableReasonAndFailedMetricProjection() throws {
@@ -389,7 +494,7 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(record.failedMetrics["minimum_identity"], 0.75)
     }
 
-    func testRejectsReciprocalEvidenceQueryAndReferenceIdentityMismatches() throws {
+    func testRejectsReciprocalEvidenceQueryReferenceAndBAMIdentityMismatches() throws {
         let queryMismatch = alignment(
             reference: genomicReference,
             cigar: "1X1199=",
@@ -400,15 +505,22 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
             cigar: "1X1199=",
             referenceName: "another-reference"
         )
+        let bamMismatch = alignment(
+            resolution: .resolved(genomicReference),
+            cigar: "1X1199=",
+            bamPath: "artifacts/alignments/not-the-reciprocal.bam"
+        )
 
-        for alignment in [queryMismatch, referenceMismatch] {
+        for alignment in [queryMismatch, referenceMismatch, bamMismatch] {
             XCTAssertThrowsError(try FullLengthONTMHCCandidateClassifier().classify(
                 makeCluster(alignments: [alignment])
             )) { error in
                 guard case .invalidAlignment(_, _, let field, _) = error as? FullLengthONTMHCCandidateClassifierError else {
                     return XCTFail("Expected typed invalid-alignment error, got \(error)")
                 }
-                XCTAssertTrue(["evidence.queryName", "evidence.referenceName"].contains(field))
+                XCTAssertTrue([
+                    "evidence.queryName", "evidence.referenceName", "evidence.bamPath",
+                ].contains(field))
             }
         }
     }
@@ -484,7 +596,7 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         let thresholds = ONTMHCCandidateThresholds.defaults
         let artifact = ONTMHCArtifactReference(path: "artifacts/candidates.fa", sha256: "abc", sizeBytes: 42)
         let document = ONTMHCCandidateAllelesDocument(
-            schemaVersion: 1,
+            schemaVersion: 2,
             createdAt: "2026-07-19T12:00:00Z",
             thresholds: thresholds,
             inputs: [artifact],
@@ -508,7 +620,7 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
             return XCTFail("Expected un-nameable record")
         }
         let unresolvedDocument = ONTMHCUnnameableClustersDocument(
-            schemaVersion: 1,
+            schemaVersion: 2,
             createdAt: "2026-07-19T12:00:00Z",
             thresholds: thresholds,
             sequenceFASTA: artifact,
@@ -546,14 +658,24 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         reads: Int = 5,
         sourceClusterIDs: [String] = ["source-1"]
     ) -> ONTMHCCandidateObservation {
-        ONTMHCCandidateObservation(
+        let summaries = sourceClusterIDs.compactMap { sourceClusterID in
+            try? ONTMHCGenotypingTargetHitSummary(
+                bamPath: "artifacts/alignments/genotyping-evidence.bam",
+                targetName: "\(sampleID)|\(sourceClusterID)",
+                alignmentCount: 1,
+                queryAlignmentCounts: ["ref-genomic": 1],
+                exactMatchQueryNames: [],
+                closestMatchQueryNames: ["ref-genomic"]
+            )
+        }
+        return ONTMHCCandidateObservation(
             stableClusterID: stableClusterID,
             sampleID: sampleID,
             readGroupID: readGroupID,
             sourceClusterIDs: sourceClusterIDs,
             sourceClusterReadCounts: positiveReadCounts(total: reads, sourceClusterIDs: sourceClusterIDs),
             aggregatedSampleReadCount: reads,
-            evidence: [evidence(queryName: stableClusterID, referenceName: "sample-1|source-1", readGroupID: readGroupID)]
+            genotypingHitSummaries: summaries
         )
     }
 
@@ -562,7 +684,8 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         cigar: String,
         mapq: Int = 60,
         score: Int = 2_000,
-        queryName: String = "cluster-1"
+        queryName: String = "cluster-1",
+        referenceStart: Int = 1
     ) -> FullLengthONTMHCCandidateAlignment {
         alignment(
             resolution: .resolved(reference),
@@ -570,7 +693,8 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
             mapq: mapq,
             score: score,
             queryName: queryName,
-            referenceName: reference.sequenceID
+            referenceName: reference.sequenceID,
+            referenceStart: referenceStart
         )
     }
 
@@ -580,7 +704,9 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         mapq: Int = 60,
         score: Int = 2_000,
         queryName: String = "cluster-1",
-        referenceName: String? = nil
+        referenceName: String? = nil,
+        bamPath: String = "artifacts/alignments/unmatched-to-reference.bam",
+        referenceStart: Int = 1
     ) -> FullLengthONTMHCCandidateAlignment {
         FullLengthONTMHCCandidateAlignment(
             reference: resolution,
@@ -592,7 +718,9 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
                 queryName: queryName,
                 referenceName: referenceName ?? resolution.referenceName,
                 readGroupID: nil,
-                cigar: cigar
+                cigar: cigar,
+                bamPath: bamPath,
+                referenceStart: referenceStart
             )
         )
     }
@@ -610,14 +738,16 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         queryName: String,
         referenceName: String,
         readGroupID: String?,
-        cigar: String = "1200="
+        cigar: String = "1200=",
+        bamPath: String = "artifacts/alignments/unmatched-to-reference.bam",
+        referenceStart: Int = 1
     ) -> ONTMHCEvidenceLocator {
         ONTMHCEvidenceLocator(
-            bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+            bamPath: bamPath,
             queryName: queryName,
             referenceName: referenceName,
             readGroupID: readGroupID,
-            referenceStart: 1,
+            referenceStart: referenceStart,
             cigar: cigar
         )
     }

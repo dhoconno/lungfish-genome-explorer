@@ -9,7 +9,7 @@ struct FullLengthONTMHCCandidateSequenceObservation: Sendable, Equatable {
     let sourceClusterID: String
     let clusterReadCount: Int
     let sequence: String
-    let genotypingEvidence: [ONTMHCEvidenceLocator]
+    let genotypingHitSummaries: [ONTMHCGenotypingTargetHitSummary]
 
     init(
         sampleID: String,
@@ -17,14 +17,14 @@ struct FullLengthONTMHCCandidateSequenceObservation: Sendable, Equatable {
         sourceClusterID: String,
         clusterReadCount: Int,
         sequence: String,
-        genotypingEvidence: [ONTMHCEvidenceLocator]
+        genotypingHitSummaries: [ONTMHCGenotypingTargetHitSummary]
     ) {
         self.sampleID = sampleID
         self.readGroupID = readGroupID
         self.sourceClusterID = sourceClusterID
         self.clusterReadCount = clusterReadCount
         self.sequence = sequence
-        self.genotypingEvidence = genotypingEvidence
+        self.genotypingHitSummaries = genotypingHitSummaries
     }
 }
 
@@ -447,11 +447,24 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 alignments: alignments[group.id] ?? []
             )
         }
-        let classifications = try FullLengthONTMHCCandidateClassifier(thresholds: request.thresholds).classify(clusters)
+        let classifications = try FullLengthONTMHCCandidateClassifier(
+            thresholds: request.thresholds,
+            reciprocalBAMPath: reciprocalBAMRelativePath
+        ).classify(clusters)
         let reciprocalViewDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: reciprocalViewURL,
             role: .commandOutput,
             phase: .temporary
+        )
+        let reciprocalBAMDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: stagedBAMURL,
+            role: .evidenceBAM,
+            phase: .staging
+        )
+        let reciprocalBAIDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: stagedBAIURL,
+            role: .evidenceBAI,
+            phase: .staging
         )
         let classificationCompletedAt = Date()
         transformations.append(.init(
@@ -468,8 +481,19 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             ],
             resolvedOptions: Self.candidateResolvedOptions(request.thresholds).merging([
                 "provenanceOutputException": "typed in-memory classification result is consumed by the candidate and unnameable render steps",
+                "documentSchemaVersion": "2",
+                "reciprocalBAMPath": reciprocalBAMRelativePath,
+                "reciprocalLocatorIdentity": "bam-path,query-name,reference-name,read-group-id,reference-start,cigar",
+                "reciprocalAlignmentCountRule": "unique-locator-count-equals-sum-of-target-alignment-counts",
+                "reciprocalExactRelationshipRule": "eligible-zero-SNP",
+                "reciprocalClosestRelationshipRule": "all-targets-tied-at-classifier-biological-rank-before-lexical-tiebreak",
+                "selectedEvidenceRule": "classifier-selected-target-must-occur-in-closest-match-target-names",
+                "unnameableBulkEvidence": "omitted",
             ]) { current, _ in current },
-            inputs: [referenceDescriptor, stagedStableDescriptor, reciprocalViewDescriptor],
+            inputs: [
+                referenceDescriptor, stagedStableDescriptor, reciprocalViewDescriptor,
+                reciprocalBAMDescriptor, reciprocalBAIDescriptor,
+            ],
             outputs: [],
             exitStatus: 0,
             startedAt: classificationStartedAt,
@@ -532,7 +556,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let evidence = [reciprocalBAMReference, reciprocalBAIReference]
             + (request.genotypingEvidence.map { [$0.bam, $0.bai] } ?? [])
         let candidateDocument = ONTMHCCandidateAllelesDocument(
-            schemaVersion: 1,
+            schemaVersion: 2,
             createdAt: createdAt,
             thresholds: request.thresholds,
             inputs: [referenceInput, stableUnmatchedInput],
@@ -542,7 +566,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             observations: allObservations.filter { candidateStableIDs.contains($0.stableClusterID) }
         )
         let unnameableDocument = ONTMHCUnnameableClustersDocument(
-            schemaVersion: 1,
+            schemaVersion: 2,
             createdAt: createdAt,
             thresholds: request.thresholds,
             inputs: [referenceInput, stableUnmatchedInput],
@@ -561,9 +585,16 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let candidateJSONCompletedAt = Date()
         transformations.append(Self.renderTransformation(
             name: "render-mhc-candidate-json",
-            inputs: [referenceDescriptor, stagedStableDescriptor, candidateFASTADescriptor],
+            inputs: [
+                referenceDescriptor, stagedStableDescriptor, candidateFASTADescriptor,
+                reciprocalBAMDescriptor, reciprocalBAIDescriptor,
+            ],
             output: candidateJSONDescriptor,
             recordCount: candidates.count,
+            additionalResolvedOptions: Self.compactHitShapeResolvedOptions(
+                evidence: evidence,
+                reciprocalBAMPath: reciprocalBAMRelativePath
+            ),
             startedAt: candidateJSONStartedAt,
             completedAt: candidateJSONCompletedAt
         ))
@@ -575,9 +606,16 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let unnameableJSONCompletedAt = Date()
         transformations.append(Self.renderTransformation(
             name: "render-mhc-unnameable-json",
-            inputs: [referenceDescriptor, stagedStableDescriptor, unnameableFASTADescriptor],
+            inputs: [
+                referenceDescriptor, stagedStableDescriptor, unnameableFASTADescriptor,
+                reciprocalBAMDescriptor, reciprocalBAIDescriptor,
+            ],
             output: unnameableJSONDescriptor,
             recordCount: unnameable.count,
+            additionalResolvedOptions: Self.compactHitShapeResolvedOptions(
+                evidence: evidence,
+                reciprocalBAMPath: reciprocalBAMRelativePath
+            ),
             startedAt: unnameableJSONStartedAt,
             completedAt: unnameableJSONCompletedAt
         ))
@@ -825,6 +863,26 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         ]
     }
 
+    static func compactHitShapeResolvedOptions(
+        evidence: [ONTMHCArtifactReference],
+        reciprocalBAMPath: String
+    ) -> [String: String] {
+        let evidenceArtifacts = evidence.map {
+            "\($0.path)|sha256=\($0.sha256)|size-bytes=\($0.sizeBytes)"
+        }.sorted().joined(separator: ";")
+        return [
+            "documentSchemaVersion": "2",
+            "evidenceArtifacts": evidenceArtifacts,
+            "reciprocalBAMPath": reciprocalBAMPath,
+            "reciprocalLocatorIdentity": "bam-path,query-name,reference-name,read-group-id,reference-start,cigar",
+            "reciprocalAlignmentCountRule": "unique-locator-count-equals-sum-of-target-alignment-counts",
+            "reciprocalExactRelationshipRule": "eligible-zero-SNP",
+            "reciprocalClosestRelationshipRule": "all-targets-tied-at-classifier-biological-rank-before-lexical-tiebreak",
+            "selectedEvidenceRule": "classifier-selected-target-must-occur-in-closest-match-target-names",
+            "perAlignmentLocatorArrays": "omitted",
+        ]
+    }
+
     static func renderTransformation(
         name: String,
         source: FullLengthONTMHCArtifactDescriptor,
@@ -848,6 +906,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         inputs: [FullLengthONTMHCArtifactDescriptor],
         output: FullLengthONTMHCArtifactDescriptor,
         recordCount: Int,
+        additionalResolvedOptions: [String: String] = [:],
         startedAt: Date,
         completedAt: Date
     ) -> FullLengthONTMHCInProcessTransformationRecord {
@@ -864,7 +923,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
                 "canonicalOrder": "stable-cluster-id",
                 "recordCount": String(recordCount),
                 "newline": "LF",
-            ],
+            ].merging(additionalResolvedOptions) { _, additional in additional },
             inputs: inputs,
             outputs: [output],
             exitStatus: 0,
@@ -888,20 +947,36 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             buckets[RawKey(sequence: sequence, sampleID: input.sampleID, readGroupID: input.readGroupID), default: []].append(input)
         }
         let bySequence = Dictionary(grouping: buckets.keys, by: \.sequence)
-        return bySequence.map { sequence, keys in
+        return try bySequence.map { sequence, keys in
             let id = Self.stableClusterID(for: sequence)
-            let observations = keys.map { key -> ONTMHCCandidateObservation in
+            let observations = try keys.map { key -> ONTMHCCandidateObservation in
                 let values = buckets[key]!.sorted { $0.sourceClusterID.localizedStandardCompare($1.sourceClusterID) == .orderedAscending }
                 var counts: [String: Int] = [:]
-                var evidence: [ONTMHCEvidenceLocator] = []
+                var summaries: [ONTMHCGenotypingTargetHitSummary] = []
                 for value in values {
                     counts[value.sourceClusterID, default: 0] += value.clusterReadCount
-                    evidence.append(contentsOf: value.genotypingEvidence)
+                    summaries.append(contentsOf: value.genotypingHitSummaries)
                 }
                 let sources = counts.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-                let sortedEvidence = evidence.sorted(by: Self.evidenceLessThan)
-                let uniqueEvidence = sortedEvidence.enumerated().compactMap { index, value in
-                    index == 0 || sortedEvidence[index - 1] != value ? value : nil
+                let sortedSummaries = summaries.sorted {
+                    if $0.targetName != $1.targetName {
+                        return $0.targetName.localizedStandardCompare($1.targetName) == .orderedAscending
+                    }
+                    return $0.bamPath.localizedStandardCompare($1.bamPath) == .orderedAscending
+                }
+                let uniqueSummaries = sortedSummaries.enumerated().compactMap { index, summary in
+                    index == 0 || sortedSummaries[index - 1] != summary ? summary : nil
+                }
+                guard Set(uniqueSummaries.map(\.targetName)).count == uniqueSummaries.count else {
+                    throw FullLengthONTMHCCandidateArtifactWriterError(
+                        "Grouped unmatched observation for sample '\(key.sampleID)' contains duplicate genotyping target summaries."
+                    )
+                }
+                let expectedTargets = Set(sources.map { "\(key.sampleID)|\($0)" })
+                guard Set(uniqueSummaries.map(\.targetName)).isSubset(of: expectedTargets) else {
+                    throw FullLengthONTMHCCandidateArtifactWriterError(
+                        "Grouped unmatched observation for sample '\(key.sampleID)' contains a genotyping target outside its source clusters."
+                    )
                 }
                 return ONTMHCCandidateObservation(
                     stableClusterID: id,
@@ -910,7 +985,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
                     sourceClusterIDs: sources,
                     sourceClusterReadCounts: counts,
                     aggregatedSampleReadCount: counts.values.reduce(0, +),
-                    evidence: uniqueEvidence
+                    genotypingHitSummaries: uniqueSummaries
                 )
             }.sorted(by: Self.observationLessThan)
             return Group(id: id, sequence: sequence, observations: observations)

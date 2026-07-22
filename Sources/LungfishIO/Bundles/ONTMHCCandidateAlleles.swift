@@ -95,6 +95,7 @@ public enum ONTMHCCandidateModelError: Error, LocalizedError, Equatable, Sendabl
     case invalidMinimumIdentity(Double)
     case invalidMinimumShorterCoverage(Double)
     case invalidMinimumIntronGapBases(Int)
+    case invalidHitSummary(kind: String, field: String, value: String)
 
     public var errorDescription: String? {
         switch self {
@@ -106,6 +107,8 @@ public enum ONTMHCCandidateModelError: Error, LocalizedError, Equatable, Sendabl
             return "Minimum shorter-sequence coverage must be finite and between zero and one; received \(value)."
         case .invalidMinimumIntronGapBases(let value):
             return "Minimum intron gap bases must be greater than zero; received \(value)."
+        case .invalidHitSummary(let kind, let field, let value):
+            return "Invalid \(kind) hit summary \(field): \(value)."
         }
     }
 }
@@ -229,6 +232,234 @@ public struct ONTMHCEvidenceLocator: Codable, Equatable, Sendable {
     }
 }
 
+public struct ONTMHCGenotypingTargetHitSummary: Codable, Equatable, Sendable {
+    public let bamPath: String
+    public let targetName: String
+    public let alignmentCount: Int
+    public let queryAlignmentCounts: [String: Int]
+    public let exactMatchQueryNames: [String]
+    public let closestMatchQueryNames: [String]
+
+    public var queryEdgeCount: Int { queryAlignmentCounts.count }
+
+    public init(
+        bamPath: String,
+        targetName: String,
+        alignmentCount: Int,
+        queryAlignmentCounts: [String: Int],
+        exactMatchQueryNames: [String],
+        closestMatchQueryNames: [String]
+    ) throws {
+        try Self.validate(
+            bamPath: bamPath,
+            targetName: targetName,
+            alignmentCount: alignmentCount,
+            queryAlignmentCounts: queryAlignmentCounts,
+            exactMatchQueryNames: exactMatchQueryNames,
+            closestMatchQueryNames: closestMatchQueryNames
+        )
+        self.bamPath = bamPath
+        self.targetName = targetName
+        self.alignmentCount = alignmentCount
+        self.queryAlignmentCounts = queryAlignmentCounts
+        self.exactMatchQueryNames = exactMatchQueryNames
+        self.closestMatchQueryNames = closestMatchQueryNames
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            bamPath: container.decode(String.self, forKey: .bamPath),
+            targetName: container.decode(String.self, forKey: .targetName),
+            alignmentCount: container.decode(Int.self, forKey: .alignmentCount),
+            queryAlignmentCounts: container.decode([String: Int].self, forKey: .queryAlignmentCounts),
+            exactMatchQueryNames: container.decode([String].self, forKey: .exactMatchQueryNames),
+            closestMatchQueryNames: container.decode([String].self, forKey: .closestMatchQueryNames)
+        )
+    }
+
+    fileprivate init(
+        uncheckedBAMPath bamPath: String,
+        targetName: String,
+        alignmentCount: Int,
+        queryAlignmentCounts: [String: Int],
+        exactMatchQueryNames: [String],
+        closestMatchQueryNames: [String]
+    ) {
+        self.bamPath = bamPath
+        self.targetName = targetName
+        self.alignmentCount = alignmentCount
+        self.queryAlignmentCounts = queryAlignmentCounts
+        self.exactMatchQueryNames = exactMatchQueryNames
+        self.closestMatchQueryNames = closestMatchQueryNames
+    }
+
+    private static func validate(
+        bamPath: String,
+        targetName: String,
+        alignmentCount: Int,
+        queryAlignmentCounts: [String: Int],
+        exactMatchQueryNames: [String],
+        closestMatchQueryNames: [String]
+    ) throws {
+        try validateHitSummary(
+            kind: "genotyping target",
+            bamPath: bamPath,
+            identityField: "target_name",
+            identity: targetName,
+            alignmentCount: alignmentCount,
+            edgeCounts: queryAlignmentCounts,
+            exactNames: exactMatchQueryNames,
+            closestNames: closestMatchQueryNames
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bamPath = "bam_path"
+        case targetName = "target_name"
+        case alignmentCount = "alignment_count"
+        case queryAlignmentCounts = "query_alignment_counts"
+        case exactMatchQueryNames = "exact_match_query_names"
+        case closestMatchQueryNames = "closest_match_query_names"
+    }
+}
+
+public struct ONTMHCReciprocalQueryHitSummary: Codable, Equatable, Sendable {
+    public let bamPath: String
+    public let queryName: String
+    public let alignmentCount: Int
+    public let targetAlignmentCounts: [String: Int]
+    public let exactMatchTargetNames: [String]
+    public let closestMatchTargetNames: [String]
+
+    public var targetEdgeCount: Int { targetAlignmentCounts.count }
+
+    public init(
+        bamPath: String,
+        queryName: String,
+        alignmentCount: Int,
+        targetAlignmentCounts: [String: Int],
+        exactMatchTargetNames: [String],
+        closestMatchTargetNames: [String]
+    ) throws {
+        try validateHitSummary(
+            kind: "reciprocal query",
+            bamPath: bamPath,
+            identityField: "query_name",
+            identity: queryName,
+            alignmentCount: alignmentCount,
+            edgeCounts: targetAlignmentCounts,
+            exactNames: exactMatchTargetNames,
+            closestNames: closestMatchTargetNames
+        )
+        self.bamPath = bamPath
+        self.queryName = queryName
+        self.alignmentCount = alignmentCount
+        self.targetAlignmentCounts = targetAlignmentCounts
+        self.exactMatchTargetNames = exactMatchTargetNames
+        self.closestMatchTargetNames = closestMatchTargetNames
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            bamPath: container.decode(String.self, forKey: .bamPath),
+            queryName: container.decode(String.self, forKey: .queryName),
+            alignmentCount: container.decode(Int.self, forKey: .alignmentCount),
+            targetAlignmentCounts: container.decode([String: Int].self, forKey: .targetAlignmentCounts),
+            exactMatchTargetNames: container.decode([String].self, forKey: .exactMatchTargetNames),
+            closestMatchTargetNames: container.decode([String].self, forKey: .closestMatchTargetNames)
+        )
+    }
+
+    fileprivate init(
+        uncheckedBAMPath bamPath: String,
+        queryName: String,
+        alignmentCount: Int,
+        targetAlignmentCounts: [String: Int],
+        exactMatchTargetNames: [String],
+        closestMatchTargetNames: [String]
+    ) {
+        self.bamPath = bamPath
+        self.queryName = queryName
+        self.alignmentCount = alignmentCount
+        self.targetAlignmentCounts = targetAlignmentCounts
+        self.exactMatchTargetNames = exactMatchTargetNames
+        self.closestMatchTargetNames = closestMatchTargetNames
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bamPath = "bam_path"
+        case queryName = "query_name"
+        case alignmentCount = "alignment_count"
+        case targetAlignmentCounts = "target_alignment_counts"
+        case exactMatchTargetNames = "exact_match_target_names"
+        case closestMatchTargetNames = "closest_match_target_names"
+    }
+}
+
+private func validateHitSummary(
+    kind: String,
+    bamPath: String,
+    identityField: String,
+    identity: String,
+    alignmentCount: Int,
+    edgeCounts: [String: Int],
+    exactNames: [String],
+    closestNames: [String]
+) throws {
+    func invalid(_ field: String, _ value: String) -> ONTMHCCandidateModelError {
+        .invalidHitSummary(kind: kind, field: field, value: value)
+    }
+    guard !bamPath.isEmpty else { throw invalid("bam_path", "empty") }
+    guard !identity.isEmpty else { throw invalid(identityField, "empty") }
+    guard alignmentCount >= 0 else { throw invalid("alignment_count", String(alignmentCount)) }
+    guard edgeCounts.keys.allSatisfy({ !$0.isEmpty }),
+          edgeCounts.values.allSatisfy({ $0 > 0 }) else {
+        throw invalid("alignment_counts", "names must be nonempty and counts must be positive")
+    }
+    var total = 0
+    for count in edgeCounts.values {
+        let sum = total.addingReportingOverflow(count)
+        guard !sum.overflow else { throw invalid("alignment_counts", "integer overflow") }
+        total = sum.partialValue
+    }
+    guard total == alignmentCount else {
+        throw invalid("alignment_count", "\(alignmentCount) does not equal edge total \(total)")
+    }
+    for (field, names) in [("exact_match_names", exactNames), ("closest_match_names", closestNames)] {
+        guard names.allSatisfy({ !$0.isEmpty }), Set(names).count == names.count else {
+            throw invalid(field, "names must be nonempty and unique")
+        }
+        guard Set(names).isSubset(of: Set(edgeCounts.keys)) else {
+            throw invalid(field, "names must occur in alignment counts")
+        }
+    }
+}
+
+private struct ONTMHCEvidenceLocatorIdentity: Hashable {
+    let bamPath: String
+    let queryName: String
+    let referenceName: String
+    let readGroupID: String?
+    let referenceStart: Int
+    let cigar: String
+
+    init(_ locator: ONTMHCEvidenceLocator) {
+        bamPath = locator.bamPath
+        queryName = locator.queryName
+        referenceName = locator.referenceName
+        readGroupID = locator.readGroupID
+        referenceStart = locator.referenceStart
+        cigar = locator.cigar
+    }
+}
+
+private enum ONTMHCEvidenceWireShape: Equatable, Sendable {
+    case legacyLocators
+    case compactSummaries
+}
+
 public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
     public let stableClusterID: String
     public let sampleID: String
@@ -236,7 +467,38 @@ public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
     public let sourceClusterIDs: [String]
     public let sourceClusterReadCounts: [String: Int]
     public let aggregatedSampleReadCount: Int
+    public let genotypingHitSummaries: [ONTMHCGenotypingTargetHitSummary]
+    /// Retained only when decoding or constructing schema-version 1 records.
     public let evidence: [ONTMHCEvidenceLocator]
+    private let evidenceWireShape: ONTMHCEvidenceWireShape
+
+    public var genotypingAlignmentCount: Int {
+        genotypingHitSummaries.reduce(0) { $0 + $1.alignmentCount }
+    }
+
+    public var genotypingEdgeCount: Int {
+        genotypingHitSummaries.reduce(0) { $0 + $1.queryEdgeCount }
+    }
+
+    public init(
+        stableClusterID: String,
+        sampleID: String,
+        readGroupID: String,
+        sourceClusterIDs: [String],
+        sourceClusterReadCounts: [String: Int],
+        aggregatedSampleReadCount: Int,
+        genotypingHitSummaries: [ONTMHCGenotypingTargetHitSummary]
+    ) {
+        self.stableClusterID = stableClusterID
+        self.sampleID = sampleID
+        self.readGroupID = readGroupID
+        self.sourceClusterIDs = sourceClusterIDs
+        self.sourceClusterReadCounts = sourceClusterReadCounts
+        self.aggregatedSampleReadCount = aggregatedSampleReadCount
+        self.genotypingHitSummaries = genotypingHitSummaries
+        self.evidence = []
+        self.evidenceWireShape = .compactSummaries
+    }
 
     public init(
         stableClusterID: String,
@@ -253,7 +515,91 @@ public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
         self.sourceClusterIDs = sourceClusterIDs
         self.sourceClusterReadCounts = sourceClusterReadCounts
         self.aggregatedSampleReadCount = aggregatedSampleReadCount
+        self.genotypingHitSummaries = Self.legacyHitSummaries(evidence)
         self.evidence = evidence
+        self.evidenceWireShape = .legacyLocators
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let stableClusterID = try container.decode(String.self, forKey: .stableClusterID)
+        let sampleID = try container.decode(String.self, forKey: .sampleID)
+        let readGroupID = try container.decode(String.self, forKey: .readGroupID)
+        let sourceClusterIDs = try container.decode([String].self, forKey: .sourceClusterIDs)
+        let sourceClusterReadCounts = try container.decode([String: Int].self, forKey: .sourceClusterReadCounts)
+        let aggregatedSampleReadCount = try container.decode(Int.self, forKey: .aggregatedSampleReadCount)
+        if container.contains(.genotypingHitSummaries) {
+            self.init(
+                stableClusterID: stableClusterID,
+                sampleID: sampleID,
+                readGroupID: readGroupID,
+                sourceClusterIDs: sourceClusterIDs,
+                sourceClusterReadCounts: sourceClusterReadCounts,
+                aggregatedSampleReadCount: aggregatedSampleReadCount,
+                genotypingHitSummaries: try container.decode(
+                    [ONTMHCGenotypingTargetHitSummary].self,
+                    forKey: .genotypingHitSummaries
+                )
+            )
+        } else {
+            self.init(
+                stableClusterID: stableClusterID,
+                sampleID: sampleID,
+                readGroupID: readGroupID,
+                sourceClusterIDs: sourceClusterIDs,
+                sourceClusterReadCounts: sourceClusterReadCounts,
+                aggregatedSampleReadCount: aggregatedSampleReadCount,
+                evidence: try container.decodeIfPresent(
+                    [ONTMHCEvidenceLocator].self,
+                    forKey: .evidence
+                ) ?? []
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(stableClusterID, forKey: .stableClusterID)
+        try container.encode(sampleID, forKey: .sampleID)
+        try container.encode(readGroupID, forKey: .readGroupID)
+        try container.encode(sourceClusterIDs, forKey: .sourceClusterIDs)
+        try container.encode(sourceClusterReadCounts, forKey: .sourceClusterReadCounts)
+        try container.encode(aggregatedSampleReadCount, forKey: .aggregatedSampleReadCount)
+        switch evidenceWireShape {
+        case .legacyLocators:
+            try container.encode(evidence, forKey: .evidence)
+        case .compactSummaries:
+            try container.encode(genotypingHitSummaries, forKey: .genotypingHitSummaries)
+        }
+    }
+
+    private static func legacyHitSummaries(
+        _ evidence: [ONTMHCEvidenceLocator]
+    ) -> [ONTMHCGenotypingTargetHitSummary] {
+        struct Target: Hashable {
+            let bamPath: String
+            let name: String
+        }
+        let unique = Dictionary(
+            evidence.map { (ONTMHCEvidenceLocatorIdentity($0), $0) },
+            uniquingKeysWith: { first, _ in first }
+        ).values
+        let grouped = Dictionary(grouping: unique) {
+            Target(bamPath: $0.bamPath, name: $0.referenceName)
+        }
+        return grouped.map { target, locators in
+            let counts = Dictionary(grouping: locators, by: \.queryName).mapValues(\.count)
+            return ONTMHCGenotypingTargetHitSummary(
+                uncheckedBAMPath: target.bamPath,
+                targetName: target.name,
+                alignmentCount: locators.count,
+                queryAlignmentCounts: counts,
+                exactMatchQueryNames: [],
+                closestMatchQueryNames: []
+            )
+        }.sorted {
+            [$0.bamPath, $0.targetName].lexicographicallyPrecedes([$1.bamPath, $1.targetName])
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -263,6 +609,7 @@ public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
         case sourceClusterIDs = "source_cluster_ids"
         case sourceClusterReadCounts = "source_cluster_read_counts"
         case aggregatedSampleReadCount = "aggregated_sample_read_count"
+        case genotypingHitSummaries = "genotyping_hit_summaries"
         case evidence
     }
 }
@@ -290,7 +637,66 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
     public let supportingSampleIDs: [String]
     public let fastaRecordID: String
     public let sequenceSHA256: String
+    public let reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary
     public let selectedEvidence: ONTMHCEvidenceLocator
+
+    public var reciprocalAlignmentCount: Int { reciprocalHitSummary.alignmentCount }
+    public var reciprocalEdgeCount: Int { reciprocalHitSummary.targetEdgeCount }
+
+    public init(
+        stableClusterID: String,
+        provisionalName: String,
+        locus: String,
+        classification: ONTMHCCandidateClassification,
+        supportClass: ONTMHCCandidateSupportClass,
+        closestReferenceName: String,
+        closestReferenceClass: MHCReferenceMoleculeClass,
+        snpCount: Int,
+        insertedBases: Int,
+        deletedBases: Int,
+        longGapBases: Int,
+        comparableBases: Int,
+        shorterCoverage: Double,
+        identity: Double,
+        mappingQuality: Int,
+        alignmentScore: Int,
+        independentSampleCount: Int,
+        occurrenceCount: Int,
+        totalClusterReads: Int,
+        supportingSampleIDs: [String],
+        fastaRecordID: String,
+        sequenceSHA256: String,
+        reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
+        selectedEvidence: ONTMHCEvidenceLocator
+    ) {
+        self.init(
+            stableClusterID: stableClusterID,
+            provisionalName: provisionalName,
+            locus: locus,
+            classification: classification,
+            supportClass: supportClass,
+            closestReferenceName: closestReferenceName,
+            closestReferenceClass: closestReferenceClass,
+            snpCount: snpCount,
+            insertedBases: insertedBases,
+            deletedBases: deletedBases,
+            longGapBases: longGapBases,
+            comparableBases: comparableBases,
+            shorterCoverage: shorterCoverage,
+            identity: identity,
+            mappingQuality: mappingQuality,
+            alignmentScore: alignmentScore,
+            independentSampleCount: independentSampleCount,
+            occurrenceCount: occurrenceCount,
+            totalClusterReads: totalClusterReads,
+            supportingSampleIDs: supportingSampleIDs,
+            fastaRecordID: fastaRecordID,
+            sequenceSHA256: sequenceSHA256,
+            reciprocalHitSummary: reciprocalHitSummary,
+            selectedEvidence: selectedEvidence,
+            initialize: ()
+        )
+    }
 
     public init(
         stableClusterID: String,
@@ -317,6 +723,70 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         sequenceSHA256: String,
         selectedEvidence: ONTMHCEvidenceLocator
     ) {
+        let reciprocalHitSummary = ONTMHCReciprocalQueryHitSummary(
+            uncheckedBAMPath: selectedEvidence.bamPath,
+            queryName: stableClusterID,
+            alignmentCount: 1,
+            targetAlignmentCounts: [selectedEvidence.referenceName: 1],
+            exactMatchTargetNames: [],
+            closestMatchTargetNames: [selectedEvidence.referenceName]
+        )
+        self.init(
+            stableClusterID: stableClusterID,
+            provisionalName: provisionalName,
+            locus: locus,
+            classification: classification,
+            supportClass: supportClass,
+            closestReferenceName: closestReferenceName,
+            closestReferenceClass: closestReferenceClass,
+            snpCount: snpCount,
+            insertedBases: insertedBases,
+            deletedBases: deletedBases,
+            longGapBases: longGapBases,
+            comparableBases: comparableBases,
+            shorterCoverage: shorterCoverage,
+            identity: identity,
+            mappingQuality: mappingQuality,
+            alignmentScore: alignmentScore,
+            independentSampleCount: independentSampleCount,
+            occurrenceCount: occurrenceCount,
+            totalClusterReads: totalClusterReads,
+            supportingSampleIDs: supportingSampleIDs,
+            fastaRecordID: fastaRecordID,
+            sequenceSHA256: sequenceSHA256,
+            reciprocalHitSummary: reciprocalHitSummary,
+            selectedEvidence: selectedEvidence,
+            initialize: ()
+        )
+    }
+
+    private init(
+        stableClusterID: String,
+        provisionalName: String,
+        locus: String,
+        classification: ONTMHCCandidateClassification,
+        supportClass: ONTMHCCandidateSupportClass,
+        closestReferenceName: String,
+        closestReferenceClass: MHCReferenceMoleculeClass,
+        snpCount: Int,
+        insertedBases: Int,
+        deletedBases: Int,
+        longGapBases: Int,
+        comparableBases: Int,
+        shorterCoverage: Double,
+        identity: Double,
+        mappingQuality: Int,
+        alignmentScore: Int,
+        independentSampleCount: Int,
+        occurrenceCount: Int,
+        totalClusterReads: Int,
+        supportingSampleIDs: [String],
+        fastaRecordID: String,
+        sequenceSHA256: String,
+        reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
+        selectedEvidence: ONTMHCEvidenceLocator,
+        initialize: Void
+    ) {
         self.stableClusterID = stableClusterID
         self.provisionalName = provisionalName
         self.locus = locus
@@ -339,7 +809,80 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         self.supportingSampleIDs = supportingSampleIDs
         self.fastaRecordID = fastaRecordID
         self.sequenceSHA256 = sequenceSHA256
+        self.reciprocalHitSummary = reciprocalHitSummary
         self.selectedEvidence = selectedEvidence
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let stableClusterID = try container.decode(String.self, forKey: .stableClusterID)
+        let selectedEvidence = try container.decode(ONTMHCEvidenceLocator.self, forKey: .selectedEvidence)
+        let reciprocalHitSummary = try container.decodeIfPresent(
+            ONTMHCReciprocalQueryHitSummary.self,
+            forKey: .reciprocalHitSummary
+        ) ?? ONTMHCReciprocalQueryHitSummary(
+            uncheckedBAMPath: selectedEvidence.bamPath,
+            queryName: stableClusterID,
+            alignmentCount: 1,
+            targetAlignmentCounts: [selectedEvidence.referenceName: 1],
+            exactMatchTargetNames: [],
+            closestMatchTargetNames: [selectedEvidence.referenceName]
+        )
+        self.init(
+            stableClusterID: stableClusterID,
+            provisionalName: try container.decode(String.self, forKey: .provisionalName),
+            locus: try container.decode(String.self, forKey: .locus),
+            classification: try container.decode(ONTMHCCandidateClassification.self, forKey: .classification),
+            supportClass: try container.decode(ONTMHCCandidateSupportClass.self, forKey: .supportClass),
+            closestReferenceName: try container.decode(String.self, forKey: .closestReferenceName),
+            closestReferenceClass: try container.decode(MHCReferenceMoleculeClass.self, forKey: .closestReferenceClass),
+            snpCount: try container.decode(Int.self, forKey: .snpCount),
+            insertedBases: try container.decode(Int.self, forKey: .insertedBases),
+            deletedBases: try container.decode(Int.self, forKey: .deletedBases),
+            longGapBases: try container.decode(Int.self, forKey: .longGapBases),
+            comparableBases: try container.decode(Int.self, forKey: .comparableBases),
+            shorterCoverage: try container.decode(Double.self, forKey: .shorterCoverage),
+            identity: try container.decode(Double.self, forKey: .identity),
+            mappingQuality: try container.decode(Int.self, forKey: .mappingQuality),
+            alignmentScore: try container.decode(Int.self, forKey: .alignmentScore),
+            independentSampleCount: try container.decode(Int.self, forKey: .independentSampleCount),
+            occurrenceCount: try container.decode(Int.self, forKey: .occurrenceCount),
+            totalClusterReads: try container.decode(Int.self, forKey: .totalClusterReads),
+            supportingSampleIDs: try container.decode([String].self, forKey: .supportingSampleIDs),
+            fastaRecordID: try container.decode(String.self, forKey: .fastaRecordID),
+            sequenceSHA256: try container.decode(String.self, forKey: .sequenceSHA256),
+            reciprocalHitSummary: reciprocalHitSummary,
+            selectedEvidence: selectedEvidence,
+            initialize: ()
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(stableClusterID, forKey: .stableClusterID)
+        try container.encode(provisionalName, forKey: .provisionalName)
+        try container.encode(locus, forKey: .locus)
+        try container.encode(classification, forKey: .classification)
+        try container.encode(supportClass, forKey: .supportClass)
+        try container.encode(closestReferenceName, forKey: .closestReferenceName)
+        try container.encode(closestReferenceClass, forKey: .closestReferenceClass)
+        try container.encode(snpCount, forKey: .snpCount)
+        try container.encode(insertedBases, forKey: .insertedBases)
+        try container.encode(deletedBases, forKey: .deletedBases)
+        try container.encode(longGapBases, forKey: .longGapBases)
+        try container.encode(comparableBases, forKey: .comparableBases)
+        try container.encode(shorterCoverage, forKey: .shorterCoverage)
+        try container.encode(identity, forKey: .identity)
+        try container.encode(mappingQuality, forKey: .mappingQuality)
+        try container.encode(alignmentScore, forKey: .alignmentScore)
+        try container.encode(independentSampleCount, forKey: .independentSampleCount)
+        try container.encode(occurrenceCount, forKey: .occurrenceCount)
+        try container.encode(totalClusterReads, forKey: .totalClusterReads)
+        try container.encode(supportingSampleIDs, forKey: .supportingSampleIDs)
+        try container.encode(fastaRecordID, forKey: .fastaRecordID)
+        try container.encode(sequenceSHA256, forKey: .sequenceSHA256)
+        try container.encode(reciprocalHitSummary, forKey: .reciprocalHitSummary)
+        try container.encode(selectedEvidence, forKey: .selectedEvidence)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -365,6 +908,7 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         case supportingSampleIDs = "supporting_sample_ids"
         case fastaRecordID = "fasta_record_id"
         case sequenceSHA256 = "sequence_sha256"
+        case reciprocalHitSummary = "reciprocal_hit_summary"
         case selectedEvidence = "selected_evidence"
     }
 }
@@ -380,7 +924,44 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
     public let supportingSampleIDs: [String]
     public let fastaRecordID: String
     public let sequenceSHA256: String
+    public let reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary
+    public let selectedEvidence: ONTMHCEvidenceLocator?
+    /// Retained only when decoding or constructing schema-version 1 records.
     public let evidence: [ONTMHCEvidenceLocator]
+    private let evidenceWireShape: ONTMHCEvidenceWireShape
+
+    public var reciprocalAlignmentCount: Int { reciprocalHitSummary.alignmentCount }
+    public var reciprocalEdgeCount: Int { reciprocalHitSummary.targetEdgeCount }
+
+    public init(
+        stableClusterID: String,
+        reason: ONTMHCUnnameableReason,
+        failedMetrics: [String: Double],
+        supportClass: ONTMHCCandidateSupportClass,
+        independentSampleCount: Int,
+        occurrenceCount: Int,
+        totalClusterReads: Int,
+        supportingSampleIDs: [String],
+        fastaRecordID: String,
+        sequenceSHA256: String,
+        reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
+        selectedEvidence: ONTMHCEvidenceLocator?
+    ) {
+        self.stableClusterID = stableClusterID
+        self.reason = reason
+        self.failedMetrics = failedMetrics
+        self.supportClass = supportClass
+        self.independentSampleCount = independentSampleCount
+        self.occurrenceCount = occurrenceCount
+        self.totalClusterReads = totalClusterReads
+        self.supportingSampleIDs = supportingSampleIDs
+        self.fastaRecordID = fastaRecordID
+        self.sequenceSHA256 = sequenceSHA256
+        self.reciprocalHitSummary = reciprocalHitSummary
+        self.selectedEvidence = selectedEvidence
+        self.evidence = []
+        self.evidenceWireShape = .compactSummaries
+    }
 
     public init(
         stableClusterID: String,
@@ -405,7 +986,106 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         self.supportingSampleIDs = supportingSampleIDs
         self.fastaRecordID = fastaRecordID
         self.sequenceSHA256 = sequenceSHA256
+        self.reciprocalHitSummary = Self.legacyHitSummary(
+            stableClusterID: stableClusterID,
+            evidence: evidence
+        )
+        self.selectedEvidence = nil
         self.evidence = evidence
+        self.evidenceWireShape = .legacyLocators
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let stableClusterID = try container.decode(String.self, forKey: .stableClusterID)
+        let reason = try container.decode(ONTMHCUnnameableReason.self, forKey: .reason)
+        let failedMetrics = try container.decode([String: Double].self, forKey: .failedMetrics)
+        let supportClass = try container.decode(ONTMHCCandidateSupportClass.self, forKey: .supportClass)
+        let independentSampleCount = try container.decode(Int.self, forKey: .independentSampleCount)
+        let occurrenceCount = try container.decode(Int.self, forKey: .occurrenceCount)
+        let totalClusterReads = try container.decode(Int.self, forKey: .totalClusterReads)
+        let supportingSampleIDs = try container.decode([String].self, forKey: .supportingSampleIDs)
+        let fastaRecordID = try container.decode(String.self, forKey: .fastaRecordID)
+        let sequenceSHA256 = try container.decode(String.self, forKey: .sequenceSHA256)
+        if container.contains(.reciprocalHitSummary) {
+            self.init(
+                stableClusterID: stableClusterID,
+                reason: reason,
+                failedMetrics: failedMetrics,
+                supportClass: supportClass,
+                independentSampleCount: independentSampleCount,
+                occurrenceCount: occurrenceCount,
+                totalClusterReads: totalClusterReads,
+                supportingSampleIDs: supportingSampleIDs,
+                fastaRecordID: fastaRecordID,
+                sequenceSHA256: sequenceSHA256,
+                reciprocalHitSummary: try container.decode(
+                    ONTMHCReciprocalQueryHitSummary.self,
+                    forKey: .reciprocalHitSummary
+                ),
+                selectedEvidence: try container.decodeIfPresent(
+                    ONTMHCEvidenceLocator.self,
+                    forKey: .selectedEvidence
+                )
+            )
+        } else {
+            self.init(
+                stableClusterID: stableClusterID,
+                reason: reason,
+                failedMetrics: failedMetrics,
+                supportClass: supportClass,
+                independentSampleCount: independentSampleCount,
+                occurrenceCount: occurrenceCount,
+                totalClusterReads: totalClusterReads,
+                supportingSampleIDs: supportingSampleIDs,
+                fastaRecordID: fastaRecordID,
+                sequenceSHA256: sequenceSHA256,
+                evidence: try container.decodeIfPresent(
+                    [ONTMHCEvidenceLocator].self,
+                    forKey: .evidence
+                ) ?? []
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(stableClusterID, forKey: .stableClusterID)
+        try container.encode(reason, forKey: .reason)
+        try container.encode(failedMetrics, forKey: .failedMetrics)
+        try container.encode(supportClass, forKey: .supportClass)
+        try container.encode(independentSampleCount, forKey: .independentSampleCount)
+        try container.encode(occurrenceCount, forKey: .occurrenceCount)
+        try container.encode(totalClusterReads, forKey: .totalClusterReads)
+        try container.encode(supportingSampleIDs, forKey: .supportingSampleIDs)
+        try container.encode(fastaRecordID, forKey: .fastaRecordID)
+        try container.encode(sequenceSHA256, forKey: .sequenceSHA256)
+        switch evidenceWireShape {
+        case .legacyLocators:
+            try container.encode(evidence, forKey: .evidence)
+        case .compactSummaries:
+            try container.encode(reciprocalHitSummary, forKey: .reciprocalHitSummary)
+            try container.encodeIfPresent(selectedEvidence, forKey: .selectedEvidence)
+        }
+    }
+
+    private static func legacyHitSummary(
+        stableClusterID: String,
+        evidence: [ONTMHCEvidenceLocator]
+    ) -> ONTMHCReciprocalQueryHitSummary {
+        let unique = Dictionary(
+            evidence.map { (ONTMHCEvidenceLocatorIdentity($0), $0) },
+            uniquingKeysWith: { first, _ in first }
+        ).values
+        let targetCounts = Dictionary(grouping: unique, by: \.referenceName).mapValues(\.count)
+        return ONTMHCReciprocalQueryHitSummary(
+            uncheckedBAMPath: unique.first?.bamPath ?? "",
+            queryName: stableClusterID,
+            alignmentCount: unique.count,
+            targetAlignmentCounts: targetCounts,
+            exactMatchTargetNames: [],
+            closestMatchTargetNames: []
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -419,6 +1099,8 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         case supportingSampleIDs = "supporting_sample_ids"
         case fastaRecordID = "fasta_record_id"
         case sequenceSHA256 = "sequence_sha256"
+        case reciprocalHitSummary = "reciprocal_hit_summary"
+        case selectedEvidence = "selected_evidence"
         case evidence
     }
 }
