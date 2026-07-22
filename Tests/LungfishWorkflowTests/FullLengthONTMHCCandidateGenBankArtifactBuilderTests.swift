@@ -37,6 +37,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
 
         XCTAssertEqual(cds.intervals.map { [$0.start, $0.end] }, [[0, 3], [6, 12]])
         XCTAssertEqual(cds.qualifier("translation"), "MA")
+        XCTAssertEqual(sourceTranslationStatus(record), "full-length")
         XCTAssertEqual(exons.map { $0.qualifier("number") }, ["1", "2"])
         XCTAssertEqual(exons.map { [$0.start, $0.end] }, [[0, 3], [6, 12]])
         XCTAssertEqual(introns.map { [$0.start, $0.end] }, [[3, 6]])
@@ -44,6 +45,9 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertTrue(record.values(forRecordField: "COMMENT").contains {
             $0.contains("inferred exon count: 2")
         })
+        let text = GenBankWriter(url: URL(fileURLWithPath: "/dev/null")).format(record)
+        XCTAssertTrue(text.contains("/stable_cluster_id=\"candidate-b\""), text)
+        XCTAssertTrue(text.contains("/translation_status=\"full-length\""), text)
     }
 
     func testReverseAlignmentLiftsFeatureStrandAndTranslatesOriginalCandidateOrientation() throws {
@@ -104,9 +108,41 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
 
         XCTAssertEqual(cds.qualifier("translation"), "M*A")
+        XCTAssertEqual(sourceTranslationStatus(record), "pseudogene")
         XCTAssertTrue(record.values(forRecordField: "COMMENT").contains {
             $0.contains("candidate amino acids=2") && $0.contains("internal stops=1")
         })
+    }
+
+    func testInternalFrameDisruptingDeletionIsClassifiedAsPseudogene() throws {
+        let candidate = try makeCandidate(
+            stableID: "candidate-frameshift",
+            sequenceSHA256: "frameshift-hash",
+            cigar: "3=1D5=",
+            referenceName: "ref-frameshift",
+            referenceClass: .genomicDNA
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate),
+            sequence: "ATGAAGCT",
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-frameshift",
+                sequence: "ATGCAAGCT",
+                features: [feature(type: "CDS", start: 0, end: 9)]
+            ),
+            analysisName: "MHC run 7",
+            projectBundleName: nil,
+            minimumIntronGapBases: 50
+        )
+
+        let record = try XCTUnwrap(
+            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
+        )
+        let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
+
+        XCTAssertEqual(cds.qualifier("translation"), "MK")
+        XCTAssertEqual(sourceTranslationStatus(record), "pseudogene")
     }
 
     func testPartialCDSMissingFivePrimeBoundaryOmitsTranslation() throws {
@@ -138,9 +174,76 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
 
         XCTAssertNil(cds.qualifier("translation"))
+        XCTAssertEqual(sourceTranslationStatus(record), "incomplete/unresolved")
         XCTAssertTrue(cds.qualifiers["note"]?.values.contains {
             $0.contains("5-prime CDS boundary")
         } == true)
+    }
+
+    func testAmbiguousOrStructurallyPartialCDSPreservesTranslationButIsNotFullLength() throws {
+        let cases: [(
+            stableID: String,
+            sequence: String,
+            referenceSequence: String,
+            cigar: String,
+            feature: ONTMHCReferenceVisualizationFeature,
+            expectedTranslation: String
+        )] = [
+            (
+                "candidate-ambiguous-aa", "ATGNNNGCT", "ATGAAAGCT", "3=3X3=",
+                feature(type: "CDS", start: 0, end: 9),
+                "MXA"
+            ),
+            (
+                "candidate-partial-location", "ATGGCTTAA", "ATGGCTTAA", "9=",
+                feature(type: "CDS", start: 0, end: 9, rawGenBankLocation: "<1..9"),
+                "MA"
+            ),
+            (
+                "candidate-unknown-strand", "ATGGCTTAA", "ATGGCTTAA", "9=",
+                feature(type: "CDS", start: 0, end: 9, strand: "?"),
+                "MA"
+            ),
+            (
+                "candidate-codon-start", "AATGGCTTAA", "AATGGCTTAA", "10=",
+                feature(type: "CDS", start: 0, end: 10, qualifiers: ["codon_start": ["2"]]),
+                "MA"
+            ),
+        ]
+
+        for testCase in cases {
+            let candidate = try makeCandidate(
+                stableID: testCase.stableID,
+                sequenceSHA256: "\(testCase.stableID)-hash",
+                cigar: testCase.cigar,
+                referenceName: "ref-\(testCase.stableID)",
+                referenceClass: .genomicDNA
+            )
+            let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+                subject: .candidate(candidate),
+                sequence: testCase.sequence,
+                selectedAlignmentIsReverse: false,
+                closestReference: makeReference(
+                    id: "ref-\(testCase.stableID)",
+                    sequence: testCase.referenceSequence,
+                    features: [testCase.feature]
+                ),
+                analysisName: "run",
+                projectBundleName: nil,
+                minimumIntronGapBases: 50
+            )
+
+            let record = try XCTUnwrap(
+                FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
+            )
+            let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
+            XCTAssertEqual(cds.qualifier("translation"), testCase.expectedTranslation, testCase.stableID)
+            XCTAssertEqual(
+                sourceTranslationStatus(record),
+                "incomplete/unresolved",
+                testCase.stableID
+            )
+        }
     }
 
     func testLeadingHardClipOffsetsLiftedCandidateCoordinates() throws {
@@ -210,6 +313,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         let record = try XCTUnwrap(FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first)
 
         XCTAssertEqual(record.annotations.map(\.type), [.source])
+        XCTAssertEqual(sourceTranslationStatus(record), "incomplete/unresolved")
         let comments = record.values(forRecordField: "COMMENT")
         XCTAssertTrue(comments.contains("Lungfish project: Primate Cohort.lungfish"))
         XCTAssertTrue(comments.contains { $0.contains("Sample-A, Sample-B") })
@@ -314,16 +418,22 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         type: String,
         start: Int,
         end: Int,
-        qualifiers: [String: [String]] = [:]
+        qualifiers: [String: [String]] = [:],
+        rawGenBankLocation: String? = nil,
+        strand: String = "+"
     ) -> ONTMHCReferenceVisualizationFeature {
         ONTMHCReferenceVisualizationFeature(
             type: type,
             start: start,
             end: end,
-            strand: "+",
+            strand: strand,
             sourceOrdinal: 0,
-            rawGenBankLocation: nil,
+            rawGenBankLocation: rawGenBankLocation,
             qualifiers: qualifiers
         )
+    }
+
+    private func sourceTranslationStatus(_ record: GenBankRecord) -> String? {
+        record.annotations.first(where: { $0.type == .source })?.qualifier("translation_status")
     }
 }

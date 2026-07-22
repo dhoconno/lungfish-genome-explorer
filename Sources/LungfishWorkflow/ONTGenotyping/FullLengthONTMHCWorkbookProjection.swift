@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LungfishIO
 
@@ -48,6 +49,7 @@ enum FullLengthONTMHCWorkbookProjectionError: Error, LocalizedError, Equatable, 
     case observationWithoutRecord(String)
     case duplicateObservation(stableClusterID: String, sampleID: String, readGroupID: String)
     case observationSummaryMismatch(stableClusterID: String, field: String, expected: Int, actual: Int)
+    case invalidUnmatchedArtifactIdentity(stableClusterID: String, detail: String)
 
     var errorDescription: String? {
         switch self {
@@ -61,7 +63,74 @@ enum FullLengthONTMHCWorkbookProjectionError: Error, LocalizedError, Equatable, 
             "Duplicate MHC workbook observation for \(id), sample \(sample), read group \(readGroup)."
         case .observationSummaryMismatch(let id, let field, let expected, let actual):
             "MHC workbook projection summary mismatch for \(id) (\(field)): expected \(expected), found \(actual)."
+        case .invalidUnmatchedArtifactIdentity(let id, let detail):
+            "Invalid unmatched MHC artifact identity for \(id): \(detail)."
         }
+    }
+}
+
+enum FullLengthONTMHCUnmatchedRecordCategory: String, Codable, Equatable, Sendable {
+    case candidate
+    case unnameable = "un-nameable"
+}
+
+enum FullLengthONTMHCTranslationStatus: String, Codable, Equatable, Sendable {
+    case fullLength = "full-length"
+    case pseudogene
+    case incompleteUnresolved = "incomplete/unresolved"
+}
+
+struct FullLengthONTMHCNormalizedUnmatchedRow: Codable, Equatable, Sendable {
+    let recordCategory: FullLengthONTMHCUnmatchedRecordCategory
+    let stableClusterID: String
+    let provisionalAlleleName: String?
+    let locus: String?
+    let classificationOrReason: String
+    let closestReferenceAllele: String?
+    let closestReferenceRawID: String?
+    let snpCount: Int?
+    let insertedBases: Int?
+    let deletedBases: Int?
+    let longGapBases: Int?
+    let comparableBases: Int?
+    let failedMetrics: [String: Double]
+    let supportClass: String
+    let independentSampleCount: Int
+    let occurrenceCount: Int
+    let totalClusterReads: Int
+    let supportingSampleIDs: [String]
+    let readsBySample: [String: Int]
+    let fastaRecordID: String
+    let sequenceSHA256: String
+    let nucleotideSequence: String
+    let putativeAminoAcidTranslation: String?
+    let translationStatus: FullLengthONTMHCTranslationStatus
+
+    enum CodingKeys: String, CodingKey {
+        case recordCategory = "record_category"
+        case stableClusterID = "stable_cluster_id"
+        case provisionalAlleleName = "provisional_allele_name"
+        case locus
+        case classificationOrReason = "classification_or_reason"
+        case closestReferenceAllele = "closest_reference_allele"
+        case closestReferenceRawID = "closest_reference_raw_id"
+        case snpCount = "snp_count"
+        case insertedBases = "inserted_bases"
+        case deletedBases = "deleted_bases"
+        case longGapBases = "long_gap_bases"
+        case comparableBases = "comparable_bases"
+        case failedMetrics = "failed_metrics"
+        case supportClass = "support_class"
+        case independentSampleCount = "independent_sample_count"
+        case occurrenceCount = "occurrence_count"
+        case totalClusterReads = "total_cluster_reads"
+        case supportingSampleIDs = "supporting_sample_ids"
+        case readsBySample = "reads_by_sample"
+        case fastaRecordID = "fasta_record_id"
+        case sequenceSHA256 = "sequence_sha256"
+        case nucleotideSequence = "nucleotide_sequence"
+        case putativeAminoAcidTranslation = "putative_amino_acid_translation"
+        case translationStatus = "translation_status"
     }
 }
 
@@ -221,6 +290,104 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 evidence: record.evidence.sorted(by: Self.evidenceLess)
             )
         }
+    }
+
+    func normalizedUnmatchedRows(
+        candidateFASTARecords: [FullLengthONTMHCClusterFASTARecord],
+        unnameableFASTARecords: [FullLengthONTMHCClusterFASTARecord],
+        candidateGenBankRecords: [GenBankRecord],
+        unnameableGenBankRecords: [GenBankRecord]
+    ) throws -> [FullLengthONTMHCNormalizedUnmatchedRow] {
+        let candidateArtifacts = try Self.unmatchedArtifacts(
+            expectedStableIDs: Set(candidateRows.map(\.stableClusterID)),
+            documentSequenceSHA256ByStableID: Dictionary(
+                uniqueKeysWithValues: candidateRows.map { ($0.stableClusterID, $0.sequenceSHA256) }
+            ),
+            fastaRecords: candidateFASTARecords,
+            genBankRecords: candidateGenBankRecords,
+            category: .candidate
+        )
+        let unnameableArtifacts = try Self.unmatchedArtifacts(
+            expectedStableIDs: Set(unnameableRows.map(\.stableClusterID)),
+            documentSequenceSHA256ByStableID: Dictionary(
+                uniqueKeysWithValues: unnameableRows.map { ($0.stableClusterID, $0.sequenceSHA256) }
+            ),
+            fastaRecords: unnameableFASTARecords,
+            genBankRecords: unnameableGenBankRecords,
+            category: .unnameable
+        )
+
+        let candidates = try candidateRows.map { row -> FullLengthONTMHCNormalizedUnmatchedRow in
+            guard row.fastaRecordID == row.stableClusterID else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: row.stableClusterID,
+                    detail: "document FASTA record ID is \(row.fastaRecordID)"
+                )
+            }
+            let artifact = candidateArtifacts[row.stableClusterID]!
+            return FullLengthONTMHCNormalizedUnmatchedRow(
+                recordCategory: .candidate,
+                stableClusterID: row.stableClusterID,
+                provisionalAlleleName: row.provisionalName,
+                locus: row.locus,
+                classificationOrReason: row.classification,
+                closestReferenceAllele: row.closestReferenceName,
+                closestReferenceRawID: row.referenceName,
+                snpCount: row.snpCount,
+                insertedBases: row.insertedBases,
+                deletedBases: row.deletedBases,
+                longGapBases: row.longGapBases,
+                comparableBases: row.comparableBases,
+                failedMetrics: [:],
+                supportClass: row.supportClass,
+                independentSampleCount: row.independentSampleCount,
+                occurrenceCount: row.occurrenceCount,
+                totalClusterReads: row.totalClusterReads,
+                supportingSampleIDs: row.supportingSampleIDs,
+                readsBySample: row.readsBySample,
+                fastaRecordID: row.fastaRecordID,
+                sequenceSHA256: row.sequenceSHA256,
+                nucleotideSequence: artifact.sequence,
+                putativeAminoAcidTranslation: artifact.translation,
+                translationStatus: artifact.status
+            )
+        }
+        let unnameable = try unnameableRows.map { row -> FullLengthONTMHCNormalizedUnmatchedRow in
+            guard row.fastaRecordID == row.stableClusterID else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: row.stableClusterID,
+                    detail: "document FASTA record ID is \(row.fastaRecordID)"
+                )
+            }
+            let artifact = unnameableArtifacts[row.stableClusterID]!
+            return FullLengthONTMHCNormalizedUnmatchedRow(
+                recordCategory: .unnameable,
+                stableClusterID: row.stableClusterID,
+                provisionalAlleleName: nil,
+                locus: nil,
+                classificationOrReason: row.reason,
+                closestReferenceAllele: nil,
+                closestReferenceRawID: row.selectedEvidence?.referenceName,
+                snpCount: nil,
+                insertedBases: nil,
+                deletedBases: nil,
+                longGapBases: nil,
+                comparableBases: nil,
+                failedMetrics: row.failedMetrics,
+                supportClass: row.supportClass,
+                independentSampleCount: row.independentSampleCount,
+                occurrenceCount: row.occurrenceCount,
+                totalClusterReads: row.totalClusterReads,
+                supportingSampleIDs: row.supportingSampleIDs,
+                readsBySample: row.readsBySample,
+                fastaRecordID: row.fastaRecordID,
+                sequenceSHA256: row.sequenceSHA256,
+                nucleotideSequence: artifact.sequence,
+                putativeAminoAcidTranslation: artifact.translation,
+                translationStatus: artifact.status
+            )
+        }
+        return candidates + unnameable
     }
 
     var candidateWorksheetRows: [[FullLengthONTMHCWorkbookCell]] {
@@ -418,6 +585,125 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
         var result = Set<String>()
         for id in ids where !result.insert(id).inserted {
             throw FullLengthONTMHCWorkbookProjectionError.duplicateStableClusterID(id)
+        }
+        return result
+    }
+
+    private struct UnmatchedArtifact {
+        let sequence: String
+        let translation: String?
+        let status: FullLengthONTMHCTranslationStatus
+    }
+
+    private static func unmatchedArtifacts(
+        expectedStableIDs: Set<String>,
+        documentSequenceSHA256ByStableID: [String: String],
+        fastaRecords: [FullLengthONTMHCClusterFASTARecord],
+        genBankRecords: [GenBankRecord],
+        category: FullLengthONTMHCUnmatchedRecordCategory
+    ) throws -> [String: UnmatchedArtifact] {
+        var fastaByID: [String: FullLengthONTMHCClusterFASTARecord] = [:]
+        for record in fastaRecords {
+            guard expectedStableIDs.contains(record.name) else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: record.name,
+                    detail: "unexpected \(category.rawValue) FASTA record"
+                )
+            }
+            guard fastaByID.updateValue(record, forKey: record.name) == nil else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: record.name,
+                    detail: "duplicate \(category.rawValue) FASTA record"
+                )
+            }
+        }
+        var genBankByID: [String: GenBankRecord] = [:]
+        for record in genBankRecords {
+            let stableID = record.sequence.name
+            guard expectedStableIDs.contains(stableID) else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: stableID,
+                    detail: "unexpected \(category.rawValue) GenBank record"
+                )
+            }
+            guard genBankByID.updateValue(record, forKey: stableID) == nil else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: stableID,
+                    detail: "duplicate \(category.rawValue) GenBank record"
+                )
+            }
+        }
+
+        var result: [String: UnmatchedArtifact] = [:]
+        for stableID in expectedStableIDs {
+            guard let fasta = fastaByID[stableID] else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: stableID,
+                    detail: "missing \(category.rawValue) FASTA record"
+                )
+            }
+            guard let genBank = genBankByID[stableID] else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: stableID,
+                    detail: "missing \(category.rawValue) GenBank record"
+                )
+            }
+            let genBankSequence = genBank.sequence.asString().uppercased()
+            let fastaSequence = fasta.sequence.uppercased()
+            guard genBankSequence == fastaSequence else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: stableID,
+                    detail: "FASTA and GenBank sequences differ"
+                )
+            }
+            let computedSequenceSHA256 = SHA256.hash(data: Data(fastaSequence.utf8))
+                .map { String(format: "%02x", $0) }
+                .joined()
+            guard documentSequenceSHA256ByStableID[stableID]?.lowercased() == computedSequenceSHA256 else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: stableID,
+                    detail: "document sequence SHA-256 does not match the FASTA sequence"
+                )
+            }
+            if let accession = genBank.accession, accession != stableID {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: stableID,
+                    detail: "GenBank accession is \(accession)"
+                )
+            }
+            guard genBank.locus.name == stableID else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: stableID,
+                    detail: "GenBank locus is \(genBank.locus.name)"
+                )
+            }
+            let sourceFeatures = genBank.annotations.filter { $0.type == .source }
+            guard sourceFeatures.count == 1,
+                  sourceFeatures[0].qualifier("stable_cluster_id") == stableID else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: stableID,
+                    detail: "GenBank source stable_cluster_id is missing or inconsistent"
+                )
+            }
+            guard sourceFeatures[0].qualifier("sequence_sha256")?.lowercased()
+                == computedSequenceSHA256 else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: stableID,
+                    detail: "GenBank source sequence SHA-256 does not match the FASTA sequence"
+                )
+            }
+            let cdsFeatures = genBank.annotations.filter { $0.type == .cds }
+            let translation = cdsFeatures.count == 1
+                ? cdsFeatures[0].qualifier("translation")?.trimmingCharacters(in: .whitespacesAndNewlines)
+                : nil
+            let usableTranslation = translation.flatMap { $0.isEmpty ? nil : $0 }
+            let sourceStatus = sourceFeatures[0].qualifier("translation_status")
+                .flatMap(FullLengthONTMHCTranslationStatus.init(rawValue:))
+            result[stableID] = UnmatchedArtifact(
+                sequence: fasta.sequence,
+                translation: usableTranslation,
+                status: usableTranslation == nil ? .incompleteUnresolved : sourceStatus ?? .incompleteUnresolved
+            )
         }
         return result
     }

@@ -1,9 +1,175 @@
+import CryptoKit
 import Foundation
+import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
 import XCTest
 
 final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
+    func testNormalizedUnmatchedRowsJoinFASTAAndGenBankByStableIdentity() throws {
+        let documents = makeDocuments()
+        let projection = try singleCandidateProjection(from: documents)
+        let candidateSequence = "ATGGCTTAA"
+        let unnameableSequence = "ACGTACGT"
+        let rows = try projection.normalizedUnmatchedRows(
+            candidateFASTARecords: [
+                .init(name: "cluster-1", sequence: candidateSequence, readCount: 10),
+            ],
+            unnameableFASTARecords: [
+                .init(name: "cluster-u", sequence: unnameableSequence, readCount: 4),
+            ],
+            candidateGenBankRecords: [
+                try normalizedGenBankRecord(
+                    stableID: "cluster-1",
+                    sequence: candidateSequence,
+                    translation: "MA",
+                    status: "full-length"
+                ),
+            ],
+            unnameableGenBankRecords: [
+                try normalizedGenBankRecord(
+                    stableID: "cluster-u",
+                    sequence: unnameableSequence,
+                    translation: nil,
+                    status: "full-length"
+                ),
+            ]
+        )
+
+        XCTAssertEqual(rows.map(\.stableClusterID), ["cluster-1", "cluster-u"])
+        XCTAssertEqual(Set(rows.map(\.stableClusterID)).count, rows.count)
+        XCTAssertEqual(rows[0].recordCategory, .candidate)
+        XCTAssertEqual(rows[0].nucleotideSequence, candidateSequence)
+        XCTAssertEqual(rows[0].putativeAminoAcidTranslation, "MA")
+        XCTAssertEqual(rows[0].translationStatus, .fullLength)
+        XCTAssertEqual(rows[0].readsBySample, ["sample-a": 7, "sample-b": 3])
+        XCTAssertEqual(rows[1].recordCategory, .unnameable)
+        XCTAssertEqual(rows[1].nucleotideSequence, unnameableSequence)
+        XCTAssertNil(rows[1].putativeAminoAcidTranslation)
+        XCTAssertEqual(rows[1].translationStatus, .incompleteUnresolved)
+
+        let encoded = try JSONEncoder().encode(rows)
+        XCTAssertEqual(
+            try JSONDecoder().decode([FullLengthONTMHCNormalizedUnmatchedRow].self, from: encoded),
+            rows
+        )
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [[String: Any]])
+        XCTAssertEqual(Set(try XCTUnwrap(object.first).keys), [
+            "record_category", "stable_cluster_id", "provisional_allele_name", "locus",
+            "classification_or_reason", "closest_reference_allele", "closest_reference_raw_id",
+            "snp_count", "inserted_bases", "deleted_bases", "long_gap_bases", "comparable_bases",
+            "failed_metrics", "support_class", "independent_sample_count", "occurrence_count",
+            "total_cluster_reads", "supporting_sample_ids", "reads_by_sample", "fasta_record_id",
+            "sequence_sha256", "nucleotide_sequence", "putative_amino_acid_translation",
+            "translation_status",
+        ])
+    }
+
+    func testNormalizedUnmatchedRowsRejectDocumentSequenceChecksumMismatch() throws {
+        let documents = makeDocuments(candidateSequenceSHA256Overrides: [
+            "cluster-1": String(repeating: "0", count: 64),
+        ])
+        let projection = try singleCandidateProjection(from: documents)
+
+        XCTAssertThrowsError(try normalizedRows(projection: projection)) { error in
+            guard case FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                stableClusterID: "cluster-1",
+                detail: let detail
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(detail.contains("document sequence SHA-256"), detail)
+        }
+    }
+
+    func testNormalizedUnmatchedRowsHashLowercaseFASTAAsNormalizedUppercaseSequence() throws {
+        let projection = try singleCandidateProjection(from: makeDocuments())
+        let candidateSequence = "ATGGCTTAA"
+        let unnameableSequence = "ACGTACGT"
+
+        let rows: [FullLengthONTMHCNormalizedUnmatchedRow]
+        do {
+            rows = try projection.normalizedUnmatchedRows(
+                candidateFASTARecords: [
+                    .init(name: "cluster-1", sequence: candidateSequence.lowercased(), readCount: 10),
+                ],
+                unnameableFASTARecords: [
+                    .init(name: "cluster-u", sequence: unnameableSequence.lowercased(), readCount: 4),
+                ],
+                candidateGenBankRecords: [
+                    try normalizedGenBankRecord(
+                        stableID: "cluster-1",
+                        sequence: candidateSequence,
+                        translation: "MA",
+                        status: "full-length"
+                    ),
+                ],
+                unnameableGenBankRecords: [
+                    try normalizedGenBankRecord(
+                        stableID: "cluster-u",
+                        sequence: unnameableSequence,
+                        translation: nil,
+                        status: "incomplete/unresolved"
+                    ),
+                ]
+            )
+        } catch {
+            return XCTFail("Lowercase FASTA should share normalized scientific identity: \(error)")
+        }
+
+        XCTAssertEqual(rows.map(\.stableClusterID), ["cluster-1", "cluster-u"])
+        XCTAssertEqual(rows.map(\.nucleotideSequence), [
+            candidateSequence.lowercased(),
+            unnameableSequence.lowercased(),
+        ])
+    }
+
+    func testNormalizedUnmatchedRowsRejectGenBankChecksumAccessionAndLocusIdentityMismatches() throws {
+        let projection = try singleCandidateProjection(from: makeDocuments())
+        let sequence = "ATGGCTTAA"
+        let mismatches: [(String, GenBankRecord)] = [
+            (
+                "source sequence SHA-256",
+                try normalizedGenBankRecord(
+                    stableID: "cluster-1",
+                    sequence: sequence,
+                    translation: "MA",
+                    status: "full-length",
+                    sourceSequenceSHA256: String(repeating: "f", count: 64)
+                )
+            ),
+            (
+                "accession",
+                try normalizedGenBankRecord(
+                    stableID: "cluster-1", sequence: sequence, translation: "MA",
+                    status: "full-length", accession: "different-id"
+                )
+            ),
+            (
+                "locus",
+                try normalizedGenBankRecord(
+                    stableID: "cluster-1", sequence: sequence, translation: "MA",
+                    status: "full-length", locusName: "different-id"
+                )
+            ),
+        ]
+
+        for (expectedDetail, genBankRecord) in mismatches {
+            XCTAssertThrowsError(try normalizedRows(
+                projection: projection,
+                candidateGenBankRecord: genBankRecord
+            )) { error in
+                guard case FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: "cluster-1",
+                    detail: let detail
+                ) = error else {
+                    return XCTFail("Unexpected error: \(error)")
+                }
+                XCTAssertTrue(detail.contains(expectedDetail), detail)
+            }
+        }
+    }
+
     func testProjectionRetainsEveryCandidateAndUnnameableWithStableIdentityAndSampleReads() throws {
         let documents = makeDocuments()
 
@@ -290,7 +456,9 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         try assertXMLWellFormed(sheet)
     }
 
-    private func makeDocuments() -> (
+    private func makeDocuments(
+        candidateSequenceSHA256Overrides: [String: String] = [:]
+    ) -> (
         candidates: ONTMHCCandidateAllelesDocument,
         unnameable: ONTMHCUnnameableClustersDocument
     ) {
@@ -332,7 +500,14 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
                 totalClusterReads: id == "cluster-1" ? 10 : (support == .shared ? 6 : 4),
                 supportingSampleIDs: support == .shared ? ["sample-a", "sample-b"] : ["sample-a"],
                 fastaRecordID: id,
-                sequenceSHA256: String(repeating: id.last == "1" ? "1" : "2", count: 64),
+                sequenceSHA256: candidateSequenceSHA256Overrides[id] ?? sha256Hex(
+                    [
+                        "cluster-1": "ATGGCTTAA",
+                        "cluster-2": "CCCC",
+                        "cluster-3": "GGGG",
+                        "cluster-4": "TTTT",
+                    ][id]!
+                ),
                 selectedEvidence: ONTMHCEvidenceLocator(
                     bamPath: evidence.bamPath,
                     queryName: id,
@@ -370,7 +545,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             totalClusterReads: 4,
             supportingSampleIDs: ["sample-a"],
             fastaRecordID: "cluster-u",
-            sequenceSHA256: String(repeating: "f", count: 64),
+            sequenceSHA256: sha256Hex("ACGTACGT"),
             evidence: [
                 ONTMHCEvidenceLocator(
                     bamPath: "artifacts/alignments/z.bam",
@@ -467,6 +642,111 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             aggregatedSampleReadCount: reads,
             evidence: []
         )
+    }
+
+    private func normalizedGenBankRecord(
+        stableID: String,
+        sequence: String,
+        translation: String?,
+        status: String,
+        sourceSequenceSHA256: String? = nil,
+        accession: String? = nil,
+        locusName: String? = nil
+    ) throws -> GenBankRecord {
+        var annotations = [
+            SequenceAnnotation(
+                type: .source,
+                name: stableID,
+                start: 0,
+                end: sequence.count,
+                strand: .forward,
+                qualifiers: [
+                    "stable_cluster_id": .init(stableID),
+                    "sequence_sha256": .init(sourceSequenceSHA256 ?? sha256Hex(sequence)),
+                    "translation_status": .init(status),
+                ]
+            ),
+        ]
+        if let translation {
+            annotations.append(SequenceAnnotation(
+                type: .cds,
+                name: stableID,
+                start: 0,
+                end: sequence.count,
+                strand: .forward,
+                qualifiers: ["translation": .init(translation)]
+            ))
+        }
+        return GenBankRecord(
+            sequence: try Sequence(name: stableID, alphabet: .dna, bases: sequence),
+            annotations: annotations,
+            locus: .init(name: locusName ?? stableID, length: sequence.count, moleculeType: .dna, topology: .linear),
+            accession: accession ?? stableID
+        )
+    }
+
+    private func singleCandidateProjection(
+        from documents: (
+            candidates: ONTMHCCandidateAllelesDocument,
+            unnameable: ONTMHCUnnameableClustersDocument
+        )
+    ) throws -> FullLengthONTMHCWorkbookProjection {
+        let candidate = try XCTUnwrap(documents.candidates.candidates.first {
+            $0.stableClusterID == "cluster-1"
+        })
+        let candidateDocument = ONTMHCCandidateAllelesDocument(
+            schemaVersion: documents.candidates.schemaVersion,
+            createdAt: documents.candidates.createdAt,
+            thresholds: documents.candidates.thresholds,
+            inputs: documents.candidates.inputs,
+            evidence: documents.candidates.evidence,
+            sequenceFASTA: documents.candidates.sequenceFASTA,
+            candidates: [candidate],
+            observations: documents.candidates.observations.filter {
+                $0.stableClusterID == candidate.stableClusterID
+            }
+        )
+        return try FullLengthONTMHCWorkbookProjection(
+            candidateDocument: candidateDocument,
+            unnameableDocument: documents.unnameable,
+            sampleOrder: ["sample-a", "sample-b"]
+        )
+    }
+
+    private func normalizedRows(
+        projection: FullLengthONTMHCWorkbookProjection,
+        candidateGenBankRecord: GenBankRecord? = nil
+    ) throws -> [FullLengthONTMHCNormalizedUnmatchedRow] {
+        let candidateSequence = "ATGGCTTAA"
+        let unnameableSequence = "ACGTACGT"
+        return try projection.normalizedUnmatchedRows(
+            candidateFASTARecords: [
+                .init(name: "cluster-1", sequence: candidateSequence, readCount: 10),
+            ],
+            unnameableFASTARecords: [
+                .init(name: "cluster-u", sequence: unnameableSequence, readCount: 4),
+            ],
+            candidateGenBankRecords: [
+                try candidateGenBankRecord ?? normalizedGenBankRecord(
+                    stableID: "cluster-1",
+                    sequence: candidateSequence,
+                    translation: "MA",
+                    status: "full-length"
+                ),
+            ],
+            unnameableGenBankRecords: [
+                try normalizedGenBankRecord(
+                    stableID: "cluster-u",
+                    sequence: unnameableSequence,
+                    translation: nil,
+                    status: "incomplete/unresolved"
+                ),
+            ]
+        )
+    }
+
+    private func sha256Hex(_ sequence: String) -> String {
+        SHA256.hash(data: Data(sequence.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private func unzip(_ path: String, from url: URL) throws -> String {

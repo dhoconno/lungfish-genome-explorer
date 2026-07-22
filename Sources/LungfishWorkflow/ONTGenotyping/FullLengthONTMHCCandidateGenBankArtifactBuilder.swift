@@ -175,6 +175,12 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             (feature.start..<feature.end).allSatisfy { referenceToOrientedQuery[$0] != nil }
         }
 
+        func coversBoundaries(of feature: ONTMHCReferenceVisualizationFeature) -> Bool {
+            feature.start < feature.end
+                && maps(referencePosition: feature.start)
+                && maps(referencePosition: feature.end - 1)
+        }
+
         func longInsertionCount(inside feature: ONTMHCReferenceVisualizationFeature) -> Int {
             insertions.filter {
                 $0.referenceBoundary > feature.start
@@ -220,6 +226,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             qualifiers: input.subject.subjectQualifiers
         )]
         var comments = baseComments(input)
+        var translationStatus = FullLengthONTMHCTranslationStatus.incompleteUnresolved
 
         if let evidence = input.subject.selectedEvidence,
            let isReverse = input.selectedAlignmentIsReverse,
@@ -242,6 +249,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 candidateSequence: sequence,
                 defaultName: input.subject.displayName
             )
+            translationStatus = lifted.translationStatus
             annotations.append(contentsOf: lifted.annotations)
             if input.subject.isCDNAReference,
                let cds = lifted.annotations.first(where: { $0.type == .cds }),
@@ -315,6 +323,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         } else {
             comments.append("Lungfish annotation unavailable: no selected reciprocal alignment")
         }
+
+        annotations[0].qualifiers["translation_status"] = .init(translationStatus.rawValue)
 
         let recordFields = copiedRecordFields(input.closestReference)
             + comments.enumerated().map { GenBankRecordField(key: "COMMENT", value: $0.element, ordinal: recordFieldsBaseCount(input.closestReference) + $0.offset) }
@@ -422,10 +432,15 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         projection: Projection,
         candidateSequence: String,
         defaultName: String
-    ) -> (annotations: [SequenceAnnotation], hadSourceExons: Bool) {
+    ) -> (
+        annotations: [SequenceAnnotation],
+        hadSourceExons: Bool,
+        translationStatus: FullLengthONTMHCTranslationStatus
+    ) {
         let supported: Set<AnnotationType> = [.gene, .mRNA, .transcript, .exon, .cds, .utr5, .utr3]
         var annotations: [SequenceAnnotation] = []
         var hadSourceExons = false
+        var cdsStatuses: [FullLengthONTMHCTranslationStatus] = []
         let featureGroups = Dictionary(grouping: features) {
             "\($0.sourceOrdinal)\u{0}\($0.type)\u{0}\($0.strand)\u{0}\($0.rawGenBankLocation ?? "")"
         }.values.sorted {
@@ -459,10 +474,28 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 let fivePrimeReferencePosition = sourceStrand == .reverse
                     ? sourceEnd - 1
                     : sourceStart
+                let hasBoundaryCoverage = group.allSatisfy {
+                    projection.coversBoundaries(of: $0)
+                }
+                let hasTrustworthyAnnotation = sourceStrand != .unknown
+                    && !group.contains(where: {
+                        $0.rawGenBankLocation?.contains("<") == true
+                            || $0.rawGenBankLocation?.contains(">") == true
+                    })
+                    && (annotation.qualifier("codon_start").map { $0 == "1" } ?? true)
                 if projection.maps(referencePosition: fivePrimeReferencePosition),
                    let translation = translatedCDS(annotation, sequence: candidateSequence) {
                     annotation.qualifiers["translation"] = .init(translation)
+                    cdsStatuses.append(
+                        translationStatus(
+                            annotation: annotation,
+                            translation: translation,
+                            hasBoundaryCoverage: hasBoundaryCoverage,
+                            hasTrustworthyAnnotation: hasTrustworthyAnnotation
+                        )
+                    )
                 } else {
+                    cdsStatuses.append(.incompleteUnresolved)
                     let existingNotes = annotation.qualifiers["note"]?.values ?? []
                     annotation.qualifiers["note"] = .init(
                         existingNotes + ["Candidate translation omitted because the 5-prime CDS boundary is not aligned"]
@@ -471,7 +504,33 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             }
             annotations.append(annotation)
         }
-        return (annotations, hadSourceExons)
+        return (
+            annotations,
+            hadSourceExons,
+            cdsStatuses.count == 1 ? cdsStatuses[0] : .incompleteUnresolved
+        )
+    }
+
+    func translationStatus(
+        annotation: SequenceAnnotation,
+        translation: String,
+        hasBoundaryCoverage: Bool,
+        hasTrustworthyAnnotation: Bool
+    ) -> FullLengthONTMHCTranslationStatus {
+        guard hasBoundaryCoverage,
+              hasTrustworthyAnnotation,
+              !translation.uppercased().contains("X") else {
+            return .incompleteUnresolved
+        }
+        let offset = annotation.qualifier("codon_start")
+            .flatMap(Int.init)
+            .map { max(0, min(2, $0 - 1)) } ?? 0
+        let codingBaseCount = max(0, annotation.totalLength - offset)
+        guard codingBaseCount > 0 else { return .incompleteUnresolved }
+        if codingBaseCount.isMultiple(of: 3), !translation.contains("*") {
+            return .fullLength
+        }
+        return .pseudogene
     }
 
     func mergedAnnotationIntervals(_ intervals: [AnnotationInterval]) -> [AnnotationInterval] {
