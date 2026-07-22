@@ -182,6 +182,128 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertTrue(result.integrityWarnings.isEmpty)
     }
 
+    func testLoadsSchemaV2CandidateAndUnnameableDocuments() throws {
+        let fixture = try CandidateBundleFixture(candidateSchemaVersion: 2)
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.mhcCandidates?.schemaVersion, 2)
+        XCTAssertEqual(result.mhcUnnameableClusters?.schemaVersion, 2)
+        XCTAssertEqual(result.mhcCandidates?.candidates.first?.reciprocalAlignmentCount, 1)
+        XCTAssertEqual(result.mhcCandidates?.observations.first?.genotypingAlignmentCount, 1)
+        XCTAssertEqual(result.mhcUnnameableClusters?.clusters.first?.reciprocalAlignmentCount, 0)
+        XCTAssertTrue(result.integrityWarnings.isEmpty)
+    }
+
+    func testRejectsMismatchedCandidateAndUnnameableDocumentSchemaVersions() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 2,
+            unnameableSchemaVersion: 1
+        )
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertNil(result.mhcUnnameableClusters)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactSchemaUnsupported)
+        XCTAssertTrue(result.integrityWarnings.first?.detail.contains("must match") == true)
+    }
+
+    func testSchemaV2RejectsCompactSummaryBAMRoleMismatches() throws {
+        for fixture in [
+            try CandidateBundleFixture(
+                candidateSchemaVersion: 2,
+                genotypingSummaryBAMPathOverride: "artifacts/alignments/reciprocal.bam"
+            ),
+            try CandidateBundleFixture(
+                candidateSchemaVersion: 2,
+                reciprocalSummaryBAMPathOverride: "artifacts/alignments/genotyping.bam"
+            ),
+        ] {
+            defer { fixture.remove() }
+
+            let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+            XCTAssertNil(result.mhcCandidates)
+            XCTAssertEqual(
+                result.integrityWarnings.first?.code,
+                .candidateArtifactDocumentReferenceMismatch
+            )
+        }
+    }
+
+    func testSchemaV2RejectsInvalidSummaryOwnershipAndSelectedClosestBinding() throws {
+        let cases: [CandidateBundleFixture] = [
+            try CandidateBundleFixture(
+                candidateSchemaVersion: 2,
+                reciprocalSummaryQueryOverride: "another-stable-id"
+            ),
+            try CandidateBundleFixture(
+                candidateSchemaVersion: 2,
+                genotypingSummaryTargetOverride: "AnotherSample|source-candidate"
+            ),
+            try CandidateBundleFixture(
+                candidateSchemaVersion: 2,
+                selectedClosestMismatch: true
+            ),
+        ]
+        for fixture in cases {
+            defer { fixture.remove() }
+
+            let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+            XCTAssertNil(result.mhcCandidates)
+            XCTAssertEqual(
+                result.integrityWarnings.first?.code,
+                .candidateArtifactDocumentReferenceMismatch
+            )
+        }
+    }
+
+    func testSchemaV2RejectsCandidateRecordsMissingCompactReciprocalSummary() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 2,
+            omitV2CandidateReciprocalSummary: true
+        )
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactMalformedJSON)
+    }
+
+    func testSchemaV2RejectsUnnameableSelectionOutsideClosestTargets() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 2,
+            unnameableSelectedClosestMismatch: true
+        )
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertNil(result.mhcUnnameableClusters)
+        XCTAssertEqual(
+            result.integrityWarnings.first?.code,
+            .candidateArtifactDocumentReferenceMismatch
+        )
+    }
+
+    func testCandidateArtifactManifestRemainsSchemaOne() throws {
+        let fixture = try CandidateBundleFixture(candidateArtifactManifestSchemaVersion: 2)
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(
+            result.integrityWarnings.first?.code,
+            .candidateArtifactManifestSchemaUnsupported
+        )
+    }
+
     func testLoaderRetainsNormalizedNamedCandidateSequenceOnly() throws {
         let fixture = try CandidateBundleFixture(
             candidateID: "cluster-a",
@@ -476,11 +598,25 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertEqual(malformed.calls.count, 1)
         XCTAssertEqual(malformed.integrityWarnings.first?.code, .candidateArtifactMalformedJSON)
 
-        let schemaFixture = try CandidateBundleFixture(candidateSchemaVersion: 2)
+        let schemaFixture = try CandidateBundleFixture(candidateSchemaVersion: 3)
         defer { schemaFixture.remove() }
         let schema = try ONTGenotypeResultBundle.loadResult(from: schemaFixture.bundleURL)
         XCTAssertEqual(schema.calls.count, 1)
         XCTAssertEqual(schema.integrityWarnings.first?.code, .candidateArtifactSchemaUnsupported)
+
+        let unnameableSchemaFixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 1,
+            unnameableSchemaVersion: 3
+        )
+        defer { unnameableSchemaFixture.remove() }
+        let unnameableSchema = try ONTGenotypeResultBundle.loadResult(
+            from: unnameableSchemaFixture.bundleURL
+        )
+        XCTAssertEqual(unnameableSchema.calls.count, 1)
+        XCTAssertEqual(
+            unnameableSchema.integrityWarnings.first?.code,
+            .candidateArtifactSchemaUnsupported
+        )
     }
 
     func testMissingDuplicateAndExtraCandidateFASTARecordsFailSoft() throws {
@@ -1562,7 +1698,9 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         init(
             includeCandidateArtifacts: Bool = true,
             candidateDirectory: String = "",
+            candidateArtifactManifestSchemaVersion: Int = 1,
             candidateSchemaVersion: Int = 1,
+            unnameableSchemaVersion: Int? = nil,
             candidateID: String = "candidate-sequence",
             candidateSequence: String = "ACGT",
             candidateFASTAIDs: [String]? = nil,
@@ -1572,7 +1710,14 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             reciprocalBAMPath: String = "artifacts/alignments/reciprocal.bam",
             reciprocalBAIPath: String = "artifacts/alignments/reciprocal.bam.bai",
             swappedEvidenceRoles: Bool = false,
-            reciprocalLocatorPathOverride: String? = nil
+            reciprocalLocatorPathOverride: String? = nil,
+            genotypingSummaryBAMPathOverride: String? = nil,
+            reciprocalSummaryBAMPathOverride: String? = nil,
+            reciprocalSummaryQueryOverride: String? = nil,
+            genotypingSummaryTargetOverride: String? = nil,
+            selectedClosestMismatch: Bool = false,
+            omitV2CandidateReciprocalSummary: Bool = false,
+            unnameableSelectedClosestMismatch: Bool = false
         ) throws {
             self.candidateID = candidateID
             rootURL = FileManager.default.temporaryDirectory
@@ -1653,6 +1798,18 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                 referenceStart: 1,
                 cigar: "4="
             )
+            let candidateReciprocalSummary = try ONTMHCReciprocalQueryHitSummary(
+                bamPath: reciprocalSummaryBAMPathOverride ?? reciprocalLocatorPath,
+                queryName: reciprocalSummaryQueryOverride ?? candidateID,
+                alignmentCount: selectedClosestMismatch ? 2 : 1,
+                targetAlignmentCounts: selectedClosestMismatch
+                    ? ["Mafa-A1*001:01": 1, "Mafa-A1*999:01": 1]
+                    : ["Mafa-A1*001:01": 1],
+                exactMatchTargetNames: [],
+                closestMatchTargetNames: selectedClosestMismatch
+                    ? ["Mafa-A1*999:01"]
+                    : ["Mafa-A1*001:01"]
+            )
             let candidateRecord = ONTMHCCandidateRecord(
                 stableClusterID: candidateID,
                 provisionalName: "Mafa-A1*001:01_1nt_nov",
@@ -1676,24 +1833,45 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                 supportingSampleIDs: ["SampleA"],
                 fastaRecordID: candidateID,
                 sequenceSHA256: Self.sha256(Data(candidateSequence.uppercased().utf8)),
+                reciprocalHitSummary: candidateReciprocalSummary,
                 selectedEvidence: locator
             )
-            let candidateObservation = ONTMHCCandidateObservation(
-                stableClusterID: candidateID,
-                sampleID: "SampleA",
-                readGroupID: "SampleA",
-                sourceClusterIDs: ["source-candidate"],
-                sourceClusterReadCounts: ["source-candidate": 8],
-                aggregatedSampleReadCount: 8,
-                evidence: [ONTMHCEvidenceLocator(
-                    bamPath: genotypingLocatorPath,
-                    queryName: "SampleA|source-candidate",
-                    referenceName: "Mafa-A1*001:01",
+            let candidateObservation: ONTMHCCandidateObservation
+            if candidateSchemaVersion == 1 {
+                candidateObservation = ONTMHCCandidateObservation(
+                    stableClusterID: candidateID,
+                    sampleID: "SampleA",
                     readGroupID: "SampleA",
-                    referenceStart: 1,
-                    cigar: "4="
-                )]
-            )
+                    sourceClusterIDs: ["source-candidate"],
+                    sourceClusterReadCounts: ["source-candidate": 8],
+                    aggregatedSampleReadCount: 8,
+                    evidence: [ONTMHCEvidenceLocator(
+                        bamPath: genotypingLocatorPath,
+                        queryName: "Mafa-A1*001:01",
+                        referenceName: "SampleA|source-candidate",
+                        readGroupID: "SampleA",
+                        referenceStart: 1,
+                        cigar: "4="
+                    )]
+                )
+            } else {
+                candidateObservation = ONTMHCCandidateObservation(
+                    stableClusterID: candidateID,
+                    sampleID: "SampleA",
+                    readGroupID: "SampleA",
+                    sourceClusterIDs: ["source-candidate"],
+                    sourceClusterReadCounts: ["source-candidate": 8],
+                    aggregatedSampleReadCount: 8,
+                    genotypingHitSummaries: [try ONTMHCGenotypingTargetHitSummary(
+                        bamPath: genotypingSummaryBAMPathOverride ?? genotypingLocatorPath,
+                        targetName: genotypingSummaryTargetOverride ?? "SampleA|source-candidate",
+                        alignmentCount: 1,
+                        queryAlignmentCounts: ["Mafa-A1*001:01": 1],
+                        exactMatchQueryNames: ["Mafa-A1*001:01"],
+                        closestMatchQueryNames: ["Mafa-A1*001:01"]
+                    )]
+                )
+            }
             let candidateDocument = ONTMHCCandidateAllelesDocument(
                 schemaVersion: candidateSchemaVersion,
                 createdAt: "2026-07-19T00:00:00Z",
@@ -1712,37 +1890,86 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                 referenceStart: 1,
                 cigar: "4="
             )
-            let unnameableRecord = ONTMHCUnnameableRecord(
-                stableClusterID: unnameableID,
-                reason: .noAlignment,
-                failedMetrics: [:],
-                supportClass: .singleton,
-                independentSampleCount: 1,
-                occurrenceCount: 1,
-                totalClusterReads: 4,
-                supportingSampleIDs: ["SampleB"],
-                fastaRecordID: unnameableID,
-                sequenceSHA256: Self.sha256(Data(unnameableSequence.utf8)),
-                evidence: [unnameableReciprocalLocator]
-            )
-            let unnameableObservation = ONTMHCCandidateObservation(
-                stableClusterID: unnameableID,
-                sampleID: "SampleB",
-                readGroupID: "SampleB",
-                sourceClusterIDs: ["source-unnameable"],
-                sourceClusterReadCounts: ["source-unnameable": 4],
-                aggregatedSampleReadCount: 4,
-                evidence: [ONTMHCEvidenceLocator(
-                    bamPath: genotypingLocatorPath,
-                    queryName: "SampleB|source-unnameable",
-                    referenceName: "Mafa-A1*001:01",
+            let resolvedUnnameableSchemaVersion = unnameableSchemaVersion ?? candidateSchemaVersion
+            let unnameableRecord: ONTMHCUnnameableRecord
+            let unnameableObservation: ONTMHCCandidateObservation
+            if resolvedUnnameableSchemaVersion == 1 {
+                unnameableRecord = ONTMHCUnnameableRecord(
+                    stableClusterID: unnameableID,
+                    reason: .insufficientIdentity,
+                    failedMetrics: ["identity": 0.5],
+                    supportClass: .singleton,
+                    independentSampleCount: 1,
+                    occurrenceCount: 1,
+                    totalClusterReads: 4,
+                    supportingSampleIDs: ["SampleB"],
+                    fastaRecordID: unnameableID,
+                    sequenceSHA256: Self.sha256(Data(unnameableSequence.utf8)),
+                    evidence: [unnameableReciprocalLocator]
+                )
+                unnameableObservation = ONTMHCCandidateObservation(
+                    stableClusterID: unnameableID,
+                    sampleID: "SampleB",
                     readGroupID: "SampleB",
-                    referenceStart: 1,
-                    cigar: "4="
-                )]
-            )
+                    sourceClusterIDs: ["source-unnameable"],
+                    sourceClusterReadCounts: ["source-unnameable": 4],
+                    aggregatedSampleReadCount: 4,
+                    evidence: [ONTMHCEvidenceLocator(
+                        bamPath: genotypingLocatorPath,
+                        queryName: "Mafa-A1*001:01",
+                        referenceName: "SampleB|source-unnameable",
+                        readGroupID: "SampleB",
+                        referenceStart: 1,
+                        cigar: "4="
+                    )]
+                )
+            } else {
+                unnameableRecord = ONTMHCUnnameableRecord(
+                    stableClusterID: unnameableID,
+                    reason: unnameableSelectedClosestMismatch ? .insufficientIdentity : .noAlignment,
+                    failedMetrics: unnameableSelectedClosestMismatch ? ["identity": 0.5] : [:],
+                    supportClass: .singleton,
+                    independentSampleCount: 1,
+                    occurrenceCount: 1,
+                    totalClusterReads: 4,
+                    supportingSampleIDs: ["SampleB"],
+                    fastaRecordID: unnameableID,
+                    sequenceSHA256: Self.sha256(Data(unnameableSequence.utf8)),
+                    reciprocalHitSummary: try ONTMHCReciprocalQueryHitSummary(
+                        bamPath: reciprocalSummaryBAMPathOverride ?? reciprocalLocatorPath,
+                        queryName: unnameableID,
+                        alignmentCount: unnameableSelectedClosestMismatch ? 2 : 0,
+                        targetAlignmentCounts: unnameableSelectedClosestMismatch
+                            ? ["Mafa-A1*001:01": 1, "Mafa-A1*999:01": 1]
+                            : [:],
+                        exactMatchTargetNames: [],
+                        closestMatchTargetNames: unnameableSelectedClosestMismatch
+                            ? ["Mafa-A1*999:01"]
+                            : []
+                    ),
+                    selectedEvidence: unnameableSelectedClosestMismatch
+                        ? unnameableReciprocalLocator
+                        : nil
+                )
+                unnameableObservation = ONTMHCCandidateObservation(
+                    stableClusterID: unnameableID,
+                    sampleID: "SampleB",
+                    readGroupID: "SampleB",
+                    sourceClusterIDs: ["source-unnameable"],
+                    sourceClusterReadCounts: ["source-unnameable": 4],
+                    aggregatedSampleReadCount: 4,
+                    genotypingHitSummaries: [try ONTMHCGenotypingTargetHitSummary(
+                        bamPath: genotypingSummaryBAMPathOverride ?? genotypingLocatorPath,
+                        targetName: "SampleB|source-unnameable",
+                        alignmentCount: 1,
+                        queryAlignmentCounts: ["Mafa-A1*001:01": 1],
+                        exactMatchQueryNames: ["Mafa-A1*001:01"],
+                        closestMatchQueryNames: ["Mafa-A1*001:01"]
+                    )]
+                )
+            }
             let unnameableDocument = ONTMHCUnnameableClustersDocument(
-                schemaVersion: 1,
+                schemaVersion: resolvedUnnameableSchemaVersion,
                 createdAt: "2026-07-19T00:00:00Z",
                 thresholds: .defaults,
                 evidence: evidence,
@@ -1752,12 +1979,23 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(candidateDocument).write(to: candidateJSONURL)
+            var candidateJSON = try encoder.encode(candidateDocument)
+            if (candidateSchemaVersion == 1 || omitV2CandidateReciprocalSummary),
+               var object = try JSONSerialization.jsonObject(with: candidateJSON) as? [String: Any],
+               var records = object["candidates"] as? [[String: Any]] {
+                for index in records.indices { records[index].removeValue(forKey: "reciprocal_hit_summary") }
+                object["candidates"] = records
+                candidateJSON = try JSONSerialization.data(
+                    withJSONObject: object,
+                    options: [.prettyPrinted, .sortedKeys]
+                )
+            }
+            try candidateJSON.write(to: candidateJSONURL)
             try encoder.encode(unnameableDocument).write(to: unnameableJSONURL)
 
             let artifacts: ONTMHCCandidateArtifactManifest? = includeCandidateArtifacts
                 ? try ONTMHCCandidateArtifactManifest(
-                    schemaVersion: 1,
+                    schemaVersion: candidateArtifactManifestSchemaVersion,
                     genotypingEvidence: genotypingPair,
                     reciprocalEvidence: reciprocalPair,
                     candidateJSON: Self.reference(candidateJSONURL, path: candidateRelative),

@@ -632,7 +632,7 @@ public final class GenotypeResultViewController: NSViewController {
               artifacts.candidateJSON != nil,
               artifacts.candidateFASTA != nil,
               let document = result.mhcCandidates,
-              document.schemaVersion == 1 else {
+              isSupportedMHCCandidateDocumentSchemaVersion(document.schemaVersion) else {
             return nil
         }
         return document

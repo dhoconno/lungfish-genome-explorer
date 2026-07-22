@@ -2067,6 +2067,14 @@ public enum ONTGenotypeResultBundle {
                     reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
                     documentPath: jsonReference.path
                 )
+                if document.schemaVersion == 2 {
+                    try validateCompactCandidateDocument(
+                        document,
+                        genotypingBAMPath: artifactManifest.genotypingEvidence?.bam.path,
+                        reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
+                        documentPath: jsonReference.path
+                    )
+                }
                 var parser = StreamingFASTAParser(
                     path: fastaReference.path,
                     requiredIDs: Set(document.candidates.map(\.stableClusterID)),
@@ -2102,12 +2110,22 @@ public enum ONTGenotypeResultBundle {
                     evidence: document.evidence,
                     expectedSequenceFASTA: fastaReference,
                     expectedEvidence: declaredEvidence,
-                    reciprocalEvidenceLocators: document.clusters.flatMap(\.evidence),
+                    reciprocalEvidenceLocators: document.schemaVersion == 1
+                        ? document.clusters.flatMap(\.evidence)
+                        : document.clusters.compactMap(\.selectedEvidence),
                     genotypingEvidenceLocators: document.observations.flatMap(\.evidence),
                     genotypingBAMPath: artifactManifest.genotypingEvidence?.bam.path,
                     reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
                     documentPath: jsonReference.path
                 )
+                if document.schemaVersion == 2 {
+                    try validateCompactUnnameableDocument(
+                        document,
+                        genotypingBAMPath: artifactManifest.genotypingEvidence?.bam.path,
+                        reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
+                        documentPath: jsonReference.path
+                    )
+                }
                 var parser = StreamingFASTAParser(
                     path: fastaReference.path,
                     requiredIDs: Set(document.clusters.map(\.stableClusterID))
@@ -2129,6 +2147,13 @@ public enum ONTGenotypeResultBundle {
                     path: fastaReference.path
                 )
                 unnameable = document
+            }
+            if let candidates, let unnameable,
+               candidates.schemaVersion != unnameable.schemaVersion {
+                throw integrityFailure(
+                    .candidateArtifactSchemaUnsupported,
+                    "Candidate and un-nameable document schema versions must match; found \(candidates.schemaVersion) and \(unnameable.schemaVersion)."
+                )
             }
             return MHCCandidateProjection(
                 candidates: candidates,
@@ -2328,13 +2353,17 @@ public enum ONTGenotypeResultBundle {
         _ data: Data,
         path: String
     ) throws -> ONTMHCCandidateAllelesDocument {
-        try requireSchemaOne(data, path: path)
+        try requireSupportedCandidateSchema(
+            data,
+            path: path,
+            recordCollectionKey: "candidates"
+        )
         do {
             return try JSONDecoder().decode(ONTMHCCandidateAllelesDocument.self, from: data)
         } catch {
             throw integrityFailure(
                 .candidateArtifactMalformedJSON,
-                "Candidate JSON does not conform to schema 1: \(error.localizedDescription)",
+                "Candidate JSON does not conform to a supported schema: \(error.localizedDescription)",
                 path: path
             )
         }
@@ -2344,19 +2373,27 @@ public enum ONTGenotypeResultBundle {
         _ data: Data,
         path: String
     ) throws -> ONTMHCUnnameableClustersDocument {
-        try requireSchemaOne(data, path: path)
+        try requireSupportedCandidateSchema(
+            data,
+            path: path,
+            recordCollectionKey: "clusters"
+        )
         do {
             return try JSONDecoder().decode(ONTMHCUnnameableClustersDocument.self, from: data)
         } catch {
             throw integrityFailure(
                 .candidateArtifactMalformedJSON,
-                "Un-nameable cluster JSON does not conform to schema 1: \(error.localizedDescription)",
+                "Un-nameable cluster JSON does not conform to a supported schema: \(error.localizedDescription)",
                 path: path
             )
         }
     }
 
-    private static func requireSchemaOne(_ data: Data, path: String) throws {
+    private static func requireSupportedCandidateSchema(
+        _ data: Data,
+        path: String,
+        recordCollectionKey: String
+    ) throws {
         let object: Any
         do {
             object = try JSONSerialization.jsonObject(with: data)
@@ -2370,14 +2407,28 @@ public enum ONTGenotypeResultBundle {
         guard let dictionary = object as? [String: Any], let schema = dictionary["schema_version"] as? Int else {
             throw integrityFailure(
                 .candidateArtifactMalformedJSON,
-                "Candidate artifact must be a JSON object with integer schema_version 1.",
+                "Candidate artifact must be a JSON object with integer schema_version 1 or 2.",
                 path: path
             )
         }
-        guard schema == 1 else {
+        guard schema == 1 || schema == 2 else {
             throw integrityFailure(
                 .candidateArtifactSchemaUnsupported,
-                "Candidate artifact schema \(schema) is unsupported; expected schema 1.",
+                "Candidate artifact schema \(schema) is unsupported; expected schema 1 or 2.",
+                path: path
+            )
+        }
+        guard schema == 2 else { return }
+        guard let records = dictionary[recordCollectionKey] as? [[String: Any]],
+              records.allSatisfy({ $0["reciprocal_hit_summary"] != nil }),
+              let observations = dictionary["observations"] as? [[String: Any]],
+              observations.allSatisfy({
+                  $0["genotyping_hit_summaries"] != nil && $0["evidence"] == nil
+              }),
+              (recordCollectionKey != "clusters" || records.allSatisfy({ $0["evidence"] == nil })) else {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Candidate artifact schema 2 requires compact hit summaries and forbids legacy bulk evidence arrays.",
                 path: path
             )
         }
@@ -2422,6 +2473,112 @@ public enum ONTGenotypeResultBundle {
                 path: documentPath
             )
         }
+    }
+
+    private static func validateCompactCandidateDocument(
+        _ document: ONTMHCCandidateAllelesDocument,
+        genotypingBAMPath: String?,
+        reciprocalBAMPath: String?,
+        documentPath: String
+    ) throws {
+        for record in document.candidates {
+            let summary = record.reciprocalHitSummary
+            guard summary.bamPath == reciprocalBAMPath,
+                  summary.queryName == record.stableClusterID,
+                  record.selectedEvidence.bamPath == reciprocalBAMPath,
+                  record.selectedEvidence.queryName == record.stableClusterID,
+                  summary.closestMatchTargetNames.contains(record.selectedEvidence.referenceName) else {
+                throw compactBindingFailure(
+                    "Candidate reciprocal summaries and selected evidence must belong to the record and typed reciprocal BAM, with the selected target in closest_match_target_names.",
+                    path: documentPath
+                )
+            }
+        }
+        try validateCompactObservations(
+            document.observations,
+            recordStableIDs: Set(document.candidates.map(\.stableClusterID)),
+            genotypingBAMPath: genotypingBAMPath,
+            documentPath: documentPath
+        )
+    }
+
+    private static func validateCompactUnnameableDocument(
+        _ document: ONTMHCUnnameableClustersDocument,
+        genotypingBAMPath: String?,
+        reciprocalBAMPath: String?,
+        documentPath: String
+    ) throws {
+        for record in document.clusters {
+            let summary = record.reciprocalHitSummary
+            guard summary.bamPath == reciprocalBAMPath,
+                  summary.queryName == record.stableClusterID else {
+                throw compactBindingFailure(
+                    "Un-nameable reciprocal summaries must belong to the record and typed reciprocal BAM.",
+                    path: documentPath
+                )
+            }
+            if summary.alignmentCount == 0 {
+                guard record.selectedEvidence == nil,
+                      summary.closestMatchTargetNames.isEmpty else {
+                    throw compactBindingFailure(
+                        "An un-nameable record without reciprocal alignments must not contain selected evidence or closest targets.",
+                        path: documentPath
+                    )
+                }
+            } else {
+                guard let selected = record.selectedEvidence,
+                      selected.bamPath == reciprocalBAMPath,
+                      selected.queryName == record.stableClusterID,
+                      summary.closestMatchTargetNames.contains(selected.referenceName) else {
+                    throw compactBindingFailure(
+                        "An aligned un-nameable record must select a closest target from the typed reciprocal BAM.",
+                        path: documentPath
+                    )
+                }
+            }
+        }
+        try validateCompactObservations(
+            document.observations,
+            recordStableIDs: Set(document.clusters.map(\.stableClusterID)),
+            genotypingBAMPath: genotypingBAMPath,
+            documentPath: documentPath
+        )
+    }
+
+    private static func validateCompactObservations(
+        _ observations: [ONTMHCCandidateObservation],
+        recordStableIDs: Set<String>,
+        genotypingBAMPath: String?,
+        documentPath: String
+    ) throws {
+        for observation in observations {
+            let expectedTargets = Set(observation.sourceClusterIDs.map {
+                "\(observation.sampleID)|\($0)"
+            })
+            let targetNames = observation.genotypingHitSummaries.map(\.targetName)
+            guard recordStableIDs.contains(observation.stableClusterID),
+                  Set(targetNames).count == targetNames.count,
+                  Set(targetNames).isSubset(of: expectedTargets),
+                  observation.genotypingHitSummaries.allSatisfy({
+                      $0.bamPath == genotypingBAMPath
+                  }) else {
+                throw compactBindingFailure(
+                    "Observation hit summaries must belong to a document record, a unique sample/source target, and the typed genotyping BAM.",
+                    path: documentPath
+                )
+            }
+        }
+    }
+
+    private static func compactBindingFailure(
+        _ detail: String,
+        path: String
+    ) -> CandidateIntegrityFailure {
+        integrityFailure(
+            .candidateArtifactDocumentReferenceMismatch,
+            detail,
+            path: path
+        )
     }
 
     private static func canonicalReferences(_ references: [ONTMHCArtifactReference]) -> [String] {

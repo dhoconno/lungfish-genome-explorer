@@ -3,6 +3,11 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 
+@inline(__always)
+func isSupportedMHCCandidateDocumentSchemaVersion(_ schemaVersion: Int) -> Bool {
+    schemaVersion == 1 || schemaVersion == 2
+}
+
 public enum GenotypeMatrixPaletteTarget: String, CaseIterable, Identifiable {
     case fill
     case text
@@ -110,7 +115,7 @@ public final class GenotypeResultDisplaySectionViewModel {
             && declaration?.schemaVersion == 1
             && declaration?.candidateJSON != nil
             && declaration?.candidateFASTA != nil
-            && result.mhcCandidates?.schemaVersion == 1
+            && result.mhcCandidates.map { isSupportedMHCCandidateDocumentSchemaVersion($0.schemaVersion) } == true
         mhcCandidateIntegrityWarnings = isFullLengthMHCResult
             ? result.integrityWarnings.map(Self.integrityWarningText)
             : []

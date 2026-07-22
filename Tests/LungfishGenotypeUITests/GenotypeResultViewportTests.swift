@@ -51,6 +51,49 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(viewModel.mhcCandidateDisplaySettings.tints, ONTMHCCandidateDisplaySettings.defaultTints)
     }
 
+    func testCompactSchemaTwoCandidateDocumentEnablesRowsAndGraphicalDetail() throws {
+        let stableClusterID = "compact-candidate"
+        let result = makeCandidateResult(
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 3)],
+            candidates: [
+                makeCandidate(
+                    id: stableClusterID,
+                    name: "Mafa-A1*001:01_1nt_nov",
+                    classification: .novel,
+                    support: .singleton,
+                    samples: ["AnimalA"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: stableClusterID, sample: "AnimalA", reads: 7),
+            ],
+            candidateSequences: [stableClusterID: String(repeating: "A", count: 24)],
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact(
+                schemaVersion: 1,
+                records: [makeCandidateReferenceVisualizationRecord(
+                    rawReferenceID: "compact-reference",
+                    alleleName: "Mafa-A1*001:01",
+                    stableClusterID: stableClusterID
+                )]
+            ),
+            candidateDocumentSchemaVersion: 2
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+
+        viewModel.updateMHCCandidatePresentation(from: result)
+        XCTAssertTrue(viewModel.mhcCandidateControlsAvailable)
+
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: result)
+        XCTAssertTrue(matrix.testingVisibleRows.contains { $0.stableClusterID == stableClusterID })
+
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        controller.testingSelectCandidateRow(stableClusterID: stableClusterID)
+        XCTAssertNotNil(onlyCandidateAlleleDetail(in: controller.view))
+    }
+
     func testLegacyAndInvalidCandidateBundlesDoNotExposeControlsAndInvalidWarningIsNonfatal() {
         let candidate = makeCandidateResult(
             calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
@@ -8392,7 +8435,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         observations: [ONTMHCCandidateObservation],
         candidateSequences: [String: String] = [:],
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil,
-        integrityWarnings: [ONTGenotypeIntegrityWarning] = []
+        integrityWarnings: [ONTGenotypeIntegrityWarning] = [],
+        candidateDocumentSchemaVersion: Int = 1
     ) -> ONTGenotypeResultBundleData {
         let sampleIDs = Set(calls.map(\.sample) + observations.map(\.sampleID))
         let samples = sampleIDs.sorted().map { sample in
@@ -8438,7 +8482,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             )
         )
         let document = ONTMHCCandidateAllelesDocument(
-            schemaVersion: 1,
+            schemaVersion: candidateDocumentSchemaVersion,
             createdAt: "2026-07-20T00:00:00Z",
             thresholds: .defaults,
             inputs: [],
