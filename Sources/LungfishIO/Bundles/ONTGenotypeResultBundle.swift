@@ -936,6 +936,21 @@ public struct ONTGenotypeIntegrityWarning: Codable, Equatable, Sendable {
     }
 }
 
+public struct ONTMHCCandidateGenBankArtifactURLs: Codable, Equatable, Sendable {
+    public static let empty = ONTMHCCandidateGenBankArtifactURLs(
+        candidateAlleles: nil,
+        unnameableClusters: nil
+    )
+
+    public let candidateAlleles: URL?
+    public let unnameableClusters: URL?
+
+    public init(candidateAlleles: URL?, unnameableClusters: URL?) {
+        self.candidateAlleles = candidateAlleles?.standardizedFileURL
+        self.unnameableClusters = unnameableClusters?.standardizedFileURL
+    }
+}
+
 public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     private struct SupportKey: Hashable {
         let sample: String
@@ -957,6 +972,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     public let mhcCandidates: ONTMHCCandidateAllelesDocument?
     public let mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?
     public let mhcCandidateSequencesByStableClusterID: [String: String]
+    public let mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs
     public let mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact?
     public let integrityWarnings: [ONTGenotypeIntegrityWarning]
     public let referenceMetadata: ONTGenotypeReferenceMetadata?
@@ -998,6 +1014,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         mhcCandidates: ONTMHCCandidateAllelesDocument?,
         mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?,
         mhcCandidateSequencesByStableClusterID: [String: String],
+        mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty,
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil,
         integrityWarnings: [ONTGenotypeIntegrityWarning],
         referenceMetadata: ONTGenotypeReferenceMetadata?
@@ -1012,6 +1029,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         self.mhcCandidates = mhcCandidates
         self.mhcUnnameableClusters = mhcUnnameableClusters
         self.mhcCandidateSequencesByStableClusterID = mhcCandidateSequencesByStableClusterID
+        self.mhcCandidateGenBankArtifactURLs = mhcCandidateGenBankArtifactURLs
         self.mhcReferenceVisualizations = mhcReferenceVisualizations
         self.integrityWarnings = integrityWarnings
         self.referenceMetadata = referenceMetadata
@@ -1089,6 +1107,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         case mhcCandidates
         case mhcUnnameableClusters
         case mhcCandidateSequencesByStableClusterID
+        case mhcCandidateGenBankArtifactURLs
         case mhcReferenceVisualizations
         case integrityWarnings
         case referenceMetadata
@@ -1113,6 +1132,10 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
                 [String: String].self,
                 forKey: .mhcCandidateSequencesByStableClusterID
             ) ?? [:],
+            mhcCandidateGenBankArtifactURLs: try container.decodeIfPresent(
+                ONTMHCCandidateGenBankArtifactURLs.self,
+                forKey: .mhcCandidateGenBankArtifactURLs
+            ) ?? .empty,
             mhcReferenceVisualizations: try container.decodeIfPresent(
                 ONTMHCReferenceVisualizationArtifact.self,
                 forKey: .mhcReferenceVisualizations
@@ -1142,6 +1165,10 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         try container.encode(
             mhcCandidateSequencesByStableClusterID,
             forKey: .mhcCandidateSequencesByStableClusterID
+        )
+        try container.encode(
+            mhcCandidateGenBankArtifactURLs,
+            forKey: .mhcCandidateGenBankArtifactURLs
         )
         try container.encodeIfPresent(mhcReferenceVisualizations, forKey: .mhcReferenceVisualizations)
         try container.encode(integrityWarnings, forKey: .integrityWarnings)
@@ -1465,12 +1492,14 @@ public enum ONTGenotypeResultBundle {
         let candidates: ONTMHCCandidateAllelesDocument?
         let unnameable: ONTMHCUnnameableClustersDocument?
         let candidateSequencesByStableClusterID: [String: String]
+        let genBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs
         let warnings: [ONTGenotypeIntegrityWarning]
 
         static let absent = MHCCandidateProjection(
             candidates: nil,
             unnameable: nil,
             candidateSequencesByStableClusterID: [:],
+            genBankArtifactURLs: .empty,
             warnings: []
         )
     }
@@ -1900,6 +1929,7 @@ public enum ONTGenotypeResultBundle {
             mhcCandidates: mhcProjection.candidates,
             mhcUnnameableClusters: mhcProjection.unnameable,
             mhcCandidateSequencesByStableClusterID: mhcProjection.candidateSequencesByStableClusterID,
+            mhcCandidateGenBankArtifactURLs: mhcProjection.genBankArtifactURLs,
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: mhcProjection.warnings,
             referenceMetadata: referenceMetadata
@@ -2175,10 +2205,19 @@ public enum ONTGenotypeResultBundle {
                     "Candidate and un-nameable document schema versions must match; found \(candidates.schemaVersion) and \(unnameable.schemaVersion)."
                 )
             }
+            let genBankArtifactURLs = ONTMHCCandidateGenBankArtifactURLs(
+                candidateAlleles: try artifactManifest.candidateGenBank.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                },
+                unnameableClusters: try artifactManifest.unnameableGenBank.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                }
+            )
             return MHCCandidateProjection(
                 candidates: candidates,
                 unnameable: unnameable,
                 candidateSequencesByStableClusterID: candidateSequencesByStableClusterID,
+                genBankArtifactURLs: genBankArtifactURLs,
                 warnings: []
             )
         } catch let failure as CandidateIntegrityFailure {
@@ -2186,9 +2225,19 @@ public enum ONTGenotypeResultBundle {
                 candidates: nil,
                 unnameable: nil,
                 candidateSequencesByStableClusterID: [:],
+                genBankArtifactURLs: .empty,
                 warnings: [failure.warning]
             )
         }
+    }
+
+    private static func normalizedValidatedArtifactURL(
+        _ reference: ONTMHCArtifactReference,
+        in bundleURL: URL
+    ) throws -> URL {
+        try safeRelativePathComponents(reference.path).reduce(bundleURL) { partialURL, component in
+            partialURL.appendingPathComponent(component)
+        }.standardizedFileURL
     }
 
     private static func requirePairedDeclaration(

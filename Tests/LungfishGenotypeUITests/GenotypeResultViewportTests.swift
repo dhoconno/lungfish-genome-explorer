@@ -1879,6 +1879,45 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
     }
 
+    func testArtifactsLensListsValidatedCandidateGenBankArtifactsWhenDeclared() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeCandidateGenBankLens-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        let candidateURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.gb")
+        let unnameableURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.gb")
+        let candidateGenBankArtifactURLs = ONTMHCCandidateGenBankArtifactURLs(
+            candidateAlleles: candidateURL,
+            unnameableClusters: unnameableURL
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            mhcCandidateGenBankArtifactURLs: candidateGenBankArtifactURLs
+        ))
+
+        controller.testingSelectLens(.audit)
+
+        let lensText = visibleText(in: controller.view)
+        XCTAssertTrue(lensText.contains("Candidate Alleles GenBank"))
+        XCTAssertTrue(lensText.contains("Un-nameable Clusters GenBank"))
+    }
+
+    func testArtifactsLensOmitsCandidateGenBankArtifactsWhenAbsent() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: []))
+
+        controller.testingSelectLens(.audit)
+
+        let lensText = visibleText(in: controller.view)
+        XCTAssertFalse(lensText.contains("Candidate Alleles GenBank"))
+        XCTAssertFalse(lensText.contains("Un-nameable Clusters GenBank"))
+    }
+
     func testResultViewportOmitsSummaryStatisticsStripForEveryLens() {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -8293,6 +8332,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
         haplotypeDefinitionSetID: String? = nil,
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
+        mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty,
         stats: ONTGenotypeRunStats = ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60),
         referenceMetadata: ONTGenotypeReferenceMetadata? = nil,
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil
@@ -8324,6 +8364,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: nil,
             mhcUnnameableClusters: nil,
+            mhcCandidateSequencesByStableClusterID: [:],
+            mhcCandidateGenBankArtifactURLs: mhcCandidateGenBankArtifactURLs,
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: [],
             referenceMetadata: referenceMetadata

@@ -257,6 +257,37 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertTrue(rows.contains {
             $0.label == "Deduplicated Unmatched FASTA" && $0.fileURL == unmatchedFASTAURL.standardizedFileURL
         })
+        XCTAssertFalse(rows.contains { $0.label == "Candidate Alleles GenBank" })
+        XCTAssertFalse(rows.contains { $0.label == "Un-nameable Clusters GenBank" })
+    }
+
+    func testInspectorDocumentListsValidatedCandidateGenBankArtifactsWhenDeclared() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeCandidateGenBankArtifactRows-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
+        let candidateURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.gb")
+        let unnameableURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.gb")
+        let candidateGenBankArtifactURLs = ONTMHCCandidateGenBankArtifactURLs(
+            candidateAlleles: candidateURL,
+            unnameableClusters: unnameableURL
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+
+        inspector.updateGenotypeResultDocument(makeResult(
+            bundleURL: bundleURL,
+            calls: [],
+            mhcCandidateGenBankArtifactURLs: candidateGenBankArtifactURLs
+        ))
+
+        let rows = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument?.artifactRows)
+        XCTAssertTrue(rows.contains {
+            $0.label == "Candidate Alleles GenBank" && $0.fileURL == candidateURL.standardizedFileURL
+        })
+        XCTAssertTrue(rows.contains {
+            $0.label == "Un-nameable Clusters GenBank" && $0.fileURL == unnameableURL.standardizedFileURL
+        })
     }
 
     func testInspectorDocumentExposesCurrentWorkbookUpdateWhenManualHaplotypesChanged() throws {
@@ -390,7 +421,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
 
     private func makeResult(
         bundleURL: URL,
-        calls: [ONTGenotypeCall]
+        calls: [ONTGenotypeCall],
+        mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
@@ -421,7 +453,14 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
                     sampleUniqueRetainedPercent: nil,
                     calls: calls
                 )
-            ]
+            ],
+            haplotypeAnalysis: nil,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            mhcCandidateSequencesByStableClusterID: [:],
+            mhcCandidateGenBankArtifactURLs: mhcCandidateGenBankArtifactURLs,
+            integrityWarnings: [],
+            referenceMetadata: nil
         )
     }
 }

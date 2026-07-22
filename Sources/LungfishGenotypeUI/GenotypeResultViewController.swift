@@ -3107,6 +3107,13 @@ public final class GenotypeResultViewController: NSViewController {
         if let fastaURL = result.artifacts.deduplicatedUnmatchedClustersFASTAURL {
             artifactRows.append(artifactRow(label: "Deduplicated Unmatched FASTA", url: fastaURL))
         }
+        let candidateGenBankURLs = result.mhcCandidateGenBankArtifactURLs
+        if let candidateURL = candidateGenBankURLs.candidateAlleles {
+            artifactRows.append(artifactRow(label: "Candidate Alleles GenBank", url: candidateURL))
+        }
+        if let unnameableURL = candidateGenBankURLs.unnameableClusters {
+            artifactRows.append(artifactRow(label: "Un-nameable Clusters GenBank", url: unnameableURL))
+        }
         if let haplotypeAnalysisURL = result.artifacts.haplotypeAnalysisURL {
             artifactRows.append(artifactRow(label: "Haplotype Analysis", url: haplotypeAnalysisURL))
         }

@@ -332,7 +332,10 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testCompatibilityInitializerDefaultsCandidateSequenceIndexToEmpty() {
-        XCTAssertEqual(makeResult(calls: []).mhcCandidateSequencesByStableClusterID, [:])
+        let result = makeResult(calls: [])
+
+        XCTAssertEqual(result.mhcCandidateSequencesByStableClusterID, [:])
+        XCTAssertEqual(result.mhcCandidateGenBankArtifactURLs, .empty)
     }
 
     func testStableLoaderRetriesWhenWriterPublishesANewManifestGeneration() throws {
@@ -547,6 +550,115 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertTrue(result.integrityWarnings.isEmpty)
         XCTAssertNotNil(artifacts.candidateGenBank)
         XCTAssertNotNil(artifacts.unnameableGenBank)
+    }
+
+    func testValidatedCandidateGenBankArtifactURLsResolveDeclaredRegularBundleMembers() throws {
+        let fixture = try CandidateBundleFixture(includeGenBankArtifacts: true)
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        let urls = result.mhcCandidateGenBankArtifactURLs
+
+        XCTAssertEqual(
+            urls.candidateAlleles,
+            fixture.bundleURL.appendingPathComponent("candidate_alleles.gb").standardizedFileURL
+        )
+        XCTAssertEqual(
+            urls.unnameableClusters,
+            fixture.bundleURL.appendingPathComponent("unnameable_unmatched_clusters.gb").standardizedFileURL
+        )
+        let decoded = try JSONDecoder().decode(
+            ONTGenotypeResultBundleData.self,
+            from: JSONEncoder().encode(result)
+        )
+        XCTAssertEqual(decoded.mhcCandidateGenBankArtifactURLs, urls)
+    }
+
+    func testValidatedCandidateGenBankArtifactURLsRejectTraversalAndChecksumMismatchWithoutFallback() throws {
+        let traversalFixture = try CandidateBundleFixture(includeGenBankArtifacts: true)
+        defer { traversalFixture.remove() }
+        let traversalManifest = try ONTGenotypeResultBundle.loadManifest(from: traversalFixture.bundleURL)
+        let traversalArtifacts = try XCTUnwrap(traversalManifest.mhcCandidateArtifacts)
+        let candidateReference = try XCTUnwrap(traversalArtifacts.candidateGenBank)
+        try Data("LOCUS       \(traversalFixture.candidateID)\n//\n".utf8).write(
+            to: traversalFixture.rootURL.appendingPathComponent("candidate_alleles.gb")
+        )
+        try traversalFixture.rewriteManifest { artifacts in
+            ONTMHCCandidateArtifactManifest(
+                schemaVersion: artifacts.schemaVersion,
+                genotypingEvidence: artifacts.genotypingEvidence,
+                reciprocalEvidence: artifacts.reciprocalEvidence,
+                candidateJSON: artifacts.candidateJSON,
+                candidateFASTA: artifacts.candidateFASTA,
+                candidateGenBank: ONTMHCArtifactReference(
+                    path: "../candidate_alleles.gb",
+                    sha256: candidateReference.sha256,
+                    sizeBytes: candidateReference.sizeBytes
+                ),
+                unnameableJSON: artifacts.unnameableJSON,
+                unnameableFASTA: artifacts.unnameableFASTA,
+                unnameableGenBank: artifacts.unnameableGenBank
+            )
+        }
+        let traversalResult = try ONTGenotypeResultBundle.loadResult(from: traversalFixture.bundleURL)
+
+        XCTAssertEqual(traversalResult.mhcCandidateGenBankArtifactURLs, .empty)
+        XCTAssertEqual(traversalResult.integrityWarnings.first?.code, .candidateArtifactPathInvalid)
+
+        let checksumFixture = try CandidateBundleFixture(includeGenBankArtifacts: true)
+        defer { checksumFixture.remove() }
+        try checksumFixture.rewriteManifest { artifacts in
+            let unnameableReference = artifacts.unnameableGenBank!
+            return ONTMHCCandidateArtifactManifest(
+                schemaVersion: artifacts.schemaVersion,
+                genotypingEvidence: artifacts.genotypingEvidence,
+                reciprocalEvidence: artifacts.reciprocalEvidence,
+                candidateJSON: artifacts.candidateJSON,
+                candidateFASTA: artifacts.candidateFASTA,
+                candidateGenBank: artifacts.candidateGenBank,
+                unnameableJSON: artifacts.unnameableJSON,
+                unnameableFASTA: artifacts.unnameableFASTA,
+                unnameableGenBank: ONTMHCArtifactReference(
+                    path: unnameableReference.path,
+                    sha256: String(repeating: "0", count: 64),
+                    sizeBytes: unnameableReference.sizeBytes
+                )
+            )
+        }
+        let checksumResult = try ONTGenotypeResultBundle.loadResult(from: checksumFixture.bundleURL)
+
+        XCTAssertEqual(checksumResult.mhcCandidateGenBankArtifactURLs, .empty)
+        XCTAssertEqual(checksumResult.integrityWarnings.first?.code, .candidateArtifactChecksumMismatch)
+    }
+
+    func testValidatedCandidateGenBankArtifactURLsReturnTheExactMemberThatWasValidated() throws {
+        let fixture = try CandidateBundleFixture(includeGenBankArtifacts: true)
+        defer { fixture.remove() }
+        try fixture.rewriteManifest { artifacts in
+            ONTMHCCandidateArtifactManifest(
+                schemaVersion: artifacts.schemaVersion,
+                genotypingEvidence: artifacts.genotypingEvidence,
+                reciprocalEvidence: artifacts.reciprocalEvidence,
+                candidateJSON: artifacts.candidateJSON,
+                candidateFASTA: artifacts.candidateFASTA,
+                candidateGenBank: artifacts.candidateGenBank.map {
+                    ONTMHCArtifactReference(
+                        path: "  \($0.path)  ",
+                        sha256: $0.sha256,
+                        sizeBytes: $0.sizeBytes
+                    )
+                },
+                unnameableJSON: artifacts.unnameableJSON,
+                unnameableFASTA: artifacts.unnameableFASTA,
+                unnameableGenBank: artifacts.unnameableGenBank
+            )
+        }
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(
+            result.mhcCandidateGenBankArtifactURLs.candidateAlleles,
+            fixture.bundleURL.appendingPathComponent("candidate_alleles.gb").standardizedFileURL
+        )
     }
 
     func testRoleAwareEvidenceAcceptsTypedBAMPathsWithoutBAMExtensions() throws {

@@ -354,6 +354,7 @@ extension InspectorViewController {
             }
             return rows
         }()
+        let candidateGenBankURLs = result.mhcCandidateGenBankArtifactURLs
         var state = GenotypeResultDocumentState(
             title: result.manifest.analysisName,
             subtitle: "\(result.manifest.kind) • \(result.manifest.outputName)",
@@ -369,6 +370,12 @@ extension InspectorViewController {
                 GenotypeResultArtifactRow(label: "Run Stats JSON", fileURL: result.artifacts.statsJSONURL),
                 result.artifacts.deduplicatedUnmatchedClustersFASTAURL.map {
                     GenotypeResultArtifactRow(label: "Deduplicated Unmatched FASTA", fileURL: $0)
+                },
+                candidateGenBankURLs.candidateAlleles.map {
+                    GenotypeResultArtifactRow(label: "Candidate Alleles GenBank", fileURL: $0)
+                },
+                candidateGenBankURLs.unnameableClusters.map {
+                    GenotypeResultArtifactRow(label: "Un-nameable Clusters GenBank", fileURL: $0)
                 },
                 GenotypeResultArtifactRow(label: "Provenance", fileURL: result.artifacts.provenanceURL),
                 GenotypeResultArtifactRow(
