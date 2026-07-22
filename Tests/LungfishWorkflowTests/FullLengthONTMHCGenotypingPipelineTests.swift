@@ -64,6 +64,18 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                             )
                         ]
                     ),
+                    SequenceAnnotation(
+                        type: .cds,
+                        name: record.allele,
+                        start: 0,
+                        end: record.sequence.count,
+                        strand: .forward,
+                        qualifiers: [
+                            "gene": AnnotationQualifier(String(record.allele.split(separator: "*")[0])),
+                            "codon_start": AnnotationQualifier("1"),
+                            "transl_table": AnnotationQualifier("1"),
+                        ]
+                    ),
                 ],
                 locus: LocusInfo(
                     name: record.rawID,
@@ -76,8 +88,11 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let databaseURL = metadataDirectory.appendingPathComponent("genbank_records.sqlite")
         let store = try GenBankRecordDatabase.create(records: genBankRecords, at: databaseURL)
         let annotationBEDURL = annotationDirectory.appendingPathComponent("features.bed")
-        try records.map { record in
-            "\(record.rawID)\t0\t\(record.sequence.count)\t\(record.allele)\t0\t+\t0\t\(record.sequence.count)\t0,0,0\t1\t\(record.sequence.count),\t0,\tgene\tallele=\(record.allele)"
+        try records.flatMap { record in
+            [
+                "\(record.rawID)\t0\t\(record.sequence.count)\t\(record.allele)\t0\t+\t0\t\(record.sequence.count)\t0,0,0\t1\t\(record.sequence.count),\t0,\tgene\tallele=\(record.allele)",
+                "\(record.rawID)\t0\t\(record.sequence.count)\t\(record.allele)\t0\t+\t0\t\(record.sequence.count)\t0,0,0\t1\t\(record.sequence.count),\t0,\tCDS\tgene=\(record.allele.split(separator: "*")[0]);codon_start=1;transl_table=1",
+            ]
         }.joined(separator: "\n").appending("\n").write(
             to: annotationBEDURL,
             atomically: true,
@@ -269,6 +284,18 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             $0.toolName.contains("render-mhc-candidate-genbank")
         })
         XCTAssertTrue(candidateGenBankStep.inputs.contains { $0.path == annotationDatabaseURL.path })
+        let candidateGenBankText = try String(
+            contentsOf: ONTGenotypeResultBundle.resolvedURL(
+                for: try XCTUnwrap(manifest.mhcCandidateArtifacts?.candidateGenBank?.path),
+                in: request.outputDirectory
+            ),
+            encoding: .utf8
+        )
+        for prefix in FullLengthONTMHCCandidateConsequenceAnnotator.summaryPrefixes {
+            XCTAssertTrue(candidateGenBankText.contains(prefix), "Missing \(prefix)")
+        }
+        XCTAssertTrue(candidateGenBankText.contains("CDS-SYN-1:"), candidateGenBankText)
+        XCTAssertTrue(candidateGenBankText.contains("INTRON-FILL-1:"), candidateGenBankText)
     }
 
     func testAnnotatedReferenceMetadataIsEmbeddedInPublishedGenotypeBundle() async throws {

@@ -39,6 +39,9 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertTrue(candidateGenBank.contains("Lungfish project: Fixture Project.lungfish"))
         XCTAssertTrue(candidateGenBank.contains("sample-a, sample-b"))
         XCTAssertTrue(candidateGenBank.contains("Lungfish selected reference raw ID:"))
+        for prefix in FullLengthONTMHCCandidateConsequenceAnnotator.summaryPrefixes {
+            XCTAssertTrue(candidateGenBank.contains(prefix), "Missing \(prefix)")
+        }
         XCTAssertFalse(candidateGenBank.contains("annotation unavailable: no selected reciprocal alignment"))
         XCTAssertTrue(unnameableGenBank.contains(fixture.unnameableID))
         XCTAssertTrue(unnameableGenBank.contains("annotation unavailable: no selected reciprocal alignment"))
@@ -150,6 +153,35 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             candidateGenBankRender.resolvedOptions["translationRule"],
             "recomputed-from-lifted-candidate-CDS;terminal-stop-removed;internal-stops-retained-and-counted"
         )
+        XCTAssertEqual(
+            candidateGenBankRender.resolvedOptions["consequenceChangeSource"],
+            "selected-closest-reference-sequence+one-based-reference-start+reciprocal-CIGAR+candidate-sequence;no-BAM-reread"
+        )
+        XCTAssertEqual(
+            candidateGenBankRender.resolvedOptions["consequenceCoordinateConvention"],
+            "one-based-reference+stored-candidate-ORIGIN+CDS+codon+exon+intron+amino-acid"
+        )
+        XCTAssertEqual(
+            candidateGenBankRender.resolvedOptions["codingConsequenceRule"],
+            "transcript-strand+codon-start+translation-table;group-same-codon-substitutions;ordinary-indels-frame-delta"
+        )
+        XCTAssertEqual(
+            candidateGenBankRender.resolvedOptions["cDNAIntronFillRule"],
+            "internal-query-insertion-at-least-minimum-intron-gap;excluded-from-CDS-indels"
+        )
+        XCTAssertEqual(
+            candidateGenBankRender.resolvedOptions["consequenceAmbiguityRule"],
+            "partial+unsupported+ambiguous=unresolved-never-coerced"
+        )
+        let unnameableGenBankRender = try XCTUnwrap(
+            transformations["lungfish-in-process:render-mhc-unnameable-genbank"]
+        )
+        for key in [
+            "consequenceChangeSource", "consequenceCoordinateConvention", "codingConsequenceRule",
+            "cDNAIntronFillRule", "consequenceAmbiguityRule",
+        ] {
+            XCTAssertEqual(unnameableGenBankRender.resolvedOptions[key], candidateGenBankRender.resolvedOptions[key])
+        }
         let construction = try XCTUnwrap(
             transformations["lungfish-in-process:construct-stable-unmatched-cluster-fasta"]
         )

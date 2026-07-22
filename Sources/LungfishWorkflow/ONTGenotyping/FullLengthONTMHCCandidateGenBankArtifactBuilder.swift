@@ -84,6 +84,11 @@ struct FullLengthONTMHCCandidateGenBankArtifactBuilder {
             return value.closestReferenceClass == .cDNA
         }
 
+        var isCandidate: Bool {
+            guard case .candidate = self else { return false }
+            return true
+        }
+
         var subjectQualifiers: [String: AnnotationQualifier] {
             var values: [String: AnnotationQualifier] = [
                 "stable_cluster_id": .init(stableClusterID),
@@ -147,6 +152,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
     struct Projection {
         let referenceToOrientedQuery: [Int: Int]
         let insertions: [Insertion]
+        let changes: FullLengthONTMHCCandidateChangeProjection
         let queryLength: Int
         let isReverse: Bool
         let minimumIntronGapBases: Int
@@ -238,8 +244,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 stableID: stableID,
                 cigar: evidence.cigar,
                 referenceStart: evidence.referenceStart,
-                queryLength: sequence.count,
-                referenceLength: reference.sequence.count,
+                candidateSequence: sequence,
+                referenceSequence: reference.sequence,
                 isReverse: isReverse,
                 minimumIntronGapBases: input.minimumIntronGapBases
             )
@@ -315,13 +321,34 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             }
             comments.append("Lungfish selected reference: \(reference.rawReferenceID) (\(reference.alleleName))")
             comments.append("Lungfish reciprocal alignment: start=\(evidence.referenceStart); cigar=\(evidence.cigar); orientation=\(isReverse ? "reverse" : "forward")")
+            if input.subject.isCandidate {
+                comments.append(contentsOf: FullLengthONTMHCCandidateConsequenceAnnotator().comments(for: .init(
+                    reference: reference,
+                    projection: projection.changes,
+                    isCDNAReference: input.subject.isCDNAReference,
+                    minimumIntronGapBases: input.minimumIntronGapBases,
+                    candidateTranslation: annotations.first(where: { $0.type == .cds })?.qualifier("translation"),
+                    referenceTranslation: preferredReferenceTranslation(reference),
+                    translationStatus: translationStatus
+                )))
+            }
         } else if let evidence = input.subject.selectedEvidence,
                   let isReverse = input.selectedAlignmentIsReverse {
             comments.append("Lungfish selected reference raw ID: \(evidence.referenceName)")
             comments.append("Lungfish reciprocal alignment: start=\(evidence.referenceStart); cigar=\(evidence.cigar); orientation=\(isReverse ? "reverse" : "forward")")
             comments.append("Lungfish annotation unavailable: closest-reference annotations are unavailable")
+            if input.subject.isCandidate {
+                comments.append(contentsOf: FullLengthONTMHCCandidateConsequenceAnnotator.summaryPrefixes.map {
+                    "\($0) unavailable: closest-reference annotations are unavailable"
+                })
+            }
         } else {
             comments.append("Lungfish annotation unavailable: no selected reciprocal alignment")
+            if input.subject.isCandidate {
+                comments.append(contentsOf: FullLengthONTMHCCandidateConsequenceAnnotator.summaryPrefixes.map {
+                    "\($0) unavailable: no selected reciprocal alignment"
+                })
+            }
         }
 
         annotations[0].qualifiers["translation_status"] = .init(translationStatus.rawValue)
@@ -372,17 +399,26 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         stableID: String,
         cigar: String,
         referenceStart: Int,
-        queryLength: Int,
-        referenceLength: Int,
+        candidateSequence: String,
+        referenceSequence: String,
         isReverse: Bool,
         minimumIntronGapBases: Int
     ) throws -> Projection {
         guard referenceStart > 0 else { throw Error.alignmentOutOfBounds(stableClusterID: stableID) }
+        let orientedCandidate = isReverse
+            ? TranslationEngine.reverseComplement(candidateSequence.uppercased())
+            : candidateSequence.uppercased()
+        let queryBases = Array(orientedCandidate)
+        let referenceBases = Array(referenceSequence.uppercased())
+        let queryLength = queryBases.count
+        let referenceLength = referenceBases.count
         var referenceCursor = referenceStart - 1
         var queryCursor = 0
         var digits = ""
         var mapping: [Int: Int] = [:]
         var insertions: [Insertion] = []
+        var events: [FullLengthONTMHCCandidateChangeProjection.Event] = []
+        var assessedReferencePositions = Set<Int>()
         for character in cigar {
             if character.isNumber {
                 digits.append(character)
@@ -394,13 +430,54 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             digits = ""
             switch character {
             case "M", "=", "X":
-                for offset in 0..<length { mapping[referenceCursor + offset] = queryCursor + offset }
+                guard queryCursor + length <= queryLength, referenceCursor + length <= referenceLength else {
+                    throw Error.alignmentOutOfBounds(stableClusterID: stableID)
+                }
+                for offset in 0..<length {
+                    let referencePosition = referenceCursor + offset
+                    let queryPosition = queryCursor + offset
+                    mapping[referencePosition] = queryPosition
+                    assessedReferencePositions.insert(referencePosition)
+                    if referenceBases[referencePosition] != queryBases[queryPosition] {
+                        events.append(.substitution(
+                            referencePosition: referencePosition,
+                            orientedQueryPosition: queryPosition,
+                            referenceBase: referenceBases[referencePosition],
+                            alternateBase: queryBases[queryPosition]
+                        ))
+                    }
+                }
                 referenceCursor += length
                 queryCursor += length
             case "I":
-                insertions.append(.init(referenceBoundary: referenceCursor, orientedQueryRange: queryCursor..<(queryCursor + length)))
+                guard queryCursor + length <= queryLength else {
+                    throw Error.alignmentOutOfBounds(stableClusterID: stableID)
+                }
+                let queryRange = queryCursor..<(queryCursor + length)
+                insertions.append(.init(referenceBoundary: referenceCursor, orientedQueryRange: queryRange))
+                events.append(.insertion(
+                    referenceBoundary: referenceCursor,
+                    orientedQueryRange: queryRange,
+                    bases: String(queryBases[queryRange])
+                ))
                 queryCursor += length
-            case "D", "N":
+            case "D":
+                guard referenceCursor + length <= referenceLength else {
+                    throw Error.alignmentOutOfBounds(stableClusterID: stableID)
+                }
+                let range = referenceCursor..<(referenceCursor + length)
+                assessedReferencePositions.formUnion(range)
+                events.append(.deletion(
+                    referenceRange: range,
+                    orientedQueryBoundary: queryCursor,
+                    bases: String(referenceBases[range])
+                ))
+                referenceCursor += length
+            case "N":
+                guard referenceCursor + length <= referenceLength else {
+                    throw Error.alignmentOutOfBounds(stableClusterID: stableID)
+                }
+                events.append(.skipped(referenceRange: referenceCursor..<(referenceCursor + length)))
                 referenceCursor += length
             case "S":
                 queryCursor += length
@@ -421,6 +498,12 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         return Projection(
             referenceToOrientedQuery: mapping,
             insertions: insertions,
+            changes: .init(
+                events: events,
+                assessedReferencePositions: assessedReferencePositions,
+                queryLength: queryLength,
+                isReverse: isReverse
+            ),
             queryLength: queryLength,
             isReverse: isReverse,
             minimumIntronGapBases: minimumIntronGapBases

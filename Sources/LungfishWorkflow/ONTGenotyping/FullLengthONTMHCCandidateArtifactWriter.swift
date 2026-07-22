@@ -706,6 +706,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             "reverseAlignmentRule": "project-oriented-query-then-convert-to-stored-candidate-coordinates",
             "minimumIntronGapBases": String(request.thresholds.minimumIntronGapBases),
             "translationRule": "recomputed-from-lifted-candidate-CDS;terminal-stop-removed;internal-stops-retained-and-counted",
+            "consequenceChangeSource": "selected-closest-reference-sequence+one-based-reference-start+reciprocal-CIGAR+candidate-sequence;no-BAM-reread",
+            "consequenceCoordinateConvention": "one-based-reference+stored-candidate-ORIGIN+CDS+codon+exon+intron+amino-acid",
+            "codingConsequenceRule": "transcript-strand+codon-start+translation-table;group-same-codon-substitutions;ordinary-indels-frame-delta",
+            "cDNAIntronFillRule": "internal-query-insertion-at-least-minimum-intron-gap;excluded-from-CDS-indels",
+            "consequenceAmbiguityRule": "partial+unsupported+ambiguous=unresolved-never-coerced",
             "supportMetadata": "all-supporting-samples-independent-count-occurrence-count-total-cluster-reads",
         ]
         transformations.append(Self.renderTransformation(
