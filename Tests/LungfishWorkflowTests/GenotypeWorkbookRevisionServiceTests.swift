@@ -1,10 +1,94 @@
 import Darwin
+import CryptoKit
 import Foundation
 import XCTest
+import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testExplicitUpdateWritesTwoSheetContractFromEmbeddedUnifiedHeaderAndNormalizedUnmatchedRows() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "two-sheet-update")
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 2)
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+if "Unified Genotype Pivot" in wb.sheetnames:
+    del wb["Unified Genotype Pivot"]
+ws = wb.create_sheet("Unified Genotype Pivot")
+ws.append(["Client ID", "", ""] + [""] * 9 + ["sample-a", "sample-b"])
+ws.append(["Mapped Read Count", "stale-total", "stale-average"] + [""] * 9 + ["1", "2"])
+ws.append(["MHC-A Haplotype 1", "", ""] + [""] * 9 + ["analyst-h1", ""])
+ws.append(["MHC-DQA Haplotype 1", "", ""] + [""] * 9 + ["", "analyst-dqa"])
+ws.append(["MHC-DQB Haplotype 1", "", ""] + [""] * 9 + ["", "analyst-dqb"])
+ws.append(["MHC-DPA Haplotype 1", "", ""] + [""] * 9 + ["", "analyst-dpa"])
+ws.append(["MHC-DPB Haplotype 1", "", ""] + [""] * 9 + ["", "analyst-dpb"])
+ws.append(["Comments", "Subtotal", "# Obs."] + [""] * 9 + ["analyst-comment", ""])
+ws.append([])
+ws.append([
+    "call_type", "call_id", "display_name", "stable_cluster_id", "locus", "classification",
+    "support_class", "closest_reference", "match_class", "occurrence_count", "sample_count",
+    "total_cluster_reads", "sample-a", "sample-b",
+])
+ws.append(["known-allele", "NHP00001", "Mafa-A1*001:01", "", "", "known", "", "Mafa-A1*001:01", "exact", 1, 1, 9, 9, ""])
+wb.create_sheet("Legacy Sheet")
+wb.save(path)
+"""#, currentURL.path])
+
+        let updated = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_100) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([
+            .init(sample: "sample-a", locus: "MHC-DQ", haplotype1: "DQ-H1", haplotype2: "DQ-H2", status: "called", notes: ""),
+            .init(sample: "sample-a", locus: "MHC-DP", haplotype1: "DP-H1", haplotype2: "DP-H2", status: "called", notes: ""),
+        ], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        let inspection = try inspectTwoSheetCandidateWorkbook(currentURL)
+        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles")
+        XCTAssertEqual(inspection["tableHeaderRow"], "22", "computed header and table are rebuilt from durable CSV inputs")
+        XCTAssertEqual(inspection["analystHaplotype"], "analyst-h1")
+        XCTAssertEqual(inspection["analystComment"], "analyst-comment")
+        XCTAssertEqual(inspection["sampleADQAHaplotype1"], "DQ-H1")
+        XCTAssertEqual(inspection["sampleADQBHaplotype1"], "DQ-H1")
+        XCTAssertEqual(inspection["sampleADPAHaplotype1"], "DP-H1")
+        XCTAssertEqual(inspection["sampleADPBHaplotype1"], "DP-H1")
+        XCTAssertEqual(inspection["sampleBDQAHaplotype1"], "analyst-dqa")
+        XCTAssertEqual(inspection["sampleBDPBHaplotype1"], "analyst-dpb")
+        XCTAssertEqual(inspection["mappedTotal"], "303")
+        XCTAssertEqual(inspection["mappedAverage"], "151.5")
+        XCTAssertEqual(inspection["knownDisplayName"], "Mafa-A1*001:01:01:01")
+        XCTAssertEqual(inspection["knownClosestReference"], "Mafa-A1*001:01:01:01")
+        XCTAssertEqual(inspection["knownSampleAReads"], "101")
+        XCTAssertEqual(inspection["knownSampleBReads"], "202")
+        XCTAssertEqual(inspection["knownTotalReads"], "303")
+        XCTAssertEqual(inspection["candidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
+        XCTAssertEqual(inspection["unmatchedIDs"], "cluster-1|cluster-2|cluster-3|cluster-4|cluster-u")
+        XCTAssertEqual(inspection["candidateSequence"], String(repeating: "C", count: 39))
+        XCTAssertEqual(inspection["candidateTranslation"], "AAAAAAAAAAAAA")
+        XCTAssertEqual(inspection["candidateTranslationStatus"], "full-length")
+        XCTAssertEqual(inspection["unnameableSequence"], String(repeating: "N", count: 40))
+        XCTAssertEqual(inspection["unnameableTranslationStatus"], "incomplete/unresolved")
+
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(envelope.steps.first { $0.toolName.contains("python openpyxl") })
+        XCTAssertTrue(pythonStep.inputs.contains { $0.path.hasSuffix("candidate-alleles.gb") })
+        XCTAssertTrue(pythonStep.inputs.contains { $0.path.hasSuffix("unnameable-clusters.gb") })
+    }
+
     func testExplicitUpdateRetainsAllCandidateCategoriesAndUnnameableEvidenceWithNameOnlyTints() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -15,6 +99,8 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
             fixture.manifest.mhcReferenceVisualizations
         )
         try installCandidateArtifacts(in: fixture.bundleURL)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let installedManifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
         let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
         sidecar.settings.mhcCandidateDisplay = ONTMHCCandidateDisplaySettings(
@@ -40,31 +126,15 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         let after = try ProvenanceFileHasher.sha256(of: currentURL)
 
         XCTAssertNotEqual(before, after, "Only the explicit update action may rewrite current.xlsx")
-        let inspection = try inspectCandidateWorkbook(currentURL)
+        let inspection = try inspectTwoSheetCandidateWorkbook(currentURL)
+        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles")
         XCTAssertEqual(inspection["candidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
-        XCTAssertEqual(inspection["candidateNames"], "Mafa-A1*018:01:01:01_5nt_nov|Mafa-A1*018:01:01:01_5nt_nov|Mafa-B*001:01_ext|Mafa-B*002:01_ext")
         XCTAssertEqual(inspection["candidateNameFills"], "FFFF0000|8000FF00|FF0000FF|40FFFF00")
-        XCTAssertEqual(inspection["candidateIDFills"], "00000000|00000000|00000000|00000000")
-        XCTAssertEqual(inspection["editableCandidateCount"], "4")
-        XCTAssertEqual(inspection["editableNameFills"], "FFFF0000|8000FF00|FF0000FF|40FFFF00")
-        XCTAssertEqual(inspection["analystFormula"], "=SUM(D1:D3)")
-        XCTAssertEqual(inspection["analystFill"], "FF123456")
-        XCTAssertEqual(inspection["candidateShapedAnalystFormula"], "=1+1")
-        XCTAssertEqual(inspection["unnameableIDs"], "cluster-u|cluster-u")
-        XCTAssertEqual(inspection["unnameableQueries"], "cluster-u-a|cluster-u-z")
-        XCTAssertEqual(
-            inspection["legacyCandidateRows"],
-            Array(repeating: "reciprocal-minimap2|Mafa-A1*018:01:01:01_5nt_nov|Mafa-A1*018:01:01:01|Mafa-A1*018:01:01:01|novel|5|5|0|1000|1000|100|100||", count: 4).joined(separator: "||")
-        )
-        XCTAssertEqual(
-            inspection["legacyUnnameableRows"],
-            Array(repeating: "reciprocal-unnameable||||un-nameable|||||||||", count: 4).joined(separator: "||")
-        )
-        XCTAssertFalse((inspection["allText"] ?? "").contains("_0nt_nov"))
+        XCTAssertEqual(inspection["unmatchedIDs"], "cluster-1|cluster-2|cluster-3|cluster-4|cluster-u")
         XCTAssertEqual(updated.mhcCandidateArtifacts?.schemaVersion, 1)
         XCTAssertEqual(
             updated.mhcReferenceVisualizations,
-            fixture.manifest.mhcReferenceVisualizations
+            installedManifest.mhcReferenceVisualizations
         )
         let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
             for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
@@ -103,31 +173,58 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertTrue(envelope.outputs.allSatisfy { $0.path.hasPrefix(fixture.bundleURL.path) })
         XCTAssertGreaterThanOrEqual(envelope.wallTimeSeconds ?? -1, pythonStep.wallTimeSeconds ?? 0)
 
-        _ = try GenotypeWorkbookRevisionService(
-            pythonExecutableURL: testPythonExecutableURL
-        ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
-        let secondInspection = try inspectCandidateWorkbook(currentURL)
-        XCTAssertEqual(secondInspection["editableCandidateCount"], "4")
-        XCTAssertEqual(secondInspection["analystFormula"], "=SUM(D1:D3)")
-        XCTAssertEqual(secondInspection["analystFill"], "FF123456")
-        XCTAssertEqual(secondInspection["candidateShapedAnalystFormula"], "=1+1")
-        XCTAssertEqual(secondInspection["managedBeginCount"], "1")
-        XCTAssertEqual(secondInspection["managedEndCount"], "1")
     }
 
-    func testCandidateUpdateUsesUnifiedPivotFallbackWhenFullSequencingSheetIsAbsent() throws {
+    func testCandidateUpdateRejectsMissingUnifiedPivotWithoutBundleMutation() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "candidate-fallback")
         try installCandidateArtifacts(in: fixture.bundleURL)
+        let before = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        )
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+    }
+
+    func testExplicitUpdateNormalizesCandidateOnlyArtifactTriplet() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "candidate-only")
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 2)
+        try retainCandidateArtifactCategory(.candidate, in: fixture.bundleURL)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
 
         _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
             .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
 
-        let inspection = try inspectCandidateWorkbook(try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL))
-        XCTAssertEqual(inspection["unifiedCandidateCount"], "4")
-        XCTAssertEqual(inspection["unifiedCandidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
+        let inspection = try inspectTwoSheetCandidateWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        )
+        XCTAssertEqual(inspection["candidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
+        XCTAssertEqual(inspection["unmatchedIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
+    }
+
+    func testExplicitUpdateNormalizesUnnameableOnlyArtifactTriplet() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "unnameable-only")
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 2)
+        try retainCandidateArtifactCategory(.unnameable, in: fixture.bundleURL)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+
+        _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+            .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        let inspection = try inspectTwoSheetCandidateWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        )
+        XCTAssertEqual(inspection["candidateIDs"], "")
+        XCTAssertEqual(inspection["unmatchedIDs"], "cluster-u")
+        XCTAssertEqual(inspection["unnameableTranslationStatus"], "incomplete/unresolved")
     }
 
     func testSchemaVersionTwoCandidateUpdateUsesCompactRowsAndHeaderNamedPivotColumns() throws {
@@ -144,8 +241,8 @@ path = sys.argv[1]
 wb = load_workbook(path)
 ws = wb.create_sheet("Unified Genotype Pivot")
 ws.append([
-    "display_name", "Sample Reads: sample-b", "classification", "stable_cluster_id", "call_type",
-    "Sample Reads: sample-a", "locus", "support_class", "closest_reference", "match_class",
+    "display_name", "sample-b", "classification", "stable_cluster_id", "call_type",
+    "sample-a", "locus", "support_class", "closest_reference", "match_class",
     "occurrence_count", "sample_count", "total_cluster_reads", "call_id",
 ])
 wb.save(path)
@@ -154,15 +251,10 @@ wb.save(path)
         _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
             .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
 
-        let inspection = try inspectCandidateWorkbook(currentURL)
+        let inspection = try inspectTwoSheetCandidateWorkbook(currentURL)
+        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles")
         XCTAssertEqual(inspection["candidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
-        XCTAssertEqual(inspection["unnameableIDs"], "cluster-u")
-        XCTAssertEqual(inspection["unnameableQueries"], "cluster-u")
-        XCTAssertEqual(inspection["unnameableReciprocalAlignmentCounts"], "3")
-        XCTAssertEqual(inspection["unnameableExactTargets"], "ref-a")
-        XCTAssertEqual(inspection["unifiedCandidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
-        XCTAssertEqual(inspection["unifiedSampleAReads"], "7|4|4|4")
-        XCTAssertEqual(inspection["unifiedSampleBReads"], "3||2|")
+        XCTAssertEqual(inspection["unmatchedIDs"], "cluster-1|cluster-2|cluster-3|cluster-4|cluster-u")
     }
 
     func testBundleCloneAttemptsCopyOnWriteAndFallbackPublishesEquivalentWorkbook() throws {
@@ -870,11 +962,72 @@ wb.save(path)
         ))
     }
 
+    func testCandidateGenBankIdentityMismatchFailsBeforeWorkbookReplacement() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-genbank-identity")
+        try installCandidateArtifacts(in: fixture.bundleURL)
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let artifacts = try XCTUnwrap(manifest.mhcCandidateArtifacts)
+        let candidateGenBankURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(artifacts.candidateGenBank).path,
+            in: fixture.bundleURL
+        )
+        var records = try GenBankReader(url: candidateGenBankURL).readAllSync()
+        let first = try XCTUnwrap(records.first)
+        records[0] = try normalizedCandidateGenBankRecord(
+            stableID: "wrong-cluster-id",
+            sequence: first.sequence.asString(),
+            translation: "AAAAAAAAAAAAA",
+            status: "full-length"
+        )
+        try GenBankWriter(url: candidateGenBankURL).write(records)
+        let revisedArtifacts = ONTMHCCandidateArtifactManifest(
+            schemaVersion: artifacts.schemaVersion,
+            genotypingEvidence: artifacts.genotypingEvidence,
+            reciprocalEvidence: artifacts.reciprocalEvidence,
+            candidateJSON: artifacts.candidateJSON,
+            candidateFASTA: artifacts.candidateFASTA,
+            candidateGenBank: try artifactReference(candidateGenBankURL, relativeTo: fixture.bundleURL),
+            unnameableJSON: artifacts.unnameableJSON,
+            unnameableFASTA: artifacts.unnameableFASTA,
+            unnameableGenBank: artifacts.unnameableGenBank
+        )
+        let revisedManifest = ONTGenotypeResultBundleManifest(
+            schemaVersion: manifest.schemaVersion,
+            kind: manifest.kind,
+            outputName: manifest.outputName,
+            analysisName: manifest.analysisName,
+            primaryWorkbookPath: manifest.primaryWorkbookPath,
+            currentWorkbookPath: manifest.currentWorkbookPath,
+            workbookRevisions: manifest.workbookRevisions,
+            longSummaryCSVPath: manifest.longSummaryCSVPath,
+            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
+            statsJSONPath: manifest.statsJSONPath,
+            provenancePath: manifest.provenancePath,
+            mhcCandidateArtifacts: revisedArtifacts,
+            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
+            referenceRecordStore: manifest.referenceRecordStore
+        )
+        try ONTGenotypeResultBundle.writeManifest(revisedManifest, to: fixture.bundleURL)
+        let before = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try serviceThatFailsIfStagingBegins()
+                .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        ) { error in
+            XCTAssertNotEqual((error as NSError).domain, "UnexpectedWorkbookUpdateStaging")
+            XCTAssertTrue(error.localizedDescription.contains("Invalid unmatched MHC artifact identity"))
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+    }
+
     func testAmbiguousManagedCandidateMarkersFailClosedWithoutBundleMutation() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeMCMWorkbookBundle(in: root, outputName: "ambiguous-candidate-markers")
         try installCandidateArtifacts(in: fixture.bundleURL)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         _ = try runPython(["-c", #"""
 import sys
@@ -884,14 +1037,12 @@ wb = load_workbook(path)
 wb["Full Sequencing Results 1"].append(["LGE MHC Candidate Alleles [BEGIN]"])
 wb.save(path)
 """#, currentURL.path])
-        let before = try bundleSnapshot(fixture.bundleURL)
-
-        XCTAssertThrowsError(
+        XCTAssertNoThrow(
             try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
                 .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
         )
-        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
-        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+        let inspection = try inspectTwoSheetCandidateWorkbook(currentURL)
+        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles")
     }
 
     func testMalformedCandidateDoesNotCreateInitiallyAbsentCurrentWorkbookOrRevisionArtifacts() throws {
@@ -921,6 +1072,7 @@ wb.save(path)
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeMCMWorkbookBundle(in: root, outputName: "candidate-provenance-rollback")
         try installCandidateArtifacts(in: fixture.bundleURL)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
         let before = try bundleSnapshot(fixture.bundleURL)
 
         XCTAssertThrowsError(
@@ -2701,19 +2853,103 @@ print(json.dumps(payload))
         return try XCTUnwrap(object as? [String: String])
     }
 
+    private enum RetainedCandidateArtifactCategory: Equatable {
+        case candidate
+        case unnameable
+    }
+
+    private func retainCandidateArtifactCategory(
+        _ category: RetainedCandidateArtifactCategory,
+        in bundleURL: URL
+    ) throws {
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundleURL)
+        let artifacts = try XCTUnwrap(manifest.mhcCandidateArtifacts)
+        let revisedArtifacts = ONTMHCCandidateArtifactManifest(
+            schemaVersion: artifacts.schemaVersion,
+            genotypingEvidence: artifacts.genotypingEvidence,
+            reciprocalEvidence: artifacts.reciprocalEvidence,
+            candidateJSON: category == .candidate ? artifacts.candidateJSON : nil,
+            candidateFASTA: category == .candidate ? artifacts.candidateFASTA : nil,
+            candidateGenBank: category == .candidate ? artifacts.candidateGenBank : nil,
+            unnameableJSON: category == .unnameable ? artifacts.unnameableJSON : nil,
+            unnameableFASTA: category == .unnameable ? artifacts.unnameableFASTA : nil,
+            unnameableGenBank: category == .unnameable ? artifacts.unnameableGenBank : nil
+        )
+        let revisedManifest = ONTGenotypeResultBundleManifest(
+            schemaVersion: manifest.schemaVersion,
+            kind: manifest.kind,
+            outputName: manifest.outputName,
+            analysisName: manifest.analysisName,
+            primaryWorkbookPath: manifest.primaryWorkbookPath,
+            currentWorkbookPath: manifest.currentWorkbookPath,
+            workbookRevisions: manifest.workbookRevisions,
+            longSummaryCSVPath: manifest.longSummaryCSVPath,
+            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
+            statsJSONPath: manifest.statsJSONPath,
+            provenancePath: manifest.provenancePath,
+            mhcCandidateArtifacts: revisedArtifacts,
+            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
+            referenceRecordStore: manifest.referenceRecordStore
+        )
+        try ONTGenotypeResultBundle.writeManifest(revisedManifest, to: bundleURL)
+    }
+
+    private func installMinimalUnifiedPivot(in bundleURL: URL) throws {
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: bundleURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb.create_sheet("Unified Genotype Pivot")
+ws.append([
+    "call_type", "call_id", "display_name", "stable_cluster_id", "locus", "classification",
+    "support_class", "closest_reference", "match_class", "occurrence_count", "sample_count",
+    "total_cluster_reads", "sample-a", "sample-b",
+])
+wb.save(path)
+"""#, currentURL.path])
+    }
+
     private func installCandidateArtifacts(in bundleURL: URL, schemaVersion: Int = 1) throws {
         let directory = bundleURL.appendingPathComponent("artifacts/mhc-candidates", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let candidateFASTAURL = directory.appendingPathComponent("candidate-alleles.fasta")
         let unnameableFASTAURL = directory.appendingPathComponent("unnameable-clusters.fasta")
         let bases = Array("ACGT")
-        try (1...4).map { ">cluster-\($0)\n" + String(repeating: bases[$0 % 4], count: 40) }
+        let candidateSequences = Dictionary(uniqueKeysWithValues: (1...4).map {
+            ("cluster-\($0)", String(repeating: bases[$0 % 4], count: 39))
+        })
+        let unnameableSequence = String(repeating: "N", count: 40)
+        try candidateSequences.keys.sorted().map { ">\($0)\n" + candidateSequences[$0]! }
             .joined(separator: "\n").appending("\n")
             .write(to: candidateFASTAURL, atomically: true, encoding: .utf8)
-        try ">cluster-u\n".appending(String(repeating: "N", count: 40)).appending("\n")
+        try ">cluster-u\n".appending(unnameableSequence).appending("\n")
             .write(to: unnameableFASTAURL, atomically: true, encoding: .utf8)
         let candidateFASTA = try artifactReference(candidateFASTAURL, relativeTo: bundleURL)
         let unnameableFASTA = try artifactReference(unnameableFASTAURL, relativeTo: bundleURL)
+        let candidateGenBankURL = directory.appendingPathComponent("candidate-alleles.gb")
+        let unnameableGenBankURL = directory.appendingPathComponent("unnameable-clusters.gb")
+        try GenBankWriter(url: candidateGenBankURL).write(
+            try candidateSequences.keys.sorted().map { stableID in
+                try normalizedCandidateGenBankRecord(
+                    stableID: stableID,
+                    sequence: candidateSequences[stableID]!,
+                    translation: String(repeating: "A", count: 13),
+                    status: "full-length"
+                )
+            }
+        )
+        try GenBankWriter(url: unnameableGenBankURL).write([
+            try normalizedCandidateGenBankRecord(
+                stableID: "cluster-u",
+                sequence: unnameableSequence,
+                translation: nil,
+                status: "incomplete/unresolved"
+            ),
+        ])
+        let candidateGenBank = try artifactReference(candidateGenBankURL, relativeTo: bundleURL)
+        let unnameableGenBank = try artifactReference(unnameableGenBankURL, relativeTo: bundleURL)
         let selected = ONTMHCEvidenceLocator(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",
             queryName: "candidate-query",
@@ -2767,7 +3003,7 @@ print(json.dumps(payload))
                 totalClusterReads: id == "cluster-1" ? 10 : (support == .shared ? 6 : 4),
                 supportingSampleIDs: support == .shared ? ["sample-a", "sample-b"] : ["sample-a"],
                 fastaRecordID: id,
-                sequenceSHA256: String(repeating: String(id.last!), count: 64),
+                sequenceSHA256: sha256Hex(candidateSequences[id]!),
                 reciprocalHitSummary: reciprocalSummary,
                 selectedEvidence: selectedEvidence
             )
@@ -2801,7 +3037,7 @@ print(json.dumps(payload))
                 totalClusterReads: 4,
                 supportingSampleIDs: ["sample-a"],
                 fastaRecordID: "cluster-u",
-                sequenceSHA256: String(repeating: "f", count: 64),
+                sequenceSHA256: sha256Hex(unnameableSequence),
                 reciprocalHitSummary: try ONTMHCReciprocalQueryHitSummary(
                     bamPath: "artifacts/alignments/reciprocal.bam",
                     queryName: "cluster-u",
@@ -2830,7 +3066,7 @@ print(json.dumps(payload))
                 totalClusterReads: 4,
                 supportingSampleIDs: ["sample-a"],
                 fastaRecordID: "cluster-u",
-                sequenceSHA256: String(repeating: "f", count: 64),
+                sequenceSHA256: sha256Hex(unnameableSequence),
                 evidence: [
                     .init(bamPath: "artifacts/alignments/z.bam", queryName: "cluster-u-z", referenceName: "ref-z", readGroupID: "sample-z", referenceStart: 90, cigar: "900M"),
                     .init(bamPath: "artifacts/alignments/a.bam", queryName: "cluster-u-a", referenceName: "ref-a", readGroupID: "sample-a", referenceStart: 10, cigar: "800M"),
@@ -2857,10 +3093,62 @@ print(json.dumps(payload))
             reciprocalEvidence: nil,
             candidateJSON: try artifactReference(candidateJSONURL, relativeTo: bundleURL),
             candidateFASTA: candidateFASTA,
+            candidateGenBank: candidateGenBank,
             unnameableJSON: try artifactReference(unnameableJSONURL, relativeTo: bundleURL),
-            unnameableFASTA: unnameableFASTA
+            unnameableFASTA: unnameableFASTA,
+            unnameableGenBank: unnameableGenBank
+        )
+        let referenceDirectory = bundleURL.appendingPathComponent("artifacts/mhc-reference", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceDirectory, withIntermediateDirectories: true)
+        let referenceSequence = "ATGGCTTAA"
+        let referenceRecord = ONTMHCReferenceVisualizationRecord(
+            rawReferenceID: "NHP00001",
+            sourceOrdinal: 0,
+            alleleName: "Mafa-A1*001:01:01:01",
+            locus: "Mafa-A1",
+            sequence: referenceSequence,
+            sequenceSHA256: sha256Hex(referenceSequence),
+            recordFields: ["feature.allele": ["Mafa-A1*001:01:01:01"]],
+            features: [],
+            annotatedTranslation: "MA",
+            genBankText: "LOCUS NHP00001",
+            fastaText: ">NHP00001\n\(referenceSequence)\n",
+            roles: [.init(role: .exactKnownCall, candidateStableClusterIDs: [])]
+        )
+        let referenceJSONURL = referenceDirectory.appendingPathComponent("records.json")
+        try JSONEncoder().encode(
+            ONTMHCReferenceVisualizationArtifact(schemaVersion: 1, records: [referenceRecord])
+        ).write(to: referenceJSONURL, options: .atomic)
+        let referenceGenBankURL = referenceDirectory.appendingPathComponent("records.gb")
+        try Data("LOCUS NHP00001\n//\n".utf8).write(to: referenceGenBankURL)
+        let referenceFASTAURL = referenceDirectory.appendingPathComponent("records.fasta")
+        try Data(referenceRecord.fastaText.utf8).write(to: referenceFASTAURL)
+        let referenceVisualizations = ONTMHCReferenceVisualizationArtifacts(
+            schemaVersion: 1,
+            recordCount: 1,
+            recordsJSON: try artifactReference(referenceJSONURL, relativeTo: bundleURL),
+            genBank: try artifactReference(referenceGenBankURL, relativeTo: bundleURL),
+            fasta: try artifactReference(referenceFASTAURL, relativeTo: bundleURL)
         )
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundleURL)
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent
+        sample-a,NHP00001,101,101,1000,101,10.1,3000,303,10.1
+        sample-b,NHP00001,202,202,2000,202,10.1,3000,303,10.1
+        """.write(
+            to: ONTGenotypeResultBundle.resolvedURL(for: manifest.longSummaryCSVPath, in: bundleURL),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        sample,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent
+        sample-a,101,101,1000,101,10.1
+        sample-b,202,202,2000,202,10.1
+        """.write(
+            to: ONTGenotypeResultBundle.resolvedURL(for: manifest.sampleSummaryCSVPath, in: bundleURL),
+            atomically: true,
+            encoding: .utf8
+        )
         let updated = ONTGenotypeResultBundleManifest(
             schemaVersion: manifest.schemaVersion,
             kind: manifest.kind,
@@ -2874,7 +3162,7 @@ print(json.dumps(payload))
             statsJSONPath: manifest.statsJSONPath,
             provenancePath: manifest.provenancePath,
             mhcCandidateArtifacts: artifacts,
-            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
+            mhcReferenceVisualizations: referenceVisualizations,
             referenceRecordStore: manifest.referenceRecordStore
         )
         try ONTGenotypeResultBundle.writeManifest(updated, to: bundleURL)
@@ -2886,6 +3174,48 @@ print(json.dumps(payload))
             sha256: try ProvenanceFileHasher.sha256(of: url),
             sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: url))
         )
+    }
+
+    private func normalizedCandidateGenBankRecord(
+        stableID: String,
+        sequence: String,
+        translation: String?,
+        status: String
+    ) throws -> GenBankRecord {
+        var annotations = [
+            SequenceAnnotation(
+                type: .source,
+                name: stableID,
+                start: 0,
+                end: sequence.count,
+                strand: .forward,
+                qualifiers: [
+                    "stable_cluster_id": .init(stableID),
+                    "sequence_sha256": .init(sha256Hex(sequence)),
+                    "translation_status": .init(status),
+                ]
+            ),
+        ]
+        if let translation {
+            annotations.append(SequenceAnnotation(
+                type: .cds,
+                name: stableID,
+                start: 0,
+                end: sequence.count,
+                strand: .forward,
+                qualifiers: ["translation": .init(translation)]
+            ))
+        }
+        return GenBankRecord(
+            sequence: try Sequence(name: stableID, alphabet: .dna, bases: sequence),
+            annotations: annotations,
+            locus: .init(name: stableID, length: sequence.count, moleculeType: .dna, topology: .linear),
+            accession: stableID
+        )
+    }
+
+    private func sha256Hex(_ sequence: String) -> String {
+        SHA256.hash(data: Data(sequence.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private func candidateObservation(
@@ -3004,6 +3334,82 @@ for name in ["Unmatched Clusters", "Unmatched Shared Pivot", "MHC-like Unmatched
     unnameable_legacy.append("|".join(text(ws.cell(3, headers.index(field) + 1).value) for field in legacy_fields))
 payload["legacyCandidateRows"] = "||".join(candidate_legacy)
 payload["legacyUnnameableRows"] = "||".join(unnameable_legacy)
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path])
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: String])
+    }
+
+    private func inspectTwoSheetCandidateWorkbook(_ url: URL) throws -> [String: String] {
+        let code = #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+
+def text(value):
+    return "" if value is None else str(value)
+
+unified = wb["Unified Genotype Pivot"]
+def row_for_label(label):
+    return next((row for row in range(1, unified.max_row + 1) if text(unified.cell(row, 1).value) == label), None)
+
+sample_a_col = next((column for column in range(1, unified.max_column + 1) if text(unified.cell(1, column).value) == "sample-a"), None)
+sample_b_col = next((column for column in range(1, unified.max_column + 1) if text(unified.cell(1, column).value) == "sample-b"), None)
+table_header_row = next(
+    row for row in range(1, unified.max_row + 1)
+    if any(text(unified.cell(row, column).value) == "call_type" for column in range(1, unified.max_column + 1))
+)
+headers = {
+    text(unified.cell(table_header_row, column).value): column
+    for column in range(1, unified.max_column + 1)
+    if text(unified.cell(table_header_row, column).value)
+}
+candidate_rows = [
+    row for row in range(table_header_row + 1, unified.max_row + 1)
+    if text(unified.cell(row, headers["call_type"]).value).startswith("candidate-")
+]
+def argb(cell):
+    value = getattr(cell.fill.fgColor, "rgb", None)
+    return text(value) or "00000000"
+unmatched = wb["Unmatched Alleles"]
+unmatched_headers = {
+    text(cell.value): cell.column for cell in unmatched[1] if text(cell.value)
+}
+unmatched_rows = {
+    text(unmatched.cell(row, unmatched_headers["Stable Cluster ID"]).value): row
+    for row in range(2, unmatched.max_row + 1)
+}
+candidate_row = unmatched_rows.get("cluster-1")
+unnameable_row = unmatched_rows.get("cluster-u")
+payload = {
+    "sheetNames": "|".join(wb.sheetnames),
+    "tableHeaderRow": str(table_header_row),
+    "analystHaplotype": text(unified.cell(row_for_label("MHC-A Haplotype 1"), sample_a_col).value) if row_for_label("MHC-A Haplotype 1") and sample_a_col else "",
+    "analystComment": text(unified.cell(row_for_label("Comments"), sample_a_col).value) if row_for_label("Comments") and sample_a_col else "",
+    "mappedTotal": text(unified.cell(row_for_label("Mapped Read Count"), 2).value) if row_for_label("Mapped Read Count") else "",
+    "mappedAverage": text(unified.cell(row_for_label("Mapped Read Count"), 3).value) if row_for_label("Mapped Read Count") else "",
+    "sampleADQAHaplotype1": text(unified.cell(row_for_label("MHC-DQA Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DQA Haplotype 1") and sample_a_col else "",
+    "sampleADQBHaplotype1": text(unified.cell(row_for_label("MHC-DQB Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DQB Haplotype 1") and sample_a_col else "",
+    "sampleADPAHaplotype1": text(unified.cell(row_for_label("MHC-DPA Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DPA Haplotype 1") and sample_a_col else "",
+    "sampleADPBHaplotype1": text(unified.cell(row_for_label("MHC-DPB Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DPB Haplotype 1") and sample_a_col else "",
+    "sampleBDQAHaplotype1": text(unified.cell(row_for_label("MHC-DQA Haplotype 1"), sample_b_col).value) if row_for_label("MHC-DQA Haplotype 1") and sample_b_col else "",
+    "sampleBDPBHaplotype1": text(unified.cell(row_for_label("MHC-DPB Haplotype 1"), sample_b_col).value) if row_for_label("MHC-DPB Haplotype 1") and sample_b_col else "",
+    "knownDisplayName": text(unified.cell(table_header_row + 1, headers["display_name"]).value),
+    "knownClosestReference": text(unified.cell(table_header_row + 1, headers["closest_reference"]).value),
+    "knownSampleAReads": text(unified.cell(table_header_row + 1, headers["sample-a"]).value) if "sample-a" in headers else "",
+    "knownSampleBReads": text(unified.cell(table_header_row + 1, headers["sample-b"]).value) if "sample-b" in headers else "",
+    "knownTotalReads": text(unified.cell(table_header_row + 1, headers["total_cluster_reads"]).value),
+    "candidateIDs": "|".join(text(unified.cell(row, headers["stable_cluster_id"]).value) for row in candidate_rows),
+    "candidateNameFills": "|".join(argb(unified.cell(row, headers["display_name"])) for row in candidate_rows),
+    "unmatchedIDs": "|".join(text(unmatched.cell(row, unmatched_headers["Stable Cluster ID"]).value) for row in range(2, unmatched.max_row + 1)),
+    "candidateSequence": text(unmatched.cell(candidate_row, unmatched_headers["Nucleotide Sequence"]).value) if candidate_row else "",
+    "candidateTranslation": text(unmatched.cell(candidate_row, unmatched_headers["Putative Amino Acid Translation"]).value) if candidate_row else "",
+    "candidateTranslationStatus": text(unmatched.cell(candidate_row, unmatched_headers["Translation Status"]).value) if candidate_row else "",
+    "unnameableSequence": text(unmatched.cell(unnameable_row, unmatched_headers["Nucleotide Sequence"]).value) if unnameable_row else "",
+    "unnameableTranslationStatus": text(unmatched.cell(unnameable_row, unmatched_headers["Translation Status"]).value) if unnameable_row else "",
+}
 print(json.dumps(payload))
 """#
         let output = try runPython(["-c", code, url.path])

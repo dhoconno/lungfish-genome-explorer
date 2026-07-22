@@ -132,18 +132,56 @@ public struct GenotypeWorkbookRevisionService {
             let alpha: Double
         }
 
+        struct Sample: Codable {
+            let sample: String
+            let mappedReadCount: Int?
+            let totalReadCount: Int?
+            let retainedPercent: Double?
+
+            private enum CodingKeys: String, CodingKey {
+                case sample
+                case mappedReadCount = "mapped_read_count"
+                case totalReadCount = "total_read_count"
+                case retainedPercent = "retained_percent"
+            }
+        }
+
+        struct KnownCall: Codable {
+            let callID: String
+            let readsBySample: [String: Int]
+
+            private enum CodingKeys: String, CodingKey {
+                case callID = "call_id"
+                case readsBySample = "reads_by_sample"
+            }
+        }
+
         let candidateJSONPath: String?
         let candidateFASTAPath: String?
+        let candidateGenBankPath: String?
         let unnameableJSONPath: String?
         let unnameableFASTAPath: String?
+        let unnameableGenBankPath: String?
+        let usesTwoSheetMHCContract: Bool
+        let normalizedUnmatchedRows: [FullLengthONTMHCNormalizedUnmatchedRow]
+        let knownAlleleDisplayNames: [String: String]
+        let samples: [Sample]
+        let knownCalls: [KnownCall]
         let tints: [String: Tint]
         let ooxmlAlphaSemantics: String
 
         private enum CodingKeys: String, CodingKey {
             case candidateJSONPath = "candidate_json_path"
             case candidateFASTAPath = "candidate_fasta_path"
+            case candidateGenBankPath = "candidate_genbank_path"
             case unnameableJSONPath = "unnameable_json_path"
             case unnameableFASTAPath = "unnameable_fasta_path"
+            case unnameableGenBankPath = "unnameable_genbank_path"
+            case usesTwoSheetMHCContract = "uses_two_sheet_mhc_contract"
+            case normalizedUnmatchedRows = "normalized_unmatched_rows"
+            case knownAlleleDisplayNames = "known_allele_display_names"
+            case samples
+            case knownCalls = "known_calls"
             case tints
             case ooxmlAlphaSemantics = "ooxml_alpha_semantics"
         }
@@ -901,16 +939,32 @@ public struct GenotypeWorkbookRevisionService {
         sidecar: GenotypeAnnotationSidecar?
     ) throws -> WorkbookCandidateUpdateConfiguration {
         let artifacts = manifest.mhcCandidateArtifacts
+        var normalizedUnmatchedRows: [FullLengthONTMHCNormalizedUnmatchedRow] = []
+        var workbookSamples: [WorkbookCandidateUpdateConfiguration.Sample] = []
+        var workbookKnownCalls: [WorkbookCandidateUpdateConfiguration.KnownCall] = []
+        let knownAlleleDisplayNames = try loadKnownAlleleDisplayNames(
+            from: manifest.mhcReferenceVisualizations,
+            in: bundleURL
+        )
         if let artifacts {
+            let workbookProjection = try loadWorkbookCSVProjection(
+                manifest: manifest,
+                bundleURL: bundleURL
+            )
+            workbookSamples = workbookProjection.samples
+            workbookKnownCalls = workbookProjection.knownCalls
             guard artifacts.schemaVersion == 1 else {
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                     "Unsupported MHC candidate artifact schema \(artifacts.schemaVersion)."
                 )
             }
-            guard (artifacts.candidateJSON == nil) == (artifacts.candidateFASTA == nil),
-                  (artifacts.unnameableJSON == nil) == (artifacts.unnameableFASTA == nil) else {
+            guard Self.allPresentOrAllAbsent([
+                artifacts.candidateJSON, artifacts.candidateFASTA, artifacts.candidateGenBank,
+            ]), Self.allPresentOrAllAbsent([
+                artifacts.unnameableJSON, artifacts.unnameableFASTA, artifacts.unnameableGenBank,
+            ]) else {
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                    "MHC candidate JSON and FASTA artifacts must be declared as pairs."
+                    "MHC candidate JSON, FASTA, and GenBank artifacts must be declared as complete sets."
                 )
             }
             if let candidateJSON = artifacts.candidateJSON {
@@ -932,27 +986,69 @@ public struct GenotypeWorkbookRevisionService {
                 try validateCandidateDocumentSchema(document.schemaVersion, label: "un-nameable")
                 try validateArtifact(document.sequenceFASTA, equals: artifacts.unnameableFASTA, label: "un-nameable FASTA")
             }
-            if let candidatesReference = artifacts.candidateJSON,
-               let unnameableReference = artifacts.unnameableJSON {
-                let candidates = try decodeAndValidate(
+            let candidates = try artifacts.candidateJSON.map {
+                try decodeAndValidate(
                     ONTMHCCandidateAllelesDocument.self,
-                    reference: candidatesReference,
+                    reference: $0,
                     in: bundleURL
                 )
-                let unnameable = try decodeAndValidate(
+            }
+            let unnameable = try artifacts.unnameableJSON.map {
+                try decodeAndValidate(
                     ONTMHCUnnameableClustersDocument.self,
-                    reference: unnameableReference,
+                    reference: $0,
                     in: bundleURL
                 )
-                guard candidates.schemaVersion == unnameable.schemaVersion else {
+            }
+            if let schemaVersion = candidates?.schemaVersion ?? unnameable?.schemaVersion {
+                if let candidates, let unnameable,
+                   candidates.schemaVersion != unnameable.schemaVersion {
                     throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                         "Candidate and un-nameable workbook documents must use the same schema version."
                     )
                 }
-                _ = try FullLengthONTMHCWorkbookProjection(
-                    candidateDocument: candidates,
-                    unnameableDocument: unnameable,
-                    sampleOrder: Array(Set((candidates.observations + unnameable.observations).map(\.sampleID))).sorted()
+                let placeholderFASTA = candidates?.sequenceFASTA ?? unnameable!.sequenceFASTA
+                let candidateDocument = candidates ?? ONTMHCCandidateAllelesDocument(
+                    schemaVersion: schemaVersion,
+                    createdAt: unnameable?.createdAt ?? "",
+                    thresholds: unnameable?.thresholds ?? .defaults,
+                    inputs: [],
+                    evidence: [],
+                    sequenceFASTA: placeholderFASTA,
+                    candidates: [],
+                    observations: []
+                )
+                let unnameableDocument = unnameable ?? ONTMHCUnnameableClustersDocument(
+                    schemaVersion: schemaVersion,
+                    createdAt: candidates?.createdAt ?? "",
+                    thresholds: candidates?.thresholds ?? .defaults,
+                    sequenceFASTA: placeholderFASTA,
+                    clusters: [],
+                    observations: []
+                )
+                let projection = try FullLengthONTMHCWorkbookProjection(
+                    candidateDocument: candidateDocument,
+                    unnameableDocument: unnameableDocument,
+                    sampleOrder: Array(Set((candidateDocument.observations + unnameableDocument.observations).map(\.sampleID))).sorted()
+                )
+                normalizedUnmatchedRows = try projection.normalizedUnmatchedRows(
+                    candidateFASTARecords: try artifacts.candidateFASTA.map {
+                        try FullLengthONTMHCClusterGenotyper.readFASTARecords(
+                            from: try validatedArtifactURL($0, in: bundleURL)
+                        )
+                    } ?? [],
+                    unnameableFASTARecords: try artifacts.unnameableFASTA.map {
+                        try FullLengthONTMHCClusterGenotyper.readFASTARecords(
+                            from: try validatedArtifactURL($0, in: bundleURL)
+                        )
+                    } ?? [],
+                    candidateGenBankRecords: try artifacts.candidateGenBank.map {
+                        try GenBankReader(url: try validatedArtifactURL($0, in: bundleURL)).readAllSync()
+                    } ?? [],
+                    unnameableGenBankRecords: try artifacts.unnameableGenBank.map {
+                        try GenBankReader(url: try validatedArtifactURL($0, in: bundleURL)).readAllSync()
+                    } ?? [],
+                    knownAlleleDisplayNames: knownAlleleDisplayNames
                 )
             }
         }
@@ -974,11 +1070,225 @@ public struct GenotypeWorkbookRevisionService {
         return WorkbookCandidateUpdateConfiguration(
             candidateJSONPath: artifacts?.candidateJSON.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
             candidateFASTAPath: artifacts?.candidateFASTA.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
+            candidateGenBankPath: artifacts?.candidateGenBank.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
             unnameableJSONPath: artifacts?.unnameableJSON.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
             unnameableFASTAPath: artifacts?.unnameableFASTA.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
+            unnameableGenBankPath: artifacts?.unnameableGenBank.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
+            usesTwoSheetMHCContract: artifacts != nil,
+            normalizedUnmatchedRows: normalizedUnmatchedRows,
+            knownAlleleDisplayNames: knownAlleleDisplayNames,
+            samples: workbookSamples,
+            knownCalls: workbookKnownCalls,
             tints: tints,
             ooxmlAlphaSemantics: "The leading OOXML ARGB byte is alpha: 00 is transparent and FF is opaque; RGB and alpha are rounded from the exact bundle RGBA values."
         )
+    }
+
+    private static func allPresentOrAllAbsent<T>(_ values: [T?]) -> Bool {
+        values.allSatisfy { $0 == nil } || values.allSatisfy { $0 != nil }
+    }
+
+    private func loadWorkbookCSVProjection(
+        manifest: ONTGenotypeResultBundleManifest,
+        bundleURL: URL
+    ) throws -> (
+        samples: [WorkbookCandidateUpdateConfiguration.Sample],
+        knownCalls: [WorkbookCandidateUpdateConfiguration.KnownCall]
+    ) {
+        let longURL = try validatedWorkbookCSVURL(
+            manifest.longSummaryCSVPath,
+            field: "long_summary_csv_path",
+            in: bundleURL
+        )
+        let sampleURL = try validatedWorkbookCSVURL(
+            manifest.sampleSummaryCSVPath,
+            field: "sample_summary_csv_path",
+            in: bundleURL
+        )
+        let longRows = try workbookCSVRows(
+            at: longURL,
+            requiredHeaders: ["sample", "genotype", "passed_unique_reads"]
+        )
+        let sampleRows = try workbookCSVRows(
+            at: sampleURL,
+            requiredHeaders: ["sample"]
+        )
+
+        var knownReads: [String: [String: Int]] = [:]
+        var reportSamples: [String: (mapped: Int, total: Int?, retainedPercent: Double?)] = [:]
+        for row in longRows {
+            let sample = row["sample", default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+            let callID = row["genotype", default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sample.isEmpty, !callID.isEmpty else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Full-length MHC long-summary CSV contains an empty sample or genotype."
+                )
+            }
+            let reads = try requiredWorkbookCSVInt(row["passed_unique_reads"], field: "passed_unique_reads")
+            knownReads[callID, default: [:]][sample, default: 0] += reads
+            let total = try optionalWorkbookCSVInt(row["sample_total_reads"], field: "sample_total_reads")
+            let retained = try optionalWorkbookCSVDouble(
+                row["sample_unique_retained_percent"],
+                field: "sample_unique_retained_percent"
+            )
+            let current = reportSamples[sample]
+            reportSamples[sample] = (
+                mapped: (current?.mapped ?? 0) + reads,
+                total: current?.total ?? total,
+                retainedPercent: current?.retainedPercent ?? retained
+            )
+        }
+
+        var samples: [WorkbookCandidateUpdateConfiguration.Sample] = []
+        var seenSamples = Set<String>()
+        for row in sampleRows {
+            let sample = row["sample", default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sample.isEmpty, seenSamples.insert(sample).inserted else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Full-length MHC sample-summary CSV contains an empty or duplicate sample."
+                )
+            }
+            let mapped = try optionalWorkbookCSVInt(
+                row["passed_unique_reads"] ?? row["passed_alignments"],
+                field: "passed_unique_reads"
+            ) ?? reportSamples[sample]?.mapped
+            let total = try optionalWorkbookCSVInt(row["sample_total_reads"], field: "sample_total_reads")
+                ?? reportSamples[sample]?.total
+            let retained = try optionalWorkbookCSVDouble(
+                row["sample_unique_retained_percent"],
+                field: "sample_unique_retained_percent"
+            ) ?? reportSamples[sample]?.retainedPercent
+            samples.append(.init(
+                sample: sample,
+                mappedReadCount: mapped,
+                totalReadCount: total,
+                retainedPercent: retained
+            ))
+        }
+        for sample in reportSamples.keys.sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending })
+        where seenSamples.insert(sample).inserted {
+            let summary = reportSamples[sample]!
+            samples.append(.init(
+                sample: sample,
+                mappedReadCount: summary.mapped,
+                totalReadCount: summary.total,
+                retainedPercent: summary.retainedPercent
+            ))
+        }
+        let knownCalls = knownReads.keys.sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending }).map {
+            WorkbookCandidateUpdateConfiguration.KnownCall(
+                callID: $0,
+                readsBySample: knownReads[$0] ?? [:]
+            )
+        }
+        return (samples, knownCalls)
+    }
+
+    private func validatedWorkbookCSVURL(
+        _ path: String,
+        field: String,
+        in bundleURL: URL
+    ) throws -> URL {
+        let url: URL
+        do {
+            url = try BundleManifest.validatedBundleMemberURL(for: path, in: bundleURL, field: field)
+            try validateRegularBundleFile(url, in: bundleURL, role: "workbook \(field)")
+        } catch {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(error.localizedDescription)
+        }
+        return url
+    }
+
+    private func workbookCSVRows(
+        at url: URL,
+        requiredHeaders: Set<String>
+    ) throws -> [[String: String]] {
+        let content: String
+        do {
+            content = try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not read workbook CSV input \(url.path): \(error.localizedDescription)"
+            )
+        }
+        let lines = content.split(whereSeparator: { $0.isNewline }).map(String.init)
+        guard let headerLine = lines.first else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed("Workbook CSV input is empty: \(url.path)")
+        }
+        let headers = DelimitedLineParser.fields(in: headerLine, delimiter: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard Set(headers).count == headers.count,
+              requiredHeaders.isSubset(of: Set(headers)) else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Workbook CSV input has missing or duplicate headers: \(url.path)"
+            )
+        }
+        return try lines.dropFirst().filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map { line in
+            let fields = DelimitedLineParser.fields(in: line, delimiter: ",")
+            guard fields.count == headers.count else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Workbook CSV row has \(fields.count) fields; expected \(headers.count): \(url.path)"
+                )
+            }
+            return Dictionary(uniqueKeysWithValues: zip(headers, fields))
+        }
+    }
+
+    private func requiredWorkbookCSVInt(_ value: String?, field: String) throws -> Int {
+        guard let parsed = try optionalWorkbookCSVInt(value, field: field) else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed("Workbook CSV field \(field) is required.")
+        }
+        return parsed
+    }
+
+    private func optionalWorkbookCSVInt(_ value: String?, field: String) throws -> Int? {
+        guard let text = value?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        guard let parsed = Int(text), parsed >= 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed("Workbook CSV field \(field) is not a nonnegative integer.")
+        }
+        return parsed
+    }
+
+    private func optionalWorkbookCSVDouble(_ value: String?, field: String) throws -> Double? {
+        guard let text = value?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        guard let parsed = Double(text), parsed.isFinite else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed("Workbook CSV field \(field) is not finite numeric data.")
+        }
+        return parsed
+    }
+
+    private func loadKnownAlleleDisplayNames(
+        from artifacts: ONTMHCReferenceVisualizationArtifacts?,
+        in bundleURL: URL
+    ) throws -> [String: String] {
+        guard let artifacts else { return [:] }
+        guard artifacts.schemaVersion == 1 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Unsupported MHC reference visualization schema \(artifacts.schemaVersion)."
+            )
+        }
+        let reference = artifacts.recordsJSON
+        let url = try validatedArtifactURL(reference, in: bundleURL)
+        let document: ONTMHCReferenceVisualizationArtifact
+        do {
+            document = try JSONDecoder().decode(
+                ONTMHCReferenceVisualizationArtifact.self,
+                from: Data(contentsOf: url)
+            ).validated()
+        } catch {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Malformed MHC reference visualization artifact \(reference.path): \(error.localizedDescription)"
+            )
+        }
+        guard document.records.count == artifacts.recordCount else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "MHC reference visualization record count does not match the manifest."
+            )
+        }
+        return Dictionary(uniqueKeysWithValues: document.records.map { record in
+            let trimmed = record.alleleName.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (record.rawReferenceID, trimmed.isEmpty ? record.rawReferenceID : trimmed)
+        })
     }
 
     private func validateCandidateDocumentSchema(_ schemaVersion: Int, label: String) throws {
@@ -997,13 +1307,23 @@ public struct GenotypeWorkbookRevisionService {
         let references = [
             artifacts.candidateJSON,
             artifacts.candidateFASTA,
+            artifacts.candidateGenBank,
             artifacts.unnameableJSON,
             artifacts.unnameableFASTA,
+            artifacts.unnameableGenBank,
+            manifest.mhcReferenceVisualizations?.recordsJSON,
         ].compactMap { $0 }
         for reference in references {
             _ = try validatedArtifactURL(reference, in: bundleURL)
         }
+        let csvURLs = try [
+            (manifest.longSummaryCSVPath, "long_summary_csv_path"),
+            (manifest.sampleSummaryCSVPath, "sample_summary_csv_path"),
+        ].map { path, field in
+            try validatedWorkbookCSVURL(path, field: field, in: bundleURL)
+        }
         return references.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL) }
+            + csvURLs
     }
 
     private func decodeAndValidate<T: Decodable>(
@@ -1244,6 +1564,11 @@ public struct GenotypeWorkbookRevisionService {
         return [
             "mhcCandidateTints": .dictionary(tintValues),
             "mhcCandidateVisibilityFiltersApplied": .boolean(false),
+            "mhcTwoSheetWorkbookContract": .boolean(configuration.usesTwoSheetMHCContract),
+            "mhcNormalizedUnmatchedRowCount": .integer(configuration.normalizedUnmatchedRows.count),
+            "mhcKnownAlleleDisplayNameCount": .integer(configuration.knownAlleleDisplayNames.count),
+            "mhcWorkbookSampleCount": .integer(configuration.samples.count),
+            "mhcWorkbookKnownCallCount": .integer(configuration.knownCalls.count),
             "ooxmlAlphaSemantics": .string(configuration.ooxmlAlphaSemantics),
         ]
     }
