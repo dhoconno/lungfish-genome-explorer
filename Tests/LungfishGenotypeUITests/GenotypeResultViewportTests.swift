@@ -2115,6 +2115,47 @@ final class GenotypeResultViewportTests: XCTestCase {
         let lensText = visibleText(in: controller.view)
         XCTAssertFalse(lensText.contains("Candidate Alleles GenBank"))
         XCTAssertFalse(lensText.contains("Un-nameable Clusters GenBank"))
+        XCTAssertFalse(lensText.contains("Genotyping Evidence BAM"))
+        XCTAssertFalse(lensText.contains("Genotyping Evidence BAI"))
+        XCTAssertFalse(lensText.contains("Reciprocal Evidence BAM"))
+        XCTAssertFalse(lensText.contains("Reciprocal Evidence BAI"))
+    }
+
+    func testArtifactsLensListsValidatedMHCAlignmentArtifactsWhenDeclared() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMHCAlignmentArtifactLens-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        let genotypingBAMURL = bundleURL.appendingPathComponent("artifacts/alignments/genotyping.bam")
+        let genotypingBAIURL = bundleURL.appendingPathComponent("artifacts/alignments/genotyping.bam.bai")
+        let reciprocalBAMURL = bundleURL.appendingPathComponent("artifacts/alignments/reciprocal.bam")
+        let reciprocalBAIURL = bundleURL.appendingPathComponent("artifacts/alignments/reciprocal.bam.bai")
+        let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
+            genotypingBAM: genotypingBAMURL,
+            genotypingBAI: genotypingBAIURL,
+            reciprocalBAM: reciprocalBAMURL,
+            reciprocalBAI: reciprocalBAIURL
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            mhcAlignmentArtifactURLs: alignmentArtifactURLs
+        ))
+
+        controller.testingSelectLens(.audit)
+
+        let lensText = visibleText(in: controller.view)
+        XCTAssertTrue(lensText.contains("Genotyping Evidence BAM"))
+        XCTAssertTrue(lensText.contains(genotypingBAMURL.standardizedFileURL.path))
+        XCTAssertTrue(lensText.contains("Genotyping Evidence BAI"))
+        XCTAssertTrue(lensText.contains(genotypingBAIURL.standardizedFileURL.path))
+        XCTAssertTrue(lensText.contains("Reciprocal Evidence BAM"))
+        XCTAssertTrue(lensText.contains(reciprocalBAMURL.standardizedFileURL.path))
+        XCTAssertTrue(lensText.contains("Reciprocal Evidence BAI"))
+        XCTAssertTrue(lensText.contains(reciprocalBAIURL.standardizedFileURL.path))
     }
 
     func testResultViewportOmitsSummaryStatisticsStripForEveryLens() {
@@ -8532,6 +8573,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         haplotypeDefinitionSetID: String? = nil,
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
         mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty,
+        mhcAlignmentArtifactURLs: ONTMHCAlignmentArtifactURLs = .empty,
         stats: ONTGenotypeRunStats = ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60),
         referenceMetadata: ONTGenotypeReferenceMetadata? = nil,
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil
@@ -8565,6 +8607,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             mhcUnnameableClusters: nil,
             mhcCandidateSequencesByStableClusterID: [:],
             mhcCandidateGenBankArtifactURLs: mhcCandidateGenBankArtifactURLs,
+            mhcAlignmentArtifactURLs: mhcAlignmentArtifactURLs,
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: [],
             referenceMetadata: referenceMetadata

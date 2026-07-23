@@ -3114,6 +3114,19 @@ public final class GenotypeResultViewController: NSViewController {
         if let unnameableURL = candidateGenBankURLs.unnameableClusters {
             artifactRows.append(artifactRow(label: "Un-nameable Clusters GenBank", url: unnameableURL))
         }
+        let alignmentArtifactURLs = result.mhcAlignmentArtifactURLs
+        if let genotypingBAMURL = alignmentArtifactURLs.genotypingBAM {
+            artifactRows.append(artifactRow(label: "Genotyping Evidence BAM", url: genotypingBAMURL))
+        }
+        if let genotypingBAIURL = alignmentArtifactURLs.genotypingBAI {
+            artifactRows.append(artifactRow(label: "Genotyping Evidence BAI", url: genotypingBAIURL))
+        }
+        if let reciprocalBAMURL = alignmentArtifactURLs.reciprocalBAM {
+            artifactRows.append(artifactRow(label: "Reciprocal Evidence BAM", url: reciprocalBAMURL))
+        }
+        if let reciprocalBAIURL = alignmentArtifactURLs.reciprocalBAI {
+            artifactRows.append(artifactRow(label: "Reciprocal Evidence BAI", url: reciprocalBAIURL))
+        }
         if let haplotypeAnalysisURL = result.artifacts.haplotypeAnalysisURL {
             artifactRows.append(artifactRow(label: "Haplotype Analysis", url: haplotypeAnalysisURL))
         }

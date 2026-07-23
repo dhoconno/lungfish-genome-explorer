@@ -355,6 +355,7 @@ extension InspectorViewController {
             return rows
         }()
         let candidateGenBankURLs = result.mhcCandidateGenBankArtifactURLs
+        let alignmentArtifactURLs = result.mhcAlignmentArtifactURLs
         var state = GenotypeResultDocumentState(
             title: result.manifest.analysisName,
             subtitle: "\(result.manifest.kind) • \(result.manifest.outputName)",
@@ -376,6 +377,18 @@ extension InspectorViewController {
                 },
                 candidateGenBankURLs.unnameableClusters.map {
                     GenotypeResultArtifactRow(label: "Un-nameable Clusters GenBank", fileURL: $0)
+                },
+                alignmentArtifactURLs.genotypingBAM.map {
+                    GenotypeResultArtifactRow(label: "Genotyping Evidence BAM", fileURL: $0)
+                },
+                alignmentArtifactURLs.genotypingBAI.map {
+                    GenotypeResultArtifactRow(label: "Genotyping Evidence BAI", fileURL: $0)
+                },
+                alignmentArtifactURLs.reciprocalBAM.map {
+                    GenotypeResultArtifactRow(label: "Reciprocal Evidence BAM", fileURL: $0)
+                },
+                alignmentArtifactURLs.reciprocalBAI.map {
+                    GenotypeResultArtifactRow(label: "Reciprocal Evidence BAI", fileURL: $0)
                 },
                 GenotypeResultArtifactRow(label: "Provenance", fileURL: result.artifacts.provenanceURL),
                 GenotypeResultArtifactRow(

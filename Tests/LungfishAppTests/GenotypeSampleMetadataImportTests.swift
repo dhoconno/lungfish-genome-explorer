@@ -259,6 +259,10 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         })
         XCTAssertFalse(rows.contains { $0.label == "Candidate Alleles GenBank" })
         XCTAssertFalse(rows.contains { $0.label == "Un-nameable Clusters GenBank" })
+        XCTAssertFalse(rows.contains { $0.label == "Genotyping Evidence BAM" })
+        XCTAssertFalse(rows.contains { $0.label == "Genotyping Evidence BAI" })
+        XCTAssertFalse(rows.contains { $0.label == "Reciprocal Evidence BAM" })
+        XCTAssertFalse(rows.contains { $0.label == "Reciprocal Evidence BAI" })
     }
 
     func testInspectorDocumentListsValidatedCandidateGenBankArtifactsWhenDeclared() throws {
@@ -288,6 +292,60 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertTrue(rows.contains {
             $0.label == "Un-nameable Clusters GenBank" && $0.fileURL == unnameableURL.standardizedFileURL
         })
+    }
+
+    func testInspectorDocumentListsValidatedMHCAlignmentArtifactsWhenDeclared() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMHCAlignmentArtifactRows-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
+        let genotypingBAMURL = bundleURL.appendingPathComponent("artifacts/alignments/genotyping.bam")
+        let genotypingBAIURL = bundleURL.appendingPathComponent("artifacts/alignments/genotyping.bam.bai")
+        let reciprocalBAMURL = bundleURL.appendingPathComponent("artifacts/alignments/reciprocal.bam")
+        let reciprocalBAIURL = bundleURL.appendingPathComponent("artifacts/alignments/reciprocal.bam.bai")
+        let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
+            genotypingBAM: genotypingBAMURL,
+            genotypingBAI: genotypingBAIURL,
+            reciprocalBAM: reciprocalBAMURL,
+            reciprocalBAI: reciprocalBAIURL
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+
+        inspector.updateGenotypeResultDocument(makeResult(
+            bundleURL: bundleURL,
+            calls: [],
+            mhcAlignmentArtifactURLs: alignmentArtifactURLs
+        ))
+
+        let rows = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument?.artifactRows)
+        let alignmentLabels = Set([
+            "Genotyping Evidence BAM",
+            "Genotyping Evidence BAI",
+            "Reciprocal Evidence BAM",
+            "Reciprocal Evidence BAI",
+        ])
+        XCTAssertEqual(
+            rows.filter { alignmentLabels.contains($0.label) },
+            [
+                GenotypeResultArtifactRow(
+                    label: "Genotyping Evidence BAM",
+                    fileURL: genotypingBAMURL.standardizedFileURL
+                ),
+                GenotypeResultArtifactRow(
+                    label: "Genotyping Evidence BAI",
+                    fileURL: genotypingBAIURL.standardizedFileURL
+                ),
+                GenotypeResultArtifactRow(
+                    label: "Reciprocal Evidence BAM",
+                    fileURL: reciprocalBAMURL.standardizedFileURL
+                ),
+                GenotypeResultArtifactRow(
+                    label: "Reciprocal Evidence BAI",
+                    fileURL: reciprocalBAIURL.standardizedFileURL
+                ),
+            ]
+        )
     }
 
     func testInspectorDocumentExposesCurrentWorkbookUpdateWhenManualHaplotypesChanged() throws {
@@ -422,7 +480,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     private func makeResult(
         bundleURL: URL,
         calls: [ONTGenotypeCall],
-        mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty
+        mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty,
+        mhcAlignmentArtifactURLs: ONTMHCAlignmentArtifactURLs = .empty
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
@@ -459,6 +518,7 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
             mhcUnnameableClusters: nil,
             mhcCandidateSequencesByStableClusterID: [:],
             mhcCandidateGenBankArtifactURLs: mhcCandidateGenBankArtifactURLs,
+            mhcAlignmentArtifactURLs: mhcAlignmentArtifactURLs,
             integrityWarnings: [],
             referenceMetadata: nil
         )
