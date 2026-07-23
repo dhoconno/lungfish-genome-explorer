@@ -182,10 +182,10 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             (feature.start..<feature.end).allSatisfy { referenceToOrientedQuery[$0] != nil }
         }
 
-        func coversBoundaries(of feature: ONTMHCReferenceVisualizationFeature) -> Bool {
-            feature.start < feature.end
-                && maps(referencePosition: feature.start)
-                && maps(referencePosition: feature.end - 1)
+        func assessesEveryReferenceBase(of feature: ONTMHCReferenceVisualizationFeature) -> Bool {
+            (feature.start..<feature.end).allSatisfy {
+                changes.assessedReferencePositions.contains($0)
+            }
         }
 
         func longInsertionCount(inside feature: ONTMHCReferenceVisualizationFeature) -> Int {
@@ -255,7 +255,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 reference.features,
                 projection: projection,
                 candidateSequence: sequence,
-                defaultName: input.subject.displayName
+                defaultName: input.subject.displayName,
+                retainReferenceIntrons: input.subject.isCandidate
             )
             translationStatus = lifted.translationStatus
             annotations.append(contentsOf: lifted.annotations)
@@ -607,13 +608,15 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         _ features: [ONTMHCReferenceVisualizationFeature],
         projection: Projection,
         candidateSequence: String,
-        defaultName: String
+        defaultName: String,
+        retainReferenceIntrons: Bool
     ) -> (
         annotations: [SequenceAnnotation],
         hadSourceExons: Bool,
         translationStatus: FullLengthONTMHCTranslationStatus
     ) {
-        let supported: Set<AnnotationType> = [.gene, .mRNA, .transcript, .exon, .intron, .cds, .utr5, .utr3]
+        var supported: Set<AnnotationType> = [.gene, .mRNA, .transcript, .exon, .cds, .utr5, .utr3]
+        if retainReferenceIntrons { supported.insert(.intron) }
         var annotations: [SequenceAnnotation] = []
         var hadSourceExons = false
         var cdsStatuses: [FullLengthONTMHCTranslationStatus] = []
@@ -650,8 +653,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 let fivePrimeReferencePosition = sourceStrand == .reverse
                     ? sourceEnd - 1
                     : sourceStart
-                let hasBoundaryCoverage = group.allSatisfy {
-                    projection.coversBoundaries(of: $0)
+                let hasCompleteAssessment = group.allSatisfy {
+                    projection.assessesEveryReferenceBase(of: $0)
                 }
                 let hasTrustworthyAnnotation = sourceStrand != .unknown
                     && !group.contains(where: {
@@ -666,7 +669,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                         translationStatus(
                             annotation: annotation,
                             translation: translation,
-                            hasBoundaryCoverage: hasBoundaryCoverage,
+                            hasCompleteAssessment: hasCompleteAssessment,
                             hasTrustworthyAnnotation: hasTrustworthyAnnotation
                         )
                     )
@@ -690,10 +693,10 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
     func translationStatus(
         annotation: SequenceAnnotation,
         translation: String,
-        hasBoundaryCoverage: Bool,
+        hasCompleteAssessment: Bool,
         hasTrustworthyAnnotation: Bool
     ) -> FullLengthONTMHCTranslationStatus {
-        guard hasBoundaryCoverage,
+        guard hasCompleteAssessment,
               hasTrustworthyAnnotation,
               !translation.uppercased().contains("X") else {
             return .incompleteUnresolved

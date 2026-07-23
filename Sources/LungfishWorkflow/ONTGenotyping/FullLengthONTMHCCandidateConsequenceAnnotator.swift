@@ -120,10 +120,19 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
             feature.interval.filter { cdsMap.indexByReferencePosition[$0] == nil }
         })
         let annotationIsPartial = cds.isPartial
-        let cdsComplete = !annotationIsPartial && Set(cdsMap.referencePositions).isSubset(of: input.projection.assessedReferencePositions)
+        let ambiguousReferencePositions = zip(cdsMap.referencePositions, cdsMap.transcriptBases)
+            .compactMap { position, base in isCanonicalDNA(base) ? nil : position }
+            .sorted()
+        let translationIsResolved = input.translationStatus != .incompleteUnresolved
+        let cdsComplete = !annotationIsPartial
+            && translationIsResolved
+            && ambiguousReferencePositions.isEmpty
+            && Set(cdsMap.referencePositions).isSubset(of: input.projection.assessedReferencePositions)
         let exon23Positions = Set(exonRegions.filter { $0.number == 2 || $0.number == 3 }.flatMap { $0.range })
         let exon23Complete = !exon23Positions.isEmpty
             && !annotationIsPartial
+            && translationIsResolved
+            && ambiguousReferencePositions.isEmpty
             && exon23Positions.isSubset(of: input.projection.assessedReferencePositions)
         let intronPositions = Set(intronRegions.flatMap { $0.range })
         let intronsComplete = !intronPositions.isEmpty
@@ -135,6 +144,18 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
         var intronicDetails: [RawDetail] = []
         var intronFills: [RawDetail] = []
         var unclassifiedDetails: [RawDetail] = []
+
+        if !ambiguousReferencePositions.isEmpty {
+            unresolvedCoding.append(
+                "ambiguous reference/candidate CDS bases at ref "
+                    + ambiguousReferencePositions.map { String($0 + 1) }.joined(separator: ",")
+                    + "; "
+                    + (input.candidateTranslation?.uppercased().contains("X") == true
+                        ? "candidate translation contains X"
+                        : "candidate translation status is \(input.translationStatus.rawValue)")
+                    + "; protein effect unresolved"
+            )
+        }
 
         for event in input.projection.events {
             switch event {
@@ -188,6 +209,7 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                     } else {
                         codingIndels.append(.init(
                             sortPosition: boundary,
+                            referenceBounds: boundary...boundary,
                             exonNumber: regionNumber(atBoundary: boundary, in: exonRegions),
                             lengthDelta: bases.count,
                             text: "\(bases.count) bp insertion at ref boundary \(boundary)/\(boundary + 1); candidate \(stored.lowerBound + 1)-\(stored.upperBound); inserted \(bases)"
@@ -218,6 +240,7 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                     } else {
                         codingIndels.append(.init(
                             sortPosition: range.lowerBound,
+                            referenceBounds: range.lowerBound...range.upperBound,
                             exonNumber: regionNumber(at: codingPositions[0], in: exonRegions),
                             lengthDelta: -codingPositions.count,
                             text: "\(codingPositions.count) bp deletion at ref \(range.lowerBound + 1)-\(range.upperBound) (\(bases)); candidate boundary \(boundary)/\(boundary + 1)"
@@ -272,6 +295,16 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                     : change.alternateBase
             }
             let alternateCodon = String(alternate)
+            guard referenceCodon.allSatisfy(isCanonicalDNA),
+                  alternateCodon.allSatisfy(isCanonicalDNA) else {
+                if referenceCodon.allSatisfy(isCanonicalDNA) {
+                    unresolvedCoding.append(
+                        changes.map(changeDescription).joined(separator: ", ")
+                            + "; ref codon \(referenceCodon)>\(alternateCodon); ambiguous candidate codon; protein effect unresolved"
+                    )
+                }
+                continue
+            }
             let referenceAA = TranslationEngine.translate(referenceCodon)
             let alternateAA = TranslationEngine.translate(alternateCodon)
             guard referenceAA.count == 1, alternateAA.count == 1,
@@ -311,6 +344,11 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                     + (exonNumbers.isEmpty ? "" : "; exon \(exonNumbers.map(String.init).joined(separator: ","))")
                     + "; net \(netDelta) bp; \(frameEffect); predicted product \(product)"
             ))
+        }
+        if input.translationStatus == .incompleteUnresolved && unresolvedCoding.isEmpty {
+            unresolvedCoding.append(
+                "candidate translation status is incomplete/unresolved; definitive coding consequence classification unavailable"
+            )
         }
         nonsynonymous.sort { $0.sortPosition < $1.sortPosition }
         synonymous.sort { $0.sortPosition < $1.sortPosition }
@@ -377,7 +415,13 @@ private extension FullLengthONTMHCCandidateConsequenceAnnotator {
     }
     struct Detail { let sortPosition: Int; let exonNumbers: [Int]; let text: String }
     struct RawDetail { let sortPosition: Int; let text: String }
-    struct CodingIndel { let sortPosition: Int; let exonNumber: Int?; let lengthDelta: Int; let text: String }
+    struct CodingIndel {
+        let sortPosition: Int
+        let referenceBounds: ClosedRange<Int>
+        let exonNumber: Int?
+        let lengthDelta: Int
+        let text: String
+    }
 
     func unavailable(reason: String) -> [String] {
         Self.summaryPrefixes.map { "\($0) unavailable: \(reason)" }
@@ -482,6 +526,10 @@ private extension FullLengthONTMHCCandidateConsequenceAnnotator {
         Character(TranslationEngine.reverseComplement(String(base)).uppercased())
     }
 
+    func isCanonicalDNA(_ base: Character) -> Bool {
+        base == "A" || base == "C" || base == "G" || base == "T"
+    }
+
     func changeDescription(_ change: Substitution) -> String {
         "ref \(change.referencePosition + 1) \(change.referenceBase)>\(change.alternateBase); candidate \(change.storedCandidatePosition + 1)"
     }
@@ -495,9 +543,15 @@ private extension FullLengthONTMHCCandidateConsequenceAnnotator {
 
     func adjacentIndelGroups(_ indels: [CodingIndel]) -> [[CodingIndel]] {
         var groups: [[CodingIndel]] = []
-        for indel in indels.sorted(by: { $0.sortPosition < $1.sortPosition }) {
-            if let lastPosition = groups.last?.last?.sortPosition,
-               indel.sortPosition <= lastPosition + 1 {
+        let sorted = indels.sorted {
+            $0.referenceBounds.lowerBound == $1.referenceBounds.lowerBound
+                ? $0.referenceBounds.upperBound < $1.referenceBounds.upperBound
+                : $0.referenceBounds.lowerBound < $1.referenceBounds.lowerBound
+        }
+        for indel in sorted {
+            let groupUpperBound = groups.last?.map(\.referenceBounds.upperBound).max()
+            if let groupUpperBound,
+               indel.referenceBounds.lowerBound <= groupUpperBound {
                 groups[groups.count - 1].append(indel)
             } else {
                 groups.append([indel])

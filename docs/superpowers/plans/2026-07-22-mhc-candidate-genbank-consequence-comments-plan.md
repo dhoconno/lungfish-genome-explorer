@@ -93,11 +93,12 @@ Steps:
 
 ## Task 6: Review and integrated verification
 
-1. Run specification review, then code-quality review; fix and rereview any findings.
-2. Run the combined focused MHC classifier, GenBank builder/writer, pipeline, workbook projection/revision, viewport, and debug-launch tests.
-3. Build a fresh signed `Lungfish Debug` app.
-4. Run the established four-sample CLI analysis with the newly bundled CLI.
-5. Verify sorted/indexed BAMs, candidate/un-nameable FASTA/JSON/GenBank artifacts, manifest entries, and complete provenance.
-6. Inspect representative GenBank comments for genomic novel alleles and cDNA extensions; verify terminal UTR removal, feature rebasing, intron retention, and both sequence checksums.
-7. Verify the two-sheet workbook cell types and render both sheets.
-8. Quit other Lungfish processes and launch only the exact fresh debug bundle for testing.
+1. Add RED regressions for complete CDS assessment/readiness, unchanged ambiguous codons, candidate-only lifted introns, and touching versus non-touching replacement indels; apply minimal fixes and update exact provenance rules.
+2. Run specification review, then code-quality review; fix and rereview any findings.
+3. Run the combined focused MHC classifier, GenBank builder/writer, pipeline, workbook projection/revision, viewport, and debug-launch tests.
+4. Build a fresh signed `Lungfish Debug` app.
+5. Run the established four-sample CLI analysis with the newly bundled CLI.
+6. Verify sorted/indexed BAMs, candidate/un-nameable FASTA/JSON/GenBank artifacts, manifest entries, and complete provenance.
+7. Inspect representative GenBank comments for genomic novel alleles and cDNA extensions; verify terminal UTR removal, feature rebasing, intron retention, and both sequence checksums.
+8. Verify the two-sheet workbook cell types and render both sheets.
+9. Quit other Lungfish processes and launch only the exact fresh debug bundle for testing.
