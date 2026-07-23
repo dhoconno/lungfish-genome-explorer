@@ -330,6 +330,33 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(record.failedMetrics["ambiguous_best_genomic_locus"], 1)
     }
 
+    func testEquallyCompatibleCrossLocusCDNAsWithoutGenomicResolverAreUnnameable() throws {
+        let cdnaB = MHCReferenceRecord(
+            sequenceID: "ref-cdna-b",
+            alleleName: "Mafa-B*001:01:01:01",
+            locus: "Mafa-B",
+            moleculeClass: .cDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_000
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [
+                alignment(reference: cdnaReference, cigar: "500=50I500="),
+                alignment(reference: cdnaB, cigar: "500=50I500="),
+            ]
+        )
+
+        guard case .unnameable(let record) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected cross-locus cDNA ambiguity without genomic evidence to be un-nameable")
+        }
+        XCTAssertEqual(record.reason, .unresolvedLocus)
+        XCTAssertEqual(record.failedMetrics["ambiguous_compatible_cdna_locus"], 1)
+        XCTAssertEqual(record.reciprocalHitSummary.closestMatchTargetNames, [
+            "ref-cdna", "ref-cdna-b",
+        ])
+    }
+
     func testBiologicallyTiedNovelGenomicLociWithoutCDNAEvidenceAreUnnameable() throws {
         let genomicB = MHCReferenceRecord(
             sequenceID: "ref-genomic-b",

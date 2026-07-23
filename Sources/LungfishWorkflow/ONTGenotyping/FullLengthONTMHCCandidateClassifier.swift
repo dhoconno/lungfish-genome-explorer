@@ -309,6 +309,16 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             let bestGenomicTies = bestTies(eligibleGenomic)
             let genomicLoci = Set(bestGenomicTies.compactMap { $0.resolvedReference?.locus })
             let cDNALoci = Set(allExtensionInterpretations.map(\.locus))
+            if genomicLoci.isEmpty, cDNALoci.count > 1 {
+                return .unnameable(try unnameableRecord(
+                    cluster: cluster,
+                    support: support,
+                    reason: .unresolvedLocus,
+                    failedMetrics: ["ambiguous_compatible_cdna_locus": 1],
+                    analyzed: analyzed,
+                    selectedHit: best(extensionHits) ?? best(eligible)
+                ))
+            }
             let resolvedGenomicLocus: String?
             if genomicLoci.count == 1 {
                 resolvedGenomicLocus = genomicLoci.first
