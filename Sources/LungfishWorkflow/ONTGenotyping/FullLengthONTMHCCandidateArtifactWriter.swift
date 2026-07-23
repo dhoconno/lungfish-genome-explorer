@@ -697,7 +697,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let annotationInputDescriptors = try request.referenceAnnotationInputURLs.map {
             try FullLengthONTMHCArtifactDescriptor(url: $0, role: .commandInput, phase: .input)
         }
-        let genBankResolvedOptions: [String: String] = [
+        let commonGenBankResolvedOptions: [String: String] = [
             "analysisName": request.analysisName,
             "projectBundleName": request.projectBundleName ?? "unavailable",
             "recordIdentity": "stable-cluster-id",
@@ -705,6 +705,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             "reciprocalCIGARCoordinateSource": "one-based-reference-start-plus-SAM-CIGAR",
             "reverseAlignmentRule": "project-oriented-query-then-convert-to-stored-candidate-coordinates",
             "minimumIntronGapBases": String(request.thresholds.minimumIntronGapBases),
+            "supportMetadata": "all-supporting-samples-independent-count-occurrence-count-total-cluster-reads",
+        ]
+        let candidateGenBankResolvedOptions = commonGenBankResolvedOptions.merging([
             "translationRule": "recomputed-from-lifted-candidate-CDS;translation-table-1-only;unsupported-omitted+unresolved;terminal-stop-removed;internal-stops-retained-and-counted",
             "consequenceChangeSource": "selected-closest-reference-sequence+one-based-reference-start+reciprocal-CIGAR+candidate-sequence;no-BAM-reread",
             "consequenceCoordinateConvention": "one-based-reference+stored-candidate-ORIGIN+CDS+codon+exon+intron+amino-acid;outside-crop-reference-only",
@@ -712,14 +715,19 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             "cDNAIntronFillRule": "internal-query-insertion-at-least-minimum-intron-gap;excluded-from-cDNA-lifted-CDS+CDS-indels;genomic-long-insertions-retained;source-CDS-complete-assessment-includes-deletions",
             "consequenceAmbiguityRule": "partial+unsupported+ambiguous+unassessed-CDS=unresolved-never-coerced",
             "candidateUTRTrimRule": "candidate-only:outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations-and-consequence-candidate-coordinates;preserve-full-FASTA-identity+record-cropped-GenBank-identity;partial-crop-remains-non-reference-ready;no-CDS-untrimmed",
-            "supportMetadata": "all-supporting-samples-independent-count-occurrence-count-total-cluster-reads",
-        ]
+        ]) { _, candidate in candidate }
+        let unnameableGenBankResolvedOptions = commonGenBankResolvedOptions.merging([
+            "translationRule": "unnameable-only:recomputed-from-lifted-CDS-when-five-prime-boundary-is-aligned;source-translation-table-not-gated;terminal-stop-removed;internal-stops-retained-and-counted;status-uses-boundary-coverage",
+            "unnameableSequenceRule": "retain-full-input-sequence;no-trimming-or-coordinate-rebasing",
+            "unnameableFeatureLiftoverRule": "project-gene+mRNA+transcript+exon+CDS+UTR;omit-reference-introns;exclude-query-insertions-at-least-minimum-intron-gap-from-lifted-features",
+            "unnameableConsequenceRule": "do-not-render-candidate-nucleotide-or-protein-consequence-COMMENT-summaries",
+        ]) { _, unnameable in unnameable }
         transformations.append(Self.renderTransformation(
             name: "render-mhc-candidate-genbank",
             inputs: [candidateJSONDescriptor, candidateFASTADescriptor] + annotationInputDescriptors,
             output: candidateGenBankDescriptor,
             recordCount: candidateGenBankRecords.count,
-            additionalResolvedOptions: genBankResolvedOptions,
+            additionalResolvedOptions: candidateGenBankResolvedOptions,
             startedAt: candidateGenBankStartedAt,
             completedAt: candidateGenBankCompletedAt
         ))
@@ -728,7 +736,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             inputs: [unnameableJSONDescriptor, unnameableFASTADescriptor] + annotationInputDescriptors,
             output: unnameableGenBankDescriptor,
             recordCount: unnameableGenBankRecords.count,
-            additionalResolvedOptions: genBankResolvedOptions,
+            additionalResolvedOptions: unnameableGenBankResolvedOptions,
             startedAt: unnameableGenBankStartedAt,
             completedAt: unnameableGenBankCompletedAt
         ))

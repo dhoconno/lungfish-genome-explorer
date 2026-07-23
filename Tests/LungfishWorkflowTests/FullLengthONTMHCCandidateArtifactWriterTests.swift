@@ -185,11 +185,43 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let unnameableGenBankRender = try XCTUnwrap(
             transformations["lungfish-in-process:render-mhc-unnameable-genbank"]
         )
+        XCTAssertEqual(
+            unnameableGenBankRender.resolvedOptions["translationRule"],
+            "unnameable-only:recomputed-from-lifted-CDS-when-five-prime-boundary-is-aligned;source-translation-table-not-gated;terminal-stop-removed;internal-stops-retained-and-counted;status-uses-boundary-coverage"
+        )
+        XCTAssertEqual(
+            unnameableGenBankRender.resolvedOptions["unnameableSequenceRule"],
+            "retain-full-input-sequence;no-trimming-or-coordinate-rebasing"
+        )
+        XCTAssertEqual(
+            unnameableGenBankRender.resolvedOptions["unnameableFeatureLiftoverRule"],
+            "project-gene+mRNA+transcript+exon+CDS+UTR;omit-reference-introns;exclude-query-insertions-at-least-minimum-intron-gap-from-lifted-features"
+        )
+        XCTAssertEqual(
+            unnameableGenBankRender.resolvedOptions["unnameableConsequenceRule"],
+            "do-not-render-candidate-nucleotide-or-protein-consequence-COMMENT-summaries"
+        )
+        for key in [
+            "unnameableSequenceRule", "unnameableFeatureLiftoverRule", "unnameableConsequenceRule",
+        ] {
+            XCTAssertNil(candidateGenBankRender.resolvedOptions[key], key)
+        }
         for key in [
             "consequenceChangeSource", "consequenceCoordinateConvention", "codingConsequenceRule",
             "cDNAIntronFillRule", "consequenceAmbiguityRule", "candidateUTRTrimRule",
         ] {
-            XCTAssertEqual(unnameableGenBankRender.resolvedOptions[key], candidateGenBankRender.resolvedOptions[key])
+            XCTAssertNil(unnameableGenBankRender.resolvedOptions[key], key)
+        }
+        for key in [
+            "analysisName", "projectBundleName", "recordIdentity", "referenceCoordinateConvention",
+            "reciprocalCIGARCoordinateSource", "reverseAlignmentRule", "minimumIntronGapBases",
+            "supportMetadata",
+        ] {
+            XCTAssertEqual(
+                unnameableGenBankRender.resolvedOptions[key],
+                candidateGenBankRender.resolvedOptions[key],
+                key
+            )
         }
         let construction = try XCTUnwrap(
             transformations["lungfish-in-process:construct-stable-unmatched-cluster-fasta"]
