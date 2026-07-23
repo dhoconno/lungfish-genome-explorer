@@ -48,9 +48,13 @@ struct GenotypeAlleleSequenceRecord: Equatable {
         }
 
         var stableClusterIDs: Set<String> = []
+        var candidateAccessions: Set<String> = []
         for candidate in candidates {
             guard stableClusterIDs.insert(candidate.stableClusterID).inserted else {
                 throw CatalogError.duplicateStableClusterID(candidate.stableClusterID)
+            }
+            guard candidateAccessions.insert(candidate.fastaRecordID).inserted else {
+                throw CatalogError.duplicateCandidateAccession(candidate.fastaRecordID)
             }
         }
 

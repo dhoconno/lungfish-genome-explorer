@@ -120,6 +120,34 @@ final class GenotypeAlleleSequenceRecordTests: XCTestCase {
         }
     }
 
+    func testCandidateCatalogRejectsTwoCandidatesSharingOneAccession() throws {
+        let url = try writeCandidateGenBank([
+            candidateGenBank(accession: "shared-accession", sequence: "AAAA")
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        XCTAssertThrowsError(try GenotypeAlleleSequenceRecord.candidateCatalog(
+            candidates: [
+                makeCandidate(
+                    stableID: "stable-a",
+                    accession: "shared-accession",
+                    displayName: "allele-a"
+                ),
+                makeCandidate(
+                    stableID: "stable-b",
+                    accession: "shared-accession",
+                    displayName: "allele-b"
+                ),
+            ],
+            genBankURL: url
+        )) { error in
+            XCTAssertEqual(
+                error as? GenotypeAlleleSequenceRecord.CatalogError,
+                .duplicateCandidateAccession("shared-accession")
+            )
+        }
+    }
+
     func testCandidateCatalogRejectsDuplicateStableIDs() throws {
         let url = try writeCandidateGenBank([
             candidateGenBank(accession: "accession-a", sequence: "AAAA"),
