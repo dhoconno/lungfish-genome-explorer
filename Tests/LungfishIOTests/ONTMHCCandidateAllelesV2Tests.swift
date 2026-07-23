@@ -152,10 +152,13 @@ final class ONTMHCCandidateAllelesV2Tests: XCTestCase {
             canonicalSequenceSHA256: String(repeating: "c", count: 64),
             trimStart: 100,
             trimEnd: 1_100,
-            referenceReadiness: "reference-ready"
+            referenceReadiness: "reference-ready",
+            classification: "extension",
+            sampleIDs: ["SampleA", "SampleB"],
+            isRepresentative: true
         )
         let document = ONTMHCCandidateSourceIdentityDocument(
-            schemaVersion: 1,
+            schemaVersion: 2,
             createdAt: "2026-07-23T00:00:00Z",
             rawSequenceFASTA: rawFASTA,
             records: [record]
@@ -165,10 +168,13 @@ final class ONTMHCCandidateAllelesV2Tests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let records = try XCTUnwrap(object["records"] as? [[String: Any]])
 
-        XCTAssertEqual(object["schema_version"] as? Int, 1)
+        XCTAssertEqual(object["schema_version"] as? Int, 2)
         XCTAssertNotNil(object["raw_sequence_fasta"])
         XCTAssertEqual(records.first?["raw_stable_cluster_id"] as? String, "raw-a")
         XCTAssertEqual(records.first?["canonical_stable_cluster_id"] as? String, "canonical-a")
+        XCTAssertEqual(records.first?["classification"] as? String, "extension")
+        XCTAssertEqual(records.first?["sample_ids"] as? [String], ["SampleA", "SampleB"])
+        XCTAssertEqual(records.first?["is_representative"] as? Bool, true)
         XCTAssertEqual(
             try JSONDecoder().decode(ONTMHCCandidateSourceIdentityDocument.self, from: data),
             document

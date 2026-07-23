@@ -102,6 +102,9 @@ struct FullLengthONTMHCCandidateCanonicalizer {
             }.sorted(by: observationLessThan)
             let sampleIDs = Set(observations.map(\.sampleID)).sorted()
             let totalReads = observations.reduce(0) { $0 + $1.aggregatedSampleReadCount }
+            let occurrenceCount = observations.reduce(0) {
+                $0 + $1.sourceClusterIDs.count
+            }
             let extensionInterpretations = mergedInterpretations(
                 values.flatMap(\.record.extensionInterpretations),
                 representative: representative.record.extensionInterpretations
@@ -127,7 +130,7 @@ struct FullLengthONTMHCCandidateCanonicalizer {
                 mappingQuality: source.mappingQuality,
                 alignmentScore: source.alignmentScore,
                 independentSampleCount: sampleIDs.count,
-                occurrenceCount: observations.count,
+                occurrenceCount: occurrenceCount,
                 totalClusterReads: totalReads,
                 supportingSampleIDs: sampleIDs,
                 fastaRecordID: canonicalID,

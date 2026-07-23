@@ -707,11 +707,12 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             completedAt: candidateFASTACompletedAt
         ))
         let unnameableFASTAStartedAt = Date()
-        try writeFASTA(unnameable.compactMap { record in
+        let unnameableFASTARecords = unnameable.compactMap { record -> (String, String)? in
             guard let id = record.fastaRecordID,
                   let sequence = unnameableExternalSequences[id] else { return nil }
             return (id, sequence)
-        }, to: unnameableFASTAURL)
+        }
+        try writeFASTA(unnameableFASTARecords, to: unnameableFASTAURL)
         let unnameableFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: unnameableFASTAURL, role: .sourceClusterFASTA, phase: .staging
         )
@@ -720,7 +721,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             name: "render-mhc-unnameable-fasta",
             source: stagedStableDescriptor,
             output: unnameableFASTADescriptor,
-            recordCount: unnameable.count,
+            recordCount: unnameableFASTARecords.count,
             startedAt: unnameableFASTAStartedAt,
             completedAt: unnameableFASTACompletedAt
         ))
@@ -745,6 +746,21 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let canonicalCandidateByRawID = Dictionary(uniqueKeysWithValues: canonicalCandidates.flatMap {
             output in output.rawInputs.map { ($0.record.stableClusterID, output) }
         })
+        let classificationByRawID = Dictionary(uniqueKeysWithValues: zip(
+            clusters,
+            classifications
+        ).map { cluster, result -> (String, String) in
+            let classification: String
+            switch result {
+            case .known:
+                classification = "known"
+            case .candidate(let record):
+                classification = record.classification.rawValue
+            case .unnameable:
+                classification = "unnameable"
+            }
+            return (cluster.stableClusterID, classification)
+        })
         let unnameablePreparedByRawID = Dictionary(uniqueKeysWithValues: zip(
             unnameable,
             preparedUnnameable
@@ -762,7 +778,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                     canonicalSequenceSHA256: candidate.record.sequenceSHA256,
                     trimStart: rawInput.canonicalization.trimRange?.lowerBound,
                     trimEnd: rawInput.canonicalization.trimRange?.upperBound,
-                    referenceReadiness: rawInput.canonicalization.referenceReadiness.rawValue
+                    referenceReadiness: rawInput.canonicalization.referenceReadiness.rawValue,
+                    classification: classificationByRawID[group.id] ?? "unavailable",
+                    sampleIDs: Set(group.observations.map(\.sampleID)).sorted(),
+                    isRepresentative:
+                        candidate.record.representativeSourceSequenceClusterID == group.id
                 )
             }
             let prepared = unnameablePreparedByRawID[group.id]
@@ -775,11 +795,14 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 trimStart: prepared?.1.trimRange?.lowerBound,
                 trimEnd: prepared?.1.trimRange?.upperBound,
                 referenceReadiness: prepared?.1.referenceReadiness.rawValue
-                    ?? FullLengthONTMHCReferenceReadiness.unavailable.rawValue
+                    ?? FullLengthONTMHCReferenceReadiness.unavailable.rawValue,
+                classification: classificationByRawID[group.id] ?? "unavailable",
+                sampleIDs: Set(group.observations.map(\.sampleID)).sorted(),
+                isRepresentative: prepared != nil
             )
         }.sorted { $0.rawStableClusterID < $1.rawStableClusterID }
         let sourceIdentityDocument = ONTMHCCandidateSourceIdentityDocument(
-            schemaVersion: 1,
+            schemaVersion: 2,
             createdAt: rawCreatedAt,
             rawSequenceFASTA: rawInternalFASTAReference,
             records: sourceIdentityRecords
