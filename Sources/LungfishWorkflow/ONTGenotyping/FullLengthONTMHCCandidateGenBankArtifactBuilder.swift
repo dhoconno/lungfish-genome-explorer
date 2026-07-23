@@ -69,7 +69,7 @@ struct FullLengthONTMHCCandidateGenBankArtifactBuilder {
         var sequenceSHA256: String {
             switch self {
             case .candidate(let value): value.sequenceSHA256
-            case .unnameable(let value): value.sequenceSHA256
+            case .unnameable(let value): value.sequenceSHA256 ?? ""
             }
         }
 

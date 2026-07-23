@@ -48,7 +48,7 @@ def load_json_path(key, collection):
         return {"schema_version": 1, collection: [], "observations": []}
     with open(path) as handle:
         document = json.load(handle)
-    if int(document.get("schema_version", 0)) not in (1, 2, 3):
+    if int(document.get("schema_version", 0)) not in (1, 2, 3, 4):
         raise ValueError(f"Unsupported candidate workbook JSON schema in {path}")
     if not isinstance(document.get(collection), list) or not isinstance(document.get("observations"), list):
         raise ValueError(f"Malformed candidate workbook JSON in {path}")

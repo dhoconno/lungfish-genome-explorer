@@ -322,8 +322,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
     }
 
-    func testCandidateArtifactManifestRemainsSchemaOne() throws {
-        let fixture = try CandidateBundleFixture(candidateArtifactManifestSchemaVersion: 2)
+    func testCandidateArtifactManifestRejectsUnsupportedSchema() throws {
+        let fixture = try CandidateBundleFixture(candidateArtifactManifestSchemaVersion: 3)
         defer { fixture.remove() }
 
         let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
@@ -766,7 +766,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertEqual(malformed.calls.count, 1)
         XCTAssertEqual(malformed.integrityWarnings.first?.code, .candidateArtifactMalformedJSON)
 
-        let schemaFixture = try CandidateBundleFixture(candidateSchemaVersion: 4)
+        let schemaFixture = try CandidateBundleFixture(candidateSchemaVersion: 5)
         defer { schemaFixture.remove() }
         let schema = try ONTGenotypeResultBundle.loadResult(from: schemaFixture.bundleURL)
         XCTAssertEqual(schema.calls.count, 1)
@@ -774,7 +774,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
 
         let unnameableSchemaFixture = try CandidateBundleFixture(
             candidateSchemaVersion: 1,
-            unnameableSchemaVersion: 4
+            unnameableSchemaVersion: 5
         )
         defer { unnameableSchemaFixture.remove() }
         let unnameableSchema = try ONTGenotypeResultBundle.loadResult(
@@ -803,6 +803,93 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
         XCTAssertEqual(result.calls.count, 1)
         XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactMalformedJSON)
+    }
+
+    func testSchemaV4AcceptsCanonicalCandidateBoundToRepresentativeRawEvidence() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateArtifactManifestSchemaVersion: 2,
+            candidateSchemaVersion: 4,
+            unnameableSchemaVersion: 4,
+            candidateID: "canonical-candidate",
+            candidateSourceSequenceClusterIDs: ["raw-a", "raw-b"],
+            candidateRepresentativeSourceSequenceClusterID: "raw-b",
+            candidateObservationSourceSequenceClusterID: "raw-a"
+        )
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.mhcCandidates?.candidates.first?.stableClusterID, "canonical-candidate")
+        XCTAssertEqual(
+            result.mhcCandidates?.candidates.first?.representativeSourceSequenceClusterID,
+            "raw-b"
+        )
+        XCTAssertEqual(
+            result.mhcCandidates?.observations.first?.sourceSequenceClusterID,
+            "raw-a"
+        )
+        XCTAssertTrue(result.integrityWarnings.isEmpty)
+    }
+
+    func testSchemaV4RejectsRepresentativeAndObservationRawBindingMismatches() throws {
+        let representativeFixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 4,
+            unnameableSchemaVersion: 4,
+            candidateSourceSequenceClusterIDs: ["raw-a", "raw-b"],
+            candidateRepresentativeSourceSequenceClusterID: "raw-b",
+            candidateObservationSourceSequenceClusterID: "raw-a",
+            candidateSelectedQueryOverride: "raw-a"
+        )
+        defer { representativeFixture.remove() }
+        let representativeResult = try ONTGenotypeResultBundle.loadResult(
+            from: representativeFixture.bundleURL
+        )
+        XCTAssertEqual(
+            representativeResult.integrityWarnings.first?.code,
+            .candidateArtifactDocumentReferenceMismatch
+        )
+
+        let observationFixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 4,
+            unnameableSchemaVersion: 4,
+            candidateSourceSequenceClusterIDs: ["raw-a", "raw-b"],
+            candidateRepresentativeSourceSequenceClusterID: "raw-b",
+            candidateObservationSourceSequenceClusterID: "raw-outside-record"
+        )
+        defer { observationFixture.remove() }
+        let observationResult = try ONTGenotypeResultBundle.loadResult(
+            from: observationFixture.bundleURL
+        )
+        XCTAssertEqual(
+            observationResult.integrityWarnings.first?.code,
+            .candidateArtifactDocumentReferenceMismatch
+        )
+    }
+
+    func testSchemaV4UnnameableFASTAContainsExactlyExportableRecordsAndRejectsHalfIdentity() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 4,
+            unnameableSchemaVersion: 4,
+            unnameableHasExternalSequence: false
+        )
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        XCTAssertNotNil(result.mhcUnnameableClusters)
+        XCTAssertTrue(result.integrityWarnings.isEmpty)
+
+        let data = try Data(contentsOf: fixture.unnameableJSONURL)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var records = try XCTUnwrap(object["clusters"] as? [[String: Any]])
+        records[0]["fasta_record_id"] = fixture.unnameableID
+        object["clusters"] = records
+        try fixture.replaceUnnameableJSON(try JSONSerialization.data(withJSONObject: object))
+
+        let halfIdentity = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        XCTAssertEqual(
+            halfIdentity.integrityWarnings.first?.code,
+            .candidateArtifactMalformedJSON
+        )
     }
 
     func testMissingDuplicateAndExtraCandidateFASTARecordsFailSoft() throws {
@@ -902,6 +989,46 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertNotNil(encodedObject["schema_version"])
         XCTAssertNotNil(encodedObject["genotyping_evidence"])
         XCTAssertNotNil(encodedObject["candidate_json"])
+    }
+
+    func testRoundTripsCandidateArtifactManifestSchema2InternalRawReferences() throws {
+        let rawFASTA = ONTMHCArtifactReference(
+            path: "artifacts/candidates/raw-unmatched.fasta",
+            sha256: String(repeating: "d", count: 64),
+            sizeBytes: 4_096
+        )
+        let sourceIdentityMap = ONTMHCArtifactReference(
+            path: "artifacts/candidates/source-identity.json",
+            sha256: String(repeating: "e", count: 64),
+            sizeBytes: 2_048
+        )
+        let manifest = ONTMHCCandidateArtifactManifest(
+            schemaVersion: 2,
+            genotypingEvidence: nil,
+            reciprocalEvidence: nil,
+            candidateJSON: nil,
+            candidateFASTA: nil,
+            unnameableJSON: nil,
+            unnameableFASTA: nil,
+            rawUnmatchedFASTA: rawFASTA,
+            sourceIdentityMap: sourceIdentityMap
+        )
+
+        let data = try JSONEncoder().encode(manifest)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let decoded = try JSONDecoder().decode(ONTMHCCandidateArtifactManifest.self, from: data)
+
+        XCTAssertEqual(object["raw_unmatched_fasta"] as? [String: Any]? != nil, true)
+        XCTAssertEqual(object["source_identity_map"] as? [String: Any]? != nil, true)
+        XCTAssertEqual(decoded.rawUnmatchedFASTA, rawFASTA)
+        XCTAssertEqual(decoded.sourceIdentityMap, sourceIdentityMap)
+
+        let schema1 = try JSONDecoder().decode(
+            ONTMHCCandidateArtifactManifest.self,
+            from: Data(#"{"schema_version":1}"#.utf8)
+        )
+        XCTAssertNil(schema1.rawUnmatchedFASTA)
+        XCTAssertNil(schema1.sourceIdentityMap)
     }
 
     func testRoundTripsManifestWithMHCCandidateArtifacts() throws {
@@ -1878,6 +2005,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         let bundleURL: URL
         let candidateJSONURL: URL
         let candidateFASTAURL: URL
+        let unnameableJSONURL: URL
         let candidateID: String
         let unnameableID = "unnameable-sequence"
 
@@ -1891,7 +2019,12 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             unnameableSchemaVersion: Int? = nil,
             candidateID: String = "candidate-sequence",
             candidateSequence: String = "ACGT",
+            candidateSourceSequenceClusterIDs: [String]? = nil,
+            candidateRepresentativeSourceSequenceClusterID: String? = nil,
+            candidateObservationSourceSequenceClusterID: String? = nil,
+            candidateSelectedQueryOverride: String? = nil,
             candidateFASTAIDs: [String]? = nil,
+            unnameableHasExternalSequence: Bool = true,
             documentCandidateFASTAPath: String? = nil,
             genotypingBAMPath: String = "artifacts/alignments/genotyping.bam",
             genotypingBAIPath: String = "artifacts/alignments/genotyping.bam.bai",
@@ -1932,7 +2065,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             try FileManager.default.createDirectory(at: candidateRoot, withIntermediateDirectories: true)
             candidateJSONURL = candidateRoot.appendingPathComponent("candidate-alleles.json")
             candidateFASTAURL = candidateRoot.appendingPathComponent("candidate_alleles.fasta")
-            let unnameableJSONURL = candidateRoot.appendingPathComponent("unnameable.json")
+            unnameableJSONURL = candidateRoot.appendingPathComponent("unnameable.json")
             let unnameableFASTAURL = candidateRoot.appendingPathComponent("unnameable.fasta")
             let candidateGenBankURL = candidateRoot.appendingPathComponent("candidate_alleles.gb")
             let unnameableGenBankURL = candidateRoot.appendingPathComponent("unnameable_unmatched_clusters.gb")
@@ -1956,7 +2089,10 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                 .map { ">\($0)\n\($0 == "extra" ? "AAAA" : candidateSequence)\n" }
                 .joined()
             try Data(candidateFASTA.utf8).write(to: candidateFASTAURL)
-            try Data(">\(unnameableID)\n\(unnameableSequence)\n".utf8).write(to: unnameableFASTAURL)
+            let unnameableFASTAData = unnameableHasExternalSequence
+                ? Data(">\(unnameableID)\n\(unnameableSequence)\n".utf8)
+                : Data()
+            try unnameableFASTAData.write(to: unnameableFASTAURL)
             if includeGenBankArtifacts {
                 try Data("LOCUS       \(candidateID)\n//\n".utf8).write(to: candidateGenBankURL)
                 try Data("LOCUS       \(unnameableID)\n//\n".utf8).write(to: unnameableGenBankURL)
@@ -1984,9 +2120,12 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             let reciprocalLocatorPath = reciprocalLocatorPathOverride
                 ?? (swappedEvidenceRoles ? genotypingPair.bam.path : reciprocalPair.bam.path)
             let genotypingLocatorPath = swappedEvidenceRoles ? reciprocalPair.bam.path : genotypingPair.bam.path
+            let sourceSequenceClusterIDs = candidateSourceSequenceClusterIDs ?? [candidateID]
+            let representativeSourceSequenceClusterID =
+                candidateRepresentativeSourceSequenceClusterID ?? candidateID
             let locator = ONTMHCEvidenceLocator(
                 bamPath: reciprocalLocatorPath,
-                queryName: candidateID,
+                queryName: candidateSelectedQueryOverride ?? representativeSourceSequenceClusterID,
                 referenceName: "Mafa-A1*001:01",
                 readGroupID: nil,
                 referenceStart: 1,
@@ -1994,7 +2133,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             )
             let candidateReciprocalSummary = try ONTMHCReciprocalQueryHitSummary(
                 bamPath: reciprocalSummaryBAMPathOverride ?? reciprocalLocatorPath,
-                queryName: reciprocalSummaryQueryOverride ?? candidateID,
+                queryName: reciprocalSummaryQueryOverride ?? representativeSourceSequenceClusterID,
                 alignmentCount: selectedClosestMismatch ? 2 : 1,
                 targetAlignmentCounts: selectedClosestMismatch
                     ? ["Mafa-A1*001:01": 1, "Mafa-A1*999:01": 1]
@@ -2006,6 +2145,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             )
             let candidateRecord = ONTMHCCandidateRecord(
                 stableClusterID: candidateID,
+                sourceSequenceClusterIDs: sourceSequenceClusterIDs,
+                representativeSourceSequenceClusterID: representativeSourceSequenceClusterID,
                 provisionalName: "Mafa-A1*001:01_1nt_nov",
                 locus: "Mafa-A1",
                 classification: .novel,
@@ -2034,6 +2175,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             if candidateSchemaVersion == 1 {
                 candidateObservation = ONTMHCCandidateObservation(
                     stableClusterID: candidateID,
+                    sourceSequenceClusterID: candidateObservationSourceSequenceClusterID ?? candidateID,
                     sampleID: "SampleA",
                     readGroupID: "SampleA",
                     sourceClusterIDs: ["source-candidate"],
@@ -2051,6 +2193,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             } else {
                 candidateObservation = ONTMHCCandidateObservation(
                     stableClusterID: candidateID,
+                    sourceSequenceClusterID: candidateObservationSourceSequenceClusterID ?? candidateID,
                     sampleID: "SampleA",
                     readGroupID: "SampleA",
                     sourceClusterIDs: ["source-candidate"],
@@ -2097,8 +2240,10 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                     occurrenceCount: 1,
                     totalClusterReads: 4,
                     supportingSampleIDs: ["SampleB"],
-                    fastaRecordID: unnameableID,
-                    sequenceSHA256: Self.sha256(Data(unnameableSequence.utf8)),
+                    fastaRecordID: unnameableHasExternalSequence ? unnameableID : nil,
+                    sequenceSHA256: unnameableHasExternalSequence
+                        ? Self.sha256(Data(unnameableSequence.utf8))
+                        : nil,
                     evidence: [unnameableReciprocalLocator]
                 )
                 unnameableObservation = ONTMHCCandidateObservation(
@@ -2127,8 +2272,10 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                     occurrenceCount: 1,
                     totalClusterReads: 4,
                     supportingSampleIDs: ["SampleB"],
-                    fastaRecordID: unnameableID,
-                    sequenceSHA256: Self.sha256(Data(unnameableSequence.utf8)),
+                    fastaRecordID: unnameableHasExternalSequence ? unnameableID : nil,
+                    sequenceSHA256: unnameableHasExternalSequence
+                        ? Self.sha256(Data(unnameableSequence.utf8))
+                        : nil,
                     reciprocalHitSummary: try ONTMHCReciprocalQueryHitSummary(
                         bamPath: reciprocalSummaryBAMPathOverride ?? reciprocalLocatorPath,
                         queryName: unnameableID,
@@ -2239,6 +2386,28 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                     candidateFASTA: artifacts.candidateFASTA,
                     unnameableJSON: artifacts.unnameableJSON,
                     unnameableFASTA: artifacts.unnameableFASTA
+                )
+            }
+        }
+
+        func replaceUnnameableJSON(_ data: Data) throws {
+            try data.write(to: unnameableJSONURL)
+            try rewriteManifest { artifacts in
+                ONTMHCCandidateArtifactManifest(
+                    schemaVersion: artifacts.schemaVersion,
+                    genotypingEvidence: artifacts.genotypingEvidence,
+                    reciprocalEvidence: artifacts.reciprocalEvidence,
+                    candidateJSON: artifacts.candidateJSON,
+                    candidateFASTA: artifacts.candidateFASTA,
+                    candidateGenBank: artifacts.candidateGenBank,
+                    unnameableJSON: try! Self.reference(
+                        unnameableJSONURL,
+                        path: artifacts.unnameableJSON!.path
+                    ),
+                    unnameableFASTA: artifacts.unnameableFASTA,
+                    unnameableGenBank: artifacts.unnameableGenBank,
+                    rawUnmatchedFASTA: artifacts.rawUnmatchedFASTA,
+                    sourceIdentityMap: artifacts.sourceIdentityMap
                 )
             }
         }

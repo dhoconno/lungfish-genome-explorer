@@ -43,6 +43,8 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
     public let unnameableJSON: ONTMHCArtifactReference?
     public let unnameableFASTA: ONTMHCArtifactReference?
     public let unnameableGenBank: ONTMHCArtifactReference?
+    public let rawUnmatchedFASTA: ONTMHCArtifactReference?
+    public let sourceIdentityMap: ONTMHCArtifactReference?
 
     public init(
         schemaVersion: Int,
@@ -62,7 +64,9 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
             candidateGenBank: nil,
             unnameableJSON: unnameableJSON,
             unnameableFASTA: unnameableFASTA,
-            unnameableGenBank: nil
+            unnameableGenBank: nil,
+            rawUnmatchedFASTA: nil,
+            sourceIdentityMap: nil
         )
     }
 
@@ -75,7 +79,9 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
         candidateGenBank: ONTMHCArtifactReference? = nil,
         unnameableJSON: ONTMHCArtifactReference?,
         unnameableFASTA: ONTMHCArtifactReference?,
-        unnameableGenBank: ONTMHCArtifactReference? = nil
+        unnameableGenBank: ONTMHCArtifactReference? = nil,
+        rawUnmatchedFASTA: ONTMHCArtifactReference? = nil,
+        sourceIdentityMap: ONTMHCArtifactReference? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.genotypingEvidence = genotypingEvidence
@@ -86,6 +92,8 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
         self.unnameableJSON = unnameableJSON
         self.unnameableFASTA = unnameableFASTA
         self.unnameableGenBank = unnameableGenBank
+        self.rawUnmatchedFASTA = rawUnmatchedFASTA
+        self.sourceIdentityMap = sourceIdentityMap
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -98,6 +106,8 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
         case unnameableJSON = "unnameable_json"
         case unnameableFASTA = "unnameable_fasta"
         case unnameableGenBank = "unnameable_genbank"
+        case rawUnmatchedFASTA = "raw_unmatched_fasta"
+        case sourceIdentityMap = "source_identity_map"
     }
 }
 
@@ -118,6 +128,74 @@ public enum ONTMHCUnnameableReason: String, Codable, Sendable {
     case insufficientIdentity = "insufficient-identity"
     case unresolvedLocus = "unresolved-locus"
     case ambiguousReferenceClass = "ambiguous-reference-class"
+}
+
+public struct ONTMHCCandidateSourceIdentityRecord: Codable, Equatable, Sendable {
+    public let rawStableClusterID: String
+    public let rawSequenceSHA256: String
+    public let rawSequenceLength: Int
+    public let canonicalStableClusterID: String?
+    public let canonicalSequenceSHA256: String?
+    public let trimStart: Int?
+    public let trimEnd: Int?
+    public let referenceReadiness: String
+
+    public init(
+        rawStableClusterID: String,
+        rawSequenceSHA256: String,
+        rawSequenceLength: Int,
+        canonicalStableClusterID: String? = nil,
+        canonicalSequenceSHA256: String? = nil,
+        trimStart: Int? = nil,
+        trimEnd: Int? = nil,
+        referenceReadiness: String
+    ) {
+        self.rawStableClusterID = rawStableClusterID
+        self.rawSequenceSHA256 = rawSequenceSHA256
+        self.rawSequenceLength = rawSequenceLength
+        self.canonicalStableClusterID = canonicalStableClusterID
+        self.canonicalSequenceSHA256 = canonicalSequenceSHA256
+        self.trimStart = trimStart
+        self.trimEnd = trimEnd
+        self.referenceReadiness = referenceReadiness
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case rawStableClusterID = "raw_stable_cluster_id"
+        case rawSequenceSHA256 = "raw_sequence_sha256"
+        case rawSequenceLength = "raw_sequence_length"
+        case canonicalStableClusterID = "canonical_stable_cluster_id"
+        case canonicalSequenceSHA256 = "canonical_sequence_sha256"
+        case trimStart = "trim_start"
+        case trimEnd = "trim_end"
+        case referenceReadiness = "reference_readiness"
+    }
+}
+
+public struct ONTMHCCandidateSourceIdentityDocument: Codable, Equatable, Sendable {
+    public let schemaVersion: Int
+    public let createdAt: String
+    public let rawSequenceFASTA: ONTMHCArtifactReference
+    public let records: [ONTMHCCandidateSourceIdentityRecord]
+
+    public init(
+        schemaVersion: Int,
+        createdAt: String,
+        rawSequenceFASTA: ONTMHCArtifactReference,
+        records: [ONTMHCCandidateSourceIdentityRecord]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.createdAt = createdAt
+        self.rawSequenceFASTA = rawSequenceFASTA
+        self.records = records
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case createdAt = "created_at"
+        case rawSequenceFASTA = "raw_sequence_fasta"
+        case records
+    }
 }
 
 public enum ONTMHCCandidateModelError: Error, LocalizedError, Equatable, Sendable {
@@ -502,6 +580,7 @@ private enum ONTMHCEvidenceWireShape: Equatable, Sendable {
 
 public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
     public let stableClusterID: String
+    public let sourceSequenceClusterID: String
     public let sampleID: String
     public let readGroupID: String
     public let sourceClusterIDs: [String]
@@ -529,7 +608,30 @@ public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
         aggregatedSampleReadCount: Int,
         genotypingHitSummaries: [ONTMHCGenotypingTargetHitSummary]
     ) {
+        self.init(
+            stableClusterID: stableClusterID,
+            sourceSequenceClusterID: stableClusterID,
+            sampleID: sampleID,
+            readGroupID: readGroupID,
+            sourceClusterIDs: sourceClusterIDs,
+            sourceClusterReadCounts: sourceClusterReadCounts,
+            aggregatedSampleReadCount: aggregatedSampleReadCount,
+            genotypingHitSummaries: genotypingHitSummaries
+        )
+    }
+
+    public init(
+        stableClusterID: String,
+        sourceSequenceClusterID: String,
+        sampleID: String,
+        readGroupID: String,
+        sourceClusterIDs: [String],
+        sourceClusterReadCounts: [String: Int],
+        aggregatedSampleReadCount: Int,
+        genotypingHitSummaries: [ONTMHCGenotypingTargetHitSummary]
+    ) {
         self.stableClusterID = stableClusterID
+        self.sourceSequenceClusterID = sourceSequenceClusterID
         self.sampleID = sampleID
         self.readGroupID = readGroupID
         self.sourceClusterIDs = sourceClusterIDs
@@ -549,7 +651,30 @@ public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
         aggregatedSampleReadCount: Int,
         evidence: [ONTMHCEvidenceLocator]
     ) {
+        self.init(
+            stableClusterID: stableClusterID,
+            sourceSequenceClusterID: stableClusterID,
+            sampleID: sampleID,
+            readGroupID: readGroupID,
+            sourceClusterIDs: sourceClusterIDs,
+            sourceClusterReadCounts: sourceClusterReadCounts,
+            aggregatedSampleReadCount: aggregatedSampleReadCount,
+            evidence: evidence
+        )
+    }
+
+    public init(
+        stableClusterID: String,
+        sourceSequenceClusterID: String,
+        sampleID: String,
+        readGroupID: String,
+        sourceClusterIDs: [String],
+        sourceClusterReadCounts: [String: Int],
+        aggregatedSampleReadCount: Int,
+        evidence: [ONTMHCEvidenceLocator]
+    ) {
         self.stableClusterID = stableClusterID
+        self.sourceSequenceClusterID = sourceSequenceClusterID
         self.sampleID = sampleID
         self.readGroupID = readGroupID
         self.sourceClusterIDs = sourceClusterIDs
@@ -571,6 +696,10 @@ public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
         if container.contains(.genotypingHitSummaries) {
             self.init(
                 stableClusterID: stableClusterID,
+                sourceSequenceClusterID: try container.decodeIfPresent(
+                    String.self,
+                    forKey: .sourceSequenceClusterID
+                ) ?? stableClusterID,
                 sampleID: sampleID,
                 readGroupID: readGroupID,
                 sourceClusterIDs: sourceClusterIDs,
@@ -584,6 +713,10 @@ public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
         } else {
             self.init(
                 stableClusterID: stableClusterID,
+                sourceSequenceClusterID: try container.decodeIfPresent(
+                    String.self,
+                    forKey: .sourceSequenceClusterID
+                ) ?? stableClusterID,
                 sampleID: sampleID,
                 readGroupID: readGroupID,
                 sourceClusterIDs: sourceClusterIDs,
@@ -600,6 +733,7 @@ public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(stableClusterID, forKey: .stableClusterID)
+        try container.encode(sourceSequenceClusterID, forKey: .sourceSequenceClusterID)
         try container.encode(sampleID, forKey: .sampleID)
         try container.encode(readGroupID, forKey: .readGroupID)
         try container.encode(sourceClusterIDs, forKey: .sourceClusterIDs)
@@ -644,6 +778,7 @@ public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case stableClusterID = "stable_cluster_id"
+        case sourceSequenceClusterID = "source_sequence_cluster_id"
         case sampleID = "sample_id"
         case readGroupID = "read_group_id"
         case sourceClusterIDs = "source_cluster_ids"
@@ -722,6 +857,8 @@ public struct ONTMHCCDNAExtensionInterpretation: Codable, Equatable, Sendable {
 
 public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
     public let stableClusterID: String
+    public let sourceSequenceClusterIDs: [String]
+    public let representativeSourceSequenceClusterID: String
     public let provisionalName: String
     public let locus: String
     public let classification: ONTMHCCandidateClassification
@@ -782,6 +919,66 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
     ) {
         self.init(
             stableClusterID: stableClusterID,
+            sourceSequenceClusterIDs: [stableClusterID],
+            representativeSourceSequenceClusterID: stableClusterID,
+            provisionalName: provisionalName,
+            locus: locus,
+            classification: classification,
+            supportClass: supportClass,
+            closestReferenceName: closestReferenceName,
+            closestReferenceClass: closestReferenceClass,
+            snpCount: snpCount,
+            insertedBases: insertedBases,
+            deletedBases: deletedBases,
+            longGapBases: longGapBases,
+            comparableBases: comparableBases,
+            shorterCoverage: shorterCoverage,
+            identity: identity,
+            mappingQuality: mappingQuality,
+            alignmentScore: alignmentScore,
+            independentSampleCount: independentSampleCount,
+            occurrenceCount: occurrenceCount,
+            totalClusterReads: totalClusterReads,
+            supportingSampleIDs: supportingSampleIDs,
+            fastaRecordID: fastaRecordID,
+            sequenceSHA256: sequenceSHA256,
+            reciprocalHitSummary: reciprocalHitSummary,
+            selectedEvidence: selectedEvidence
+        )
+    }
+
+    public init(
+        stableClusterID: String,
+        sourceSequenceClusterIDs: [String],
+        representativeSourceSequenceClusterID: String,
+        provisionalName: String,
+        locus: String,
+        classification: ONTMHCCandidateClassification,
+        supportClass: ONTMHCCandidateSupportClass,
+        closestReferenceName: String,
+        closestReferenceClass: MHCReferenceMoleculeClass,
+        snpCount: Int,
+        insertedBases: Int,
+        deletedBases: Int,
+        longGapBases: Int,
+        comparableBases: Int,
+        shorterCoverage: Double,
+        identity: Double,
+        mappingQuality: Int,
+        alignmentScore: Int,
+        independentSampleCount: Int,
+        occurrenceCount: Int,
+        totalClusterReads: Int,
+        supportingSampleIDs: [String],
+        fastaRecordID: String,
+        sequenceSHA256: String,
+        reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
+        selectedEvidence: ONTMHCEvidenceLocator
+    ) {
+        self.init(
+            stableClusterID: stableClusterID,
+            sourceSequenceClusterIDs: sourceSequenceClusterIDs,
+            representativeSourceSequenceClusterID: representativeSourceSequenceClusterID,
             provisionalName: provisionalName,
             locus: locus,
             classification: classification,
@@ -842,6 +1039,74 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
     ) {
         self.init(
             stableClusterID: stableClusterID,
+            sourceSequenceClusterIDs: [stableClusterID],
+            representativeSourceSequenceClusterID: stableClusterID,
+            provisionalName: provisionalName,
+            locus: locus,
+            classification: classification,
+            supportClass: supportClass,
+            closestReferenceName: closestReferenceName,
+            closestReferenceClass: closestReferenceClass,
+            snpCount: snpCount,
+            insertedBases: insertedBases,
+            deletedBases: deletedBases,
+            longGapBases: longGapBases,
+            comparableBases: comparableBases,
+            shorterCoverage: shorterCoverage,
+            identity: identity,
+            mappingQuality: mappingQuality,
+            alignmentScore: alignmentScore,
+            independentSampleCount: independentSampleCount,
+            occurrenceCount: occurrenceCount,
+            totalClusterReads: totalClusterReads,
+            supportingSampleIDs: supportingSampleIDs,
+            fastaRecordID: fastaRecordID,
+            sequenceSHA256: sequenceSHA256,
+            reciprocalHitSummary: reciprocalHitSummary,
+            selectedEvidence: selectedEvidence,
+            selectedAlignmentIsReverse: selectedAlignmentIsReverse,
+            extensionOf: extensionOf,
+            extensionInterpretations: extensionInterpretations,
+            provisionalNamingAmbiguous: provisionalNamingAmbiguous
+        )
+    }
+
+    public init(
+        stableClusterID: String,
+        sourceSequenceClusterIDs: [String],
+        representativeSourceSequenceClusterID: String,
+        provisionalName: String,
+        locus: String,
+        classification: ONTMHCCandidateClassification,
+        supportClass: ONTMHCCandidateSupportClass,
+        closestReferenceName: String,
+        closestReferenceClass: MHCReferenceMoleculeClass,
+        snpCount: Int,
+        insertedBases: Int,
+        deletedBases: Int,
+        longGapBases: Int,
+        comparableBases: Int,
+        shorterCoverage: Double,
+        identity: Double,
+        mappingQuality: Int,
+        alignmentScore: Int,
+        independentSampleCount: Int,
+        occurrenceCount: Int,
+        totalClusterReads: Int,
+        supportingSampleIDs: [String],
+        fastaRecordID: String,
+        sequenceSHA256: String,
+        reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
+        selectedEvidence: ONTMHCEvidenceLocator,
+        selectedAlignmentIsReverse: Bool? = nil,
+        extensionOf: [String] = [],
+        extensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = [],
+        provisionalNamingAmbiguous: Bool = false
+    ) {
+        self.init(
+            stableClusterID: stableClusterID,
+            sourceSequenceClusterIDs: sourceSequenceClusterIDs,
+            representativeSourceSequenceClusterID: representativeSourceSequenceClusterID,
             provisionalName: provisionalName,
             locus: locus,
             classification: classification,
@@ -900,6 +1165,64 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
     ) {
         self.init(
             stableClusterID: stableClusterID,
+            sourceSequenceClusterIDs: [stableClusterID],
+            representativeSourceSequenceClusterID: stableClusterID,
+            provisionalName: provisionalName,
+            locus: locus,
+            classification: classification,
+            supportClass: supportClass,
+            closestReferenceName: closestReferenceName,
+            closestReferenceClass: closestReferenceClass,
+            snpCount: snpCount,
+            insertedBases: insertedBases,
+            deletedBases: deletedBases,
+            longGapBases: longGapBases,
+            comparableBases: comparableBases,
+            shorterCoverage: shorterCoverage,
+            identity: identity,
+            mappingQuality: mappingQuality,
+            alignmentScore: alignmentScore,
+            independentSampleCount: independentSampleCount,
+            occurrenceCount: occurrenceCount,
+            totalClusterReads: totalClusterReads,
+            supportingSampleIDs: supportingSampleIDs,
+            fastaRecordID: fastaRecordID,
+            sequenceSHA256: sequenceSHA256,
+            selectedEvidence: selectedEvidence
+        )
+    }
+
+    public init(
+        stableClusterID: String,
+        sourceSequenceClusterIDs: [String],
+        representativeSourceSequenceClusterID: String,
+        provisionalName: String,
+        locus: String,
+        classification: ONTMHCCandidateClassification,
+        supportClass: ONTMHCCandidateSupportClass,
+        closestReferenceName: String,
+        closestReferenceClass: MHCReferenceMoleculeClass,
+        snpCount: Int,
+        insertedBases: Int,
+        deletedBases: Int,
+        longGapBases: Int,
+        comparableBases: Int,
+        shorterCoverage: Double,
+        identity: Double,
+        mappingQuality: Int,
+        alignmentScore: Int,
+        independentSampleCount: Int,
+        occurrenceCount: Int,
+        totalClusterReads: Int,
+        supportingSampleIDs: [String],
+        fastaRecordID: String,
+        sequenceSHA256: String,
+        selectedEvidence: ONTMHCEvidenceLocator
+    ) {
+        self.init(
+            stableClusterID: stableClusterID,
+            sourceSequenceClusterIDs: sourceSequenceClusterIDs,
+            representativeSourceSequenceClusterID: representativeSourceSequenceClusterID,
             provisionalName: provisionalName,
             locus: locus,
             classification: classification,
@@ -955,9 +1278,75 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         extensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = [],
         provisionalNamingAmbiguous: Bool = false
     ) {
+        self.init(
+            stableClusterID: stableClusterID,
+            sourceSequenceClusterIDs: [stableClusterID],
+            representativeSourceSequenceClusterID: stableClusterID,
+            provisionalName: provisionalName,
+            locus: locus,
+            classification: classification,
+            supportClass: supportClass,
+            closestReferenceName: closestReferenceName,
+            closestReferenceClass: closestReferenceClass,
+            snpCount: snpCount,
+            insertedBases: insertedBases,
+            deletedBases: deletedBases,
+            longGapBases: longGapBases,
+            comparableBases: comparableBases,
+            shorterCoverage: shorterCoverage,
+            identity: identity,
+            mappingQuality: mappingQuality,
+            alignmentScore: alignmentScore,
+            independentSampleCount: independentSampleCount,
+            occurrenceCount: occurrenceCount,
+            totalClusterReads: totalClusterReads,
+            supportingSampleIDs: supportingSampleIDs,
+            fastaRecordID: fastaRecordID,
+            sequenceSHA256: sequenceSHA256,
+            selectedEvidence: selectedEvidence,
+            selectedAlignmentIsReverse: selectedAlignmentIsReverse,
+            extensionOf: extensionOf,
+            extensionInterpretations: extensionInterpretations,
+            provisionalNamingAmbiguous: provisionalNamingAmbiguous
+        )
+    }
+
+    public init(
+        stableClusterID: String,
+        sourceSequenceClusterIDs: [String],
+        representativeSourceSequenceClusterID: String,
+        provisionalName: String,
+        locus: String,
+        classification: ONTMHCCandidateClassification,
+        supportClass: ONTMHCCandidateSupportClass,
+        closestReferenceName: String,
+        closestReferenceClass: MHCReferenceMoleculeClass,
+        snpCount: Int,
+        insertedBases: Int,
+        deletedBases: Int,
+        longGapBases: Int,
+        comparableBases: Int,
+        shorterCoverage: Double,
+        identity: Double,
+        mappingQuality: Int,
+        alignmentScore: Int,
+        independentSampleCount: Int,
+        occurrenceCount: Int,
+        totalClusterReads: Int,
+        supportingSampleIDs: [String],
+        fastaRecordID: String,
+        sequenceSHA256: String,
+        selectedEvidence: ONTMHCEvidenceLocator,
+        selectedAlignmentIsReverse: Bool? = nil,
+        extensionOf: [String] = [],
+        extensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = [],
+        provisionalNamingAmbiguous: Bool = false
+    ) {
+        let resolvedRepresentativeSourceSequenceClusterID =
+            representativeSourceSequenceClusterID
         let reciprocalHitSummary = ONTMHCReciprocalQueryHitSummary(
             uncheckedBAMPath: selectedEvidence.bamPath,
-            queryName: stableClusterID,
+            queryName: resolvedRepresentativeSourceSequenceClusterID,
             alignmentCount: 1,
             targetAlignmentCounts: [selectedEvidence.referenceName: 1],
             exactMatchTargetNames: [],
@@ -965,6 +1354,8 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         )
         self.init(
             stableClusterID: stableClusterID,
+            sourceSequenceClusterIDs: sourceSequenceClusterIDs,
+            representativeSourceSequenceClusterID: resolvedRepresentativeSourceSequenceClusterID,
             provisionalName: provisionalName,
             locus: locus,
             classification: classification,
@@ -998,6 +1389,8 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
 
     private init(
         stableClusterID: String,
+        sourceSequenceClusterIDs: [String]? = nil,
+        representativeSourceSequenceClusterID: String? = nil,
         provisionalName: String,
         locus: String,
         classification: ONTMHCCandidateClassification,
@@ -1028,6 +1421,9 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         initialize: Void
     ) {
         self.stableClusterID = stableClusterID
+        self.sourceSequenceClusterIDs = sourceSequenceClusterIDs ?? [stableClusterID]
+        self.representativeSourceSequenceClusterID =
+            representativeSourceSequenceClusterID ?? stableClusterID
         self.provisionalName = provisionalName
         self.locus = locus
         self.classification = classification
@@ -1074,6 +1470,14 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         )
         self.init(
             stableClusterID: stableClusterID,
+            sourceSequenceClusterIDs: try container.decodeIfPresent(
+                [String].self,
+                forKey: .sourceSequenceClusterIDs
+            ) ?? [stableClusterID],
+            representativeSourceSequenceClusterID: try container.decodeIfPresent(
+                String.self,
+                forKey: .representativeSourceSequenceClusterID
+            ) ?? stableClusterID,
             provisionalName: try container.decode(String.self, forKey: .provisionalName),
             locus: try container.decode(String.self, forKey: .locus),
             classification: try container.decode(ONTMHCCandidateClassification.self, forKey: .classification),
@@ -1117,6 +1521,11 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(stableClusterID, forKey: .stableClusterID)
+        try container.encode(sourceSequenceClusterIDs, forKey: .sourceSequenceClusterIDs)
+        try container.encode(
+            representativeSourceSequenceClusterID,
+            forKey: .representativeSourceSequenceClusterID
+        )
         try container.encode(provisionalName, forKey: .provisionalName)
         try container.encode(locus, forKey: .locus)
         try container.encode(classification, forKey: .classification)
@@ -1148,6 +1557,8 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case stableClusterID = "stable_cluster_id"
+        case sourceSequenceClusterIDs = "source_sequence_cluster_ids"
+        case representativeSourceSequenceClusterID = "representative_source_sequence_cluster_id"
         case provisionalName = "provisional_name"
         case locus
         case classification
@@ -1187,8 +1598,8 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
     public let occurrenceCount: Int
     public let totalClusterReads: Int
     public let supportingSampleIDs: [String]
-    public let fastaRecordID: String
-    public let sequenceSHA256: String
+    public let fastaRecordID: String?
+    public let sequenceSHA256: String?
     public let reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary
     public let selectedEvidence: ONTMHCEvidenceLocator?
     public let selectedAlignmentIsReverse: Bool?
@@ -1208,8 +1619,8 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         occurrenceCount: Int,
         totalClusterReads: Int,
         supportingSampleIDs: [String],
-        fastaRecordID: String,
-        sequenceSHA256: String,
+        fastaRecordID: String? = nil,
+        sequenceSHA256: String? = nil,
         reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
         selectedEvidence: ONTMHCEvidenceLocator?
     ) {
@@ -1239,8 +1650,8 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         occurrenceCount: Int,
         totalClusterReads: Int,
         supportingSampleIDs: [String],
-        fastaRecordID: String,
-        sequenceSHA256: String,
+        fastaRecordID: String? = nil,
+        sequenceSHA256: String? = nil,
         reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
         selectedEvidence: ONTMHCEvidenceLocator?,
         selectedAlignmentIsReverse: Bool? = nil
@@ -1271,8 +1682,8 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         occurrenceCount: Int,
         totalClusterReads: Int,
         supportingSampleIDs: [String],
-        fastaRecordID: String,
-        sequenceSHA256: String,
+        fastaRecordID: String? = nil,
+        sequenceSHA256: String? = nil,
         evidence: [ONTMHCEvidenceLocator]
     ) {
         self.stableClusterID = stableClusterID
@@ -1305,8 +1716,8 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         let occurrenceCount = try container.decode(Int.self, forKey: .occurrenceCount)
         let totalClusterReads = try container.decode(Int.self, forKey: .totalClusterReads)
         let supportingSampleIDs = try container.decode([String].self, forKey: .supportingSampleIDs)
-        let fastaRecordID = try container.decode(String.self, forKey: .fastaRecordID)
-        let sequenceSHA256 = try container.decode(String.self, forKey: .sequenceSHA256)
+        let fastaRecordID = try container.decodeIfPresent(String.self, forKey: .fastaRecordID)
+        let sequenceSHA256 = try container.decodeIfPresent(String.self, forKey: .sequenceSHA256)
         if container.contains(.reciprocalHitSummary) {
             self.init(
                 stableClusterID: stableClusterID,
@@ -1362,8 +1773,8 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         try container.encode(occurrenceCount, forKey: .occurrenceCount)
         try container.encode(totalClusterReads, forKey: .totalClusterReads)
         try container.encode(supportingSampleIDs, forKey: .supportingSampleIDs)
-        try container.encode(fastaRecordID, forKey: .fastaRecordID)
-        try container.encode(sequenceSHA256, forKey: .sequenceSHA256)
+        try container.encodeIfPresent(fastaRecordID, forKey: .fastaRecordID)
+        try container.encodeIfPresent(sequenceSHA256, forKey: .sequenceSHA256)
         switch evidenceWireShape {
         case .legacyLocators:
             try container.encode(evidence, forKey: .evidence)

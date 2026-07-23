@@ -1292,7 +1292,7 @@ public struct GenotypeWorkbookRevisionService {
     }
 
     private func validateCandidateDocumentSchema(_ schemaVersion: Int, label: String) throws {
-        guard (1 ... 3).contains(schemaVersion) else {
+        guard (1 ... 4).contains(schemaVersion) else {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                 "Unsupported \(label) workbook document schema \(schemaVersion)."
             )

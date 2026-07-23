@@ -2081,10 +2081,10 @@ public enum ONTGenotypeResultBundle {
     ) throws -> MHCCandidateProjection {
         guard let artifactManifest else { return .absent }
         do {
-            guard artifactManifest.schemaVersion == 1 else {
+            guard (1 ... 2).contains(artifactManifest.schemaVersion) else {
                 throw integrityFailure(
                     .candidateArtifactManifestSchemaUnsupported,
-                    "MHC candidate artifact manifest schema \(artifactManifest.schemaVersion) is unsupported; expected schema 1."
+                    "MHC candidate artifact manifest schema \(artifactManifest.schemaVersion) is unsupported; expected schema 1 or 2."
                 )
             }
             try requirePairedDeclaration(
@@ -2155,6 +2155,8 @@ public enum ONTGenotypeResultBundle {
             for reference in [
                 artifactManifest.candidateGenBank,
                 artifactManifest.unnameableGenBank,
+                artifactManifest.rawUnmatchedFASTA,
+                artifactManifest.sourceIdentityMap,
             ].compactMap({ $0 }) {
                 _ = try validateArtifact(reference, in: bundleURL, collectData: false)
             }
@@ -2236,9 +2238,10 @@ public enum ONTGenotypeResultBundle {
                         documentPath: jsonReference.path
                     )
                 }
+                let exportableUnnameableIDs = Set(document.clusters.compactMap(\.fastaRecordID))
                 var parser = StreamingFASTAParser(
                     path: fastaReference.path,
-                    requiredIDs: Set(document.clusters.map(\.stableClusterID))
+                    requiredIDs: exportableUnnameableIDs
                 )
                 var parserFailure: Error?
                 _ = try validateArtifact(
@@ -2253,6 +2256,7 @@ public enum ONTGenotypeResultBundle {
                 if let parserFailure { throw parserFailure }
                 try validateUnnameableRecords(
                     document.clusters,
+                    schemaVersion: document.schemaVersion,
                     fasta: try parser.finish(),
                     path: fastaReference.path
                 )
@@ -2538,16 +2542,28 @@ public enum ONTGenotypeResultBundle {
         guard let dictionary = object as? [String: Any], let schema = dictionary["schema_version"] as? Int else {
             throw integrityFailure(
                 .candidateArtifactMalformedJSON,
-                "Candidate artifact must be a JSON object with integer schema_version 1, 2, or 3.",
+                "Candidate artifact must be a JSON object with integer schema_version 1, 2, 3, or 4.",
                 path: path
             )
         }
-        guard (1 ... 3).contains(schema) else {
+        guard (1 ... 4).contains(schema) else {
             throw integrityFailure(
                 .candidateArtifactSchemaUnsupported,
-                "Candidate artifact schema \(schema) is unsupported; expected schema 1, 2, or 3.",
+                "Candidate artifact schema \(schema) is unsupported; expected schema 1, 2, 3, or 4.",
                 path: path
             )
+        }
+        if recordCollectionKey == "clusters", schema < 4 {
+            guard let records = dictionary[recordCollectionKey] as? [[String: Any]],
+                  records.allSatisfy({
+                      $0["fasta_record_id"] is String && $0["sequence_sha256"] is String
+                  }) else {
+                throw integrityFailure(
+                    .candidateArtifactMalformedJSON,
+                    "Un-nameable candidate artifact schemas 1 through 3 require external FASTA identity and checksum fields.",
+                    path: path
+                )
+            }
         }
         guard schema >= 2 else { return }
         guard let records = dictionary[recordCollectionKey] as? [[String: Any]],
@@ -2563,7 +2579,24 @@ public enum ONTGenotypeResultBundle {
                 path: path
             )
         }
-        guard schema == 3 else { return }
+        if schema >= 4 {
+            guard let observations = dictionary["observations"] as? [[String: Any]],
+                  observations.allSatisfy({ $0["source_sequence_cluster_id"] is String }),
+                  recordCollectionKey != "candidates" || records.allSatisfy({
+                      $0["source_sequence_cluster_ids"] is [String]
+                          && $0["representative_source_sequence_cluster_id"] is String
+                  }),
+                  recordCollectionKey != "clusters" || records.allSatisfy({
+                      ($0["fasta_record_id"] is String) == ($0["sequence_sha256"] is String)
+                  }) else {
+                throw integrityFailure(
+                    .candidateArtifactMalformedJSON,
+                    "Candidate artifact schema 4 requires explicit raw source-sequence bindings and paired external FASTA identity/checksum fields.",
+                    path: path
+                )
+            }
+        }
+        guard schema >= 3 else { return }
         guard let observations = dictionary["observations"] as? [[String: Any]],
               observations.allSatisfy({ observation in
                   guard let summaries = observation["genotyping_hit_summaries"] as? [[String: Any]] else {
@@ -2573,7 +2606,7 @@ public enum ONTGenotypeResultBundle {
               }) else {
             throw integrityFailure(
                 .candidateArtifactMalformedJSON,
-                "Candidate artifact schema 3 requires compact cDNA extension interpretations on every genotyping hit summary.",
+                "Candidate artifact schema \(schema) requires compact cDNA extension interpretations on every genotyping hit summary.",
                 path: path
             )
         }
@@ -2600,7 +2633,7 @@ public enum ONTGenotypeResultBundle {
             guard valid else {
                 throw integrityFailure(
                     .candidateArtifactMalformedJSON,
-                    "Candidate artifact schema 3 requires consistent extension_of, extension_interpretations, and provisional_naming_ambiguous fields on every candidate.",
+                    "Candidate artifact schema \(schema) requires consistent extension_of, extension_interpretations, and provisional_naming_ambiguous fields on every candidate.",
                     path: path
                 )
             }
@@ -2656,10 +2689,21 @@ public enum ONTGenotypeResultBundle {
     ) throws {
         for record in document.candidates {
             let summary = record.reciprocalHitSummary
+            let expectedQueryName = document.schemaVersion >= 4
+                ? record.representativeSourceSequenceClusterID
+                : record.stableClusterID
             guard summary.bamPath == reciprocalBAMPath,
-                  summary.queryName == record.stableClusterID,
+                  summary.queryName == expectedQueryName,
                   record.selectedEvidence.bamPath == reciprocalBAMPath,
-                  record.selectedEvidence.queryName == record.stableClusterID,
+                  record.selectedEvidence.queryName == expectedQueryName,
+                  document.schemaVersion < 4 || (
+                      !record.sourceSequenceClusterIDs.isEmpty
+                          && Set(record.sourceSequenceClusterIDs).count
+                              == record.sourceSequenceClusterIDs.count
+                          && record.sourceSequenceClusterIDs.contains(
+                              record.representativeSourceSequenceClusterID
+                          )
+                  ),
                   summary.closestMatchTargetNames.contains(record.selectedEvidence.referenceName) else {
                 throw compactBindingFailure(
                     "Candidate reciprocal summaries and selected evidence must belong to the record and typed reciprocal BAM, with the selected target in closest_match_target_names.",
@@ -2669,7 +2713,13 @@ public enum ONTGenotypeResultBundle {
         }
         try validateCompactObservations(
             document.observations,
-            recordStableIDs: Set(document.candidates.map(\.stableClusterID)),
+            sourceSequenceIDsByStableID: Dictionary(
+                document.candidates.map {
+                    ($0.stableClusterID, Set($0.sourceSequenceClusterIDs))
+                },
+                uniquingKeysWith: { $0.union($1) }
+            ),
+            schemaVersion: document.schemaVersion,
             genotypingBAMPath: genotypingBAMPath,
             documentPath: documentPath
         )
@@ -2712,7 +2762,11 @@ public enum ONTGenotypeResultBundle {
         }
         try validateCompactObservations(
             document.observations,
-            recordStableIDs: Set(document.clusters.map(\.stableClusterID)),
+            sourceSequenceIDsByStableID: Dictionary(
+                document.clusters.map { ($0.stableClusterID, Set([$0.stableClusterID])) },
+                uniquingKeysWith: { $0.union($1) }
+            ),
+            schemaVersion: document.schemaVersion,
             genotypingBAMPath: genotypingBAMPath,
             documentPath: documentPath
         )
@@ -2720,7 +2774,8 @@ public enum ONTGenotypeResultBundle {
 
     private static func validateCompactObservations(
         _ observations: [ONTMHCCandidateObservation],
-        recordStableIDs: Set<String>,
+        sourceSequenceIDsByStableID: [String: Set<String>],
+        schemaVersion: Int,
         genotypingBAMPath: String?,
         documentPath: String
     ) throws {
@@ -2729,7 +2784,9 @@ public enum ONTGenotypeResultBundle {
                 "\(observation.sampleID)|\($0)"
             })
             let targetNames = observation.genotypingHitSummaries.map(\.targetName)
-            guard recordStableIDs.contains(observation.stableClusterID),
+            guard let sourceSequenceIDs = sourceSequenceIDsByStableID[observation.stableClusterID],
+                  schemaVersion < 4
+                    || sourceSequenceIDs.contains(observation.sourceSequenceClusterID),
                   Set(targetNames).count == targetNames.count,
                   Set(targetNames).isSubset(of: expectedTargets),
                   observation.genotypingHitSummaries.allSatisfy({
@@ -2772,30 +2829,60 @@ public enum ONTGenotypeResultBundle {
 
     private static func validateUnnameableRecords(
         _ records: [ONTMHCUnnameableRecord],
+        schemaVersion: Int,
         fasta: ParsedFASTA,
         path: String
     ) throws {
+        guard records.allSatisfy({
+            ($0.fastaRecordID == nil) == ($0.sequenceSHA256 == nil)
+        }) else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "Un-nameable records must provide both fasta_record_id and sequence_sha256 or neither.",
+                path: path
+            )
+        }
+        if schemaVersion < 4, records.contains(where: { $0.fastaRecordID == nil }) {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "Un-nameable document schemas 1 through 3 require external FASTA identity and checksum fields.",
+                path: path
+            )
+        }
         try validateFASTARecords(
-            records.map { ($0.stableClusterID, $0.fastaRecordID, $0.sequenceSHA256) },
+            records.compactMap { record in
+                guard let fastaRecordID = record.fastaRecordID,
+                      let sequenceSHA256 = record.sequenceSHA256 else {
+                    return nil
+                }
+                return (record.stableClusterID, fastaRecordID, sequenceSHA256)
+            },
             fasta: fasta,
-            path: path
+            path: path,
+            requiresMatchingStableID: schemaVersion < 4
         )
     }
 
     private static func validateFASTARecords(
         _ records: [(stableID: String, fastaID: String, checksum: String)],
         fasta: ParsedFASTA,
-        path: String
+        path: String,
+        requiresMatchingStableID: Bool = true
     ) throws {
-        guard records.allSatisfy({ !$0.stableID.isEmpty && $0.stableID == $0.fastaID }),
-              Set(records.map(\.stableID)).count == records.count else {
+        guard records.allSatisfy({
+            !$0.stableID.isEmpty
+                && !$0.fastaID.isEmpty
+                && (!requiresMatchingStableID || $0.stableID == $0.fastaID)
+        }),
+              Set(records.map(\.stableID)).count == records.count,
+              Set(records.map(\.fastaID)).count == records.count else {
             throw integrityFailure(
                 .candidateArtifactDocumentReferenceMismatch,
-                "Every document record must have one unique, non-empty stable_cluster_id equal to its fasta_record_id.",
+                "Every exported document record must have unique, non-empty stable and FASTA identities, with matching identities where required by the schema.",
                 path: path
             )
         }
-        let expected = Set(records.map(\.stableID))
+        let expected = Set(records.map(\.fastaID))
         if let missing = expected.sorted().first(where: { fasta.counts[$0] == nil }) {
             throw integrityFailure(
                 .candidateArtifactMissingFASTARecord,
@@ -2819,11 +2906,11 @@ public enum ONTGenotypeResultBundle {
             )
         }
         for record in records.sorted(by: { $0.stableID < $1.stableID }) {
-            guard let checksum = fasta.sequenceChecksums[record.stableID] else { continue }
+            guard let checksum = fasta.sequenceChecksums[record.fastaID] else { continue }
             guard checksum == record.checksum.lowercased() else {
                 throw integrityFailure(
                     .candidateArtifactSequenceChecksumMismatch,
-                    "FASTA sequence SHA-256 for '\(record.stableID)' is \(checksum), not the document value \(record.checksum).",
+                    "FASTA sequence SHA-256 for '\(record.fastaID)' is \(checksum), not the document value \(record.checksum).",
                     path: path
                 )
             }

@@ -3,6 +3,178 @@ import XCTest
 @testable import LungfishIO
 
 final class ONTMHCCandidateAllelesV2Tests: XCTestCase {
+    func testSchemaV4RawAndCanonicalBindingsRoundTripWhileLegacyPayloadsDefaultOneToOne() throws {
+        let rawID = "raw-consensus-a"
+        let representativeRawID = "raw-consensus-b"
+        let reciprocal = try ONTMHCReciprocalQueryHitSummary(
+            bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+            queryName: representativeRawID,
+            alignmentCount: 1,
+            targetAlignmentCounts: ["target-a": 1],
+            exactMatchTargetNames: [],
+            closestMatchTargetNames: ["target-a"]
+        )
+        let selected = ONTMHCEvidenceLocator(
+            bamPath: reciprocal.bamPath,
+            queryName: representativeRawID,
+            referenceName: "target-a",
+            readGroupID: nil,
+            referenceStart: 1,
+            cigar: "4="
+        )
+        let observation = ONTMHCCandidateObservation(
+            stableClusterID: "canonical-a",
+            sourceSequenceClusterID: rawID,
+            sampleID: "SampleA",
+            readGroupID: "SampleA",
+            sourceClusterIDs: ["savont-1"],
+            sourceClusterReadCounts: ["savont-1": 7],
+            aggregatedSampleReadCount: 7,
+            genotypingHitSummaries: []
+        )
+        let candidate = ONTMHCCandidateRecord(
+            stableClusterID: "canonical-a",
+            sourceSequenceClusterIDs: [rawID, representativeRawID],
+            representativeSourceSequenceClusterID: representativeRawID,
+            provisionalName: "Mafa-A1*001:01_1nt_nov",
+            locus: "Mafa-A1",
+            classification: .novel,
+            supportClass: .shared,
+            closestReferenceName: "Mafa-A1*001:01",
+            closestReferenceClass: .genomicDNA,
+            snpCount: 1,
+            insertedBases: 0,
+            deletedBases: 0,
+            longGapBases: 0,
+            comparableBases: 4,
+            shorterCoverage: 1,
+            identity: 0.75,
+            mappingQuality: 60,
+            alignmentScore: 3,
+            independentSampleCount: 2,
+            occurrenceCount: 2,
+            totalClusterReads: 12,
+            supportingSampleIDs: ["SampleA", "SampleB"],
+            fastaRecordID: "canonical-a",
+            sequenceSHA256: String(repeating: "a", count: 64),
+            reciprocalHitSummary: reciprocal,
+            selectedEvidence: selected
+        )
+
+        let observationData = try JSONEncoder().encode(observation)
+        let candidateData = try JSONEncoder().encode(candidate)
+        let observationObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: observationData) as? [String: Any]
+        )
+        let candidateObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: candidateData) as? [String: Any]
+        )
+
+        XCTAssertEqual(observationObject["source_sequence_cluster_id"] as? String, rawID)
+        XCTAssertEqual(
+            candidateObject["source_sequence_cluster_ids"] as? [String],
+            [rawID, representativeRawID]
+        )
+        XCTAssertEqual(
+            candidateObject["representative_source_sequence_cluster_id"] as? String,
+            representativeRawID
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(ONTMHCCandidateObservation.self, from: observationData),
+            observation
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(ONTMHCCandidateRecord.self, from: candidateData),
+            candidate
+        )
+
+        var legacyObservationObject = observationObject
+        legacyObservationObject.removeValue(forKey: "source_sequence_cluster_id")
+        let legacyObservation = try JSONDecoder().decode(
+            ONTMHCCandidateObservation.self,
+            from: JSONSerialization.data(withJSONObject: legacyObservationObject)
+        )
+        XCTAssertEqual(legacyObservation.sourceSequenceClusterID, legacyObservation.stableClusterID)
+
+        var legacyCandidateObject = candidateObject
+        legacyCandidateObject.removeValue(forKey: "source_sequence_cluster_ids")
+        legacyCandidateObject.removeValue(forKey: "representative_source_sequence_cluster_id")
+        let legacyCandidate = try JSONDecoder().decode(
+            ONTMHCCandidateRecord.self,
+            from: JSONSerialization.data(withJSONObject: legacyCandidateObject)
+        )
+        XCTAssertEqual(legacyCandidate.sourceSequenceClusterIDs, ["canonical-a"])
+        XCTAssertEqual(legacyCandidate.representativeSourceSequenceClusterID, "canonical-a")
+    }
+
+    func testSchemaV4NonExportableUnnameableRecordOmitsExternalSequenceIdentity() throws {
+        let record = ONTMHCUnnameableRecord(
+            stableClusterID: "raw-unnameable",
+            reason: .unresolvedLocus,
+            failedMetrics: [:],
+            supportClass: .singleton,
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 4,
+            supportingSampleIDs: ["SampleA"],
+            reciprocalHitSummary: try ONTMHCReciprocalQueryHitSummary(
+                bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+                queryName: "raw-unnameable",
+                alignmentCount: 0,
+                targetAlignmentCounts: [:],
+                exactMatchTargetNames: [],
+                closestMatchTargetNames: []
+            ),
+            selectedEvidence: nil
+        )
+
+        let data = try JSONEncoder().encode(record)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let decoded = try JSONDecoder().decode(ONTMHCUnnameableRecord.self, from: data)
+
+        XCTAssertNil(object["fasta_record_id"])
+        XCTAssertNil(object["sequence_sha256"])
+        XCTAssertNil(decoded.fastaRecordID)
+        XCTAssertNil(decoded.sequenceSHA256)
+    }
+
+    func testSourceIdentityDocumentRoundTripsRawCanonicalReadiness() throws {
+        let rawFASTA = ONTMHCArtifactReference(
+            path: "artifacts/mhc-candidates/raw-unmatched.fasta",
+            sha256: String(repeating: "a", count: 64),
+            sizeBytes: 120
+        )
+        let record = ONTMHCCandidateSourceIdentityRecord(
+            rawStableClusterID: "raw-a",
+            rawSequenceSHA256: String(repeating: "b", count: 64),
+            rawSequenceLength: 1_200,
+            canonicalStableClusterID: "canonical-a",
+            canonicalSequenceSHA256: String(repeating: "c", count: 64),
+            trimStart: 100,
+            trimEnd: 1_100,
+            referenceReadiness: "reference-ready"
+        )
+        let document = ONTMHCCandidateSourceIdentityDocument(
+            schemaVersion: 1,
+            createdAt: "2026-07-23T00:00:00Z",
+            rawSequenceFASTA: rawFASTA,
+            records: [record]
+        )
+
+        let data = try JSONEncoder().encode(document)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let records = try XCTUnwrap(object["records"] as? [[String: Any]])
+
+        XCTAssertEqual(object["schema_version"] as? Int, 1)
+        XCTAssertNotNil(object["raw_sequence_fasta"])
+        XCTAssertEqual(records.first?["raw_stable_cluster_id"] as? String, "raw-a")
+        XCTAssertEqual(records.first?["canonical_stable_cluster_id"] as? String, "canonical-a")
+        XCTAssertEqual(
+            try JSONDecoder().decode(ONTMHCCandidateSourceIdentityDocument.self, from: data),
+            document
+        )
+    }
+
     func testCompactGenotypingHitSummaryRoundTripsWithoutLegacyLocatorArray() throws {
         let summary = try ONTMHCGenotypingTargetHitSummary(
             bamPath: "artifacts/alignments/genotyping-evidence.bam",

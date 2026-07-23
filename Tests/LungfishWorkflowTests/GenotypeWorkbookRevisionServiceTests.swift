@@ -7,6 +7,25 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testExplicitWorkbookUpdateAcceptsSchemaV4CandidateDocuments() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "schema-v4-update")
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 4)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+
+        let updatedManifest = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_200) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.candidateJSON)
+        XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.unnameableJSON)
+        XCTAssertFalse((updatedManifest.workbookRevisions ?? []).isEmpty)
+    }
+
     func testFullLengthMHCUpdateUsesSpeciesAgnosticBiologicalAlleleOrder() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -3244,7 +3263,7 @@ wb.save(path)
             observations: observations.reversed()
         )
         let unnameable: ONTMHCUnnameableRecord
-        if schemaVersion == 2 {
+        if schemaVersion >= 2 {
             unnameable = ONTMHCUnnameableRecord(
                 stableClusterID: "cluster-u",
                 reason: .unresolvedLocus,
