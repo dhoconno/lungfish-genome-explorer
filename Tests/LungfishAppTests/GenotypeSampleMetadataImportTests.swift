@@ -315,6 +315,7 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         inspector.updateGenotypeResultDocument(makeResult(
             bundleURL: bundleURL,
             calls: [],
+            kind: "full-length-ont-mhc-genotype",
             mhcAlignmentArtifactURLs: alignmentArtifactURLs
         ))
 
@@ -346,6 +347,36 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
                 ),
             ]
         )
+    }
+
+    func testInspectorDocumentOmitsInjectedMHCAlignmentArtifactsForNonFullLengthResult() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeNonMHCAlignmentArtifactRows-\(UUID().uuidString)", isDirectory: true)
+        let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
+            genotypingBAM: bundleURL.appendingPathComponent("genotyping.bam"),
+            genotypingBAI: bundleURL.appendingPathComponent("genotyping.bam.bai"),
+            reciprocalBAM: bundleURL.appendingPathComponent("reciprocal.bam"),
+            reciprocalBAI: bundleURL.appendingPathComponent("reciprocal.bam.bai")
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+
+        inspector.updateGenotypeResultDocument(makeResult(
+            bundleURL: bundleURL,
+            calls: [],
+            kind: "ont-barcode-genotype",
+            mhcAlignmentArtifactURLs: alignmentArtifactURLs
+        ))
+
+        let rows = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument?.artifactRows)
+        for label in [
+            "Genotyping Evidence BAM",
+            "Genotyping Evidence BAI",
+            "Reciprocal Evidence BAM",
+            "Reciprocal Evidence BAI",
+        ] {
+            XCTAssertFalse(rows.contains { $0.label == label })
+        }
     }
 
     func testInspectorDocumentExposesCurrentWorkbookUpdateWhenManualHaplotypesChanged() throws {
@@ -480,12 +511,14 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     private func makeResult(
         bundleURL: URL,
         calls: [ONTGenotypeCall],
+        kind: String = "ont-barcode-genotype",
         mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty,
         mhcAlignmentArtifactURLs: ONTMHCAlignmentArtifactURLs = .empty
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
             manifest: ONTGenotypeResultBundleManifest(
+                kind: kind,
                 outputName: "barcode05-mhc",
                 analysisName: "barcode05-mhc",
                 primaryWorkbookPath: "barcode05-mhc.xlsx",

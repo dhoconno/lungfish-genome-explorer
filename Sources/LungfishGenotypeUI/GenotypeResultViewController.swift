@@ -3114,7 +3114,9 @@ public final class GenotypeResultViewController: NSViewController {
         if let unnameableURL = candidateGenBankURLs.unnameableClusters {
             artifactRows.append(artifactRow(label: "Un-nameable Clusters GenBank", url: unnameableURL))
         }
-        let alignmentArtifactURLs = result.mhcAlignmentArtifactURLs
+        let alignmentArtifactURLs = result.manifest.kind == "full-length-ont-mhc-genotype"
+            ? result.mhcAlignmentArtifactURLs
+            : .empty
         if let genotypingBAMURL = alignmentArtifactURLs.genotypingBAM {
             artifactRows.append(artifactRow(label: "Genotyping Evidence BAM", url: genotypingBAMURL))
         }

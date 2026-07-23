@@ -1924,11 +1924,16 @@ public enum ONTGenotypeResultBundle {
         let sampleRows = try loadCSVRows(from: artifacts.sampleSummaryCSVURL)
         let stats = try ONTGenotypeRunStats.load(from: artifacts.statsJSONURL)
         let haplotypeAnalysis = try loadHaplotypeAnalysisIfPresent(from: artifacts.haplotypeAnalysisURL)
-        let mhcProjection = try loadMHCCandidateProjection(
-            from: manifest.mhcCandidateArtifacts,
-            bundleURL: bundleURL,
-            parsedArtifactByteBudget: candidateArtifactByteBudget
-        )
+        let mhcProjection: MHCCandidateProjection
+        if manifest.kind == "full-length-ont-mhc-genotype" {
+            mhcProjection = try loadMHCCandidateProjection(
+                from: manifest.mhcCandidateArtifacts,
+                bundleURL: bundleURL,
+                parsedArtifactByteBudget: candidateArtifactByteBudget
+            )
+        } else {
+            mhcProjection = .absent
+        }
         let mhcReferenceVisualizations = try loadMHCReferenceVisualizations(
             from: manifest.mhcReferenceVisualizations,
             bundleURL: bundleURL

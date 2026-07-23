@@ -355,7 +355,9 @@ extension InspectorViewController {
             return rows
         }()
         let candidateGenBankURLs = result.mhcCandidateGenBankArtifactURLs
-        let alignmentArtifactURLs = result.mhcAlignmentArtifactURLs
+        let alignmentArtifactURLs = result.manifest.kind == "full-length-ont-mhc-genotype"
+            ? result.mhcAlignmentArtifactURLs
+            : .empty
         var state = GenotypeResultDocumentState(
             title: result.manifest.analysisName,
             subtitle: "\(result.manifest.kind) • \(result.manifest.outputName)",

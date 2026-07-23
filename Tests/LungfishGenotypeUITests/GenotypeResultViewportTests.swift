@@ -2142,6 +2142,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             bundleURL: bundleURL,
             samples: [],
             calls: [],
+            kind: "full-length-ont-mhc-genotype",
             mhcAlignmentArtifactURLs: alignmentArtifactURLs
         ))
 
@@ -2156,6 +2157,38 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(lensText.contains(reciprocalBAMURL.standardizedFileURL.path))
         XCTAssertTrue(lensText.contains("Reciprocal Evidence BAI"))
         XCTAssertTrue(lensText.contains(reciprocalBAIURL.standardizedFileURL.path))
+    }
+
+    func testArtifactsLensOmitsInjectedMHCAlignmentArtifactsForNonFullLengthResult() {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeNonMHCAlignmentArtifactLens-\(UUID().uuidString)", isDirectory: true)
+        let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
+            genotypingBAM: bundleURL.appendingPathComponent("genotyping.bam"),
+            genotypingBAI: bundleURL.appendingPathComponent("genotyping.bam.bai"),
+            reciprocalBAM: bundleURL.appendingPathComponent("reciprocal.bam"),
+            reciprocalBAI: bundleURL.appendingPathComponent("reciprocal.bam.bai")
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            kind: "ont-barcode-genotype",
+            mhcAlignmentArtifactURLs: alignmentArtifactURLs
+        ))
+
+        controller.testingSelectLens(.audit)
+
+        let lensText = visibleText(in: controller.view)
+        for label in [
+            "Genotyping Evidence BAM",
+            "Genotyping Evidence BAI",
+            "Reciprocal Evidence BAM",
+            "Reciprocal Evidence BAI",
+        ] {
+            XCTAssertFalse(lensText.contains(label))
+        }
     }
 
     func testArtifactsLensMHCAlignmentLabelsFitWithoutClipping() throws {
@@ -2173,6 +2206,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             bundleURL: bundleURL,
             samples: [],
             calls: [],
+            kind: "full-length-ont-mhc-genotype",
             mhcAlignmentArtifactURLs: alignmentArtifactURLs
         ))
         controller.testingSelectLens(.audit)

@@ -199,6 +199,20 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertTrue(result.integrityWarnings.isEmpty)
     }
 
+    func testNonFullLengthManifestDoesNotProjectMHCCandidateArtifacts() throws {
+        let fixture = try CandidateBundleFixture(kind: "ont-barcode-genotype")
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertNil(result.mhcUnnameableClusters)
+        XCTAssertTrue(result.mhcCandidateSequencesByStableClusterID.isEmpty)
+        XCTAssertEqual(result.mhcCandidateGenBankArtifactURLs, .empty)
+        XCTAssertEqual(result.mhcAlignmentArtifactURLs, .empty)
+        XCTAssertTrue(result.integrityWarnings.isEmpty)
+    }
+
     func testLoadsSchemaV2CandidateAndUnnameableDocuments() throws {
         let fixture = try CandidateBundleFixture(candidateSchemaVersion: 2)
         defer { fixture.remove() }
@@ -1868,6 +1882,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         let unnameableID = "unnameable-sequence"
 
         init(
+            kind: String = "full-length-ont-mhc-genotype",
             includeCandidateArtifacts: Bool = true,
             includeGenBankArtifacts: Bool = false,
             candidateDirectory: String = "",
@@ -2196,6 +2211,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
                 )
                 : nil
             let manifest = ONTGenotypeResultBundleManifest(
+                kind: kind,
                 outputName: "result",
                 analysisName: "result",
                 primaryWorkbookPath: workbook.lastPathComponent,
@@ -2256,6 +2272,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             let old = try ONTGenotypeResultBundle.loadManifest(from: bundleURL)
             let artifacts = transform(try XCTUnwrap(old.mhcCandidateArtifacts))
             let updated = ONTGenotypeResultBundleManifest(
+                kind: old.kind,
                 outputName: old.outputName,
                 analysisName: old.analysisName,
                 primaryWorkbookPath: old.primaryWorkbookPath,
