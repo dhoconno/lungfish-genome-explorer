@@ -41,7 +41,7 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
 
         let minimapArguments = Array(commands[0].dropFirst())
         XCTAssertEqual(Array(minimapArguments.prefix(11)), [
-            "-a", "-x", "splice", "--eqx", "-t", "4", "-N", "100", "--secondary=yes",
+            "-a", "-x", "splice", "--eqx", "-t", "4", "-N", "1", "--secondary=yes",
             result.sampleMappings[0].namespacedClustersFASTAURL.path,
             fixture.referenceURL.path,
         ])
@@ -61,7 +61,7 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
             result.sampleMappings[0].readGroupBAMURL.path,
         ])
         XCTAssertEqual(Array(commands[4].dropFirst()), [
-            "-a", "-x", "splice", "--eqx", "-t", "4", "-N", "100", "--secondary=yes",
+            "-a", "-x", "splice", "--eqx", "-t", "4", "-N", "1", "--secondary=yes",
             result.sampleMappings[1].namespacedClustersFASTAURL.path,
             fixture.referenceURL.path,
         ])
@@ -94,7 +94,7 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
             result.commandRecords[4].argv,
             [
                 fixture.toolsURL.appendingPathComponent("minimap2").path,
-                "-a", "-x", "splice", "--eqx", "-t", "4", "-N", "100", "--secondary=yes",
+                "-a", "-x", "splice", "--eqx", "-t", "4", "-N", "1", "--secondary=yes",
                 result.sampleMappings[1].namespacedClustersFASTAURL.path,
                 fixture.referenceURL.path,
             ]
@@ -132,6 +132,18 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
                 "sort", "-o", stagedBAMURL.path, result.mergedBAMURL.path,
             ]
         )
+    }
+
+    func testCohortMappingSecondaryLimitCoversEverySampleTarget() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let clusters = (0..<125).map { "cluster-\($0)" }
+
+        _ = try await fixture.build(samples: [fixture.sample("sample-A", clusters: clusters)])
+
+        let minimap = try XCTUnwrap(try fixture.commands().first)
+        let limitIndex = try XCTUnwrap(minimap.firstIndex(of: "-N"))
+        XCTAssertEqual(minimap[limitIndex + 1], "125")
     }
 
     func testBuildStagesAndValidatesBothFilesBeforePublishingFinalNames() async throws {

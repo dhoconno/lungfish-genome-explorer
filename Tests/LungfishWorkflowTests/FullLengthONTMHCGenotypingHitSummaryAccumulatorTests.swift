@@ -102,6 +102,32 @@ final class FullLengthONTMHCGenotypingHitSummaryAccumulatorTests: XCTestCase {
         XCTAssertEqual(summary.cdnaExtensionInterpretations.first?.trailingClusterFlankBases, 1_000)
     }
 
+    func testAnnotatedShortGenomicReferenceUsesGenomicZeroSNPRule() throws {
+        let samURL = try writeSAM("""
+        genomic-ref\t0\tSample-D|cluster-1\t1\t60\t8=2I\t*\t0\t0\tAAAAAAAAAA\t*\tRG:Z:rg-d
+        """)
+        defer { try? FileManager.default.removeItem(at: samURL.deletingLastPathComponent()) }
+        let reference = MHCReferenceRecord(
+            sequenceID: "genomic-ref",
+            alleleName: "Mafa-A1*001:01",
+            locus: "Mafa-A1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 10
+        )
+
+        let summary = try XCTUnwrap(FullLengthONTMHCGenotypingHitSummaryAccumulator.summaries(
+            samURL: samURL,
+            bamPath: "evidence.bam",
+            referenceLengths: ["genomic-ref": 10],
+            cdnaThreshold: 2_000,
+            referenceRecords: [reference],
+            targetLengths: ["Sample-D|cluster-1": 8]
+        )["Sample-D|cluster-1"])
+
+        XCTAssertEqual(summary.exactMatchQueryNames, ["genomic-ref"])
+    }
+
     private func writeSAM(_ text: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("mhc-hit-summary-\(UUID().uuidString)", isDirectory: true)

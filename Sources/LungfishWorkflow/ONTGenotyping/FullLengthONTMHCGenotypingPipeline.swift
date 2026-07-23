@@ -1303,14 +1303,21 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 fastaURL: referenceFASTAURL
             )
         let candidateArtifactResult = try await candidateWriter.stage(.init(
-            observations: unmatchedClosestMatchRows.map {
-                FullLengthONTMHCCandidateSequenceObservation(
-                    sampleID: $0.sample,
-                    readGroupID: $0.sample,
-                    sourceClusterID: $0.cluster,
-                    clusterReadCount: $0.clusterReads,
-                    sequence: $0.candidateSequence,
-                    genotypingHitSummaries: genotypingHitSummariesByTarget["\($0.sample)|\($0.cluster)"].map { [$0] } ?? []
+            observations: try unmatchedClosestMatchRows.map { row in
+                let summaries = try genotypingHitSummariesByTarget["\(row.sample)|\(row.cluster)"]
+                    .map { summary in
+                        try FullLengthONTMHCCandidateObservationNormalizer.canonicalize(
+                            summary: summary,
+                            candidateWasReverseComplemented: row.candidateWasReverseComplemented
+                        )
+                    }
+                return FullLengthONTMHCCandidateSequenceObservation(
+                    sampleID: row.sample,
+                    readGroupID: row.sample,
+                    sourceClusterID: row.cluster,
+                    clusterReadCount: row.clusterReads,
+                    sequence: row.candidateSequence,
+                    genotypingHitSummaries: summaries.map { [$0] } ?? []
                 )
             },
             referenceAlleleFASTAURL: referenceFASTAURL,
@@ -1350,10 +1357,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "minimumCDNAReferenceCoverage": .number(0.95),
                 "cohortAlignmentOrientation": .string("reference allele is SAM query; consensus cluster is SAM target; target POS/end flanks and D/N are cluster-only sequence; I/S/H are missing cDNA-query coverage"),
                 "reciprocalAlignmentOrientation": .string("consensus cluster is SAM query; reference allele is SAM target; I/S are cluster-only sequence; D/N and uncovered target ends are missing cDNA-reference coverage"),
-                "cohortCDNAReferenceCoverageDefinition": .string("(comparable bases + query-side inserted bases) / annotated cDNA reference length, clamped to 1"),
+                "cohortCDNAReferenceCoverageDefinition": .string("comparable query/reference bases / annotated cDNA reference length, clamped to 1; I/S/H deficit bases excluded"),
                 "cohortClusterCoverageDefinition": .string("target reference span / complete consensus cluster length, clamped to 1"),
-                "reciprocalCDNAReferenceCoverageDefinition": .string("reference span / annotated cDNA reference length, clamped to 1"),
+                "reciprocalCDNAReferenceCoverageDefinition": .string("comparable query/reference bases / annotated cDNA reference length, clamped to 1; D/N/uncovered-target deficit bases excluded"),
                 "reciprocalClusterCoverageDefinition": .string("query span / complete consensus cluster length, clamped to 1"),
+                "cohortInterpretationOrientation": .string("canonical candidate orientation: raw cohort strand XOR full-candidate reverse-complement; leading/trailing cluster flanks swapped when reversed"),
+                "secondaryAlignmentCompletenessRule": .string("cohort minimap2 -N equals per-sample consensus target count; reciprocal minimap2 -N equals reference record count; secondary=yes; no fixed cap"),
                 "eventThresholdSemantics": .string("20-base threshold is applied to each individual event and each terminal side; event lengths are never summed to cross the threshold"),
                 "classificationPrecedence": .array([
                     .string("exact genomic known"), .string("structural cDNA extension candidate"),
@@ -6129,6 +6138,7 @@ struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Equatable {
     let rawSequence: String
     let sequence: String
     let candidateSequence: String
+    let candidateWasReverseComplemented: Bool
     let trimStart: Int?
     let trimEnd: Int?
     let trimSource: String
@@ -6150,6 +6160,7 @@ struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Equatable {
         sequence: String,
         rawSequence: String? = nil,
         candidateSequence: String? = nil,
+        candidateWasReverseComplemented: Bool? = nil,
         trimStart: Int? = nil,
         trimEnd: Int? = nil,
         trimSource: String = "provided-sequence",
@@ -6162,11 +6173,49 @@ struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Equatable {
         self.rawSequence = rawSequence ?? sequence
         self.sequence = sequence
         self.candidateSequence = candidateSequence ?? rawSequence ?? sequence
+        self.candidateWasReverseComplemented = candidateWasReverseComplemented
+            ?? (closestMatch?.isReverse == true)
         self.trimStart = trimStart
         self.trimEnd = trimEnd
         self.trimSource = trimSource
         self.closestMatch = closestMatch
         self.rescueMatch = rescueMatch
+    }
+}
+
+enum FullLengthONTMHCCandidateObservationNormalizer {
+    static func canonicalize(
+        summary: ONTMHCGenotypingTargetHitSummary,
+        candidateWasReverseComplemented: Bool
+    ) throws -> ONTMHCGenotypingTargetHitSummary {
+        guard candidateWasReverseComplemented else { return summary }
+        let interpretations = summary.cdnaExtensionInterpretations.map { interpretation in
+            ONTMHCCDNAExtensionInterpretation(
+                rawReferenceID: interpretation.rawReferenceID,
+                alleleName: interpretation.alleleName,
+                locus: interpretation.locus,
+                cDNAReferenceCoverage: interpretation.cDNAReferenceCoverage,
+                clusterCoverage: interpretation.clusterCoverage,
+                leadingClusterFlankBases: interpretation.trailingClusterFlankBases,
+                trailingClusterFlankBases: interpretation.leadingClusterFlankBases,
+                largestClusterStructuralSegmentBases: interpretation.largestClusterStructuralSegmentBases,
+                largestCDNADeficitSegmentBases: interpretation.largestCDNADeficitSegmentBases,
+                snpSubstitutions: interpretation.snpSubstitutions,
+                ordinaryIndelBases: interpretation.ordinaryIndelBases,
+                isReverse: !interpretation.isReverse,
+                alignmentScore: interpretation.alignmentScore,
+                identity: interpretation.identity
+            )
+        }
+        return try ONTMHCGenotypingTargetHitSummary(
+            bamPath: summary.bamPath,
+            targetName: summary.targetName,
+            alignmentCount: summary.alignmentCount,
+            queryAlignmentCounts: summary.queryAlignmentCounts,
+            exactMatchQueryNames: summary.exactMatchQueryNames,
+            closestMatchQueryNames: summary.closestMatchQueryNames,
+            cdnaExtensionInterpretations: interpretations
+        )
     }
 }
 

@@ -21,7 +21,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let commands = try fixture.commands()
         let minimap = try XCTUnwrap(commands.first)
         XCTAssertEqual(Array(minimap.prefix(10)), [
-            "minimap2", "-a", "--eqx", "--cs=long", "-x", "asm20", "-t", "14", "-N", "100",
+            "minimap2", "-a", "--eqx", "--cs=long", "-x", "asm20", "-t", "14", "-N", "2",
         ])
         XCTAssertEqual(minimap[minimap.count - 3], "--secondary=yes")
         XCTAssertEqual(minimap[minimap.count - 2], fixture.referenceFASTAURL.path)
@@ -121,13 +121,40 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertNil(classification.resolvedOptions["zeroSNPIndelClassification"])
         XCTAssertEqual(
             classification.resolvedOptions["zeroSNPClassificationOrder"],
-            "1:eligible-genomic-zero-snp=known;2:eligible-cdna-zero-snp-complete-reference-and-query-intron-fill=extension;3:eligible-other-cdna-zero-snp=known"
+            "1:eligible-genomic-zero-snp=known;2:eligible-cdna-zero-snp-structural-extension=extension;3:eligible-cdna-zero-snp-end-to-end=known;4:otherwise=candidate"
         )
         XCTAssertEqual(
             classification.resolvedOptions["extensionRule"],
-            "complete-cdna-zero-snp-intron-fill-indels-allowed"
+            "cdna-coverage>=0.95;each-cdna-deficit<20;no-hard-clip;cluster-flank-or-structural-segment>=20"
         )
-        XCTAssertEqual(classification.resolvedOptions["documentSchemaVersion"], "2")
+        XCTAssertEqual(classification.resolvedOptions["documentSchemaVersion"], "3")
+        XCTAssertEqual(
+            classification.resolvedOptions["knownCDNARule"],
+            "extension-eligibility;cluster-coverage>=0.95;each-cluster-structural-segment<20"
+        )
+        XCTAssertEqual(
+            classification.resolvedOptions["cDNACoverageNumerator"],
+            "comparable-query-reference-bases-excluding-cdna-deficit-operations"
+        )
+        XCTAssertEqual(classification.resolvedOptions["minimumCDNAReferenceCoverage"], "0.95")
+        XCTAssertEqual(classification.resolvedOptions["minimumCDNAClusterCoverage"], "0.95")
+        XCTAssertEqual(
+            classification.resolvedOptions["meaningfulCDNAStructuralSegmentBases"],
+            "20-per-side-or-cigar-operation"
+        )
+        XCTAssertEqual(classification.resolvedOptions["cDNAHardClipPolicy"], "ineligible")
+        XCTAssertEqual(
+            classification.resolvedOptions["cohortCDNAOrientation"],
+            "query=reference-cdna,target=cluster;cluster-structure=target-flanks+D+N;cdna-deficit=I+S+H"
+        )
+        XCTAssertEqual(
+            classification.resolvedOptions["reciprocalCDNAOrientation"],
+            "query=cluster,target=reference-cdna;cluster-structure=I+S;cdna-deficit=reference-flanks+D+N+H"
+        )
+        XCTAssertEqual(
+            classification.resolvedOptions["allCompatibleReferenceRule"],
+            "secondary=yes;-N=reference-record-count;no-fixed-secondary-cap"
+        )
         XCTAssertEqual(
             classification.resolvedOptions["reciprocalAlignmentCountRule"],
             "unique-locator-count-equals-sum-of-target-alignment-counts"
@@ -138,7 +165,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let candidateRender = try XCTUnwrap(
             transformations["lungfish-in-process:render-mhc-candidate-json"]
         )
-        XCTAssertEqual(candidateRender.resolvedOptions["documentSchemaVersion"], "2")
+        XCTAssertEqual(candidateRender.resolvedOptions["documentSchemaVersion"], "3")
         XCTAssertEqual(candidateRender.resolvedOptions["perAlignmentLocatorArrays"], "omitted")
         XCTAssertTrue(
             candidateRender.resolvedOptions["evidenceArtifacts"]?.contains(
@@ -291,6 +318,30 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
 
         let bytes = try Data(contentsOf: result.candidateJSONURL)
         XCTAssertEqual(bytes, try canonicalizedJSON(bytes))
+    }
+
+    func testReciprocalMappingSecondaryLimitCoversEveryReferenceRecord() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let additional = (0..<125).map { index in
+            MHCReferenceRecord(
+                sequenceID: "extra-\(index)",
+                alleleName: "Mafa-A1*extra-\(index)",
+                locus: "Mafa-A1",
+                moleculeClass: .genomicDNA,
+                classEvidence: .annotatedMetadata,
+                sequenceLength: 1_200
+            )
+        }
+
+        _ = try await fixture.write(
+            observations: fixture.observations,
+            referenceRecords: fixture.defaultReferenceRecords + additional
+        )
+
+        let minimap = try XCTUnwrap(try fixture.commands().first)
+        let limitIndex = try XCTUnwrap(minimap.firstIndex(of: "-N"))
+        XCTAssertEqual(minimap[limitIndex + 1], "127")
     }
 
     func testStableIDsAndArtifactsAreInvariantToSampleOrderAndKeepLabelCollisionsSeparate() async throws {
@@ -614,6 +665,13 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             .init(sampleID: "sample-z", readGroupID: "sample-z", sourceClusterID: "z1", clusterReadCount: 3, sequence: unnameableSequence, genotypingHitSummaries: evidence(sample: "sample-z", source: "z1")),
         ] }
 
+        var defaultReferenceRecords: [MHCReferenceRecord] {
+            [
+                .init(sequenceID: "ref-genomic", alleleName: "Mafa-A1*018:01:01:01", locus: "Mafa-A1", moleculeClass: .genomicDNA, classEvidence: .annotatedMetadata, sequenceLength: 1_200),
+                .init(sequenceID: "ref-cdna", alleleName: "Mafa-B*001:01", locus: "Mafa-B", moleculeClass: .cDNA, classEvidence: .annotatedMetadata, sequenceLength: 1_000),
+            ]
+        }
+
         private func evidence(sample: String, source: String) -> [ONTMHCGenotypingTargetHitSummary] {
             [try! ONTMHCGenotypingTargetHitSummary(
                 bamPath: "artifacts/alignments/genotyping-evidence.bam",
@@ -643,6 +701,7 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             observations: [FullLengthONTMHCCandidateSequenceObservation],
             canonicalFASTAOverride: String? = nil,
             finalOutputDirectoryURL: URL? = nil,
+            referenceRecords: [MHCReferenceRecord]? = nil,
             artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding =
                 DefaultFullLengthONTMHCArtifactDescriptorProvider()
         ) async throws -> FullLengthONTMHCCandidateArtifactResult {
@@ -664,10 +723,7 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             return try await writer.stage(.init(
                 observations: observations,
                 referenceAlleleFASTAURL: referenceFASTAURL,
-                referenceRecords: [
-                    .init(sequenceID: "ref-genomic", alleleName: "Mafa-A1*018:01:01:01", locus: "Mafa-A1", moleculeClass: .genomicDNA, classEvidence: .annotatedMetadata, sequenceLength: 1_200),
-                    .init(sequenceID: "ref-cdna", alleleName: "Mafa-B*001:01", locus: "Mafa-B", moleculeClass: .cDNA, classEvidence: .annotatedMetadata, sequenceLength: 1_000),
-                ],
+                referenceRecords: referenceRecords ?? defaultReferenceRecords,
                 genotypingEvidence: nil,
                 threads: 14,
                 outputDirectoryURL: outputURL,

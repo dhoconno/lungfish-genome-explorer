@@ -501,12 +501,13 @@ public struct FullLengthONTMHCCohortAlignmentBuilder: @unchecked Sendable {
             }
 
             for mapping in mappings {
+                let secondaryAlignmentLimit = max(1, mapping.targets.count)
                 try await run(
                     executableURL: minimap2URL,
                     arguments: [
                         "-a", "-x", "splice", "--eqx",
                         "-t", String(request.threads),
-                        "-N", "100", "--secondary=yes",
+                        "-N", String(secondaryAlignmentLimit), "--secondary=yes",
                         mapping.namespacedClustersFASTAURL.path,
                         request.referenceAlleleFASTAURL.path,
                     ],

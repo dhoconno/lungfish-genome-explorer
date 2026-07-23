@@ -71,12 +71,9 @@ enum FullLengthONTMHCCDNAStructuralClassifier {
         isReverse: Bool,
         metrics: FullLengthONTMHCSAMMetrics
     ) throws -> FullLengthONTMHCCDNAStructuralInterpretation {
-        let alignedCDNABases = try FullLengthONTMHCSAMMetrics.adding(
-            metrics.comparableBases,
-            metrics.insertedBases,
-            metric: .querySpan,
-            operation: .add
-        )
+        // Insertions consume the cDNA query without a corresponding cluster base,
+        // so they are deficits rather than covered cDNA sequence.
+        let alignedCDNABases = metrics.comparableBases
         let targetEnd = try alignmentEnd(start: targetStart, span: metrics.referenceSpan)
         let leadingFlank = max(0, targetStart - 1)
         let trailingFlank = max(0, clusterLength - targetEnd)
@@ -144,7 +141,9 @@ enum FullLengthONTMHCCDNAStructuralClassifier {
             metrics.largestSkippedReferenceSegment,
             metrics.largestHardClippedSegment,
         ].max() ?? 0
-        let cDNACoverage = coverage(metrics.referenceSpan, of: cDNAReferenceLength)
+        // Deletions and skipped-reference operations consume cDNA reference bases
+        // without a corresponding cluster base and therefore do not provide coverage.
+        let cDNACoverage = coverage(metrics.comparableBases, of: cDNAReferenceLength)
         let clusterCoverage = coverage(metrics.querySpan, of: clusterLength)
         let identity = coverage(metrics.matches, of: metrics.comparableBases)
         let alignmentScore = try score(metrics)

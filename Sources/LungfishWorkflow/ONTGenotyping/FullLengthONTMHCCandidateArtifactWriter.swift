@@ -383,12 +383,14 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let reciprocalUnsortedBAMURL = generationURL.appendingPathComponent("reciprocal.unsorted.bam")
         let stagedBAMURL = stagedAlignmentsURL.appendingPathComponent("unmatched-to-reference.bam")
         let stagedBAIURL = stagedAlignmentsURL.appendingPathComponent("unmatched-to-reference.bam.bai")
+        let reciprocalSecondaryAlignmentLimit = max(1, request.referenceRecords.count)
 
         try await run(
             minimap2URL,
             arguments: [
                 "-a", "--eqx", "--cs=long", "-x", "asm20", "-t", String(request.threads),
-                "-N", "100", "--secondary=yes", request.referenceAlleleFASTAURL.path,
+                "-N", String(reciprocalSecondaryAlignmentLimit), "--secondary=yes",
+                request.referenceAlleleFASTAURL.path,
                 stagedStableFASTAURL.path,
             ],
             inputs: [request.referenceAlleleFASTAURL, stagedStableFASTAURL],
@@ -498,7 +500,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             ],
             resolvedOptions: Self.candidateResolvedOptions(request.thresholds).merging([
                 "provenanceOutputException": "typed in-memory classification result is consumed by the candidate and unnameable render steps",
-                "documentSchemaVersion": "2",
+                "documentSchemaVersion": "3",
+                "reciprocalSecondaryAlignmentLimit": String(reciprocalSecondaryAlignmentLimit),
+                "reciprocalSecondaryAlignmentLimitRule": "reference-record-count;at-least-one",
                 "reciprocalBAMPath": reciprocalBAMRelativePath,
                 "reciprocalLocatorIdentity": "bam-path,query-name,reference-name,read-group-id,reference-start,cigar",
                 "reciprocalAlignmentCountRule": "unique-locator-count-equals-sum-of-target-alignment-counts",
@@ -995,8 +999,17 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "minimumShorterCoverage": String(thresholds.minimumShorterCoverage),
             "minimumIntronGapBases": String(thresholds.minimumIntronGapBases),
             "novelDistanceMetric": "SNP-substitutions-only",
-            "zeroSNPClassificationOrder": "1:eligible-genomic-zero-snp=known;2:eligible-cdna-zero-snp-complete-reference-and-query-intron-fill=extension;3:eligible-other-cdna-zero-snp=known",
-            "extensionRule": "complete-cdna-zero-snp-intron-fill-indels-allowed",
+            "zeroSNPClassificationOrder": "1:eligible-genomic-zero-snp=known;2:eligible-cdna-zero-snp-structural-extension=extension;3:eligible-cdna-zero-snp-end-to-end=known;4:otherwise=candidate",
+            "extensionRule": "cdna-coverage>=0.95;each-cdna-deficit<20;no-hard-clip;cluster-flank-or-structural-segment>=20",
+            "knownCDNARule": "extension-eligibility;cluster-coverage>=0.95;each-cluster-structural-segment<20",
+            "cDNACoverageNumerator": "comparable-query-reference-bases-excluding-cdna-deficit-operations",
+            "minimumCDNAReferenceCoverage": "0.95",
+            "minimumCDNAClusterCoverage": "0.95",
+            "meaningfulCDNAStructuralSegmentBases": "20-per-side-or-cigar-operation",
+            "cDNAHardClipPolicy": "ineligible",
+            "cohortCDNAOrientation": "query=reference-cdna,target=cluster;cluster-structure=target-flanks+D+N;cdna-deficit=I+S+H",
+            "reciprocalCDNAOrientation": "query=cluster,target=reference-cdna;cluster-structure=I+S;cdna-deficit=reference-flanks+D+N+H",
+            "allCompatibleReferenceRule": "secondary=yes;-N=reference-record-count;no-fixed-secondary-cap",
         ]
     }
 
@@ -1008,7 +1021,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "\($0.path)|sha256=\($0.sha256)|size-bytes=\($0.sizeBytes)"
         }.sorted().joined(separator: ";")
         return [
-            "documentSchemaVersion": "2",
+            "documentSchemaVersion": "3",
             "evidenceArtifacts": evidenceArtifacts,
             "reciprocalBAMPath": reciprocalBAMPath,
             "reciprocalLocatorIdentity": "bam-path,query-name,reference-name,read-group-id,reference-start,cigar",

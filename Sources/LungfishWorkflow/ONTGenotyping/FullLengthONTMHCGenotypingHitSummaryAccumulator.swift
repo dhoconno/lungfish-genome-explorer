@@ -99,9 +99,18 @@ struct FullLengthONTMHCGenotypingHitSummaryAccumulator {
             } else {
                 structural = nil
             }
-            let isKnownGenotype = structural.map { $0.relationship == .known }
-                ?? (metrics.snps == 0
-                    && (metrics.nonIntronIndelBases == 0 || (referenceLength ?? 0) >= cdnaThreshold))
+            let isKnownGenotype: Bool
+            if let referenceRecord {
+                switch referenceRecord.moleculeClass {
+                case .genomicDNA:
+                    isKnownGenotype = metrics.snps == 0
+                case .cDNA:
+                    isKnownGenotype = structural?.relationship == .known
+                }
+            } else {
+                isKnownGenotype = metrics.snps == 0
+                    && (metrics.nonIntronIndelBases == 0 || (referenceLength ?? 0) >= cdnaThreshold)
+            }
             if isKnownGenotype {
                 exactMatchQueryNames.insert(record.queryName)
             }

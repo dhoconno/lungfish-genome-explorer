@@ -2604,10 +2604,23 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "eventThresholdSemantics", "classificationPrecedence", "perReferenceCollapseRule",
             "genomicLocusResolutionRule", "candidateSequenceIdentityRule",
             "candidateDocumentSchemaVersion", "structurallyReroutedClusterCount",
+            "cohortInterpretationOrientation", "secondaryAlignmentCompletenessRule",
         ] {
             XCTAssertNotNil(structuralStep.resolvedOptions[key], key)
         }
         XCTAssertEqual(structuralStep.resolvedOptions["candidateDocumentSchemaVersion"], .integer(3))
+        XCTAssertEqual(
+            structuralStep.resolvedOptions["cohortCDNAReferenceCoverageDefinition"],
+            .string("comparable query/reference bases / annotated cDNA reference length, clamped to 1; I/S/H deficit bases excluded")
+        )
+        XCTAssertEqual(
+            structuralStep.resolvedOptions["reciprocalCDNAReferenceCoverageDefinition"],
+            .string("comparable query/reference bases / annotated cDNA reference length, clamped to 1; D/N/uncovered-target deficit bases excluded")
+        )
+        XCTAssertEqual(
+            structuralStep.resolvedOptions["cohortInterpretationOrientation"],
+            .string("canonical candidate orientation: raw cohort strand XOR full-candidate reverse-complement; leading/trailing cluster flanks swapped when reversed")
+        )
         let auditedCandidateSteps = envelope.steps.filter { step in
             step.toolName.hasPrefix("lungfish-in-process:")
                 || step.toolName == "lungfish-internal mhc-candidate-workbook-project"
@@ -3602,6 +3615,60 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             Set(records.map { $0.name.split(separator: "|", maxSplits: 1).first.map(String.init) }),
             Set(rows.map { FullLengthONTMHCCandidateArtifactWriter.stableClusterID(for: $0.candidateSequence) })
         )
+    }
+
+    func testCohortInterpretationsNormalizeToCanonicalCandidateOrientation() throws {
+        func summary(
+            target: String,
+            isReverse: Bool,
+            leading: Int,
+            trailing: Int
+        ) throws -> ONTMHCGenotypingTargetHitSummary {
+            try ONTMHCGenotypingTargetHitSummary(
+                bamPath: "artifacts/alignments/genotyping-evidence.bam",
+                targetName: target,
+                alignmentCount: 1,
+                queryAlignmentCounts: ["cdna-ref": 1],
+                exactMatchQueryNames: [],
+                closestMatchQueryNames: ["cdna-ref"],
+                cdnaExtensionInterpretations: [
+                    .init(
+                        rawReferenceID: "cdna-ref",
+                        alleleName: "Mafa-I*01:14:13",
+                        locus: "Mafa-I",
+                        cDNAReferenceCoverage: 1,
+                        clusterCoverage: 1,
+                        leadingClusterFlankBases: leading,
+                        trailingClusterFlankBases: trailing,
+                        largestClusterStructuralSegmentBases: max(leading, trailing),
+                        largestCDNADeficitSegmentBases: 0,
+                        snpSubstitutions: 0,
+                        ordinaryIndelBases: 0,
+                        isReverse: isReverse,
+                        alignmentScore: 1_000,
+                        identity: 1
+                    ),
+                ]
+            )
+        }
+
+        let forward = try FullLengthONTMHCCandidateObservationNormalizer.canonicalize(
+            summary: summary(target: "sample-a|forward", isReverse: false, leading: 25, trailing: 80),
+            candidateWasReverseComplemented: false
+        )
+        let reverseRaw = try FullLengthONTMHCCandidateObservationNormalizer.canonicalize(
+            summary: summary(target: "sample-b|reverse", isReverse: true, leading: 80, trailing: 25),
+            candidateWasReverseComplemented: true
+        )
+
+        let forwardInterpretation = try XCTUnwrap(forward.cdnaExtensionInterpretations.first)
+        let reverseInterpretation = try XCTUnwrap(reverseRaw.cdnaExtensionInterpretations.first)
+        XCTAssertFalse(forwardInterpretation.isReverse)
+        XCTAssertFalse(reverseInterpretation.isReverse)
+        XCTAssertEqual(forwardInterpretation.leadingClusterFlankBases, 25)
+        XCTAssertEqual(forwardInterpretation.trailingClusterFlankBases, 80)
+        XCTAssertEqual(reverseInterpretation.leadingClusterFlankBases, 25)
+        XCTAssertEqual(reverseInterpretation.trailingClusterFlankBases, 80)
     }
 
     func testReportRowsConsolidateMultipleClustersMatchingSameAllele() {
