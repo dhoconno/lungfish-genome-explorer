@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 import LungfishIO
@@ -23,6 +24,18 @@ final class GenotypeAlleleSequenceRecordTests: XCTestCase {
         XCTAssertTrue(record.emblText.contains("FT   CDS             complement(7..30)"))
         XCTAssertTrue(record.emblText.contains("FT                   /allele=\"Mafa-A1*001:01\""))
         XCTAssertTrue(record.emblText.contains("FT   long_feature_name 31..34"))
+        XCTAssertTrue(record.emblText.contains(
+            "CC   Sample support: CR1178, CR1178b. Closest comparison retained."
+        ))
+        XCTAssertTrue(record.emblText.contains("/note=\"Observed \"\"quoted\"\" value\""))
+        XCTAssertFalse(record.emblText.contains("\nvalue"))
+        XCTAssertTrue(record.emblText.split(separator: "\n").allSatisfy { $0.count <= 80 })
+        XCTAssertGreaterThan(
+            record.emblText.split(separator: "\n").filter {
+                $0.hasPrefix("FT                   ") && $0.contains("MPEPTIDE")
+            }.count,
+            1
+        )
         XCTAssertEqual(record.emblText.components(separatedBy: "//").count, 2)
         XCTAssertTrue(record.emblText.hasSuffix("//\n"))
     }
@@ -56,7 +69,8 @@ final class GenotypeAlleleSequenceRecordTests: XCTestCase {
         let candidate = makeCandidate(
             stableID: "stable-a",
             accession: "candidate-accession",
-            displayName: "Mafa-A1*001:01_1nt_nov"
+            displayName: "Mafa-A1*001:01_1nt_nov",
+            sequence: "ACGTACGT"
         )
 
         let catalog = try GenotypeAlleleSequenceRecord.candidateCatalog(
@@ -69,11 +83,18 @@ final class GenotypeAlleleSequenceRecordTests: XCTestCase {
         XCTAssertEqual(record.displayName, "Mafa-A1*001:01_1nt_nov")
         XCTAssertTrue(record.genBankText.contains("ACCESSION   candidate-accession"))
         XCTAssertTrue(record.genBankText.contains("        1 acgtacgt"))
+        XCTAssertFalse(record.genBankText.contains(GenBankReader.rawFeatureTypeQualifierKey))
+        XCTAssertFalse(record.genBankText.contains(GenBankReader.rawLocationQualifierKey))
+        XCTAssertTrue(record.genBankText.contains("     CDS             1..8"))
+        XCTAssertTrue(record.genBankText.contains("/allele=\"candidate\""))
         XCTAssertEqual(
             record.fastaText,
             ">candidate-accession Mafa-A1*001:01_1nt_nov\nACGTACGT\n"
         )
         XCTAssertTrue(record.emblText.contains("AC   candidate-accession;"))
+        XCTAssertTrue(record.emblText.contains(
+            "CC   Candidate support: sample-a, sample-b; closest comparison retained."
+        ))
         XCTAssertTrue(record.emblText.contains("FT   CDS             1..8"))
         XCTAssertTrue(record.genBankText.hasSuffix("//\n"))
         XCTAssertTrue(record.emblText.hasSuffix("//\n"))
@@ -87,7 +108,12 @@ final class GenotypeAlleleSequenceRecordTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
         let candidates = [
             makeCandidate(stableID: "stable-a", accession: "accession-a", displayName: "Mafa-B*001_ext"),
-            makeCandidate(stableID: "stable-b", accession: "accession-b", displayName: "Mafa-B*001_ext"),
+            makeCandidate(
+                stableID: "stable-b",
+                accession: "accession-b",
+                displayName: "Mafa-B*001_ext",
+                sequence: "CCCC"
+            ),
         ]
 
         let catalog = try GenotypeAlleleSequenceRecord.candidateCatalog(
@@ -158,7 +184,12 @@ final class GenotypeAlleleSequenceRecordTests: XCTestCase {
         XCTAssertThrowsError(try GenotypeAlleleSequenceRecord.candidateCatalog(
             candidates: [
                 makeCandidate(stableID: "stable", accession: "accession-a", displayName: "allele-a"),
-                makeCandidate(stableID: "stable", accession: "accession-b", displayName: "allele-b"),
+                makeCandidate(
+                    stableID: "stable",
+                    accession: "accession-b",
+                    displayName: "allele-b",
+                    sequence: "CCCC"
+                ),
             ],
             genBankURL: url
         )) { error in
@@ -220,6 +251,36 @@ final class GenotypeAlleleSequenceRecordTests: XCTestCase {
         }
     }
 
+    func testCandidateCatalogRejectsSequenceChecksumMismatch() throws {
+        let url = try writeCandidateGenBank([
+            candidateGenBank(accession: "same-accession", sequence: "CCCC")
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let expected = checksum("AAAA")
+        let actual = checksum("CCCC")
+
+        XCTAssertThrowsError(try GenotypeAlleleSequenceRecord.candidateCatalog(
+            candidates: [
+                makeCandidate(
+                    stableID: "stable",
+                    accession: "same-accession",
+                    displayName: "allele",
+                    sequence: "AAAA"
+                )
+            ],
+            genBankURL: url
+        )) { error in
+            XCTAssertEqual(
+                error as? GenotypeAlleleSequenceRecord.CatalogError,
+                .candidateSequenceChecksumMismatch(
+                    accession: "same-accession",
+                    expected: expected,
+                    actual: actual
+                )
+            )
+        }
+    }
+
     func testUnavailableNeverSubstitutesASequence() {
         let record = GenotypeAlleleSequenceRecord.unavailable(
             identity: "stable-missing",
@@ -268,7 +329,14 @@ final class GenotypeAlleleSequenceRecordTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let record = try XCTUnwrap(GenotypeAlleleSequenceRecord.candidateCatalog(
-            candidates: [makeCandidate(stableID: "stable", accession: "wrapped", displayName: "allele")],
+            candidates: [
+                makeCandidate(
+                    stableID: "stable",
+                    accession: "wrapped",
+                    displayName: "allele",
+                    sequence: sequence
+                )
+            ],
             genBankURL: url
         )["stable"])
         let lines = record.fastaText.split(separator: "\n", omittingEmptySubsequences: false)
@@ -292,6 +360,7 @@ private extension GenotypeAlleleSequenceRecordTests {
             sequenceSHA256: "unused-by-formatter",
             recordFields: [
                 "DEFINITION": ["MHC class I allele"],
+                "COMMENT": ["Sample support: CR1178, CR1178b. Closest comparison retained."],
                 "LOCUS.MOLECULE_TYPE": ["genomic DNA"],
                 "SOURCE": ["Macaca fascicularis"],
                 "ORGANISM": ["Macaca fascicularis"],
@@ -306,7 +375,8 @@ private extension GenotypeAlleleSequenceRecordTests {
                     sourceOrdinal: 2,
                     rawGenBankLocation: "complement(7..30)",
                     qualifiers: [
-                        "translation": ["MHCPEPTIDE"],
+                        "translation": [String(repeating: "MPEPTIDE", count: 20)],
+                        "note": ["Observed \"quoted\"\nvalue"],
                         "allele": ["Mafa-A1*001:01"],
                     ]
                 ),
@@ -341,6 +411,7 @@ private extension GenotypeAlleleSequenceRecordTests {
         LOCUS       \(accession) \(sequence.count) bp DNA linear
         DEFINITION  Candidate allele.
         ACCESSION   \(accession)
+        COMMENT     Candidate support: sample-a, sample-b; closest comparison retained.
         SOURCE      Macaca fascicularis
           ORGANISM  Macaca fascicularis
                     Eukaryota; Metazoa.
@@ -369,7 +440,8 @@ private extension GenotypeAlleleSequenceRecordTests {
     func makeCandidate(
         stableID: String,
         accession: String,
-        displayName: String
+        displayName: String,
+        sequence: String = "AAAA"
     ) -> ONTMHCCandidateRecord {
         ONTMHCCandidateRecord(
             stableClusterID: stableID,
@@ -393,7 +465,7 @@ private extension GenotypeAlleleSequenceRecordTests {
             totalClusterReads: 20,
             supportingSampleIDs: ["sample-a", "sample-b"],
             fastaRecordID: accession,
-            sequenceSHA256: String(repeating: "a", count: 64),
+            sequenceSHA256: checksum(sequence),
             selectedEvidence: .init(
                 bamPath: "internal.bam",
                 queryName: stableID,
@@ -403,5 +475,11 @@ private extension GenotypeAlleleSequenceRecordTests {
                 cigar: "4M"
             )
         )
+    }
+
+    func checksum(_ sequence: String) -> String {
+        SHA256.hash(data: Data(sequence.uppercased().utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }

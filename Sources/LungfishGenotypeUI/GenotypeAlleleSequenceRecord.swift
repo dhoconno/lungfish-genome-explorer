@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -15,6 +16,11 @@ struct GenotypeAlleleSequenceRecord: Equatable {
         case duplicateStableClusterID(String)
         case missingCandidateAccession(String)
         case candidateAccessionNotFound(String)
+        case candidateSequenceChecksumMismatch(
+            accession: String,
+            expected: String,
+            actual: String
+        )
     }
 
     static func known(_ source: ONTMHCReferenceVisualizationRecord) -> Self {
@@ -30,6 +36,7 @@ struct GenotypeAlleleSequenceRecord: Equatable {
                 source: firstRecordValue("SOURCE", in: source.recordFields),
                 organism: firstRecordValue("ORGANISM", in: source.recordFields),
                 taxonomy: firstRecordValue("TAXONOMY", in: source.recordFields),
+                comments: recordValues("COMMENT", in: source.recordFields),
                 features: source.features
                     .sorted { $0.sourceOrdinal < $1.sourceOrdinal }
                     .map(EMBLFeature.init),
@@ -81,12 +88,21 @@ struct GenotypeAlleleSequenceRecord: Equatable {
                 throw CatalogError.missingCandidateAccession(record.locus.name)
             }
             let sequence = record.sequence.asString().uppercased()
+            let actualChecksum = SHA256.hash(data: Data(sequence.utf8))
+                .map { String(format: "%02x", $0) }
+                .joined()
+            let expectedChecksum = candidate.sequenceSHA256.lowercased()
+            guard actualChecksum == expectedChecksum else {
+                throw CatalogError.candidateSequenceChecksumMismatch(
+                    accession: accession,
+                    expected: expectedChecksum,
+                    actual: actualChecksum
+                )
+            }
             result[candidate.stableClusterID] = Self(
                 identity: candidate.stableClusterID,
                 displayName: candidate.provisionalName,
-                genBankText: normalizedTrailingNewline(
-                    GenBankWriter(url: URL(fileURLWithPath: "/dev/null")).format(record)
-                ),
+                genBankText: cleanGenBankText(record),
                 fastaText: fasta(
                     accession: accession,
                     displayName: candidate.provisionalName,
@@ -142,6 +158,56 @@ private extension GenotypeAlleleSequenceRecord {
         fields.first { $0.key.caseInsensitiveCompare(key) == .orderedSame }?.value.first
     }
 
+    static func recordValues(
+        _ key: String,
+        in fields: [String: [String]]
+    ) -> [String] {
+        fields.first { $0.key.caseInsensitiveCompare(key) == .orderedSame }?.value ?? []
+    }
+
+    static func cleanGenBankText(_ record: GenBankRecord) -> String {
+        let formatted = GenBankWriter(url: URL(fileURLWithPath: "/dev/null")).format(record)
+        var annotationIndex = 0
+        var inFeatures = false
+        var lines: [String] = []
+        for line in formatted.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            if line.hasPrefix("FEATURES") {
+                inFeatures = true
+                lines.append(line)
+                continue
+            }
+            if line.hasPrefix("ORIGIN") {
+                inFeatures = false
+                lines.append(line)
+                continue
+            }
+            guard inFeatures else {
+                lines.append(line)
+                continue
+            }
+            if line.hasPrefix("                     /\(GenBankReader.rawFeatureTypeQualifierKey)")
+                || line.hasPrefix("                     /\(GenBankReader.rawLocationQualifierKey)") {
+                continue
+            }
+            if line.hasPrefix("     "), !line.hasPrefix("                     /"),
+               annotationIndex < record.annotations.count {
+                let annotation = record.annotations[annotationIndex]
+                annotationIndex += 1
+                let featureType = annotation.qualifier(GenBankReader.rawFeatureTypeQualifierKey)
+                    ?? annotation.type.rawValue
+                let location = annotation.qualifier(GenBankReader.rawLocationQualifierKey)
+                    ?? EMBLFeature.location(annotation)
+                let paddedType = featureType.count < 15
+                    ? featureType + String(repeating: " ", count: 15 - featureType.count)
+                    : featureType
+                lines.append("     \(paddedType) \(location)")
+            } else {
+                lines.append(line)
+            }
+        }
+        return normalizedTrailingNewline(lines.joined(separator: "\n"))
+    }
+
     static func fasta(accession: String, displayName: String, sequence: String) -> String {
         let bases = Array(sequence.uppercased())
         var lines = [">\(accession) \(displayName)"]
@@ -186,7 +252,7 @@ private struct EMBLFeature {
         return strand == "-" ? "complement(\(interval))" : interval
     }
 
-    private static func location(_ annotation: SequenceAnnotation) -> String {
+    static func location(_ annotation: SequenceAnnotation) -> String {
         let intervals = annotation.intervals.map { interval in
             interval.start + 1 == interval.end
                 ? "\(interval.end)"
@@ -211,6 +277,7 @@ private enum EMBLFormatter {
             source: record.values(forRecordField: "SOURCE").first,
             organism: record.values(forRecordField: "ORGANISM").first,
             taxonomy: record.values(forRecordField: "TAXONOMY").first,
+            comments: record.values(forRecordField: "COMMENT"),
             features: record.annotations.map(EMBLFeature.init),
             sequence: sequence
         )
@@ -223,6 +290,7 @@ private enum EMBLFormatter {
         source: String?,
         organism: String?,
         taxonomy: String?,
+        comments: [String],
         features: [EMBLFeature],
         sequence: String
     ) -> String {
@@ -241,6 +309,12 @@ private enum EMBLFormatter {
         if let taxonomy = nonempty(taxonomy) {
             lines.append("OC   \(taxonomy)")
         }
+        for comment in comments {
+            lines.append(contentsOf: wrappedLines(
+                prefix: "CC   ",
+                content: flattened(comment)
+            ))
+        }
         if !features.isEmpty {
             lines.append("FH   Key             Location/Qualifiers")
             lines.append("FH")
@@ -251,11 +325,13 @@ private enum EMBLFormatter {
                 lines.append("FT   \(featureKey)\(feature.location)")
                 for qualifier in feature.qualifiers {
                     for value in qualifier.values {
-                        if value.isEmpty {
-                            lines.append("FT                   /\(qualifier.key)")
-                        } else {
-                            lines.append("FT                   /\(qualifier.key)=\"\(value)\"")
-                        }
+                        let content = value.isEmpty
+                            ? "/\(qualifier.key)"
+                            : "/\(qualifier.key)=\"\(escapedQualifier(value))\""
+                        lines.append(contentsOf: wrappedLines(
+                            prefix: "FT                   ",
+                            content: content
+                        ))
                     }
                 }
             }
@@ -275,6 +351,23 @@ private enum EMBLFormatter {
     private static func nonempty(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
         return value
+    }
+
+    private static func flattened(_ value: String) -> String {
+        value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    private static func escapedQualifier(_ value: String) -> String {
+        flattened(value).replacingOccurrences(of: "\"", with: "\"\"")
+    }
+
+    private static func wrappedLines(prefix: String, content: String) -> [String] {
+        let width = max(1, 80 - prefix.count)
+        let characters = Array(content)
+        guard !characters.isEmpty else { return [prefix] }
+        return stride(from: 0, to: characters.count, by: width).map { offset in
+            prefix + String(characters[offset..<min(offset + width, characters.count)])
+        }
     }
 
     private static func nucleotideCounts(
