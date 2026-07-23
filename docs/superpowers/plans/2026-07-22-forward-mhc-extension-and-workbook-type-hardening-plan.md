@@ -23,13 +23,14 @@ Add separate tests that express the four forward rules:
 
 ```swift
 func testCompleteCDNAExtensionAllowsOrdinaryIndelsWhenThereAreNoSNPs() throws {
-    for (cigar, sequenceLength) in [
-        ("499=1D50I500=", 1_049),
-        ("499=1I1=50I500=", 1_051),
+    let deletionReference = makeCDNAReference(sequenceLength: 1_001)
+    for (cigar, sequenceLength, reference) in [
+        ("499=1D1=50I500=", 1_050, deletionReference),
+        ("499=1I1=50I500=", 1_051, cdnaReference),
     ] {
         let cluster = makeCluster(
             sequenceLength: sequenceLength,
-            alignments: [alignment(reference: cdnaReference, cigar: cigar)]
+            alignments: [alignment(reference: reference, cigar: cigar)]
         )
         guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
             return XCTFail("Expected structural cDNA extension for \(cigar)")
@@ -38,6 +39,19 @@ func testCompleteCDNAExtensionAllowsOrdinaryIndelsWhenThereAreNoSNPs() throws {
         XCTAssertEqual(candidate.snpCount, 0)
         XCTAssertEqual(candidate.provisionalName, "Mafa-A1*018:01:01:01_ext")
     }
+}
+
+func testCompleteCDNAExtensionRecognizesIntronInsertionAdjacentToOrdinaryDeletion() throws {
+    let reference = makeCDNAReference(sequenceLength: 1_001)
+    let cluster = makeCluster(
+        sequenceLength: 1_050,
+        alignments: [alignment(reference: reference, cigar: "500=1D50I500=")]
+    )
+    guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+        return XCTFail("Expected structural cDNA extension across adjacent deletion")
+    }
+    XCTAssertEqual(candidate.classification, .extension)
+    XCTAssertEqual(candidate.longGapBases, 50)
 }
 
 func testTerminallyTruncatedCDNAWithIntronInsertionIsKnownNotExtension() throws {
@@ -100,7 +114,8 @@ private func isCDNAExtension(
     guard let reference = hit.resolvedReference,
           reference.moleculeClass == .cDNA,
           hit.metrics.snps == 0,
-          hit.metrics.comparableBases == reference.sequenceLength,
+          hit.input.evidence.referenceStart == 1,
+          hit.metrics.referenceSpan == reference.sequenceLength,
           hit.longGapBases > 0,
           hit.metrics.skippedReferenceBases == 0,
           hit.metrics.softClippedBases == 0,
@@ -110,6 +125,8 @@ private func isCDNAExtension(
     return true
 }
 ```
+
+`referenceSpan`, not `comparableBases`, is the complete-reference invariant because an allowed deletion consumes reference sequence without contributing a comparable base. Intron-sized insertion detection must also recognize aligned context across an immediately adjacent ordinary deletion; it must not turn a terminal insertion into an intron fill.
 
 Update both call sites from `isExactCDNAExtension` to `isCDNAExtension`. Do not change genomic-known ordering, eligibility thresholds, SNP counting, support policy, preliminary closest-hit logic, or legacy worksheets.
 
