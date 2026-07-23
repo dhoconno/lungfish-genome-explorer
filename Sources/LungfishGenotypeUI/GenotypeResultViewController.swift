@@ -549,11 +549,11 @@ public final class GenotypeResultViewController: NSViewController {
         alleleSequenceDetailWidthConstraint?.isActive = false
         alleleSequenceDetailWidthConstraint = nil
         if isFullLengthMHCGenotypeViewport {
-            candidateSequenceRecordsByStableClusterID = (try? GenotypeAlleleSequenceRecord
-                .candidateCatalog(
+            candidateSequenceRecordsByStableClusterID = GenotypeAlleleSequenceRecord
+                .candidateCatalogRetainingValidRecords(
                     candidates: result.mhcCandidates?.candidates ?? [],
                     genBankURL: result.mhcCandidateGenBankArtifactURLs.candidateAlleles
-                )) ?? [:]
+                )
         } else {
             candidateSequenceRecordsByStableClusterID = [:]
         }

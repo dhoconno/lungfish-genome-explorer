@@ -83,35 +83,75 @@ struct GenotypeAlleleSequenceRecord: Equatable {
             guard let record = recordsByAccession[candidate.fastaRecordID] else {
                 throw CatalogError.candidateAccessionNotFound(candidate.fastaRecordID)
             }
-
-            guard let accession = record.accession else {
-                throw CatalogError.missingCandidateAccession(record.locus.name)
-            }
-            let sequence = record.sequence.asString().uppercased()
-            let actualChecksum = SHA256.hash(data: Data(sequence.utf8))
-                .map { String(format: "%02x", $0) }
-                .joined()
-            let expectedChecksum = candidate.sequenceSHA256.lowercased()
-            guard actualChecksum == expectedChecksum else {
-                throw CatalogError.candidateSequenceChecksumMismatch(
-                    accession: accession,
-                    expected: expectedChecksum,
-                    actual: actualChecksum
-                )
-            }
-            result[candidate.stableClusterID] = Self(
-                identity: candidate.stableClusterID,
-                displayName: candidate.provisionalName,
-                genBankText: cleanGenBankText(record),
-                fastaText: fasta(
-                    accession: accession,
-                    displayName: candidate.provisionalName,
-                    sequence: sequence
-                ),
-                emblText: EMBLFormatter.format(record: record, sequence: sequence)
+            result[candidate.stableClusterID] = try candidateRecord(
+                candidate: candidate,
+                record: record
             )
         }
         return result
+    }
+
+    static func candidateCatalogRetainingValidRecords(
+        candidates: [ONTMHCCandidateRecord],
+        genBankURL: URL?
+    ) -> [String: Self] {
+        guard !candidates.isEmpty, let genBankURL,
+              let records = try? GenBankReader(url: genBankURL).readAllSync() else {
+            return [:]
+        }
+        let stableIDCounts = Dictionary(grouping: candidates, by: \.stableClusterID)
+            .mapValues(\.count)
+        let candidateAccessionCounts = Dictionary(grouping: candidates, by: \.fastaRecordID)
+            .mapValues(\.count)
+        let recordsByAccession = Dictionary(grouping: records.compactMap { record in
+            record.accession.map { ($0, record) }
+        }, by: \.0)
+
+        var result: [String: Self] = [:]
+        for candidate in candidates
+        where stableIDCounts[candidate.stableClusterID] == 1
+            && candidateAccessionCounts[candidate.fastaRecordID] == 1 {
+            guard let indexedRecords = recordsByAccession[candidate.fastaRecordID],
+                  indexedRecords.count == 1,
+                  let record = indexedRecords.first?.1,
+                  let value = try? candidateRecord(candidate: candidate, record: record) else {
+                continue
+            }
+            result[candidate.stableClusterID] = value
+        }
+        return result
+    }
+
+    private static func candidateRecord(
+        candidate: ONTMHCCandidateRecord,
+        record: GenBankRecord
+    ) throws -> Self {
+        guard let accession = record.accession else {
+            throw CatalogError.missingCandidateAccession(record.locus.name)
+        }
+        let sequence = record.sequence.asString().uppercased()
+        let actualChecksum = SHA256.hash(data: Data(sequence.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let expectedChecksum = candidate.sequenceSHA256.lowercased()
+        guard actualChecksum == expectedChecksum else {
+            throw CatalogError.candidateSequenceChecksumMismatch(
+                accession: accession,
+                expected: expectedChecksum,
+                actual: actualChecksum
+            )
+        }
+        return Self(
+            identity: candidate.stableClusterID,
+            displayName: candidate.provisionalName,
+            genBankText: cleanGenBankText(record),
+            fastaText: fasta(
+                accession: accession,
+                displayName: candidate.provisionalName,
+                sequence: sequence
+            ),
+            emblText: EMBLFormatter.format(record: record, sequence: sequence)
+        )
     }
 
     static func unavailable(identity: String, displayName: String) -> Self {

@@ -80,6 +80,33 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(controller.testingAlleleSequenceText.contains("AC   candidate-accession;"))
     }
 
+    func testFullLengthMHCCandidateCatalogKeepsValidRecordWhenAnotherChecksumIsInvalid() throws {
+        let fixture = try makeSequenceDetailCandidateResult(includeInvalidCandidate: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+
+        controller.testingSelectCandidateRow(stableClusterID: "candidate-stable")
+
+        XCTAssertTrue(controller.testingAlleleSequenceText.contains(
+            "ACCESSION   candidate-accession"
+        ))
+        XCTAssertFalse(controller.testingAlleleSequenceText.contains(
+            "Validated allele record unavailable"
+        ))
+
+        controller.testingSelectCandidateRow(stableClusterID: "candidate-invalid")
+
+        XCTAssertEqual(
+            controller.testingAlleleSequenceRecordIdentities,
+            ["candidate-invalid"]
+        )
+        XCTAssertTrue(controller.testingAlleleSequenceText.contains(
+            "Validated allele record unavailable"
+        ))
+    }
+
     func testFullLengthMHCUnresolvedSelectionReplacesPriorRecordWithUnavailableRecord() {
         let known = makeMHCReferenceVisualizationRecord(
             rawReferenceID: "known-a",
@@ -9154,7 +9181,8 @@ final class GenotypeResultViewportTests: XCTestCase {
     }
 
     private func makeSequenceDetailCandidateResult(
-        includeKnown: Bool = false
+        includeKnown: Bool = false,
+        includeInvalidCandidate: Bool = false
     ) throws -> (
         root: URL,
         result: ONTGenotypeResultBundleData
@@ -9170,7 +9198,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             withIntermediateDirectories: true
         )
         let sequence = "ACGTACGT"
-        try """
+        var genBankText = """
         LOCUS       candidate-accession 8 bp DNA linear
         DEFINITION  Exact candidate record.
         ACCESSION   candidate-accession
@@ -9180,7 +9208,19 @@ final class GenotypeResultViewportTests: XCTestCase {
         ORIGIN
                 1 acgtacgt
         //
-        """.write(to: candidateURL, atomically: true, encoding: .utf8)
+        """
+        if includeInvalidCandidate {
+            genBankText += """
+
+            LOCUS       invalid-accession 8 bp DNA linear
+            DEFINITION  Checksum-invalid candidate record.
+            ACCESSION   invalid-accession
+            ORIGIN
+                    1 cccccccc
+            //
+            """
+        }
+        try genBankText.write(to: candidateURL, atomically: true, encoding: .utf8)
         let checksum = SHA256.hash(data: Data(sequence.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
@@ -9192,6 +9232,15 @@ final class GenotypeResultViewportTests: XCTestCase {
             support: .singleton,
             samples: ["AnimalA"],
             fastaRecordID: "candidate-accession",
+            sequenceSHA256: checksum
+        )
+        let invalidCandidate = makeCandidate(
+            id: "candidate-invalid",
+            name: "Mafa-A1*002:01_1nt_nov",
+            classification: .novel,
+            support: .singleton,
+            samples: ["AnimalA"],
+            fastaRecordID: "invalid-accession",
             sequenceSHA256: checksum
         )
         let closest = makeCandidateReferenceVisualizationRecord(
@@ -9210,10 +9259,16 @@ final class GenotypeResultViewportTests: XCTestCase {
                 calls: includeKnown
                     ? [makeCall(sample: "AnimalA", genotype: "known-a", reads: 6)]
                     : [],
-                candidates: [candidate],
+                candidates: includeInvalidCandidate ? [candidate, invalidCandidate] : [candidate],
                 observations: [
                     makeCandidateObservation(cluster: stableID, sample: "AnimalA", reads: 5),
-                ],
+                ] + (includeInvalidCandidate
+                    ? [makeCandidateObservation(
+                        cluster: "candidate-invalid",
+                        sample: "AnimalA",
+                        reads: 4
+                    )]
+                    : []),
                 mhcReferenceVisualizations: .init(
                     schemaVersion: 1,
                     records: includeKnown ? [known, closest] : [closest]
