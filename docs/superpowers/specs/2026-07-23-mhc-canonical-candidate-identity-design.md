@@ -194,9 +194,12 @@ Publication is blocked when:
 - an external FASTA, GenBank, or Excel sequence differs from the canonical
   trimmed sequence.
 
-Conflicting records remain separate and carry an explicit ambiguity/readiness
-reason when scientifically valid. Lungfish never merges merely to reduce row
-count.
+Records with different trimmed sequences remain separate and carry an explicit
+ambiguity/readiness reason when scientifically valid. Two records with the same
+trimmed sequence but conflicting required interpretation fields block
+publication: a sequence-derived canonical ID cannot safely represent two
+incompatible biological interpretations. Lungfish never merges merely to reduce
+row count.
 
 ## Provenance
 
