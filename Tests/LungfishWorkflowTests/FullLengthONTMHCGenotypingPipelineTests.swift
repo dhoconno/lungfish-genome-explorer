@@ -2227,6 +2227,154 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         }
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
+        XCTAssertEqual(try candidateArtifactWorkDirectories(in: root), [])
+        let failureEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        XCTAssertTrue(failureEnvelope.stderr?.contains("injected-post-candidate") == true)
+    }
+
+    func testWriterFailureRetainsOnlyCopiedLogsAndRemovesCandidateWorkDirectory() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-writer-failure-cleanup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let minimap2Script = #"""
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ]; then echo "minimap2 2.28"; exit 0; fi
+        previous=""
+        current=""
+        reciprocal="false"
+        for arg in "$@"; do
+          previous="$current"
+          current="$arg"
+          if [ "$arg" = "asm20" ]; then reciprocal="true"; fi
+        done
+        if [ "$reciprocal" = "true" ]; then
+          echo "injected reciprocal writer failure" >&2
+          exit 42
+        fi
+        target_fasta="$previous"
+        query_fasta="$current"
+        query=$(awk '/^>/{sub(/^>/, ""); print $1; exit}' "$query_fasta")
+        target=$(awk '/^>/{sub(/^>/, ""); print $1; exit}' "$target_fasta")
+        printf '@SQ\tSN:%s\tLN:8\n' "$target"
+        if [ -n "$query" ]; then
+          printf '%s\t0\t%s\t1\t60\t8=\t*\t0\t0\tACGTACGT\t*\tNM:i:0\tAS:i:8\n' "$query" "$target"
+        fi
+        """#
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            minimap2Script: minimap2Script
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected reciprocal writer failure")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("injected reciprocal writer failure"),
+                error.localizedDescription
+            )
+        }
+
+        XCTAssertEqual(try candidateArtifactWorkDirectories(in: root), [])
+        let diagnosticsRoot = URL(
+            fileURLWithPath: request.failureProvenanceURL.path + ".diagnostics",
+            isDirectory: true
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: diagnosticsRoot.path))
+        let failureEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        XCTAssertTrue(failureEnvelope.outputs.contains {
+            $0.role == .log && $0.path.hasPrefix(diagnosticsRoot.path + "/")
+        })
+    }
+
+    func testCandidateWorkCleanupStillRunsWhenFailureLogRetentionIsRejected() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-log-retention-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .candidateArtifactsStaged(let stagedOutputURL) = event else { return }
+                let candidateWorkDirectory = stagedOutputURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent(
+                        ".\(stagedOutputURL.lastPathComponent).candidate-artifact-work",
+                        isDirectory: true
+                    )
+                let rejectedLogURL = candidateWorkDirectory.appendingPathComponent(
+                    "unsafe-retained-log.log"
+                )
+                try FileManager.default.createSymbolicLink(
+                    at: rejectedLogURL,
+                    withDestinationURL: root
+                )
+                throw NSError(domain: "injected-post-candidate-with-unsafe-log", code: 25)
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected injected downstream failure")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("failure-log retention also failed"),
+                error.localizedDescription
+            )
+        }
+
+        XCTAssertEqual(try candidateArtifactWorkDirectories(in: root), [])
+        let failureEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        XCTAssertTrue(
+            failureEnvelope.stderr?.contains("failure-log retention also failed") == true,
+            failureEnvelope.stderr ?? "Missing failure stderr"
+        )
+    }
+
+    func testKeepIntermediatesRetainsCandidateWorkDirectoryAndLogsAfterDownstreamFailure() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("full-length-ont-mhc-keep-failed-candidate-work-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (baseRequest, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .candidateArtifactsStaged = event else { return }
+                throw NSError(domain: "injected-kept-post-candidate", code: 24)
+            }
+        )
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: baseRequest.inputFASTQURLs,
+            referenceSourceURL: baseRequest.referenceSourceURL,
+            outputDirectory: baseRequest.outputDirectory,
+            outputName: baseRequest.outputName,
+            threads: baseRequest.threads,
+            minimumLength: baseRequest.minimumLength,
+            maximumLength: baseRequest.maximumLength,
+            keepIntermediates: true
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected injected downstream failure")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, "injected-kept-post-candidate")
+        }
+
+        let retainedWorkDirectories = try candidateArtifactWorkDirectories(in: root)
+        XCTAssertEqual(retainedWorkDirectories.count, 1)
+        let retainedPath = try XCTUnwrap(retainedWorkDirectories.first).standardizedFileURL.path
+        let failureEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        XCTAssertTrue(failureEnvelope.outputs.contains {
+            $0.role == .log && $0.path.hasPrefix(retainedPath + "/")
+        })
     }
 
     func testResultPublicationRejectsSpecialFilesystemEntriesInsteadOfSkippingThem() async throws {
@@ -2278,6 +2426,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         }
 
         XCTAssertEqual(try directoryFileSnapshot(request.outputDirectory), bundleBefore)
+        XCTAssertEqual(try candidateArtifactWorkDirectories(in: root), [])
     }
 
     func testSuccessfulReplacementAtomicallyPublishesCompleteBundleAndRemovesRetiredGeneration() async throws {
@@ -2624,11 +2773,23 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "writer-only-root-publication"
         )
         XCTAssertEqual(
+            envelope.options.resolvedDefaults["mhcRawUnmatchedDecisionPath"]?.stringValue,
+            "artifacts/internal/raw-unmatched-consensus-decisions.json"
+        )
+        XCTAssertEqual(
             envelope.options.explicit["mhcRawUnmatchedConsensusesFASTA"]?.fileValue?.path,
             result.outputDirectory
                 .appendingPathComponent("artifacts/internal/raw-unmatched-consensuses.fasta")
                 .path
         )
+        let rawDecisionURL = result.outputDirectory
+            .appendingPathComponent("artifacts/internal/raw-unmatched-consensus-decisions.json")
+        XCTAssertEqual(
+            envelope.options.explicit["mhcRawUnmatchedDecisionPayload"]?.fileValue?.path,
+            rawDecisionURL.path
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rawDecisionURL.path))
+        XCTAssertTrue(envelope.outputs.contains { $0.path == rawDecisionURL.path })
         XCTAssertEqual(
             envelope.options.resolvedDefaults["mhcResultBundleAtomicPublication"]?.stringValue,
             "adjacent-directory-renameatx_np"
@@ -2636,6 +2797,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let candidateProvenanceNames = Set(envelope.steps.map(\.toolName))
         XCTAssertTrue(candidateProvenanceNames.isSuperset(of: [
             "lungfish-in-process:import-mhc-reference-catalog",
+            "lungfish-in-process:serialize-raw-unmatched-consensus-decisions",
             "lungfish-in-process:materialize-raw-unmatched-consensus-fasta",
             "lungfish-in-process:construct-stable-unmatched-cluster-fasta",
             "lungfish-in-process:parse-and-classify-reciprocal-mhc-alignments",
@@ -2648,9 +2810,46 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "lungfish-in-process:assemble-mhc-workbook-projection-input",
             "lungfish-internal mhc-candidate-workbook-project",
         ]))
+        let rawDecisionStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-in-process:serialize-raw-unmatched-consensus-decisions"
+        })
+        XCTAssertEqual(rawDecisionStep.outputs.map(\.path), [rawDecisionURL.path])
+        XCTAssertTrue(rawDecisionStep.inputs.contains { $0.path == result.genotypingEvidenceBAMURL?.path })
+        XCTAssertTrue(rawDecisionStep.inputs.contains { $0.path == result.genotypingEvidenceBAIURL?.path })
+        XCTAssertTrue(rawDecisionStep.inputs.contains { $0.path == request.referenceSourceURL.path })
+        XCTAssertTrue(rawDecisionStep.inputs.contains {
+            $0.path.hasSuffix("/artifacts/reference/mhc-reference-catalog.json")
+        })
+        XCTAssertEqual(
+            rawDecisionStep.resolvedOptions["rowIdentityFields"],
+            .array([
+                .string("sample_id"), .string("source_cluster_id"), .string("cluster_read_count"),
+                .string("raw_sequence"), .string("candidate_sequence"),
+                .string("candidate_was_reverse_complemented"),
+            ])
+        )
+        let rawDecisionObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: rawDecisionURL)) as? [String: Any]
+        )
+        XCTAssertEqual(rawDecisionObject["schema_version"] as? Int, 1)
+        let rawDecisionRows = try XCTUnwrap(rawDecisionObject["rows"] as? [[String: Any]])
+        XCTAssertEqual(
+            rawDecisionStep.resolvedOptions["rowCount"],
+            .integer(rawDecisionRows.count)
+        )
+        for row in rawDecisionRows {
+            XCTAssertNotNil(row["sample_id"])
+            XCTAssertNotNil(row["source_cluster_id"])
+            XCTAssertNotNil(row["cluster_read_count"])
+            XCTAssertNotNil(row["raw_sequence"])
+            XCTAssertNotNil(row["candidate_sequence"])
+            XCTAssertNotNil(row["candidate_was_reverse_complemented"])
+            XCTAssertNotNil(row["trim_source"])
+        }
         let rawUnmatchedMaterializationStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName == "lungfish-in-process:materialize-raw-unmatched-consensus-fasta"
         })
+        XCTAssertEqual(rawUnmatchedMaterializationStep.inputs.map(\.path), [rawDecisionURL.path])
         XCTAssertEqual(
             value(after: "--output", in: rawUnmatchedMaterializationStep.argv),
             result.outputDirectory
@@ -4103,6 +4302,52 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         )
     }
 
+    func testRawUnmatchedDecisionDocumentPersistsRowIdentitySupportAndOrientation() throws {
+        let row = FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
+            sample: "DL47",
+            cluster: "ClusterA_ReadCount-9",
+            clusterReads: 9,
+            sequence: "ACGT",
+            rawSequence: "AACGTT",
+            candidateSequence: "AACGTT",
+            candidateWasReverseComplemented: true,
+            trimStart: 2,
+            trimEnd: 5,
+            trimSource: "minimap2-target-interval-reverse-complement",
+            closestMatch: nil
+        )
+        let document = FullLengthONTMHCRawUnmatchedDecisionDocument(rows: [row])
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(document)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        XCTAssertEqual(object["schema_version"] as? Int, 1)
+        let encodedRow = try XCTUnwrap(
+            (object["rows"] as? [[String: Any]])?.first
+        )
+        XCTAssertEqual(encodedRow["sample_id"] as? String, "DL47")
+        XCTAssertEqual(encodedRow["source_cluster_id"] as? String, "ClusterA_ReadCount-9")
+        XCTAssertEqual(encodedRow["cluster_read_count"] as? Int, 9)
+        XCTAssertEqual(encodedRow["raw_sequence"] as? String, "AACGTT")
+        XCTAssertEqual(encodedRow["candidate_sequence"] as? String, "AACGTT")
+        XCTAssertEqual(encodedRow["candidate_was_reverse_complemented"] as? Bool, true)
+        XCTAssertEqual(encodedRow["trim_start"] as? Int, 2)
+        XCTAssertEqual(encodedRow["trim_end"] as? Int, 5)
+        XCTAssertEqual(
+            encodedRow["trim_source"] as? String,
+            "minimap2-target-interval-reverse-complement"
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                FullLengthONTMHCRawUnmatchedDecisionDocument.self,
+                from: data
+            ),
+            document
+        )
+    }
+
     func testDeduplicatedUnmatchedFASTARecordsIncludeOccurrencesAndSamples() {
         let rows = [
             FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
@@ -4597,6 +4842,15 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(evidence.bam.sha256, try ProvenanceFileHasher.sha256(of: bamURL))
         XCTAssertEqual(evidence.bai.sha256, try ProvenanceFileHasher.sha256(of: baiURL))
         XCTAssertNotNil(try ProvenanceEnvelopeReader.load(fromSidecar: request.provenanceURL))
+    }
+
+    private func candidateArtifactWorkDirectories(in root: URL) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil
+        )
+        .filter { $0.lastPathComponent.hasSuffix(".candidate-artifact-work") }
+        .sorted { $0.path < $1.path }
     }
 
     private func makeFakeFullLengthCondaRoot(

@@ -156,6 +156,12 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
             .appendingPathComponent("raw-unmatched-consensuses.fasta")
     }
 
+    public var rawUnmatchedConsensusDecisionsJSONURL: URL {
+        outputDirectory
+            .appendingPathComponent("artifacts/internal", isDirectory: true)
+            .appendingPathComponent("raw-unmatched-consensus-decisions.json")
+    }
+
     public var cdnaClustersFASTAURL: URL {
         outputDirectory.appendingPathComponent("cdna_clusters.fasta")
     }
@@ -628,6 +634,34 @@ struct FullLengthONTMHCReferenceCatalogProjection: Codable, Equatable, Sendable 
     }
 }
 
+struct FullLengthONTMHCRawUnmatchedDecisionDocument: Codable, Equatable, Sendable {
+    static let schemaVersion = 1
+
+    let schemaVersion: Int
+    let rows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow]
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case rows
+    }
+
+    init(rows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow]) {
+        schemaVersion = Self.schemaVersion
+        self.rows = rows.sorted {
+            if $0.sample != $1.sample {
+                return $0.sample < $1.sample
+            }
+            if $0.cluster != $1.cluster {
+                return $0.cluster < $1.cluster
+            }
+            if $0.candidateSequence != $1.candidateSequence {
+                return $0.candidateSequence < $1.candidateSequence
+            }
+            return $0.clusterReads < $1.clusterReads
+        }
+    }
+}
+
 private struct FullLengthONTMHCReferenceCatalogInputs: Sendable, Equatable {
     let fastaURL: URL
     let manifestURL: URL?
@@ -1005,6 +1039,50 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             )
             let failedPublicationRecord = (error as? FullLengthONTMHCResultBundlePublicationError)?.record
             var reportedError: Error = error
+            var retainedFailureDiagnosticRoots = rollbackFailureRecovery?.retainedRoots ?? []
+            let candidateWorkDirectory = candidateArtifactWorkDirectory(for: stagedOutputURL)
+            if FileManager.default.fileExists(atPath: candidateWorkDirectory.path) {
+                if request.keepIntermediates {
+                    retainedFailureDiagnosticRoots.append(candidateWorkDirectory)
+                } else {
+                    var candidateLogRetentionError: Error?
+                    do {
+                        if let retainedLogsURL = try retainCandidateFailureLogs(
+                            from: candidateWorkDirectory,
+                            for: request
+                        ) {
+                            retainedFailureDiagnosticRoots.append(retainedLogsURL)
+                        }
+                    } catch {
+                        candidateLogRetentionError = error
+                    }
+                    var candidateCleanupError: Error?
+                    do {
+                        try postPublicationWorkDirectoryCleaner.removeWorkDirectory(
+                            at: candidateWorkDirectory
+                        )
+                    } catch {
+                        candidateCleanupError = error
+                        retainedFailureDiagnosticRoots.append(candidateWorkDirectory)
+                    }
+                    if candidateLogRetentionError != nil || candidateCleanupError != nil {
+                        var failureDetails: [String] = []
+                        if let candidateLogRetentionError {
+                            failureDetails.append(
+                                "candidate failure-log retention also failed (\(candidateLogRetentionError.localizedDescription))"
+                            )
+                        }
+                        if let candidateCleanupError {
+                            failureDetails.append(
+                                "candidate work cleanup also failed (\(candidateCleanupError.localizedDescription))"
+                            )
+                        }
+                        reportedError = FullLengthONTMHCGenotypingError.reportFailed(
+                            "Run failed (\(error.localizedDescription)); \(failureDetails.joined(separator: "; "))."
+                        )
+                    }
+                }
+            }
             let retainedRecoveryPaths = Set(
                 rollbackFailureRecovery?.retainedRoots.map { $0.standardizedFileURL.path } ?? []
             )
@@ -1028,7 +1106,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     failedPublicationRecord: failedPublicationRecord,
                     successfulPublicationRecord: successfulPublicationRecordSnapshot,
                     rollbackStep: rollbackStepSnapshot,
-                    rollbackFailureRecovery: rollbackFailureRecovery
+                    rollbackFailureRecovery: rollbackFailureRecovery,
+                    additionalDiagnosticRoots: retainedFailureDiagnosticRoots
                 )
             } catch let provenanceError {
                 throw FullLengthONTMHCGenotypingError.reportFailed(
@@ -1282,26 +1361,81 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             try append(records: result.unmatchedClusters, sample: result.sample, to: request.unmatchedClustersFASTAURL)
             try append(records: result.cdnaMatchedClusters, sample: result.sample, to: request.cdnaClustersFASTAURL)
         }
-        let rawUnmatchedMaterializationStartedAt = Date()
-        let rawUnmatchedRecords = FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder
-            .deduplicatedFASTARecords(unmatchedClosestMatchRows)
+        let rawDecisionSerializationStartedAt = Date()
         try FileManager.default.createDirectory(
             at: request.rawUnmatchedConsensusesFASTAURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        let rawDecisionDocument = FullLengthONTMHCRawUnmatchedDecisionDocument(
+            rows: unmatchedClosestMatchRows
+        )
+        let rawDecisionEncoder = JSONEncoder()
+        rawDecisionEncoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        try rawDecisionEncoder.encode(rawDecisionDocument).write(
+            to: request.rawUnmatchedConsensusDecisionsJSONURL,
+            options: .atomic
+        )
+        let rawDecisionSerializationCompletedAt = Date()
+        let rawDecisionInputs = [
+            cohortAlignmentResult.bamURL,
+            cohortAlignmentResult.baiURL,
+            referenceFASTAURL,
+            referenceCatalogProjectionURL,
+        ] + authoritativeResults.map(\.clustersFASTAURL)
+        var rawDecisionArgv = [
+            "lungfish-in-process", "serialize-raw-unmatched-consensus-decisions",
+            "--genotyping-bam", cohortAlignmentResult.bamURL.path,
+            "--genotyping-bai", cohortAlignmentResult.baiURL.path,
+            "--reference-fasta", referenceFASTAURL.path,
+            "--reference-catalog", referenceCatalogProjectionURL.path,
+        ]
+        for inputURL in authoritativeResults.map(\.clustersFASTAURL) {
+            rawDecisionArgv += ["--cluster-fasta", inputURL.path]
+        }
+        rawDecisionArgv += [
+            "--output", request.rawUnmatchedConsensusDecisionsJSONURL.path,
+        ]
+        pipelineSteps.append(FullLengthONTMHCProvenanceStep(
+            toolName: "lungfish-in-process:serialize-raw-unmatched-consensus-decisions",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: rawDecisionArgv,
+            resolvedOptions: [
+                "schemaVersion": .integer(FullLengthONTMHCRawUnmatchedDecisionDocument.schemaVersion),
+                "rowCount": .integer(rawDecisionDocument.rows.count),
+                "rowIdentityFields": .array([
+                    .string("sample_id"), .string("source_cluster_id"), .string("cluster_read_count"),
+                    .string("raw_sequence"), .string("candidate_sequence"),
+                    .string("candidate_was_reverse_complemented"),
+                ]),
+                "orientationRule": .string("raw cohort strand XOR full-candidate reverse-complement"),
+                "trimRule": .string("mapped interval is metadata; complete oriented consensus defines candidate identity"),
+                "closestMatchRule": .string("persist selected minimap2 or BLAST closest-match evidence with every row"),
+                "orderingRule": .string("sample, source cluster, candidate sequence, cluster read count"),
+            ],
+            inputs: rawDecisionInputs,
+            outputs: [request.rawUnmatchedConsensusDecisionsJSONURL],
+            exitStatus: 0,
+            stderr: nil,
+            startedAt: rawDecisionSerializationStartedAt,
+            completedAt: rawDecisionSerializationCompletedAt
+        ))
+
+        let rawUnmatchedMaterializationStartedAt = Date()
+        let rawDecisionDecoder = JSONDecoder()
+        let persistedRawDecisionDocument = try rawDecisionDecoder.decode(
+            FullLengthONTMHCRawUnmatchedDecisionDocument.self,
+            from: Data(contentsOf: request.rawUnmatchedConsensusDecisionsJSONURL)
+        )
+        let rawUnmatchedRecords = FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder
+            .deduplicatedFASTARecords(persistedRawDecisionDocument.rows)
         try writeFASTARecords(
             rawUnmatchedRecords,
             to: request.rawUnmatchedConsensusesFASTAURL
         )
         let rawUnmatchedMaterializationCompletedAt = Date()
-        let rawUnmatchedMaterializationInputs = authoritativeResults.map(\.clustersFASTAURL)
-        var rawUnmatchedMaterializationArgv = [
+        let rawUnmatchedMaterializationArgv = [
             "lungfish-in-process", "materialize-raw-unmatched-consensus-fasta",
-        ]
-        for inputURL in rawUnmatchedMaterializationInputs {
-            rawUnmatchedMaterializationArgv += ["--input", inputURL.path]
-        }
-        rawUnmatchedMaterializationArgv += [
+            "--decisions", request.rawUnmatchedConsensusDecisionsJSONURL.path,
             "--output", request.rawUnmatchedConsensusesFASTAURL.path,
         ]
         pipelineSteps.append(FullLengthONTMHCProvenanceStep(
@@ -1315,8 +1449,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "outputPath": .string("artifacts/internal/raw-unmatched-consensuses.fasta"),
                 "rootPublicationOwner": .string("FullLengthONTMHCCandidateArtifactWriter"),
                 "canonicalRootOutputPath": .string("deduplicated_unmatched_clusters.fasta"),
+                "decisionPayloadSchemaVersion": .integer(
+                    FullLengthONTMHCRawUnmatchedDecisionDocument.schemaVersion
+                ),
             ],
-            inputs: rawUnmatchedMaterializationInputs,
+            inputs: [request.rawUnmatchedConsensusDecisionsJSONURL],
             outputs: [request.rawUnmatchedConsensusesFASTAURL],
             exitStatus: 0,
             stderr: nil,
@@ -1332,9 +1469,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             minimap2ExecutableURL: minimap2ExecutableURL,
             samtoolsExecutableURL: samtoolsExecutableURL
         )
-        let candidateWorkDirectory = request.outputDirectory
-            .deletingLastPathComponent()
-            .appendingPathComponent(".\(request.outputDirectory.lastPathComponent).candidate-artifact-work", isDirectory: true)
+        let candidateWorkDirectory = candidateArtifactWorkDirectory(
+            for: request.outputDirectory
+        )
         try FileManager.default.createDirectory(at: candidateWorkDirectory, withIntermediateDirectories: true)
         let candidateReferenceAnnotationInputURLs = request.referenceSourceURL.pathExtension.lowercased() == "lungfishref"
             ? try mhcReferenceVisualizationInputURLs(
@@ -2641,6 +2778,70 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 try FileManager.default.removeItem(at: url)
             }
         }
+    }
+
+    private func candidateArtifactWorkDirectory(for outputDirectoryURL: URL) -> URL {
+        outputDirectoryURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(outputDirectoryURL.lastPathComponent).candidate-artifact-work",
+                isDirectory: true
+            )
+    }
+
+    private func retainCandidateFailureLogs(
+        from candidateWorkDirectory: URL,
+        for request: FullLengthONTMHCGenotypingRunRequest
+    ) throws -> URL? {
+        let safety = FullLengthONTMHCAlignmentSafety()
+        try safety.requireSafeDirectoryTree(
+            candidateWorkDirectory,
+            role: "failed candidate artifact work directory"
+        )
+        guard let enumerator = FileManager.default.enumerator(
+            at: candidateWorkDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        ) else {
+            return nil
+        }
+        let logURLs = (enumerator.allObjects as? [URL] ?? []).filter { url in
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else {
+                return false
+            }
+            return url.pathComponents.contains("logs") || url.pathExtension.lowercased() == "log"
+        }
+        guard !logURLs.isEmpty else { return nil }
+        let diagnosticsRoot = URL(
+            fileURLWithPath: request.failureProvenanceURL.path + ".diagnostics",
+            isDirectory: true
+        )
+        let retainedLogsRoot = diagnosticsRoot.appendingPathComponent(
+            "candidate-artifact-logs",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: retainedLogsRoot,
+            withIntermediateDirectories: true
+        )
+        let sourcePrefix = candidateWorkDirectory.standardizedFileURL.path + "/"
+        for sourceURL in logURLs.sorted(by: { $0.path < $1.path }) {
+            try safety.requireRegularFileNoFollow(
+                sourceURL,
+                role: "failed candidate artifact log"
+            )
+            let relativePath = sourceURL.standardizedFileURL.path
+                .replacingOccurrences(of: sourcePrefix, with: "")
+            let destinationURL = retainedLogsRoot.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(
+                at: destinationURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        }
+        return diagnosticsRoot
     }
 
     private func resolveMHCReferenceFASTA(_ sourceURL: URL) throws -> URL {
@@ -4944,6 +5145,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "mhcCandidateNovelDistanceMetric": .string("SNP-substitutions-only"),
             "mhcCandidateZeroSNPIndelClassification": .string("known-existing-allele"),
             "mhcRawUnmatchedConsensusesPath": .string("artifacts/internal/raw-unmatched-consensuses.fasta"),
+            "mhcRawUnmatchedDecisionPath": .string("artifacts/internal/raw-unmatched-consensus-decisions.json"),
             "mhcCanonicalUnmatchedClustersPath": .string("deduplicated_unmatched_clusters.fasta"),
             "mhcCanonicalUnmatchedPublicationRule": .string("writer-only-root-publication"),
             "mhcReferenceVisualizationSchemaVersion": .integer(1),
@@ -5005,6 +5207,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "mhcCandidateNovelDistanceMetric": .string("SNP-substitutions-only"),
             "mhcCandidateZeroSNPIndelClassification": .string("known-existing-allele"),
             "mhcRawUnmatchedConsensusesPath": .string("artifacts/internal/raw-unmatched-consensuses.fasta"),
+            "mhcRawUnmatchedDecisionPath": .string("artifacts/internal/raw-unmatched-consensus-decisions.json"),
             "mhcCanonicalUnmatchedClustersPath": .string("deduplicated_unmatched_clusters.fasta"),
             "mhcCanonicalUnmatchedPublicationRule": .string("writer-only-root-publication"),
             "mhcReferenceVisualizationSchemaVersion": .integer(1),
@@ -5039,6 +5242,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             }
         )
         explicit["mhcRawUnmatchedConsensusesFASTA"] = .file(request.rawUnmatchedConsensusesFASTAURL)
+        explicit["mhcRawUnmatchedDecisionPayload"] = .file(
+            request.rawUnmatchedConsensusDecisionsJSONURL
+        )
         explicit["mhcCandidateStableUnmatchedFASTA"] = .file(candidateArtifactResult.stableUnmatchedFASTAURL)
         explicit["mhcCandidateReciprocalBAM"] = .file(candidateArtifactResult.reciprocalBAMURL)
         explicit["mhcCandidateReciprocalBAI"] = .file(candidateArtifactResult.reciprocalBAIURL)
@@ -5121,6 +5327,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         .output(request.currentWorkbookURL, format: .unknown, role: .report)
         .relocatedOutput(manifestPublicationPlan.finalDescriptor)
         .output(request.unmatchedClustersFASTAURL, format: .fasta, role: .output)
+        .output(request.rawUnmatchedConsensusDecisionsJSONURL, format: .json, role: .output)
         .output(request.rawUnmatchedConsensusesFASTAURL, format: .fasta, role: .output)
         .output(request.deduplicatedUnmatchedClustersFASTAURL, format: .fasta, role: .output)
         .output(request.cdnaClustersFASTAURL, format: .fasta, role: .output)
@@ -5243,7 +5450,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         failedPublicationRecord: FullLengthONTMHCResultBundlePublicationRecord?,
         successfulPublicationRecord: FullLengthONTMHCResultBundlePublicationRecord?,
         rollbackStep: ProvenanceStep?,
-        rollbackFailureRecovery: FullLengthONTMHCRollbackFailureRecovery?
+        rollbackFailureRecovery: FullLengthONTMHCRollbackFailureRecovery?,
+        additionalDiagnosticRoots: [URL] = []
     ) throws {
         let completedAt = Date()
         let cancelled = isCancellation(error)
@@ -5254,7 +5462,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let inputs = failureInputDescriptors(request)
         let outputs = try failureDiagnosticDescriptors(
             stagedOutputURL: stagedOutputURL,
-            additionalRoots: rollbackFailureRecovery?.retainedRoots ?? []
+            additionalRoots: additionalDiagnosticRoots
         )
         let options = failureProvenanceOptions(
             request: request,
@@ -5362,16 +5570,26 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             fileURLWithPath: request.failureProvenanceURL.path + ".inputs",
             isDirectory: true
         )
+        let failureDiagnosticsDirectoryURL = URL(
+            fileURLWithPath: request.failureProvenanceURL.path + ".diagnostics",
+            isDirectory: true
+        )
         let safety = FullLengthONTMHCAlignmentSafety()
-        if try safety.requireOptionalDirectoryEntryNoFollow(
-            failureInputDirectoryURL,
-            role: "MHC visualization failure input directory"
-        ) {
+        for (directoryURL, role) in [
+            (failureInputDirectoryURL, "MHC visualization failure input directory"),
+            (failureDiagnosticsDirectoryURL, "MHC failed-run diagnostics directory"),
+        ] {
+            guard try safety.requireOptionalDirectoryEntryNoFollow(
+                directoryURL,
+                role: role
+            ) else {
+                continue
+            }
             try safety.requireSafeDirectoryTree(
-                failureInputDirectoryURL,
-                role: "MHC visualization failure input directory"
+                directoryURL,
+                role: role
             )
-            try FileManager.default.removeItem(at: failureInputDirectoryURL)
+            try FileManager.default.removeItem(at: directoryURL)
         }
     }
 
@@ -6183,7 +6401,7 @@ private struct FullLengthONTMHCWorkbookCopyResult: Sendable {
     let step: FullLengthONTMHCProvenanceStep
 }
 
-struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Equatable {
+struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Codable, Equatable {
     let sample: String
     let cluster: String
     let clusterReads: Int
@@ -6196,6 +6414,21 @@ struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Equatable {
     let trimSource: String
     let closestMatch: FullLengthONTMHCClosestMatch?
     let rescueMatch: FullLengthONTMHCBlastRescueMatch?
+
+    private enum CodingKeys: String, CodingKey {
+        case sample = "sample_id"
+        case cluster = "source_cluster_id"
+        case clusterReads = "cluster_read_count"
+        case rawSequence = "raw_sequence"
+        case sequence = "display_sequence"
+        case candidateSequence = "candidate_sequence"
+        case candidateWasReverseComplemented = "candidate_was_reverse_complemented"
+        case trimStart = "trim_start"
+        case trimEnd = "trim_end"
+        case trimSource = "trim_source"
+        case closestMatch = "closest_match"
+        case rescueMatch = "rescue_match"
+    }
 
     var rawLength: Int {
         rawSequence.count
@@ -6344,7 +6577,7 @@ enum FullLengthONTMHCUnmatchedSequenceNormalizer {
     }
 }
 
-struct FullLengthONTMHCBlastRescueMatch: Sendable, Equatable {
+struct FullLengthONTMHCBlastRescueMatch: Sendable, Codable, Equatable {
     static let minimumQueryCoverage = 70.0
     static let minimumAlignedBases = 1_000
     static let minimumPercentIdentity = 75.0
