@@ -41,6 +41,7 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertEqual(text("candidateClosestAllele", in: view), "Mafa-A1*063:01")
         XCTAssertEqual(text("candidateClosestRawReferenceID", in: view), "NHP0068")
         XCTAssertEqual(text("candidateClosestReferenceClass", in: view), "Genomic DNA")
+        XCTAssertEqual(text("candidateExtensionOf", in: view), "—")
         XCTAssertEqual(text("candidateSNPCount", in: view), "3")
         XCTAssertEqual(text("candidateInsertedBases", in: view), "2")
         XCTAssertEqual(text("candidateDeletedBases", in: view), "2")
@@ -686,6 +687,7 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
             "candidateClosestAllele",
             "candidateClosestRawReferenceID",
             "candidateClosestReferenceClass",
+            "candidateExtensionOf",
             "candidateCommentLabel.0",
             "candidateCommentBody.0",
             "candidateFallbackNote",

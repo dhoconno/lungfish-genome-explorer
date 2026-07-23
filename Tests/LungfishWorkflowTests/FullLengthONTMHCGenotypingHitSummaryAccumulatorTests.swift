@@ -74,6 +74,34 @@ final class FullLengthONTMHCGenotypingHitSummaryAccumulatorTests: XCTestCase {
         XCTAssertEqual(summary.closestMatchQueryNames, ["allele"])
     }
 
+    func testSummaryPersistsCompactStructuralCDNAExtensionInterpretation() throws {
+        let samURL = try writeSAM("""
+        cdna-ref\t0\tSample-C|cluster-1\t1001\t60\t1000=\t*\t0\t0\tA\t*\tRG:Z:rg-c
+        """)
+        defer { try? FileManager.default.removeItem(at: samURL.deletingLastPathComponent()) }
+        let reference = MHCReferenceRecord(
+            sequenceID: "cdna-ref",
+            alleleName: "Mafa-I*01:14:13",
+            locus: "Mafa-I",
+            moleculeClass: .cDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_000
+        )
+
+        let summary = try XCTUnwrap(FullLengthONTMHCGenotypingHitSummaryAccumulator.summaries(
+            samURL: samURL,
+            bamPath: "evidence.bam",
+            referenceLengths: ["cdna-ref": 1_000],
+            cdnaThreshold: 2_000,
+            referenceRecords: [reference],
+            targetLengths: ["Sample-C|cluster-1": 3_000]
+        )["Sample-C|cluster-1"])
+
+        XCTAssertEqual(summary.cdnaExtensionInterpretations.map(\.alleleName), ["Mafa-I*01:14:13"])
+        XCTAssertEqual(summary.cdnaExtensionInterpretations.first?.leadingClusterFlankBases, 1_000)
+        XCTAssertEqual(summary.cdnaExtensionInterpretations.first?.trailingClusterFlankBases, 1_000)
+    }
+
     private func writeSAM(_ text: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("mhc-hit-summary-\(UUID().uuidString)", isDirectory: true)

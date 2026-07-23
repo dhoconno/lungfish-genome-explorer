@@ -734,7 +734,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertEqual(malformed.calls.count, 1)
         XCTAssertEqual(malformed.integrityWarnings.first?.code, .candidateArtifactMalformedJSON)
 
-        let schemaFixture = try CandidateBundleFixture(candidateSchemaVersion: 3)
+        let schemaFixture = try CandidateBundleFixture(candidateSchemaVersion: 4)
         defer { schemaFixture.remove() }
         let schema = try ONTGenotypeResultBundle.loadResult(from: schemaFixture.bundleURL)
         XCTAssertEqual(schema.calls.count, 1)
@@ -742,7 +742,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
 
         let unnameableSchemaFixture = try CandidateBundleFixture(
             candidateSchemaVersion: 1,
-            unnameableSchemaVersion: 3
+            unnameableSchemaVersion: 4
         )
         defer { unnameableSchemaFixture.remove() }
         let unnameableSchema = try ONTGenotypeResultBundle.loadResult(
@@ -753,6 +753,24 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             unnameableSchema.integrityWarnings.first?.code,
             .candidateArtifactSchemaUnsupported
         )
+    }
+
+    func testSchemaV3RejectsMissingStructuralCandidateFields() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 3,
+            unnameableSchemaVersion: 3
+        )
+        defer { fixture.remove() }
+        let data = try Data(contentsOf: fixture.candidateJSONURL)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var candidates = try XCTUnwrap(object["candidates"] as? [[String: Any]])
+        candidates[0].removeValue(forKey: "extension_interpretations")
+        object["candidates"] = candidates
+        try fixture.replaceCandidateJSON(try JSONSerialization.data(withJSONObject: object))
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        XCTAssertEqual(result.calls.count, 1)
+        XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactMalformedJSON)
     }
 
     func testMissingDuplicateAndExtraCandidateFASTARecordsFailSoft() throws {

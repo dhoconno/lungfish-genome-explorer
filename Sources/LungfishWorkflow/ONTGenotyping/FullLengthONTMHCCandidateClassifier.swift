@@ -150,6 +150,7 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         let nonIntronIndelBases: Int
         let shorterCoverage: Double
         let identity: Double
+        let cdnaInterpretation: FullLengthONTMHCCDNAStructuralInterpretation?
         let failure: Failure?
         let failedMetrics: [String: Double]
 
@@ -233,20 +234,102 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             return .known(knownCalls(knownGenomic))
         }
 
-        if let extensionHit = best(eligible.filter { isCDNAExtension($0, cluster: cluster) }) {
+        let rawExtensionHits = eligible.filter {
+            $0.cdnaInterpretation?.relationship == .extension
+        }
+        let cohortExtensions = Dictionary(grouping: cluster.observations.flatMap {
+            $0.genotypingHitSummaries.flatMap(\.cdnaExtensionInterpretations)
+        }, by: \.rawReferenceID).compactMap { _, values in
+            values.sorted {
+                if $0.cDNAReferenceCoverage != $1.cDNAReferenceCoverage {
+                    return $0.cDNAReferenceCoverage > $1.cDNAReferenceCoverage
+                }
+                if $0.clusterCoverage != $1.clusterCoverage {
+                    return $0.clusterCoverage > $1.clusterCoverage
+                }
+                return $0.alignmentScore > $1.alignmentScore
+            }.first
+        }
+        let extensionGroups = Dictionary(grouping: rawExtensionHits) {
+            $0.resolvedReference?.sequenceID ?? $0.input.reference.referenceName
+        }
+        let reciprocalStrandConflict = extensionGroups.values.contains { group in
+            guard let first = best(group) else { return false }
+            return Set(group.filter { hasEquivalentBiologicalRank($0, first) }.map(\.input.isReverse)).count > 1
+        }
+        let cohortStrandConflict = Dictionary(grouping: cluster.observations.flatMap {
+            $0.genotypingHitSummaries.flatMap(\.cdnaExtensionInterpretations)
+        }, by: \.rawReferenceID).values.contains { Set($0.map(\.isReverse)).count > 1 }
+        if reciprocalStrandConflict || cohortStrandConflict {
+            let closest = best(rawExtensionHits)
+            return .unnameable(try unnameableRecord(
+                cluster: cluster,
+                support: support,
+                reason: .ambiguousReferenceClass,
+                failedMetrics: ["conflicting_cdna_strand": 1],
+                analyzed: analyzed,
+                selectedHit: closest
+            ))
+        }
+        let extensionHits = extensionGroups.values.compactMap { best($0) }.sorted(by: isRankedBefore)
+        let reciprocalInterpretations = extensionHits.compactMap(extensionInterpretation)
+        let interpretationByRawID = Dictionary(
+            (cohortExtensions + reciprocalInterpretations).map { ($0.rawReferenceID, $0) },
+            uniquingKeysWith: { cohort, _ in cohort }
+        )
+        let allExtensionInterpretations = interpretationByRawID.values.sorted {
+            localizedStandardLessThan($0.rawReferenceID, $1.rawReferenceID)
+        }
+        if !allExtensionInterpretations.isEmpty {
+            let eligibleGenomic = eligible.filter {
+                $0.resolvedReference?.moleculeClass == .genomicDNA
+            }
+            let bestGenomicTies = bestTies(eligibleGenomic)
+            let genomicLoci = Set(bestGenomicTies.compactMap { $0.resolvedReference?.locus })
+            guard let comparisonHit = genomicLoci.count == 1
+                ? best(eligibleGenomic) ?? best(extensionHits) ?? best(eligible)
+                : best(extensionHits) ?? best(eligible) else {
+                return .unnameable(try unnameableRecord(
+                    cluster: cluster,
+                    support: support,
+                    reason: .unresolvedLocus,
+                    failedMetrics: ["missing_reciprocal_comparison": 1],
+                    analyzed: analyzed,
+                    selectedHit: nil
+                ))
+            }
+            let allExtensionNames = Set(allExtensionInterpretations.map(\.alleleName))
+                .sorted(by: localizedStandardLessThan)
+            let namingExtensions = allExtensionInterpretations.filter {
+                $0.locus == comparisonHit.resolvedReference!.locus
+            }
+            let namingExtensionNames = Set(namingExtensions.map(\.alleleName))
+                .sorted(by: localizedStandardLessThan)
+            let namingAlleleName = namingExtensionNames.count == 1
+                ? namingExtensionNames[0]
+                : comparisonHit.resolvedReference!.alleleName
             return .candidate(try candidateRecord(
                 cluster: cluster,
                 support: support,
-                hit: extensionHit,
+                hit: comparisonHit,
+                namingAlleleName: namingAlleleName,
                 analyzed: analyzed,
-                closestHits: eligible.filter { isCDNAExtension($0, cluster: cluster) },
-                classification: .extension
+                closestHits: eligibleGenomic.isEmpty ? (extensionHits.isEmpty ? [comparisonHit] : extensionHits) : eligibleGenomic,
+                classification: .extension,
+                extensionOf: allExtensionNames,
+                extensionInterpretations: allExtensionInterpretations,
+                provisionalNamingAmbiguous: namingExtensionNames.count != 1
             ))
         }
 
         // Exact cDNA matches and zero-SNP indel-only relationships that do not
         // meet the stricter extension rule remain genotypes of the existing allele.
-        let knownZeroSNP = bestTies(eligible.filter { $0.metrics.snps == 0 })
+        let knownZeroSNP = bestTies(eligible.filter {
+            if $0.resolvedReference?.moleculeClass == .cDNA {
+                return $0.cdnaInterpretation?.relationship == .known
+            }
+            return $0.metrics.snps == 0
+        })
         if !knownZeroSNP.isEmpty {
             return .known(knownCalls(knownZeroSNP))
         }
@@ -256,9 +339,13 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
                 cluster: cluster,
                 support: support,
                 hit: novel,
+                namingAlleleName: novel.resolvedReference!.alleleName,
                 analyzed: analyzed,
                 closestHits: eligible.filter { $0.metrics.snps > 0 },
-                classification: .novel
+                classification: .novel,
+                extensionOf: [],
+                extensionInterpretations: [],
+                provisionalNamingAmbiguous: false
             ))
         }
 
@@ -500,6 +587,22 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             }
         }
 
+        let cdnaInterpretation: FullLengthONTMHCCDNAStructuralInterpretation?
+        if let reference = alignment.reference.resolvedRecord,
+           reference.moleculeClass == .cDNA {
+            cdnaInterpretation = try FullLengthONTMHCCDNAStructuralClassifier.classifyReciprocal(
+                referenceSequenceID: reference.sequenceID,
+                clusterID: cluster.stableClusterID,
+                cDNAReferenceLength: reference.sequenceLength,
+                clusterLength: cluster.sequenceLength,
+                referenceStart: alignment.evidence.referenceStart,
+                isReverse: alignment.isReverse,
+                metrics: metrics
+            )
+        } else {
+            cdnaInterpretation = nil
+        }
+
         return AnalyzedAlignment(
             input: alignment,
             metrics: metrics,
@@ -507,27 +610,10 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             nonIntronIndelBases: nonIntronIndelBases.partialValue,
             shorterCoverage: shorterCoverage,
             identity: identity,
+            cdnaInterpretation: cdnaInterpretation,
             failure: failure,
             failedMetrics: failedMetrics
         )
-    }
-
-    private func isCDNAExtension(
-        _ hit: AnalyzedAlignment,
-        cluster: FullLengthONTMHCCandidateCluster
-    ) -> Bool {
-        guard let reference = hit.resolvedReference,
-              reference.moleculeClass == .cDNA,
-              hit.metrics.snps == 0,
-              hit.input.evidence.referenceStart == 1,
-              hit.metrics.referenceSpan == reference.sequenceLength,
-              hit.longGapBases > 0,
-              hit.metrics.skippedReferenceBases == 0,
-              hit.metrics.softClippedBases == 0,
-              hit.metrics.querySpan == cluster.sequenceLength else {
-            return false
-        }
-        return true
     }
 
     private func best(_ hits: [AnalyzedAlignment]) -> AnalyzedAlignment? {
@@ -613,15 +699,19 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         cluster: FullLengthONTMHCCandidateCluster,
         support: Support,
         hit: AnalyzedAlignment,
+        namingAlleleName: String,
         analyzed: [AnalyzedAlignment],
         closestHits: [AnalyzedAlignment],
-        classification: ONTMHCCandidateClassification
+        classification: ONTMHCCandidateClassification,
+        extensionOf: [String],
+        extensionInterpretations: [ONTMHCCDNAExtensionInterpretation],
+        provisionalNamingAmbiguous: Bool
     ) throws -> ONTMHCCandidateRecord {
         let reference = hit.resolvedReference!
         let provisionalName: String
         switch classification {
         case .extension:
-            provisionalName = "\(reference.alleleName)_ext"
+            provisionalName = "\(namingAlleleName)_ext"
         case .novel:
             precondition(hit.metrics.snps > 0, "Novel candidates must contain at least one SNP substitution")
             provisionalName = "\(reference.alleleName)_\(hit.metrics.snps)nt_nov"
@@ -662,7 +752,33 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             sequenceSHA256: cluster.sequenceSHA256,
             reciprocalHitSummary: reciprocalHitSummary,
             selectedEvidence: hit.input.evidence,
-            selectedAlignmentIsReverse: hit.input.isReverse
+            selectedAlignmentIsReverse: hit.input.isReverse,
+            extensionOf: extensionOf,
+            extensionInterpretations: extensionInterpretations,
+            provisionalNamingAmbiguous: provisionalNamingAmbiguous
+        )
+    }
+
+    private func extensionInterpretation(
+        _ hit: AnalyzedAlignment
+    ) -> ONTMHCCDNAExtensionInterpretation? {
+        guard let structural = hit.cdnaInterpretation,
+              let reference = hit.resolvedReference else { return nil }
+        return ONTMHCCDNAExtensionInterpretation(
+            rawReferenceID: reference.sequenceID,
+            alleleName: reference.alleleName,
+            locus: reference.locus,
+            cDNAReferenceCoverage: structural.cDNAReferenceCoverage,
+            clusterCoverage: structural.clusterCoverage,
+            leadingClusterFlankBases: structural.leadingClusterFlankBases,
+            trailingClusterFlankBases: structural.trailingClusterFlankBases,
+            largestClusterStructuralSegmentBases: structural.largestClusterStructuralSegmentBases,
+            largestCDNADeficitSegmentBases: structural.largestCDNADeficitSegmentBases,
+            snpSubstitutions: structural.snpSubstitutions,
+            ordinaryIndelBases: structural.ordinaryIndelBases,
+            isReverse: structural.isReverse,
+            alignmentScore: hit.input.alignmentScore,
+            identity: hit.identity
         )
     }
 

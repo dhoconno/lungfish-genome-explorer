@@ -59,6 +59,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(Set(try XCTUnwrap(object.first).keys), [
             "record_category", "stable_cluster_id", "provisional_allele_name", "locus",
             "classification_or_reason", "closest_reference_allele", "closest_reference_raw_id",
+            "extension_of",
             "snp_count", "inserted_bases", "deleted_bases", "long_gap_bases", "comparable_bases",
             "failed_metrics", "support_class", "independent_sample_count", "occurrence_count",
             "total_cluster_reads", "supporting_sample_ids", "reads_by_sample", "fasta_record_id",
@@ -81,6 +82,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         let stableIDColumn = try XCTUnwrap(headers.firstIndex(of: .text("Stable Cluster ID")))
         let nucleotideColumn = try XCTUnwrap(headers.firstIndex(of: .text("Full-Length FASTA Sequence")))
         let trimmedColumn = try XCTUnwrap(headers.firstIndex(of: .text("UTR-Trimmed FASTA Sequence")))
+        XCTAssertNotNil(headers.firstIndex(of: .text("Extension Of")))
         let translationColumn = try XCTUnwrap(headers.firstIndex(of: .text("Putative Amino Acid Translation")))
         let statusColumn = try XCTUnwrap(headers.firstIndex(of: .text("Translation Status")))
 
@@ -1187,6 +1189,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             classificationOrReason: category == .candidate ? "novel" : "unresolved-locus",
             closestReferenceAllele: nil,
             closestReferenceRawID: nil,
+            extensionOf: [],
             snpCount: nil,
             insertedBases: nil,
             deletedBases: nil,

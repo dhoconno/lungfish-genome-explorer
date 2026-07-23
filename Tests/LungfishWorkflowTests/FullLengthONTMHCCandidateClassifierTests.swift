@@ -126,7 +126,7 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(candidate.longGapBases, 50)
     }
 
-    func testTerminallyTruncatedCDNAWithIntronInsertionIsKnownNotExtension() throws {
+    func testCDNAMissingMoreThanFivePercentIsNeitherKnownNorExtension() throws {
         let longCDNA = MHCReferenceRecord(
             sequenceID: "ref-long-cdna",
             alleleName: "Mafa-A2*024:01:01:01",
@@ -144,10 +144,9 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
             )]
         )
 
-        guard case .known(let calls) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
-            return XCTFail("Expected existing cDNA genotype")
+        guard case .unnameable = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected insufficient structural cDNA evidence")
         }
-        XCTAssertEqual(calls.map(\.reference.sequenceID), ["ref-long-cdna"])
     }
 
     func testCDNAIntronFillWithSNPIsNovelNotExtension() throws {
@@ -163,18 +162,109 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(candidate.provisionalName, "Mafa-A1*018:01:01:01_1nt_nov")
     }
 
-    func testTerminalLongInsertionsAreKnownCDNAAllelesRatherThanExtensions() throws {
+    func testTerminalLongInsertionsAreCDNAExtensions() throws {
         for cigar in ["50I1000=", "1000=50I"] {
             let cluster = makeCluster(
                 sequenceLength: 1_050,
                 alignments: [alignment(reference: cdnaReference, cigar: cigar)]
             )
 
-            guard case .known(let calls) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
-                return XCTFail("Expected known call for \(cigar)")
+            guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+                return XCTFail("Expected extension for \(cigar)")
             }
-            XCTAssertEqual(calls.map(\.reference.sequenceID), [cdnaReference.sequenceID], cigar)
+            XCTAssertEqual(candidate.classification, .extension, cigar)
         }
+    }
+
+    func testExtensionRetainsAllCompatibleCDNAsWhileGenomicEvidenceResolvesClosestReference() throws {
+        let secondCDNA = MHCReferenceRecord(
+            sequenceID: "ref-cdna-2",
+            alleleName: "Mafa-A1*018:01:01:02",
+            locus: "Mafa-A1",
+            moleculeClass: .cDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_000
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [
+                alignment(reference: cdnaReference, cigar: "500=50I500="),
+                alignment(reference: secondCDNA, cigar: "500=50I500="),
+                alignment(reference: genomicReference, cigar: "599=1X600="),
+            ]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected joint cDNA/genomic extension candidate")
+        }
+        XCTAssertEqual(candidate.classification, .extension)
+        XCTAssertEqual(candidate.extensionOf, [
+            "Mafa-A1*018:01:01:01",
+            "Mafa-A1*018:01:01:02",
+        ])
+        XCTAssertEqual(candidate.extensionInterpretations.map(\.rawReferenceID), [
+            "ref-cdna",
+            "ref-cdna-2",
+        ])
+        XCTAssertTrue(candidate.provisionalNamingAmbiguous)
+        XCTAssertEqual(candidate.closestReferenceClass, .genomicDNA)
+        XCTAssertEqual(candidate.closestReferenceName, genomicReference.alleleName)
+    }
+
+    func testOffLocusCompatibleCDNADoesNotCreateNamingAmbiguityAfterGenomicResolution() throws {
+        let offLocusCDNA = MHCReferenceRecord(
+            sequenceID: "ref-cdna-b",
+            alleleName: "Mafa-B*001:01:01:01",
+            locus: "Mafa-B",
+            moleculeClass: .cDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_000
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [
+                alignment(reference: cdnaReference, cigar: "500=50I500="),
+                alignment(reference: offLocusCDNA, cigar: "500=50I500="),
+                alignment(reference: genomicReference, cigar: "599=1X600="),
+            ]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected extension candidate")
+        }
+        XCTAssertEqual(candidate.provisionalName, "Mafa-A1*018:01:01:01_ext")
+        XCTAssertFalse(candidate.provisionalNamingAmbiguous)
+        XCTAssertEqual(candidate.extensionOf, [
+            "Mafa-A1*018:01:01:01",
+            "Mafa-B*001:01:01:01",
+        ])
+    }
+
+    func testGenomicEvidenceResolvesLocusWithoutBeingConstrainedByHomologousCDNALocus() throws {
+        let cdnaI = MHCReferenceRecord(
+            sequenceID: "ref-cdna-i", alleleName: "Mafa-I*01:14:13", locus: "Mafa-I",
+            moleculeClass: .cDNA, classEvidence: .annotatedMetadata, sequenceLength: 1_000
+        )
+        let genomicB = MHCReferenceRecord(
+            sequenceID: "ref-genomic-b", alleleName: "Mafa-B*001:01:01:01", locus: "Mafa-B",
+            moleculeClass: .genomicDNA, classEvidence: .annotatedMetadata, sequenceLength: 1_200
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [
+                alignment(reference: cdnaI, cigar: "500=50I500="),
+                alignment(reference: genomicB, cigar: "599=1X600="),
+            ]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected extension candidate")
+        }
+        XCTAssertEqual(candidate.locus, "Mafa-B")
+        XCTAssertEqual(candidate.closestReferenceName, "Mafa-B*001:01:01:01")
+        XCTAssertEqual(candidate.provisionalName, "Mafa-B*001:01:01:01_ext")
+        XCTAssertEqual(candidate.extensionOf, ["Mafa-I*01:14:13"])
+        XCTAssertTrue(candidate.provisionalNamingAmbiguous)
     }
 
     func testKnownCallsPreserveEquallyBestAlleleAndReferenceIdentityTies() throws {
@@ -443,8 +533,8 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
             return XCTFail("Expected extension candidate")
         }
         XCTAssertEqual(candidate.reciprocalHitSummary.exactMatchTargetNames, ["ref-cdna"])
-        XCTAssertEqual(candidate.reciprocalHitSummary.closestMatchTargetNames, ["ref-cdna"])
-        XCTAssertEqual(candidate.selectedEvidence.referenceName, "ref-cdna")
+        XCTAssertEqual(candidate.reciprocalHitSummary.closestMatchTargetNames, ["ref-genomic"])
+        XCTAssertEqual(candidate.selectedEvidence.referenceName, "ref-genomic")
     }
 
     func testUnnameableStoresOnlyClassifierSelectedClosestLocator() throws {
@@ -705,6 +795,20 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         let records = try XCTUnwrap(object["candidates"] as? [[String: Any]])
         XCTAssertNil(records[0]["sequence"])
         XCTAssertEqual(records[0]["stable_cluster_id"] as? String, "cluster-1")
+
+        var extensionObject = object
+        var extensionRecords = records
+        extensionRecords[0]["extension_of"] = ["Mafa-I*01:14:13", "Mafa-I*01:14:14"]
+        extensionObject["candidates"] = extensionRecords
+        let extensionData = try JSONSerialization.data(withJSONObject: extensionObject)
+        let decodedExtension = try JSONDecoder().decode(
+            ONTMHCCandidateAllelesDocument.self,
+            from: extensionData
+        )
+        XCTAssertEqual(
+            decodedExtension.candidates.first?.extensionOf,
+            ["Mafa-I*01:14:13", "Mafa-I*01:14:14"]
+        )
 
         let unnameableResult = try FullLengthONTMHCCandidateClassifier().classify(makeCluster(alignments: []))
         guard case .unnameable(let unnameable) = unnameableResult else {

@@ -50,12 +50,17 @@ struct FullLengthONTMHCGenotypingHitSummaryAccumulator {
         var exactMatchQueryNames = Set<String>()
         var closestRank: BiologicalRank?
         var closestMatchQueryNames = Set<String>()
+        var cdnaExtensionInterpretations: [String: ONTMHCCDNAExtensionInterpretation] = [:]
 
         mutating func consume(
             record: AlignmentRecord,
             metrics: FullLengthONTMHCSAMMetrics,
             referenceLength: Int?,
-            cdnaThreshold: Int
+            cdnaThreshold: Int,
+            referenceRecord: MHCReferenceRecord?,
+            targetLength: Int?,
+            targetStart: Int,
+            isReverse: Bool
         ) throws {
             guard locatorIdentities.insert(record.locatorIdentity).inserted else { return }
             queryAlignmentCounts[record.queryName, default: 0] += 1
@@ -78,10 +83,55 @@ struct FullLengthONTMHCGenotypingHitSummaryAccumulator {
                 closestMatchQueryNames = [record.queryName]
             }
 
-            let isKnownGenotype = metrics.snps == 0
-                && (metrics.nonIntronIndelBases == 0 || (referenceLength ?? 0) >= cdnaThreshold)
+            let structural: FullLengthONTMHCCDNAStructuralInterpretation?
+            if let referenceRecord,
+               referenceRecord.moleculeClass == .cDNA,
+               let targetLength {
+                structural = try FullLengthONTMHCCDNAStructuralClassifier.classifyCohort(
+                    referenceSequenceID: referenceRecord.sequenceID,
+                    clusterID: "target",
+                    cDNAReferenceLength: referenceRecord.sequenceLength,
+                    clusterLength: targetLength,
+                    targetStart: targetStart,
+                    isReverse: isReverse,
+                    metrics: metrics
+                )
+            } else {
+                structural = nil
+            }
+            let isKnownGenotype = structural.map { $0.relationship == .known }
+                ?? (metrics.snps == 0
+                    && (metrics.nonIntronIndelBases == 0 || (referenceLength ?? 0) >= cdnaThreshold))
             if isKnownGenotype {
                 exactMatchQueryNames.insert(record.queryName)
+            }
+
+            if let referenceRecord, let structural, structural.relationship == .extension {
+                    let interpretation = ONTMHCCDNAExtensionInterpretation(
+                        rawReferenceID: referenceRecord.sequenceID,
+                        alleleName: referenceRecord.alleleName,
+                        locus: referenceRecord.locus,
+                        cDNAReferenceCoverage: structural.cDNAReferenceCoverage,
+                        clusterCoverage: structural.clusterCoverage,
+                        leadingClusterFlankBases: structural.leadingClusterFlankBases,
+                        trailingClusterFlankBases: structural.trailingClusterFlankBases,
+                        largestClusterStructuralSegmentBases: structural.largestClusterStructuralSegmentBases,
+                        largestCDNADeficitSegmentBases: structural.largestCDNADeficitSegmentBases,
+                        snpSubstitutions: structural.snpSubstitutions,
+                        ordinaryIndelBases: structural.ordinaryIndelBases,
+                        isReverse: structural.isReverse,
+                        alignmentScore: try alignmentScore(for: metrics),
+                        identity: Double(metrics.matches) / Double(metrics.comparableBases)
+                    )
+                    if let current = cdnaExtensionInterpretations[referenceRecord.sequenceID] {
+                        if interpretation.cDNAReferenceCoverage > current.cDNAReferenceCoverage
+                            || (interpretation.cDNAReferenceCoverage == current.cDNAReferenceCoverage
+                                && interpretation.clusterCoverage > current.clusterCoverage) {
+                            cdnaExtensionInterpretations[referenceRecord.sequenceID] = interpretation
+                        }
+                    } else {
+                        cdnaExtensionInterpretations[referenceRecord.sequenceID] = interpretation
+                    }
             }
         }
     }
@@ -90,8 +140,11 @@ struct FullLengthONTMHCGenotypingHitSummaryAccumulator {
         samURL: URL,
         bamPath: String,
         referenceLengths: [String: Int],
-        cdnaThreshold: Int
+        cdnaThreshold: Int,
+        referenceRecords: [MHCReferenceRecord] = [],
+        targetLengths: [String: Int] = [:]
     ) throws -> [String: ONTMHCGenotypingTargetHitSummary] {
+        let referencesByID = Dictionary(uniqueKeysWithValues: referenceRecords.map { ($0.sequenceID, $0) })
         var accumulators: [String: TargetAccumulator] = [:]
         var internedStrings = StringInterner()
         let bamPathID = internedStrings.id(for: bamPath)
@@ -141,7 +194,11 @@ struct FullLengthONTMHCGenotypingHitSummaryAccumulator {
                 record: record,
                 metrics: metrics,
                 referenceLength: referenceLengths[queryName],
-                cdnaThreshold: cdnaThreshold
+                cdnaThreshold: cdnaThreshold,
+                referenceRecord: referencesByID[queryName],
+                targetLength: targetLengths[targetName],
+                targetStart: position,
+                isReverse: flag & 16 != 0
             )
         }
 
@@ -154,7 +211,10 @@ struct FullLengthONTMHCGenotypingHitSummaryAccumulator {
                     alignmentCount: accumulator.locatorIdentities.count,
                     queryAlignmentCounts: accumulator.queryAlignmentCounts,
                     exactMatchQueryNames: accumulator.exactMatchQueryNames.sorted(by: localizedStandardLessThan),
-                    closestMatchQueryNames: accumulator.closestMatchQueryNames.sorted(by: localizedStandardLessThan)
+                    closestMatchQueryNames: accumulator.closestMatchQueryNames.sorted(by: localizedStandardLessThan),
+                    cdnaExtensionInterpretations: accumulator.cdnaExtensionInterpretations.values.sorted {
+                        localizedStandardLessThan($0.rawReferenceID, $1.rawReferenceID)
+                    }
                 )
             )
         })

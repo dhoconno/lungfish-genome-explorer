@@ -2595,6 +2595,19 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "lungfish-in-process:assemble-mhc-workbook-projection-input",
             "lungfish-internal mhc-candidate-workbook-project",
         ]))
+        let structuralStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish MHC genotyping hit summary accumulator"
+        })
+        for key in [
+            "cohortAlignmentOrientation", "reciprocalAlignmentOrientation",
+            "cohortCDNAReferenceCoverageDefinition", "reciprocalCDNAReferenceCoverageDefinition",
+            "eventThresholdSemantics", "classificationPrecedence", "perReferenceCollapseRule",
+            "genomicLocusResolutionRule", "candidateSequenceIdentityRule",
+            "candidateDocumentSchemaVersion", "structurallyReroutedClusterCount",
+        ] {
+            XCTAssertNotNil(structuralStep.resolvedOptions[key], key)
+        }
+        XCTAssertEqual(structuralStep.resolvedOptions["candidateDocumentSchemaVersion"], .integer(3))
         let auditedCandidateSteps = envelope.steps.filter { step in
             step.toolName.hasPrefix("lungfish-in-process:")
                 || step.toolName == "lungfish-internal mhc-candidate-workbook-project"

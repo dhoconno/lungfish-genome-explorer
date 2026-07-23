@@ -573,7 +573,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let evidence = [reciprocalBAMReference, reciprocalBAIReference]
             + (request.genotypingEvidence.map { [$0.bam, $0.bai] } ?? [])
         let candidateDocument = ONTMHCCandidateAllelesDocument(
-            schemaVersion: 2,
+            schemaVersion: 3,
             createdAt: createdAt,
             thresholds: request.thresholds,
             inputs: [referenceInput, stableUnmatchedInput],
@@ -583,7 +583,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             observations: allObservations.filter { candidateStableIDs.contains($0.stableClusterID) }
         )
         let unnameableDocument = ONTMHCUnnameableClustersDocument(
-            schemaVersion: 2,
+            schemaVersion: 3,
             createdAt: createdAt,
             thresholds: request.thresholds,
             inputs: [referenceInput, stableUnmatchedInput],

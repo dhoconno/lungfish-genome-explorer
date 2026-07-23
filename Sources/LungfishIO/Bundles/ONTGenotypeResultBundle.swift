@@ -2117,7 +2117,7 @@ public enum ONTGenotypeResultBundle {
                     reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
                     documentPath: jsonReference.path
                 )
-                if document.schemaVersion == 2 {
+                if document.schemaVersion >= 2 {
                     try validateCompactCandidateDocument(
                         document,
                         genotypingBAMPath: artifactManifest.genotypingEvidence?.bam.path,
@@ -2168,7 +2168,7 @@ public enum ONTGenotypeResultBundle {
                     reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
                     documentPath: jsonReference.path
                 )
-                if document.schemaVersion == 2 {
+                if document.schemaVersion >= 2 {
                     try validateCompactUnnameableDocument(
                         document,
                         genotypingBAMPath: artifactManifest.genotypingEvidence?.bam.path,
@@ -2476,18 +2476,18 @@ public enum ONTGenotypeResultBundle {
         guard let dictionary = object as? [String: Any], let schema = dictionary["schema_version"] as? Int else {
             throw integrityFailure(
                 .candidateArtifactMalformedJSON,
-                "Candidate artifact must be a JSON object with integer schema_version 1 or 2.",
+                "Candidate artifact must be a JSON object with integer schema_version 1, 2, or 3.",
                 path: path
             )
         }
-        guard schema == 1 || schema == 2 else {
+        guard (1 ... 3).contains(schema) else {
             throw integrityFailure(
                 .candidateArtifactSchemaUnsupported,
-                "Candidate artifact schema \(schema) is unsupported; expected schema 1 or 2.",
+                "Candidate artifact schema \(schema) is unsupported; expected schema 1, 2, or 3.",
                 path: path
             )
         }
-        guard schema == 2 else { return }
+        guard schema >= 2 else { return }
         guard let records = dictionary[recordCollectionKey] as? [[String: Any]],
               records.allSatisfy({ $0["reciprocal_hit_summary"] != nil }),
               let observations = dictionary["observations"] as? [[String: Any]],
@@ -2497,9 +2497,51 @@ public enum ONTGenotypeResultBundle {
               (recordCollectionKey != "clusters" || records.allSatisfy({ $0["evidence"] == nil })) else {
             throw integrityFailure(
                 .candidateArtifactMalformedJSON,
-                "Candidate artifact schema 2 requires compact hit summaries and forbids legacy bulk evidence arrays.",
+                "Candidate artifact schema \(schema) requires compact hit summaries and forbids legacy bulk evidence arrays.",
                 path: path
             )
+        }
+        guard schema == 3 else { return }
+        guard let observations = dictionary["observations"] as? [[String: Any]],
+              observations.allSatisfy({ observation in
+                  guard let summaries = observation["genotyping_hit_summaries"] as? [[String: Any]] else {
+                      return false
+                  }
+                  return summaries.allSatisfy { $0["cdna_extension_interpretations"] is [Any] }
+              }) else {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Candidate artifact schema 3 requires compact cDNA extension interpretations on every genotyping hit summary.",
+                path: path
+            )
+        }
+        if recordCollectionKey == "candidates" {
+            let valid = records.allSatisfy { record in
+                guard let extensionOf = record["extension_of"] as? [String],
+                      let interpretations = record["extension_interpretations"] as? [[String: Any]],
+                      record["provisional_naming_ambiguous"] is Bool else {
+                    return false
+                }
+                let interpretationNames = interpretations.compactMap { $0["allele_name"] as? String }
+                let rawIDs = interpretations.compactMap { $0["raw_reference_id"] as? String }
+                guard interpretationNames.count == interpretations.count,
+                      rawIDs.count == interpretations.count,
+                      Set(rawIDs).count == rawIDs.count,
+                      Set(interpretationNames) == Set(extensionOf) else {
+                    return false
+                }
+                if record["classification"] as? String == "extension" {
+                    return !extensionOf.isEmpty && !interpretations.isEmpty
+                }
+                return extensionOf.isEmpty && interpretations.isEmpty
+            }
+            guard valid else {
+                throw integrityFailure(
+                    .candidateArtifactMalformedJSON,
+                    "Candidate artifact schema 3 requires consistent extension_of, extension_interpretations, and provisional_naming_ambiguous fields on every candidate.",
+                    path: path
+                )
+            }
         }
     }
 

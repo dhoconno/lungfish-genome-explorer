@@ -90,6 +90,11 @@ struct FullLengthONTMHCCandidateGenBankArtifactBuilder {
             return true
         }
 
+        var candidateRecord: ONTMHCCandidateRecord? {
+            guard case .candidate(let value) = self else { return nil }
+            return value
+        }
+
         var subjectQualifiers: [String: AnnotationQualifier] {
             var values: [String: AnnotationQualifier] = [
                 "stable_cluster_id": .init(stableClusterID),
@@ -477,6 +482,21 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         ]
         if let project = input.projectBundleName, !project.isEmpty {
             values.insert("Lungfish project: \(project)", at: 1)
+        }
+        if let candidate = input.subject.candidateRecord, !candidate.extensionOf.isEmpty {
+            values.append("Lungfish extension of: \(candidate.extensionOf.joined(separator: ", "))")
+            let closestLabel = candidate.closestReferenceClass == .genomicDNA
+                ? "selected genomic closest reference"
+                : "selected cDNA closest reference"
+            values.append("Lungfish \(closestLabel): \(candidate.closestReferenceName) [\(candidate.selectedEvidence.referenceName)]")
+            for interpretation in candidate.extensionInterpretations {
+                values.append(
+                    "Lungfish cDNA interpretation: allele=\(interpretation.alleleName); raw_id=\(interpretation.rawReferenceID); locus=\(interpretation.locus); cdna_coverage=\(interpretation.cDNAReferenceCoverage); cluster_coverage=\(interpretation.clusterCoverage); leading_flank=\(interpretation.leadingClusterFlankBases); trailing_flank=\(interpretation.trailingClusterFlankBases); largest_cluster_structure=\(interpretation.largestClusterStructuralSegmentBases); largest_cdna_deficit=\(interpretation.largestCDNADeficitSegmentBases); snps=\(interpretation.snpSubstitutions); ordinary_indels=\(interpretation.ordinaryIndelBases); strand=\(interpretation.isReverse ? "reverse" : "forward"); score=\(interpretation.alignmentScore); identity=\(interpretation.identity)"
+                )
+            }
+            if candidate.provisionalNamingAmbiguous {
+                values.append("Lungfish provisional naming ambiguity: multiple compatible cDNA allele names; genomic closest reference supplied the provisional base name")
+            }
         }
         return values
     }

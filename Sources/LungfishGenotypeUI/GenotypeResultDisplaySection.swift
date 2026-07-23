@@ -5,7 +5,7 @@ import LungfishIO
 
 @inline(__always)
 func isSupportedMHCCandidateDocumentSchemaVersion(_ schemaVersion: Int) -> Bool {
-    schemaVersion == 1 || schemaVersion == 2
+    (1 ... 3).contains(schemaVersion)
 }
 
 public enum GenotypeMatrixPaletteTarget: String, CaseIterable, Identifiable {

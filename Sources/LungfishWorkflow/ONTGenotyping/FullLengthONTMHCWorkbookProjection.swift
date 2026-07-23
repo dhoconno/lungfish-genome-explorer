@@ -88,6 +88,7 @@ struct FullLengthONTMHCNormalizedUnmatchedRow: Codable, Equatable, Sendable {
     let classificationOrReason: String
     let closestReferenceAllele: String?
     let closestReferenceRawID: String?
+    let extensionOf: [String]
     let snpCount: Int?
     let insertedBases: Int?
     let deletedBases: Int?
@@ -115,6 +116,7 @@ struct FullLengthONTMHCNormalizedUnmatchedRow: Codable, Equatable, Sendable {
         case classificationOrReason = "classification_or_reason"
         case closestReferenceAllele = "closest_reference_allele"
         case closestReferenceRawID = "closest_reference_raw_id"
+        case extensionOf = "extension_of"
         case snpCount = "snp_count"
         case insertedBases = "inserted_bases"
         case deletedBases = "deleted_bases"
@@ -144,7 +146,7 @@ enum FullLengthONTMHCUnmatchedWorksheetBuilder {
         let sampleOrder = completeSampleOrder(requestedSampleOrder, rows: rows)
         let header = [
             "Record Category", "Stable Cluster ID", "Provisional Allele Name", "Locus",
-            "Classification or Reason", "Closest Reference Allele", "Closest Reference Raw ID",
+            "Classification or Reason", "Closest Reference Allele", "Closest Reference Raw ID", "Extension Of",
             "SNP Count", "Inserted Bases", "Deleted Bases", "Long Gap Bases", "Comparable Bases",
             "Failed Metrics", "Support Class", "Independent Sample Count", "Occurrence Count",
             "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256",
@@ -162,6 +164,7 @@ enum FullLengthONTMHCUnmatchedWorksheetBuilder {
                 .init(row.classificationOrReason),
                 row.closestReferenceAllele.map { .init($0) } ?? .blank,
                 row.closestReferenceRawID.map { .init($0) } ?? .blank,
+                .init(row.extensionOf.joined(separator: ";")),
                 row.snpCount.map { .init($0) } ?? .blank,
                 row.insertedBases.map { .init($0) } ?? .blank,
                 row.deletedBases.map { .init($0) } ?? .blank,
@@ -260,6 +263,7 @@ struct FullLengthONTMHCCandidateWorkbookRow: Equatable, Sendable {
     let referenceStart: Int
     let cigar: String
     let closestReferenceName: String
+    let extensionOf: [String]
     let closestReferenceClass: String
     let snpCount: Int
     let insertedBases: Int
@@ -354,6 +358,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 referenceStart: record.selectedEvidence.referenceStart,
                 cigar: record.selectedEvidence.cigar,
                 closestReferenceName: record.closestReferenceName,
+                extensionOf: record.extensionOf,
                 closestReferenceClass: record.closestReferenceClass.rawValue,
                 snpCount: record.snpCount,
                 insertedBases: record.insertedBases,
@@ -439,6 +444,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 classificationOrReason: row.classification,
                 closestReferenceAllele: row.closestReferenceName,
                 closestReferenceRawID: row.referenceName,
+                extensionOf: row.extensionOf,
                 snpCount: row.snpCount,
                 insertedBases: row.insertedBases,
                 deletedBases: row.deletedBases,
@@ -479,6 +485,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 classificationOrReason: row.reason,
                 closestReferenceAllele: closestReferenceRawID.flatMap { knownAlleleDisplayNames[$0] },
                 closestReferenceRawID: closestReferenceRawID,
+                extensionOf: [],
                 snpCount: nil,
                 insertedBases: nil,
                 deletedBases: nil,
@@ -503,7 +510,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
     }
 
     var candidateWorksheetRows: [[FullLengthONTMHCWorkbookCell]] {
-        if candidateSchemaVersion == 2 {
+        if candidateSchemaVersion >= 2 {
             return compactCandidateWorksheetRows
         }
         let header = [
@@ -536,7 +543,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
     }
 
     var unnameableWorksheetRows: [[FullLengthONTMHCWorkbookCell]] {
-        if unnameableSchemaVersion == 2 {
+        if unnameableSchemaVersion >= 2 {
             return compactUnnameableWorksheetRows
         }
         let header = [

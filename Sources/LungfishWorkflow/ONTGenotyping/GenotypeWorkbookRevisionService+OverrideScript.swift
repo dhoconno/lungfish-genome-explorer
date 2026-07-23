@@ -48,7 +48,7 @@ def load_json_path(key, collection):
         return {"schema_version": 1, collection: [], "observations": []}
     with open(path) as handle:
         document = json.load(handle)
-    if int(document.get("schema_version", 0)) not in (1, 2):
+    if int(document.get("schema_version", 0)) not in (1, 2, 3):
         raise ValueError(f"Unsupported candidate workbook JSON schema in {path}")
     if not isinstance(document.get(collection), list) or not isinstance(document.get("observations"), list):
         raise ValueError(f"Malformed candidate workbook JSON in {path}")
@@ -904,7 +904,7 @@ def candidate_row(record, samples):
         clean(record.get("fasta_record_id")),
         clean(record.get("sequence_sha256")),
     ]
-    if candidate_schema_version == 2:
+    if candidate_schema_version >= 2:
         prefix += reciprocal_values(record) + evidence_values(record.get("selected_evidence"))
     else:
         prefix += evidence_values(record.get("selected_evidence"))
@@ -943,7 +943,7 @@ def unnameable_rows(record, samples):
         clean(record.get("sequence_sha256")),
         failed_metrics_text(record),
     ]
-    if unnameable_schema_version == 2:
+    if unnameable_schema_version >= 2:
         return [
             prefix + reciprocal_values(record) + evidence_values(record.get("selected_evidence"))
             + [reads.get(sample) for sample in samples]
@@ -966,7 +966,7 @@ def write_candidate_artifact_sheets():
     samples = candidate_samples()
     candidate_ws = replace_sheet("Candidate Alleles")
     candidate_headers = list(CANDIDATE_HEADERS)
-    if candidate_schema_version == 2:
+    if candidate_schema_version >= 2:
         candidate_headers = candidate_headers[:11] + COMPACT_RECIPROCAL_HEADERS + SELECTED_EVIDENCE_HEADERS + candidate_headers[17:]
     candidate_ws.append(candidate_headers + [f"Sample Reads: {sample}" for sample in samples])
     for record in candidate_records:
@@ -985,7 +985,7 @@ def write_candidate_artifact_sheets():
         "Stable Cluster ID", "Reason", "Support Class", "Independent Sample Count", "Occurrence Count",
         "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256", "Failed Metrics",
     ]
-    if unnameable_schema_version == 2:
+    if unnameable_schema_version >= 2:
         unnameable_headers += COMPACT_RECIPROCAL_HEADERS + SELECTED_EVIDENCE_HEADERS
     else:
         unnameable_headers += [
@@ -1463,7 +1463,7 @@ def write_two_sheet_mhc_contract():
     unmatched = replace_sheet("Unmatched Alleles")
     unmatched_headers = [
         "Record Category", "Stable Cluster ID", "Provisional Allele Name", "Locus",
-        "Classification or Reason", "Closest Reference Allele", "Closest Reference Raw ID",
+        "Classification or Reason", "Closest Reference Allele", "Closest Reference Raw ID", "Extension Of",
         "SNP Count", "Inserted Bases", "Deleted Bases", "Long Gap Bases", "Comparable Bases",
         "Failed Metrics", "Support Class", "Independent Sample Count", "Occurrence Count",
         "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256",
@@ -1483,7 +1483,8 @@ def write_two_sheet_mhc_contract():
             clean(record.get("record_category")), clean(record.get("stable_cluster_id")),
             clean(record.get("provisional_allele_name")), clean(record.get("locus")),
             clean(record.get("classification_or_reason")), clean(record.get("closest_reference_allele")),
-            clean(record.get("closest_reference_raw_id")), record.get("snp_count"),
+            clean(record.get("closest_reference_raw_id")), ";".join(record.get("extension_of") or []),
+            record.get("snp_count"),
             record.get("inserted_bases"), record.get("deleted_bases"), record.get("long_gap_bases"),
             record.get("comparable_bases"), ";".join(f"{key}={failed_metrics[key]}" for key in sorted(failed_metrics)),
             clean(record.get("support_class")), record.get("independent_sample_count"),

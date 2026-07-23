@@ -1185,11 +1185,23 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             temporaryWorkDirectoryURL: cohortAlignmentResult.temporaryWorkDirectoryURL,
             samtoolsVersion: samtoolsVersion
         )
+        let referenceCatalogProjectionURL = request.outputDirectory
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("reference", isDirectory: true)
+            .appendingPathComponent("mhc-reference-catalog.json")
+        let referenceCatalog = try materializeMHCReferenceCatalog(
+            sourceURL: request.referenceSourceURL,
+            fastaURL: referenceFASTAURL,
+            cdnaThreshold: request.cdnaThreshold,
+            outputURL: referenceCatalogProjectionURL
+        )
+        let candidateReferenceRecords = referenceCatalog.records
         let summariesBySample = try genotypeSummariesFromFinalCohortBAM(
             orderedResults: orderedResults,
             samURL: bamView.samURL,
             cohortAlignmentResult: cohortAlignmentResult,
             referenceFASTAURL: referenceFASTAURL,
+            referenceRecords: candidateReferenceRecords,
             request: request
         )
         let hitSummaryDerivationStartedAt = Date()
@@ -1202,7 +1214,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             samURL: bamView.samURL,
             bamPath: "artifacts/alignments/genotyping-evidence.bam",
             referenceLengths: referenceLengths,
-            cdnaThreshold: request.cdnaThreshold
+            cdnaThreshold: request.cdnaThreshold,
+            referenceRecords: candidateReferenceRecords,
+            targetLengths: Dictionary(uniqueKeysWithValues: orderedResults.flatMap { result in
+                result.clusterRecords.map { ("\(result.sample)|\($0.name)", $0.sequence.count) }
+            })
         )
         let hitSummaryDerivationCompletedAt = Date()
         let authoritativeResults = try orderedResults.map { result in
@@ -1219,6 +1235,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         var pipelineSteps = sampleResults
             .flatMap(\.steps)
             .sorted { lhs, rhs in lhs.startedAt < rhs.startedAt }
+        pipelineSteps.append(referenceCatalog.step)
         let blastRescueDirectory = request.outputDirectory
             .appendingPathComponent(".full-length-ont-mhc", isDirectory: true)
             .appendingPathComponent("blast-rescue", isDirectory: true)
@@ -1276,18 +1293,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             .deletingLastPathComponent()
             .appendingPathComponent(".\(request.outputDirectory.lastPathComponent).candidate-artifact-work", isDirectory: true)
         try FileManager.default.createDirectory(at: candidateWorkDirectory, withIntermediateDirectories: true)
-        let referenceCatalogProjectionURL = request.outputDirectory
-            .appendingPathComponent("artifacts", isDirectory: true)
-            .appendingPathComponent("reference", isDirectory: true)
-            .appendingPathComponent("mhc-reference-catalog.json")
-        let referenceCatalog = try materializeMHCReferenceCatalog(
-            sourceURL: request.referenceSourceURL,
-            fastaURL: referenceFASTAURL,
-            cdnaThreshold: request.cdnaThreshold,
-            outputURL: referenceCatalogProjectionURL
-        )
-        let candidateReferenceRecords = referenceCatalog.records
-        pipelineSteps.append(referenceCatalog.step)
         let candidateReferenceAnnotationInputURLs = request.referenceSourceURL.pathExtension.lowercased() == "lungfishref"
             ? try mhcReferenceVisualizationInputURLs(
                 sourceURL: request.referenceSourceURL,
@@ -1337,7 +1342,40 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 ]),
                 "alignmentCountSemantics": .string("unique-schema-v1-locator-tuples"),
                 "queryCountSemantics": .string("unique-locator-count-per-query-and-target"),
-                "exactMatchRule": .string("snps == 0 && (non_intron_indel_bases == 0 || reference_length >= cdna_threshold)"),
+                "exactGenomicRule": .string("zero SNP substitutions; existing genomic indel-only behavior retained"),
+                "cdnaCompatibilityRule": .string("zero SNP substitutions; cDNA reference coverage >= 0.95; no individual cDNA-deficit I/S/H event >= 20 bases"),
+                "knownCDNAStructuralRule": .string("compatible cDNA; cluster coverage >= 0.95; each terminal cluster flank < 20 bases; no individual cluster-side D/N segment >= 20 bases"),
+                "extensionCDNAStructuralRule": .string("compatible cDNA plus any terminal cluster flank or individual cluster-side D/N segment >= 20 bases"),
+                "structuralSegmentMinimumBases": .integer(20),
+                "minimumCDNAReferenceCoverage": .number(0.95),
+                "cohortAlignmentOrientation": .string("reference allele is SAM query; consensus cluster is SAM target; target POS/end flanks and D/N are cluster-only sequence; I/S/H are missing cDNA-query coverage"),
+                "reciprocalAlignmentOrientation": .string("consensus cluster is SAM query; reference allele is SAM target; I/S are cluster-only sequence; D/N and uncovered target ends are missing cDNA-reference coverage"),
+                "cohortCDNAReferenceCoverageDefinition": .string("(comparable bases + query-side inserted bases) / annotated cDNA reference length, clamped to 1"),
+                "cohortClusterCoverageDefinition": .string("target reference span / complete consensus cluster length, clamped to 1"),
+                "reciprocalCDNAReferenceCoverageDefinition": .string("reference span / annotated cDNA reference length, clamped to 1"),
+                "reciprocalClusterCoverageDefinition": .string("query span / complete consensus cluster length, clamped to 1"),
+                "eventThresholdSemantics": .string("20-base threshold is applied to each individual event and each terminal side; event lengths are never summed to cross the threshold"),
+                "classificationPrecedence": .array([
+                    .string("exact genomic known"), .string("structural cDNA extension candidate"),
+                    .string("end-to-end cDNA known"), .string("SNP-defined novel"), .string("un-nameable"),
+                ]),
+                "perReferenceCollapseRule": .string("retain one best full-coverage interpretation per raw cDNA reference ID by relationship, cDNA coverage, cluster coverage, then score; retain all compatible reference IDs"),
+                "strandConflictRule": .string("equally compatible opposite-strand interpretations are ambiguous and un-nameable"),
+                "genomicLocusResolutionRule": .string("unambiguous genomic reciprocal evidence resolves locus and closest comparison; naming cDNAs are filtered to that locus while all compatible cDNA interpretations remain in the audit payload"),
+                "provisionalNamingAmbiguityRule": .string("one compatible in-locus cDNA name supplies _ext base; otherwise genomic closest supplies base and provisional_naming_ambiguous is true"),
+                "candidateSequenceIdentityRule": .string("complete consensus, reverse-complemented as a whole when selected strand is reverse; mapped-interval crop is metadata only and never defines candidate identity, deduplicated FASTA, reciprocal input, or full-length Excel sequence"),
+                "candidateDocumentSchemaVersion": .integer(3),
+                "referenceMoleculeClassSource": .string("materialized annotated MHC reference catalog; length threshold is fallback only when metadata is absent"),
+                "retainedCDNAExtensionInterpretationCount": .integer(
+                    genotypingHitSummariesByTarget.values.reduce(0) {
+                        $0 + $1.cdnaExtensionInterpretations.count
+                    }
+                ),
+                "structurallyReroutedClusterCount": .integer(Set(
+                    summariesBySample.values.flatMap(\.cdnaStructuralInterpretations).filter {
+                        $0.relationship == .extension
+                    }.map(\.clusterID)
+                ).count),
                 "closestBiologicalRank": .array([
                     .string("snps-ascending"), .string("non-intron-indel-bases-ascending"),
                     .string("matched-bases-descending"), .string("alignment-score-descending"),
@@ -1345,7 +1383,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "closestTieSemantics": .string("retain-all-query-names-before-lexical-tie-break"),
                 "cdnaThreshold": .integer(request.cdnaThreshold),
             ],
-            inputs: [cohortAlignmentResult.bamURL, bamView.samURL, referenceFASTAURL],
+            inputs: [cohortAlignmentResult.bamURL, bamView.samURL, referenceFASTAURL, referenceCatalogProjectionURL],
             outputs: [candidateArtifactResult.candidateJSONURL],
             exitStatus: 0,
             stderr: nil,
@@ -2972,6 +3010,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         samURL: URL,
         cohortAlignmentResult: FullLengthONTMHCCohortAlignmentResult,
         referenceFASTAURL: URL,
+        referenceRecords: [MHCReferenceRecord],
         request: FullLengthONTMHCGenotypingRunRequest
     ) throws -> [String: FullLengthONTMHCClusterGenotypingSummary] {
         let readGroupBySample = Dictionary(
@@ -2982,6 +3021,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         return try FullLengthONTMHCFinalBAMParser().genotypeSummaries(
             samURL: samURL,
             referenceFASTAURL: referenceFASTAURL,
+            referenceRecords: referenceRecords,
             samples: orderedResults.map { result in
                 FullLengthONTMHCFinalBAMSampleContext(
                     sampleID: result.sample,

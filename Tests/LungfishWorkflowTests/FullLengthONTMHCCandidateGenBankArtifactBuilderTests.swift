@@ -1260,13 +1260,45 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         )
     }
 
+    func testExtensionRecordCommentsPersistCDNAAndSelectedGenomicInterpretations() throws {
+        let interpretation = ONTMHCCDNAExtensionInterpretation(
+            rawReferenceID: "ref-cdna", alleleName: "Mafa-A1*001", locus: "Mafa-A1",
+            cDNAReferenceCoverage: 1, clusterCoverage: 0.5,
+            leadingClusterFlankBases: 100, trailingClusterFlankBases: 100,
+            largestClusterStructuralSegmentBases: 100, largestCDNADeficitSegmentBases: 0,
+            snpSubstitutions: 0, ordinaryIndelBases: 0, isReverse: false,
+            alignmentScore: 1_000, identity: 1
+        )
+        let candidate = try makeCandidate(
+            stableID: "extension-a", sequenceSHA256: "hash", cigar: "4=",
+            referenceName: "ref-genomic", referenceClass: .genomicDNA,
+            classification: .extension, extensionOf: ["Mafa-A1*001"],
+            extensionInterpretations: [interpretation]
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ACGT", selectedAlignmentIsReverse: false,
+            closestReference: makeReference(id: "ref-genomic", sequence: "ACGT", features: []),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let comments = try XCTUnwrap(
+            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
+        ).values(forRecordField: "COMMENT")
+        XCTAssertTrue(comments.contains { $0 == "Lungfish extension of: Mafa-A1*001" })
+        XCTAssertTrue(comments.contains { $0.contains("selected genomic closest reference") })
+        XCTAssertTrue(comments.contains { $0.contains("raw_id=ref-cdna") })
+    }
+
     private func makeCandidate(
         stableID: String,
         sequenceSHA256: String,
         cigar: String,
         referenceName: String,
         referenceClass: MHCReferenceMoleculeClass,
-        referenceStart: Int = 1
+        referenceStart: Int = 1,
+        classification: ONTMHCCandidateClassification = .novel,
+        extensionOf: [String] = [],
+        extensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = []
     ) throws -> ONTMHCCandidateRecord {
         let evidence = ONTMHCEvidenceLocator(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",
@@ -1280,7 +1312,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             stableClusterID: stableID,
             provisionalName: "Mafa-A1*001_1nt_nov",
             locus: "Mafa-A1",
-            classification: .novel,
+            classification: classification,
             supportClass: .shared,
             closestReferenceName: "Mafa-A1*001",
             closestReferenceClass: referenceClass,
@@ -1299,7 +1331,9 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             supportingSampleIDs: ["Sample-B", "Sample-A"],
             fastaRecordID: stableID,
             sequenceSHA256: sequenceSHA256,
-            selectedEvidence: evidence
+            selectedEvidence: evidence,
+            extensionOf: extensionOf,
+            extensionInterpretations: extensionInterpretations
         )
     }
 

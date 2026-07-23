@@ -269,6 +269,7 @@ public struct ONTMHCGenotypingTargetHitSummary: Codable, Equatable, Sendable {
     public let queryAlignmentCounts: [String: Int]
     public let exactMatchQueryNames: [String]
     public let closestMatchQueryNames: [String]
+    public let cdnaExtensionInterpretations: [ONTMHCCDNAExtensionInterpretation]
 
     public var queryEdgeCount: Int { queryAlignmentCounts.count }
 
@@ -278,7 +279,8 @@ public struct ONTMHCGenotypingTargetHitSummary: Codable, Equatable, Sendable {
         alignmentCount: Int,
         queryAlignmentCounts: [String: Int],
         exactMatchQueryNames: [String],
-        closestMatchQueryNames: [String]
+        closestMatchQueryNames: [String],
+        cdnaExtensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = []
     ) throws {
         try Self.validate(
             bamPath: bamPath,
@@ -294,6 +296,7 @@ public struct ONTMHCGenotypingTargetHitSummary: Codable, Equatable, Sendable {
         self.queryAlignmentCounts = queryAlignmentCounts
         self.exactMatchQueryNames = exactMatchQueryNames
         self.closestMatchQueryNames = closestMatchQueryNames
+        self.cdnaExtensionInterpretations = cdnaExtensionInterpretations
     }
 
     public init(from decoder: Decoder) throws {
@@ -304,7 +307,11 @@ public struct ONTMHCGenotypingTargetHitSummary: Codable, Equatable, Sendable {
             alignmentCount: container.decode(Int.self, forKey: .alignmentCount),
             queryAlignmentCounts: container.decode([String: Int].self, forKey: .queryAlignmentCounts),
             exactMatchQueryNames: container.decode([String].self, forKey: .exactMatchQueryNames),
-            closestMatchQueryNames: container.decode([String].self, forKey: .closestMatchQueryNames)
+            closestMatchQueryNames: container.decode([String].self, forKey: .closestMatchQueryNames),
+            cdnaExtensionInterpretations: container.decodeIfPresent(
+                [ONTMHCCDNAExtensionInterpretation].self,
+                forKey: .cdnaExtensionInterpretations
+            ) ?? []
         )
     }
 
@@ -314,7 +321,8 @@ public struct ONTMHCGenotypingTargetHitSummary: Codable, Equatable, Sendable {
         alignmentCount: Int,
         queryAlignmentCounts: [String: Int],
         exactMatchQueryNames: [String],
-        closestMatchQueryNames: [String]
+        closestMatchQueryNames: [String],
+        cdnaExtensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = []
     ) {
         self.bamPath = bamPath
         self.targetName = targetName
@@ -322,6 +330,7 @@ public struct ONTMHCGenotypingTargetHitSummary: Codable, Equatable, Sendable {
         self.queryAlignmentCounts = queryAlignmentCounts
         self.exactMatchQueryNames = exactMatchQueryNames
         self.closestMatchQueryNames = closestMatchQueryNames
+        self.cdnaExtensionInterpretations = cdnaExtensionInterpretations
     }
 
     private static func validate(
@@ -351,6 +360,7 @@ public struct ONTMHCGenotypingTargetHitSummary: Codable, Equatable, Sendable {
         case queryAlignmentCounts = "query_alignment_counts"
         case exactMatchQueryNames = "exact_match_query_names"
         case closestMatchQueryNames = "closest_match_query_names"
+        case cdnaExtensionInterpretations = "cdna_extension_interpretations"
     }
 }
 
@@ -644,6 +654,72 @@ public struct ONTMHCCandidateObservation: Codable, Equatable, Sendable {
     }
 }
 
+public struct ONTMHCCDNAExtensionInterpretation: Codable, Equatable, Sendable {
+    public let rawReferenceID: String
+    public let alleleName: String
+    public let locus: String
+    public let cDNAReferenceCoverage: Double
+    public let clusterCoverage: Double
+    public let leadingClusterFlankBases: Int
+    public let trailingClusterFlankBases: Int
+    public let largestClusterStructuralSegmentBases: Int
+    public let largestCDNADeficitSegmentBases: Int
+    public let snpSubstitutions: Int
+    public let ordinaryIndelBases: Int
+    public let isReverse: Bool
+    public let alignmentScore: Int
+    public let identity: Double
+
+    public init(
+        rawReferenceID: String,
+        alleleName: String,
+        locus: String,
+        cDNAReferenceCoverage: Double,
+        clusterCoverage: Double,
+        leadingClusterFlankBases: Int,
+        trailingClusterFlankBases: Int,
+        largestClusterStructuralSegmentBases: Int,
+        largestCDNADeficitSegmentBases: Int,
+        snpSubstitutions: Int,
+        ordinaryIndelBases: Int,
+        isReverse: Bool,
+        alignmentScore: Int,
+        identity: Double
+    ) {
+        self.rawReferenceID = rawReferenceID
+        self.alleleName = alleleName
+        self.locus = locus
+        self.cDNAReferenceCoverage = cDNAReferenceCoverage
+        self.clusterCoverage = clusterCoverage
+        self.leadingClusterFlankBases = leadingClusterFlankBases
+        self.trailingClusterFlankBases = trailingClusterFlankBases
+        self.largestClusterStructuralSegmentBases = largestClusterStructuralSegmentBases
+        self.largestCDNADeficitSegmentBases = largestCDNADeficitSegmentBases
+        self.snpSubstitutions = snpSubstitutions
+        self.ordinaryIndelBases = ordinaryIndelBases
+        self.isReverse = isReverse
+        self.alignmentScore = alignmentScore
+        self.identity = identity
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case rawReferenceID = "raw_reference_id"
+        case alleleName = "allele_name"
+        case locus
+        case cDNAReferenceCoverage = "cdna_reference_coverage"
+        case clusterCoverage = "cluster_coverage"
+        case leadingClusterFlankBases = "leading_cluster_flank_bases"
+        case trailingClusterFlankBases = "trailing_cluster_flank_bases"
+        case largestClusterStructuralSegmentBases = "largest_cluster_structural_segment_bases"
+        case largestCDNADeficitSegmentBases = "largest_cdna_deficit_segment_bases"
+        case snpSubstitutions = "snp_substitutions"
+        case ordinaryIndelBases = "ordinary_indel_bases"
+        case isReverse = "is_reverse"
+        case alignmentScore = "alignment_score"
+        case identity
+    }
+}
+
 public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
     public let stableClusterID: String
     public let provisionalName: String
@@ -670,6 +746,10 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
     public let reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary
     public let selectedEvidence: ONTMHCEvidenceLocator
     public let selectedAlignmentIsReverse: Bool?
+    /// Every compatible cDNA allele relationship retained for an extension.
+    public let extensionOf: [String]
+    public let extensionInterpretations: [ONTMHCCDNAExtensionInterpretation]
+    public let provisionalNamingAmbiguous: Bool
 
     public var reciprocalAlignmentCount: Int { reciprocalHitSummary.alignmentCount }
     public var reciprocalEdgeCount: Int { reciprocalHitSummary.targetEdgeCount }
@@ -725,7 +805,8 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
             sequenceSHA256: sequenceSHA256,
             reciprocalHitSummary: reciprocalHitSummary,
             selectedEvidence: selectedEvidence,
-            selectedAlignmentIsReverse: nil
+            selectedAlignmentIsReverse: nil,
+            extensionOf: []
         )
     }
 
@@ -754,7 +835,10 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         sequenceSHA256: String,
         reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
         selectedEvidence: ONTMHCEvidenceLocator,
-        selectedAlignmentIsReverse: Bool? = nil
+        selectedAlignmentIsReverse: Bool? = nil,
+        extensionOf: [String] = [],
+        extensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = [],
+        provisionalNamingAmbiguous: Bool = false
     ) {
         self.init(
             stableClusterID: stableClusterID,
@@ -782,6 +866,9 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
             reciprocalHitSummary: reciprocalHitSummary,
             selectedEvidence: selectedEvidence,
             selectedAlignmentIsReverse: selectedAlignmentIsReverse,
+            extensionOf: extensionOf,
+            extensionInterpretations: extensionInterpretations,
+            provisionalNamingAmbiguous: provisionalNamingAmbiguous,
             initialize: ()
         )
     }
@@ -863,7 +950,10 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         fastaRecordID: String,
         sequenceSHA256: String,
         selectedEvidence: ONTMHCEvidenceLocator,
-        selectedAlignmentIsReverse: Bool? = nil
+        selectedAlignmentIsReverse: Bool? = nil,
+        extensionOf: [String] = [],
+        extensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = [],
+        provisionalNamingAmbiguous: Bool = false
     ) {
         let reciprocalHitSummary = ONTMHCReciprocalQueryHitSummary(
             uncheckedBAMPath: selectedEvidence.bamPath,
@@ -899,6 +989,9 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
             reciprocalHitSummary: reciprocalHitSummary,
             selectedEvidence: selectedEvidence,
             selectedAlignmentIsReverse: selectedAlignmentIsReverse,
+            extensionOf: extensionOf,
+            extensionInterpretations: extensionInterpretations,
+            provisionalNamingAmbiguous: provisionalNamingAmbiguous,
             initialize: ()
         )
     }
@@ -929,6 +1022,9 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
         selectedEvidence: ONTMHCEvidenceLocator,
         selectedAlignmentIsReverse: Bool?,
+        extensionOf: [String],
+        extensionInterpretations: [ONTMHCCDNAExtensionInterpretation],
+        provisionalNamingAmbiguous: Bool,
         initialize: Void
     ) {
         self.stableClusterID = stableClusterID
@@ -956,6 +1052,9 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         self.reciprocalHitSummary = reciprocalHitSummary
         self.selectedEvidence = selectedEvidence
         self.selectedAlignmentIsReverse = selectedAlignmentIsReverse
+        self.extensionOf = extensionOf
+        self.extensionInterpretations = extensionInterpretations
+        self.provisionalNamingAmbiguous = provisionalNamingAmbiguous
     }
 
     public init(from decoder: Decoder) throws {
@@ -1002,6 +1101,15 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
                 Bool.self,
                 forKey: .selectedAlignmentIsReverse
             ),
+            extensionOf: try container.decodeIfPresent([String].self, forKey: .extensionOf) ?? [],
+            extensionInterpretations: try container.decodeIfPresent(
+                [ONTMHCCDNAExtensionInterpretation].self,
+                forKey: .extensionInterpretations
+            ) ?? [],
+            provisionalNamingAmbiguous: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .provisionalNamingAmbiguous
+            ) ?? false,
             initialize: ()
         )
     }
@@ -1033,6 +1141,9 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         try container.encode(reciprocalHitSummary, forKey: .reciprocalHitSummary)
         try container.encode(selectedEvidence, forKey: .selectedEvidence)
         try container.encodeIfPresent(selectedAlignmentIsReverse, forKey: .selectedAlignmentIsReverse)
+        try container.encode(extensionOf, forKey: .extensionOf)
+        try container.encode(extensionInterpretations, forKey: .extensionInterpretations)
+        try container.encode(provisionalNamingAmbiguous, forKey: .provisionalNamingAmbiguous)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1061,6 +1172,9 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
         case reciprocalHitSummary = "reciprocal_hit_summary"
         case selectedEvidence = "selected_evidence"
         case selectedAlignmentIsReverse = "selected_alignment_is_reverse"
+        case extensionOf = "extension_of"
+        case extensionInterpretations = "extension_interpretations"
+        case provisionalNamingAmbiguous = "provisional_naming_ambiguous"
     }
 }
 

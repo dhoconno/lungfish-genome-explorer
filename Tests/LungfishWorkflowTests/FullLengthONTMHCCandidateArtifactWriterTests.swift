@@ -70,7 +70,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let unnameableObjects = try XCTUnwrap(unnameableObject["clusters"] as? [[String: Any]])
         XCTAssertTrue(observationObjects.allSatisfy { $0["evidence"] == nil })
         XCTAssertTrue(unnameableObjects.allSatisfy { $0["evidence"] == nil })
-        XCTAssertEqual(candidate.schemaVersion, 2)
+        XCTAssertEqual(candidate.schemaVersion, 3)
         XCTAssertEqual(candidate.inputs.map(\.path), [
             fixture.referenceFASTAURL.path,
             "deduplicated_unmatched_clusters.fasta",

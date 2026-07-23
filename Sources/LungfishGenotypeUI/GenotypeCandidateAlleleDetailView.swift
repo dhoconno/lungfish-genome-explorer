@@ -99,6 +99,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
     private let closestAlleleValue = NSTextField(labelWithString: "")
     private let closestRawReferenceIDValue = NSTextField(labelWithString: "")
     private let closestReferenceClassValue = NSTextField(labelWithString: "")
+    private let extensionOfValue = NSTextField(wrappingLabelWithString: "")
     private let snpCountValue = NSTextField(labelWithString: "")
     private let insertedBasesValue = NSTextField(labelWithString: "")
     private let deletedBasesValue = NSTextField(labelWithString: "")
@@ -220,6 +221,9 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         closestAlleleValue.stringValue = closestReference?.alleleName ?? candidate.closestReferenceName
         closestRawReferenceIDValue.stringValue = closestReference?.rawReferenceID ?? "Unavailable"
         closestReferenceClassValue.stringValue = Self.referenceClassText(candidate.closestReferenceClass)
+        extensionOfValue.stringValue = candidate.extensionOf.isEmpty
+            ? "—"
+            : candidate.extensionOf.joined(separator: ", ")
         snpCountValue.stringValue = String(candidate.snpCount)
         insertedBasesValue.stringValue = String(candidate.insertedBases)
         deletedBasesValue.stringValue = String(candidate.deletedBases)
@@ -571,6 +575,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         addFact("Closest allele", value: closestAlleleValue, identifier: "candidateClosestAllele")
         addFact("Closest raw ID", value: closestRawReferenceIDValue, identifier: "candidateClosestRawReferenceID", monospaced: true)
         addFact("Closest class", value: closestReferenceClassValue, identifier: "candidateClosestReferenceClass")
+        addFact("Extension of", value: extensionOfValue, identifier: "candidateExtensionOf")
         addFact("SNP bases", value: snpCountValue, identifier: "candidateSNPCount")
         addFact("Inserted bases", value: insertedBasesValue, identifier: "candidateInsertedBases")
         addFact("Deleted bases", value: deletedBasesValue, identifier: "candidateDeletedBases")
