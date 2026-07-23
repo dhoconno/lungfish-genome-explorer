@@ -769,7 +769,10 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
         }
         var genBankByID: [String: GenBankRecord] = [:]
         for record in genBankRecords {
-            let artifactID = record.sequence.name
+            let artifactID = try Self.genBankArtifactID(
+                record,
+                artifactIDByStableID: artifactIDByStableID
+            )
             guard expectedArtifactIDs.contains(artifactID) else {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
                     stableClusterID: artifactID,
@@ -807,12 +810,6 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
                     stableClusterID: stableID,
                     detail: "document sequence SHA-256 does not match the FASTA sequence"
-                )
-            }
-            if let accession = genBank.accession, accession != artifactID {
-                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
-                    stableClusterID: stableID,
-                    detail: "GenBank accession is \(accession)"
                 )
             }
             guard genBank.locus.name == artifactID
@@ -868,6 +865,46 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             )
         }
         return result
+    }
+
+    private static func genBankArtifactID(
+        _ record: GenBankRecord,
+        artifactIDByStableID: [String: String]
+    ) throws -> String {
+        func nonempty(_ value: String?) -> String? {
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }
+
+        let sourceFeatures = record.annotations.filter { $0.type == .source }
+        let source = sourceFeatures.count == 1 ? sourceFeatures[0] : nil
+        let sourceStableID = nonempty(source?.qualifier("stable_cluster_id"))
+        let accession = nonempty(record.accession)
+        let sourceFASTARecordID = nonempty(source?.qualifier("fasta_record_id"))
+        let mappedSourceArtifactID = sourceStableID.flatMap { artifactIDByStableID[$0] }
+        let identity = accession ?? sourceFASTARecordID ?? mappedSourceArtifactID
+        guard let identity else {
+            throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                stableClusterID: sourceStableID ?? record.sequence.name,
+                detail: "GenBank ACCESSION and authoritative source artifact identity are missing"
+            )
+        }
+
+        let declaredIdentities = [
+            ("accession", accession),
+            ("source fasta_record_id", sourceFASTARecordID),
+            ("source stable_cluster_id mapping", mappedSourceArtifactID),
+        ].compactMap { field, value in
+            value.map { (field, $0) }
+        }
+        guard declaredIdentities.allSatisfy({ $0.1 == identity }) else {
+            let detail = declaredIdentities.map { "\($0.0)=\($0.1)" }.joined(separator: "; ")
+            throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                stableClusterID: sourceStableID ?? identity,
+                detail: "GenBank identity fields disagree: \(detail)"
+            )
+        }
+        return identity
     }
 
     private static func hasCandidateTrimMetadata(_ source: SequenceAnnotation) -> Bool {

@@ -6,6 +6,139 @@ import LungfishIO
 import XCTest
 
 final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
+    func testNormalizedUnmatchedRowsUseFullGenBankIdentityAfterUUIDRoundTrip() throws {
+        let candidateID = "11111111-1111-4111-8111-111111111111"
+        let unnameableStableID = "22222222-2222-4222-8222-222222222222"
+        let unnameableFASTAID = "33333333-3333-4333-8333-333333333333"
+        let candidateSequence = "ATGGCTTAA"
+        let unnameableSequence = "ACGTACGT"
+        let evidence = ONTMHCEvidenceLocator(
+            bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+            queryName: candidateID,
+            referenceName: "ref-uuid",
+            readGroupID: nil,
+            referenceStart: 1,
+            cigar: "9="
+        )
+        let candidate = ONTMHCCandidateRecord(
+            stableClusterID: candidateID,
+            provisionalName: "Mafa-A1*uuid_nov",
+            locus: "Mafa-A1",
+            classification: .novel,
+            supportClass: .singleton,
+            closestReferenceName: "Mafa-A1*001",
+            closestReferenceClass: .genomicDNA,
+            snpCount: 1,
+            insertedBases: 0,
+            deletedBases: 0,
+            longGapBases: 0,
+            comparableBases: candidateSequence.count,
+            shorterCoverage: 1,
+            identity: 1,
+            mappingQuality: 60,
+            alignmentScore: 100,
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 4,
+            supportingSampleIDs: ["sample-a"],
+            fastaRecordID: candidateID,
+            sequenceSHA256: sha256Hex(candidateSequence),
+            selectedEvidence: evidence
+        )
+        let summary = try ONTMHCReciprocalQueryHitSummary(
+            bamPath: evidence.bamPath,
+            queryName: unnameableStableID,
+            alignmentCount: 0,
+            targetAlignmentCounts: [:],
+            exactMatchTargetNames: [],
+            closestMatchTargetNames: []
+        )
+        let unnameable = ONTMHCUnnameableRecord(
+            stableClusterID: unnameableStableID,
+            reason: .unresolvedLocus,
+            failedMetrics: [:],
+            supportClass: .singleton,
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 4,
+            supportingSampleIDs: ["sample-a"],
+            fastaRecordID: unnameableFASTAID,
+            sequenceSHA256: sha256Hex(unnameableSequence),
+            reciprocalHitSummary: summary,
+            selectedEvidence: nil
+        )
+        let candidateDocument = ONTMHCCandidateAllelesDocument(
+            schemaVersion: 4,
+            createdAt: "2026-07-23T00:00:00Z",
+            thresholds: .defaults,
+            inputs: [],
+            evidence: [],
+            sequenceFASTA: .init(
+                path: "candidate_alleles.fasta",
+                sha256: String(repeating: "a", count: 64),
+                sizeBytes: 1
+            ),
+            candidates: [candidate],
+            observations: [observation(candidateID, "sample-a", 4)]
+        )
+        let unnameableDocument = ONTMHCUnnameableClustersDocument(
+            schemaVersion: 4,
+            createdAt: "2026-07-23T00:00:00Z",
+            thresholds: .defaults,
+            sequenceFASTA: .init(
+                path: "unnameable_unmatched_clusters.fasta",
+                sha256: String(repeating: "b", count: 64),
+                sizeBytes: 1
+            ),
+            clusters: [unnameable],
+            observations: [observation(unnameableStableID, "sample-a", 4)]
+        )
+        let projection = try FullLengthONTMHCWorkbookProjection(
+            candidateDocument: candidateDocument,
+            unnameableDocument: unnameableDocument,
+            sampleOrder: ["sample-a"]
+        )
+        let candidateGenBank = try normalizedGenBankRecord(
+            stableID: candidateID,
+            sequence: candidateSequence,
+            translation: "MA",
+            status: "full-length"
+        )
+        let unnameableGenBank = try normalizedGenBankRecord(
+            stableID: unnameableFASTAID,
+            sequence: unnameableSequence,
+            translation: nil,
+            status: "incomplete/unresolved",
+            sourceStableID: unnameableStableID
+        )
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("uuid-genbank-identity-\(UUID().uuidString).gb")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try GenBankWriter(url: url).write([candidateGenBank, unnameableGenBank])
+        let roundTripped = try GenBankReader(url: url).readAllSync()
+
+        XCTAssertEqual(roundTripped.count, 2)
+        XCTAssertEqual(roundTripped.map(\.accession), [candidateID, unnameableFASTAID])
+        XCTAssertEqual(roundTripped.map(\.sequence.name), [
+            String(candidateID.prefix(16)),
+            String(unnameableFASTAID.prefix(16)),
+        ])
+
+        let rows = try projection.normalizedUnmatchedRows(
+            candidateFASTARecords: [
+                .init(name: candidateID, sequence: candidateSequence, readCount: 4),
+            ],
+            unnameableFASTARecords: [
+                .init(name: unnameableFASTAID, sequence: unnameableSequence, readCount: 4),
+            ],
+            candidateGenBankRecords: [roundTripped[0]],
+            unnameableGenBankRecords: [roundTripped[1]]
+        )
+
+        XCTAssertEqual(rows.map(\.stableClusterID), [candidateID, unnameableStableID])
+        XCTAssertEqual(rows.map(\.fastaRecordID), [candidateID, unnameableFASTAID])
+    }
+
     func testSchemaV4NonexportableUnnameableProducesBlankExternalSequenceMetadata() throws {
         let legacy = makeDocuments()
         let original = try XCTUnwrap(legacy.unnameable.clusters.first)
@@ -701,7 +834,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         ])
     }
 
-    func testNormalizedUnmatchedRowsRejectGenBankChecksumAccessionAndLocusIdentityMismatches() throws {
+    func testNormalizedUnmatchedRowsRejectGenBankChecksumAccessionSourceAndLocusIdentityMismatches() throws {
         let projection = try singleCandidateProjection(from: makeDocuments())
         let sequence = "ATGGCTTAA"
         let mismatches: [(String, GenBankRecord)] = [
@@ -720,6 +853,13 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
                 try normalizedGenBankRecord(
                     stableID: "cluster-1", sequence: sequence, translation: "MA",
                     status: "full-length", accession: "different-id"
+                )
+            ),
+            (
+                "source fasta_record_id",
+                try normalizedGenBankRecord(
+                    stableID: "cluster-1", sequence: sequence, translation: "MA",
+                    status: "full-length", sourceFASTARecordID: "different-id"
                 )
             ),
             (
@@ -1489,6 +1629,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         status: String,
         sourceSequenceSHA256: String? = nil,
         sourceStableID: String? = nil,
+        sourceFASTARecordID: String? = nil,
         accession: String? = nil,
         locusName: String? = nil,
         trimMetadata: (
@@ -1504,6 +1645,9 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             "sequence_sha256": .init(sourceSequenceSHA256 ?? sha256Hex(sequence)),
             "translation_status": .init(status),
         ]
+        if let sourceFASTARecordID {
+            sourceQualifiers["fasta_record_id"] = .init(sourceFASTARecordID)
+        }
         if let trimMetadata {
             sourceQualifiers["original_sequence_length"] = .init(String(trimMetadata.originalLength))
             sourceQualifiers["trim_start"] = .init(String(trimMetadata.start))
