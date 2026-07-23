@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 import LungfishIO
 
 struct FullLengthONTMHCCandidateSequenceObservation: Sendable, Equatable {
@@ -103,6 +104,8 @@ struct FullLengthONTMHCCandidateArtifactResult: Sendable, Equatable {
             manifest.unnameableJSON,
             manifest.unnameableFASTA,
             manifest.unnameableGenBank,
+            manifest.rawUnmatchedFASTA,
+            manifest.sourceIdentityMap,
         ].compactMap { $0 }
     }
 }
@@ -235,15 +238,21 @@ struct FullLengthONTMHCReciprocalSAMParser: Sendable {
 }
 
 struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
+    typealias CanonicalizationProvider = @Sendable (
+        FullLengthONTMHCCandidateGenBankArtifactBuilder.Input
+    ) throws -> FullLengthONTMHCCandidateCanonicalization
+
     private let executableDirectoryURL: URL?
     private let minimap2ExecutableURL: URL?
     private let samtoolsExecutableURL: URL?
     private let fileManager: FileManager
+    private let canonicalizationProvider: CanonicalizationProvider
     private let artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding
 
     init(
         executableDirectoryURL: URL? = nil,
         fileManager: FileManager = .default,
+        canonicalizationProvider: CanonicalizationProvider? = nil,
         artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding =
             DefaultFullLengthONTMHCArtifactDescriptorProvider()
     ) {
@@ -251,6 +260,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         minimap2ExecutableURL = nil
         samtoolsExecutableURL = nil
         self.fileManager = fileManager
+        self.canonicalizationProvider = canonicalizationProvider ?? {
+            try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: $0)
+        }
         self.artifactDescriptorProvider = artifactDescriptorProvider
     }
 
@@ -258,6 +270,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         minimap2ExecutableURL: URL,
         samtoolsExecutableURL: URL,
         fileManager: FileManager = .default,
+        canonicalizationProvider: CanonicalizationProvider? = nil,
         artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding =
             DefaultFullLengthONTMHCArtifactDescriptorProvider()
     ) {
@@ -265,6 +278,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         self.minimap2ExecutableURL = minimap2ExecutableURL.standardizedFileURL
         self.samtoolsExecutableURL = samtoolsExecutableURL.standardizedFileURL
         self.fileManager = fileManager
+        self.canonicalizationProvider = canonicalizationProvider ?? {
+            try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: $0)
+        }
         self.artifactDescriptorProvider = artifactDescriptorProvider
     }
 
@@ -312,7 +328,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         )
         let canonicalDescriptor = capturedCanonicalDescriptor.relocated(
             to: request.finalOutputDirectoryURL.appendingPathComponent(
-                "deduplicated_unmatched_clusters.fasta"
+                "artifacts/internal/raw-unmatched-consensuses.fasta"
             ),
             role: .sourceClusterFASTA,
             phase: .final
@@ -356,7 +372,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "sequenceNormalization": "remove-whitespace-and-uppercase",
                 "sequenceGrouping": "exact-normalized-sequence",
                 "canonicalValidation": "exact-stable-id-and-normalized-sequence-bijection",
-                "querySequenceSource": "canonical-deduplicated-unmatched-fasta",
+                "querySequenceSource": "validated-raw-full-consensus-internal-copy",
                 "lineWidth": "80",
             ],
             inputs: [canonicalDescriptor],
@@ -500,7 +516,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             ],
             resolvedOptions: Self.candidateResolvedOptions(request.thresholds).merging([
                 "provenanceOutputException": "typed in-memory classification result is consumed by the candidate and unnameable render steps",
-                "documentSchemaVersion": "3",
+                "documentSchemaVersion": "4",
                 "reciprocalSecondaryAlignmentLimit": String(reciprocalSecondaryAlignmentLimit),
                 "reciprocalSecondaryAlignmentLimitRule": "reference-record-count;at-least-one",
                 "reciprocalBAMPath": reciprocalBAMRelativePath,
@@ -521,19 +537,163 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             completedAt: classificationCompletedAt,
             wallTime: classificationCompletedAt.timeIntervalSince(classificationStartedAt)
         ))
-        let candidates = classifications.compactMap { result -> ONTMHCCandidateRecord? in
+        let rawCandidates = classifications.compactMap { result -> ONTMHCCandidateRecord? in
             guard case .candidate(let record) = result else { return nil }
             return record
         }.sorted { $0.stableClusterID.localizedStandardCompare($1.stableClusterID) == .orderedAscending }
-        let unnameable = classifications.compactMap { result -> ONTMHCUnnameableRecord? in
+        let rawUnnameable = classifications.compactMap { result -> ONTMHCUnnameableRecord? in
             guard case .unnameable(let record) = result else { return nil }
             return record
         }.sorted { $0.stableClusterID.localizedStandardCompare($1.stableClusterID) == .orderedAscending }
         let sequenceByID = Dictionary(uniqueKeysWithValues: grouped.map { ($0.id, $0.sequence) })
+        let observationsByRawID = Dictionary(uniqueKeysWithValues: grouped.map {
+            ($0.id, $0.observations)
+        })
+        let rawSequenceReference = try artifactReference(
+            callerStagedUnmatchedFASTAURL,
+            finalRelativePath: "deduplicated_unmatched_clusters.fasta"
+        )
+        let rawCreatedAt = Self.iso8601(Date())
+        let rawCandidateDocument = ONTMHCCandidateAllelesDocument(
+            schemaVersion: 3,
+            createdAt: rawCreatedAt,
+            thresholds: request.thresholds,
+            inputs: [],
+            evidence: [],
+            sequenceFASTA: rawSequenceReference,
+            candidates: rawCandidates,
+            observations: grouped.flatMap(\.observations).filter {
+                Set(rawCandidates.map(\.stableClusterID)).contains($0.stableClusterID)
+            }
+        )
+        let rawUnnameableDocument = ONTMHCUnnameableClustersDocument(
+            schemaVersion: 3,
+            createdAt: rawCreatedAt,
+            thresholds: request.thresholds,
+            inputs: [],
+            evidence: [],
+            sequenceFASTA: rawSequenceReference,
+            clusters: rawUnnameable,
+            observations: grouped.flatMap(\.observations).filter {
+                Set(rawUnnameable.map(\.stableClusterID)).contains($0.stableClusterID)
+            }
+        )
+        let referenceVisualization: ONTMHCReferenceVisualizationArtifact?
+        if let referenceBundleURL = request.referenceBundleURL,
+           referenceBundleURL.pathExtension.lowercased() == "lungfishref",
+           fileManager.fileExists(atPath: referenceBundleURL.path) {
+            referenceVisualization = try MHCReferenceVisualizationArtifactBuilder().build(.init(
+                referenceBundleURL: referenceBundleURL,
+                exactKnownRawReferenceIDs: [],
+                candidates: rawCandidateDocument,
+                unnameable: rawUnnameableDocument
+            )).document
+        } else {
+            referenceVisualization = nil
+        }
+        let preparedCandidates = try rawCandidates.map { candidate in
+            let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+                subject: .candidate(candidate),
+                sequence: sequenceByID[candidate.stableClusterID]!,
+                selectedAlignmentIsReverse: candidate.selectedAlignmentIsReverse,
+                closestReference: referenceVisualization?.recordsByRawReferenceID[
+                    candidate.selectedEvidence.referenceName
+                ],
+                analysisName: request.analysisName,
+                projectBundleName: request.projectBundleName,
+                minimumIntronGapBases: request.thresholds.minimumIntronGapBases
+            )
+            return FullLengthONTMHCCandidateCanonicalizer.Input(
+                record: candidate,
+                observations: observationsByRawID[candidate.stableClusterID] ?? [],
+                canonicalization: try canonicalizationProvider(input)
+            )
+        }
+        let canonicalCandidates = try FullLengthONTMHCCandidateCanonicalizer()
+            .aggregate(preparedCandidates)
+        let candidates = canonicalCandidates.map(\.record)
+        let canonicalSequenceByID = Dictionary(uniqueKeysWithValues: canonicalCandidates.map {
+            ($0.record.stableClusterID, $0.sequence)
+        })
+
+        let preparedUnnameable = try rawUnnameable.map { cluster -> (
+            record: ONTMHCUnnameableRecord,
+            canonicalization: FullLengthONTMHCCandidateCanonicalization
+        ) in
+            let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+                subject: .unnameable(cluster),
+                sequence: sequenceByID[cluster.stableClusterID]!,
+                selectedAlignmentIsReverse: cluster.selectedAlignmentIsReverse,
+                closestReference: cluster.selectedEvidence.flatMap {
+                    referenceVisualization?.recordsByRawReferenceID[$0.referenceName]
+                },
+                analysisName: request.analysisName,
+                projectBundleName: request.projectBundleName,
+                minimumIntronGapBases: request.thresholds.minimumIntronGapBases
+            )
+            return (cluster, try canonicalizationProvider(input))
+        }
+        let unnameable = preparedUnnameable.map { prepared -> ONTMHCUnnameableRecord in
+            guard let sequence = prepared.canonicalization.externalSequence,
+                  prepared.canonicalization.referenceReadiness == .referenceReady else {
+                return ONTMHCUnnameableRecord(
+                    stableClusterID: prepared.record.stableClusterID,
+                    reason: prepared.record.reason,
+                    failedMetrics: prepared.record.failedMetrics,
+                    supportClass: prepared.record.supportClass,
+                    independentSampleCount: prepared.record.independentSampleCount,
+                    occurrenceCount: prepared.record.occurrenceCount,
+                    totalClusterReads: prepared.record.totalClusterReads,
+                    supportingSampleIDs: prepared.record.supportingSampleIDs,
+                    fastaRecordID: nil,
+                    sequenceSHA256: nil,
+                    reciprocalHitSummary: prepared.record.reciprocalHitSummary,
+                    selectedEvidence: prepared.record.selectedEvidence,
+                    selectedAlignmentIsReverse: prepared.record.selectedAlignmentIsReverse
+                )
+            }
+            let external = Self.normalizedSequence(sequence)
+            return ONTMHCUnnameableRecord(
+                stableClusterID: prepared.record.stableClusterID,
+                reason: prepared.record.reason,
+                failedMetrics: prepared.record.failedMetrics,
+                supportClass: prepared.record.supportClass,
+                independentSampleCount: prepared.record.independentSampleCount,
+                occurrenceCount: prepared.record.occurrenceCount,
+                totalClusterReads: prepared.record.totalClusterReads,
+                supportingSampleIDs: prepared.record.supportingSampleIDs,
+                fastaRecordID: Self.stableClusterID(for: external),
+                sequenceSHA256: Self.sha256(Data(external.utf8)),
+                reciprocalHitSummary: prepared.record.reciprocalHitSummary,
+                selectedEvidence: prepared.record.selectedEvidence,
+                selectedAlignmentIsReverse: prepared.record.selectedAlignmentIsReverse
+            )
+        }
+        let duplicateUnnameableExternalIDs = Dictionary(
+            grouping: unnameable.compactMap(\.fastaRecordID),
+            by: { $0 }
+        ).filter { $0.value.count > 1 }.keys.sorted()
+        guard duplicateUnnameableExternalIDs.isEmpty else {
+            throw FullLengthONTMHCCandidateArtifactWriterError(
+                "Multiple un-nameable MHC clusters resolve to the same external UTR-trimmed sequence: "
+                    + duplicateUnnameableExternalIDs.joined(separator: ", ")
+                    + ". Publication is blocked until their raw-source ownership can be represented without conflation."
+            )
+        }
+        let unnameableExternalSequences = Dictionary(uniqueKeysWithValues: zip(
+            unnameable,
+            preparedUnnameable
+        ).compactMap { record, prepared -> (String, String)? in
+            guard let id = record.fastaRecordID,
+                  let sequence = prepared.canonicalization.externalSequence else { return nil }
+            return (id, Self.normalizedSequence(sequence))
+        })
         let candidateFASTAURL = stagedRootURL.appendingPathComponent("candidate_alleles.fasta")
         let unnameableFASTAURL = stagedRootURL.appendingPathComponent("unnameable_unmatched_clusters.fasta")
         let candidateFASTAStartedAt = Date()
-        try writeFASTA(candidates.map { ($0.stableClusterID, sequenceByID[$0.stableClusterID]!) }, to: candidateFASTAURL)
+        try writeFASTA(candidates.map {
+            ($0.stableClusterID, canonicalSequenceByID[$0.stableClusterID]!)
+        }, to: candidateFASTAURL)
         let candidateFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: candidateFASTAURL, role: .sourceClusterFASTA, phase: .staging
         )
@@ -547,7 +707,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             completedAt: candidateFASTACompletedAt
         ))
         let unnameableFASTAStartedAt = Date()
-        try writeFASTA(unnameable.map { ($0.stableClusterID, sequenceByID[$0.stableClusterID]!) }, to: unnameableFASTAURL)
+        try writeFASTA(unnameable.compactMap { record in
+            guard let id = record.fastaRecordID,
+                  let sequence = unnameableExternalSequences[id] else { return nil }
+            return (id, sequence)
+        }, to: unnameableFASTAURL)
         let unnameableFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: unnameableFASTAURL, role: .sourceClusterFASTA, phase: .staging
         )
@@ -561,40 +725,148 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             completedAt: unnameableFASTACompletedAt
         ))
 
+        let internalDirectoryURL = stagedRootURL.appendingPathComponent(
+            "artifacts/internal",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: internalDirectoryURL, withIntermediateDirectories: true)
+        let rawInternalFASTAURL = internalDirectoryURL.appendingPathComponent(
+            "raw-unmatched-consensuses.fasta"
+        )
+        let sourceMapURL = internalDirectoryURL.appendingPathComponent(
+            "mhc-candidate-source-map.json"
+        )
+        let sourceIdentityStartedAt = Date()
+        try fileManager.copyItem(at: callerStagedUnmatchedFASTAURL, to: rawInternalFASTAURL)
+        let rawInternalFASTAReference = try artifactReference(
+            rawInternalFASTAURL,
+            finalRelativePath: "artifacts/internal/raw-unmatched-consensuses.fasta"
+        )
+        let canonicalCandidateByRawID = Dictionary(uniqueKeysWithValues: canonicalCandidates.flatMap {
+            output in output.rawInputs.map { ($0.record.stableClusterID, output) }
+        })
+        let unnameablePreparedByRawID = Dictionary(uniqueKeysWithValues: zip(
+            unnameable,
+            preparedUnnameable
+        ).map { ($0.stableClusterID, ($0, $1.canonicalization)) })
+        let sourceIdentityRecords = grouped.map { group -> ONTMHCCandidateSourceIdentityRecord in
+            if let candidate = canonicalCandidateByRawID[group.id],
+               let rawInput = candidate.rawInputs.first(where: {
+                   $0.record.stableClusterID == group.id
+               }) {
+                return .init(
+                    rawStableClusterID: group.id,
+                    rawSequenceSHA256: Self.sha256(Data(group.sequence.utf8)),
+                    rawSequenceLength: group.sequence.count,
+                    canonicalStableClusterID: candidate.record.stableClusterID,
+                    canonicalSequenceSHA256: candidate.record.sequenceSHA256,
+                    trimStart: rawInput.canonicalization.trimRange?.lowerBound,
+                    trimEnd: rawInput.canonicalization.trimRange?.upperBound,
+                    referenceReadiness: rawInput.canonicalization.referenceReadiness.rawValue
+                )
+            }
+            let prepared = unnameablePreparedByRawID[group.id]
+            return .init(
+                rawStableClusterID: group.id,
+                rawSequenceSHA256: Self.sha256(Data(group.sequence.utf8)),
+                rawSequenceLength: group.sequence.count,
+                canonicalStableClusterID: prepared?.0.fastaRecordID,
+                canonicalSequenceSHA256: prepared?.0.sequenceSHA256,
+                trimStart: prepared?.1.trimRange?.lowerBound,
+                trimEnd: prepared?.1.trimRange?.upperBound,
+                referenceReadiness: prepared?.1.referenceReadiness.rawValue
+                    ?? FullLengthONTMHCReferenceReadiness.unavailable.rawValue
+            )
+        }.sorted { $0.rawStableClusterID < $1.rawStableClusterID }
+        let sourceIdentityDocument = ONTMHCCandidateSourceIdentityDocument(
+            schemaVersion: 1,
+            createdAt: rawCreatedAt,
+            rawSequenceFASTA: rawInternalFASTAReference,
+            records: sourceIdentityRecords
+        )
+        try writeCanonicalJSON(sourceIdentityDocument, to: sourceMapURL)
+        let rawInternalFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: rawInternalFASTAURL,
+            role: .sourceClusterFASTA,
+            phase: .staging
+        )
+        let sourceMapDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: sourceMapURL,
+            role: .commandOutput,
+            phase: .staging
+        )
+        let sourceIdentityCompletedAt = Date()
+        transformations.append(.init(
+            workflowName: "lungfish-in-process:render-mhc-candidate-source-identity",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-in-process", "render-mhc-candidate-source-identity",
+                "--raw-fasta", rawInternalFASTAURL.path,
+                "--source-map", sourceMapURL.path,
+            ],
+            resolvedOptions: [
+                "rawIdentity": "exact-normalized-full-consensus-sequence",
+                "canonicalIdentity": "exact-normalized-UTR-trimmed-genomic-sequence",
+                "canonicalStableID": "first-128-bits-SHA256-with-UUID-version-and-variant-bits",
+                "candidateMergeFields": "classification,locus,provisional-name,closest-reference-name,closest-reference-raw-id,closest-reference-class,extension-of,provisional-naming-ambiguous",
+                "representativeRule": "highest-total-cluster-reads;then-lexical-raw-stable-id",
+                "rawRecordCount": String(grouped.count),
+                "canonicalCandidateCount": String(candidates.count),
+            ],
+            inputs: [canonicalDescriptor],
+            outputs: [rawInternalFASTADescriptor, sourceMapDescriptor],
+            exitStatus: 0,
+            startedAt: sourceIdentityStartedAt,
+            completedAt: sourceIdentityCompletedAt,
+            wallTime: sourceIdentityCompletedAt.timeIntervalSince(sourceIdentityStartedAt)
+        ))
+
         let reciprocalBAMReference = try artifactReference(stagedBAMURL, finalRelativePath: "artifacts/alignments/unmatched-to-reference.bam")
         let reciprocalBAIReference = try artifactReference(stagedBAIURL, finalRelativePath: "artifacts/alignments/unmatched-to-reference.bam.bai")
         let candidateFASTAReference = try artifactReference(candidateFASTAURL, finalRelativePath: "candidate_alleles.fasta")
         let unnameableFASTAReference = try artifactReference(unnameableFASTAURL, finalRelativePath: "unnameable_unmatched_clusters.fasta")
         let referenceInput = try artifactReference(request.referenceAlleleFASTAURL, finalRelativePath: request.referenceAlleleFASTAURL.path)
-        let stableUnmatchedInput = try artifactReference(
-            callerStagedUnmatchedFASTAURL,
-            finalRelativePath: "deduplicated_unmatched_clusters.fasta"
-        )
-        let allObservations = grouped.flatMap(\.observations).sorted(by: Self.observationLessThan)
-        let candidateStableIDs = Set(candidates.lazy.map(\.stableClusterID))
+        let stableUnmatchedInput = rawInternalFASTAReference
+        let candidateObservations = canonicalCandidates.flatMap(\.observations)
+            .sorted(by: Self.observationLessThan)
         let unnameableStableIDs = Set(unnameable.lazy.map(\.stableClusterID))
+        let unnameableObservations = grouped.flatMap(\.observations)
+            .filter { unnameableStableIDs.contains($0.stableClusterID) }
+            .map {
+                ONTMHCCandidateObservation(
+                    stableClusterID: $0.stableClusterID,
+                    sourceSequenceClusterID: $0.stableClusterID,
+                    sampleID: $0.sampleID,
+                    readGroupID: $0.readGroupID,
+                    sourceClusterIDs: $0.sourceClusterIDs,
+                    sourceClusterReadCounts: $0.sourceClusterReadCounts,
+                    aggregatedSampleReadCount: $0.aggregatedSampleReadCount,
+                    genotypingHitSummaries: $0.genotypingHitSummaries
+                )
+            }
+            .sorted(by: Self.observationLessThan)
         let createdAt = Self.iso8601(Date())
         let evidence = [reciprocalBAMReference, reciprocalBAIReference]
             + (request.genotypingEvidence.map { [$0.bam, $0.bai] } ?? [])
         let candidateDocument = ONTMHCCandidateAllelesDocument(
-            schemaVersion: 3,
+            schemaVersion: 4,
             createdAt: createdAt,
             thresholds: request.thresholds,
             inputs: [referenceInput, stableUnmatchedInput],
             evidence: evidence,
             sequenceFASTA: candidateFASTAReference,
             candidates: candidates,
-            observations: allObservations.filter { candidateStableIDs.contains($0.stableClusterID) }
+            observations: candidateObservations
         )
         let unnameableDocument = ONTMHCUnnameableClustersDocument(
-            schemaVersion: 3,
+            schemaVersion: 4,
             createdAt: createdAt,
             thresholds: request.thresholds,
             inputs: [referenceInput, stableUnmatchedInput],
             evidence: evidence,
             sequenceFASTA: unnameableFASTAReference,
             clusters: unnameable,
-            observations: allObservations.filter { unnameableStableIDs.contains($0.stableClusterID) }
+            observations: unnameableObservations
         )
         let candidateJSONURL = stagedRootURL.appendingPathComponent("candidate-alleles.json")
         let unnameableJSONURL = stagedRootURL.appendingPathComponent("unnameable-unmatched-clusters.json")
@@ -643,35 +915,16 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let candidateJSONReference = try artifactReference(candidateJSONURL, finalRelativePath: "candidate-alleles.json")
         let unnameableJSONReference = try artifactReference(unnameableJSONURL, finalRelativePath: "unnameable-unmatched-clusters.json")
 
-        let referenceVisualization: ONTMHCReferenceVisualizationArtifact?
-        if let referenceBundleURL = request.referenceBundleURL,
-           referenceBundleURL.pathExtension.lowercased() == "lungfishref",
-           fileManager.fileExists(atPath: referenceBundleURL.path) {
-            referenceVisualization = try MHCReferenceVisualizationArtifactBuilder().build(.init(
-                referenceBundleURL: referenceBundleURL,
-                exactKnownRawReferenceIDs: [],
-                candidates: candidateDocument,
-                unnameable: unnameableDocument
-            )).document
-        } else {
-            referenceVisualization = nil
-        }
-        let genBankBuilder = FullLengthONTMHCCandidateGenBankArtifactBuilder()
         let candidateGenBankURL = stagedRootURL.appendingPathComponent("candidate_alleles.gb")
         let candidateGenBankStartedAt = Date()
-        let candidateGenBankRecords = try genBankBuilder.records(from: candidates.map { candidate in
-            FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
-                subject: .candidate(candidate),
-                sequence: sequenceByID[candidate.stableClusterID]!,
-                selectedAlignmentIsReverse: candidate.selectedAlignmentIsReverse,
-                closestReference: referenceVisualization?.recordsByRawReferenceID[
-                    candidate.selectedEvidence.referenceName
-                ],
-                analysisName: request.analysisName,
-                projectBundleName: request.projectBundleName,
-                minimumIntronGapBases: request.thresholds.minimumIntronGapBases
+        let candidateGenBankRecords = try canonicalCandidates.map {
+            try canonicalGenBankRecord(
+                $0.representativeCanonicalization.record,
+                externalID: $0.record.stableClusterID,
+                externalSequence: $0.sequence,
+                rawSourceIDs: $0.record.sourceSequenceClusterIDs
             )
-        })
+        }
         try GenBankWriter(url: candidateGenBankURL).write(candidateGenBankRecords)
         let candidateGenBankDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: candidateGenBankURL, role: .commandOutput, phase: .staging
@@ -680,19 +933,19 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
 
         let unnameableGenBankURL = stagedRootURL.appendingPathComponent("unnameable_unmatched_clusters.gb")
         let unnameableGenBankStartedAt = Date()
-        let unnameableGenBankRecords = try genBankBuilder.records(from: unnameable.map { cluster in
-            FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
-                subject: .unnameable(cluster),
-                sequence: sequenceByID[cluster.stableClusterID]!,
-                selectedAlignmentIsReverse: cluster.selectedAlignmentIsReverse,
-                closestReference: cluster.selectedEvidence.flatMap {
-                    referenceVisualization?.recordsByRawReferenceID[$0.referenceName]
-                },
-                analysisName: request.analysisName,
-                projectBundleName: request.projectBundleName,
-                minimumIntronGapBases: request.thresholds.minimumIntronGapBases
+        let unnameableGenBankRecords = try zip(unnameable, preparedUnnameable).compactMap {
+            record, prepared -> GenBankRecord? in
+            guard let externalID = record.fastaRecordID,
+                  let externalSequence = prepared.canonicalization.externalSequence else {
+                return nil
+            }
+            return try canonicalGenBankRecord(
+                prepared.canonicalization.record,
+                externalID: externalID,
+                externalSequence: externalSequence,
+                rawSourceIDs: [record.stableClusterID]
             )
-        })
+        }
         try GenBankWriter(url: unnameableGenBankURL).write(unnameableGenBankRecords)
         let unnameableGenBankDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: unnameableGenBankURL, role: .commandOutput, phase: .staging
@@ -766,6 +1019,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             unnameableFASTADescriptor,
             unnameableJSONDescriptor,
             unnameableGenBankDescriptor,
+            rawInternalFASTADescriptor,
+            sourceMapDescriptor,
         ]
         let materializationStartedAt = Date()
         try materializeStagingGeneration(
@@ -778,9 +1033,50 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "candidate_alleles.gb",
                 "unnameable_unmatched_clusters.fasta", "unnameable-unmatched-clusters.json",
                 "unnameable_unmatched_clusters.gb",
+                "artifacts/internal/raw-unmatched-consensuses.fasta",
+                "artifacts/internal/mhc-candidate-source-map.json",
             ]
         )
         let materializationCompletedAt = Date()
+        let canonicalDedupStartedAt = Date()
+        let publishedCandidateFASTAURL = request.outputDirectoryURL.appendingPathComponent(
+            "candidate_alleles.fasta"
+        )
+        try Data(contentsOf: publishedCandidateFASTAURL).write(
+            to: callerStagedUnmatchedFASTAURL,
+            options: .atomic
+        )
+        let publishedCandidateFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: publishedCandidateFASTAURL,
+            role: .sourceClusterFASTA,
+            phase: .staging
+        )
+        let canonicalDedupDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: callerStagedUnmatchedFASTAURL,
+            role: .sourceClusterFASTA,
+            phase: .staging
+        )
+        let canonicalDedupCompletedAt = Date()
+        transformations.append(.init(
+            workflowName: "lungfish-in-process:publish-canonical-deduplicated-unmatched-fasta",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-in-process", "publish-canonical-deduplicated-unmatched-fasta",
+                "--input", publishedCandidateFASTAURL.path,
+                "--output", callerStagedUnmatchedFASTAURL.path,
+            ],
+            resolvedOptions: [
+                "sequenceBoundary": "UTR-trimmed-reference-ready-candidates-only",
+                "recordIdentity": "exact-trimmed-sequence-SHA256-derived-stable-id",
+                "replacementScope": "caller-owned-unpublished-staging-file",
+            ],
+            inputs: [publishedCandidateFASTADescriptor],
+            outputs: [canonicalDedupDescriptor],
+            exitStatus: 0,
+            startedAt: canonicalDedupStartedAt,
+            completedAt: canonicalDedupCompletedAt,
+            wallTime: canonicalDedupCompletedAt.timeIntervalSince(canonicalDedupStartedAt)
+        ))
         let finalPublicationURLs: [(URL, FullLengthONTMHCArtifactRole)] = [
             (finalBAMURL, .evidenceBAM),
             (finalBAIURL, .evidenceBAI),
@@ -790,6 +1086,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("unnameable-unmatched-clusters.json"), .commandOutput),
             (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.gb"), .commandOutput),
+            (request.outputDirectoryURL.appendingPathComponent("artifacts/internal/raw-unmatched-consensuses.fasta"), .sourceClusterFASTA),
+            (request.outputDirectoryURL.appendingPathComponent("artifacts/internal/mhc-candidate-source-map.json"), .commandOutput),
         ]
         let checksumStartedAt = Date()
         let finalPublicationDescriptors = try finalPublicationURLs.map {
@@ -832,7 +1130,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             wallTime: checksumCompletedAt.timeIntervalSince(checksumStartedAt)
         ))
         let manifest = ONTMHCCandidateArtifactManifest(
-            schemaVersion: 1,
+            schemaVersion: 2,
             genotypingEvidence: request.genotypingEvidence,
             reciprocalEvidence: .init(bam: reciprocalBAMReference, bai: reciprocalBAIReference),
             candidateJSON: candidateJSONReference,
@@ -840,7 +1138,14 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             candidateGenBank: candidateGenBankReference,
             unnameableJSON: unnameableJSONReference,
             unnameableFASTA: unnameableFASTAReference,
-            unnameableGenBank: unnameableGenBankReference
+            unnameableGenBank: unnameableGenBankReference,
+            rawUnmatchedFASTA: rawInternalFASTAReference,
+            sourceIdentityMap: try artifactReference(
+                request.outputDirectoryURL.appendingPathComponent(
+                    "artifacts/internal/mhc-candidate-source-map.json"
+                ),
+                finalRelativePath: "artifacts/internal/mhc-candidate-source-map.json"
+            )
         )
         return FullLengthONTMHCCandidateArtifactResult(
             stableUnmatchedFASTAURL: request.outputDirectoryURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta"),
@@ -882,6 +1187,44 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
 
     static func normalizedSequence(_ sequence: String) -> String {
         sequence.filter { !$0.isWhitespace }.uppercased()
+    }
+
+    func canonicalGenBankRecord(
+        _ record: GenBankRecord,
+        externalID: String,
+        externalSequence: String,
+        rawSourceIDs: [String]
+    ) throws -> GenBankRecord {
+        var annotations = record.annotations
+        if let sourceIndex = annotations.firstIndex(where: { $0.type == .source }) {
+            annotations[sourceIndex].qualifiers["stable_cluster_id"] = .init(externalID)
+            annotations[sourceIndex].qualifiers["source_sequence_cluster_ids"] = .init(
+                rawSourceIDs.sorted()
+            )
+            annotations[sourceIndex].qualifiers["sequence_sha256"] = .init(
+                Self.sha256(Data(Self.normalizedSequence(externalSequence).utf8))
+            )
+        }
+        let sequence = Self.normalizedSequence(externalSequence)
+        return GenBankRecord(
+            sequence: try Sequence(
+                name: externalID,
+                description: record.sequence.description,
+                alphabet: .dna,
+                bases: sequence
+            ),
+            annotations: annotations,
+            locus: LocusInfo(
+                name: externalID,
+                length: sequence.count,
+                moleculeType: .dna,
+                topology: .linear
+            ),
+            definition: record.definition,
+            accession: externalID,
+            version: nil,
+            recordFields: record.recordFields
+        )
     }
 
     func canonicalUnmatchedRecords(_ url: URL) throws -> [CanonicalUnmatchedRecord] {
@@ -1023,7 +1366,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "\($0.path)|sha256=\($0.sha256)|size-bytes=\($0.sizeBytes)"
         }.sorted().joined(separator: ";")
         return [
-            "documentSchemaVersion": "3",
+            "documentSchemaVersion": "4",
             "evidenceArtifacts": evidenceArtifacts,
             "reciprocalBAMPath": reciprocalBAMPath,
             "reciprocalLocatorIdentity": "bam-path,query-name,reference-name,read-group-id,reference-start,cigar",

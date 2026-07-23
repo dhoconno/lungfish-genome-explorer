@@ -5,6 +5,145 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
+    func testCanonicalizesFlankVariantsIntoOneTrimmedCandidateAndKeepsRawEvidenceBindings() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let codingSequence = String(repeating: "A", count: 600)
+            + "C"
+            + String(repeating: "A", count: 599)
+        let firstSequence = "TT" + codingSequence + "GG"
+        let secondSequence = "CC" + codingSequence + "AA"
+        let firstRawID = stableID(firstSequence)
+        let secondRawID = stableID(secondSequence)
+        let observations = fixture.observations + [
+            FullLengthONTMHCCandidateSequenceObservation(
+                sampleID: "sample-a",
+                readGroupID: "sample-a",
+                sourceClusterID: "source-a",
+                clusterReadCount: 7,
+                sequence: firstSequence,
+                genotypingHitSummaries: []
+            ),
+            FullLengthONTMHCCandidateSequenceObservation(
+                sampleID: "sample-b",
+                readGroupID: "sample-b",
+                sourceClusterID: "source-b",
+                clusterReadCount: 11,
+                sequence: secondSequence,
+                genotypingHitSummaries: []
+            ),
+        ]
+        fixture.additionalSAM = """
+        \(firstRawID)\t0\tref-genomic\t1\t60\t2S595=5X600=2S\t*\t0\t0\t*\t*\tNM:i:5\tAS:i:1190
+        \(secondRawID)\t0\tref-genomic\t1\t60\t2S595=5X600=2S\t*\t0\t0\t*\t*\tNM:i:5\tAS:i:1190
+
+        """
+
+        let result = try await fixture.write(
+            observations: observations,
+            canonicalizationProvider: { input in
+                try Fixture.referenceReadyCanonicalization(
+                    input: input,
+                    trimRange: 2..<(input.sequence.count - 2)
+                )
+            }
+        )
+
+        let document = try JSONDecoder().decode(
+            ONTMHCCandidateAllelesDocument.self,
+            from: Data(contentsOf: result.candidateJSONURL)
+        )
+        let candidate = try XCTUnwrap(document.candidates.first {
+            $0.stableClusterID == stableID(codingSequence)
+        })
+        let canonicalID = stableID(codingSequence)
+        XCTAssertEqual(candidate.stableClusterID, canonicalID)
+        XCTAssertEqual(candidate.fastaRecordID, canonicalID)
+        XCTAssertEqual(candidate.sequenceSHA256, sha256HexString(codingSequence))
+        XCTAssertEqual(candidate.independentSampleCount, 2)
+        XCTAssertEqual(candidate.supportClass, .shared)
+        XCTAssertEqual(candidate.totalClusterReads, 18)
+        XCTAssertEqual(Set(candidate.sourceSequenceClusterIDs), Set([firstRawID, secondRawID]))
+        XCTAssertEqual(candidate.representativeSourceSequenceClusterID, secondRawID)
+        XCTAssertEqual(candidate.selectedEvidence.queryName, secondRawID)
+        XCTAssertEqual(candidate.reciprocalHitSummary.queryName, secondRawID)
+        let canonicalObservations = document.observations.filter {
+            $0.stableClusterID == canonicalID
+        }
+        XCTAssertEqual(canonicalObservations.count, 2)
+        XCTAssertEqual(
+            Set(canonicalObservations.map(\.sourceSequenceClusterID)),
+            Set([firstRawID, secondRawID])
+        )
+        let candidateFASTA = try Dictionary(
+            uniqueKeysWithValues: zip(
+                fastaHeaders(result.candidateFASTAURL),
+                fastaSequences(result.candidateFASTAURL)
+            )
+        )
+        XCTAssertEqual(candidateFASTA[canonicalID], codingSequence)
+        XCTAssertEqual(result.manifest.schemaVersion, 2)
+        XCTAssertEqual(
+            result.manifest.rawUnmatchedFASTA?.path,
+            "artifacts/internal/raw-unmatched-consensuses.fasta"
+        )
+        XCTAssertEqual(
+            result.manifest.sourceIdentityMap?.path,
+            "artifacts/internal/mhc-candidate-source-map.json"
+        )
+    }
+
+    func testRejectsIdenticalTrimmedSequenceWithNovelAndExtensionInterpretations() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let codingSequence = String(repeating: "ACGT", count: 300)
+        let novelSequence = "TT" + codingSequence + "GG"
+        let extensionSequence = "CC" + codingSequence + "AA"
+        let novelRawID = stableID(novelSequence)
+        let extensionRawID = stableID(extensionSequence)
+        fixture.additionalSAM = """
+        \(novelRawID)\t0\tref-genomic\t1\t60\t2S595=5X600=2S\t*\t0\t0\t*\t*\tNM:i:5\tAS:i:1190
+        \(extensionRawID)\t0\tref-cdna\t1\t60\t2S500=200I500=2S\t*\t0\t0\t*\t*\tNM:i:200\tAS:i:1000
+
+        """
+        let observations = fixture.observations + [
+            .init(
+                sampleID: "sample-c",
+                readGroupID: "sample-c",
+                sourceClusterID: "source-c",
+                clusterReadCount: 9,
+                sequence: novelSequence,
+                genotypingHitSummaries: []
+            ),
+            .init(
+                sampleID: "sample-d",
+                readGroupID: "sample-d",
+                sourceClusterID: "source-d",
+                clusterReadCount: 8,
+                sequence: extensionSequence,
+                genotypingHitSummaries: []
+            ),
+        ]
+
+        do {
+            _ = try await fixture.write(
+                observations: observations,
+                canonicalizationProvider: { input in
+                    try Fixture.referenceReadyCanonicalization(
+                        input: input,
+                        trimRange: 2..<(input.sequence.count - 2)
+                    )
+                }
+            )
+            XCTFail("Expected conflicting canonical interpretation rejection")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("conflicting biological interpretations"),
+                error.localizedDescription
+            )
+        }
+    }
+
     func testPublishesReciprocalEvidenceAndCanonicalCandidateArtifacts() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -35,8 +174,8 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(try fastaHeaders(result.unnameableFASTAURL), [fixture.unnameableID])
         let candidateGenBank = try String(contentsOf: result.candidateGenBankURL, encoding: .utf8)
         let unnameableGenBank = try String(contentsOf: result.unnameableGenBankURL, encoding: .utf8)
-        XCTAssertTrue(candidateGenBank.isEmpty, candidateGenBank)
-        XCTAssertTrue(unnameableGenBank.isEmpty, unnameableGenBank)
+        XCTAssertTrue(candidateGenBank.contains("ACCESSION"), candidateGenBank)
+        XCTAssertTrue(unnameableGenBank.contains("ACCESSION"), unnameableGenBank)
         XCTAssertEqual(result.manifest.candidateGenBank?.path, "candidate_alleles.gb")
         XCTAssertEqual(result.manifest.unnameableGenBank?.path, "unnameable_unmatched_clusters.gb")
         let candidate = try JSONDecoder().decode(
@@ -57,10 +196,10 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let unnameableObjects = try XCTUnwrap(unnameableObject["clusters"] as? [[String: Any]])
         XCTAssertTrue(observationObjects.allSatisfy { $0["evidence"] == nil })
         XCTAssertTrue(unnameableObjects.allSatisfy { $0["evidence"] == nil })
-        XCTAssertEqual(candidate.schemaVersion, 3)
+        XCTAssertEqual(candidate.schemaVersion, 4)
         XCTAssertEqual(candidate.inputs.map(\.path), [
             fixture.referenceFASTAURL.path,
-            "deduplicated_unmatched_clusters.fasta",
+            "artifacts/internal/raw-unmatched-consensuses.fasta",
         ])
         XCTAssertTrue(candidate.observations.allSatisfy { !$0.genotypingHitSummaries.isEmpty })
         XCTAssertTrue(candidate.observations.flatMap(\.genotypingHitSummaries).allSatisfy {
@@ -94,6 +233,8 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             "lungfish-in-process:render-mhc-unnameable-json",
             "lungfish-in-process:render-mhc-candidate-genbank",
             "lungfish-in-process:render-mhc-unnameable-genbank",
+            "lungfish-in-process:render-mhc-candidate-source-identity",
+            "lungfish-in-process:publish-canonical-deduplicated-unmatched-fasta",
             "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
             "lungfish-in-process:materialize-mhc-candidate-staging-generation",
         ])
@@ -114,7 +255,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             classification.resolvedOptions["extensionRule"],
             "cdna-coverage>=0.95;each-cdna-deficit<20;no-hard-clip;cluster-flank-or-structural-segment>=20"
         )
-        XCTAssertEqual(classification.resolvedOptions["documentSchemaVersion"], "3")
+        XCTAssertEqual(classification.resolvedOptions["documentSchemaVersion"], "4")
         XCTAssertEqual(
             classification.resolvedOptions["knownCDNARule"],
             "extension-eligibility;cluster-coverage>=0.95;each-cluster-structural-segment<20"
@@ -152,7 +293,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let candidateRender = try XCTUnwrap(
             transformations["lungfish-in-process:render-mhc-candidate-json"]
         )
-        XCTAssertEqual(candidateRender.resolvedOptions["documentSchemaVersion"], "3")
+        XCTAssertEqual(candidateRender.resolvedOptions["documentSchemaVersion"], "4")
         XCTAssertEqual(candidateRender.resolvedOptions["perAlignmentLocatorArrays"], "omitted")
         XCTAssertTrue(
             candidateRender.resolvedOptions["evidenceArtifacts"]?.contains(
@@ -255,14 +396,22 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(construction.inputs.count, 1)
         XCTAssertEqual(
             construction.inputs.first?.path,
-            logicalFinalOutputURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta").path
+            logicalFinalOutputURL.appendingPathComponent(
+                "artifacts/internal/raw-unmatched-consensuses.fasta"
+            ).path
         )
         let stagedCanonicalURL = fixture.outputURL.appendingPathComponent(
             "deduplicated_unmatched_clusters.fasta"
         )
         XCTAssertTrue(construction.argv.contains(stagedCanonicalURL.path))
-        XCTAssertEqual(construction.inputs.first?.sha256, try sha256(stagedCanonicalURL))
-        XCTAssertEqual(construction.inputs.first?.byteSize, UInt64(try fileSize(stagedCanonicalURL)))
+        let rawInternalURL = fixture.outputURL.appendingPathComponent(
+            "artifacts/internal/raw-unmatched-consensuses.fasta"
+        )
+        XCTAssertEqual(construction.inputs.first?.sha256, try sha256(rawInternalURL))
+        XCTAssertEqual(
+            construction.inputs.first?.byteSize,
+            UInt64(try fileSize(rawInternalURL))
+        )
         XCTAssertEqual(construction.inputs.first?.phase, .final)
         for input in result.transformationRecords.flatMap(\.inputs) {
             XCTAssertTrue(input.path.hasPrefix("/"), "Non-absolute provenance input: \(input.path)")
@@ -285,11 +434,19 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             result.unnameableFASTAURL.path,
             result.unnameableJSONURL.path,
             result.unnameableGenBankURL.path,
+            rawInternalURL.path,
+            fixture.outputURL.appendingPathComponent(
+                "artifacts/internal/mhc-candidate-source-map.json"
+            ).path,
         ].sorted())
-        XCTAssertEqual(candidate.candidates.map(\.stableClusterID), [fixture.novelID, fixture.extensionID])
-        XCTAssertEqual(candidate.candidates.map(\.provisionalName), [
-            "Mafa-A1*018:01:01:01_5nt_nov", "Mafa-B*001:01_ext",
-        ])
+        XCTAssertEqual(
+            Set(candidate.candidates.map(\.stableClusterID)),
+            Set([fixture.novelID, fixture.extensionID])
+        )
+        XCTAssertEqual(
+            Set(candidate.candidates.map(\.provisionalName)),
+            Set(["Mafa-A1*018:01:01:01_5nt_nov", "Mafa-B*001:01_ext"])
+        )
         XCTAssertEqual(
             Set(candidate.observations.map(\.stableClusterID)),
             Set(candidate.candidates.map(\.stableClusterID))
@@ -386,7 +543,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             $0.workflowName == "lungfish-in-process:capture-mhc-candidate-artifact-checksums"
         })
         let captures = provider.captures
-        XCTAssertEqual(captures.count, 8)
+        XCTAssertEqual(captures.count, 10)
         XCTAssertLessThanOrEqual(checksum.startedAt, try XCTUnwrap(captures.first).startedAt)
         XCTAssertGreaterThanOrEqual(checksum.completedAt, try XCTUnwrap(captures.last).completedAt)
         XCTAssertEqual(
@@ -394,7 +551,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             checksum.completedAt.timeIntervalSince(checksum.startedAt),
             accuracy: 0.000_001
         )
-        XCTAssertGreaterThanOrEqual(checksum.wallTime, 0.08)
+        XCTAssertGreaterThanOrEqual(checksum.wallTime, 0.10)
     }
 
     func testWriterRejectsReuseOfNonFreshCallerOwnedStagingDirectory() async throws {
@@ -623,12 +780,25 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         }
     }
 
+    private func fastaSequences(_ url: URL) throws -> [String] {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        return text.split(separator: ">").compactMap { record in
+            let lines = record.split(separator: "\n")
+            guard lines.count > 1 else { return nil }
+            return lines.dropFirst().joined()
+        }
+    }
+
     private func stableID(_ sequence: String) -> String {
         FullLengthONTMHCCandidateArtifactWriter.stableClusterID(for: sequence)
     }
 
     private func sha256(_ url: URL) throws -> String {
         SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func sha256HexString(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private func fileSize(_ url: URL) throws -> Int64 {
@@ -701,6 +871,7 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             canonicalFASTAOverride: String? = nil,
             finalOutputDirectoryURL: URL? = nil,
             referenceRecords: [MHCReferenceRecord]? = nil,
+            canonicalizationProvider: FullLengthONTMHCCandidateArtifactWriter.CanonicalizationProvider? = nil,
             artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding =
                 DefaultFullLengthONTMHCArtifactDescriptorProvider()
         ) async throws -> FullLengthONTMHCCandidateArtifactResult {
@@ -717,6 +888,12 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             )
             let writer = FullLengthONTMHCCandidateArtifactWriter(
                 executableDirectoryURL: toolsURL,
+                canonicalizationProvider: canonicalizationProvider ?? {
+                    try Self.referenceReadyCanonicalization(
+                        input: $0,
+                        trimRange: 0..<$0.sequence.count
+                    )
+                },
                 artifactDescriptorProvider: artifactDescriptorProvider
             )
             return try await writer.stage(.init(
@@ -731,6 +908,47 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
                 analysisName: "fixture-run",
                 projectBundleName: "Fixture Project.lungfish"
             ))
+        }
+
+        static func referenceReadyCanonicalization(
+            input: FullLengthONTMHCCandidateGenBankArtifactBuilder.Input,
+            trimRange: Range<Int>
+        ) throws -> FullLengthONTMHCCandidateCanonicalization {
+            let external = String(input.sequence[input.sequence.index(
+                input.sequence.startIndex,
+                offsetBy: trimRange.lowerBound
+            )..<input.sequence.index(
+                input.sequence.startIndex,
+                offsetBy: trimRange.upperBound
+            )])
+            let externalID = FullLengthONTMHCCandidateArtifactWriter.stableClusterID(
+                for: external
+            )
+            let record = GenBankRecord(
+                sequence: try Sequence(
+                    name: externalID,
+                    description: input.subject.definition,
+                    alphabet: .dna,
+                    bases: external
+                ),
+                annotations: [],
+                locus: LocusInfo(
+                    name: externalID,
+                    length: external.count,
+                    moleculeType: .dna,
+                    topology: .linear
+                ),
+                definition: input.subject.definition,
+                accession: externalID
+            )
+            return .init(
+                record: record,
+                rawSequence: input.sequence,
+                externalSequence: external,
+                trimRange: trimRange,
+                translationStatus: .fullLength,
+                referenceReadiness: .referenceReady
+            )
         }
 
         func canonicalFASTA(records: [(String, String)]) -> String {
