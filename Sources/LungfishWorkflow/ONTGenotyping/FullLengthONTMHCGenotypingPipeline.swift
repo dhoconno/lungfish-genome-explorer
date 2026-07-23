@@ -1304,7 +1304,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     readGroupID: $0.sample,
                     sourceClusterID: $0.cluster,
                     clusterReadCount: $0.clusterReads,
-                    sequence: $0.sequence,
+                    sequence: $0.candidateSequence,
                     genotypingHitSummaries: genotypingHitSummariesByTarget["\($0.sample)|\($0.cluster)"].map { [$0] } ?? []
                 )
             },
@@ -6088,6 +6088,7 @@ struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Equatable {
     let clusterReads: Int
     let rawSequence: String
     let sequence: String
+    let candidateSequence: String
     let trimStart: Int?
     let trimEnd: Int?
     let trimSource: String
@@ -6108,6 +6109,7 @@ struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Equatable {
         clusterReads: Int,
         sequence: String,
         rawSequence: String? = nil,
+        candidateSequence: String? = nil,
         trimStart: Int? = nil,
         trimEnd: Int? = nil,
         trimSource: String = "provided-sequence",
@@ -6119,6 +6121,7 @@ struct FullLengthONTMHCUnmatchedClosestMatchWorkbookRow: Sendable, Equatable {
         self.clusterReads = clusterReads
         self.rawSequence = rawSequence ?? sequence
         self.sequence = sequence
+        self.candidateSequence = candidateSequence ?? rawSequence ?? sequence
         self.trimStart = trimStart
         self.trimEnd = trimEnd
         self.trimSource = trimSource
@@ -6154,9 +6157,11 @@ enum FullLengthONTMHCUnmatchedSequenceNormalizer {
         let start = max(1, min(trimStart, trimEnd))
         let end = min(raw.count, max(trimStart, trimEnd))
         var normalized = start <= end ? substring(raw, oneBasedClosedStart: start, oneBasedClosedEnd: end) : raw
+        var candidateSequence = raw
         var trimSource = "minimap2-target-interval"
         if closestMatch.isReverse == true {
             normalized = reverseComplement(normalized)
+            candidateSequence = reverseComplement(raw)
             trimSource = "minimap2-target-interval-reverse-complement"
         }
         return FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
@@ -6165,6 +6170,7 @@ enum FullLengthONTMHCUnmatchedSequenceNormalizer {
             clusterReads: record.readCount,
             sequence: normalized,
             rawSequence: raw,
+            candidateSequence: candidateSequence,
             trimStart: start,
             trimEnd: end,
             trimSource: trimSource,
@@ -6362,7 +6368,7 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
             "aligned_bases",
             "score",
         ] + sampleNames]
-        let grouped = Dictionary(grouping: rows) { unmatchedSequenceID(for: $0.sequence) }
+        let grouped = Dictionary(grouping: rows) { unmatchedSequenceID(for: $0.candidateSequence) }
         let orderedGroups = grouped.keys.sorted { lhs, rhs in
             let left = grouped[lhs] ?? []
             let right = grouped[rhs] ?? []
@@ -6550,7 +6556,7 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
                     "samples=\(samples.joined(separator: ";"))",
                     "total_cluster_reads=\(totalReads)",
                 ].joined(separator: "|"),
-                sequence: representative.sequence,
+                sequence: representative.candidateSequence,
                 readCount: totalReads
             )
         }
