@@ -59,6 +59,13 @@ struct FullLengthONTMHCCandidateChangeProjection: Sendable {
         (isReverse ? queryLength - orientedBoundary : orientedBoundary) - storedCoordinateOffset
     }
 
+    func storedCandidateBoundaryInOrigin(orientedBoundary: Int) -> Int? {
+        let boundary = storedCandidateBoundary(orientedBoundary: orientedBoundary)
+        guard boundary > 0,
+              storedCoordinateLength.map({ boundary < $0 }) ?? (boundary < queryLength) else { return nil }
+        return boundary
+    }
+
     func storedCandidatePositionInOrigin(orientedPosition: Int) -> Int? {
         let position = storedCandidatePosition(orientedPosition: orientedPosition)
         guard position >= 0,
@@ -281,9 +288,13 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                 for region in intronRegions {
                     let overlap = max(range.lowerBound, region.range.lowerBound)..<min(range.upperBound, region.range.upperBound)
                     guard !overlap.isEmpty else { continue }
+                    let candidateBoundary = input.projection.storedCandidateBoundaryInOrigin(
+                        orientedBoundary: queryBoundary
+                    ).map { "candidate boundary \($0)/\($0 + 1)" }
+                        ?? "outside cropped GenBank ORIGIN"
                     intronicDetails.append(.init(
                         sortPosition: overlap.lowerBound,
-                        text: "\(overlap.count) bp deletion at ref \(overlap.lowerBound + 1)-\(overlap.upperBound); intron \(region.number); direct CDS translation effect none; splice/regulatory impact not assessed"
+                        text: "\(overlap.count) bp deletion at ref \(overlap.lowerBound + 1)-\(overlap.upperBound); \(candidateBoundary); intron \(region.number); direct CDS translation effect none; splice/regulatory impact not assessed"
                     ))
                 }
                 let classified = Set(codingPositions).union(intronRegions.flatMap { region in

@@ -614,6 +614,81 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertFalse(comments.contains { $0.contains("candidate -") || $0.contains("candidate 0") })
     }
 
+    func testIntronicDeletionOutsideCandidateCropUsesExplicitReferenceOnlyCoordinate() throws {
+        let referenceSequence = "AAACCCATGGCTTAA"
+        let candidateSequence = String(referenceSequence.prefix(1) + referenceSequence.dropFirst(2))
+        let candidate = try makeCandidate(
+            stableID: "candidate-intronic-deletion-outside-crop",
+            sequenceSHA256: "candidate-intronic-deletion-outside-crop-hash",
+            cigar: "1=1D13=",
+            referenceName: "ref-intronic-deletion-outside-crop",
+            referenceClass: .genomicDNA
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-intronic-deletion-outside-crop", sequence: referenceSequence,
+                features: [
+                    feature(type: "gene", start: 0, end: 15, sourceOrdinal: 1),
+                    feature(type: "intron", start: 0, end: 3, qualifiers: ["number": ["1"]], sourceOrdinal: 2),
+                    feature(type: "exon", start: 6, end: 15, qualifiers: ["number": ["2"]], sourceOrdinal: 3),
+                    feature(type: "CDS", start: 6, end: 15, sourceOrdinal: 4),
+                ]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let record = try XCTUnwrap(
+            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
+        )
+        let comments = record.values(forRecordField: "COMMENT")
+
+        XCTAssertEqual(record.sequence.asString(), "ATGGCTTAA")
+        XCTAssertTrue(comments.contains {
+            $0 == "INTRON-1: 1 bp deletion at ref 2-2; outside cropped GenBank ORIGIN; intron 1; direct CDS translation effect none; splice/regulatory impact not assessed"
+        }, comments.joined(separator: "\n"))
+        XCTAssertFalse(comments.contains { $0.contains("candidate -") || $0.contains("candidate 0") })
+    }
+
+    func testIntronicDeletionInsideCandidateCropReportsStoredCandidateBoundary() throws {
+        let referenceSequence = "ATGCCCGCTTAA"
+        let candidateSequence = String(referenceSequence.prefix(4) + referenceSequence.dropFirst(5))
+        let candidate = try makeCandidate(
+            stableID: "candidate-intronic-deletion-inside-crop",
+            sequenceSHA256: "candidate-intronic-deletion-inside-crop-hash",
+            cigar: "4=1D7=",
+            referenceName: "ref-intronic-deletion-inside-crop",
+            referenceClass: .genomicDNA
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-intronic-deletion-inside-crop", sequence: referenceSequence,
+                features: [
+                    feature(type: "gene", start: 0, end: 12, sourceOrdinal: 1),
+                    feature(type: "exon", start: 0, end: 3, qualifiers: ["number": ["1"]], sourceOrdinal: 2),
+                    feature(type: "intron", start: 3, end: 6, qualifiers: ["number": ["1"]], sourceOrdinal: 3),
+                    feature(type: "exon", start: 6, end: 12, qualifiers: ["number": ["2"]], sourceOrdinal: 4),
+                    feature(type: "CDS", start: 0, end: 3, rawGenBankLocation: "join(1..3,7..12)", sourceOrdinal: 5),
+                    feature(type: "CDS", start: 6, end: 12, rawGenBankLocation: "join(1..3,7..12)", sourceOrdinal: 5),
+                ]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let record = try XCTUnwrap(
+            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
+        )
+        let comments = record.values(forRecordField: "COMMENT")
+
+        XCTAssertEqual(record.sequence.asString(), candidateSequence)
+        XCTAssertTrue(comments.contains {
+            $0 == "INTRON-1: 1 bp deletion at ref 5-5; candidate boundary 4/5; intron 1; direct CDS translation effect none; splice/regulatory impact not assessed"
+        }, comments.joined(separator: "\n"))
+    }
+
     func testCandidateOriginCropsTerminalUTRsRetainsIntronsAndRebasesFeaturesAndConsequences() throws {
         let referenceSequence = "GGGATGAAACCCTTTGCTTAACCC"
         var candidateBases = Array(referenceSequence)
