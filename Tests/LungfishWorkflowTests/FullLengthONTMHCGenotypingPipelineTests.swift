@@ -284,6 +284,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             $0.toolName.contains("render-mhc-candidate-genbank")
         })
         XCTAssertTrue(candidateGenBankStep.inputs.contains { $0.path == annotationDatabaseURL.path })
+        XCTAssertEqual(
+            candidateGenBankStep.resolvedOptions["candidateUTRTrimRule"],
+            .string("candidate-only:outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations-and-consequence-candidate-coordinates;preserve-full-FASTA-identity+record-cropped-GenBank-identity;partial-crop-remains-non-reference-ready;no-CDS-untrimmed")
+        )
         let candidateGenBankText = try String(
             contentsOf: ONTGenotypeResultBundle.resolvedURL(
                 for: try XCTUnwrap(manifest.mhcCandidateArtifacts?.candidateGenBank?.path),
@@ -296,6 +300,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         }
         XCTAssertTrue(candidateGenBankText.contains("CDS-SYN-1:"), candidateGenBankText)
         XCTAssertTrue(candidateGenBankText.contains("INTRON-FILL-1:"), candidateGenBankText)
+        XCTAssertTrue(candidateGenBankText.contains("/genbank_sequence_sha256="), candidateGenBankText)
+        XCTAssertTrue(candidateGenBankText.contains("/trim_status="), candidateGenBankText)
     }
 
     func testAnnotatedReferenceMetadataIsEmbeddedInPublishedGenotypeBundle() async throws {
@@ -1556,7 +1562,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         let unmatchedSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet2.xml", from: result.workbookURL)
         XCTAssertTrue(unmatchedSheetXML.contains("Stable Cluster ID"))
-        XCTAssertTrue(unmatchedSheetXML.contains("Nucleotide Sequence"))
+        XCTAssertTrue(unmatchedSheetXML.contains("Full-Length FASTA Sequence"))
+        XCTAssertTrue(unmatchedSheetXML.contains("UTR-Trimmed FASTA Sequence"))
         XCTAssertTrue(unmatchedSheetXML.contains("Putative Amino Acid Translation"))
         XCTAssertTrue(unmatchedSheetXML.contains("Translation Status"))
         XCTAssertTrue(try Self.unzippedText(path: "xl/styles.xml", from: result.workbookURL).contains("FFF5D78E"))

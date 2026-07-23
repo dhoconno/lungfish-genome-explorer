@@ -711,6 +711,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             "codingConsequenceRule": "transcript-strand+codon-start+translation-table;group-same-codon-substitutions;ordinary-indels-frame-delta",
             "cDNAIntronFillRule": "internal-query-insertion-at-least-minimum-intron-gap;excluded-from-CDS-indels",
             "consequenceAmbiguityRule": "partial+unsupported+ambiguous=unresolved-never-coerced",
+            "candidateUTRTrimRule": "candidate-only:outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations-and-consequence-candidate-coordinates;preserve-full-FASTA-identity+record-cropped-GenBank-identity;partial-crop-remains-non-reference-ready;no-CDS-untrimmed",
             "supportMetadata": "all-supporting-samples-independent-count-occurrence-count-total-cluster-reads",
         ]
         transformations.append(Self.renderTransformation(

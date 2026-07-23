@@ -103,6 +103,7 @@ struct FullLengthONTMHCNormalizedUnmatchedRow: Codable, Equatable, Sendable {
     let fastaRecordID: String
     let sequenceSHA256: String
     let nucleotideSequence: String
+    let utrTrimmedNucleotideSequence: String?
     let putativeAminoAcidTranslation: String?
     let translationStatus: FullLengthONTMHCTranslationStatus
 
@@ -129,6 +130,7 @@ struct FullLengthONTMHCNormalizedUnmatchedRow: Codable, Equatable, Sendable {
         case fastaRecordID = "fasta_record_id"
         case sequenceSHA256 = "sequence_sha256"
         case nucleotideSequence = "nucleotide_sequence"
+        case utrTrimmedNucleotideSequence = "utr_trimmed_nucleotide_sequence"
         case putativeAminoAcidTranslation = "putative_amino_acid_translation"
         case translationStatus = "translation_status"
     }
@@ -146,7 +148,8 @@ enum FullLengthONTMHCUnmatchedWorksheetBuilder {
             "SNP Count", "Inserted Bases", "Deleted Bases", "Long Gap Bases", "Comparable Bases",
             "Failed Metrics", "Support Class", "Independent Sample Count", "Occurrence Count",
             "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256",
-            "Nucleotide Sequence", "Putative Amino Acid Translation", "Translation Status",
+            "Full-Length FASTA Sequence", "UTR-Trimmed FASTA Sequence",
+            "Putative Amino Acid Translation", "Translation Status",
         ] + sampleOrder.map { "Sample Reads: \($0)" }
         var result = [header.map { FullLengthONTMHCWorkbookCell($0) }]
         for row in rows.sorted(by: rowLess) {
@@ -173,6 +176,7 @@ enum FullLengthONTMHCUnmatchedWorksheetBuilder {
                 .init(row.fastaRecordID),
                 .init(row.sequenceSHA256),
                 .init(row.nucleotideSequence),
+                row.utrTrimmedNucleotideSequence.map { .init($0) } ?? .blank,
                 row.putativeAminoAcidTranslation.map { .init($0) } ?? .blank,
                 .init(row.translationStatus.rawValue),
             ]
@@ -450,6 +454,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 fastaRecordID: row.fastaRecordID,
                 sequenceSHA256: row.sequenceSHA256,
                 nucleotideSequence: artifact.sequence,
+                utrTrimmedNucleotideSequence: artifact.utrTrimmedSequence,
                 putativeAminoAcidTranslation: artifact.translation,
                 translationStatus: artifact.status
             )
@@ -489,6 +494,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 fastaRecordID: row.fastaRecordID,
                 sequenceSHA256: row.sequenceSHA256,
                 nucleotideSequence: artifact.sequence,
+                utrTrimmedNucleotideSequence: nil,
                 putativeAminoAcidTranslation: artifact.translation,
                 translationStatus: artifact.status
             )
@@ -697,6 +703,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
 
     private struct UnmatchedArtifact {
         let sequence: String
+        let utrTrimmedSequence: String?
         let translation: String?
         let status: FullLengthONTMHCTranslationStatus
     }
@@ -759,12 +766,6 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             }
             let genBankSequence = genBank.sequence.asString().uppercased()
             let fastaSequence = fasta.sequence.uppercased()
-            guard genBankSequence == fastaSequence else {
-                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
-                    stableClusterID: stableID,
-                    detail: "FASTA and GenBank sequences differ"
-                )
-            }
             let computedSequenceSHA256 = SHA256.hash(data: Data(fastaSequence.utf8))
                 .map { String(format: "%02x", $0) }
                 .joined()
@@ -802,6 +803,22 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                     detail: "GenBank source sequence SHA-256 does not match the FASTA sequence"
                 )
             }
+            if category == .candidate,
+               Self.hasCandidateTrimMetadata(sourceFeatures[0]) {
+                try Self.validateCroppedCandidateGenBank(
+                    stableID: stableID,
+                    fastaSequence: fastaSequence,
+                    genBankSequence: genBankSequence,
+                    source: sourceFeatures[0]
+                )
+            } else {
+                guard genBankSequence == fastaSequence else {
+                    throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                        stableClusterID: stableID,
+                        detail: "FASTA and GenBank sequences differ"
+                    )
+                }
+            }
             let cdsFeatures = genBank.annotations.filter { $0.type == .cds }
             let translation = cdsFeatures.count == 1
                 ? cdsFeatures[0].qualifier("translation")?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -811,11 +828,56 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 .flatMap(FullLengthONTMHCTranslationStatus.init(rawValue:))
             result[stableID] = UnmatchedArtifact(
                 sequence: fasta.sequence,
+                utrTrimmedSequence: category == .candidate ? genBank.sequence.asString() : nil,
                 translation: usableTranslation,
                 status: usableTranslation == nil ? .incompleteUnresolved : sourceStatus ?? .incompleteUnresolved
             )
         }
         return result
+    }
+
+    private static func hasCandidateTrimMetadata(_ source: SequenceAnnotation) -> Bool {
+        [
+            "original_sequence_length", "trim_start", "trim_end", "genbank_sequence_sha256",
+            "trim_status", "reference_readiness_status",
+        ].contains { source.qualifier($0) != nil }
+    }
+
+    private static func validateCroppedCandidateGenBank(
+        stableID: String,
+        fastaSequence: String,
+        genBankSequence: String,
+        source: SequenceAnnotation
+    ) throws {
+        func invalid(_ detail: String) -> FullLengthONTMHCWorkbookProjectionError {
+            .invalidUnmatchedArtifactIdentity(stableClusterID: stableID, detail: detail)
+        }
+        guard let originalLengthText = source.qualifier("original_sequence_length"),
+              let originalLength = Int(originalLengthText),
+              originalLength == fastaSequence.count else {
+            throw invalid("candidate trim original length does not match the FASTA sequence")
+        }
+        guard let startText = source.qualifier("trim_start"),
+              let endText = source.qualifier("trim_end"),
+              let start = Int(startText), let end = Int(endText),
+              start >= 1, end >= start, end <= fastaSequence.count else {
+            throw invalid("candidate trim bounds are invalid for the FASTA sequence")
+        }
+        guard let trimStatus = source.qualifier("trim_status"), !trimStatus.isEmpty,
+              let readiness = source.qualifier("reference_readiness_status"), !readiness.isEmpty else {
+            throw invalid("candidate trim status or reference readiness status is missing")
+        }
+        let declaredSubstring = String(fastaSequence.dropFirst(start - 1).prefix(end - start + 1))
+        guard genBankSequence == declaredSubstring else {
+            throw invalid("GenBank sequence does not match the declared FASTA substring")
+        }
+        let computedGenBankSHA256 = SHA256.hash(data: Data(genBankSequence.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        guard source.qualifier("genbank_sequence_sha256")?.lowercased()
+            == computedGenBankSHA256 else {
+            throw invalid("GenBank sequence SHA-256 does not match the cropped ORIGIN")
+        }
     }
 
     private static func observationsByStableID(

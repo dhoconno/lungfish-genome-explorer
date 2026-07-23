@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -233,6 +234,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         )]
         var comments = baseComments(input)
         var translationStatus = FullLengthONTMHCTranslationStatus.incompleteUnresolved
+        var candidateTrimRange: Range<Int>?
 
         if let evidence = input.subject.selectedEvidence,
            let isReverse = input.selectedAlignmentIsReverse,
@@ -257,6 +259,10 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             )
             translationStatus = lifted.translationStatus
             annotations.append(contentsOf: lifted.annotations)
+            if input.subject.isCandidate,
+               let cds = lifted.annotations.first(where: { $0.type == .cds }) {
+                candidateTrimRange = cds.start..<cds.end
+            }
             if input.subject.isCDNAReference,
                let cds = lifted.annotations.first(where: { $0.type == .cds }),
                let sourceCDS = reference.features.first(where: {
@@ -324,7 +330,10 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             if input.subject.isCandidate {
                 comments.append(contentsOf: FullLengthONTMHCCandidateConsequenceAnnotator().comments(for: .init(
                     reference: reference,
-                    projection: projection.changes,
+                    projection: projection.changes.rebasedStoredCoordinates(
+                        by: candidateTrimRange?.lowerBound ?? 0,
+                        length: candidateTrimRange?.count ?? sequence.count
+                    ),
                     isCDNAReference: input.subject.isCDNAReference,
                     minimumIntronGapBases: input.minimumIntronGapBases,
                     candidateTranslation: annotations.first(where: { $0.type == .cds })?.qualifier("translation"),
@@ -353,16 +362,100 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
 
         annotations[0].qualifiers["translation_status"] = .init(translationStatus.rawValue)
 
+        let outputSequence: String
+        if input.subject.isCandidate {
+            let trimRange = candidateTrimRange ?? 0..<sequence.count
+            outputSequence = substring(sequence, in: trimRange)
+            let trimStatus: String
+            let readinessStatus: String
+            if candidateTrimRange == nil {
+                trimStatus = "unavailable-no-lifted-CDS"
+                readinessStatus = "not-reference-ready"
+                comments.append(
+                    "Lungfish candidate sequence trim: UTR trimming unavailable; no lifted CDS; "
+                        + "original length=" + String(sequence.count)
+                        + "; trim start=1; trim end=" + String(sequence.count)
+                        + "; retained length=" + String(outputSequence.count)
+                )
+                comments.append("Lungfish reference readiness: not reference-ready; CDS/UTR boundaries could not be resolved")
+            } else if translationStatus == .incompleteUnresolved {
+                trimStatus = "trimmed-to-partial-lifted-CDS"
+                readinessStatus = "not-reference-ready"
+                comments.append(
+                    "Lungfish candidate sequence trim: partial lifted CDS; original length="
+                        + String(sequence.count) + "; trim start=" + String(trimRange.lowerBound + 1)
+                        + "; trim end=" + String(trimRange.upperBound)
+                        + "; retained length=" + String(outputSequence.count)
+                )
+                comments.append("Lungfish reference readiness: not reference-ready; partial or unresolved lifted CDS")
+            } else {
+                trimStatus = "trimmed-to-outer-lifted-CDS"
+                readinessStatus = "reference-ready"
+                comments.append(
+                    "Lungfish candidate sequence trim: outer lifted CDS span; original length="
+                        + String(sequence.count) + "; trim start=" + String(trimRange.lowerBound + 1)
+                        + "; trim end=" + String(trimRange.upperBound)
+                        + "; retained length=" + String(outputSequence.count)
+                )
+                comments.append("Lungfish reference readiness: reference-ready; complete lifted CDS boundaries resolved")
+            }
+            let outputSHA256 = sha256Hex(outputSequence)
+            annotations[0].qualifiers["original_sequence_length"] = .init(String(sequence.count))
+            annotations[0].qualifiers["trim_start"] = .init(String(trimRange.lowerBound + 1))
+            annotations[0].qualifiers["trim_end"] = .init(String(trimRange.upperBound))
+            annotations[0].qualifiers["genbank_sequence_sha256"] = .init(outputSHA256)
+            annotations[0].qualifiers["trim_status"] = .init(trimStatus)
+            annotations[0].qualifiers["reference_readiness_status"] = .init(readinessStatus)
+            comments.append("Lungfish GenBank sequence SHA-256: " + outputSHA256)
+            annotations = cropAndRebase(annotations, to: trimRange)
+        } else {
+            outputSequence = sequence
+        }
+
         let recordFields = copiedRecordFields(input.closestReference)
             + comments.enumerated().map { GenBankRecordField(key: "COMMENT", value: $0.element, ordinal: recordFieldsBaseCount(input.closestReference) + $0.offset) }
         return GenBankRecord(
-            sequence: try Sequence(name: stableID, description: input.subject.definition, alphabet: .dna, bases: sequence),
+            sequence: try Sequence(name: stableID, description: input.subject.definition, alphabet: .dna, bases: outputSequence),
             annotations: annotations.sorted(by: annotationLessThan),
-            locus: LocusInfo(name: stableID, length: sequence.count, moleculeType: .dna, topology: .linear),
+            locus: LocusInfo(name: stableID, length: outputSequence.count, moleculeType: .dna, topology: .linear),
             definition: input.subject.definition,
             accession: stableID,
             recordFields: recordFields
         )
+    }
+
+    func cropAndRebase(
+        _ annotations: [SequenceAnnotation],
+        to trimRange: Range<Int>
+    ) -> [SequenceAnnotation] {
+        annotations.compactMap { annotation in
+            var rebased = annotation
+            if annotation.type == .source {
+                rebased.intervals = [.init(start: 0, end: trimRange.count)]
+                return rebased
+            }
+            let intervals = annotation.intervals.compactMap { interval -> AnnotationInterval? in
+                let start = max(interval.start, trimRange.lowerBound)
+                let end = min(interval.end, trimRange.upperBound)
+                guard start < end else { return nil }
+                return .init(start: start - trimRange.lowerBound, end: end - trimRange.lowerBound)
+            }
+            guard !intervals.isEmpty else { return nil }
+            rebased.intervals = intervals
+            return rebased
+        }
+    }
+
+    func substring(_ sequence: String, in range: Range<Int>) -> String {
+        let lower = sequence.index(sequence.startIndex, offsetBy: range.lowerBound)
+        let upper = sequence.index(sequence.startIndex, offsetBy: range.upperBound)
+        return String(sequence[lower..<upper])
+    }
+
+    func sha256Hex(_ sequence: String) -> String {
+        SHA256.hash(data: Data(sequence.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     func baseComments(_ input: Input) -> [String] {
@@ -520,7 +613,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         hadSourceExons: Bool,
         translationStatus: FullLengthONTMHCTranslationStatus
     ) {
-        let supported: Set<AnnotationType> = [.gene, .mRNA, .transcript, .exon, .cds, .utr5, .utr3]
+        let supported: Set<AnnotationType> = [.gene, .mRNA, .transcript, .exon, .intron, .cds, .utr5, .utr3]
         var annotations: [SequenceAnnotation] = []
         var hadSourceExons = false
         var cdsStatuses: [FullLengthONTMHCTranslationStatus] = []

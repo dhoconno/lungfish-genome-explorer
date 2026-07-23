@@ -42,6 +42,11 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         for prefix in FullLengthONTMHCCandidateConsequenceAnnotator.summaryPrefixes {
             XCTAssertTrue(candidateGenBank.contains(prefix), "Missing \(prefix)")
         }
+        XCTAssertTrue(candidateGenBank.contains("/original_sequence_length="), candidateGenBank)
+        XCTAssertTrue(candidateGenBank.contains("/genbank_sequence_sha256="), candidateGenBank)
+        XCTAssertTrue(candidateGenBank.contains("/trim_status="), candidateGenBank)
+        XCTAssertTrue(candidateGenBank.contains("/reference_readiness_status="), candidateGenBank)
+        XCTAssertFalse(unnameableGenBank.contains("/trim_status="), unnameableGenBank)
         XCTAssertFalse(candidateGenBank.contains("annotation unavailable: no selected reciprocal alignment"))
         XCTAssertTrue(unnameableGenBank.contains(fixture.unnameableID))
         XCTAssertTrue(unnameableGenBank.contains("annotation unavailable: no selected reciprocal alignment"))
@@ -173,12 +178,16 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             candidateGenBankRender.resolvedOptions["consequenceAmbiguityRule"],
             "partial+unsupported+ambiguous=unresolved-never-coerced"
         )
+        XCTAssertEqual(
+            candidateGenBankRender.resolvedOptions["candidateUTRTrimRule"],
+            "candidate-only:outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations-and-consequence-candidate-coordinates;preserve-full-FASTA-identity+record-cropped-GenBank-identity;partial-crop-remains-non-reference-ready;no-CDS-untrimmed"
+        )
         let unnameableGenBankRender = try XCTUnwrap(
             transformations["lungfish-in-process:render-mhc-unnameable-genbank"]
         )
         for key in [
             "consequenceChangeSource", "consequenceCoordinateConvention", "codingConsequenceRule",
-            "cDNAIntronFillRule", "consequenceAmbiguityRule",
+            "cDNAIntronFillRule", "consequenceAmbiguityRule", "candidateUTRTrimRule",
         ] {
             XCTAssertEqual(unnameableGenBankRender.resolvedOptions[key], candidateGenBankRender.resolvedOptions[key])
         }

@@ -87,8 +87,9 @@ Steps:
 4. Rebase/clamp annotations and consequence candidate coordinates to the cropped `ORIGIN`.
 5. Add source qualifiers and comments for original length, 1-based trim start/end, full-cluster SHA-256, cropped GenBank SHA-256, trim status, and reference-readiness status.
 6. Update the current workbook validator to verify the cropped record is the declared exact substring of the full candidate FASTA, while retaining compatibility with existing exact-match candidate records and exact equality for un-nameable records.
-7. Record the UTR-trim derivation rule in GenBank-render provenance.
-8. Run builder, artifact-writer, pipeline, workbook projection, and explicit-update tests.
+7. Add `Full-Length FASTA Sequence` and `UTR-Trimmed FASTA Sequence` to the current `Unmatched Alleles` sheet; populate candidate trimmed values from the verified GenBank `ORIGIN`, preserve old exact candidate compatibility, and leave un-nameable trimmed values blank in both initial and explicit-update paths.
+8. Record the UTR-trim derivation rule in GenBank-render provenance.
+9. Run builder, artifact-writer, pipeline, workbook projection, and explicit-update tests.
 
 ## Task 6: Review and integrated verification
 

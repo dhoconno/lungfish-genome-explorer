@@ -40,11 +40,13 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(Set(rows.map(\.stableClusterID)).count, rows.count)
         XCTAssertEqual(rows[0].recordCategory, .candidate)
         XCTAssertEqual(rows[0].nucleotideSequence, candidateSequence)
+        XCTAssertEqual(rows[0].utrTrimmedNucleotideSequence, candidateSequence)
         XCTAssertEqual(rows[0].putativeAminoAcidTranslation, "MA")
         XCTAssertEqual(rows[0].translationStatus, .fullLength)
         XCTAssertEqual(rows[0].readsBySample, ["sample-a": 7, "sample-b": 3])
         XCTAssertEqual(rows[1].recordCategory, .unnameable)
         XCTAssertEqual(rows[1].nucleotideSequence, unnameableSequence)
+        XCTAssertNil(rows[1].utrTrimmedNucleotideSequence)
         XCTAssertNil(rows[1].putativeAminoAcidTranslation)
         XCTAssertEqual(rows[1].translationStatus, .incompleteUnresolved)
 
@@ -60,7 +62,8 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             "snp_count", "inserted_bases", "deleted_bases", "long_gap_bases", "comparable_bases",
             "failed_metrics", "support_class", "independent_sample_count", "occurrence_count",
             "total_cluster_reads", "supporting_sample_ids", "reads_by_sample", "fasta_record_id",
-            "sequence_sha256", "nucleotide_sequence", "putative_amino_acid_translation",
+            "sequence_sha256", "nucleotide_sequence", "utr_trimmed_nucleotide_sequence",
+            "putative_amino_acid_translation",
             "translation_status",
         ])
     }
@@ -76,16 +79,19 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         )
         let headers = cells[0].map(\.value)
         let stableIDColumn = try XCTUnwrap(headers.firstIndex(of: .text("Stable Cluster ID")))
-        let nucleotideColumn = try XCTUnwrap(headers.firstIndex(of: .text("Nucleotide Sequence")))
+        let nucleotideColumn = try XCTUnwrap(headers.firstIndex(of: .text("Full-Length FASTA Sequence")))
+        let trimmedColumn = try XCTUnwrap(headers.firstIndex(of: .text("UTR-Trimmed FASTA Sequence")))
         let translationColumn = try XCTUnwrap(headers.firstIndex(of: .text("Putative Amino Acid Translation")))
         let statusColumn = try XCTUnwrap(headers.firstIndex(of: .text("Translation Status")))
 
         XCTAssertEqual(cells.count, 3, "Header plus exactly one row per stable unmatched sequence")
         XCTAssertEqual(cells.dropFirst().map { $0[stableIDColumn].value }, [.text("cluster-1"), .text("cluster-u")])
         XCTAssertEqual(cells[1][nucleotideColumn].value, .text("ATGGCTTAA"))
+        XCTAssertEqual(cells[1][trimmedColumn].value, .text("ATGGCTTAA"))
         XCTAssertEqual(cells[1][translationColumn].value, .text("MA"))
         XCTAssertEqual(cells[1][statusColumn].value, .text("full-length"))
         XCTAssertEqual(cells[2][nucleotideColumn].value, .text("ACGTACGT"))
+        XCTAssertEqual(cells[2][trimmedColumn].value, .blank)
         XCTAssertEqual(cells[2][translationColumn].value, .blank)
         XCTAssertEqual(cells[2][statusColumn].value, .text("incomplete/unresolved"))
     }
@@ -465,6 +471,108 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
                 }
                 XCTAssertTrue(detail.contains(expectedDetail), detail)
             }
+        }
+    }
+
+    func testNormalizedUnmatchedRowsAcceptDeclaredCroppedCandidateOriginAndKeepFullFASTASequence() throws {
+        let projection = try singleCandidateProjection(from: makeDocuments())
+        let fullSequence = "ATGGCTTAA"
+        let croppedSequence = "GGCTT"
+        let rows = try normalizedRows(
+            projection: projection,
+            candidateGenBankRecord: try normalizedGenBankRecord(
+                stableID: "cluster-1",
+                sequence: croppedSequence,
+                translation: "A",
+                status: "full-length",
+                sourceSequenceSHA256: sha256Hex(fullSequence),
+                trimMetadata: (
+                    originalLength: fullSequence.count,
+                    start: 3,
+                    end: 7,
+                    genBankSequenceSHA256: sha256Hex(croppedSequence),
+                    status: "trimmed-to-outer-lifted-CDS"
+                )
+            )
+        )
+
+        let candidate = try XCTUnwrap(rows.first { $0.stableClusterID == "cluster-1" })
+        XCTAssertEqual(candidate.nucleotideSequence, fullSequence)
+        XCTAssertEqual(candidate.utrTrimmedNucleotideSequence, croppedSequence)
+        XCTAssertEqual(candidate.putativeAminoAcidTranslation, "A")
+    }
+
+    func testNormalizedUnmatchedRowsRejectTamperedCroppedCandidateContract() throws {
+        let projection = try singleCandidateProjection(from: makeDocuments())
+        let fullSequence = "ATGGCTTAA"
+        let validCrop = "GGCTT"
+        let cases: [(String, GenBankRecord)] = [
+            (
+                "declared FASTA substring",
+                try normalizedGenBankRecord(
+                    stableID: "cluster-1", sequence: "GACTT", translation: "A", status: "full-length",
+                    sourceSequenceSHA256: sha256Hex(fullSequence),
+                    trimMetadata: (fullSequence.count, 3, 7, sha256Hex("GACTT"), "trimmed-to-outer-lifted-CDS")
+                )
+            ),
+            (
+                "GenBank sequence SHA-256",
+                try normalizedGenBankRecord(
+                    stableID: "cluster-1", sequence: validCrop, translation: "A", status: "full-length",
+                    sourceSequenceSHA256: sha256Hex(fullSequence),
+                    trimMetadata: (fullSequence.count, 3, 7, String(repeating: "f", count: 64), "trimmed-to-outer-lifted-CDS")
+                )
+            ),
+            (
+                "trim bounds",
+                try normalizedGenBankRecord(
+                    stableID: "cluster-1", sequence: validCrop, translation: "A", status: "full-length",
+                    sourceSequenceSHA256: sha256Hex(fullSequence),
+                    trimMetadata: (fullSequence.count, 0, 4, sha256Hex(validCrop), "trimmed-to-outer-lifted-CDS")
+                )
+            ),
+        ]
+
+        for (expectedDetail, record) in cases {
+            XCTAssertThrowsError(try normalizedRows(
+                projection: projection,
+                candidateGenBankRecord: record
+            )) { error in
+                guard case FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: "cluster-1", detail: let detail
+                ) = error else {
+                    return XCTFail("Unexpected error: \(error)")
+                }
+                XCTAssertTrue(detail.contains(expectedDetail), detail)
+            }
+        }
+    }
+
+    func testNormalizedUnmatchedRowsStillRequireExactUnnameableGenBankSequence() throws {
+        let documents = makeDocuments()
+        let projection = try singleCandidateProjection(from: documents)
+        let candidateSequence = "ATGGCTTAA"
+        let fullUnnameable = "ACGTACGT"
+        let croppedUnnameable = "GTAC"
+
+        XCTAssertThrowsError(try projection.normalizedUnmatchedRows(
+            candidateFASTARecords: [.init(name: "cluster-1", sequence: candidateSequence, readCount: 10)],
+            unnameableFASTARecords: [.init(name: "cluster-u", sequence: fullUnnameable, readCount: 4)],
+            candidateGenBankRecords: [try normalizedGenBankRecord(
+                stableID: "cluster-1", sequence: candidateSequence, translation: "MA", status: "full-length"
+            )],
+            unnameableGenBankRecords: [try normalizedGenBankRecord(
+                stableID: "cluster-u", sequence: croppedUnnameable, translation: nil,
+                status: "incomplete/unresolved", sourceSequenceSHA256: sha256Hex(fullUnnameable),
+                trimMetadata: (fullUnnameable.count, 3, 6, sha256Hex(croppedUnnameable), "trimmed-to-outer-lifted-CDS")
+            )]
+        )) { error in
+            guard case FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                stableClusterID: "cluster-u", detail: let detail
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(detail.contains("FASTA and GenBank sequences differ"), detail)
         }
     }
 
@@ -1094,6 +1202,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             fastaRecordID: stableID,
             sequenceSHA256: String(repeating: "d", count: 64),
             nucleotideSequence: "ACGT",
+            utrTrimmedNucleotideSequence: category == .candidate ? "ACGT" : nil,
             putativeAminoAcidTranslation: nil,
             translationStatus: .incompleteUnresolved
         )
@@ -1106,8 +1215,28 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         status: String,
         sourceSequenceSHA256: String? = nil,
         accession: String? = nil,
-        locusName: String? = nil
+        locusName: String? = nil,
+        trimMetadata: (
+            originalLength: Int,
+            start: Int,
+            end: Int,
+            genBankSequenceSHA256: String,
+            status: String
+        )? = nil
     ) throws -> GenBankRecord {
+        var sourceQualifiers: [String: AnnotationQualifier] = [
+            "stable_cluster_id": .init(stableID),
+            "sequence_sha256": .init(sourceSequenceSHA256 ?? sha256Hex(sequence)),
+            "translation_status": .init(status),
+        ]
+        if let trimMetadata {
+            sourceQualifiers["original_sequence_length"] = .init(String(trimMetadata.originalLength))
+            sourceQualifiers["trim_start"] = .init(String(trimMetadata.start))
+            sourceQualifiers["trim_end"] = .init(String(trimMetadata.end))
+            sourceQualifiers["genbank_sequence_sha256"] = .init(trimMetadata.genBankSequenceSHA256)
+            sourceQualifiers["trim_status"] = .init(trimMetadata.status)
+            sourceQualifiers["reference_readiness_status"] = .init("reference-ready")
+        }
         var annotations = [
             SequenceAnnotation(
                 type: .source,
@@ -1115,11 +1244,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
                 start: 0,
                 end: sequence.count,
                 strand: .forward,
-                qualifiers: [
-                    "stable_cluster_id": .init(stableID),
-                    "sequence_sha256": .init(sourceSequenceSHA256 ?? sha256Hex(sequence)),
-                    "translation_status": .init(status),
-                ]
+                qualifiers: sourceQualifiers
             ),
         ]
         if let translation {

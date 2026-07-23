@@ -280,9 +280,11 @@ wb.save(path)
         XCTAssertEqual(inspection["candidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
         XCTAssertEqual(inspection["unmatchedIDs"], "cluster-1|cluster-2|cluster-3|cluster-4|cluster-u")
         XCTAssertEqual(inspection["candidateSequence"], String(repeating: "C", count: 39))
-        XCTAssertEqual(inspection["candidateTranslation"], "AAAAAAAAAAAAA")
+        XCTAssertEqual(inspection["candidateTrimmedSequence"], String(repeating: "C", count: 33))
+        XCTAssertEqual(inspection["candidateTranslation"], "AAAAAAAAAAA")
         XCTAssertEqual(inspection["candidateTranslationStatus"], "full-length")
         XCTAssertEqual(inspection["unnameableSequence"], String(repeating: "N", count: 40))
+        XCTAssertEqual(inspection["unnameableTrimmedSequence"], "")
         XCTAssertEqual(inspection["unnameableTranslationStatus"], "incomplete/unresolved")
 
         let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
@@ -3141,11 +3143,18 @@ wb.save(path)
         let unnameableGenBankURL = directory.appendingPathComponent("unnameable-clusters.gb")
         try GenBankWriter(url: candidateGenBankURL).write(
             try candidateSequences.keys.sorted().map { stableID in
-                try normalizedCandidateGenBankRecord(
+                let fullSequence = candidateSequences[stableID]!
+                let isCroppedFixture = stableID == "cluster-1"
+                return try normalizedCandidateGenBankRecord(
                     stableID: stableID,
-                    sequence: candidateSequences[stableID]!,
-                    translation: String(repeating: "A", count: 13),
-                    status: "full-length"
+                    sequence: isCroppedFixture
+                        ? String(fullSequence.dropFirst(3).dropLast(3))
+                        : fullSequence,
+                    translation: String(repeating: "A", count: isCroppedFixture ? 11 : 13),
+                    status: "full-length",
+                    fullSequence: isCroppedFixture ? fullSequence : nil,
+                    trimStart: isCroppedFixture ? 4 : nil,
+                    trimEnd: isCroppedFixture ? 36 : nil
                 )
             }
         )
@@ -3389,8 +3398,24 @@ wb.save(path)
         stableID: String,
         sequence: String,
         translation: String?,
-        status: String
+        status: String,
+        fullSequence: String? = nil,
+        trimStart: Int? = nil,
+        trimEnd: Int? = nil
     ) throws -> GenBankRecord {
+        var sourceQualifiers: [String: AnnotationQualifier] = [
+            "stable_cluster_id": .init(stableID),
+            "sequence_sha256": .init(sha256Hex(fullSequence ?? sequence)),
+            "translation_status": .init(status),
+        ]
+        if let fullSequence, let trimStart, let trimEnd {
+            sourceQualifiers["original_sequence_length"] = .init(String(fullSequence.count))
+            sourceQualifiers["trim_start"] = .init(String(trimStart))
+            sourceQualifiers["trim_end"] = .init(String(trimEnd))
+            sourceQualifiers["genbank_sequence_sha256"] = .init(sha256Hex(sequence))
+            sourceQualifiers["trim_status"] = .init("trimmed-to-outer-lifted-CDS")
+            sourceQualifiers["reference_readiness_status"] = .init("reference-ready")
+        }
         var annotations = [
             SequenceAnnotation(
                 type: .source,
@@ -3398,11 +3423,7 @@ wb.save(path)
                 start: 0,
                 end: sequence.count,
                 strand: .forward,
-                qualifiers: [
-                    "stable_cluster_id": .init(stableID),
-                    "sequence_sha256": .init(sha256Hex(sequence)),
-                    "translation_status": .init(status),
-                ]
+                qualifiers: sourceQualifiers
             ),
         ]
         if let translation {
@@ -3618,10 +3639,12 @@ payload = {
     "candidateIDs": "|".join(text(unified.cell(row, headers["stable_cluster_id"]).value) for row in candidate_rows),
     "candidateNameFills": "|".join(argb(unified.cell(row, headers["display_name"])) for row in candidate_rows),
     "unmatchedIDs": "|".join(text(unmatched.cell(row, unmatched_headers["Stable Cluster ID"]).value) for row in range(2, unmatched.max_row + 1)),
-    "candidateSequence": text(unmatched.cell(candidate_row, unmatched_headers["Nucleotide Sequence"]).value) if candidate_row else "",
+    "candidateSequence": text(unmatched.cell(candidate_row, unmatched_headers["Full-Length FASTA Sequence"]).value) if candidate_row else "",
+    "candidateTrimmedSequence": text(unmatched.cell(candidate_row, unmatched_headers["UTR-Trimmed FASTA Sequence"]).value) if candidate_row else "",
     "candidateTranslation": text(unmatched.cell(candidate_row, unmatched_headers["Putative Amino Acid Translation"]).value) if candidate_row else "",
     "candidateTranslationStatus": text(unmatched.cell(candidate_row, unmatched_headers["Translation Status"]).value) if candidate_row else "",
-    "unnameableSequence": text(unmatched.cell(unnameable_row, unmatched_headers["Nucleotide Sequence"]).value) if unnameable_row else "",
+    "unnameableSequence": text(unmatched.cell(unnameable_row, unmatched_headers["Full-Length FASTA Sequence"]).value) if unnameable_row else "",
+    "unnameableTrimmedSequence": text(unmatched.cell(unnameable_row, unmatched_headers["UTR-Trimmed FASTA Sequence"]).value) if unnameable_row else "",
     "unnameableTranslationStatus": text(unmatched.cell(unnameable_row, unmatched_headers["Translation Status"]).value) if unnameable_row else "",
 }
 print(json.dumps(payload))

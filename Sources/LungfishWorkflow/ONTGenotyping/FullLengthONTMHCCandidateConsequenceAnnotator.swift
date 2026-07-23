@@ -14,19 +14,63 @@ struct FullLengthONTMHCCandidateChangeProjection: Sendable {
     let assessedReferencePositions: Set<Int>
     let queryLength: Int
     let isReverse: Bool
+    let storedCoordinateOffset: Int
+    let storedCoordinateLength: Int?
+
+    init(
+        events: [Event],
+        assessedReferencePositions: Set<Int>,
+        queryLength: Int,
+        isReverse: Bool,
+        storedCoordinateOffset: Int = 0,
+        storedCoordinateLength: Int? = nil
+    ) {
+        self.events = events
+        self.assessedReferencePositions = assessedReferencePositions
+        self.queryLength = queryLength
+        self.isReverse = isReverse
+        self.storedCoordinateOffset = storedCoordinateOffset
+        self.storedCoordinateLength = storedCoordinateLength
+    }
+
+    func rebasedStoredCoordinates(by offset: Int, length: Int) -> Self {
+        .init(
+            events: events,
+            assessedReferencePositions: assessedReferencePositions,
+            queryLength: queryLength,
+            isReverse: isReverse,
+            storedCoordinateOffset: offset,
+            storedCoordinateLength: length
+        )
+    }
 
     func storedCandidatePosition(orientedPosition: Int) -> Int {
-        isReverse ? queryLength - orientedPosition - 1 : orientedPosition
+        (isReverse ? queryLength - orientedPosition - 1 : orientedPosition) - storedCoordinateOffset
     }
 
     func storedCandidateRange(orientedRange: Range<Int>) -> Range<Int> {
-        isReverse
+        let range = isReverse
             ? (queryLength - orientedRange.upperBound)..<(queryLength - orientedRange.lowerBound)
             : orientedRange
+        return (range.lowerBound - storedCoordinateOffset)..<(range.upperBound - storedCoordinateOffset)
     }
 
     func storedCandidateBoundary(orientedBoundary: Int) -> Int {
-        isReverse ? queryLength - orientedBoundary : orientedBoundary
+        (isReverse ? queryLength - orientedBoundary : orientedBoundary) - storedCoordinateOffset
+    }
+
+    func storedCandidatePositionInOrigin(orientedPosition: Int) -> Int? {
+        let position = storedCandidatePosition(orientedPosition: orientedPosition)
+        guard position >= 0,
+              storedCoordinateLength.map({ position < $0 }) ?? true else { return nil }
+        return position
+    }
+
+    func storedCandidateRangeInOrigin(orientedRange: Range<Int>) -> Range<Int>? {
+        let range = storedCandidateRange(orientedRange: orientedRange)
+        guard range.lowerBound >= 0,
+              storedCoordinateLength.map({ range.upperBound <= $0 }) ?? true else { return nil }
+        return range
     }
 }
 
@@ -49,7 +93,7 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
     }
 
     func comments(for input: Input) -> [String] {
-        let coordinateComment = "Lungfish consequence coordinate convention: reference, stored candidate ORIGIN, CDS nucleotide, codon, exon, intron, and amino-acid coordinates are 1-based; insertion/deletion boundaries are reported between flanking coordinates"
+        let coordinateComment = "Lungfish consequence coordinate convention: reference, stored candidate ORIGIN, CDS nucleotide, codon, exon, intron, and amino-acid coordinates are 1-based; insertion/deletion boundaries are reported between flanking coordinates; terminal changes outside cropped ORIGIN are reference-only"
         guard let cds = primaryCDS(input.reference) else {
             return unavailable(reason: "no annotated CDS") + [coordinateComment]
         }
@@ -119,9 +163,12 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                         text: "ref \(refPosition + 1) \(refBase)>\(altBase); candidate \(input.projection.storedCandidatePosition(orientedPosition: queryPosition) + 1); intron \(intronNumber); direct CDS translation effect none; splice/regulatory impact not assessed"
                     ))
                 } else {
+                    let candidate = input.projection.storedCandidatePositionInOrigin(
+                        orientedPosition: queryPosition
+                    ).map { "candidate \($0 + 1)" } ?? "outside cropped candidate ORIGIN"
                     unclassifiedDetails.append(.init(
                         sortPosition: refPosition,
-                        text: "ref \(refPosition + 1) \(refBase)>\(altBase); candidate \(input.projection.storedCandidatePosition(orientedPosition: queryPosition) + 1); \(nonCDSExonicPositions.contains(refPosition) ? "non-CDS exonic/UTR" : "outside classified CDS/intron features"); protein effect not applicable"
+                        text: "ref \(refPosition + 1) \(refBase)>\(altBase); \(candidate); \(nonCDSExonicPositions.contains(refPosition) ? "non-CDS exonic/UTR" : "outside classified CDS/intron features"); protein effect not applicable"
                     ))
                 }
             case .insertion(let boundary, let queryRange, let bases):
@@ -153,10 +200,13 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                         text: "\(bases.count) bp insertion at ref boundary \(boundary)/\(boundary + 1); candidate \(stored.lowerBound + 1)-\(stored.upperBound); inserted \(bases); intron \(intronNumber); direct CDS translation effect none; splice/regulatory impact not assessed"
                     ))
                 } else {
-                    let stored = input.projection.storedCandidateRange(orientedRange: queryRange)
+                    let candidate = input.projection.storedCandidateRangeInOrigin(
+                        orientedRange: queryRange
+                    ).map { "candidate \($0.lowerBound + 1)-\($0.upperBound)" }
+                        ?? "outside cropped candidate ORIGIN"
                     unclassifiedDetails.append(.init(
                         sortPosition: boundary,
-                        text: "\(bases.count) bp insertion at ref boundary \(boundary)/\(boundary + 1); candidate \(stored.lowerBound + 1)-\(stored.upperBound); outside classified CDS/intron features; protein effect unresolved"
+                        text: "\(bases.count) bp insertion at ref boundary \(boundary)/\(boundary + 1); \(candidate); outside classified CDS/intron features; protein effect unresolved"
                     ))
                 }
             case .deletion(let range, let queryBoundary, let bases):

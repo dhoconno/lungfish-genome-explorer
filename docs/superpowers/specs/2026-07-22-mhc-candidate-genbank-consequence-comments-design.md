@@ -2,7 +2,7 @@
 
 ## Scope
 
-This change applies only to the forward full-length ONT MHC `Candidate Alleles GenBank` artifact. It does not change candidate classification, provisional naming, JSON/SQLite schemas, viewport behavior, Excel layout, BAM artifacts, or any vestigial workbook/genotyping workflow.
+This change applies only to the forward full-length ONT MHC `Candidate Alleles GenBank` artifact and the current two-sheet workbook's sequence columns. It does not change candidate classification, provisional naming, scientific JSON/SQLite schemas, viewport behavior, BAM artifacts, or any vestigial workbook/genotyping workflow.
 
 The renderer will use the already selected closest reference visualization, candidate sequence, reciprocal alignment start/orientation/CIGAR, and lifted reference features. It will not reread a BAM.
 
@@ -20,6 +20,8 @@ The record preserves two independently verifiable identities:
 If no lifted CDS exists, trimming is unavailable. The record remains present and explicitly states that it is not reference-ready because CDS/UTR boundaries could not be resolved. Partial lifted CDS records are cropped to their observed lifted CDS span but retain `incomplete/unresolved` translation status and an explicit partial/reference-readiness warning; trimming must never upgrade their biological completeness.
 
 The current two-sheet workbook validator accepts both the new verifiable cropped candidate GenBank contract and older exact FASTA/GenBank records. It continues requiring exact FASTA/GenBank equality for un-nameable records. The workbook nucleotide sequence column continues to use the full candidate FASTA sequence.
+
+The current `Unmatched Alleles` sheet exposes both identities explicitly. `Full-Length FASTA Sequence` contains the original cluster FASTA sequence. `UTR-Trimmed FASTA Sequence` contains the verified candidate GenBank `ORIGIN`; for older exact FASTA/GenBank candidate records both columns contain the same sequence. Un-nameable rows retain the full sequence and leave the trimmed column blank. Explicit `Update current.xlsx` uses the same two columns and values.
 
 ## Required comments
 
@@ -98,5 +100,6 @@ Existing input/output descriptors, checksums, sizes, argv, runtime identity, exi
 - GenBank output is deterministic and round-trips through the reader/writer.
 - Published candidate artifacts and provenance contain the new comments/rules.
 - Candidate GenBank `ORIGIN` begins and ends at the outer lifted CDS span, preserves intervening introns, rebases features/comments, and verifies as the declared substring of the full candidate FASTA.
+- The initial and explicitly updated current two-sheet workbooks retain the full candidate FASTA sequence and the verified UTR-trimmed candidate GenBank sequence in separate named columns; un-nameable trimmed cells are blank.
 - Partial/unresolved candidates remain explicitly non-reference-ready; records without a lifted CDS state that UTR trimming is unavailable.
 - No BAM reread, schema change, legacy workflow change, or unrelated UI change is introduced.
