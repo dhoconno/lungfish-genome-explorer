@@ -286,7 +286,19 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(candidateGenBankStep.inputs.contains { $0.path == annotationDatabaseURL.path })
         XCTAssertEqual(
             candidateGenBankStep.resolvedOptions["candidateUTRTrimRule"],
-            .string("candidate-only:outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations-and-consequence-candidate-coordinates;preserve-full-FASTA-identity+record-cropped-GenBank-identity;partial-crop-remains-non-reference-ready;no-CDS-untrimmed")
+            .string("reference-ready-only:crop-to-outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations+consequence-candidate-coordinates;non-ready-omitted")
+        )
+        XCTAssertEqual(
+            candidateGenBankStep.resolvedOptions["recordIdentity"],
+            .string("external-or-canonical-FASTA-record-id;raw-stable-cluster-id-retained-in-source-metadata")
+        )
+        XCTAssertEqual(
+            candidateGenBankStep.resolvedOptions["externalRecordGate"],
+            .string("emit-only-typed-externalSequence-with-reference-readiness=reference-ready;non-ready-omitted;no-untrimmed-external-fallback")
+        )
+        XCTAssertEqual(
+            candidateGenBankStep.resolvedOptions["outerCDSTrimRule"],
+            .string("reference-ready-candidates+reference-ready-unnameables:crop-to-outer-lifted-CDS-span+rebase-annotations;retain-intervening-introns")
         )
         let candidateGenBankText = try String(
             contentsOf: ONTGenotypeResultBundle.resolvedURL(

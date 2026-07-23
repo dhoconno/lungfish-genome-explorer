@@ -194,7 +194,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         )
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["candidateUTRTrimRule"],
-            "candidate-only:outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations-and-consequence-candidate-coordinates;preserve-full-FASTA-identity+record-cropped-GenBank-identity;partial-crop-remains-non-reference-ready;no-CDS-untrimmed"
+            "reference-ready-only:crop-to-outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations+consequence-candidate-coordinates;non-ready-omitted"
         )
         let unnameableGenBankRender = try XCTUnwrap(
             transformations["lungfish-in-process:render-mhc-unnameable-genbank"]
@@ -205,7 +205,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         )
         XCTAssertEqual(
             unnameableGenBankRender.resolvedOptions["unnameableSequenceRule"],
-            "retain-full-input-sequence;no-trimming-or-coordinate-rebasing"
+            "reference-ready+paired-external-FASTA-id+sequence-SHA-256-only:crop-to-outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations;otherwise-omit"
         )
         XCTAssertEqual(
             unnameableGenBankRender.resolvedOptions["unnameableFeatureLiftoverRule"],
@@ -229,7 +229,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         for key in [
             "analysisName", "projectBundleName", "recordIdentity", "referenceCoordinateConvention",
             "reciprocalCIGARCoordinateSource", "reverseAlignmentRule", "minimumIntronGapBases",
-            "supportMetadata",
+            "supportMetadata", "externalRecordGate", "outerCDSTrimRule",
         ] {
             XCTAssertEqual(
                 unnameableGenBankRender.resolvedOptions[key],
@@ -237,6 +237,18 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
                 key
             )
         }
+        XCTAssertEqual(
+            candidateGenBankRender.resolvedOptions["recordIdentity"],
+            "external-or-canonical-FASTA-record-id;raw-stable-cluster-id-retained-in-source-metadata"
+        )
+        XCTAssertEqual(
+            candidateGenBankRender.resolvedOptions["externalRecordGate"],
+            "emit-only-typed-externalSequence-with-reference-readiness=reference-ready;non-ready-omitted;no-untrimmed-external-fallback"
+        )
+        XCTAssertEqual(
+            candidateGenBankRender.resolvedOptions["outerCDSTrimRule"],
+            "reference-ready-candidates+reference-ready-unnameables:crop-to-outer-lifted-CDS-span+rebase-annotations;retain-intervening-introns"
+        )
         let construction = try XCTUnwrap(
             transformations["lungfish-in-process:construct-stable-unmatched-cluster-fasta"]
         )

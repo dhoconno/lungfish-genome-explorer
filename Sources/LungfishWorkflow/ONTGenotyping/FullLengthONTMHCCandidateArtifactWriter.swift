@@ -704,7 +704,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let commonGenBankResolvedOptions: [String: String] = [
             "analysisName": request.analysisName,
             "projectBundleName": request.projectBundleName ?? "unavailable",
-            "recordIdentity": "stable-cluster-id",
+            "recordIdentity": "external-or-canonical-FASTA-record-id;raw-stable-cluster-id-retained-in-source-metadata",
+            "externalRecordGate": "emit-only-typed-externalSequence-with-reference-readiness=reference-ready;non-ready-omitted;no-untrimmed-external-fallback",
+            "outerCDSTrimRule": "reference-ready-candidates+reference-ready-unnameables:crop-to-outer-lifted-CDS-span+rebase-annotations;retain-intervening-introns",
             "referenceCoordinateConvention": "zero-based-half-open",
             "reciprocalCIGARCoordinateSource": "one-based-reference-start-plus-SAM-CIGAR",
             "reverseAlignmentRule": "project-oriented-query-then-convert-to-stored-candidate-coordinates",
@@ -718,11 +720,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             "codingConsequenceRule": "transcript-strand+codon-start+translation-table;group-same-codon-substitutions;scope-unresolved-to-intersecting-exon-summary;group-touching-replacement-indels-by-reference-span;ordinary-indels-frame-delta",
             "cDNAIntronFillRule": "internal-query-insertion-at-least-minimum-intron-gap;excluded-from-cDNA-lifted-CDS+CDS-indels;genomic-long-insertions-retained;source-CDS-complete-assessment-includes-deletions",
             "consequenceAmbiguityRule": "partial+unsupported+ambiguous+unassessed-CDS=unresolved-never-coerced",
-            "candidateUTRTrimRule": "candidate-only:outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations-and-consequence-candidate-coordinates;preserve-full-FASTA-identity+record-cropped-GenBank-identity;partial-crop-remains-non-reference-ready;no-CDS-untrimmed",
+            "candidateUTRTrimRule": "reference-ready-only:crop-to-outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations+consequence-candidate-coordinates;non-ready-omitted",
         ]) { _, candidate in candidate }
         let unnameableGenBankResolvedOptions = commonGenBankResolvedOptions.merging([
             "translationRule": "unnameable-only:recomputed-from-lifted-CDS-when-five-prime-boundary-is-aligned;source-translation-table-not-gated;terminal-stop-removed;internal-stops-retained-and-counted;status-uses-boundary-coverage",
-            "unnameableSequenceRule": "retain-full-input-sequence;no-trimming-or-coordinate-rebasing",
+            "unnameableSequenceRule": "reference-ready+paired-external-FASTA-id+sequence-SHA-256-only:crop-to-outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations;otherwise-omit",
             "unnameableFeatureLiftoverRule": "project-gene+mRNA+transcript+exon+CDS+UTR;omit-reference-introns;exclude-query-insertions-at-least-minimum-intron-gap-from-lifted-features",
             "unnameableConsequenceRule": "do-not-render-candidate-nucleotide-or-protein-consequence-COMMENT-summaries",
         ]) { _, unnameable in unnameable }

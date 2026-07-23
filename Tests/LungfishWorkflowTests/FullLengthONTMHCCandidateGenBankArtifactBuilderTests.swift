@@ -1230,6 +1230,72 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertTrue(try FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).isEmpty)
     }
 
+    func testReferenceReadyUnnameableWithoutPairedExternalIdentityRemainsDiagnosticOnly() throws {
+        let evidence = ONTMHCEvidenceLocator(
+            bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+            queryName: "unnameable-ready-internal-only",
+            referenceName: "ref-unnameable-ready-internal-only",
+            readGroupID: nil,
+            referenceStart: 1,
+            cigar: "2S6=2S"
+        )
+        let reciprocal = try ONTMHCReciprocalQueryHitSummary(
+            bamPath: evidence.bamPath,
+            queryName: evidence.queryName,
+            alignmentCount: 1,
+            targetAlignmentCounts: [evidence.referenceName: 1],
+            exactMatchTargetNames: [evidence.referenceName],
+            closestMatchTargetNames: [evidence.referenceName]
+        )
+        let unnameable = ONTMHCUnnameableRecord(
+            stableClusterID: "unnameable-ready-internal-only",
+            reason: .unresolvedLocus,
+            failedMetrics: [:],
+            supportClass: .singleton,
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 4,
+            supportingSampleIDs: ["Sample-A"],
+            fastaRecordID: nil,
+            sequenceSHA256: nil,
+            reciprocalHitSummary: reciprocal,
+            selectedEvidence: evidence
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .unnameable(unnameable),
+            sequence: "CCATGGCTAA",
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: evidence.referenceName,
+                sequence: "ATGGCT",
+                features: [feature(type: "CDS", start: 0, end: 6)]
+            ),
+            analysisName: "run",
+            projectBundleName: nil,
+            minimumIntronGapBases: 20
+        )
+
+        let builder = FullLengthONTMHCCandidateGenBankArtifactBuilder()
+        let result = try builder.build(from: input)
+        let source = try XCTUnwrap(result.record.annotations.first(where: { $0.type == .source }))
+        let comments = result.record.values(forRecordField: "COMMENT")
+
+        XCTAssertEqual(result.rawSequence, "CCATGGCTAA")
+        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.trimRange, 2..<8)
+        XCTAssertEqual(result.translationStatus, .fullLength)
+        XCTAssertEqual(result.referenceReadiness, .referenceReady)
+        XCTAssertEqual(result.record.sequence.name, "unnameable-ready-internal-only")
+        XCTAssertEqual(result.record.sequence.asString(), "CCATGGCTAA")
+        XCTAssertEqual(source.qualifier("stable_cluster_id"), "unnameable-ready-internal-only")
+        XCTAssertEqual(source.qualifier("reference_readiness_status"), "reference-ready")
+        XCTAssertEqual(source.qualifier("trim_status"), "not-exported-missing-external-identity")
+        XCTAssertTrue(comments.contains {
+            $0.contains("paired external FASTA identity and checksum are unavailable")
+        })
+        XCTAssertTrue(try builder.records(from: [input]).isEmpty)
+    }
+
     func testPartialUnnameableRetainsRawDiagnosticButHasNoExternalSequence() throws {
         let evidence = ONTMHCEvidenceLocator(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",

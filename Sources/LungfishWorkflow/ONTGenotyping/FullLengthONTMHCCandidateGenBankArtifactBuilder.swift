@@ -80,6 +80,19 @@ struct FullLengthONTMHCCandidateGenBankArtifactBuilder {
             }
         }
 
+        var hasDeclaredExternalSequenceIdentity: Bool {
+            switch self {
+            case .candidate:
+                return true
+            case .unnameable(let value):
+                guard let fastaRecordID = value.fastaRecordID,
+                      let sequenceSHA256 = value.sequenceSHA256 else {
+                    return false
+                }
+                return !fastaRecordID.isEmpty && !sequenceSHA256.isEmpty
+            }
+        }
+
         var selectedEvidence: ONTMHCEvidenceLocator? {
             switch self {
             case .candidate(let value): value.selectedEvidence
@@ -402,6 +415,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             referenceReadiness = .referenceReady
         }
         let externalSequence = referenceReadiness == .referenceReady
+            && input.subject.hasDeclaredExternalSequenceIdentity
             ? liftedCDSTrimRange.map { substring(sequence, in: $0) }
             : nil
 
@@ -455,11 +469,24 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             if let trimRange = liftedCDSTrimRange {
                 annotations[0].qualifiers["trim_start"] = .init(String(trimRange.lowerBound + 1))
                 annotations[0].qualifiers["trim_end"] = .init(String(trimRange.upperBound))
-                annotations[0].qualifiers["trim_status"] = .init("not-exported-partial-lifted-CDS")
-                comments.append(
-                    "Lungfish \(sequenceLabel) sequence trim: partial lifted CDS boundaries retained for diagnostics; "
-                        + "external sequence omitted"
-                )
+                if referenceReadiness == .referenceReady {
+                    annotations[0].qualifiers["trim_status"] = .init("not-exported-missing-external-identity")
+                    comments.append(
+                        "Lungfish \(sequenceLabel) sequence export: omitted because paired external FASTA "
+                            + "identity and checksum are unavailable; complete lifted CDS boundaries retained "
+                            + "for diagnostics"
+                    )
+                    comments.append(
+                        "Lungfish reference readiness: reference-ready; complete lifted CDS boundaries resolved; "
+                            + "external publication identity unavailable"
+                    )
+                } else {
+                    annotations[0].qualifiers["trim_status"] = .init("not-exported-partial-lifted-CDS")
+                    comments.append(
+                        "Lungfish \(sequenceLabel) sequence trim: partial lifted CDS boundaries retained for diagnostics; "
+                            + "external sequence omitted"
+                    )
+                }
             } else {
                 annotations[0].qualifiers["trim_status"] = .init("unavailable-no-lifted-CDS")
             }
