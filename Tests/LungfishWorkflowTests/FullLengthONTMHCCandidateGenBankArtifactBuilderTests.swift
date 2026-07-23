@@ -1760,7 +1760,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
 
     func testExtensionRecordCommentsPersistCDNAAndSelectedGenomicInterpretations() throws {
         let interpretation = ONTMHCCDNAExtensionInterpretation(
-            rawReferenceID: "ref-cdna", alleleName: "Mafa-A1*001", locus: "Mafa-A1",
+            rawReferenceID: "ref-cdna", alleleName: "Mafa-A1*002", locus: "Mafa-A1",
             cDNAReferenceCoverage: 1, clusterCoverage: 0.5,
             leadingClusterFlankBases: 100, trailingClusterFlankBases: 100,
             largestClusterStructuralSegmentBases: 100, largestCDNADeficitSegmentBases: 0,
@@ -1768,21 +1768,248 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             alignmentScore: 1_000, identity: 1
         )
         let candidate = try makeCandidate(
-            stableID: "extension-a", sequenceSHA256: "hash", cigar: "4=",
+            stableID: "extension-a", sequenceSHA256: "hash", cigar: "3=1X5=",
             referenceName: "ref-genomic", referenceClass: .genomicDNA,
-            classification: .extension, extensionOf: ["Mafa-A1*001"],
+            classification: .extension, extensionOf: ["Mafa-A1*002"],
             extensionInterpretations: [interpretation]
         )
         let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
-            subject: .candidate(candidate), sequence: "ACGT", selectedAlignmentIsReverse: false,
-            closestReference: makeReference(id: "ref-genomic", sequence: "ACGT", features: []),
+            subject: .candidate(candidate), sequence: "ATGGAAGCT", selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-genomic",
+                sequence: "ATGCAAGCT",
+                features: [feature(type: "CDS", start: 0, end: 9)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("extension-comment-roundtrip-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let original = try buildRecord(input)
+        let url = root.appendingPathComponent("extension.gb")
+        try GenBankWriter(url: url).write([original])
+        let parsed = try XCTUnwrap(GenBankReader(url: url).readAllSync().first)
+        let comments = parsed.values(forRecordField: "COMMENT")
+
+        XCTAssertEqual(parsed.sequence.asString(), original.sequence.asString())
+        XCTAssertTrue(comments.contains { $0 == "Lungfish extension of: Mafa-A1*002" })
+        XCTAssertTrue(comments.contains {
+            $0.contains("Lungfish cDNA sequence comparison:")
+                && $0.contains("allele=Mafa-A1*002")
+                && $0.contains("raw_id=ref-cdna")
+                && $0.contains("cDNA coverage=1.0")
+                && $0.contains("cluster coverage=0.5")
+                && $0.contains("identity=1.0")
+                && $0.contains("SNP substitutions=0")
+                && $0.contains("ordinary indel bases=0")
+                && $0.contains("SNP-defined amino-acid differences=none")
+                && $0.contains("leading flank=100")
+                && $0.contains("trailing flank=100")
+                && $0.contains("largest structural segment=100")
+        }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish genomic feature scaffold: ref-genomic (Mafa-A1*001); used only to lift exon, intron, and CDS coordinates; sequence differences relative to this scaffold are intentionally not reported"
+        })
+        XCTAssertFalse(comments.contains { $0.contains("selected genomic closest reference") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish selected reference:") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish reciprocal alignment:") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish translation comparison:") })
+        for prefix in consequenceSummaryPrefixes {
+            XCTAssertFalse(comments.contains { $0.hasPrefix(prefix) })
+        }
+        XCTAssertFalse(comments.contains { $0.hasPrefix("CDS-NS-") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("CDS-SYN-") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("INTRON-") })
+    }
+
+    func testExtensionWithoutVisualizationOmitsReferenceComparisonPlaceholders() throws {
+        let candidate = try makeCandidate(
+            stableID: "extension-no-visualization", sequenceSHA256: "no-visualization-hash",
+            cigar: "9=", referenceName: "ref-unavailable", referenceClass: .genomicDNA,
+            classification: .extension, extensionOf: ["Mafa-A1*001"]
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ATGGAAGCT",
+            selectedAlignmentIsReverse: false, closestReference: nil,
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
         let comments = try buildRecord(input).values(forRecordField: "COMMENT")
-        XCTAssertTrue(comments.contains { $0 == "Lungfish extension of: Mafa-A1*001" })
-        XCTAssertTrue(comments.contains { $0.contains("selected genomic closest reference") })
-        XCTAssertTrue(comments.contains { $0.contains("raw_id=ref-cdna") })
+
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish selected genomic feature scaffold reference: ref-unavailable (Mafa-A1*001); annotations unavailable; orientation=forward; sequence differences relative to this scaffold are intentionally not reported"
+        })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish selected reference") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish reciprocal alignment:") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish translation comparison:") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish annotation unavailable:") })
+        for prefix in consequenceSummaryPrefixes {
+            XCTAssertFalse(comments.contains { $0.hasPrefix(prefix) })
+        }
+        XCTAssertFalse(comments.contains { $0.hasPrefix("CDS-") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("INTRON-") })
+    }
+
+    func testCDNAExtensionWithoutVisualizationRetainsLabeledReferenceAndOrientation() throws {
+        let candidate = try makeCandidate(
+            stableID: "cdna-extension-no-visualization",
+            sequenceSHA256: "cdna-no-visualization-hash",
+            cigar: "9=", referenceName: "ref-cdna-unavailable", referenceClass: .cDNA,
+            classification: .extension, extensionOf: ["Mafa-A1*001"]
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ATGGAAGCT",
+            selectedAlignmentIsReverse: true, closestReference: nil,
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
+
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish feature reference: ref-cdna-unavailable (Mafa-A1*001) [cDNA]; annotations unavailable; orientation=reverse; no genomic feature scaffold was selected"
+        })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish selected reference") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish reciprocal alignment:") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish translation comparison:") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish annotation unavailable:") })
+        for prefix in consequenceSummaryPrefixes {
+            XCTAssertFalse(comments.contains { $0.hasPrefix(prefix) })
+        }
+        XCTAssertFalse(comments.contains { $0.hasPrefix("CDS-") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("INTRON-") })
+    }
+
+    func testExtensionWithUnknownOrientationRetainsReferenceIdentityWithoutCIGAR() throws {
+        let candidate = try makeCandidate(
+            stableID: "extension-no-alignment", sequenceSHA256: "no-alignment-hash",
+            cigar: "9=", referenceName: "ref-unavailable", referenceClass: .genomicDNA,
+            classification: .extension, extensionOf: ["Mafa-A1*001"]
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ATGGAAGCT",
+            selectedAlignmentIsReverse: nil, closestReference: nil,
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
+
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish selected genomic feature scaffold reference: ref-unavailable (Mafa-A1*001); annotations unavailable; orientation=unavailable; sequence differences relative to this scaffold are intentionally not reported"
+        })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish selected reference") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish reciprocal alignment:") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish translation comparison:") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish annotation unavailable:") })
+        for prefix in consequenceSummaryPrefixes {
+            XCTAssertFalse(comments.contains { $0.hasPrefix(prefix) })
+        }
+        XCTAssertFalse(comments.contains { $0.hasPrefix("CDS-") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("INTRON-") })
+    }
+
+    func testExtensionClassificationEmitsInterpretationsWhenExtensionNamesAreUnavailable() throws {
+        let interpretation = ONTMHCCDNAExtensionInterpretation(
+            rawReferenceID: "legacy-cdna", alleleName: "Mafa-A1*002", locus: "Mafa-A1",
+            cDNAReferenceCoverage: 1, clusterCoverage: 0.5,
+            leadingClusterFlankBases: 100, trailingClusterFlankBases: 100,
+            largestClusterStructuralSegmentBases: 100, largestCDNADeficitSegmentBases: 0,
+            snpSubstitutions: 0, ordinaryIndelBases: 0, isReverse: false,
+            alignmentScore: 1_000, identity: 1
+        )
+        let candidate = try makeCandidate(
+            stableID: "legacy-extension", sequenceSHA256: "legacy-extension-hash",
+            cigar: "9=", referenceName: "legacy-genomic", referenceClass: .genomicDNA,
+            classification: .extension, extensionOf: [],
+            extensionInterpretations: [interpretation]
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ATGGAAGCT",
+            selectedAlignmentIsReverse: nil, closestReference: nil,
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
+
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish extension of: unavailable (no cDNA allele name recorded)"
+        })
+        XCTAssertTrue(comments.contains {
+            $0.contains("Lungfish cDNA sequence comparison:")
+                && $0.contains("allele=Mafa-A1*002")
+                && $0.contains("raw_id=legacy-cdna")
+        })
+    }
+
+    func testNovelClassificationIgnoresStaleExtensionMetadata() throws {
+        let interpretation = ONTMHCCDNAExtensionInterpretation(
+            rawReferenceID: "stale-cdna", alleleName: "Mafa-A1*002", locus: "Mafa-A1",
+            cDNAReferenceCoverage: 1, clusterCoverage: 0.5,
+            leadingClusterFlankBases: 100, trailingClusterFlankBases: 100,
+            largestClusterStructuralSegmentBases: 100, largestCDNADeficitSegmentBases: 0,
+            snpSubstitutions: 0, ordinaryIndelBases: 0, isReverse: false,
+            alignmentScore: 1_000, identity: 1
+        )
+        let candidate = try makeCandidate(
+            stableID: "novel-stale-extension", sequenceSHA256: "novel-stale-extension-hash",
+            cigar: "9=", referenceName: "ref-genomic", referenceClass: .genomicDNA,
+            classification: .novel, extensionOf: ["Mafa-A1*002"],
+            extensionInterpretations: [interpretation]
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ATGGAAGCT",
+            selectedAlignmentIsReverse: nil, closestReference: nil,
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
+
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish extension of:") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish cDNA sequence comparison:") })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("Lungfish provisional naming ambiguity:") })
+    }
+
+    func testAmbiguousExtensionCommentRequiresMultipleCDNAInterpretations() throws {
+        let interpretations = [
+            ONTMHCCDNAExtensionInterpretation(
+                rawReferenceID: "ref-cdna-1", alleleName: "Mafa-A1*001", locus: "Mafa-A1",
+                cDNAReferenceCoverage: 1, clusterCoverage: 0.5,
+                leadingClusterFlankBases: 100, trailingClusterFlankBases: 100,
+                largestClusterStructuralSegmentBases: 100, largestCDNADeficitSegmentBases: 0,
+                snpSubstitutions: 0, ordinaryIndelBases: 0, isReverse: false,
+                alignmentScore: 1_000, identity: 1
+            ),
+            ONTMHCCDNAExtensionInterpretation(
+                rawReferenceID: "ref-cdna-2", alleleName: "Mafa-A1*002", locus: "Mafa-A1",
+                cDNAReferenceCoverage: 1, clusterCoverage: 0.5,
+                leadingClusterFlankBases: 100, trailingClusterFlankBases: 100,
+                largestClusterStructuralSegmentBases: 100, largestCDNADeficitSegmentBases: 0,
+                snpSubstitutions: 0, ordinaryIndelBases: 0, isReverse: false,
+                alignmentScore: 1_000, identity: 1
+            ),
+        ]
+        let candidate = try makeCandidate(
+            stableID: "ambiguous-extension", sequenceSHA256: "ambiguous-extension-hash",
+            cigar: "9=", referenceName: "ref-genomic", referenceClass: .genomicDNA,
+            classification: .extension, extensionOf: ["Mafa-A1*001", "Mafa-A1*002"],
+            extensionInterpretations: interpretations, provisionalNamingAmbiguous: true
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ATGGAAGCT",
+            selectedAlignmentIsReverse: nil, closestReference: nil,
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
+
+        XCTAssertEqual(
+            comments.filter { $0.hasPrefix("Lungfish cDNA sequence comparison:") }.count,
+            2
+        )
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish provisional naming ambiguity: multiple compatible cDNA allele names; provisional base name was not assigned from a unique cDNA interpretation"
+        })
     }
 
     private func makeCandidate(
@@ -1794,7 +2021,8 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         referenceStart: Int = 1,
         classification: ONTMHCCandidateClassification = .novel,
         extensionOf: [String] = [],
-        extensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = []
+        extensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = [],
+        provisionalNamingAmbiguous: Bool = false
     ) throws -> ONTMHCCandidateRecord {
         let evidence = ONTMHCEvidenceLocator(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",
@@ -1829,7 +2057,8 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             sequenceSHA256: sequenceSHA256,
             selectedEvidence: evidence,
             extensionOf: extensionOf,
-            extensionInterpretations: extensionInterpretations
+            extensionInterpretations: extensionInterpretations,
+            provisionalNamingAmbiguous: provisionalNamingAmbiguous
         )
     }
 

@@ -266,6 +266,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         guard !stableID.isEmpty, !sequence.isEmpty, input.minimumIntronGapBases > 0 else {
             throw Error.invalidInput(stableClusterID: stableID, detail: "identity, sequence, and intron threshold must be nonempty and positive")
         }
+        let isExtension = input.subject.candidateRecord?.classification == .extension
 
         var annotations = [SequenceAnnotation(
             type: .source,
@@ -322,8 +323,9 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             identity = comparableBases > 0
                 ? Double(comparableBases - substitutionCount) / Double(comparableBases)
                 : 0
-            if projection.leadingTerminalRescuedBases > 0
-                || projection.trailingTerminalRescuedBases > 0 {
+            if !isExtension,
+               (projection.leadingTerminalRescuedBases > 0
+                || projection.trailingTerminalRescuedBases > 0) {
                 comments.append(
                     "Lungfish terminal local-clipping rescue: leading reference bases="
                         + String(projection.leadingTerminalRescuedBases)
@@ -401,13 +403,20 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 .qualifier("translation") {
                 let internalStops = candidateTranslation.filter { $0 == "*" }.count
                 let aminoAcidCount = candidateTranslation.filter { $0 != "*" }.count
-                let referenceLength = preferredReferenceTranslation(reference)
-                    .map { $0.filter { $0 != "*" }.count }
-                comments.append(
-                    "Lungfish translation comparison: candidate amino acids=\(aminoAcidCount); "
-                        + "closest-reference amino acids=\(referenceLength.map(String.init) ?? "unavailable"); "
-                        + "internal stops=\(internalStops)"
-                )
+                if isExtension {
+                    comments.append(
+                        "Lungfish candidate translation: amino acids=\(aminoAcidCount); "
+                            + "internal stops=\(internalStops)"
+                    )
+                } else {
+                    let referenceLength = preferredReferenceTranslation(reference)
+                        .map { $0.filter { $0 != "*" }.count }
+                    comments.append(
+                        "Lungfish translation comparison: candidate amino acids=\(aminoAcidCount); "
+                            + "closest-reference amino acids=\(referenceLength.map(String.init) ?? "unavailable"); "
+                            + "internal stops=\(internalStops)"
+                    )
+                }
             }
             let liftedExons = annotations.filter { $0.type == .exon }
                 .sorted { $0.start == $1.start ? $0.end < $1.end : $0.start < $1.start }
@@ -421,21 +430,63 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                         + "short eighth exon=\(liftedExons.count == 8 && terminalBases <= 30)"
                 )
             }
-            comments.append("Lungfish selected reference: \(reference.rawReferenceID) (\(reference.alleleName))")
-            comments.append("Lungfish reciprocal alignment: start=\(evidence.referenceStart); cigar=\(evidence.cigar); orientation=\(isReverse ? "reverse" : "forward")")
-            if input.subject.isCandidate {
-                comments.append(contentsOf: FullLengthONTMHCCandidateConsequenceAnnotator().comments(for: .init(
-                    reference: reference,
-                    projection: projection.changes.rebasedStoredCoordinates(
-                        by: liftedCDSTrimRange?.lowerBound ?? 0,
-                        length: liftedCDSTrimRange?.count ?? sequence.count
-                    ),
-                    isCDNAReference: input.subject.isCDNAReference,
-                    minimumIntronGapBases: input.minimumIntronGapBases,
-                    candidateTranslation: annotations.first(where: { $0.type == .cds })?.qualifier("translation"),
-                    referenceTranslation: preferredReferenceTranslation(reference),
-                    translationStatus: translationStatus
-                )))
+            if isExtension {
+                if input.subject.isCDNAReference {
+                    comments.append(
+                        "Lungfish feature reference: \(reference.rawReferenceID) (\(reference.alleleName)) [cDNA]; "
+                            + "used to lift available CDS coordinates; "
+                            + "no genomic feature scaffold was selected"
+                    )
+                } else {
+                    comments.append(
+                        "Lungfish genomic feature scaffold: \(reference.rawReferenceID) (\(reference.alleleName)); "
+                            + "used only to lift exon, intron, and CDS coordinates; "
+                            + "sequence differences relative to this scaffold are intentionally not reported"
+                    )
+                    comments.append(
+                        "Lungfish genomic feature scaffold orientation: "
+                            + (isReverse ? "reverse" : "forward")
+                    )
+                }
+            } else {
+                comments.append("Lungfish selected reference: \(reference.rawReferenceID) (\(reference.alleleName))")
+                comments.append("Lungfish reciprocal alignment: start=\(evidence.referenceStart); cigar=\(evidence.cigar); orientation=\(isReverse ? "reverse" : "forward")")
+                if input.subject.isCandidate {
+                    comments.append(contentsOf: FullLengthONTMHCCandidateConsequenceAnnotator().comments(for: .init(
+                        reference: reference,
+                        projection: projection.changes.rebasedStoredCoordinates(
+                            by: liftedCDSTrimRange?.lowerBound ?? 0,
+                            length: liftedCDSTrimRange?.count ?? sequence.count
+                        ),
+                        isCDNAReference: input.subject.isCDNAReference,
+                        minimumIntronGapBases: input.minimumIntronGapBases,
+                        candidateTranslation: annotations.first(where: { $0.type == .cds })?.qualifier("translation"),
+                        referenceTranslation: preferredReferenceTranslation(reference),
+                        translationStatus: translationStatus
+                    )))
+                }
+            }
+        } else if let evidence = input.subject.selectedEvidence,
+                  let candidate = input.subject.candidateRecord,
+                  candidate.classification == .extension {
+            let orientation = input.selectedAlignmentIsReverse.map {
+                $0 ? "reverse" : "forward"
+            } ?? "unavailable"
+            switch candidate.closestReferenceClass {
+            case .genomicDNA:
+                comments.append(
+                    "Lungfish selected genomic feature scaffold reference: "
+                        + "\(evidence.referenceName) (\(candidate.closestReferenceName)); "
+                        + "annotations unavailable; orientation=\(orientation); "
+                        + "sequence differences relative to this scaffold are intentionally not reported"
+                )
+            case .cDNA:
+                comments.append(
+                    "Lungfish feature reference: "
+                        + "\(evidence.referenceName) (\(candidate.closestReferenceName)) [cDNA]; "
+                        + "annotations unavailable; orientation=\(orientation); "
+                        + "no genomic feature scaffold was selected"
+                )
             }
         } else if let evidence = input.subject.selectedEvidence,
                   let isReverse = input.selectedAlignmentIsReverse {
@@ -448,11 +499,18 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 })
             }
         } else {
-            comments.append("Lungfish annotation unavailable: no selected reciprocal alignment")
-            if input.subject.isCandidate {
-                comments.append(contentsOf: FullLengthONTMHCCandidateConsequenceAnnotator.summaryPrefixes.map {
-                    "\($0) unavailable: no selected reciprocal alignment"
-                })
+            if isExtension {
+                comments.append(
+                    "Lungfish feature scaffold unavailable: no selected reference alignment; "
+                        + "no scaffold-relative sequence differences are reported"
+                )
+            } else {
+                comments.append("Lungfish annotation unavailable: no selected reciprocal alignment")
+                if input.subject.isCandidate {
+                    comments.append(contentsOf: FullLengthONTMHCCandidateConsequenceAnnotator.summaryPrefixes.map {
+                        "\($0) unavailable: no selected reciprocal alignment"
+                    })
+                }
             }
         }
 
@@ -618,19 +676,34 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         if let project = input.projectBundleName, !project.isEmpty {
             values.insert("Lungfish project: \(project)", at: 1)
         }
-        if let candidate = input.subject.candidateRecord, !candidate.extensionOf.isEmpty {
-            values.append("Lungfish extension of: \(candidate.extensionOf.joined(separator: ", "))")
-            let closestLabel = candidate.closestReferenceClass == .genomicDNA
-                ? "selected genomic closest reference"
-                : "selected cDNA closest reference"
-            values.append("Lungfish \(closestLabel): \(candidate.closestReferenceName) [\(candidate.selectedEvidence.referenceName)]")
+        if let candidate = input.subject.candidateRecord,
+           candidate.classification == .extension {
+            if candidate.extensionOf.isEmpty {
+                values.append("Lungfish extension of: unavailable (no cDNA allele name recorded)")
+            } else {
+                values.append("Lungfish extension of: \(candidate.extensionOf.joined(separator: ", "))")
+            }
             for interpretation in candidate.extensionInterpretations {
+                let aminoAcidSummary = interpretation.snpSubstitutions == 0
+                    ? "none"
+                    : "not resolved from aggregate cDNA alignment metrics"
                 values.append(
-                    "Lungfish cDNA interpretation: allele=\(interpretation.alleleName); raw_id=\(interpretation.rawReferenceID); locus=\(interpretation.locus); cdna_coverage=\(interpretation.cDNAReferenceCoverage); cluster_coverage=\(interpretation.clusterCoverage); leading_flank=\(interpretation.leadingClusterFlankBases); trailing_flank=\(interpretation.trailingClusterFlankBases); largest_cluster_structure=\(interpretation.largestClusterStructuralSegmentBases); largest_cdna_deficit=\(interpretation.largestCDNADeficitSegmentBases); snps=\(interpretation.snpSubstitutions); ordinary_indels=\(interpretation.ordinaryIndelBases); strand=\(interpretation.isReverse ? "reverse" : "forward"); score=\(interpretation.alignmentScore); identity=\(interpretation.identity)"
+                    "Lungfish cDNA sequence comparison: allele=\(interpretation.alleleName); "
+                        + "raw_id=\(interpretation.rawReferenceID); locus=\(interpretation.locus); "
+                        + "cDNA coverage=\(interpretation.cDNAReferenceCoverage); "
+                        + "cluster coverage=\(interpretation.clusterCoverage); identity=\(interpretation.identity); "
+                        + "SNP substitutions=\(interpretation.snpSubstitutions); "
+                        + "ordinary indel bases=\(interpretation.ordinaryIndelBases); "
+                        + "SNP-defined amino-acid differences=\(aminoAcidSummary); "
+                        + "leading flank=\(interpretation.leadingClusterFlankBases); "
+                        + "trailing flank=\(interpretation.trailingClusterFlankBases); "
+                        + "largest structural segment=\(interpretation.largestClusterStructuralSegmentBases); "
+                        + "largest cDNA deficit=\(interpretation.largestCDNADeficitSegmentBases); "
+                        + "strand=\(interpretation.isReverse ? "reverse" : "forward")"
                 )
             }
             if candidate.provisionalNamingAmbiguous {
-                values.append("Lungfish provisional naming ambiguity: multiple compatible cDNA allele names; genomic closest reference supplied the provisional base name")
+                values.append("Lungfish provisional naming ambiguity: multiple compatible cDNA allele names; provisional base name was not assigned from a unique cDNA interpretation")
             }
         }
         return values

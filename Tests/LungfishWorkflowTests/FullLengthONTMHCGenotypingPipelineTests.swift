@@ -311,7 +311,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             XCTAssertTrue(candidateGenBankText.contains(prefix), "Missing \(prefix)")
         }
         XCTAssertTrue(candidateGenBankText.contains("CDS-SYN-1:"), candidateGenBankText)
-        XCTAssertTrue(candidateGenBankText.contains("INTRON-FILL-1:"), candidateGenBankText)
+        XCTAssertTrue(candidateGenBankText.contains(
+            "Lungfish feature reference: RAW_EXTENSION_NEIGHBOR (Mafa-B*021:01:01) [cDNA]; used to lift available CDS coordinates; no genomic feature scaffold was selected"
+        ), candidateGenBankText)
+        XCTAssertFalse(candidateGenBankText.contains(
+            "Lungfish genomic feature scaffold: RAW_EXTENSION_NEIGHBOR"
+        ), candidateGenBankText)
+        XCTAssertFalse(candidateGenBankText.contains("INTRON-FILL-1:"), candidateGenBankText)
         XCTAssertTrue(candidateGenBankText.contains("/genbank_sequence_sha256="), candidateGenBankText)
         XCTAssertTrue(candidateGenBankText.contains("/trim_status="), candidateGenBankText)
     }
