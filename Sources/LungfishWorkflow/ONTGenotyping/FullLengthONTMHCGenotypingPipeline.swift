@@ -6571,7 +6571,7 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
     static func deduplicatedFASTARecords(
         _ rows: [FullLengthONTMHCUnmatchedClosestMatchWorkbookRow]
     ) -> [FullLengthONTMHCClusterFASTARecord] {
-        let grouped = Dictionary(grouping: rows) { unmatchedSequenceID(for: $0.sequence) }
+        let grouped = Dictionary(grouping: rows) { unmatchedSequenceID(for: $0.candidateSequence) }
         let orderedGroups = grouped.keys.sorted { lhs, rhs in
             let left = grouped[lhs] ?? []
             let right = grouped[rhs] ?? []

@@ -3582,11 +3582,26 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 trimSource: "minimap2-target-interval",
                 closestMatch: nil
             ),
+            FullLengthONTMHCUnmatchedClosestMatchWorkbookRow(
+                sample: "DL48",
+                cluster: "ClusterB_ReadCount-7",
+                clusterReads: 7,
+                sequence: "ATGC",
+                rawSequence: "GGATGCCC",
+                trimStart: 3,
+                trimEnd: 6,
+                trimSource: "minimap2-target-interval",
+                closestMatch: nil
+            ),
         ]
 
-        let record = FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder
-            .deduplicatedFASTARecords(rows).first
-        XCTAssertEqual(record?.sequence, "TTATGCAA")
+        let records = FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder
+            .deduplicatedFASTARecords(rows)
+        XCTAssertEqual(records.map(\.sequence).sorted(), ["GGATGCCC", "TTATGCAA"])
+        XCTAssertEqual(
+            Set(records.map { $0.name.split(separator: "|", maxSplits: 1).first.map(String.init) }),
+            Set(rows.map { FullLengthONTMHCCandidateArtifactWriter.stableClusterID(for: $0.candidateSequence) })
+        )
     }
 
     func testReportRowsConsolidateMultipleClustersMatchingSameAllele() {
