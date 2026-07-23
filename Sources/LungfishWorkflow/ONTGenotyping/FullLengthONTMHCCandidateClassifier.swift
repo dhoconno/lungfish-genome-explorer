@@ -237,30 +237,54 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         let rawExtensionHits = eligible.filter {
             $0.cdnaInterpretation?.relationship == .extension
         }
-        let cohortExtensions = Dictionary(grouping: cluster.observations.flatMap {
+        let rawCohortExtensionGroups = Dictionary(grouping: cluster.observations.flatMap {
             $0.genotypingHitSummaries.flatMap(\.cdnaExtensionInterpretations)
-        }, by: \.rawReferenceID).compactMap { _, values in
-            values.sorted {
-                if $0.cDNAReferenceCoverage != $1.cDNAReferenceCoverage {
-                    return $0.cDNAReferenceCoverage > $1.cDNAReferenceCoverage
-                }
-                if $0.clusterCoverage != $1.clusterCoverage {
-                    return $0.clusterCoverage > $1.clusterCoverage
-                }
-                return $0.alignmentScore > $1.alignmentScore
-            }.first
+        }, by: \.rawReferenceID)
+        let cohortExtensions = rawCohortExtensionGroups.values.compactMap { values in
+            values.min(by: isCohortInterpretationRankedBefore)
         }
         let extensionGroups = Dictionary(grouping: rawExtensionHits) {
             $0.resolvedReference?.sequenceID ?? $0.input.reference.referenceName
         }
-        let reciprocalStrandConflict = extensionGroups.values.contains { group in
+        let withinReferenceReciprocalStrandConflict = extensionGroups.values.contains { group in
             guard let first = best(group) else { return false }
             return Set(group.filter { hasEquivalentBiologicalRank($0, first) }.map(\.input.isReverse)).count > 1
         }
-        let cohortStrandConflict = Dictionary(grouping: cluster.observations.flatMap {
-            $0.genotypingHitSummaries.flatMap(\.cdnaExtensionInterpretations)
-        }, by: \.rawReferenceID).values.contains { Set($0.map(\.isReverse)).count > 1 }
-        if reciprocalStrandConflict || cohortStrandConflict {
+        let extensionHits = extensionGroups.values.compactMap { best($0) }.sorted(by: isRankedBefore)
+        let acrossReferenceReciprocalStrandConflict: Bool
+        if let first = best(extensionHits) {
+            acrossReferenceReciprocalStrandConflict = Set(
+                extensionHits.filter { hasEquivalentBiologicalRank($0, first) }.map(\.input.isReverse)
+            ).count > 1
+        } else {
+            acrossReferenceReciprocalStrandConflict = false
+        }
+        let withinReferenceCohortStrandConflict = rawCohortExtensionGroups.values.contains { group in
+            guard let first = group.min(by: isCohortInterpretationRankedBefore) else { return false }
+            return Set(group.filter {
+                hasEquivalentCohortInterpretationRank($0, first)
+            }.map(\.isReverse)).count > 1
+        }
+        let acrossReferenceCohortStrandConflict: Bool
+        if let first = cohortExtensions.min(by: isCohortInterpretationRankedBefore) {
+            acrossReferenceCohortStrandConflict = Set(
+                cohortExtensions.filter {
+                    hasEquivalentCohortInterpretationRank($0, first)
+                }.map(\.isReverse)
+            ).count > 1
+        } else {
+            acrossReferenceCohortStrandConflict = false
+        }
+        let reciprocalInterpretations = extensionHits.compactMap(extensionInterpretation)
+        let combinedReferenceStrandConflict = Dictionary(
+            grouping: cohortExtensions + reciprocalInterpretations,
+            by: \.rawReferenceID
+        ).values.contains { Set($0.map(\.isReverse)).count > 1 }
+        if withinReferenceReciprocalStrandConflict
+            || acrossReferenceReciprocalStrandConflict
+            || withinReferenceCohortStrandConflict
+            || acrossReferenceCohortStrandConflict
+            || combinedReferenceStrandConflict {
             let closest = best(rawExtensionHits)
             return .unnameable(try unnameableRecord(
                 cluster: cluster,
@@ -271,8 +295,6 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
                 selectedHit: closest
             ))
         }
-        let extensionHits = extensionGroups.values.compactMap { best($0) }.sorted(by: isRankedBefore)
-        let reciprocalInterpretations = extensionHits.compactMap(extensionInterpretation)
         let interpretationByRawID = Dictionary(
             (cohortExtensions + reciprocalInterpretations).map { ($0.rawReferenceID, $0) },
             uniquingKeysWith: { cohort, _ in cohort }
@@ -286,9 +308,31 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             }
             let bestGenomicTies = bestTies(eligibleGenomic)
             let genomicLoci = Set(bestGenomicTies.compactMap { $0.resolvedReference?.locus })
-            guard let comparisonHit = genomicLoci.count == 1
-                ? best(eligibleGenomic) ?? best(extensionHits) ?? best(eligible)
-                : best(extensionHits) ?? best(eligible) else {
+            let cDNALoci = Set(allExtensionInterpretations.map(\.locus))
+            let resolvedGenomicLocus: String?
+            if genomicLoci.count == 1 {
+                resolvedGenomicLocus = genomicLoci.first
+            } else if genomicLoci.count > 1,
+                      cDNALoci.count == 1,
+                      let unanimousCDNALocus = cDNALoci.first,
+                      genomicLoci.contains(unanimousCDNALocus) {
+                resolvedGenomicLocus = unanimousCDNALocus
+            } else if genomicLoci.count > 1 {
+                return .unnameable(try unnameableRecord(
+                    cluster: cluster,
+                    support: support,
+                    reason: .unresolvedLocus,
+                    failedMetrics: ["ambiguous_best_genomic_locus": 1],
+                    analyzed: analyzed,
+                    selectedHit: best(eligible)
+                ))
+            } else {
+                resolvedGenomicLocus = nil
+            }
+            let comparisonHit = resolvedGenomicLocus.flatMap { locus in
+                best(eligibleGenomic.filter { $0.resolvedReference?.locus == locus })
+            } ?? best(extensionHits) ?? best(eligible)
+            guard let comparisonHit else {
                 return .unnameable(try unnameableRecord(
                     cluster: cluster,
                     support: support,
@@ -334,14 +378,29 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             return .known(knownCalls(knownZeroSNP))
         }
 
-        if let novel = best(eligible.filter { $0.metrics.snps > 0 }) {
+        let eligibleNovel = eligible.filter { $0.metrics.snps > 0 }
+        let bestNovelTies = bestTies(eligibleNovel)
+        let bestNovelGenomicLoci = Set(bestNovelTies.compactMap { hit in
+            hit.resolvedReference?.moleculeClass == .genomicDNA ? hit.resolvedReference?.locus : nil
+        })
+        if bestNovelGenomicLoci.count > 1 {
+            return .unnameable(try unnameableRecord(
+                cluster: cluster,
+                support: support,
+                reason: .unresolvedLocus,
+                failedMetrics: ["ambiguous_best_genomic_locus": 1],
+                analyzed: analyzed,
+                selectedHit: best(bestNovelTies)
+            ))
+        }
+        if let novel = best(eligibleNovel) {
             return .candidate(try candidateRecord(
                 cluster: cluster,
                 support: support,
                 hit: novel,
                 namingAlleleName: novel.resolvedReference!.alleleName,
                 analyzed: analyzed,
-                closestHits: eligible.filter { $0.metrics.snps > 0 },
+                closestHits: eligibleNovel,
                 classification: .novel,
                 extensionOf: [],
                 extensionInterpretations: [],
@@ -638,7 +697,6 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             && lhs.metrics.comparableBases == rhs.metrics.comparableBases
             && lhs.nonIntronIndelBases == rhs.nonIntronIndelBases
             && lhs.input.alignmentScore == rhs.input.alignmentScore
-            && lhs.input.mappingQuality == rhs.input.mappingQuality
     }
 
     private func knownCalls(
@@ -680,9 +738,6 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         }
         if lhs.input.alignmentScore != rhs.input.alignmentScore {
             return lhs.input.alignmentScore > rhs.input.alignmentScore
-        }
-        if lhs.input.mappingQuality != rhs.input.mappingQuality {
-            return lhs.input.mappingQuality > rhs.input.mappingQuality
         }
         let nameOrder = lhs.localizedReferenceName.localizedStandardCompare(rhs.localizedReferenceName)
         if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
@@ -780,6 +835,34 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             alignmentScore: hit.input.alignmentScore,
             identity: hit.identity
         )
+    }
+
+    private func isCohortInterpretationRankedBefore(
+        _ lhs: ONTMHCCDNAExtensionInterpretation,
+        _ rhs: ONTMHCCDNAExtensionInterpretation
+    ) -> Bool {
+        if lhs.cDNAReferenceCoverage != rhs.cDNAReferenceCoverage {
+            return lhs.cDNAReferenceCoverage > rhs.cDNAReferenceCoverage
+        }
+        if lhs.clusterCoverage != rhs.clusterCoverage {
+            return lhs.clusterCoverage > rhs.clusterCoverage
+        }
+        if lhs.alignmentScore != rhs.alignmentScore {
+            return lhs.alignmentScore > rhs.alignmentScore
+        }
+        if lhs.rawReferenceID != rhs.rawReferenceID {
+            return localizedStandardLessThan(lhs.rawReferenceID, rhs.rawReferenceID)
+        }
+        return !lhs.isReverse && rhs.isReverse
+    }
+
+    private func hasEquivalentCohortInterpretationRank(
+        _ lhs: ONTMHCCDNAExtensionInterpretation,
+        _ rhs: ONTMHCCDNAExtensionInterpretation
+    ) -> Bool {
+        lhs.cDNAReferenceCoverage == rhs.cDNAReferenceCoverage
+            && lhs.clusterCoverage == rhs.clusterCoverage
+            && lhs.alignmentScore == rhs.alignmentScore
     }
 
     private func unnameableRecord(

@@ -267,6 +267,191 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertTrue(candidate.provisionalNamingAmbiguous)
     }
 
+    func testBiologicallyTiedGenomicLociUseUnanimousCDNALocusRegardlessOfMAPQ() throws {
+        let genomicB = MHCReferenceRecord(
+            sequenceID: "ref-genomic-b",
+            alleleName: "Mafa-B*001:01:01:01",
+            locus: "Mafa-B",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [
+                alignment(reference: cdnaReference, cigar: "500=50I500="),
+                alignment(reference: genomicReference, cigar: "599=1X600=", mapq: 10),
+                alignment(reference: genomicB, cigar: "599=1X600=", mapq: 60),
+            ]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected the unanimous cDNA locus to resolve the genomic tie")
+        }
+        XCTAssertEqual(candidate.locus, "Mafa-A1")
+        XCTAssertEqual(candidate.closestReferenceName, genomicReference.alleleName)
+        XCTAssertEqual(candidate.mappingQuality, 10)
+        XCTAssertEqual(candidate.reciprocalHitSummary.closestMatchTargetNames, [
+            "ref-genomic", "ref-genomic-b",
+        ])
+    }
+
+    func testBiologicallyTiedGenomicLociWithAmbiguousCDNALociAreUnnameable() throws {
+        let cdnaB = MHCReferenceRecord(
+            sequenceID: "ref-cdna-b",
+            alleleName: "Mafa-B*001:01:01:01",
+            locus: "Mafa-B",
+            moleculeClass: .cDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_000
+        )
+        let genomicB = MHCReferenceRecord(
+            sequenceID: "ref-genomic-b",
+            alleleName: "Mafa-B*001:01:01:01",
+            locus: "Mafa-B",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [
+                alignment(reference: cdnaReference, cigar: "500=50I500="),
+                alignment(reference: cdnaB, cigar: "500=50I500="),
+                alignment(reference: genomicReference, cigar: "599=1X600=", mapq: 10),
+                alignment(reference: genomicB, cigar: "599=1X600=", mapq: 60),
+            ]
+        )
+
+        guard case .unnameable(let record) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected an unresolved cross-locus genomic tie")
+        }
+        XCTAssertEqual(record.reason, .unresolvedLocus)
+        XCTAssertEqual(record.failedMetrics["ambiguous_best_genomic_locus"], 1)
+    }
+
+    func testBiologicallyTiedNovelGenomicLociWithoutCDNAEvidenceAreUnnameable() throws {
+        let genomicB = MHCReferenceRecord(
+            sequenceID: "ref-genomic-b",
+            alleleName: "Mafa-B*001:01:01:01",
+            locus: "Mafa-B",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let cluster = makeCluster(alignments: [
+            alignment(reference: genomicReference, cigar: "599=1X600=", mapq: 10),
+            alignment(reference: genomicB, cigar: "599=1X600=", mapq: 60),
+        ])
+
+        guard case .unnameable(let record) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected a cross-locus novel tie without cDNA evidence to be un-nameable")
+        }
+        XCTAssertEqual(record.reason, .unresolvedLocus)
+        XCTAssertEqual(record.failedMetrics["ambiguous_best_genomic_locus"], 1)
+        XCTAssertEqual(record.reciprocalHitSummary.closestMatchTargetNames, [
+            "ref-genomic", "ref-genomic-b",
+        ])
+    }
+
+    func testMAPQDoesNotChooseBetweenBiologicallyTiedNovelReferencesAtOneLocus() throws {
+        let lexicallyLater = MHCReferenceRecord(
+            sequenceID: "ref-z-high-mapq",
+            alleleName: "Mafa-A1*999:01",
+            locus: "Mafa-A1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let cluster = makeCluster(alignments: [
+            alignment(reference: lexicallyLater, cigar: "599=1X600=", mapq: 60),
+            alignment(reference: genomicReference, cigar: "599=1X600=", mapq: 1),
+        ])
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected a same-locus novel candidate")
+        }
+        XCTAssertEqual(candidate.closestReferenceName, genomicReference.alleleName)
+        XCTAssertEqual(candidate.mappingQuality, 1)
+        XCTAssertEqual(candidate.reciprocalHitSummary.closestMatchTargetNames, [
+            "ref-genomic", "ref-z-high-mapq",
+        ])
+    }
+
+    func testEquivalentCohortEvidenceWithOppositeCanonicalStrandsIsUnnameable() throws {
+        let forward = extensionInterpretation(reference: cdnaReference, isReverse: false)
+        let reverse = extensionInterpretation(reference: cdnaReference, isReverse: true)
+        let observations = [
+            observation(
+                sourceClusterIDs: ["source-1"],
+                extensionInterpretations: [forward]
+            ),
+            observation(
+                sampleID: "sample-2",
+                readGroupID: "rg-2",
+                sourceClusterIDs: ["source-2"],
+                extensionInterpretations: [reverse]
+            ),
+        ]
+        let cluster = makeCluster(
+            sequenceLength: 1_050,
+            observations: observations,
+            alignments: [alignment(reference: cdnaReference, cigar: "500=50I500=", isReverse: false)]
+        )
+
+        guard case .unnameable(let record) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected already-canonical cohort evidence to reject a strand conflict")
+        }
+        XCTAssertEqual(record.failedMetrics["conflicting_cdna_strand"], 1)
+    }
+
+    func testCohortOnlyEquivalentCDNAReferencesWithOppositeCanonicalStrandsAreUnnameable() throws {
+        let cdnaB = MHCReferenceRecord(
+            sequenceID: "ref-cdna-b",
+            alleleName: "Mafa-B*001:01:01:01",
+            locus: "Mafa-B",
+            moleculeClass: .cDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_000
+        )
+        let forward = extensionInterpretation(reference: cdnaReference, isReverse: false)
+        let reverse = extensionInterpretation(reference: cdnaB, isReverse: true)
+        let cluster = makeCluster(
+            observations: [observation(extensionInterpretations: [forward, reverse])],
+            alignments: [alignment(reference: genomicReference, cigar: "599=1X600=")]
+        )
+
+        guard case .unnameable(let record) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected a genuine cohort-only cross-reference strand conflict")
+        }
+        XCTAssertEqual(record.reason, .ambiguousReferenceClass)
+        XCTAssertEqual(record.failedMetrics["conflicting_cdna_strand"], 1)
+    }
+
+    func testEquivalentReciprocalCDNAReferencesWithOppositeCanonicalStrandsAreUnnameable() throws {
+        let secondCDNA = MHCReferenceRecord(
+            sequenceID: "ref-cdna-2",
+            alleleName: "Mafa-A1*018:01:01:02",
+            locus: "Mafa-A1",
+            moleculeClass: .cDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_000
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_050,
+            alignments: [
+                alignment(reference: cdnaReference, cigar: "500=50I500=", isReverse: false),
+                alignment(reference: secondCDNA, cigar: "500=50I500=", isReverse: true),
+            ]
+        )
+
+        guard case .unnameable(let record) = try FullLengthONTMHCCandidateClassifier().classify(cluster) else {
+            return XCTFail("Expected a genuine canonical cross-reference strand conflict")
+        }
+        XCTAssertEqual(record.reason, .ambiguousReferenceClass)
+        XCTAssertEqual(record.failedMetrics["conflicting_cdna_strand"], 1)
+    }
+
     func testKnownCallsPreserveEquallyBestAlleleAndReferenceIdentityTies() throws {
         let alleleTie = MHCReferenceRecord(
             sequenceID: "ref-second-allele",
@@ -496,8 +681,8 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
     func testReciprocalSummaryCountsTargetsAndPreservesBiologicalClosestTies() throws {
         let tiedReference = MHCReferenceRecord(
             sequenceID: "ref-tied",
-            alleleName: "Mafa-A2*001:01",
-            locus: "Mafa-A2",
+            alleleName: "Mafa-A1*019:01",
+            locus: "Mafa-A1",
             moleculeClass: .genomicDNA,
             classEvidence: .annotatedMetadata,
             sequenceLength: 1_200
@@ -851,7 +1036,8 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         sampleID: String = "sample-1",
         readGroupID: String = "rg-1",
         reads: Int = 5,
-        sourceClusterIDs: [String] = ["source-1"]
+        sourceClusterIDs: [String] = ["source-1"],
+        extensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = []
     ) -> ONTMHCCandidateObservation {
         let summaries = sourceClusterIDs.compactMap { sourceClusterID in
             try? ONTMHCGenotypingTargetHitSummary(
@@ -860,7 +1046,8 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
                 alignmentCount: 1,
                 queryAlignmentCounts: ["ref-genomic": 1],
                 exactMatchQueryNames: [],
-                closestMatchQueryNames: ["ref-genomic"]
+                closestMatchQueryNames: ["ref-genomic"],
+                cdnaExtensionInterpretations: extensionInterpretations
             )
         }
         return ONTMHCCandidateObservation(
@@ -880,7 +1067,8 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         mapq: Int = 60,
         score: Int = 2_000,
         queryName: String = "cluster-1",
-        referenceStart: Int = 1
+        referenceStart: Int = 1,
+        isReverse: Bool = false
     ) -> FullLengthONTMHCCandidateAlignment {
         alignment(
             resolution: .resolved(reference),
@@ -889,7 +1077,8 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
             score: score,
             queryName: queryName,
             referenceName: reference.sequenceID,
-            referenceStart: referenceStart
+            referenceStart: referenceStart,
+            isReverse: isReverse
         )
     }
 
@@ -901,7 +1090,8 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         queryName: String = "cluster-1",
         referenceName: String? = nil,
         bamPath: String = "artifacts/alignments/unmatched-to-reference.bam",
-        referenceStart: Int = 1
+        referenceStart: Int = 1,
+        isReverse: Bool = false
     ) -> FullLengthONTMHCCandidateAlignment {
         FullLengthONTMHCCandidateAlignment(
             reference: resolution,
@@ -916,7 +1106,30 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
                 cigar: cigar,
                 bamPath: bamPath,
                 referenceStart: referenceStart
-            )
+            ),
+            isReverse: isReverse
+        )
+    }
+
+    private func extensionInterpretation(
+        reference: MHCReferenceRecord,
+        isReverse: Bool
+    ) -> ONTMHCCDNAExtensionInterpretation {
+        ONTMHCCDNAExtensionInterpretation(
+            rawReferenceID: reference.sequenceID,
+            alleleName: reference.alleleName,
+            locus: reference.locus,
+            cDNAReferenceCoverage: 1,
+            clusterCoverage: 1_000.0 / 1_050.0,
+            leadingClusterFlankBases: 0,
+            trailingClusterFlankBases: 0,
+            largestClusterStructuralSegmentBases: 50,
+            largestCDNADeficitSegmentBases: 0,
+            snpSubstitutions: 0,
+            ordinaryIndelBases: 0,
+            isReverse: isReverse,
+            alignmentScore: 2_000,
+            identity: 1
         )
     }
 
