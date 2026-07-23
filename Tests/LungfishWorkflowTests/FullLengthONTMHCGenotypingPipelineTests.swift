@@ -1445,13 +1445,28 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(reciprocal.bai.path, "artifacts/alignments/unmatched-to-reference.bam.bai")
         let candidateJSON = try XCTUnwrap(manifest.mhcCandidateArtifacts?.candidateJSON)
         XCTAssertEqual(candidateJSON.path, "candidate-alleles.json")
+        let rawUnmatchedFASTA = try XCTUnwrap(manifest.mhcCandidateArtifacts?.rawUnmatchedFASTA)
+        XCTAssertEqual(
+            rawUnmatchedFASTA.path,
+            "artifacts/internal/raw-unmatched-consensuses.fasta"
+        )
+        let rawUnmatchedFASTAURL = outputDirectory.appendingPathComponent(rawUnmatchedFASTA.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rawUnmatchedFASTAURL.path))
+        XCTAssertEqual(
+            rawUnmatchedFASTA.sha256,
+            try ProvenanceFileHasher.sha256(of: rawUnmatchedFASTAURL)
+        )
+        XCTAssertEqual(
+            rawUnmatchedFASTA.sizeBytes,
+            Int64(try ProvenanceFileHasher.fileSize(of: rawUnmatchedFASTAURL))
+        )
         let candidateDocument = try JSONDecoder().decode(
             ONTMHCCandidateAllelesDocument.self,
             from: Data(contentsOf: outputDirectory.appendingPathComponent(candidateJSON.path))
         )
         XCTAssertEqual(candidateDocument.inputs.map(\.path), [
             referenceFASTA.path,
-            "deduplicated_unmatched_clusters.fasta",
+            "artifacts/internal/raw-unmatched-consensuses.fasta",
         ])
         for reference in [
             reciprocal.bam, reciprocal.bai, candidateJSON,
@@ -1546,6 +1561,12 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             envelope.outputs.contains { $0.path.hasSuffix("/deduplicated_unmatched_clusters.fasta") },
             "Expected deduplicated unmatched FASTA in provenance outputs. Outputs: \(envelope.outputs.map(\.path))"
         )
+        XCTAssertTrue(
+            envelope.outputs.contains {
+                $0.path.hasSuffix("/artifacts/internal/raw-unmatched-consensuses.fasta")
+            },
+            "Expected caller-staged raw unmatched FASTA in provenance outputs. Outputs: \(envelope.outputs.map(\.path))"
+        )
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.deduplicatedUnmatchedClustersFASTAURL.path))
         let durableEvidenceBAMs = Set([
             "artifacts/alignments/genotyping-evidence.bam",
@@ -1574,8 +1595,9 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         let unmatchedSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet2.xml", from: result.workbookURL)
         XCTAssertTrue(unmatchedSheetXML.contains("Stable Cluster ID"))
-        XCTAssertTrue(unmatchedSheetXML.contains("Full-Length FASTA Sequence"))
-        XCTAssertTrue(unmatchedSheetXML.contains("UTR-Trimmed FASTA Sequence"))
+        XCTAssertTrue(unmatchedSheetXML.contains("Nucleotide Sequence"))
+        XCTAssertFalse(unmatchedSheetXML.contains("Full-Length FASTA Sequence"))
+        XCTAssertFalse(unmatchedSheetXML.contains("UTR-Trimmed FASTA Sequence"))
         XCTAssertTrue(unmatchedSheetXML.contains("Putative Amino Acid Translation"))
         XCTAssertTrue(unmatchedSheetXML.contains("Translation Status"))
         XCTAssertTrue(try Self.unzippedText(path: "xl/styles.xml", from: result.workbookURL).contains("FFF5D78E"))
@@ -2590,12 +2612,31 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["mhcWorkbookSingletonExtensionTint"]?.stringValue, "AFCBF2")
         XCTAssertEqual(envelope.options.resolvedDefaults["mhcCandidateNovelDistanceMetric"]?.stringValue, "SNP-substitutions-only")
         XCTAssertEqual(
+            envelope.options.resolvedDefaults["mhcRawUnmatchedConsensusesPath"]?.stringValue,
+            "artifacts/internal/raw-unmatched-consensuses.fasta"
+        )
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["mhcCanonicalUnmatchedClustersPath"]?.stringValue,
+            "deduplicated_unmatched_clusters.fasta"
+        )
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["mhcCanonicalUnmatchedPublicationRule"]?.stringValue,
+            "writer-only-root-publication"
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["mhcRawUnmatchedConsensusesFASTA"]?.fileValue?.path,
+            result.outputDirectory
+                .appendingPathComponent("artifacts/internal/raw-unmatched-consensuses.fasta")
+                .path
+        )
+        XCTAssertEqual(
             envelope.options.resolvedDefaults["mhcResultBundleAtomicPublication"]?.stringValue,
             "adjacent-directory-renameatx_np"
         )
         let candidateProvenanceNames = Set(envelope.steps.map(\.toolName))
         XCTAssertTrue(candidateProvenanceNames.isSuperset(of: [
             "lungfish-in-process:import-mhc-reference-catalog",
+            "lungfish-in-process:materialize-raw-unmatched-consensus-fasta",
             "lungfish-in-process:construct-stable-unmatched-cluster-fasta",
             "lungfish-in-process:parse-and-classify-reciprocal-mhc-alignments",
             "lungfish-in-process:render-mhc-candidate-fasta",
@@ -2607,6 +2648,32 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "lungfish-in-process:assemble-mhc-workbook-projection-input",
             "lungfish-internal mhc-candidate-workbook-project",
         ]))
+        let rawUnmatchedMaterializationStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-in-process:materialize-raw-unmatched-consensus-fasta"
+        })
+        XCTAssertEqual(
+            value(after: "--output", in: rawUnmatchedMaterializationStep.argv),
+            result.outputDirectory
+                .appendingPathComponent("artifacts/internal/raw-unmatched-consensuses.fasta")
+                .path
+        )
+        XCTAssertEqual(
+            rawUnmatchedMaterializationStep.resolvedOptions["rootPublicationOwner"],
+            .string("FullLengthONTMHCCandidateArtifactWriter")
+        )
+        XCTAssertEqual(
+            rawUnmatchedMaterializationStep.outputs.map(\.path),
+            [
+                result.outputDirectory
+                    .appendingPathComponent("artifacts/internal/raw-unmatched-consensuses.fasta")
+                    .path,
+            ]
+        )
+        XCTAssertFalse(
+            rawUnmatchedMaterializationStep.outputs.contains {
+                $0.path.hasSuffix("/deduplicated_unmatched_clusters.fasta")
+            }
+        )
         let structuralStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName == "lungfish MHC genotyping hit summary accumulator"
         })
@@ -2620,7 +2687,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         ] {
             XCTAssertNotNil(structuralStep.resolvedOptions[key], key)
         }
-        XCTAssertEqual(structuralStep.resolvedOptions["candidateDocumentSchemaVersion"], .integer(3))
+        XCTAssertEqual(structuralStep.resolvedOptions["candidateDocumentSchemaVersion"], .integer(4))
         XCTAssertEqual(
             structuralStep.resolvedOptions["cohortCDNAReferenceCoverageDefinition"],
             .string("comparable query/reference bases / annotated cDNA reference length, clamped to 1; I/S/H deficit bases excluded")

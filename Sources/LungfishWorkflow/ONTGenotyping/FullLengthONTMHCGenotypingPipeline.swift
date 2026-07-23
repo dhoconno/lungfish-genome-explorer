@@ -150,6 +150,12 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         outputDirectory.appendingPathComponent("deduplicated_unmatched_clusters.fasta")
     }
 
+    public var rawUnmatchedConsensusesFASTAURL: URL {
+        outputDirectory
+            .appendingPathComponent("artifacts/internal", isDirectory: true)
+            .appendingPathComponent("raw-unmatched-consensuses.fasta")
+    }
+
     public var cdnaClustersFASTAURL: URL {
         outputDirectory.appendingPathComponent("cdna_clusters.fasta")
     }
@@ -1276,10 +1282,47 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             try append(records: result.unmatchedClusters, sample: result.sample, to: request.unmatchedClustersFASTAURL)
             try append(records: result.cdnaMatchedClusters, sample: result.sample, to: request.cdnaClustersFASTAURL)
         }
-        try writeFASTARecords(
-            FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder.deduplicatedFASTARecords(unmatchedClosestMatchRows),
-            to: request.deduplicatedUnmatchedClustersFASTAURL
+        let rawUnmatchedMaterializationStartedAt = Date()
+        let rawUnmatchedRecords = FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder
+            .deduplicatedFASTARecords(unmatchedClosestMatchRows)
+        try FileManager.default.createDirectory(
+            at: request.rawUnmatchedConsensusesFASTAURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
         )
+        try writeFASTARecords(
+            rawUnmatchedRecords,
+            to: request.rawUnmatchedConsensusesFASTAURL
+        )
+        let rawUnmatchedMaterializationCompletedAt = Date()
+        let rawUnmatchedMaterializationInputs = authoritativeResults.map(\.clustersFASTAURL)
+        var rawUnmatchedMaterializationArgv = [
+            "lungfish-in-process", "materialize-raw-unmatched-consensus-fasta",
+        ]
+        for inputURL in rawUnmatchedMaterializationInputs {
+            rawUnmatchedMaterializationArgv += ["--input", inputURL.path]
+        }
+        rawUnmatchedMaterializationArgv += [
+            "--output", request.rawUnmatchedConsensusesFASTAURL.path,
+        ]
+        pipelineSteps.append(FullLengthONTMHCProvenanceStep(
+            toolName: "lungfish-in-process:materialize-raw-unmatched-consensus-fasta",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: rawUnmatchedMaterializationArgv,
+            resolvedOptions: [
+                "recordCount": .integer(rawUnmatchedRecords.count),
+                "sequenceIdentityRule": .string("SHA-256 of complete oriented consensus sequence"),
+                "supportMetadataRule": .string("aggregate occurrence, sample, and cluster-read support by sequence identity"),
+                "outputPath": .string("artifacts/internal/raw-unmatched-consensuses.fasta"),
+                "rootPublicationOwner": .string("FullLengthONTMHCCandidateArtifactWriter"),
+                "canonicalRootOutputPath": .string("deduplicated_unmatched_clusters.fasta"),
+            ],
+            inputs: rawUnmatchedMaterializationInputs,
+            outputs: [request.rawUnmatchedConsensusesFASTAURL],
+            exitStatus: 0,
+            stderr: nil,
+            startedAt: rawUnmatchedMaterializationStartedAt,
+            completedAt: rawUnmatchedMaterializationCompletedAt
+        ))
 
         let evidenceArtifactPair = try validatedEvidenceArtifactPair(
             cohortAlignmentResult,
@@ -1321,6 +1364,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 )
             },
             referenceAlleleFASTAURL: referenceFASTAURL,
+            rawUnmatchedConsensusesFASTAURL: request.rawUnmatchedConsensusesFASTAURL,
             referenceBundleURL: request.referenceSourceURL,
             referenceAnnotationInputURLs: candidateReferenceAnnotationInputURLs,
             referenceRecords: candidateReferenceRecords,
@@ -1373,7 +1417,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "genomicLocusResolutionRule": .string("unambiguous genomic reciprocal evidence resolves locus and closest comparison; naming cDNAs are filtered to that locus while all compatible cDNA interpretations remain in the audit payload"),
                 "provisionalNamingAmbiguityRule": .string("one compatible in-locus cDNA name supplies _ext base; otherwise genomic closest supplies base and provisional_naming_ambiguous is true"),
                 "candidateSequenceIdentityRule": .string("complete consensus, reverse-complemented as a whole when selected strand is reverse; mapped-interval crop is metadata only and never defines candidate identity, deduplicated FASTA, reciprocal input, or full-length Excel sequence"),
-                "candidateDocumentSchemaVersion": .integer(3),
+                "candidateDocumentSchemaVersion": .integer(4),
                 "referenceMoleculeClassSource": .string("materialized annotated MHC reference catalog; length threshold is fallback only when metadata is absent"),
                 "retainedCDNAExtensionInterpretationCount": .integer(
                     genotypingHitSummariesByTarget.values.reduce(0) {
@@ -4899,6 +4943,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "mhcCandidateMinimumIntronGapBases": .integer(ONTMHCCandidateThresholds.defaults.minimumIntronGapBases),
             "mhcCandidateNovelDistanceMetric": .string("SNP-substitutions-only"),
             "mhcCandidateZeroSNPIndelClassification": .string("known-existing-allele"),
+            "mhcRawUnmatchedConsensusesPath": .string("artifacts/internal/raw-unmatched-consensuses.fasta"),
+            "mhcCanonicalUnmatchedClustersPath": .string("deduplicated_unmatched_clusters.fasta"),
+            "mhcCanonicalUnmatchedPublicationRule": .string("writer-only-root-publication"),
             "mhcReferenceVisualizationSchemaVersion": .integer(1),
             "mhcReferenceVisualizationRecordsPath": .string("artifacts/reference/mhc-reference-visualizations.json"),
             "mhcReferenceVisualizationGenBankPath": .string("artifacts/reference/mhc-reference-records.gb"),
@@ -4957,6 +5004,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "mhcCandidateMinimumIntronGapBases": .integer(ONTMHCCandidateThresholds.defaults.minimumIntronGapBases),
             "mhcCandidateNovelDistanceMetric": .string("SNP-substitutions-only"),
             "mhcCandidateZeroSNPIndelClassification": .string("known-existing-allele"),
+            "mhcRawUnmatchedConsensusesPath": .string("artifacts/internal/raw-unmatched-consensuses.fasta"),
+            "mhcCanonicalUnmatchedClustersPath": .string("deduplicated_unmatched_clusters.fasta"),
+            "mhcCanonicalUnmatchedPublicationRule": .string("writer-only-root-publication"),
             "mhcReferenceVisualizationSchemaVersion": .integer(1),
             "mhcReferenceVisualizationRecordsPath": .string("artifacts/reference/mhc-reference-visualizations.json"),
             "mhcReferenceVisualizationGenBankPath": .string("artifacts/reference/mhc-reference-records.gb"),
@@ -4988,6 +5038,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 .dictionary(transformation.resolvedOptions.mapValues(ParameterValue.string))
             }
         )
+        explicit["mhcRawUnmatchedConsensusesFASTA"] = .file(request.rawUnmatchedConsensusesFASTAURL)
         explicit["mhcCandidateStableUnmatchedFASTA"] = .file(candidateArtifactResult.stableUnmatchedFASTAURL)
         explicit["mhcCandidateReciprocalBAM"] = .file(candidateArtifactResult.reciprocalBAMURL)
         explicit["mhcCandidateReciprocalBAI"] = .file(candidateArtifactResult.reciprocalBAIURL)
@@ -5070,6 +5121,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         .output(request.currentWorkbookURL, format: .unknown, role: .report)
         .relocatedOutput(manifestPublicationPlan.finalDescriptor)
         .output(request.unmatchedClustersFASTAURL, format: .fasta, role: .output)
+        .output(request.rawUnmatchedConsensusesFASTAURL, format: .fasta, role: .output)
         .output(request.deduplicatedUnmatchedClustersFASTAURL, format: .fasta, role: .output)
         .output(request.cdnaClustersFASTAURL, format: .fasta, role: .output)
         .output(cohortAlignmentResult.bamURL, format: .bam, role: .output)
