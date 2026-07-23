@@ -866,6 +866,35 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
     }
 
+    func testSchemaV4RejectsRawSourceOwnedByMultipleCanonicalCandidates() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 4,
+            unnameableSchemaVersion: 4,
+            candidateID: "canonical-a",
+            candidateSourceSequenceClusterIDs: ["raw-shared"],
+            candidateRepresentativeSourceSequenceClusterID: "raw-shared",
+            candidateObservationSourceSequenceClusterID: "raw-shared"
+        )
+        defer { fixture.remove() }
+        let data = try Data(contentsOf: fixture.candidateJSONURL)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var candidates = try XCTUnwrap(object["candidates"] as? [[String: Any]])
+        var duplicateOwner = try XCTUnwrap(candidates.first)
+        duplicateOwner["stable_cluster_id"] = "canonical-b"
+        duplicateOwner["fasta_record_id"] = "canonical-b"
+        candidates.append(duplicateOwner)
+        object["candidates"] = candidates
+        try fixture.replaceCandidateJSON(try JSONSerialization.data(withJSONObject: object))
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(
+            result.integrityWarnings.first?.code,
+            .candidateArtifactDocumentReferenceMismatch
+        )
+    }
+
     func testSchemaV4UnnameableFASTAContainsExactlyExportableRecordsAndRejectsHalfIdentity() throws {
         let fixture = try CandidateBundleFixture(
             candidateSchemaVersion: 4,

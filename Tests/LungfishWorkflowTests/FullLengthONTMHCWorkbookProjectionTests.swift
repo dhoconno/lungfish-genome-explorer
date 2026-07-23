@@ -6,6 +6,63 @@ import LungfishIO
 import XCTest
 
 final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
+    func testSchemaV4NonexportableUnnameableProducesBlankExternalSequenceMetadata() throws {
+        let legacy = makeDocuments()
+        let original = try XCTUnwrap(legacy.unnameable.clusters.first)
+        let unnameableDocument = ONTMHCUnnameableClustersDocument(
+            schemaVersion: 4,
+            createdAt: legacy.unnameable.createdAt,
+            thresholds: legacy.unnameable.thresholds,
+            sequenceFASTA: legacy.unnameable.sequenceFASTA,
+            clusters: [
+                ONTMHCUnnameableRecord(
+                    stableClusterID: original.stableClusterID,
+                    reason: original.reason,
+                    failedMetrics: original.failedMetrics,
+                    supportClass: original.supportClass,
+                    independentSampleCount: original.independentSampleCount,
+                    occurrenceCount: original.occurrenceCount,
+                    totalClusterReads: original.totalClusterReads,
+                    supportingSampleIDs: original.supportingSampleIDs,
+                    fastaRecordID: nil,
+                    sequenceSHA256: nil,
+                    evidence: original.evidence
+                ),
+            ],
+            observations: legacy.unnameable.observations
+        )
+        let projection = try singleCandidateProjection(from: (
+            candidates: legacy.candidates,
+            unnameable: unnameableDocument
+        ))
+        let candidateSequence = "ATGGCTTAA"
+
+        let rows = try projection.normalizedUnmatchedRows(
+            candidateFASTARecords: [
+                .init(name: "cluster-1", sequence: candidateSequence, readCount: 10),
+            ],
+            unnameableFASTARecords: [],
+            candidateGenBankRecords: [
+                try normalizedGenBankRecord(
+                    stableID: "cluster-1",
+                    sequence: candidateSequence,
+                    translation: "MA",
+                    status: "full-length"
+                ),
+            ],
+            unnameableGenBankRecords: []
+        )
+
+        let row = try XCTUnwrap(rows.first { $0.stableClusterID == original.stableClusterID })
+        XCTAssertEqual(row.recordCategory, .unnameable)
+        XCTAssertEqual(row.fastaRecordID, "")
+        XCTAssertEqual(row.sequenceSHA256, "")
+        XCTAssertEqual(row.nucleotideSequence, "")
+        XCTAssertNil(row.utrTrimmedNucleotideSequence)
+        XCTAssertNil(row.putativeAminoAcidTranslation)
+        XCTAssertEqual(row.translationStatus, .incompleteUnresolved)
+    }
+
     func testNormalizedUnmatchedRowsJoinFASTAAndGenBankByStableIdentity() throws {
         let documents = makeDocuments()
         let projection = try singleCandidateProjection(from: documents)

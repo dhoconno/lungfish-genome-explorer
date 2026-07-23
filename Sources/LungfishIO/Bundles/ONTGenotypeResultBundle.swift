@@ -2687,6 +2687,21 @@ public enum ONTGenotypeResultBundle {
         reciprocalBAMPath: String?,
         documentPath: String
     ) throws {
+        if document.schemaVersion >= 4 {
+            var canonicalOwnerByRawSourceID: [String: String] = [:]
+            for record in document.candidates {
+                for rawSourceID in record.sourceSequenceClusterIDs {
+                    if let existingOwner = canonicalOwnerByRawSourceID[rawSourceID],
+                       existingOwner != record.stableClusterID {
+                        throw compactBindingFailure(
+                            "Raw source sequence '\(rawSourceID)' is owned by multiple canonical candidates.",
+                            path: documentPath
+                        )
+                    }
+                    canonicalOwnerByRawSourceID[rawSourceID] = record.stableClusterID
+                }
+            }
+        }
         for record in document.candidates {
             let summary = record.reciprocalHitSummary
             let expectedQueryName = document.schemaVersion >= 4

@@ -1199,6 +1199,52 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(record.sequence.asString(), "ACGT")
     }
 
+    func testUnnameableWithoutExternalSequenceIdentityFailsClosed() throws {
+        let reciprocal = try ONTMHCReciprocalQueryHitSummary(
+            bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+            queryName: "unnameable-internal-only",
+            alignmentCount: 0,
+            targetAlignmentCounts: [:],
+            exactMatchTargetNames: [],
+            closestMatchTargetNames: []
+        )
+        let unnameable = ONTMHCUnnameableRecord(
+            stableClusterID: "unnameable-internal-only",
+            reason: .noAlignment,
+            failedMetrics: [:],
+            supportClass: .singleton,
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 4,
+            supportingSampleIDs: ["Sample-A"],
+            fastaRecordID: nil,
+            sequenceSHA256: nil,
+            reciprocalHitSummary: reciprocal,
+            selectedEvidence: nil
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .unnameable(unnameable),
+            sequence: "ACGT",
+            selectedAlignmentIsReverse: nil,
+            closestReference: nil,
+            analysisName: "run",
+            projectBundleName: nil,
+            minimumIntronGapBases: 50
+        )
+
+        XCTAssertThrowsError(
+            try FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input])
+        ) { error in
+            XCTAssertEqual(
+                error as? FullLengthONTMHCCandidateGenBankArtifactBuilder.Error,
+                .invalidInput(
+                    stableClusterID: "unnameable-internal-only",
+                    detail: "un-nameable record has no external FASTA identity and checksum"
+                )
+            )
+        }
+    }
+
     func testAnnotatedUnnameableKeepsBoundaryCoverageTranslationStatusAndPriorFeatureShape() throws {
         let evidence = ONTMHCEvidenceLocator(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",

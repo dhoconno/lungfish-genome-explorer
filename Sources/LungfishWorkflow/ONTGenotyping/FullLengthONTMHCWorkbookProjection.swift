@@ -418,10 +418,21 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             genBankRecords: candidateGenBankRecords,
             category: .candidate
         )
+        let exportableUnnameableRows = try unnameableRows.filter { row in
+            guard row.fastaRecordID.isEmpty == row.sequenceSHA256.isEmpty else {
+                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                    stableClusterID: row.stableClusterID,
+                    detail: "document external FASTA identity and checksum are not paired"
+                )
+            }
+            return !row.fastaRecordID.isEmpty
+        }
         let unnameableArtifacts = try Self.unmatchedArtifacts(
-            expectedStableIDs: Set(unnameableRows.map(\.stableClusterID)),
+            expectedStableIDs: Set(exportableUnnameableRows.map(\.stableClusterID)),
             documentSequenceSHA256ByStableID: Dictionary(
-                uniqueKeysWithValues: unnameableRows.map { ($0.stableClusterID, $0.sequenceSHA256) }
+                uniqueKeysWithValues: exportableUnnameableRows.map {
+                    ($0.stableClusterID, $0.sequenceSHA256)
+                }
             ),
             fastaRecords: unnameableFASTARecords,
             genBankRecords: unnameableGenBankRecords,
@@ -466,13 +477,29 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             )
         }
         let unnameable = try unnameableRows.map { row -> FullLengthONTMHCNormalizedUnmatchedRow in
-            guard row.fastaRecordID == row.stableClusterID else {
-                throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
-                    stableClusterID: row.stableClusterID,
-                    detail: "document FASTA record ID is \(row.fastaRecordID)"
+            let artifact: UnmatchedArtifact
+            if row.fastaRecordID.isEmpty {
+                guard unnameableSchemaVersion >= 4 else {
+                    throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                        stableClusterID: row.stableClusterID,
+                        detail: "document external FASTA identity is missing"
+                    )
+                }
+                artifact = UnmatchedArtifact(
+                    sequence: "",
+                    utrTrimmedSequence: nil,
+                    translation: nil,
+                    status: .incompleteUnresolved
                 )
+            } else {
+                guard row.fastaRecordID == row.stableClusterID else {
+                    throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
+                        stableClusterID: row.stableClusterID,
+                        detail: "document FASTA record ID is \(row.fastaRecordID)"
+                    )
+                }
+                artifact = unnameableArtifacts[row.stableClusterID]!
             }
-            let artifact = unnameableArtifacts[row.stableClusterID]!
             let deterministicSummaryReference = row.reciprocalHitSummary.closestMatchTargetNames.count == 1
                 ? row.reciprocalHitSummary.closestMatchTargetNames.first
                 : nil

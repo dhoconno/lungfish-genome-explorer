@@ -66,10 +66,10 @@ struct FullLengthONTMHCCandidateGenBankArtifactBuilder {
             }
         }
 
-        var sequenceSHA256: String {
+        var sequenceSHA256: String? {
             switch self {
             case .candidate(let value): value.sequenceSHA256
-            case .unnameable(let value): value.sequenceSHA256 ?? ""
+            case .unnameable(let value): value.sequenceSHA256
             }
         }
 
@@ -103,8 +103,10 @@ struct FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 "occurrence_count": .init(String(occurrenceCount)),
                 "total_cluster_reads": .init(String(totalClusterReads)),
                 "supporting_sample_ids": .init(supportingSampleIDs.sorted()),
-                "sequence_sha256": .init(sequenceSHA256),
             ]
+            if let sequenceSHA256 {
+                values["sequence_sha256"] = .init(sequenceSHA256)
+            }
             switch self {
             case .candidate(let value):
                 values["provisional_name"] = .init(value.provisionalName)
@@ -231,6 +233,13 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         let sequence = input.sequence.uppercased()
         guard !stableID.isEmpty, !sequence.isEmpty, input.minimumIntronGapBases > 0 else {
             throw Error.invalidInput(stableClusterID: stableID, detail: "identity, sequence, and intron threshold must be nonempty and positive")
+        }
+        if case .unnameable(let record) = input.subject,
+           record.fastaRecordID == nil || record.sequenceSHA256 == nil {
+            throw Error.invalidInput(
+                stableClusterID: stableID,
+                detail: "un-nameable record has no external FASTA identity and checksum"
+            )
         }
 
         var annotations = [SequenceAnnotation(
@@ -476,10 +485,12 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         var values = [
             "Lungfish analysis: \(input.analysisName)",
             "Lungfish stable cluster ID: \(input.subject.stableClusterID)",
-            "Lungfish sequence SHA-256: \(input.subject.sequenceSHA256)",
             "Lungfish support: \(input.subject.supportClass.rawValue); independent samples=\(input.subject.independentSampleCount); occurrences=\(input.subject.occurrenceCount); reads=\(input.subject.totalClusterReads)",
             "Lungfish supporting samples: \(input.subject.supportingSampleIDs.sorted().joined(separator: ", "))",
         ]
+        if let sequenceSHA256 = input.subject.sequenceSHA256 {
+            values.insert("Lungfish sequence SHA-256: \(sequenceSHA256)", at: 2)
+        }
         if let project = input.projectBundleName, !project.isEmpty {
             values.insert("Lungfish project: \(project)", at: 1)
         }
