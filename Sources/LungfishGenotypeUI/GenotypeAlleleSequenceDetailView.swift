@@ -92,6 +92,11 @@ final class GenotypeAlleleSequenceDetailView: NSView {
         textView.textColor = .textColor
         textView.backgroundColor = .textBackgroundColor
         textView.textContainerInset = NSSize(width: 10, height: 10)
+        textView.minSize = .zero
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
         textView.autoresizingMask = []
@@ -147,5 +152,6 @@ final class GenotypeAlleleSequenceDetailView: NSView {
             }
         }
         textView.string = values.joined(separator: "\n")
+        textView.sizeToFit()
     }
 }

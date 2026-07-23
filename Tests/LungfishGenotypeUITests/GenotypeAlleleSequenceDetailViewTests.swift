@@ -125,6 +125,36 @@ final class GenotypeAlleleSequenceDetailViewTests: XCTestCase {
         XCTAssertFalse(text.textContainer?.widthTracksTextView ?? true)
     }
 
+    func testLongUnbrokenSequenceMakesFullLineHorizontallyReachable() throws {
+        let view = GenotypeAlleleSequenceDetailView(
+            frame: NSRect(x: 0, y: 0, width: 640, height: 360)
+        )
+        let longLine = String(repeating: "ACGT", count: 5_000)
+        let record = GenotypeAlleleSequenceRecord(
+            identity: "long",
+            displayName: "long",
+            genBankText: longLine + "\n",
+            fastaText: longLine + "\n",
+            emblText: longLine + "\n"
+        )
+
+        view.show(records: [record])
+        view.layoutSubtreeIfNeeded()
+        let text = try textView(in: view)
+        let scroll = try XCTUnwrap(text.enclosingScrollView)
+        let container = try XCTUnwrap(text.textContainer)
+        text.layoutManager?.ensureLayout(for: container)
+        view.layoutSubtreeIfNeeded()
+
+        let usedWidth = try XCTUnwrap(text.layoutManager).usedRect(for: container).width
+        XCTAssertGreaterThan(usedWidth, scroll.contentSize.width)
+        XCTAssertGreaterThan(text.frame.width, scroll.contentSize.width)
+        XCTAssertGreaterThan(
+            try XCTUnwrap(scroll.documentView).bounds.width - scroll.contentSize.width,
+            0
+        )
+    }
+
     func testRepeatedUpdatesReuseOneStableHierarchy() throws {
         let view = GenotypeAlleleSequenceDetailView(
             frame: NSRect(x: 0, y: 0, width: 640, height: 360)
