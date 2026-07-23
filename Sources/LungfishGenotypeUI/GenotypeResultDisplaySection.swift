@@ -5,7 +5,7 @@ import LungfishIO
 
 @inline(__always)
 func isSupportedMHCCandidateDocumentSchemaVersion(_ schemaVersion: Int) -> Bool {
-    (1 ... 3).contains(schemaVersion)
+    (1 ... 4).contains(schemaVersion)
 }
 
 public enum GenotypeMatrixPaletteTarget: String, CaseIterable, Identifiable {
@@ -112,7 +112,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         let isFullLengthMHCResult = result.manifest.kind == "full-length-ont-mhc-genotype"
         let declaration = result.manifest.mhcCandidateArtifacts
         mhcCandidateControlsAvailable = isFullLengthMHCResult
-            && declaration?.schemaVersion == 1
+            && declaration.map { (1 ... 2).contains($0.schemaVersion) } == true
             && declaration?.candidateJSON != nil
             && declaration?.candidateFASTA != nil
             && result.mhcCandidates.map { isSupportedMHCCandidateDocumentSchemaVersion($0.schemaVersion) } == true

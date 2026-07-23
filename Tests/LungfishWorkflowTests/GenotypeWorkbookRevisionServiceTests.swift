@@ -327,12 +327,11 @@ wb.save(path)
         XCTAssertEqual(inspection["knownTotalReads"], "303")
         XCTAssertEqual(inspection["candidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
         XCTAssertEqual(inspection["unmatchedIDs"], "cluster-1|cluster-2|cluster-3|cluster-4|cluster-u")
-        XCTAssertEqual(inspection["candidateSequence"], String(repeating: "C", count: 39))
-        XCTAssertEqual(inspection["candidateTrimmedSequence"], String(repeating: "C", count: 33))
+        XCTAssertEqual(inspection["candidateSequence"], String(repeating: "C", count: 33))
+        XCTAssertEqual(inspection["legacySequenceColumns"], "false")
         XCTAssertEqual(inspection["candidateTranslation"], "AAAAAAAAAAA")
         XCTAssertEqual(inspection["candidateTranslationStatus"], "full-length")
         XCTAssertEqual(inspection["unnameableSequence"], String(repeating: "N", count: 40))
-        XCTAssertEqual(inspection["unnameableTrimmedSequence"], "")
         XCTAssertEqual(inspection["unnameableTranslationStatus"], "incomplete/unresolved")
 
         let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
@@ -3181,7 +3180,10 @@ wb.save(path)
         let unnameableFASTAURL = directory.appendingPathComponent("unnameable-clusters.fasta")
         let bases = Array("ACGT")
         let candidateSequences = Dictionary(uniqueKeysWithValues: (1...4).map {
-            ("cluster-\($0)", String(repeating: bases[$0 % 4], count: 39))
+            ("cluster-\($0)", String(
+                repeating: bases[$0 % 4],
+                count: schemaVersion >= 4 ? 33 : 39
+            ))
         })
         let unnameableSequence = String(repeating: "N", count: 40)
         try candidateSequences.keys.sorted().map { ">\($0)\n" + candidateSequences[$0]! }
@@ -3196,7 +3198,7 @@ wb.save(path)
         try GenBankWriter(url: candidateGenBankURL).write(
             try candidateSequences.keys.sorted().map { stableID in
                 let fullSequence = candidateSequences[stableID]!
-                let isCroppedFixture = stableID == "cluster-1"
+                let isCroppedFixture = schemaVersion < 4 && stableID == "cluster-1"
                 return try normalizedCandidateGenBankRecord(
                     stableID: stableID,
                     sequence: isCroppedFixture
@@ -3719,12 +3721,14 @@ payload = {
     "candidateIDs": "|".join(text(unified.cell(row, headers["stable_cluster_id"]).value) for row in candidate_rows),
     "candidateNameFills": "|".join(argb(unified.cell(row, headers["display_name"])) for row in candidate_rows),
     "unmatchedIDs": "|".join(text(unmatched.cell(row, unmatched_headers["Stable Cluster ID"]).value) for row in range(2, unmatched.max_row + 1)),
-    "candidateSequence": text(unmatched.cell(candidate_row, unmatched_headers["Full-Length FASTA Sequence"]).value) if candidate_row else "",
-    "candidateTrimmedSequence": text(unmatched.cell(candidate_row, unmatched_headers["UTR-Trimmed FASTA Sequence"]).value) if candidate_row else "",
+    "candidateSequence": text(unmatched.cell(candidate_row, unmatched_headers["Nucleotide Sequence"]).value) if candidate_row else "",
+    "legacySequenceColumns": str(
+        "Full-Length FASTA Sequence" in unmatched_headers
+        or "UTR-Trimmed FASTA Sequence" in unmatched_headers
+    ).lower(),
     "candidateTranslation": text(unmatched.cell(candidate_row, unmatched_headers["Putative Amino Acid Translation"]).value) if candidate_row else "",
     "candidateTranslationStatus": text(unmatched.cell(candidate_row, unmatched_headers["Translation Status"]).value) if candidate_row else "",
-    "unnameableSequence": text(unmatched.cell(unnameable_row, unmatched_headers["Full-Length FASTA Sequence"]).value) if unnameable_row else "",
-    "unnameableTrimmedSequence": text(unmatched.cell(unnameable_row, unmatched_headers["UTR-Trimmed FASTA Sequence"]).value) if unnameable_row else "",
+    "unnameableSequence": text(unmatched.cell(unnameable_row, unmatched_headers["Nucleotide Sequence"]).value) if unnameable_row else "",
     "unnameableTranslationStatus": text(unmatched.cell(unnameable_row, unmatched_headers["Translation Status"]).value) if unnameable_row else "",
 }
 print(json.dumps(payload))

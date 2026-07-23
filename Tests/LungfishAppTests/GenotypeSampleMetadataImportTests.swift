@@ -265,16 +265,20 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertFalse(rows.contains { $0.label == "Reciprocal Evidence BAI" })
     }
 
-    func testInspectorDocumentListsValidatedCandidateGenBankArtifactsWhenDeclared() throws {
+    func testInspectorDocumentListsValidatedCandidateFASTAAndGenBankArtifactsWhenDeclared() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeCandidateGenBankArtifactRows-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
+        let candidateFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.fasta")
+        let unnameableFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.fasta")
         let candidateURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.gb")
         let unnameableURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.gb")
         let candidateGenBankArtifactURLs = ONTMHCCandidateGenBankArtifactURLs(
             candidateAlleles: candidateURL,
-            unnameableClusters: unnameableURL
+            unnameableClusters: unnameableURL,
+            candidateFASTA: candidateFASTAURL,
+            unnameableFASTA: unnameableFASTAURL
         )
         let inspector = InspectorViewController()
         _ = inspector.view
@@ -286,6 +290,12 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         ))
 
         let rows = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument?.artifactRows)
+        XCTAssertTrue(rows.contains {
+            $0.label == "Candidate Alleles FASTA" && $0.fileURL == candidateFASTAURL.standardizedFileURL
+        })
+        XCTAssertTrue(rows.contains {
+            $0.label == "Un-nameable Clusters FASTA" && $0.fileURL == unnameableFASTAURL.standardizedFileURL
+        })
         XCTAssertTrue(rows.contains {
             $0.label == "Candidate Alleles GenBank" && $0.fileURL == candidateURL.standardizedFileURL
         })

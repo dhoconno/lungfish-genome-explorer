@@ -628,7 +628,7 @@ public final class GenotypeResultViewController: NSViewController {
     ) -> ONTMHCCandidateAllelesDocument? {
         guard result.manifest.kind == "full-length-ont-mhc-genotype",
               let artifacts = result.manifest.mhcCandidateArtifacts,
-              artifacts.schemaVersion == 1,
+              (1 ... 2).contains(artifacts.schemaVersion),
               artifacts.candidateJSON != nil,
               artifacts.candidateFASTA != nil,
               let document = result.mhcCandidates,
@@ -3108,6 +3108,12 @@ public final class GenotypeResultViewController: NSViewController {
             artifactRows.append(artifactRow(label: "Deduplicated Unmatched FASTA", url: fastaURL))
         }
         let candidateGenBankURLs = result.mhcCandidateGenBankArtifactURLs
+        if let candidateURL = candidateGenBankURLs.candidateFASTA {
+            artifactRows.append(artifactRow(label: "Candidate Alleles FASTA", url: candidateURL))
+        }
+        if let unnameableURL = candidateGenBankURLs.unnameableFASTA {
+            artifactRows.append(artifactRow(label: "Un-nameable Clusters FASTA", url: unnameableURL))
+        }
         if let candidateURL = candidateGenBankURLs.candidateAlleles {
             artifactRows.append(artifactRow(label: "Candidate Alleles GenBank", url: candidateURL))
         }

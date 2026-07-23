@@ -939,15 +939,26 @@ public struct ONTGenotypeIntegrityWarning: Codable, Equatable, Sendable {
 public struct ONTMHCCandidateGenBankArtifactURLs: Codable, Equatable, Sendable {
     public static let empty = ONTMHCCandidateGenBankArtifactURLs(
         candidateAlleles: nil,
-        unnameableClusters: nil
+        unnameableClusters: nil,
+        candidateFASTA: nil,
+        unnameableFASTA: nil
     )
 
     public let candidateAlleles: URL?
     public let unnameableClusters: URL?
+    public let candidateFASTA: URL?
+    public let unnameableFASTA: URL?
 
-    public init(candidateAlleles: URL?, unnameableClusters: URL?) {
+    public init(
+        candidateAlleles: URL?,
+        unnameableClusters: URL?,
+        candidateFASTA: URL? = nil,
+        unnameableFASTA: URL? = nil
+    ) {
         self.candidateAlleles = candidateAlleles?.standardizedFileURL
         self.unnameableClusters = unnameableClusters?.standardizedFileURL
+        self.candidateFASTA = candidateFASTA?.standardizedFileURL
+        self.unnameableFASTA = unnameableFASTA?.standardizedFileURL
     }
 }
 
@@ -2281,6 +2292,12 @@ public enum ONTGenotypeResultBundle {
                     try normalizedValidatedArtifactURL($0, in: bundleURL)
                 },
                 unnameableClusters: try artifactManifest.unnameableGenBank.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                },
+                candidateFASTA: try artifactManifest.candidateFASTA.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                },
+                unnameableFASTA: try artifactManifest.unnameableFASTA.map {
                     try normalizedValidatedArtifactURL($0, in: bundleURL)
                 }
             )

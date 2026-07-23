@@ -314,6 +314,41 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testSchemaFourCanonicalCandidateRendersOnceWithAllObservationSupport() throws {
+        let stableClusterID = "canonical-candidate"
+        let result = makeCandidateResult(
+            calls: [],
+            candidates: [
+                makeCandidate(
+                    id: stableClusterID,
+                    name: "Mafa-A1*001:01_1nt_nov",
+                    classification: .novel,
+                    support: .shared,
+                    samples: ["AnimalA", "AnimalB"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: stableClusterID, sample: "AnimalA", reads: 7),
+                makeCandidateObservation(cluster: stableClusterID, sample: "AnimalB", reads: 11),
+            ],
+            candidateDocumentSchemaVersion: 4,
+            candidateArtifactManifestSchemaVersion: 2
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+
+        viewModel.updateMHCCandidatePresentation(from: result)
+        XCTAssertTrue(viewModel.mhcCandidateControlsAvailable)
+
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: result)
+        let candidateRows = matrix.testingVisibleRows.filter {
+            $0.stableClusterID == stableClusterID
+        }
+        XCTAssertEqual(candidateRows.count, 1)
+        XCTAssertEqual(candidateRows[0].support(for: "AnimalA")?.passedUniqueReads, 7)
+        XCTAssertEqual(candidateRows[0].support(for: "AnimalB")?.passedUniqueReads, 11)
+    }
+
     func testLegacyAndInvalidCandidateBundlesDoNotExposeControlsAndInvalidWarningIsNonfatal() {
         let candidate = makeCandidateResult(
             calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
@@ -2078,16 +2113,20 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
     }
 
-    func testArtifactsLensListsValidatedCandidateGenBankArtifactsWhenDeclared() throws {
+    func testArtifactsLensListsValidatedCandidateFASTAAndGenBankArtifactsWhenDeclared() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeCandidateGenBankLens-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        let candidateFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.fasta")
+        let unnameableFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.fasta")
         let candidateURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.gb")
         let unnameableURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.gb")
         let candidateGenBankArtifactURLs = ONTMHCCandidateGenBankArtifactURLs(
             candidateAlleles: candidateURL,
-            unnameableClusters: unnameableURL
+            unnameableClusters: unnameableURL,
+            candidateFASTA: candidateFASTAURL,
+            unnameableFASTA: unnameableFASTAURL
         )
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -2101,6 +2140,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingSelectLens(.audit)
 
         let lensText = visibleText(in: controller.view)
+        XCTAssertTrue(lensText.contains("Candidate Alleles FASTA"))
+        XCTAssertTrue(lensText.contains("Un-nameable Clusters FASTA"))
         XCTAssertTrue(lensText.contains("Candidate Alleles GenBank"))
         XCTAssertTrue(lensText.contains("Un-nameable Clusters GenBank"))
     }
@@ -2113,6 +2154,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingSelectLens(.audit)
 
         let lensText = visibleText(in: controller.view)
+        XCTAssertFalse(lensText.contains("Candidate Alleles FASTA"))
+        XCTAssertFalse(lensText.contains("Un-nameable Clusters FASTA"))
         XCTAssertFalse(lensText.contains("Candidate Alleles GenBank"))
         XCTAssertFalse(lensText.contains("Un-nameable Clusters GenBank"))
         XCTAssertFalse(lensText.contains("Genotyping Evidence BAM"))
@@ -8811,6 +8854,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil,
         integrityWarnings: [ONTGenotypeIntegrityWarning] = [],
         candidateDocumentSchemaVersion: Int = 1,
+        candidateArtifactManifestSchemaVersion: Int = 1,
         referenceMetadata: ONTGenotypeReferenceMetadata? = nil
     ) -> ONTGenotypeResultBundleData {
         let sampleIDs = Set(calls.map(\.sample) + observations.map(\.sampleID))
@@ -8841,7 +8885,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             calls: calls,
             kind: "full-length-ont-mhc-genotype",
             mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest(
-                schemaVersion: 1,
+                schemaVersion: candidateArtifactManifestSchemaVersion,
                 genotypingEvidence: ONTMHCBAMArtifactPair(
                     bam: .init(path: "artifacts/alignments/genotyping-evidence.bam", sha256: String(repeating: "e", count: 64), sizeBytes: 2),
                     bai: .init(path: "artifacts/alignments/genotyping-evidence.bam.bai", sha256: String(repeating: "f", count: 64), sizeBytes: 3)

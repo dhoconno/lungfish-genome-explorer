@@ -190,10 +190,20 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(row.recordCategory, .unnameable)
         XCTAssertEqual(row.fastaRecordID, "")
         XCTAssertEqual(row.sequenceSHA256, "")
-        XCTAssertEqual(row.nucleotideSequence, "")
-        XCTAssertNil(row.utrTrimmedNucleotideSequence)
+        XCTAssertNil(row.nucleotideSequence)
         XCTAssertNil(row.putativeAminoAcidTranslation)
         XCTAssertEqual(row.translationStatus, .incompleteUnresolved)
+        XCTAssertEqual(
+            row.internalEvidenceReference,
+            "artifacts/internal/raw-unmatched-consensuses.fasta#\(original.stableClusterID)"
+        )
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(row)) as? [String: Any]
+        )
+        XCTAssertEqual(
+            object["internal_evidence_reference"] as? String,
+            row.internalEvidenceReference
+        )
     }
 
     func testSchemaV4ExportableUnnameableJoinsArtifactsByCanonicalFASTAIdentity() throws {
@@ -444,15 +454,15 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(Set(rows.map(\.stableClusterID)).count, rows.count)
         XCTAssertEqual(rows[0].recordCategory, .candidate)
         XCTAssertEqual(rows[0].nucleotideSequence, candidateSequence)
-        XCTAssertEqual(rows[0].utrTrimmedNucleotideSequence, candidateSequence)
         XCTAssertEqual(rows[0].putativeAminoAcidTranslation, "MA")
         XCTAssertEqual(rows[0].translationStatus, .fullLength)
+        XCTAssertNil(rows[0].internalEvidenceReference)
         XCTAssertEqual(rows[0].readsBySample, ["sample-a": 7, "sample-b": 3])
         XCTAssertEqual(rows[1].recordCategory, .unnameable)
         XCTAssertEqual(rows[1].nucleotideSequence, unnameableSequence)
-        XCTAssertNil(rows[1].utrTrimmedNucleotideSequence)
         XCTAssertNil(rows[1].putativeAminoAcidTranslation)
         XCTAssertEqual(rows[1].translationStatus, .incompleteUnresolved)
+        XCTAssertNil(rows[1].internalEvidenceReference)
 
         let encoded = try JSONEncoder().encode(rows)
         XCTAssertEqual(
@@ -467,7 +477,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             "snp_count", "inserted_bases", "deleted_bases", "long_gap_bases", "comparable_bases",
             "failed_metrics", "support_class", "independent_sample_count", "occurrence_count",
             "total_cluster_reads", "supporting_sample_ids", "reads_by_sample", "fasta_record_id",
-            "sequence_sha256", "nucleotide_sequence", "utr_trimmed_nucleotide_sequence",
+            "sequence_sha256", "nucleotide_sequence",
             "putative_amino_acid_translation",
             "translation_status",
         ])
@@ -484,20 +494,19 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         )
         let headers = cells[0].map(\.value)
         let stableIDColumn = try XCTUnwrap(headers.firstIndex(of: .text("Stable Cluster ID")))
-        let nucleotideColumn = try XCTUnwrap(headers.firstIndex(of: .text("Full-Length FASTA Sequence")))
-        let trimmedColumn = try XCTUnwrap(headers.firstIndex(of: .text("UTR-Trimmed FASTA Sequence")))
+        let nucleotideColumn = try XCTUnwrap(headers.firstIndex(of: .text("Nucleotide Sequence")))
         XCTAssertNotNil(headers.firstIndex(of: .text("Extension Of")))
+        XCTAssertNil(headers.firstIndex(of: .text("Full-Length FASTA Sequence")))
+        XCTAssertNil(headers.firstIndex(of: .text("UTR-Trimmed FASTA Sequence")))
         let translationColumn = try XCTUnwrap(headers.firstIndex(of: .text("Putative Amino Acid Translation")))
         let statusColumn = try XCTUnwrap(headers.firstIndex(of: .text("Translation Status")))
 
         XCTAssertEqual(cells.count, 3, "Header plus exactly one row per stable unmatched sequence")
         XCTAssertEqual(cells.dropFirst().map { $0[stableIDColumn].value }, [.text("cluster-1"), .text("cluster-u")])
         XCTAssertEqual(cells[1][nucleotideColumn].value, .text("ATGGCTTAA"))
-        XCTAssertEqual(cells[1][trimmedColumn].value, .text("ATGGCTTAA"))
         XCTAssertEqual(cells[1][translationColumn].value, .text("MA"))
         XCTAssertEqual(cells[1][statusColumn].value, .text("full-length"))
         XCTAssertEqual(cells[2][nucleotideColumn].value, .text("ACGTACGT"))
-        XCTAssertEqual(cells[2][trimmedColumn].value, .blank)
         XCTAssertEqual(cells[2][translationColumn].value, .blank)
         XCTAssertEqual(cells[2][statusColumn].value, .text("incomplete/unresolved"))
     }
@@ -829,8 +838,8 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
 
         XCTAssertEqual(rows.map(\.stableClusterID), ["cluster-1", "cluster-u"])
         XCTAssertEqual(rows.map(\.nucleotideSequence), [
-            candidateSequence.lowercased(),
-            unnameableSequence.lowercased(),
+            candidateSequence,
+            unnameableSequence,
         ])
     }
 
@@ -887,7 +896,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         }
     }
 
-    func testNormalizedUnmatchedRowsAcceptDeclaredCroppedCandidateOriginAndKeepFullFASTASequence() throws {
+    func testLegacyCroppedCandidateExportsOnlyCanonicalGenBankSequence() throws {
         let projection = try singleCandidateProjection(from: makeDocuments())
         let fullSequence = "ATGGCTTAA"
         let croppedSequence = "GGCTT"
@@ -910,8 +919,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         )
 
         let candidate = try XCTUnwrap(rows.first { $0.stableClusterID == "cluster-1" })
-        XCTAssertEqual(candidate.nucleotideSequence, fullSequence)
-        XCTAssertEqual(candidate.utrTrimmedNucleotideSequence, croppedSequence)
+        XCTAssertEqual(candidate.nucleotideSequence, croppedSequence)
         XCTAssertEqual(candidate.putativeAminoAcidTranslation, "A")
     }
 
@@ -1616,9 +1624,9 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             fastaRecordID: stableID,
             sequenceSHA256: String(repeating: "d", count: 64),
             nucleotideSequence: "ACGT",
-            utrTrimmedNucleotideSequence: category == .candidate ? "ACGT" : nil,
             putativeAminoAcidTranslation: nil,
-            translationStatus: .incompleteUnresolved
+            translationStatus: .incompleteUnresolved,
+            internalEvidenceReference: nil
         )
     }
 

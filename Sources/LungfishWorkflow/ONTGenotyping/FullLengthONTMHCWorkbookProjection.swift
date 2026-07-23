@@ -103,10 +103,10 @@ struct FullLengthONTMHCNormalizedUnmatchedRow: Codable, Equatable, Sendable {
     let readsBySample: [String: Int]
     let fastaRecordID: String
     let sequenceSHA256: String
-    let nucleotideSequence: String
-    let utrTrimmedNucleotideSequence: String?
+    let nucleotideSequence: String?
     let putativeAminoAcidTranslation: String?
     let translationStatus: FullLengthONTMHCTranslationStatus
+    let internalEvidenceReference: String?
 
     enum CodingKeys: String, CodingKey {
         case recordCategory = "record_category"
@@ -132,9 +132,9 @@ struct FullLengthONTMHCNormalizedUnmatchedRow: Codable, Equatable, Sendable {
         case fastaRecordID = "fasta_record_id"
         case sequenceSHA256 = "sequence_sha256"
         case nucleotideSequence = "nucleotide_sequence"
-        case utrTrimmedNucleotideSequence = "utr_trimmed_nucleotide_sequence"
         case putativeAminoAcidTranslation = "putative_amino_acid_translation"
         case translationStatus = "translation_status"
+        case internalEvidenceReference = "internal_evidence_reference"
     }
 }
 
@@ -150,8 +150,8 @@ enum FullLengthONTMHCUnmatchedWorksheetBuilder {
             "SNP Count", "Inserted Bases", "Deleted Bases", "Long Gap Bases", "Comparable Bases",
             "Failed Metrics", "Support Class", "Independent Sample Count", "Occurrence Count",
             "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256",
-            "Full-Length FASTA Sequence", "UTR-Trimmed FASTA Sequence",
-            "Putative Amino Acid Translation", "Translation Status",
+            "Nucleotide Sequence", "Putative Amino Acid Translation", "Translation Status",
+            "Internal Evidence Reference",
         ] + sampleOrder.map { "Sample Reads: \($0)" }
         var result = [header.map { FullLengthONTMHCWorkbookCell($0) }]
         for row in rows.sorted(by: rowLess) {
@@ -178,10 +178,10 @@ enum FullLengthONTMHCUnmatchedWorksheetBuilder {
                 .init(row.supportingSampleIDs.joined(separator: ";")),
                 .init(row.fastaRecordID),
                 .init(row.sequenceSHA256),
-                .init(row.nucleotideSequence),
-                row.utrTrimmedNucleotideSequence.map { .init($0) } ?? .blank,
+                row.nucleotideSequence.map { .init($0) } ?? .blank,
                 row.putativeAminoAcidTranslation.map { .init($0) } ?? .blank,
                 .init(row.translationStatus.rawValue),
+                row.internalEvidenceReference.map { .init($0) } ?? .blank,
             ]
             cells.append(contentsOf: sampleOrder.map { sample in
                 row.readsBySample[sample].map { FullLengthONTMHCWorkbookCell($0) } ?? .blank
@@ -420,7 +420,8 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             ),
             fastaRecords: candidateFASTARecords,
             genBankRecords: candidateGenBankRecords,
-            category: .candidate
+            category: .candidate,
+            allowsCroppedCandidateGenBank: candidateSchemaVersion < 4
         )
         let exportableUnnameableRows = try unnameableRows.filter { row in
             guard row.fastaRecordID.isEmpty == row.sequenceSHA256.isEmpty else {
@@ -444,7 +445,8 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             ),
             fastaRecords: unnameableFASTARecords,
             genBankRecords: unnameableGenBankRecords,
-            category: .unnameable
+            category: .unnameable,
+            allowsCroppedCandidateGenBank: false
         )
 
         let candidates = try candidateRows.map { row -> FullLengthONTMHCNormalizedUnmatchedRow in
@@ -479,9 +481,9 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 fastaRecordID: row.fastaRecordID,
                 sequenceSHA256: row.sequenceSHA256,
                 nucleotideSequence: artifact.sequence,
-                utrTrimmedNucleotideSequence: artifact.utrTrimmedSequence,
                 putativeAminoAcidTranslation: artifact.translation,
-                translationStatus: artifact.status
+                translationStatus: artifact.status,
+                internalEvidenceReference: nil
             )
         }
         let unnameable = try unnameableRows.map { row -> FullLengthONTMHCNormalizedUnmatchedRow in
@@ -494,8 +496,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                     )
                 }
                 artifact = UnmatchedArtifact(
-                    sequence: "",
-                    utrTrimmedSequence: nil,
+                    sequence: nil,
                     translation: nil,
                     status: .incompleteUnresolved
                 )
@@ -530,9 +531,11 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 fastaRecordID: row.fastaRecordID,
                 sequenceSHA256: row.sequenceSHA256,
                 nucleotideSequence: artifact.sequence,
-                utrTrimmedNucleotideSequence: nil,
                 putativeAminoAcidTranslation: artifact.translation,
-                translationStatus: artifact.status
+                translationStatus: artifact.status,
+                internalEvidenceReference: row.fastaRecordID.isEmpty
+                    ? "artifacts/internal/raw-unmatched-consensuses.fasta#\(row.stableClusterID)"
+                    : nil
             )
         }
         return candidates + unnameable
@@ -738,8 +741,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
     }
 
     private struct UnmatchedArtifact {
-        let sequence: String
-        let utrTrimmedSequence: String?
+        let sequence: String?
         let translation: String?
         let status: FullLengthONTMHCTranslationStatus
     }
@@ -749,7 +751,8 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
         documentSequenceSHA256ByStableID: [String: String],
         fastaRecords: [FullLengthONTMHCClusterFASTARecord],
         genBankRecords: [GenBankRecord],
-        category: FullLengthONTMHCUnmatchedRecordCategory
+        category: FullLengthONTMHCUnmatchedRecordCategory,
+        allowsCroppedCandidateGenBank: Bool
     ) throws -> [String: UnmatchedArtifact] {
         let expectedArtifactIDs = Set(artifactIDByStableID.values)
         var fastaByID: [String: FullLengthONTMHCClusterFASTARecord] = [:]
@@ -835,6 +838,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 )
             }
             if category == .candidate,
+               allowsCroppedCandidateGenBank,
                Self.hasCandidateTrimMetadata(sourceFeatures[0]) {
                 try Self.validateCroppedCandidateGenBank(
                     stableID: stableID,
@@ -858,8 +862,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             let sourceStatus = sourceFeatures[0].qualifier("translation_status")
                 .flatMap(FullLengthONTMHCTranslationStatus.init(rawValue:))
             result[stableID] = UnmatchedArtifact(
-                sequence: fasta.sequence,
-                utrTrimmedSequence: category == .candidate ? genBank.sequence.asString() : nil,
+                sequence: genBank.sequence.asString(),
                 translation: usableTranslation,
                 status: usableTranslation == nil ? .incompleteUnresolved : sourceStatus ?? .incompleteUnresolved
             )

@@ -1085,7 +1085,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     ) -> ONTMHCCandidateAllelesDocument? {
         guard result.manifest.kind == "full-length-ont-mhc-genotype",
               let artifacts = result.manifest.mhcCandidateArtifacts,
-              artifacts.schemaVersion == 1,
+              (1 ... 2).contains(artifacts.schemaVersion),
               artifacts.candidateJSON != nil,
               artifacts.candidateFASTA != nil,
               let document = result.mhcCandidates,

@@ -591,6 +591,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
         let urls = result.mhcCandidateGenBankArtifactURLs
 
+        XCTAssertEqual(urls.candidateFASTA, fixture.candidateFASTAURL.standardizedFileURL)
+        XCTAssertEqual(urls.unnameableFASTA, fixture.unnameableFASTAURL.standardizedFileURL)
         XCTAssertEqual(
             urls.candidateAlleles,
             fixture.bundleURL.appendingPathComponent("candidate_alleles.gb").standardizedFileURL
@@ -828,6 +830,15 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             result.mhcCandidates?.observations.first?.sourceSequenceClusterID,
             "raw-a"
         )
+        XCTAssertEqual(
+            result.mhcCandidates?.candidates.first?.selectedEvidence.queryName,
+            "raw-b"
+        )
+        XCTAssertEqual(
+            result.mhcCandidateSequencesByStableClusterID,
+            ["canonical-candidate": "ACGT"]
+        )
+        XCTAssertNil(result.mhcCandidateSequencesByStableClusterID["raw-b"])
         XCTAssertTrue(result.integrityWarnings.isEmpty)
     }
 
@@ -2098,6 +2109,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         let candidateJSONURL: URL
         let candidateFASTAURL: URL
         let unnameableJSONURL: URL
+        let unnameableFASTAURL: URL
         let candidateID: String
         let unnameableID = "unnameable-sequence"
 
@@ -2158,7 +2170,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             candidateJSONURL = candidateRoot.appendingPathComponent("candidate-alleles.json")
             candidateFASTAURL = candidateRoot.appendingPathComponent("candidate_alleles.fasta")
             unnameableJSONURL = candidateRoot.appendingPathComponent("unnameable.json")
-            let unnameableFASTAURL = candidateRoot.appendingPathComponent("unnameable.fasta")
+            unnameableFASTAURL = candidateRoot.appendingPathComponent("unnameable.fasta")
             let candidateGenBankURL = candidateRoot.appendingPathComponent("candidate_alleles.gb")
             let unnameableGenBankURL = candidateRoot.appendingPathComponent("unnameable_unmatched_clusters.gb")
             let genotypingBAM = bundleURL.appendingPathComponent(genotypingBAMPath)

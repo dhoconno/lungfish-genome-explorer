@@ -1467,8 +1467,8 @@ def write_two_sheet_mhc_contract():
         "SNP Count", "Inserted Bases", "Deleted Bases", "Long Gap Bases", "Comparable Bases",
         "Failed Metrics", "Support Class", "Independent Sample Count", "Occurrence Count",
         "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256",
-        "Full-Length FASTA Sequence", "UTR-Trimmed FASTA Sequence",
-        "Putative Amino Acid Translation", "Translation Status",
+        "Nucleotide Sequence", "Putative Amino Acid Translation", "Translation Status",
+        "Internal Evidence Reference",
     ] + [f"Sample Reads: {sample}" for sample in sample_order]
     unmatched.append(unmatched_headers)
     for record in sorted(
@@ -1491,8 +1491,8 @@ def write_two_sheet_mhc_contract():
             record.get("occurrence_count"), record.get("total_cluster_reads"),
             ";".join(record.get("supporting_sample_ids") or []), clean(record.get("fasta_record_id")),
             clean(record.get("sequence_sha256")), clean(record.get("nucleotide_sequence")),
-            clean(record.get("utr_trimmed_nucleotide_sequence")),
             clean(record.get("putative_amino_acid_translation")), clean(record.get("translation_status")),
+            clean(record.get("internal_evidence_reference")),
         ] + [(record.get("reads_by_sample") or {}).get(sample) for sample in sample_order]
         unmatched.append(row)
         if clean(record.get("record_category")) == "candidate":

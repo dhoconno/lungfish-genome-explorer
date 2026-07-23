@@ -374,6 +374,12 @@ extension InspectorViewController {
                 result.artifacts.deduplicatedUnmatchedClustersFASTAURL.map {
                     GenotypeResultArtifactRow(label: "Deduplicated Unmatched FASTA", fileURL: $0)
                 },
+                candidateGenBankURLs.candidateFASTA.map {
+                    GenotypeResultArtifactRow(label: "Candidate Alleles FASTA", fileURL: $0)
+                },
+                candidateGenBankURLs.unnameableFASTA.map {
+                    GenotypeResultArtifactRow(label: "Un-nameable Clusters FASTA", fileURL: $0)
+                },
                 candidateGenBankURLs.candidateAlleles.map {
                     GenotypeResultArtifactRow(label: "Candidate Alleles GenBank", fileURL: $0)
                 },
