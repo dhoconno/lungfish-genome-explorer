@@ -172,7 +172,12 @@ public final class GenotypeResultViewController: NSViewController {
     private var candidateSequenceRecordsByStableClusterID: [
         String: GenotypeAlleleSequenceRecord
     ] = [:]
+    private var knownSequenceRecordsByRowID: [
+        GenotypeCandidateMatrixRowID: GenotypeAlleleSequenceRecord
+    ] = [:]
     private var renderedAlleleSequenceRecordIdentities: [String] = []
+    private var knownAlleleSequenceRecordBuildCount = 0
+    private var legacyNonRowDetailBuildCount = 0
     private var currentSelectedSample: String?
     private var currentSelectedLocus: String?
     private var currentSelectionState: GenotypeResultSelectionState?
@@ -542,6 +547,8 @@ public final class GenotypeResultViewController: NSViewController {
         knownAlleleDetailMountCount = 0
         candidateAlleleDetailMountCount = 0
         alleleSequenceDetailMountCount = 0
+        knownAlleleSequenceRecordBuildCount = 0
+        legacyNonRowDetailBuildCount = 0
         alleleSequenceDetailView.resetForNewResult()
         renderedAlleleSequenceRecordIdentities = []
         candidateAlleleDetailWidthConstraint?.isActive = false
@@ -549,12 +556,31 @@ public final class GenotypeResultViewController: NSViewController {
         alleleSequenceDetailWidthConstraint?.isActive = false
         alleleSequenceDetailWidthConstraint = nil
         if isFullLengthMHCGenotypeViewport {
+            knownSequenceRecordsByRowID = [:]
+            for sharedCall in result.locusSummaries.flatMap(\.sharedCalls) {
+                let rowID = GenotypeCandidateMatrixRowID.known(
+                    locus: sharedCall.locus,
+                    genotype: sharedCall.genotype
+                )
+                guard knownSequenceRecordsByRowID[rowID] == nil else { continue }
+                if let source = result.mhcReferenceVisualizations?
+                    .recordsByKnownCallGenotype[sharedCall.genotype] {
+                    knownSequenceRecordsByRowID[rowID] = .known(source)
+                    knownAlleleSequenceRecordBuildCount += 1
+                } else {
+                    knownSequenceRecordsByRowID[rowID] = .unavailable(
+                        identity: sharedCall.genotype,
+                        displayName: alleleDisplayLabel(for: sharedCall.genotype)
+                    )
+                }
+            }
             candidateSequenceRecordsByStableClusterID = GenotypeAlleleSequenceRecord
                 .candidateCatalogRetainingValidRecords(
                     candidates: result.mhcCandidates?.candidates ?? [],
                     genBankURL: result.mhcCandidateGenBankArtifactURLs.candidateAlleles
                 )
         } else {
+            knownSequenceRecordsByRowID = [:]
             candidateSequenceRecordsByStableClusterID = [:]
         }
         let knownSampleIDs = Set(
@@ -1030,6 +1056,9 @@ public final class GenotypeResultViewController: NSViewController {
     public func selectSupportedMatrixCellsInCurrentRow(minimumReads: Int) {
         ensureComparisonMatrixConfigured()
         let targets = comparisonMatrix.selectSupportedCellsInSelectedRow(minimumReads: minimumReads)
+        if isFullLengthMHCGenotypeViewport {
+            showAlleleSequenceRows(for: [])
+        }
         if targets.isEmpty {
             publishSelectionState(nil)
         } else if let currentSharedCall {
@@ -2356,11 +2385,14 @@ public final class GenotypeResultViewController: NSViewController {
         matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
     ) {
         if let sample, !hasSelectedCellSupport(for: sharedCall, sample: sample) {
-            showCellSelection(matrixTargets ?? [
+            let targets = matrixTargets ?? [
                 .cell(locus: sharedCall.locus, genotype: sharedCall.genotype, sample: sample),
-            ])
+            ]
             if isFullLengthMHCGenotypeViewport {
                 showAlleleSequenceRows(for: [])
+                publishSelectionState(matrixTargetSelectionState(for: targets))
+            } else {
+                showCellSelection(targets)
             }
             return
         }
@@ -2551,6 +2583,9 @@ public final class GenotypeResultViewController: NSViewController {
                 publishSelectionState(matrixTargetSelectionState(for: uniqueTargets))
                 return
             }
+            showAlleleSequenceRows(for: [])
+            publishSelectionState(matrixTargetSelectionState(for: uniqueTargets))
+            return
         }
         switch matrixSelectionKind(for: uniqueTargets) {
         case .rows:
@@ -2561,9 +2596,6 @@ public final class GenotypeResultViewController: NSViewController {
             showCellSelection(uniqueTargets)
         case .mixed:
             showGenericMatrixTargetSelection(uniqueTargets)
-        }
-        if isFullLengthMHCGenotypeViewport {
-            showAlleleSequenceRows(for: [])
         }
     }
 
@@ -2582,16 +2614,16 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         let records = rowTargets.compactMap { target -> GenotypeAlleleSequenceRecord? in
-            guard case let .row(_, genotype, stableClusterID) = target else {
+            guard case let .row(locus, genotype, stableClusterID) = target else {
                 return nil
             }
             if let stableClusterID {
                 return candidateSequenceRecordsByStableClusterID[stableClusterID]
                     ?? .unavailable(identity: stableClusterID, displayName: genotype)
             }
-            return result?.mhcReferenceVisualizations?
-                .recordsByKnownCallGenotype[genotype]
-                .map(GenotypeAlleleSequenceRecord.known)
+            return knownSequenceRecordsByRowID[
+                .known(locus: locus, genotype: genotype)
+            ]
                 ?? .unavailable(identity: genotype, displayName: alleleDisplayLabel(for: genotype))
         }
         candidateAlleleDetailWidthConstraint?.isActive = false
@@ -2611,6 +2643,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func showGenericMatrixTargetSelection(_ uniqueTargets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        legacyNonRowDetailBuildCount += 1
         removeArrangedSubviews(from: detailStack)
         detailStack.addArrangedSubview(sectionTitle("Matrix Annotation Targets"))
         let rows = matrixTargetDetailRows(for: uniqueTargets) + matrixCommentDetailRows(for: uniqueTargets)
@@ -2689,6 +2722,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func showSampleColumnSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        legacyNonRowDetailBuildCount += 1
         let samples = targets.compactMap { target -> String? in
             guard case let .column(sample) = target else { return nil }
             return sample
@@ -2773,6 +2807,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func showCellSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        legacyNonRowDetailBuildCount += 1
         currentSharedCall = nil
         currentCandidateRow = nil
         currentSelectedSample = nil
@@ -6302,6 +6337,18 @@ extension GenotypeResultViewController {
 
     var testingAlleleSequenceDetailMountCount: Int {
         alleleSequenceDetailMountCount
+    }
+
+    var testingKnownAlleleSequenceRecordBuildCount: Int {
+        knownAlleleSequenceRecordBuildCount
+    }
+
+    var testingKnownAlleleSequenceCacheCount: Int {
+        knownSequenceRecordsByRowID.count
+    }
+
+    var testingLegacyNonRowDetailBuildCount: Int {
+        legacyNonRowDetailBuildCount
     }
 
     func testingSelectAlleleSequenceFormat(

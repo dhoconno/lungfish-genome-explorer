@@ -59,6 +59,94 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(controller.testingAlleleSequenceText.contains("AC   known-a;"))
     }
 
+    func testFullLengthMHCSupportedCellHelperClearsSelectedRowSequenceForCellsAndNoMatches() {
+        let known = makeMHCReferenceVisualizationRecord(
+            rawReferenceID: "known-a",
+            alleleName: "Mafa-A1*001:01"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "known-a", reads: 10)],
+            kind: "full-length-ont-mhc-genotype",
+            mhcReferenceVisualizations: .init(schemaVersion: 1, records: [known])
+        ))
+        controller.testingSelectMatrixRows(genotypes: ["known-a"], sample: nil)
+        XCTAssertFalse(controller.testingAlleleSequenceText.isEmpty)
+
+        XCTAssertEqual(controller.testingSelectSupportedCellsInSelectedRow(minimumReads: 1).count, 1)
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+        XCTAssertEqual(controller.testingAlleleSequenceText, "")
+
+        controller.testingSelectMatrixRows(genotypes: ["known-a"], sample: nil)
+        XCTAssertFalse(controller.testingAlleleSequenceText.isEmpty)
+        XCTAssertTrue(controller.testingSelectSupportedCellsInSelectedRow(minimumReads: 100).isEmpty)
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+        XCTAssertEqual(controller.testingAlleleSequenceText, "")
+    }
+
+    func testFullLengthMHCCellAndColumnSelectionsNeverBuildLegacyDetailHierarchy() {
+        let call = makeCall(sample: "AnimalA", genotype: "known-a", reads: 10)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [.init(
+                sample: "AnimalA",
+                passedAlignments: 10,
+                passedUniqueReads: 10,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [call]
+            )],
+            calls: [call],
+            kind: "full-length-ont-mhc-genotype",
+            mhcReferenceVisualizations: .init(
+                schemaVersion: 1,
+                records: [makeMHCReferenceVisualizationRecord(
+                    rawReferenceID: "known-a",
+                    alleleName: "Mafa-A1*001:01"
+                )]
+            )
+        ))
+
+        for _ in 0..<50 {
+            controller.testingSelectMatrixCell(genotype: "known-a", sample: "AnimalA")
+            controller.testingSelectMatrixColumn(sample: "AnimalA")
+        }
+
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+        XCTAssertEqual(controller.testingLegacyNonRowDetailBuildCount, 0)
+        XCTAssertEqual(controller.testingKnownAlleleDetailMountCount, 0)
+        XCTAssertEqual(controller.testingCandidateAlleleDetailMountCount, 0)
+        XCTAssertFalse(controller.testingCurrentSelectionMatrixTargets.isEmpty)
+    }
+
+    func testFullLengthMHCKnownSequenceRecordsAreFormattedOnlyDuringConfigure() {
+        let known = makeMHCReferenceVisualizationRecord(
+            rawReferenceID: "known-a",
+            alleleName: "Mafa-A1*001:01"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "known-a", reads: 10)],
+            kind: "full-length-ont-mhc-genotype",
+            mhcReferenceVisualizations: .init(schemaVersion: 1, records: [known])
+        ))
+        XCTAssertEqual(controller.testingKnownAlleleSequenceRecordBuildCount, 1)
+        XCTAssertEqual(controller.testingKnownAlleleSequenceCacheCount, 1)
+
+        for _ in 0..<50 {
+            controller.testingSelectMatrixRows(genotypes: ["known-a"], sample: nil)
+        }
+
+        XCTAssertEqual(controller.testingKnownAlleleSequenceRecordBuildCount, 1)
+        XCTAssertEqual(controller.testingKnownAlleleSequenceCacheCount, 1)
+        XCTAssertEqual(controller.testingAlleleSequenceText, known.genBankText)
+    }
+
     func testFullLengthMHCCandidateRowUsesExactCandidateArtifactNotClosestReference() throws {
         let fixture = try makeSequenceDetailCandidateResult()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -1204,7 +1292,12 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingSelectMatrixCell(genotype: knownID, sample: "AnimalB")
         XCTAssertTrue(candidateAlleleDetails(in: controller.view).isEmpty)
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
-        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Evidence", "No supporting reads") })
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("Selection Type", "Cell")
+        })
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("Sample", "AnimalB")
+        })
 
         controller.applyHighlight(GenotypeResultHighlightRequest(
             target: .init(genotype: knownID, locus: "MHC-A", sample: "AnimalB"),
@@ -1214,7 +1307,6 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertTrue(candidateAlleleDetails(in: controller.view).isEmpty)
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
-        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Evidence", "No supporting reads") })
         XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, [
             .cell(locus: "MHC-A", genotype: knownID, sample: "AnimalB"),
         ])
