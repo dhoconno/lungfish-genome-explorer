@@ -131,30 +131,31 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
         let exon23Positions = Set(exonRegions.filter { $0.number == 2 || $0.number == 3 }.flatMap { $0.range })
         let exon23Complete = !exon23Positions.isEmpty
             && !annotationIsPartial
-            && translationIsResolved
-            && ambiguousReferencePositions.isEmpty
+            && exon23Positions.isDisjoint(with: ambiguousReferencePositions)
             && exon23Positions.isSubset(of: input.projection.assessedReferencePositions)
         let intronPositions = Set(intronRegions.flatMap { $0.range })
         let intronsComplete = !intronPositions.isEmpty
             && intronPositions.isSubset(of: input.projection.assessedReferencePositions)
 
         var substitutionGroups: [Int: [Substitution]] = [:]
-        var unresolvedCoding: [String] = []
+        var unresolvedCoding: [UnresolvedCoding] = []
         var codingIndels: [CodingIndel] = []
         var intronicDetails: [RawDetail] = []
         var intronFills: [RawDetail] = []
         var unclassifiedDetails: [RawDetail] = []
 
         if !ambiguousReferencePositions.isEmpty {
-            unresolvedCoding.append(
+            unresolvedCoding.append(unresolvedDetail(
                 "ambiguous reference/candidate CDS bases at ref "
                     + ambiguousReferencePositions.map { String($0 + 1) }.joined(separator: ",")
                     + "; "
                     + (input.candidateTranslation?.uppercased().contains("X") == true
                         ? "candidate translation contains X"
                         : "candidate translation status is \(input.translationStatus.rawValue)")
-                    + "; protein effect unresolved"
-            )
+                    + "; protein effect unresolved",
+                referencePositions: ambiguousReferencePositions,
+                exonRegions: exonRegions
+            ))
         }
 
         for event in input.projection.events {
@@ -162,11 +163,26 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
             case .substitution(let refPosition, let queryPosition, let refBase, let altBase):
                 if let cdsIndex = cdsMap.indexByReferencePosition[refPosition] {
                     if cds.isPartial {
-                        unresolvedCoding.append("ref \(refPosition + 1) \(refBase)>\(altBase); partial CDS annotation; protein effect unresolved")
+                        let storedCandidatePosition = input.projection.storedCandidatePosition(
+                            orientedPosition: queryPosition
+                        )
+                        let exonNumber = regionNumber(at: refPosition, in: exonRegions)
+                        unresolvedCoding.append(unresolvedDetail(
+                            "ref \(refPosition + 1) \(refBase)>\(altBase); candidate \(storedCandidatePosition + 1)"
+                                + (exonNumber.map { "; exon \($0)" } ?? "")
+                                + "; partial CDS annotation; protein effect unresolved",
+                            referencePositions: [refPosition],
+                            exonNumbers: exonNumber.map { [$0] } ?? [],
+                            exonRegions: exonRegions
+                        ))
                         continue
                     }
                     guard cdsIndex >= cds.codonOffset else {
-                        unresolvedCoding.append("ref \(refPosition + 1) \(refBase)>\(altBase); before first complete annotated codon")
+                        unresolvedCoding.append(unresolvedDetail(
+                            "ref \(refPosition + 1) \(refBase)>\(altBase); before first complete annotated codon",
+                            referencePositions: [refPosition],
+                            exonRegions: exonRegions
+                        ))
                         continue
                     }
                     let codingIndex = cdsIndex - cds.codonOffset
@@ -205,7 +221,12 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                 } else if isInternal(boundary: boundary, in: cds.intervals) {
                     let stored = input.projection.storedCandidateRange(orientedRange: queryRange)
                     if cds.isPartial {
-                        unresolvedCoding.append("\(bases.count) bp insertion at ref boundary \(boundary)/\(boundary + 1); candidate \(stored.lowerBound + 1)-\(stored.upperBound); partial CDS annotation; protein effect unresolved")
+                        let exonNumber = regionNumber(atBoundary: boundary, in: exonRegions)
+                        unresolvedCoding.append(unresolvedDetail(
+                            "\(bases.count) bp insertion at ref boundary \(boundary)/\(boundary + 1); candidate \(stored.lowerBound + 1)-\(stored.upperBound); partial CDS annotation; protein effect unresolved",
+                            exonNumbers: exonNumber.map { [$0] } ?? [],
+                            exonRegions: exonRegions
+                        ))
                     } else {
                         codingIndels.append(.init(
                             sortPosition: boundary,
@@ -236,7 +257,11 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                 if !codingPositions.isEmpty {
                     let boundary = input.projection.storedCandidateBoundary(orientedBoundary: queryBoundary)
                     if cds.isPartial {
-                        unresolvedCoding.append("\(codingPositions.count) bp deletion at ref \(range.lowerBound + 1)-\(range.upperBound) (\(bases)); candidate boundary \(boundary)/\(boundary + 1); partial CDS annotation; protein effect unresolved")
+                        unresolvedCoding.append(unresolvedDetail(
+                            "\(codingPositions.count) bp deletion at ref \(range.lowerBound + 1)-\(range.upperBound) (\(bases)); candidate boundary \(boundary)/\(boundary + 1); partial CDS annotation; protein effect unresolved",
+                            referencePositions: codingPositions,
+                            exonRegions: exonRegions
+                        ))
                     } else {
                         codingIndels.append(.init(
                             sortPosition: range.lowerBound,
@@ -266,8 +291,13 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                     ))
                 }
             case .skipped(let range):
-                if range.contains(where: { cdsMap.indexByReferencePosition[$0] != nil }) {
-                    unresolvedCoding.append("ref \(range.lowerBound + 1)-\(range.upperBound) skipped by CIGAR N; protein effect unresolved")
+                let skippedCodingPositions = range.filter { cdsMap.indexByReferencePosition[$0] != nil }
+                if !skippedCodingPositions.isEmpty {
+                    unresolvedCoding.append(unresolvedDetail(
+                        "ref \(range.lowerBound + 1)-\(range.upperBound) skipped by CIGAR N; protein effect unresolved",
+                        referencePositions: skippedCodingPositions,
+                        exonRegions: exonRegions
+                    ))
                 } else {
                     unclassifiedDetails.append(.init(
                         sortPosition: range.lowerBound,
@@ -283,7 +313,12 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
             guard let changes = substitutionGroups[codonIndex]?.sorted(by: { $0.referencePosition < $1.referencePosition }) else { continue }
             let codonStart = cds.codonOffset + codonIndex * 3
             guard codonStart + 3 <= cdsMap.transcriptBases.count else {
-                unresolvedCoding.append(changes.map(changeDescription).joined(separator: ", ") + "; incomplete codon")
+                unresolvedCoding.append(unresolvedDetail(
+                    changes.map(changeDescription).joined(separator: ", ") + "; incomplete codon",
+                    referencePositions: changes.map(\.referencePosition),
+                    exonNumbers: changes.compactMap(\.exonNumber),
+                    exonRegions: exonRegions
+                ))
                 continue
             }
             let referenceCodon = String(cdsMap.transcriptBases[codonStart..<(codonStart + 3)])
@@ -298,10 +333,13 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
             guard referenceCodon.allSatisfy(isCanonicalDNA),
                   alternateCodon.allSatisfy(isCanonicalDNA) else {
                 if referenceCodon.allSatisfy(isCanonicalDNA) {
-                    unresolvedCoding.append(
+                    unresolvedCoding.append(unresolvedDetail(
                         changes.map(changeDescription).joined(separator: ", ")
-                            + "; ref codon \(referenceCodon)>\(alternateCodon); ambiguous candidate codon; protein effect unresolved"
-                    )
+                            + "; ref codon \(referenceCodon)>\(alternateCodon); ambiguous candidate codon; protein effect unresolved",
+                        referencePositions: changes.map(\.referencePosition),
+                        exonNumbers: changes.compactMap(\.exonNumber),
+                        exonRegions: exonRegions
+                    ))
                 }
                 continue
             }
@@ -309,7 +347,13 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
             let alternateAA = TranslationEngine.translate(alternateCodon)
             guard referenceAA.count == 1, alternateAA.count == 1,
                   !referenceAA.contains("X"), !alternateAA.contains("X") else {
-                unresolvedCoding.append(changes.map(changeDescription).joined(separator: ", ") + "; ref codon \(referenceCodon)>\(alternateCodon); ambiguous translation")
+                unresolvedCoding.append(unresolvedDetail(
+                    changes.map(changeDescription).joined(separator: ", ")
+                        + "; ref codon \(referenceCodon)>\(alternateCodon); ambiguous translation",
+                    referencePositions: changes.map(\.referencePosition),
+                    exonNumbers: changes.compactMap(\.exonNumber),
+                    exonRegions: exonRegions
+                ))
                 continue
             }
             let aaPosition = codonIndex + 1
@@ -346,9 +390,10 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
             ))
         }
         if input.translationStatus == .incompleteUnresolved && unresolvedCoding.isEmpty {
-            unresolvedCoding.append(
-                "candidate translation status is incomplete/unresolved; definitive coding consequence classification unavailable"
-            )
+            unresolvedCoding.append(unresolvedDetail(
+                "candidate translation status is incomplete/unresolved; definitive coding consequence classification unavailable",
+                exonRegions: exonRegions
+            ))
         }
         nonsynonymous.sort { $0.sortPosition < $1.sortPosition }
         synonymous.sort { $0.sortPosition < $1.sortPosition }
@@ -362,7 +407,13 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
         details += zip(nsIDs, nonsynonymous).map { "\($0): \($1.text)" }
         details += zip(synIDs, synonymous).map { "\($0): \($1.text)" }
         let unresolvedIDs = unresolvedCoding.indices.map { "CDS-UNRESOLVED-\($0 + 1)" }
-        details += zip(unresolvedIDs, unresolvedCoding).map { "\($0): \($1)" }
+        let exon23UnresolvedIDs = unresolvedCoding.indices.compactMap { index in
+            unresolvedCoding[index].affects(
+                referencePositions: exon23Positions,
+                exonNumbers: [2, 3]
+            ) ? unresolvedIDs[index] : nil
+        }
+        details += zip(unresolvedIDs, unresolvedCoding).map { "\($0): \($1.text)" }
 
         let ordinaryIntrons = intronicDetails.sorted { $0.sortPosition < $1.sortPosition }
         let intronIDs = ordinaryIntrons.indices.map { "INTRON-\($0 + 1)" }
@@ -374,7 +425,7 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
 
         let exon23Summary = summary(
             prefix: Self.summaryPrefixes[0], identifiers: exon23IDs,
-            unresolved: unresolvedIDs,
+            unresolved: exon23UnresolvedIDs,
             complete: exon23Complete,
             unavailableReason: exon23Positions.isEmpty ? "exon 2/3 annotations are unavailable" : nil
         )
@@ -415,6 +466,17 @@ private extension FullLengthONTMHCCandidateConsequenceAnnotator {
     }
     struct Detail { let sortPosition: Int; let exonNumbers: [Int]; let text: String }
     struct RawDetail { let sortPosition: Int; let text: String }
+    struct UnresolvedCoding {
+        let referencePositions: Set<Int>?
+        let exonNumbers: Set<Int>
+        let text: String
+
+        func affects(referencePositions targetPositions: Set<Int>, exonNumbers targetExons: Set<Int>) -> Bool {
+            if let referencePositions, !referencePositions.isDisjoint(with: targetPositions) { return true }
+            if !exonNumbers.isDisjoint(with: targetExons) { return true }
+            return referencePositions == nil && exonNumbers.isEmpty
+        }
+    }
     struct CodingIndel {
         let sortPosition: Int
         let referenceBounds: ClosedRange<Int>
@@ -425,6 +487,22 @@ private extension FullLengthONTMHCCandidateConsequenceAnnotator {
 
     func unavailable(reason: String) -> [String] {
         Self.summaryPrefixes.map { "\($0) unavailable: \(reason)" }
+    }
+
+    func unresolvedDetail(
+        _ text: String,
+        referencePositions: [Int]? = nil,
+        exonNumbers: [Int] = [],
+        exonRegions: [Region]
+    ) -> UnresolvedCoding {
+        let derivedExons = (referencePositions ?? []).compactMap {
+            regionNumber(at: $0, in: exonRegions)
+        }
+        return .init(
+            referencePositions: referencePositions.map(Set.init),
+            exonNumbers: Set(exonNumbers + derivedExons),
+            text: text
+        )
     }
 
     func primaryCDS(_ reference: ONTMHCReferenceVisualizationRecord) -> CDS? {

@@ -94,11 +94,12 @@ Steps:
 ## Task 6: Review and integrated verification
 
 1. Add RED regressions for complete CDS assessment/readiness, unchanged ambiguous codons, candidate-only lifted introns, and touching versus non-touching replacement indels; apply minimal fixes and update exact provenance rules.
-2. Run specification review, then code-quality review; fix and rereview any findings.
-3. Run the combined focused MHC classifier, GenBank builder/writer, pipeline, workbook projection/revision, viewport, and debug-launch tests.
-4. Build a fresh signed `Lungfish Debug` app.
-5. Run the established four-sample CLI analysis with the newly bundled CLI.
-6. Verify sorted/indexed BAMs, candidate/un-nameable FASTA/JSON/GenBank artifacts, manifest entries, and complete provenance.
-7. Inspect representative GenBank comments for genomic novel alleles and cDNA extensions; verify terminal UTR removal, feature rebasing, intron retention, and both sequence checksums.
-8. Verify the two-sheet workbook cell types and render both sheets.
-9. Quit other Lungfish processes and launch only the exact fresh debug bundle for testing.
+2. Add RED regressions preserving un-nameable boundary-coverage status, scoping unresolved evidence to intersecting exon summaries, and retaining candidate/exon coordinates for partial-CDS substitutions; apply minimal fixes and update exact provenance rules.
+3. Run specification review, then code-quality review; fix and rereview any findings.
+4. Run the combined focused MHC classifier, GenBank builder/writer, pipeline, workbook projection/revision, viewport, and debug-launch tests.
+5. Build a fresh signed `Lungfish Debug` app.
+6. Run the established four-sample CLI analysis with the newly bundled CLI.
+7. Verify sorted/indexed BAMs, candidate/un-nameable FASTA/JSON/GenBank artifacts, manifest entries, and complete provenance.
+8. Inspect representative GenBank comments for genomic novel alleles and cDNA extensions; verify terminal UTR removal, feature rebasing, intron retention, and both sequence checksums.
+9. Verify the two-sheet workbook cell types and render both sheets.
+10. Quit other Lungfish processes and launch only the exact fresh debug bundle for testing.

@@ -168,7 +168,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         )
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["codingConsequenceRule"],
-            "transcript-strand+codon-start+translation-table;group-same-codon-substitutions;group-touching-replacement-indels-by-reference-span;ordinary-indels-frame-delta"
+            "transcript-strand+codon-start+translation-table;group-same-codon-substitutions;scope-unresolved-to-intersecting-exon-summary;group-touching-replacement-indels-by-reference-span;ordinary-indels-frame-delta"
         )
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["cDNAIntronFillRule"],

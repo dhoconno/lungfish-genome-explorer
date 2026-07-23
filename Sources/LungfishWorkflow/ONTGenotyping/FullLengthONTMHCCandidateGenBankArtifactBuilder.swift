@@ -188,6 +188,12 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             }
         }
 
+        func coversBoundaries(of feature: ONTMHCReferenceVisualizationFeature) -> Bool {
+            feature.start < feature.end
+                && maps(referencePosition: feature.start)
+                && maps(referencePosition: feature.end - 1)
+        }
+
         func longInsertionCount(inside feature: ONTMHCReferenceVisualizationFeature) -> Int {
             insertions.filter {
                 $0.referenceBoundary > feature.start
@@ -256,7 +262,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 projection: projection,
                 candidateSequence: sequence,
                 defaultName: input.subject.displayName,
-                retainReferenceIntrons: input.subject.isCandidate
+                retainReferenceIntrons: input.subject.isCandidate,
+                requireCompleteCDSAssessment: input.subject.isCandidate
             )
             translationStatus = lifted.translationStatus
             annotations.append(contentsOf: lifted.annotations)
@@ -609,7 +616,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         projection: Projection,
         candidateSequence: String,
         defaultName: String,
-        retainReferenceIntrons: Bool
+        retainReferenceIntrons: Bool,
+        requireCompleteCDSAssessment: Bool
     ) -> (
         annotations: [SequenceAnnotation],
         hadSourceExons: Bool,
@@ -653,8 +661,10 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 let fivePrimeReferencePosition = sourceStrand == .reverse
                     ? sourceEnd - 1
                     : sourceStart
-                let hasCompleteAssessment = group.allSatisfy {
-                    projection.assessesEveryReferenceBase(of: $0)
+                let hasSufficientAssessment = group.allSatisfy {
+                    requireCompleteCDSAssessment
+                        ? projection.assessesEveryReferenceBase(of: $0)
+                        : projection.coversBoundaries(of: $0)
                 }
                 let hasTrustworthyAnnotation = sourceStrand != .unknown
                     && !group.contains(where: {
@@ -669,7 +679,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                         translationStatus(
                             annotation: annotation,
                             translation: translation,
-                            hasCompleteAssessment: hasCompleteAssessment,
+                            hasSufficientAssessment: hasSufficientAssessment,
                             hasTrustworthyAnnotation: hasTrustworthyAnnotation
                         )
                     )
@@ -693,10 +703,10 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
     func translationStatus(
         annotation: SequenceAnnotation,
         translation: String,
-        hasCompleteAssessment: Bool,
+        hasSufficientAssessment: Bool,
         hasTrustworthyAnnotation: Bool
     ) -> FullLengthONTMHCTranslationStatus {
-        guard hasCompleteAssessment,
+        guard hasSufficientAssessment,
               hasTrustworthyAnnotation,
               !translation.uppercased().contains("X") else {
             return .incompleteUnresolved

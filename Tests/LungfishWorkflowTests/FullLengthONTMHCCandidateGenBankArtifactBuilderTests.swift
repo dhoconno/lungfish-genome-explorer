@@ -163,7 +163,10 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             selectedAlignmentIsReverse: false,
             closestReference: makeReference(
                 id: "ref-partial-consequence", sequence: "ATGCAAGCT",
-                features: [feature(type: "CDS", start: 0, end: 9, rawGenBankLocation: "<1..9")]
+                features: [
+                    feature(type: "exon", start: 0, end: 9, qualifiers: ["number": ["2"]], sourceOrdinal: 1),
+                    feature(type: "CDS", start: 0, end: 9, rawGenBankLocation: "<1..9", sourceOrdinal: 2),
+                ]
             ),
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
@@ -171,7 +174,9 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         let comments = try XCTUnwrap(
             FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
         ).values(forRecordField: "COMMENT")
-        XCTAssertTrue(comments.contains { $0.hasPrefix("CDS-UNRESOLVED-1:") && $0.contains("partial CDS annotation") }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains {
+            $0 == "CDS-UNRESOLVED-1: ref 4 C>G; candidate 4; exon 2; partial CDS annotation; protein effect unresolved"
+        }, comments.joined(separator: "\n"))
         XCTAssertTrue(comments.contains { $0 == "Lungfish CDS nonsynonymous changes: unresolved: CDS-UNRESOLVED-1" })
         XCTAssertTrue(comments.contains { $0 == "Lungfish CDS synonymous changes: unresolved: CDS-UNRESOLVED-1" })
         XCTAssertFalse(comments.contains { $0.hasPrefix("CDS-NS-") })
@@ -339,6 +344,45 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(source.qualifier("trim_status"), "trimmed-to-partial-lifted-CDS")
         XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready")
         XCTAssertTrue(comments.contains("Lungfish reference readiness: not reference-ready; partial or unresolved lifted CDS"))
+    }
+
+    func testExon23SummaryExcludesExon1OnlyUnresolvedEvidence() throws {
+        let candidate = try makeCandidate(
+            stableID: "candidate-exon1-skip",
+            sequenceSHA256: "candidate-exon1-skip-hash",
+            cigar: "3=3N6=",
+            referenceName: "ref-exon1-skip",
+            referenceClass: .genomicDNA
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ATGGCTTAA",
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-exon1-skip", sequence: "ATGAAAGCTTAA",
+                features: [
+                    feature(type: "gene", start: 0, end: 12, sourceOrdinal: 1),
+                    feature(type: "exon", start: 0, end: 6, qualifiers: ["number": ["1"]], sourceOrdinal: 2),
+                    feature(type: "exon", start: 6, end: 12, qualifiers: ["number": ["2"]], sourceOrdinal: 3),
+                    feature(type: "CDS", start: 0, end: 6, rawGenBankLocation: "join(1..6,7..12)", sourceOrdinal: 4),
+                    feature(type: "CDS", start: 6, end: 12, rawGenBankLocation: "join(1..6,7..12)", sourceOrdinal: 4),
+                ]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let comments = try XCTUnwrap(
+            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
+        ).values(forRecordField: "COMMENT")
+
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish exon 2/3 nonsynonymous changes: none detected in complete annotated region"
+        }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains {
+            $0.hasPrefix("CDS-UNRESOLVED-1:") && $0.contains("ref 4-6 skipped by CIGAR N")
+        })
+        XCTAssertFalse(comments.contains {
+            $0.hasPrefix("Lungfish exon 2/3 nonsynonymous changes:") && $0.contains("CDS-UNRESOLVED-1")
+        })
     }
 
     func testUnchangedAmbiguousCDSCodonEmitsExactUnresolvedConsequence() throws {
@@ -908,14 +952,14 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(record.sequence.asString(), "ACGT")
     }
 
-    func testAnnotatedUnnameableDoesNotGainReferenceIntronFeatures() throws {
+    func testAnnotatedUnnameableKeepsBoundaryCoverageTranslationStatusAndPriorFeatureShape() throws {
         let evidence = ONTMHCEvidenceLocator(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",
             queryName: "unnameable-annotated",
             referenceName: "ref-unnameable-annotated",
             readGroupID: nil,
             referenceStart: 1,
-            cigar: "9="
+            cigar: "3=3N3="
         )
         let reciprocal = try ONTMHCReciprocalQueryHitSummary(
             bamPath: evidence.bamPath,
@@ -940,7 +984,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             selectedEvidence: evidence
         )
         let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
-            subject: .unnameable(unnameable), sequence: "ATGAAAGCT",
+            subject: .unnameable(unnameable), sequence: "ATGGCT",
             selectedAlignmentIsReverse: false,
             closestReference: makeReference(
                 id: evidence.referenceName, sequence: "ATGAAAGCT",
@@ -958,10 +1002,22 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         let record = try XCTUnwrap(
             FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
         )
+        let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
+        let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
+        let comments = record.values(forRecordField: "COMMENT")
 
         XCTAssertEqual(record.annotations.map(\.type), [.source, .gene, .exon, .exon, .cds])
         XCTAssertFalse(record.annotations.contains { $0.type == .intron })
-        XCTAssertEqual(record.sequence.asString(), "ATGAAAGCT")
+        XCTAssertEqual(record.sequence.asString(), "ATGGCT")
+        XCTAssertEqual(cds.intervals.map { [$0.start, $0.end] }, [[0, 6]])
+        XCTAssertEqual(cds.qualifier("translation"), "MA")
+        XCTAssertEqual(cds.qualifier("inference"), "alignment:reciprocal minimap2 CIGAR")
+        XCTAssertEqual(source.qualifier("translation_status"), "full-length")
+        XCTAssertNil(source.qualifier("trim_status"))
+        XCTAssertNil(source.qualifier("reference_readiness_status"))
+        XCTAssertFalse(comments.contains { comment in
+            consequenceSummaryPrefixes.contains { comment.hasPrefix($0) }
+        })
     }
 
     func testRecordsAreDeterministicallySortedByStableClusterID() throws {

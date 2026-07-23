@@ -708,7 +708,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             "translationRule": "recomputed-from-lifted-candidate-CDS;terminal-stop-removed;internal-stops-retained-and-counted",
             "consequenceChangeSource": "selected-closest-reference-sequence+one-based-reference-start+reciprocal-CIGAR+candidate-sequence;no-BAM-reread",
             "consequenceCoordinateConvention": "one-based-reference+stored-candidate-ORIGIN+CDS+codon+exon+intron+amino-acid",
-            "codingConsequenceRule": "transcript-strand+codon-start+translation-table;group-same-codon-substitutions;group-touching-replacement-indels-by-reference-span;ordinary-indels-frame-delta",
+            "codingConsequenceRule": "transcript-strand+codon-start+translation-table;group-same-codon-substitutions;scope-unresolved-to-intersecting-exon-summary;group-touching-replacement-indels-by-reference-span;ordinary-indels-frame-delta",
             "cDNAIntronFillRule": "internal-query-insertion-at-least-minimum-intron-gap;excluded-from-CDS-indels",
             "consequenceAmbiguityRule": "partial+unsupported+ambiguous+unassessed-CDS=unresolved-never-coerced",
             "candidateUTRTrimRule": "candidate-only:outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations-and-consequence-candidate-coordinates;preserve-full-FASTA-identity+record-cropped-GenBank-identity;partial-crop-remains-non-reference-ready;no-CDS-untrimmed",

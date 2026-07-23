@@ -59,7 +59,7 @@ Substitutions in the same codon are grouped and applied together before translat
 
 Ordinary coding insertions/deletions are protein-altering. Net length divisible by three is reported as frame-preserving; other net lengths are frame-disrupting. Touching deletion/insertion replacement operations are grouped by their reference spans/boundaries before computing the net length; non-touching indels remain separate. Complex adjacent events are described conservatively using the recomputed whole-candidate translation status, length, and internal-stop information rather than overclaiming a precise HGVS consequence.
 
-Exon number qualifiers take precedence. If absent, exon numbers are inferred in 5-prime-to-3-prime transcript order. The exon 2/3 summary is a subset of the all-CDS nonsynonymous details and names the relevant detail identifiers.
+Exon number qualifiers take precedence. If absent, exon numbers are inferred in 5-prime-to-3-prime transcript order. The exon 2/3 summary is a subset of the all-CDS nonsynonymous details and names only nonsynonymous or unresolved detail identifiers whose reference positions/exon scope intersects exon 2 or 3. Unresolved evidence confined to another exon does not contaminate this summary.
 
 ## Intronic consequences and cDNA extensions
 
@@ -71,9 +71,9 @@ Non-CDS exonic/UTR changes are not mislabeled as intronic. Unplaceable aligned c
 
 ## Partial and missing annotation
 
-Missing 5-prime CDS coverage, partial GenBank locations, unknown strand, skipped CIGAR regions, unsupported translation tables, or ambiguous CDS groups prevent definitive `none`, synonymous, or nonsynonymous conclusions for the affected region. Every reference CDS position must be assessed before a candidate is full-length/reference-ready: matches, mismatches, and observed deletions are assessed; skipped or uncovered positions are not. Nucleotide changes are still enumerated where possible with unresolved protein effect.
+Missing 5-prime CDS coverage, partial GenBank locations, unknown strand, skipped CIGAR regions, unsupported translation tables, or ambiguous CDS groups prevent definitive `none`, synonymous, or nonsynonymous conclusions for the affected region. Every reference CDS position must be assessed before a candidate is full-length/reference-ready: matches, mismatches, and observed deletions are assessed; skipped or uncovered positions are not. Placeable partial-CDS substitutions still report the rebased stored-candidate coordinate and exon number when known while leaving protein effect unresolved.
 
-Candidates without a selected annotated reference receive all four stable summaries as unavailable. Un-nameable GenBank records remain unchanged, including not gaining newly lifted reference intron features, except that the shared render transformation records the same provenance options.
+Candidates without a selected annotated reference receive all four stable summaries as unavailable. Un-nameable GenBank records retain the prior boundary-coverage translation/status policy and feature shape, including not gaining newly lifted reference intron features or candidate consequence/readiness qualifiers; the stricter all-CDS-position readiness policy is candidate-only.
 
 ## Provenance
 
@@ -81,7 +81,7 @@ The candidate and un-nameable GenBank render provenance records:
 
 - change source: selected closest-reference sequence, one-based start, CIGAR, and candidate sequence; no BAM reread;
 - one-based reference/candidate/CDS/exon/intron/amino-acid coordinate convention;
-- grouped same-codon substitution, touching replacement-indel, and strand/codon-start/translation-table rules;
+- grouped same-codon substitution, exon-scoped unresolved-summary, touching replacement-indel, and strand/codon-start/translation-table rules;
 - ordinary coding-indel frame rule;
 - cDNA intron-fill exclusion from CDS changes;
 - unresolved-never-coerced ambiguity/unassessed-CDS policy; and
@@ -100,6 +100,9 @@ Existing input/output descriptors, checksums, sizes, argv, runtime identity, exi
 - Partial/ambiguous records never emit false definitive `none` or false synonymous/nonsynonymous claims.
 - Skipped or uncovered CDS positions force incomplete/unresolved and non-reference-ready status, while observed deletions remain assessed changes.
 - Annotated un-nameable records retain their prior feature shape without lifted reference introns.
+- Annotated un-nameable records also retain prior boundary-coverage translation/status semantics when an internal reference region is skipped.
+- Exon-1-only unresolved evidence is excluded from a fully assessed exon-2/3 summary.
+- Placeable partial-CDS substitution details include candidate coordinate and known exon scope.
 - GenBank output is deterministic and round-trips through the reader/writer.
 - Published candidate artifacts and provenance contain the new comments/rules.
 - Candidate GenBank `ORIGIN` begins and ends at the outer lifted CDS span, preserves intervening introns, rebases features/comments, and verifies as the declared substring of the full candidate FASTA.
