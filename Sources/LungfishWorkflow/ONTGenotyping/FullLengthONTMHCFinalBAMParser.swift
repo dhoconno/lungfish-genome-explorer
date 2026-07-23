@@ -65,16 +65,17 @@ public struct FullLengthONTMHCFinalBAMParser: @unchecked Sendable {
     public func genotypeSummaries(
         samURL: URL,
         referenceFASTAURL: URL,
+        referenceRecords: [MHCReferenceRecord]? = nil,
         samples: [FullLengthONTMHCFinalBAMSampleContext],
         cdnaThreshold: Int = 2_000,
         minUnmatchedReads: Int = 5
     ) throws -> [String: FullLengthONTMHCClusterGenotypingSummary] {
         let standardizedSAMURL = samURL.standardizedFileURL
-        let referenceRecords = try FullLengthONTMHCClusterGenotyper.readFASTARecords(
+        let fastaReferenceRecords = try FullLengthONTMHCClusterGenotyper.readFASTARecords(
             from: referenceFASTAURL.standardizedFileURL
         )
         var referenceLengths: [String: Int] = [:]
-        for record in referenceRecords {
+        for record in fastaReferenceRecords {
             guard !record.name.isEmpty, !record.sequence.isEmpty else {
                 throw validationError(
                     samURL: standardizedSAMURL,
@@ -93,6 +94,44 @@ public struct FullLengthONTMHCFinalBAMParser: @unchecked Sendable {
                 samURL: standardizedSAMURL,
                 message: "Resolved reference FASTA contains no alleles."
             )
+        }
+        let referenceMoleculeClasses: [String: MHCReferenceMoleculeClass]
+        if let referenceRecords {
+            var resolvedClasses: [String: MHCReferenceMoleculeClass] = [:]
+            for record in referenceRecords {
+                guard let sequenceLength = referenceLengths[record.sequenceID] else {
+                    throw validationError(
+                        samURL: standardizedSAMURL,
+                        message: "Reference metadata contains unknown sequence ID '\(record.sequenceID)'."
+                    )
+                }
+                guard sequenceLength == record.sequenceLength else {
+                    throw validationError(
+                        samURL: standardizedSAMURL,
+                        message: "Reference metadata length \(record.sequenceLength) does not match FASTA length \(sequenceLength) for '\(record.sequenceID)'."
+                    )
+                }
+                guard resolvedClasses.updateValue(record.moleculeClass, forKey: record.sequenceID) == nil else {
+                    throw validationError(
+                        samURL: standardizedSAMURL,
+                        message: "Reference metadata contains duplicate sequence ID '\(record.sequenceID)'."
+                    )
+                }
+            }
+            if let missingID = Set(referenceLengths.keys)
+                .subtracting(resolvedClasses.keys)
+                .sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending })
+                .first {
+                throw validationError(
+                    samURL: standardizedSAMURL,
+                    message: "Reference metadata is missing FASTA sequence ID '\(missingID)'."
+                )
+            }
+            referenceMoleculeClasses = resolvedClasses
+        } else {
+            referenceMoleculeClasses = referenceLengths.mapValues {
+                $0 < cdnaThreshold ? .cDNA : .genomicDNA
+            }
         }
 
         var targets: [String: Target] = [:]
@@ -148,7 +187,7 @@ public struct FullLengthONTMHCFinalBAMParser: @unchecked Sendable {
                 sampleID: sample.sampleID,
                 clusterRecords: sample.clusterRecords,
                 referenceLengths: referenceLengths,
-                cdnaThreshold: cdnaThreshold,
+                referenceMoleculeClasses: referenceMoleculeClasses,
                 minUnmatchedReads: minUnmatchedReads
             )
         }

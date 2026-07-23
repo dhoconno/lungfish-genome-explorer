@@ -6,6 +6,7 @@ enum FullLengthONTMHCSAMMetricsMetric: String, Equatable, Sendable {
     case deletedBases
     case skippedReferenceBases
     case softClippedBases
+    case hardClippedBases
     case explicitDifferences
     case comparableBases
     case nonIntronIndelBases
@@ -48,6 +49,12 @@ struct FullLengthONTMHCSAMMetrics: Equatable, Sendable {
     let deletedBases: Int
     let skippedReferenceBases: Int
     let softClippedBases: Int
+    let hardClippedBases: Int
+    let largestInsertedSegment: Int
+    let largestDeletedSegment: Int
+    let largestSkippedReferenceSegment: Int
+    let largestSoftClippedSegment: Int
+    let largestHardClippedSegment: Int
 
     private let comparableBaseCount: Int
     private let nonIntronIndelBaseCount: Int
@@ -71,6 +78,12 @@ struct FullLengthONTMHCSAMMetrics: Equatable, Sendable {
         var deletedBases = 0
         var skippedReferenceBases = 0
         var softClippedBases = 0
+        var hardClippedBases = 0
+        var largestInsertedSegment = 0
+        var largestDeletedSegment = 0
+        var largestSkippedReferenceSegment = 0
+        var largestSoftClippedSegment = 0
+        var largestHardClippedSegment = 0
         var sawAlignmentOperation = false
         var sawLeadingHardClip = false
         var sawTrailingHardClip = false
@@ -102,6 +115,13 @@ struct FullLengthONTMHCSAMMetrics: Equatable, Sendable {
                 } else {
                     sawLeadingHardClip = true
                 }
+                hardClippedBases = try Self.adding(
+                    hardClippedBases,
+                    length,
+                    metric: .hardClippedBases,
+                    operation: operation
+                )
+                largestHardClippedSegment = max(largestHardClippedSegment, length)
                 lengthText = ""
                 continue
             }
@@ -138,6 +158,7 @@ struct FullLengthONTMHCSAMMetrics: Equatable, Sendable {
                     metric: .insertedBases,
                     operation: operation
                 )
+                largestInsertedSegment = max(largestInsertedSegment, length)
             case "D":
                 deletedBases = try Self.adding(
                     deletedBases,
@@ -145,6 +166,7 @@ struct FullLengthONTMHCSAMMetrics: Equatable, Sendable {
                     metric: .deletedBases,
                     operation: operation
                 )
+                largestDeletedSegment = max(largestDeletedSegment, length)
             case "N":
                 skippedReferenceBases = try Self.adding(
                     skippedReferenceBases,
@@ -152,6 +174,7 @@ struct FullLengthONTMHCSAMMetrics: Equatable, Sendable {
                     metric: .skippedReferenceBases,
                     operation: operation
                 )
+                largestSkippedReferenceSegment = max(largestSkippedReferenceSegment, length)
             case "S":
                 softClippedBases = try Self.adding(
                     softClippedBases,
@@ -159,6 +182,7 @@ struct FullLengthONTMHCSAMMetrics: Equatable, Sendable {
                     metric: .softClippedBases,
                     operation: operation
                 )
+                largestSoftClippedSegment = max(largestSoftClippedSegment, length)
             default:
                 throw FullLengthONTMHCSAMMetricsError.unsupportedOperator(character)
             }
@@ -267,6 +291,12 @@ struct FullLengthONTMHCSAMMetrics: Equatable, Sendable {
         self.deletedBases = deletedBases
         self.skippedReferenceBases = skippedReferenceBases
         self.softClippedBases = softClippedBases
+        self.hardClippedBases = hardClippedBases
+        self.largestInsertedSegment = largestInsertedSegment
+        self.largestDeletedSegment = largestDeletedSegment
+        self.largestSkippedReferenceSegment = largestSkippedReferenceSegment
+        self.largestSoftClippedSegment = largestSoftClippedSegment
+        self.largestHardClippedSegment = largestHardClippedSegment
         self.comparableBaseCount = comparableBases
         self.nonIntronIndelBaseCount = nonIntronIndelBases
         self.referenceBaseSpan = referenceSpan

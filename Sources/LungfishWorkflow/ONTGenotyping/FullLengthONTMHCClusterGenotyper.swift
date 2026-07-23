@@ -112,17 +112,20 @@ public struct FullLengthONTMHCClusterGenotypingSummary: Codable, Equatable, Send
     public let unmatchedClusters: [FullLengthONTMHCClusterFASTARecord]
     public let cdnaMatchedClusters: [FullLengthONTMHCClusterFASTARecord]
     public let closestMatches: [FullLengthONTMHCClosestMatch]
+    public let cdnaStructuralInterpretations: [FullLengthONTMHCCDNAStructuralInterpretation]
 
     public init(
         rows: [FullLengthONTMHCClusterGenotypeRow],
         unmatchedClusters: [FullLengthONTMHCClusterFASTARecord],
         cdnaMatchedClusters: [FullLengthONTMHCClusterFASTARecord],
-        closestMatches: [FullLengthONTMHCClosestMatch] = []
+        closestMatches: [FullLengthONTMHCClosestMatch] = [],
+        cdnaStructuralInterpretations: [FullLengthONTMHCCDNAStructuralInterpretation] = []
     ) {
         self.rows = rows
         self.unmatchedClusters = unmatchedClusters
         self.cdnaMatchedClusters = cdnaMatchedClusters
         self.closestMatches = closestMatches
+        self.cdnaStructuralInterpretations = cdnaStructuralInterpretations
     }
 }
 
@@ -155,25 +158,30 @@ public enum FullLengthONTMHCClusterGenotyper {
     struct StreamingAccumulator {
         let sampleID: String
         let clusterRecords: [FullLengthONTMHCClusterFASTARecord]
+        let clusterLengths: [String: Int]
         let referenceLengths: [String: Int]
-        let cdnaThreshold: Int
+        let referenceMoleculeClasses: [String: MHCReferenceMoleculeClass]
         let minUnmatchedReads: Int
 
         private var bestKnownScoreByCluster: [String: Int] = [:]
         private var bestKnownHitsByCluster: [String: [String: Hit]] = [:]
         private var closestHitByCluster: [String: Hit] = [:]
+        private var cdnaInterpretationsByCluster: [String: [String: FullLengthONTMHCCDNAStructuralInterpretation]] = [:]
 
         init(
             sampleID: String,
             clusterRecords: [FullLengthONTMHCClusterFASTARecord],
             referenceLengths: [String: Int],
-            cdnaThreshold: Int,
+            referenceMoleculeClasses: [String: MHCReferenceMoleculeClass],
             minUnmatchedReads: Int
         ) {
             self.sampleID = sampleID
             self.clusterRecords = clusterRecords
+            self.clusterLengths = Dictionary(
+                uniqueKeysWithValues: clusterRecords.map { ($0.name, $0.sequence.count) }
+            )
             self.referenceLengths = referenceLengths
-            self.cdnaThreshold = cdnaThreshold
+            self.referenceMoleculeClasses = referenceMoleculeClasses
             self.minUnmatchedReads = minUnmatchedReads
         }
 
@@ -186,6 +194,12 @@ public enum FullLengthONTMHCClusterGenotyper {
         ) throws {
             guard let alleleLength = referenceLengths[allele], alleleLength > 0 else {
                 throw StreamingAccumulatorError.unknownOrEmptyAllele(allele)
+            }
+            guard let clusterLength = clusterLengths[cluster], clusterLength > 0 else {
+                throw StreamingAccumulatorError.unknownOrEmptyCluster(cluster)
+            }
+            guard let moleculeClass = referenceMoleculeClasses[allele] else {
+                throw StreamingAccumulatorError.unknownMoleculeClass(allele)
             }
             let score = try alignmentScore(for: metrics)
             let targetOffset = try FullLengthONTMHCSAMMetrics.subtracting(
@@ -219,8 +233,25 @@ public enum FullLengthONTMHCClusterGenotyper {
                 closestHitByCluster[cluster] = hit
             }
 
-            let isKnownGenotype = hit.snps == 0
-                && (hit.indelBases == 0 || alleleLength >= cdnaThreshold)
+            let isKnownGenotype: Bool
+            switch moleculeClass {
+            case .genomicDNA:
+                isKnownGenotype = hit.snps == 0
+            case .cDNA:
+                let interpretation = try FullLengthONTMHCCDNAStructuralClassifier.classifyCohort(
+                    referenceSequenceID: allele,
+                    clusterID: cluster,
+                    cDNAReferenceLength: alleleLength,
+                    clusterLength: clusterLength,
+                    targetStart: position,
+                    isReverse: hit.isReverse,
+                    metrics: metrics
+                )
+                if interpretation.relationship != .ineligible {
+                    retainBestCDNAInterpretation(interpretation, for: cluster)
+                }
+                isKnownGenotype = interpretation.relationship == .known
+            }
             guard isKnownGenotype else { return }
 
             if let currentBestScore = bestKnownScoreByCluster[cluster] {
@@ -251,7 +282,7 @@ public enum FullLengthONTMHCClusterGenotyper {
                     guard let alleleLength = referenceLengths[hit.allele], alleleLength > 0 else {
                         continue
                     }
-                    if alleleLength < cdnaThreshold {
+                    if referenceMoleculeClasses[hit.allele] == .cDNA {
                         cdnaClusters.insert(cluster)
                     }
                     rows.append(FullLengthONTMHCClusterGenotypeRow(
@@ -297,18 +328,57 @@ public enum FullLengthONTMHCClusterGenotyper {
                         return $0.closestMatchID.localizedStandardCompare($1.closestMatchID) == .orderedAscending
                     }
                     return $0.cluster.localizedStandardCompare($1.cluster) == .orderedAscending
-                }
+                },
+                cdnaStructuralInterpretations: cdnaInterpretationsByCluster
+                    .values
+                    .flatMap(\.values)
+                    .sorted {
+                        if $0.clusterID != $1.clusterID {
+                            return $0.clusterID.localizedStandardCompare($1.clusterID) == .orderedAscending
+                        }
+                        return $0.referenceSequenceID.localizedStandardCompare($1.referenceSequenceID) == .orderedAscending
+                    }
             )
+        }
+
+        private mutating func retainBestCDNAInterpretation(
+            _ interpretation: FullLengthONTMHCCDNAStructuralInterpretation,
+            for cluster: String
+        ) {
+            let referenceID = interpretation.referenceSequenceID
+            guard let current = cdnaInterpretationsByCluster[cluster]?[referenceID] else {
+                cdnaInterpretationsByCluster[cluster, default: [:]][referenceID] = interpretation
+                return
+            }
+            if interpretation.alignmentScore > current.alignmentScore
+                || (interpretation.alignmentScore == current.alignmentScore
+                    && interpretation.cDNAReferenceCoverage > current.cDNAReferenceCoverage)
+                || (interpretation.alignmentScore == current.alignmentScore
+                    && interpretation.cDNAReferenceCoverage == current.cDNAReferenceCoverage
+                    && interpretation.clusterCoverage > current.clusterCoverage)
+                || (interpretation.alignmentScore == current.alignmentScore
+                    && interpretation.cDNAReferenceCoverage == current.cDNAReferenceCoverage
+                    && interpretation.clusterCoverage == current.clusterCoverage
+                    && interpretation.relationship == .extension
+                    && current.relationship != .extension) {
+                cdnaInterpretationsByCluster[cluster, default: [:]][referenceID] = interpretation
+            }
         }
     }
 
     enum StreamingAccumulatorError: Error, LocalizedError {
         case unknownOrEmptyAllele(String)
+        case unknownOrEmptyCluster(String)
+        case unknownMoleculeClass(String)
 
         var errorDescription: String? {
             switch self {
             case .unknownOrEmptyAllele(let allele):
                 return "Cannot genotype unknown or empty allele '\(allele)'."
+            case .unknownOrEmptyCluster(let cluster):
+                return "Cannot genotype unknown or empty cluster '\(cluster)'."
+            case .unknownMoleculeClass(let allele):
+                return "Cannot genotype allele '\(allele)' without a resolved molecule class."
             }
         }
     }

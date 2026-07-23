@@ -1,8 +1,134 @@
 import Foundation
+import LungfishIO
 import XCTest
 @testable import LungfishWorkflow
 
 final class FullLengthONTMHCFinalBAMParserTests: XCTestCase {
+    func testRoutesCompleteCDNAEmbeddedInLongerClusterToCandidates() throws {
+        let fixture = try Fixture.singleReference(
+            referenceLength: 1_000,
+            clusterLength: 3_000,
+            moleculeClass: .cDNA
+        )
+        defer { fixture.remove() }
+        try fixture.writeSAM(records: [
+            fixture.record(
+                qname: "allele-A",
+                rname: "S1|cluster_ReadCount-8",
+                position: 1_001,
+                cigar: "1000="
+            ),
+        ])
+
+        let summary = try XCTUnwrap(try fixture.parse(referenceRecords: fixture.annotatedReferences)["S1"])
+
+        XCTAssertTrue(summary.rows.isEmpty)
+        XCTAssertEqual(summary.unmatchedClusters.map(\.name), ["cluster_ReadCount-8"])
+        XCTAssertTrue(summary.cdnaMatchedClusters.isEmpty)
+        XCTAssertEqual(summary.cdnaStructuralInterpretations.map(\.relationship), [.extension])
+        XCTAssertEqual(summary.cdnaStructuralInterpretations.map(\.referenceSequenceID), ["allele-A"])
+    }
+
+    func testRoutesSpliceGapCDNAAlignmentToCandidates() throws {
+        let fixture = try Fixture.singleReference(
+            referenceLength: 1_000,
+            clusterLength: 2_000,
+            moleculeClass: .cDNA
+        )
+        defer { fixture.remove() }
+        try fixture.writeSAM(records: [
+            fixture.record(
+                qname: "allele-A",
+                rname: "S1|cluster_ReadCount-8",
+                cigar: "500=1000N500="
+            ),
+        ])
+
+        let summary = try XCTUnwrap(try fixture.parse(referenceRecords: fixture.annotatedReferences)["S1"])
+
+        XCTAssertTrue(summary.rows.isEmpty)
+        XCTAssertEqual(summary.unmatchedClusters.map(\.name), ["cluster_ReadCount-8"])
+        XCTAssertTrue(summary.cdnaMatchedClusters.isEmpty)
+        XCTAssertEqual(summary.cdnaStructuralInterpretations.map(\.relationship), [.extension])
+    }
+
+    func testKeepsEndToEndCDNAMatchKnown() throws {
+        let fixture = try Fixture.singleReference(
+            referenceLength: 1_000,
+            clusterLength: 1_000,
+            moleculeClass: .cDNA
+        )
+        defer { fixture.remove() }
+        try fixture.writeSAM(records: [
+            fixture.record(qname: "allele-A", rname: "S1|cluster_ReadCount-8", cigar: "1000="),
+        ])
+
+        let summary = try XCTUnwrap(try fixture.parse(referenceRecords: fixture.annotatedReferences)["S1"])
+
+        XCTAssertEqual(summary.rows.map(\.allele), ["allele-A"])
+        XCTAssertTrue(summary.unmatchedClusters.isEmpty)
+        XCTAssertEqual(summary.cdnaMatchedClusters.map(\.name), ["cluster_ReadCount-8"])
+        XCTAssertEqual(summary.cdnaStructuralInterpretations.map(\.relationship), [.known])
+    }
+
+    func testRejectsCDNAAlignmentMissingTenPercentOfReference() throws {
+        let fixture = try Fixture.singleReference(
+            referenceLength: 1_000,
+            clusterLength: 900,
+            moleculeClass: .cDNA
+        )
+        defer { fixture.remove() }
+        try fixture.writeSAM(records: [
+            fixture.record(qname: "allele-A", rname: "S1|cluster_ReadCount-8", cigar: "100H900="),
+        ])
+
+        let summary = try XCTUnwrap(try fixture.parse(referenceRecords: fixture.annotatedReferences)["S1"])
+
+        XCTAssertTrue(summary.rows.isEmpty)
+        XCTAssertEqual(summary.unmatchedClusters.map(\.name), ["cluster_ReadCount-8"])
+        XCTAssertTrue(summary.cdnaMatchedClusters.isEmpty)
+        XCTAssertTrue(summary.cdnaStructuralInterpretations.isEmpty)
+    }
+
+    func testAnnotatedGenomicReferenceRemainsKnownBelowLengthFallbackThreshold() throws {
+        let fixture = try Fixture.singleReference(
+            referenceLength: 1_000,
+            clusterLength: 1_000,
+            moleculeClass: .genomicDNA
+        )
+        defer { fixture.remove() }
+        try fixture.writeSAM(records: [
+            fixture.record(qname: "allele-A", rname: "S1|cluster_ReadCount-8", cigar: "1000="),
+        ])
+
+        let summary = try XCTUnwrap(try fixture.parse(referenceRecords: fixture.annotatedReferences)["S1"])
+
+        XCTAssertEqual(summary.rows.map(\.allele), ["allele-A"])
+        XCTAssertTrue(summary.cdnaMatchedClusters.isEmpty)
+    }
+
+    func testAllowsOneBaseCDNAIndelInEndToEndKnownMatch() throws {
+        let fixture = try Fixture.singleReference(
+            referenceLength: 1_000,
+            clusterLength: 999,
+            moleculeClass: .cDNA
+        )
+        defer { fixture.remove() }
+        try fixture.writeSAM(records: [
+            fixture.record(
+                qname: "allele-A",
+                rname: "S1|cluster_ReadCount-8",
+                cigar: "499=1I500=",
+                nm: 1
+            ),
+        ])
+
+        let summary = try XCTUnwrap(try fixture.parse(referenceRecords: fixture.annotatedReferences)["S1"])
+
+        XCTAssertEqual(summary.rows.map(\.allele), ["allele-A"])
+        XCTAssertEqual(summary.cdnaMatchedClusters.map(\.name), ["cluster_ReadCount-8"])
+    }
+
     func testStreamsValidatedRecordsAndPreservesKnownTieUnmatchedClosestAndCDNAOutcomes() throws {
         let fixture = try Fixture(
             references: [
@@ -59,7 +185,8 @@ final class FullLengthONTMHCFinalBAMParserTests: XCTestCase {
                         ),
                     ]
                 ),
-            ]
+            ],
+            moleculeClasses: ["allele-A": .genomicDNA]
         )
         defer { fixture.remove() }
         try fixture.writeSAM(records: [
@@ -70,7 +197,9 @@ final class FullLengthONTMHCFinalBAMParserTests: XCTestCase {
             ),
         ])
 
-        let summary = try XCTUnwrap(try fixture.parse()["S1"])
+        let summary = try XCTUnwrap(
+            try fixture.parse(referenceRecords: fixture.annotatedReferences)["S1"]
+        )
 
         XCTAssertEqual(summary.rows.map(\.allele), ["allele-A"])
         XCTAssertEqual(summary.rows.map(\.cluster), ["cluster_ReadCount-8"])
@@ -301,10 +430,12 @@ private extension FullLengthONTMHCFinalBAMParserTests {
         let samURL: URL
         let references: [(String, String)]
         let samples: [FullLengthONTMHCFinalBAMSampleContext]
+        let annotatedReferences: [MHCReferenceRecord]
 
         init(
             references: [(String, String)],
-            samples: [FullLengthONTMHCFinalBAMSampleContext]
+            samples: [FullLengthONTMHCFinalBAMSampleContext],
+            moleculeClasses: [String: MHCReferenceMoleculeClass] = [:]
         ) throws {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                 "full-length-ont-mhc-final-bam-parser-\(UUID().uuidString)",
@@ -316,9 +447,47 @@ private extension FullLengthONTMHCFinalBAMParserTests {
             self.samURL = root.appendingPathComponent("view.sam")
             self.references = references
             self.samples = samples
+            self.annotatedReferences = references.map { reference in
+                let moleculeClass = moleculeClasses[reference.0]
+                    ?? (reference.1.count < 2_000 ? .cDNA : .genomicDNA)
+                return MHCReferenceRecord(
+                    sequenceID: reference.0,
+                    alleleName: reference.0,
+                    locus: "A",
+                    moleculeClass: moleculeClass,
+                    classEvidence: moleculeClasses[reference.0] == nil
+                        ? .lengthThresholdFallback
+                        : .annotatedMetadata,
+                    sequenceLength: reference.1.count
+                )
+            }
             try references.map { ">\($0.0)\n\($0.1)\n" }
                 .joined()
                 .write(to: referenceURL, atomically: true, encoding: .utf8)
+        }
+
+        static func singleReference(
+            referenceLength: Int,
+            clusterLength: Int,
+            moleculeClass: MHCReferenceMoleculeClass
+        ) throws -> Fixture {
+            try Fixture(
+                references: [("allele-A", String(repeating: "A", count: referenceLength))],
+                samples: [
+                    .init(
+                        sampleID: "S1",
+                        readGroupID: "rg-S1",
+                        clusterRecords: [
+                            .init(
+                                name: "cluster_ReadCount-8",
+                                sequence: String(repeating: "A", count: clusterLength),
+                                readCount: 8
+                            ),
+                        ]
+                    ),
+                ],
+                moleculeClasses: ["allele-A": moleculeClass]
+            )
         }
 
         static func standard() throws -> Fixture {
@@ -372,12 +541,14 @@ private extension FullLengthONTMHCFinalBAMParserTests {
 
         func parse(
             using parser: FullLengthONTMHCFinalBAMParser = .init(),
+            referenceRecords: [MHCReferenceRecord]? = nil,
             cdnaThreshold: Int = 2_000,
             minUnmatchedReads: Int = 5
         ) throws -> [String: FullLengthONTMHCClusterGenotypingSummary] {
             try parser.genotypeSummaries(
                 samURL: samURL,
                 referenceFASTAURL: referenceURL,
+                referenceRecords: referenceRecords,
                 samples: samples,
                 cdnaThreshold: cdnaThreshold,
                 minUnmatchedReads: minUnmatchedReads
