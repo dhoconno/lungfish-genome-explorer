@@ -160,9 +160,8 @@ struct FullLengthONTMHCCandidateGenBankArtifactBuilder {
         try inputs.sorted { $0.subject.stableClusterID < $1.subject.stableClusterID }
             .compactMap { input in
                 let result = try build(from: input)
-                return input.subject.isCandidate || result.externalSequence != nil
-                    ? result.record
-                    : nil
+                guard result.externalSequence != nil else { return nil }
+                return result.record
             }
     }
 }

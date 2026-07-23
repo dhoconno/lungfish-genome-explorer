@@ -44,7 +44,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first)
+        let record = try buildRecord(input)
         let comments = record.values(forRecordField: "COMMENT")
 
         XCTAssertTrue(comments.contains { $0 == "Lungfish exon 2/3 nonsynonymous changes: CDS-NS-1, CDS-NS-2" }, comments.joined(separator: "\n"))
@@ -80,9 +80,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             minimumIntronGapBases: 20
         )
 
-        let comments = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        ).values(forRecordField: "COMMENT")
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
 
         let details = comments.filter { $0.hasPrefix("CDS-NS-") }
         XCTAssertEqual(details.count, 1, comments.joined(separator: "\n"))
@@ -117,9 +115,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             minimumIntronGapBases: 20
         )
 
-        let comments = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        ).values(forRecordField: "COMMENT")
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
 
         XCTAssertTrue(comments.contains { $0.contains("CDS-NS-1:") && $0.contains("ref 4 C>G") && $0.contains("candidate 6") && $0.contains("p.Q2E") }, comments.joined(separator: "\n"))
     }
@@ -144,9 +140,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let comments = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        ).values(forRecordField: "COMMENT")
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
         XCTAssertTrue(comments.contains { $0.hasPrefix("CDS-NS-1:") && $0.contains("ref 6 G>C") && $0.contains("ref codon CAA>GAA") && $0.contains("p.Q2E") }, comments.joined(separator: "\n"))
     }
 
@@ -171,9 +165,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let comments = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        ).values(forRecordField: "COMMENT")
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
         XCTAssertTrue(comments.contains {
             $0 == "CDS-UNRESOLVED-1: ref 4 C>G; candidate 4; exon 2; partial CDS annotation; protein effect unresolved"
         }, comments.joined(separator: "\n"))
@@ -207,9 +199,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
                 analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
             )
 
-            let comments = try XCTUnwrap(
-                FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-            ).values(forRecordField: "COMMENT")
+            let comments = try buildRecord(input).values(forRecordField: "COMMENT")
             XCTAssertTrue(comments.contains { $0.hasPrefix("CDS-NS-1:") && $0.contains(testCase.expected) }, comments.joined(separator: "\n"))
         }
     }
@@ -232,9 +222,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 3
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let record = try buildRecord(input)
         let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
         let comments = record.values(forRecordField: "COMMENT")
@@ -286,9 +274,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
                 analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
             )
 
-            let comments = try XCTUnwrap(
-                FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-            ).values(forRecordField: "COMMENT")
+            let comments = try buildRecord(input).values(forRecordField: "COMMENT")
             let details = comments.filter { $0.hasPrefix("CDS-NS-") }
 
             XCTAssertEqual(details.count, testCase.expectedDetailCount, comments.joined(separator: "\n"))
@@ -317,9 +303,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let record = try buildRecord(input)
         let comments = record.values(forRecordField: "COMMENT")
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
 
@@ -354,9 +338,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let comments = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        ).values(forRecordField: "COMMENT")
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
         for prefix in consequenceSummaryPrefixes {
             XCTAssertTrue(comments.contains { $0.hasPrefix(prefix) && $0.contains("unavailable") })
             XCTAssertFalse(comments.contains { $0.hasPrefix(prefix) && $0.contains("none detected in complete annotated region") })
@@ -381,9 +363,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let record = try buildRecord(input)
         let comments = record.values(forRecordField: "COMMENT")
         let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
         XCTAssertTrue(comments.contains { $0.hasPrefix("CDS-UNRESOLVED-1:") && $0.contains("skipped by CIGAR N") }, comments.joined(separator: "\n"))
@@ -419,9 +399,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let comments = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        ).values(forRecordField: "COMMENT")
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
 
         XCTAssertTrue(comments.contains {
             $0 == "Lungfish exon 2/3 nonsynonymous changes: none detected in complete annotated region"
@@ -452,9 +430,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let record = try buildRecord(input)
         let comments = record.values(forRecordField: "COMMENT")
 
         XCTAssertEqual(sourceTranslationStatus(record), "incomplete/unresolved")
@@ -492,9 +468,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let record = try buildRecord(input)
         let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
         let comments = record.values(forRecordField: "COMMENT")
@@ -530,9 +504,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             ),
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
-        let original = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let original = try buildRecord(input)
         let url = root.appendingPathComponent("candidate.gb")
         try GenBankWriter(url: url).write([original])
         let parsed = try XCTUnwrap(GenBankReader(url: url).readAllSync().first)
@@ -561,9 +533,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let comments = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        ).values(forRecordField: "COMMENT")
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
         XCTAssertTrue(comments.contains { $0.hasPrefix("UNCLASSIFIED-1:") && $0.contains("ref 2 C>G") && $0.contains("non-CDS exonic/UTR") }, comments.joined(separator: "\n"))
         XCTAssertFalse(comments.contains { $0.contains("candidate -") }, comments.joined(separator: "\n"))
         XCTAssertTrue(comments.contains { $0.hasPrefix("UNCLASSIFIED-1:") && $0.contains("outside cropped candidate ORIGIN") })
@@ -595,9 +565,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let record = try buildRecord(input)
         let comments = record.values(forRecordField: "COMMENT")
 
         XCTAssertEqual(record.sequence.asString(), "ATGGCTTAA")
@@ -639,9 +607,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let record = try buildRecord(input)
         let comments = record.values(forRecordField: "COMMENT")
 
         XCTAssertEqual(record.sequence.asString(), "ATGGCTTAA")
@@ -678,9 +644,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let record = try buildRecord(input)
         let comments = record.values(forRecordField: "COMMENT")
 
         XCTAssertEqual(record.sequence.asString(), candidateSequence)
@@ -716,9 +680,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let comments = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        ).values(forRecordField: "COMMENT")
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
 
         XCTAssertTrue(comments.contains {
             $0.hasPrefix("CDS-NS-1:") && $0.contains("1 bp deletion at ref 1-1")
@@ -862,6 +824,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         let comments = record.values(forRecordField: "COMMENT")
         XCTAssertTrue(comments.contains { $0.contains("partial lifted CDS") }, comments.joined(separator: "\n"))
         XCTAssertTrue(comments.contains { $0.contains("not reference-ready") }, comments.joined(separator: "\n"))
+        XCTAssertTrue(try FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).isEmpty)
     }
 
     func testCandidateWithoutLiftedCDSRemainsUntrimmedAndExplicitlyUnavailable() throws {
@@ -894,6 +857,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(source.qualifier("trim_status"), "unavailable-no-lifted-CDS")
         XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready-unavailable")
         XCTAssertTrue(record.values(forRecordField: "COMMENT").contains { $0.contains("UTR trimming unavailable") && $0.contains("no lifted CDS") })
+        XCTAssertTrue(try FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).isEmpty)
     }
 
     func testCDNAGapSplitsExonsAndRecomputesCandidateTranslation() throws {
@@ -921,7 +885,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             minimumIntronGapBases: 3
         )
 
-        let record = try XCTUnwrap(FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first)
+        let record = try buildRecord(input)
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
         let exons = record.annotations.filter { $0.type == .exon }
         let introns = record.annotations.filter { $0.type == .intron }
@@ -963,7 +927,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             minimumIntronGapBases: 50
         )
 
-        let record = try XCTUnwrap(FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first)
+        let record = try buildRecord(input)
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
 
         XCTAssertEqual(cds.intervals.map { [$0.start, $0.end] }, [[0, 9]])
@@ -1030,9 +994,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             minimumIntronGapBases: 50
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let record = try buildRecord(input)
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
 
         XCTAssertEqual(cds.qualifier("translation"), "MK")
@@ -1062,9 +1024,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             minimumIntronGapBases: 50
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let record = try buildRecord(input)
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
 
         XCTAssertNil(cds.qualifier("translation"))
@@ -1127,9 +1087,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
                 minimumIntronGapBases: 50
             )
 
-            let record = try XCTUnwrap(
-                FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-            )
+            let record = try buildRecord(input)
             let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
             XCTAssertEqual(cds.qualifier("translation"), testCase.expectedTranslation, testCase.stableID)
             XCTAssertEqual(
@@ -1162,9 +1120,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             minimumIntronGapBases: 50
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let record = try buildRecord(input)
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
 
         XCTAssertEqual(record.sequence.asString(), "ATGGCTTAA")
@@ -1420,7 +1376,11 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             referenceName: "ref",
             referenceClass: .genomicDNA
         )
-        let reference = makeReference(id: "ref", sequence: "ACGT", features: [])
+        let reference = makeReference(
+            id: "ref",
+            sequence: "ACGT",
+            features: [feature(type: "CDS", start: 0, end: 4)]
+        )
         let inputs = [second, first].map {
             FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
                 subject: .candidate($0), sequence: "ACGT",
@@ -1456,9 +1416,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let comments = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        ).values(forRecordField: "COMMENT")
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
         XCTAssertTrue(comments.contains { $0 == "Lungfish extension of: Mafa-A1*001" })
         XCTAssertTrue(comments.contains { $0.contains("selected genomic closest reference") })
         XCTAssertTrue(comments.contains { $0.contains("raw_id=ref-cdna") })
@@ -1551,6 +1509,12 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             rawGenBankLocation: rawGenBankLocation,
             qualifiers: qualifiers
         )
+    }
+
+    private func buildRecord(
+        _ input: FullLengthONTMHCCandidateGenBankArtifactBuilder.Input
+    ) throws -> GenBankRecord {
+        try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input).record
     }
 
     private func sourceTranslationStatus(_ record: GenBankRecord) -> String? {
