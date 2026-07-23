@@ -3370,7 +3370,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
           echo "missing -outfmt" >&2
           exit 2
         fi
-        printf 'final_consensus_0_depth_7_ReadCount-7\tallele1\t100.0\t8\t0\t0\t1\t8\t1\t8\t1e-20\t60\t8\t8\n'
+        printf 'final_consensus_0_depth_7_ReadCount-7\tallele1\t100.0\t1200\t0\t0\t1\t1200\t1\t1200\t1e-20\t2400\t1200\t1200\n'
         """#
         let (request, pipeline) = try makeFakeFullLengthRun(
             root: root,
@@ -3386,6 +3386,49 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(blastStep.toolVersion, "2.16.0")
         XCTAssertEqual(blastStep.exitStatus, 0)
         XCTAssertTrue(blastStep.argv.first?.hasSuffix("blastn") == true)
+
+        let rescueTSVURL = request.outputDirectory
+            .appendingPathComponent("samples/DL46/blast-rescue/DL46.unmatched-blast-rescue.tsv")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rescueTSVURL.path))
+        let rawDecisionStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-in-process:serialize-raw-unmatched-consensus-decisions"
+        })
+        let rescueInput = try XCTUnwrap(
+            rawDecisionStep.inputs.first { $0.path == rescueTSVURL.path }
+        )
+        XCTAssertEqual(
+            rescueInput.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: rescueTSVURL)
+        )
+        XCTAssertTrue(rawDecisionStep.argv.contains(rescueTSVURL.path))
+        XCTAssertEqual(
+            rawDecisionStep.resolvedOptions["blastRescueTSVCount"],
+            .integer(1)
+        )
+        XCTAssertEqual(
+            rawDecisionStep.resolvedOptions["blastRescueMinimumAlignedBases"],
+            .integer(FullLengthONTMHCBlastRescueMatch.minimumAlignedBases)
+        )
+
+        let decisionDocument = try JSONDecoder().decode(
+            FullLengthONTMHCRawUnmatchedDecisionDocument.self,
+            from: Data(contentsOf: request.rawUnmatchedConsensusDecisionsJSONURL)
+        )
+        let rescuedRow = try XCTUnwrap(decisionDocument.rows.first {
+            $0.rescueMatch != nil
+        })
+        let replayedMatches = try FullLengthONTMHCBlastRescueParser.acceptedMatches(
+            sample: rescuedRow.sample,
+            recordsByCluster: [
+                rescuedRow.cluster: FullLengthONTMHCClusterFASTARecord(
+                    name: rescuedRow.cluster,
+                    sequence: rescuedRow.rawSequence,
+                    readCount: rescuedRow.clusterReads
+                ),
+            ],
+            tsv: String(contentsOf: rescueTSVURL, encoding: .utf8)
+        )
+        XCTAssertEqual(replayedMatches, [try XCTUnwrap(rescuedRow.rescueMatch)])
     }
 
     func testRunHandlesSavontPanicDuringHiddenFallbackAsSampleNoCall() async throws {

@@ -1329,6 +1329,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             rescueDirectory: blastRescueDirectory
         )
         var rescueBySampleCluster: [String: FullLengthONTMHCBlastRescueMatch] = [:]
+        var blastRescueTSVURLs: [URL] = []
         for result in authoritativeResults {
             let closestClusters = Set(result.closestMatches.map(\.cluster))
             let rescueCandidates = result.unmatchedClusters.filter { !closestClusters.contains($0.name) }
@@ -1342,6 +1343,14 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 sampleDirectory: sampleDirectory,
                 steps: &pipelineSteps
             )
+            if !rescueCandidates.isEmpty {
+                blastRescueTSVURLs.append(
+                    blastRescueTSVURL(
+                        sample: result.sample,
+                        sampleDirectory: sampleDirectory
+                    )
+                )
+            }
             for match in rescueMatches {
                 rescueBySampleCluster[sampleClusterKey(sample: match.sample, cluster: match.cluster)] = match
             }
@@ -1376,12 +1385,17 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             options: .atomic
         )
         let rawDecisionSerializationCompletedAt = Date()
+        let orderedClusterFASTAURLs = authoritativeResults
+            .map(\.clustersFASTAURL)
+            .sorted { $0.standardizedFileURL.path < $1.standardizedFileURL.path }
+        let orderedBlastRescueTSVURLs = blastRescueTSVURLs
+            .sorted { $0.standardizedFileURL.path < $1.standardizedFileURL.path }
         let rawDecisionInputs = [
             cohortAlignmentResult.bamURL,
             cohortAlignmentResult.baiURL,
             referenceFASTAURL,
             referenceCatalogProjectionURL,
-        ] + authoritativeResults.map(\.clustersFASTAURL)
+        ] + orderedClusterFASTAURLs + orderedBlastRescueTSVURLs
         var rawDecisionArgv = [
             "lungfish-in-process", "serialize-raw-unmatched-consensus-decisions",
             "--genotyping-bam", cohortAlignmentResult.bamURL.path,
@@ -1389,8 +1403,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "--reference-fasta", referenceFASTAURL.path,
             "--reference-catalog", referenceCatalogProjectionURL.path,
         ]
-        for inputURL in authoritativeResults.map(\.clustersFASTAURL) {
+        for inputURL in orderedClusterFASTAURLs {
             rawDecisionArgv += ["--cluster-fasta", inputURL.path]
+        }
+        for inputURL in orderedBlastRescueTSVURLs {
+            rawDecisionArgv += ["--blast-rescue-tsv", inputURL.path]
         }
         rawDecisionArgv += [
             "--output", request.rawUnmatchedConsensusDecisionsJSONURL.path,
@@ -1409,8 +1426,25 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 ]),
                 "orientationRule": .string("raw cohort strand XOR full-candidate reverse-complement"),
                 "trimRule": .string("mapped interval is metadata; complete oriented consensus defines candidate identity"),
-                "closestMatchRule": .string("persist selected minimap2 or BLAST closest-match evidence with every row"),
+                "closestMatchRule": .string("persist selected minimap2 evidence from the cohort BAM or BLAST evidence from checksum-bound per-sample TSVs with every row"),
                 "orderingRule": .string("sample, source cluster, candidate sequence, cluster read count"),
+                "blastRescueTSVCount": .integer(orderedBlastRescueTSVURLs.count),
+                "blastRescueTSVOrderingRule": .string("standardized absolute path, bytewise ascending"),
+                "blastRescueMinimumQueryCoveragePercent": .number(
+                    FullLengthONTMHCBlastRescueMatch.minimumQueryCoverage
+                ),
+                "blastRescueMinimumAlignedBases": .integer(
+                    FullLengthONTMHCBlastRescueMatch.minimumAlignedBases
+                ),
+                "blastRescueMinimumPercentIdentity": .number(
+                    FullLengthONTMHCBlastRescueMatch.minimumPercentIdentity
+                ),
+                "blastRescueMaximumEValue": .number(
+                    FullLengthONTMHCBlastRescueMatch.maximumEValue
+                ),
+                "blastRescueSelectionRule": .string(
+                    "lowest e-value, highest bit score, query coverage, percent identity, aligned bases, then closest reference"
+                ),
             ],
             inputs: rawDecisionInputs,
             outputs: [request.rawUnmatchedConsensusDecisionsJSONURL],
@@ -4147,7 +4181,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let rescueDirectory = sampleDirectory.appendingPathComponent("blast-rescue", isDirectory: true)
         try FileManager.default.createDirectory(at: rescueDirectory, withIntermediateDirectories: true)
         let queryURL = rescueDirectory.appendingPathComponent("\(sample).unmatched-no-closest.fasta")
-        let tsvURL = rescueDirectory.appendingPathComponent("\(sample).unmatched-blast-rescue.tsv")
+        let tsvURL = blastRescueTSVURL(
+            sample: sample,
+            sampleDirectory: sampleDirectory
+        )
         try writeFASTARecords(records, to: queryURL)
         let outfmt = [
             "6",
@@ -4207,6 +4244,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             recordsByCluster: Dictionary(uniqueKeysWithValues: records.map { ($0.name, $0) }),
             tsv: tsv
         )
+    }
+
+    private func blastRescueTSVURL(sample: String, sampleDirectory: URL) -> URL {
+        sampleDirectory
+            .appendingPathComponent("blast-rescue", isDirectory: true)
+            .appendingPathComponent("\(sample).unmatched-blast-rescue.tsv")
     }
 
     private func writeFASTARecords(
