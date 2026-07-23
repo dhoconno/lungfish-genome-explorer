@@ -410,7 +410,11 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
         knownAlleleDisplayNames: [String: String] = [:]
     ) throws -> [FullLengthONTMHCNormalizedUnmatchedRow] {
         let candidateArtifacts = try Self.unmatchedArtifacts(
-            expectedStableIDs: Set(candidateRows.map(\.stableClusterID)),
+            artifactIDByStableID: Dictionary(
+                uniqueKeysWithValues: candidateRows.map {
+                    ($0.stableClusterID, $0.fastaRecordID)
+                }
+            ),
             documentSequenceSHA256ByStableID: Dictionary(
                 uniqueKeysWithValues: candidateRows.map { ($0.stableClusterID, $0.sequenceSHA256) }
             ),
@@ -428,7 +432,11 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             return !row.fastaRecordID.isEmpty
         }
         let unnameableArtifacts = try Self.unmatchedArtifacts(
-            expectedStableIDs: Set(exportableUnnameableRows.map(\.stableClusterID)),
+            artifactIDByStableID: Dictionary(
+                uniqueKeysWithValues: exportableUnnameableRows.map {
+                    ($0.stableClusterID, $0.fastaRecordID)
+                }
+            ),
             documentSequenceSHA256ByStableID: Dictionary(
                 uniqueKeysWithValues: exportableUnnameableRows.map {
                     ($0.stableClusterID, $0.sequenceSHA256)
@@ -492,12 +500,6 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                     status: .incompleteUnresolved
                 )
             } else {
-                guard row.fastaRecordID == row.stableClusterID else {
-                    throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
-                        stableClusterID: row.stableClusterID,
-                        detail: "document FASTA record ID is \(row.fastaRecordID)"
-                    )
-                }
                 artifact = unnameableArtifacts[row.stableClusterID]!
             }
             let deterministicSummaryReference = row.reciprocalHitSummary.closestMatchTargetNames.count == 1
@@ -743,15 +745,16 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
     }
 
     private static func unmatchedArtifacts(
-        expectedStableIDs: Set<String>,
+        artifactIDByStableID: [String: String],
         documentSequenceSHA256ByStableID: [String: String],
         fastaRecords: [FullLengthONTMHCClusterFASTARecord],
         genBankRecords: [GenBankRecord],
         category: FullLengthONTMHCUnmatchedRecordCategory
     ) throws -> [String: UnmatchedArtifact] {
+        let expectedArtifactIDs = Set(artifactIDByStableID.values)
         var fastaByID: [String: FullLengthONTMHCClusterFASTARecord] = [:]
         for record in fastaRecords {
-            guard expectedStableIDs.contains(record.name) else {
+            guard expectedArtifactIDs.contains(record.name) else {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
                     stableClusterID: record.name,
                     detail: "unexpected \(category.rawValue) FASTA record"
@@ -770,7 +773,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             let stableID = sourceFeatures.count == 1
                 ? sourceFeatures[0].qualifier("stable_cluster_id") ?? record.sequence.name
                 : record.sequence.name
-            guard expectedStableIDs.contains(stableID) else {
+            guard expectedArtifactIDs.contains(stableID) else {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
                     stableClusterID: stableID,
                     detail: "unexpected \(category.rawValue) GenBank record"
@@ -785,14 +788,14 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
         }
 
         var result: [String: UnmatchedArtifact] = [:]
-        for stableID in expectedStableIDs {
-            guard let fasta = fastaByID[stableID] else {
+        for (stableID, artifactID) in artifactIDByStableID {
+            guard let fasta = fastaByID[artifactID] else {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
                     stableClusterID: stableID,
                     detail: "missing \(category.rawValue) FASTA record"
                 )
             }
-            guard let genBank = genBankByID[stableID] else {
+            guard let genBank = genBankByID[artifactID] else {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
                     stableClusterID: stableID,
                     detail: "missing \(category.rawValue) GenBank record"
@@ -809,14 +812,14 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                     detail: "document sequence SHA-256 does not match the FASTA sequence"
                 )
             }
-            if let accession = genBank.accession, accession != stableID {
+            if let accession = genBank.accession, accession != artifactID {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
                     stableClusterID: stableID,
                     detail: "GenBank accession is \(accession)"
                 )
             }
-            guard genBank.locus.name == stableID
-                || (genBank.locus.name.count >= 16 && stableID.hasPrefix(genBank.locus.name)) else {
+            guard genBank.locus.name == artifactID
+                || (genBank.locus.name.count >= 16 && artifactID.hasPrefix(genBank.locus.name)) else {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
                     stableClusterID: stableID,
                     detail: "GenBank locus is \(genBank.locus.name)"
@@ -824,7 +827,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             }
             let sourceFeatures = genBank.annotations.filter { $0.type == .source }
             guard sourceFeatures.count == 1,
-                  sourceFeatures[0].qualifier("stable_cluster_id") == stableID else {
+                  sourceFeatures[0].qualifier("stable_cluster_id") == artifactID else {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
                     stableClusterID: stableID,
                     detail: "GenBank source stable_cluster_id is missing or inconsistent"

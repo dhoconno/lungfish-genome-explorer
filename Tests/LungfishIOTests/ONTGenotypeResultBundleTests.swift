@@ -895,6 +895,69 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
     }
 
+    func testSchemaV4RejectsDuplicateRawUnnameableOwnersWithoutExternalIdentity() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 4,
+            unnameableSchemaVersion: 4,
+            unnameableHasExternalSequence: false
+        )
+        defer { fixture.remove() }
+        let data = try Data(contentsOf: fixture.unnameableJSONURL)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var clusters = try XCTUnwrap(object["clusters"] as? [[String: Any]])
+        clusters.append(try XCTUnwrap(clusters.first))
+        object["clusters"] = clusters
+        try fixture.replaceUnnameableJSON(try JSONSerialization.data(withJSONObject: object))
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertNil(result.mhcUnnameableClusters)
+        XCTAssertEqual(
+            result.integrityWarnings.first?.code,
+            .candidateArtifactDocumentReferenceMismatch
+        )
+    }
+
+    func testSchemaV4RejectsCandidateAndUnnameableRawSourceCollision() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 4,
+            unnameableSchemaVersion: 4,
+            candidateID: "canonical-a",
+            candidateSourceSequenceClusterIDs: ["raw-shared"],
+            candidateRepresentativeSourceSequenceClusterID: "raw-shared",
+            candidateObservationSourceSequenceClusterID: "raw-shared"
+        )
+        defer { fixture.remove() }
+        let data = try Data(contentsOf: fixture.unnameableJSONURL)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var clusters = try XCTUnwrap(object["clusters"] as? [[String: Any]])
+        clusters[0]["stable_cluster_id"] = "raw-shared"
+        var reciprocalSummary = try XCTUnwrap(
+            clusters[0]["reciprocal_hit_summary"] as? [String: Any]
+        )
+        reciprocalSummary["query_name"] = "raw-shared"
+        clusters[0]["reciprocal_hit_summary"] = reciprocalSummary
+        if var selectedEvidence = clusters[0]["selected_evidence"] as? [String: Any] {
+            selectedEvidence["query_name"] = "raw-shared"
+            clusters[0]["selected_evidence"] = selectedEvidence
+        }
+        object["clusters"] = clusters
+        var observations = try XCTUnwrap(object["observations"] as? [[String: Any]])
+        observations[0]["stable_cluster_id"] = "raw-shared"
+        observations[0]["source_sequence_cluster_id"] = "raw-shared"
+        object["observations"] = observations
+        try fixture.replaceUnnameableJSON(try JSONSerialization.data(withJSONObject: object))
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertNil(result.mhcCandidates)
+        XCTAssertNil(result.mhcUnnameableClusters)
+        XCTAssertEqual(
+            result.integrityWarnings.first?.code,
+            .candidateArtifactDocumentReferenceMismatch
+        )
+    }
+
     func testSchemaV4UnnameableFASTAContainsExactlyExportableRecordsAndRejectsHalfIdentity() throws {
         let fixture = try CandidateBundleFixture(
             candidateSchemaVersion: 4,

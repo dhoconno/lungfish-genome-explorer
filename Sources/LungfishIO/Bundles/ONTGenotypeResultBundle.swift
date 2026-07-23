@@ -2238,6 +2238,13 @@ public enum ONTGenotypeResultBundle {
                         documentPath: jsonReference.path
                     )
                 }
+                if candidates == nil || candidates?.schemaVersion == document.schemaVersion {
+                    try validateGlobalRawSourceOwnership(
+                        candidates: candidates,
+                        unnameable: document,
+                        documentPath: jsonReference.path
+                    )
+                }
                 let exportableUnnameableIDs = Set(document.clusters.compactMap(\.fastaRecordID))
                 var parser = StreamingFASTAParser(
                     path: fastaReference.path,
@@ -2687,21 +2694,11 @@ public enum ONTGenotypeResultBundle {
         reciprocalBAMPath: String?,
         documentPath: String
     ) throws {
-        if document.schemaVersion >= 4 {
-            var canonicalOwnerByRawSourceID: [String: String] = [:]
-            for record in document.candidates {
-                for rawSourceID in record.sourceSequenceClusterIDs {
-                    if let existingOwner = canonicalOwnerByRawSourceID[rawSourceID],
-                       existingOwner != record.stableClusterID {
-                        throw compactBindingFailure(
-                            "Raw source sequence '\(rawSourceID)' is owned by multiple canonical candidates.",
-                            path: documentPath
-                        )
-                    }
-                    canonicalOwnerByRawSourceID[rawSourceID] = record.stableClusterID
-                }
-            }
-        }
+        try validateGlobalRawSourceOwnership(
+            candidates: document,
+            unnameable: nil,
+            documentPath: documentPath
+        )
         for record in document.candidates {
             let summary = record.reciprocalHitSummary
             let expectedQueryName = document.schemaVersion >= 4
@@ -2785,6 +2782,38 @@ public enum ONTGenotypeResultBundle {
             genotypingBAMPath: genotypingBAMPath,
             documentPath: documentPath
         )
+    }
+
+    private static func validateGlobalRawSourceOwnership(
+        candidates: ONTMHCCandidateAllelesDocument?,
+        unnameable: ONTMHCUnnameableClustersDocument?,
+        documentPath: String
+    ) throws {
+        guard candidates?.schemaVersion == 4 || unnameable?.schemaVersion == 4 else { return }
+        var ownerByRawSourceID: [String: String] = [:]
+        for record in candidates?.candidates ?? [] {
+            let owner = "candidate:\(record.stableClusterID)"
+            for rawSourceID in record.sourceSequenceClusterIDs {
+                if let existingOwner = ownerByRawSourceID[rawSourceID],
+                   existingOwner != owner {
+                    throw compactBindingFailure(
+                        "Raw source sequence '\(rawSourceID)' is owned by multiple candidate records.",
+                        path: documentPath
+                    )
+                }
+                ownerByRawSourceID[rawSourceID] = owner
+            }
+        }
+        for record in unnameable?.clusters ?? [] {
+            let rawSourceID = record.stableClusterID
+            if ownerByRawSourceID[rawSourceID] != nil {
+                throw compactBindingFailure(
+                    "Raw source sequence '\(rawSourceID)' is owned by multiple candidate or un-nameable records.",
+                    path: documentPath
+                )
+            }
+            ownerByRawSourceID[rawSourceID] = "unnameable:\(record.stableClusterID)"
+        }
     }
 
     private static func validateCompactObservations(
