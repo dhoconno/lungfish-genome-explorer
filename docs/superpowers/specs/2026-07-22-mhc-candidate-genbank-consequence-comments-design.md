@@ -19,7 +19,7 @@ The record preserves two independently verifiable identities:
 
 If no lifted CDS exists, trimming is unavailable. The record remains present and explicitly states that it is not reference-ready because CDS/UTR boundaries could not be resolved. Partial lifted CDS records are cropped to their observed lifted CDS span but retain `incomplete/unresolved` translation status and an explicit partial/reference-readiness warning; trimming must never upgrade their biological completeness.
 
-The current two-sheet workbook validator accepts both the new verifiable cropped candidate GenBank contract and older exact FASTA/GenBank records. It continues requiring exact FASTA/GenBank equality for un-nameable records. The workbook nucleotide sequence column continues to use the full candidate FASTA sequence.
+The current two-sheet workbook validator accepts both the new verifiable cropped candidate GenBank contract and older exact FASTA/GenBank records. It continues requiring exact FASTA/GenBank equality for un-nameable records.
 
 The current `Unmatched Alleles` sheet exposes both identities explicitly. `Full-Length FASTA Sequence` contains the original cluster FASTA sequence. `UTR-Trimmed FASTA Sequence` contains the verified candidate GenBank `ORIGIN`; for older exact FASTA/GenBank candidate records both columns contain the same sequence. Un-nameable rows retain the full sequence and leave the trimmed column blank. Explicit `Update current.xlsx` uses the same two columns and values.
 
@@ -83,7 +83,7 @@ The candidate and un-nameable GenBank render provenance records:
 - one-based reference/candidate/CDS/exon/intron/amino-acid coordinate convention;
 - grouped same-codon substitution and strand/codon-start/translation-table rules;
 - ordinary coding-indel frame rule;
-- cDNA intron-fill exclusion from CDS changes; and
+- cDNA intron-fill exclusion from CDS changes;
 - unresolved-never-coerced ambiguity policy; and
 - candidate UTR trimming to the outer lifted-CDS span, including the original/full and cropped sequence identities.
 
