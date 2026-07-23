@@ -189,6 +189,9 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         let referenceToOrientedQuery: [Int: Int]
         let insertions: [Insertion]
         let changes: FullLengthONTMHCCandidateChangeProjection
+        let leadingTerminalRescuedBases: Int
+        let trailingTerminalRescuedBases: Int
+        let terminalRescuedSubstitutions: Int
         let queryLength: Int
         let isReverse: Bool
         let minimumIntronGapBases: Int
@@ -275,6 +278,10 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         var comments = baseComments(input)
         var translationStatus = FullLengthONTMHCTranslationStatus.incompleteUnresolved
         var liftedCDSTrimRange: Range<Int>?
+        var substitutionCount = 0
+        var comparableBases = 0
+        var identity = 0.0
+        var shorterCoverage = 0.0
 
         if let evidence = input.subject.selectedEvidence,
            let isReverse = input.selectedAlignmentIsReverse,
@@ -282,6 +289,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             guard evidence.referenceName == reference.rawReferenceID else {
                 throw Error.invalidInput(stableClusterID: stableID, detail: "selected reference does not match the visualization record")
             }
+            let terminalCDSIntervals = terminalCDSIntervals(reference.features)
             let projection = try makeProjection(
                 stableID: stableID,
                 cigar: evidence.cigar,
@@ -290,9 +298,46 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 referenceSequence: reference.sequence,
                 isReverse: isReverse,
                 minimumIntronGapBases: input.minimumIntronGapBases,
+                terminalCDSIntervals: terminalCDSIntervals,
                 excludeLongInsertionsAsIntronFills: !input.subject.isCandidate
                     || input.subject.isCDNAReference
             )
+            let canonicalReferenceRange = terminalCDSIntervals.map {
+                $0.leading.lowerBound..<$0.trailing.upperBound
+            }
+            substitutionCount = projection.changes.events.reduce(into: 0) { count, event in
+                guard case let .substitution(referencePosition, _, _, _) = event else {
+                    return
+                }
+                if canonicalReferenceRange?.contains(referencePosition) ?? true {
+                    count += 1
+                }
+            }
+            comparableBases = projection.referenceToOrientedQuery.keys.reduce(into: 0) {
+                count, referencePosition in
+                if canonicalReferenceRange?.contains(referencePosition) ?? true {
+                    count += 1
+                }
+            }
+            identity = comparableBases > 0
+                ? Double(comparableBases - substitutionCount) / Double(comparableBases)
+                : 0
+            if projection.leadingTerminalRescuedBases > 0
+                || projection.trailingTerminalRescuedBases > 0 {
+                comments.append(
+                    "Lungfish terminal local-clipping rescue: leading reference bases="
+                        + String(projection.leadingTerminalRescuedBases)
+                        + "; trailing reference bases="
+                        + String(projection.trailingTerminalRescuedBases)
+                        + "; rescued substitutions="
+                        + String(projection.terminalRescuedSubstitutions)
+                        + "; eligibility=single terminal CDS interval, canonical A/C/G/T, missing bases < "
+                        + String(input.minimumIntronGapBases)
+                        + ", mismatches <= max(1,floor(0.20*missing bases))"
+                        + "; rescue mode=substitution-only (no indel inference)"
+                        + "; selected POS/CIGAR/NM/AS evidence retained unchanged"
+                )
+            }
             let lifted = liftFeatures(
                 reference.features,
                 projection: projection,
@@ -307,6 +352,13 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             if let cds = lifted.annotations.first(where: { $0.type == .cds }) {
                 liftedCDSTrimRange = cds.start..<cds.end
             }
+            let canonicalCandidateLength = liftedCDSTrimRange?.count ?? sequence.count
+            let canonicalReferenceLength = canonicalReferenceRange?.count
+                ?? reference.sequence.count
+            let shorterLength = min(canonicalCandidateLength, canonicalReferenceLength)
+            shorterCoverage = shorterLength > 0
+                ? min(1, Double(comparableBases) / Double(shorterLength))
+                : 0
             if input.subject.isCDNAReference,
                let cds = lifted.annotations.first(where: { $0.type == .cds }),
                let sourceCDS = reference.features.first(where: {
@@ -511,7 +563,11 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             externalSequence: externalSequence,
             trimRange: liftedCDSTrimRange,
             translationStatus: translationStatus,
-            referenceReadiness: referenceReadiness
+            referenceReadiness: referenceReadiness,
+            substitutionCount: substitutionCount,
+            comparableBases: comparableBases,
+            identity: identity,
+            shorterCoverage: shorterCoverage
         )
     }
 
@@ -604,6 +660,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         referenceSequence: String,
         isReverse: Bool,
         minimumIntronGapBases: Int,
+        terminalCDSIntervals: (leading: Range<Int>, trailing: Range<Int>)?,
         excludeLongInsertionsAsIntronFills: Bool
     ) throws -> Projection {
         guard referenceStart > 0 else { throw Error.alignmentOutOfBounds(stableClusterID: stableID) }
@@ -615,12 +672,20 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         let queryLength = queryBases.count
         let referenceLength = referenceBases.count
         var referenceCursor = referenceStart - 1
+        let initialReferenceCursor = referenceCursor
         var queryCursor = 0
         var digits = ""
         var mapping: [Int: Int] = [:]
         var insertions: [Insertion] = []
         var events: [FullLengthONTMHCCandidateChangeProjection.Event] = []
         var assessedReferencePositions = Set<Int>()
+        struct ParsedOperation {
+            let length: Int
+            let operation: Character
+            let queryStart: Int
+            let referenceStart: Int
+        }
+        var operations: [ParsedOperation] = []
         for character in cigar {
             if character.isNumber {
                 digits.append(character)
@@ -630,6 +695,12 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 throw Error.invalidCIGAR(stableClusterID: stableID, cigar: cigar)
             }
             digits = ""
+            operations.append(.init(
+                length: length,
+                operation: character,
+                queryStart: queryCursor,
+                referenceStart: referenceCursor
+            ))
             switch character {
             case "M", "=", "X":
                 guard queryCursor + length <= queryLength, referenceCursor + length <= referenceLength else {
@@ -697,6 +768,113 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         guard digits.isEmpty, !mapping.isEmpty else {
             throw Error.invalidCIGAR(stableClusterID: stableID, cigar: cigar)
         }
+        var leadingTerminalRescuedBases = 0
+        var trailingTerminalRescuedBases = 0
+        var terminalRescuedSubstitutions = 0
+        let alignedOperations: Set<Character> = ["M", "=", "X"]
+        let canonicalBases: Set<Character> = ["A", "C", "G", "T"]
+        func eligibleMismatchCount(
+            referenceRange: Range<Int>,
+            queryRange: Range<Int>
+        ) -> Int? {
+            guard referenceRange.count == queryRange.count,
+                  referenceRange.count > 0,
+                  referenceRange.count < minimumIntronGapBases,
+                  referenceRange.lowerBound >= 0,
+                  referenceRange.upperBound <= referenceBases.count,
+                  queryRange.lowerBound >= 0,
+                  queryRange.upperBound <= queryBases.count else {
+                return nil
+            }
+            let referenceSlice = referenceBases[referenceRange]
+            let querySlice = queryBases[queryRange]
+            guard referenceSlice.allSatisfy(canonicalBases.contains),
+                  querySlice.allSatisfy(canonicalBases.contains) else {
+                return nil
+            }
+            let mismatches = zip(referenceSlice, querySlice).reduce(into: 0) {
+                if $1.0 != $1.1 {
+                    $0 += 1
+                }
+            }
+            let allowedMismatches = max(
+                1,
+                Int(floor(0.20 * Double(referenceRange.count)))
+            )
+            return mismatches <= allowedMismatches ? mismatches : nil
+        }
+        if let leadingCDS = terminalCDSIntervals?.leading,
+           initialReferenceCursor > leadingCDS.lowerBound,
+           initialReferenceCursor <= leadingCDS.upperBound,
+           operations.count >= 2,
+           let softClip = operations.first,
+           softClip.operation == "S",
+           alignedOperations.contains(operations[1].operation),
+           operations[1].queryStart == softClip.queryStart + softClip.length,
+           operations[1].referenceStart == initialReferenceCursor {
+            let referenceRange = leadingCDS.lowerBound..<initialReferenceCursor
+            let missingLength = referenceRange.count
+            let queryStart = softClip.queryStart + softClip.length - missingLength
+            let queryRange = queryStart..<(queryStart + missingLength)
+            if softClip.length >= missingLength,
+               let rescuedMismatches = eligibleMismatchCount(
+                   referenceRange: referenceRange,
+                   queryRange: queryRange
+               ) {
+                for offset in 0..<missingLength {
+                    let referencePosition = referenceRange.lowerBound + offset
+                    let queryPosition = queryStart + offset
+                    mapping[referencePosition] = queryPosition
+                    assessedReferencePositions.insert(referencePosition)
+                    if referenceBases[referencePosition] != queryBases[queryPosition] {
+                        events.append(.substitution(
+                            referencePosition: referencePosition,
+                            orientedQueryPosition: queryPosition,
+                            referenceBase: referenceBases[referencePosition],
+                            alternateBase: queryBases[queryPosition]
+                        ))
+                    }
+                }
+                leadingTerminalRescuedBases = missingLength
+                terminalRescuedSubstitutions += rescuedMismatches
+            }
+        }
+        if let trailingCDS = terminalCDSIntervals?.trailing,
+           referenceCursor >= trailingCDS.lowerBound,
+           referenceCursor < trailingCDS.upperBound,
+           operations.count >= 2,
+           let softClip = operations.last,
+           softClip.operation == "S",
+           alignedOperations.contains(operations[operations.count - 2].operation),
+           operations[operations.count - 2].queryStart
+                + operations[operations.count - 2].length == softClip.queryStart,
+           softClip.referenceStart == referenceCursor {
+            let referenceRange = referenceCursor..<trailingCDS.upperBound
+            let missingLength = referenceRange.count
+            let queryRange = softClip.queryStart..<(softClip.queryStart + missingLength)
+            if softClip.length >= missingLength,
+               let rescuedMismatches = eligibleMismatchCount(
+                   referenceRange: referenceRange,
+                   queryRange: queryRange
+               ) {
+                for offset in 0..<missingLength {
+                    let referencePosition = referenceCursor + offset
+                    let queryPosition = softClip.queryStart + offset
+                    mapping[referencePosition] = queryPosition
+                    assessedReferencePositions.insert(referencePosition)
+                    if referenceBases[referencePosition] != queryBases[queryPosition] {
+                        events.append(.substitution(
+                            referencePosition: referencePosition,
+                            orientedQueryPosition: queryPosition,
+                            referenceBase: referenceBases[referencePosition],
+                            alternateBase: queryBases[queryPosition]
+                        ))
+                    }
+                }
+                trailingTerminalRescuedBases = missingLength
+                terminalRescuedSubstitutions += rescuedMismatches
+            }
+        }
         return Projection(
             referenceToOrientedQuery: mapping,
             insertions: insertions,
@@ -706,11 +884,44 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 queryLength: queryLength,
                 isReverse: isReverse
             ),
+            leadingTerminalRescuedBases: leadingTerminalRescuedBases,
+            trailingTerminalRescuedBases: trailingTerminalRescuedBases,
+            terminalRescuedSubstitutions: terminalRescuedSubstitutions,
             queryLength: queryLength,
             isReverse: isReverse,
             minimumIntronGapBases: minimumIntronGapBases,
             excludeLongInsertionsAsIntronFills: excludeLongInsertionsAsIntronFills
         )
+    }
+
+    func terminalCDSIntervals(
+        _ features: [ONTMHCReferenceVisualizationFeature]
+    ) -> (leading: Range<Int>, trailing: Range<Int>)? {
+        let groups = Dictionary(grouping: features.filter {
+            AnnotationType.from(rawString: $0.type) == .cds
+        }) {
+            "\($0.sourceOrdinal)\u{0}\($0.strand)\u{0}\($0.rawGenBankLocation ?? "")"
+        }
+        guard groups.count == 1,
+              let group = groups.values.first else {
+            return nil
+        }
+        let intervals: [Range<Int>] = group.map { feature in
+            Range(uncheckedBounds: (lower: feature.start, upper: feature.end))
+        }
+        let sortedIntervals = intervals.sorted { lhs, rhs in
+            if lhs.lowerBound != rhs.lowerBound {
+                return lhs.lowerBound < rhs.lowerBound
+            }
+            return lhs.upperBound < rhs.upperBound
+        }
+        guard let leading = sortedIntervals.first,
+              let trailing = sortedIntervals.last,
+              leading.lowerBound < leading.upperBound,
+              trailing.lowerBound < trailing.upperBound else {
+            return nil
+        }
+        return (leading, trailing)
     }
 
     func liftFeatures(

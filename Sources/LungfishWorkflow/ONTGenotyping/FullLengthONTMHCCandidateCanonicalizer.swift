@@ -15,6 +15,10 @@ struct FullLengthONTMHCCandidateCanonicalization: Sendable {
     let trimRange: Range<Int>?
     let translationStatus: FullLengthONTMHCTranslationStatus
     let referenceReadiness: FullLengthONTMHCReferenceReadiness
+    let substitutionCount: Int
+    let comparableBases: Int
+    let identity: Double
+    let shorterCoverage: Double
 }
 
 struct FullLengthONTMHCCandidateCanonicalizer {
@@ -114,23 +118,30 @@ struct FullLengthONTMHCCandidateCanonicalizer {
                 representative: representative.record.extensionInterpretations
             )
             let source = representative.record
+            let canonicalSubstitutionCount = representative.canonicalization.substitutionCount
+            let canonicalProvisionalName = provisionalName(
+                for: representative,
+                substitutionCount: canonicalSubstitutionCount
+            )
             let record = ONTMHCCandidateRecord(
                 stableClusterID: canonicalID,
                 sourceSequenceClusterIDs: rawIDs,
                 representativeSourceSequenceClusterID: source.stableClusterID,
-                provisionalName: source.provisionalName,
+                provisionalName: canonicalProvisionalName,
                 locus: source.locus,
                 classification: source.classification,
                 supportClass: sampleIDs.count >= 2 ? .shared : .singleton,
                 closestReferenceName: source.closestReferenceName,
                 closestReferenceClass: source.closestReferenceClass,
-                snpCount: source.snpCount,
+                snpCount: source.classification == .novel
+                    ? canonicalSubstitutionCount
+                    : source.snpCount,
                 insertedBases: source.insertedBases,
                 deletedBases: source.deletedBases,
                 longGapBases: source.longGapBases,
-                comparableBases: source.comparableBases,
-                shorterCoverage: source.shorterCoverage,
-                identity: source.identity,
+                comparableBases: representative.canonicalization.comparableBases,
+                shorterCoverage: representative.canonicalization.shorterCoverage,
+                identity: representative.canonicalization.identity,
                 mappingQuality: source.mappingQuality,
                 alignmentScore: source.alignmentScore,
                 independentSampleCount: sampleIDs.count,
@@ -158,17 +169,38 @@ struct FullLengthONTMHCCandidateCanonicalizer {
 
     private func mergeKey(_ input: Input, sequence: String) -> CandidateMergeKey {
         let record = input.record
+        let substitutionCount = input.canonicalization.substitutionCount
         return CandidateMergeKey(
             sequence: sequence,
             classification: record.classification.rawValue,
             locus: record.locus,
-            provisionalName: record.provisionalName,
+            provisionalName: provisionalName(
+                for: input,
+                substitutionCount: substitutionCount
+            ),
             closestReferenceName: record.closestReferenceName,
             closestReferenceRawID: record.selectedEvidence.referenceName,
             closestReferenceClass: record.closestReferenceClass.rawValue,
             extensionOf: record.extensionOf.sorted(),
             provisionalNamingAmbiguous: record.provisionalNamingAmbiguous
         )
+    }
+
+    private func provisionalName(
+        for input: Input,
+        substitutionCount: Int
+    ) -> String {
+        guard input.record.classification == .novel else {
+            return input.record.provisionalName
+        }
+        let expectedRawName = "\(input.record.closestReferenceName)_\(input.record.snpCount)nt_nov"
+        guard input.record.provisionalName == expectedRawName else {
+            // Only the substitution count is canonicalized. Preserve any other
+            // provisional-name disagreement so merge validation still rejects
+            // conflicting biological interpretations.
+            return input.record.provisionalName
+        }
+        return "\(input.record.closestReferenceName)_\(substitutionCount)nt_nov"
     }
 
     private func representativeLessThan(_ lhs: Input, _ rhs: Input) -> Bool {

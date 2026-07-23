@@ -789,6 +789,303 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(record.annotations.first(where: { $0.type == .cds })?.intervals.map { [$0.start, $0.end] }, [[0, 9]])
     }
 
+    func testLeadingTerminalSoftClipRescuesCompleteCDSAndCountsTerminalSNP() throws {
+        let referenceSequence = "GGGATGCCAAAT"
+        let candidateSequence = "GGATGCGAAATTT"
+        let candidate = try makeCandidate(
+            stableID: "candidate-leading-terminal-rescue",
+            sequenceSHA256: sha256Hex(candidateSequence),
+            cigar: "7S4=2S",
+            referenceName: "ref-leading-terminal-rescue",
+            referenceClass: .genomicDNA,
+            referenceStart: 9
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate),
+            sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-leading-terminal-rescue",
+                sequence: referenceSequence,
+                features: [feature(type: "CDS", start: 3, end: referenceSequence.count)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+
+        XCTAssertEqual(result.externalSequence, "ATGCGAAAT")
+        XCTAssertEqual(result.trimRange, 2..<11)
+        XCTAssertEqual(result.referenceReadiness, .referenceReady)
+        XCTAssertEqual(result.substitutionCount, 1)
+        XCTAssertEqual(result.comparableBases, 9)
+        XCTAssertEqual(result.identity, 8.0 / 9.0, accuracy: 0.000_001)
+        XCTAssertEqual(result.shorterCoverage, 1, accuracy: 0.000_001)
+        XCTAssertTrue(result.record.values(forRecordField: "COMMENT").contains {
+            $0 == "Lungfish terminal local-clipping rescue: leading reference bases=5; trailing reference bases=0; rescued substitutions=1; eligibility=single terminal CDS interval, canonical A/C/G/T, missing bases < 20, mismatches <= max(1,floor(0.20*missing bases)); rescue mode=substitution-only (no indel inference); selected POS/CIGAR/NM/AS evidence retained unchanged"
+        })
+    }
+
+    func testTrailingTerminalSoftClipRescuesCompleteCDS() throws {
+        let referenceSequence = "ATGCCAAATGGG"
+        let candidateSequence = "GGATGCCAAATTT"
+        let candidate = try makeCandidate(
+            stableID: "candidate-trailing-terminal-rescue",
+            sequenceSHA256: sha256Hex(candidateSequence),
+            cigar: "2S4=7S",
+            referenceName: "ref-trailing-terminal-rescue",
+            referenceClass: .genomicDNA
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate),
+            sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-trailing-terminal-rescue",
+                sequence: referenceSequence,
+                features: [feature(type: "CDS", start: 0, end: 9)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+
+        XCTAssertEqual(result.externalSequence, "ATGCCAAAT")
+        XCTAssertEqual(result.trimRange, 2..<11)
+        XCTAssertEqual(result.referenceReadiness, .referenceReady)
+        XCTAssertEqual(result.substitutionCount, 0)
+        XCTAssertEqual(result.comparableBases, 9)
+        XCTAssertEqual(result.identity, 1)
+        XCTAssertEqual(result.shorterCoverage, 1, accuracy: 0.000_001)
+        XCTAssertTrue(result.record.values(forRecordField: "COMMENT").contains {
+            $0 == "Lungfish terminal local-clipping rescue: leading reference bases=0; trailing reference bases=5; rescued substitutions=0; eligibility=single terminal CDS interval, canonical A/C/G/T, missing bases < 20, mismatches <= max(1,floor(0.20*missing bases)); rescue mode=substitution-only (no indel inference); selected POS/CIGAR/NM/AS evidence retained unchanged"
+        })
+    }
+
+    func testCanonicalSubstitutionCountExcludesTerminalUTRChanges() throws {
+        let referenceSequence = "AATGGCTTAAT"
+        let candidateSequence = "CATGGCTTAAG"
+        let candidate = try makeCandidate(
+            stableID: "candidate-terminal-utr-substitutions",
+            sequenceSHA256: sha256Hex(candidateSequence),
+            cigar: "1X9=1X",
+            referenceName: "ref-terminal-utr-substitutions",
+            referenceClass: .genomicDNA
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate),
+            sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-terminal-utr-substitutions",
+                sequence: referenceSequence,
+                features: [
+                    feature(type: "5'UTR", start: 0, end: 1, sourceOrdinal: 1),
+                    feature(type: "CDS", start: 1, end: 10, sourceOrdinal: 2),
+                    feature(type: "3'UTR", start: 10, end: 11, sourceOrdinal: 3),
+                ]
+            ),
+            analysisName: "run",
+            projectBundleName: nil,
+            minimumIntronGapBases: 20
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+
+        XCTAssertEqual(result.externalSequence, "ATGGCTTAA")
+        XCTAssertEqual(result.trimRange, 1..<10)
+        XCTAssertEqual(result.referenceReadiness, .referenceReady)
+        XCTAssertEqual(result.substitutionCount, 0)
+        XCTAssertEqual(result.comparableBases, 9)
+        XCTAssertEqual(result.identity, 1)
+        XCTAssertEqual(result.shorterCoverage, 1)
+    }
+
+    func testInsufficientTerminalSoftClipDoesNotRescuePartialCDS() throws {
+        let referenceSequence = "ATGCAAGCT"
+        let candidateSequence = "TTCAAGCT"
+        let candidate = try makeCandidate(
+            stableID: "candidate-insufficient-terminal-rescue",
+            sequenceSHA256: sha256Hex(candidateSequence),
+            cigar: "2S6=",
+            referenceName: "ref-insufficient-terminal-rescue",
+            referenceClass: .genomicDNA,
+            referenceStart: 4
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate),
+            sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-insufficient-terminal-rescue",
+                sequence: referenceSequence,
+                features: [feature(type: "CDS", start: 0, end: referenceSequence.count)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+
+        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.referenceReadiness, .incomplete)
+        XCTAssertEqual(result.substitutionCount, 0)
+        XCTAssertFalse(result.record.values(forRecordField: "COMMENT").contains {
+            $0.hasPrefix("Lungfish terminal local-clipping rescue:")
+        })
+    }
+
+    func testLongMissingTerminalCDSRangeDoesNotRescueEvenWithAmpleSoftClip() throws {
+        let referenceSequence = String(repeating: "A", count: 25)
+        let candidateSequence = referenceSequence
+        let candidate = try makeCandidate(
+            stableID: "candidate-long-terminal-gap",
+            sequenceSHA256: sha256Hex(candidateSequence),
+            cigar: "20S5=",
+            referenceName: "ref-long-terminal-gap",
+            referenceClass: .genomicDNA,
+            referenceStart: 21
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-long-terminal-gap", sequence: referenceSequence,
+                features: [feature(type: "CDS", start: 0, end: referenceSequence.count)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+
+        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.referenceReadiness, .incomplete)
+        XCTAssertFalse(result.record.values(forRecordField: "COMMENT").contains {
+            $0.hasPrefix("Lungfish terminal local-clipping rescue:")
+        })
+    }
+
+    func testAmbiguousTerminalSoftClipBaseDoesNotRescue() throws {
+        let referenceSequence = "ATGCCAAAT"
+        let candidateSequence = "ATGCNAAAT"
+        let candidate = try makeCandidate(
+            stableID: "candidate-ambiguous-terminal-gap",
+            sequenceSHA256: sha256Hex(candidateSequence),
+            cigar: "5S4=",
+            referenceName: "ref-ambiguous-terminal-gap",
+            referenceClass: .genomicDNA,
+            referenceStart: 6
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-ambiguous-terminal-gap", sequence: referenceSequence,
+                features: [feature(type: "CDS", start: 0, end: referenceSequence.count)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+
+        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.referenceReadiness, .incomplete)
+    }
+
+    func testTerminalHardClipDoesNotRescue() throws {
+        let referenceSequence = "GGGATGCCAAAT"
+        let candidateSequence = "NNNNNAAAT"
+        let candidate = try makeCandidate(
+            stableID: "candidate-hard-clipped-terminal-gap",
+            sequenceSHA256: sha256Hex(candidateSequence),
+            cigar: "5H4=",
+            referenceName: "ref-hard-clipped-terminal-gap",
+            referenceClass: .genomicDNA,
+            referenceStart: 9
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-hard-clipped-terminal-gap", sequence: referenceSequence,
+                features: [feature(type: "CDS", start: 3, end: referenceSequence.count)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+
+        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.referenceReadiness, .incomplete)
+        XCTAssertFalse(result.record.values(forRecordField: "COMMENT").contains {
+            $0.hasPrefix("Lungfish terminal local-clipping rescue:")
+        })
+    }
+
+    func testTerminalSoftClipAboveMismatchAllowanceDoesNotRescue() throws {
+        let referenceSequence = "ATGCCAAAT"
+        let candidateSequence = "ATGAAAAAT"
+        let candidate = try makeCandidate(
+            stableID: "candidate-terminal-mismatch-ratio",
+            sequenceSHA256: sha256Hex(candidateSequence),
+            cigar: "5S4=",
+            referenceName: "ref-terminal-mismatch-ratio",
+            referenceClass: .genomicDNA,
+            referenceStart: 6
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-terminal-mismatch-ratio", sequence: referenceSequence,
+                features: [feature(type: "CDS", start: 0, end: referenceSequence.count)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+
+        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.referenceReadiness, .incomplete)
+        XCTAssertFalse(result.record.values(forRecordField: "COMMENT").contains {
+            $0.hasPrefix("Lungfish terminal local-clipping rescue:")
+        })
+    }
+
+    func testReverseOrientationTerminalSoftClipRescueUsesOrientedQuery() throws {
+        let referenceSequence = "ATGCCAAAT"
+        let orientedCandidate = "GGATGCGAAATTT"
+        let storedCandidate = TranslationEngine.reverseComplement(orientedCandidate)
+        let candidate = try makeCandidate(
+            stableID: "candidate-reverse-terminal-rescue",
+            sequenceSHA256: sha256Hex(storedCandidate),
+            cigar: "7S4=2S",
+            referenceName: "ref-reverse-terminal-rescue",
+            referenceClass: .genomicDNA,
+            referenceStart: 6
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate),
+            sequence: storedCandidate,
+            selectedAlignmentIsReverse: true,
+            closestReference: makeReference(
+                id: "ref-reverse-terminal-rescue",
+                sequence: referenceSequence,
+                features: [feature(type: "CDS", start: 0, end: referenceSequence.count)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+
+        XCTAssertEqual(
+            result.externalSequence,
+            TranslationEngine.reverseComplement("ATGCGAAAT")
+        )
+        XCTAssertEqual(result.trimRange, 2..<11)
+        XCTAssertEqual(result.referenceReadiness, .referenceReady)
+        XCTAssertEqual(result.substitutionCount, 1)
+    }
+
     func testPartialLiftedCDSCropsButRemainsIncompleteAndNotReferenceReady() throws {
         let fullCandidateSequence = "TTCAAGCTGG"
         let candidate = try makeCandidate(

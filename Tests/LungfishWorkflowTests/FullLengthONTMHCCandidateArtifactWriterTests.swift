@@ -63,7 +63,8 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             canonicalizationProvider: { input in
                 try Fixture.referenceReadyCanonicalization(
                     input: input,
-                    trimRange: 2..<(input.sequence.count - 2)
+                    trimRange: 2..<(input.sequence.count - 2),
+                    substitutionCountOverride: 6
                 )
             }
         )
@@ -83,6 +84,11 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(candidate.supportClass, .shared)
         XCTAssertEqual(candidate.occurrenceCount, 4)
         XCTAssertEqual(candidate.totalClusterReads, 34)
+        XCTAssertEqual(candidate.snpCount, 6)
+        XCTAssertEqual(
+            candidate.provisionalName,
+            "\(candidate.closestReferenceName)_6nt_nov"
+        )
         XCTAssertEqual(
             Set(candidate.sourceSequenceClusterIDs),
             Set([firstRawID, secondRawID, thirdRawID])
@@ -123,6 +129,14 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             try GenBankReader(url: result.candidateGenBankURL).readAllSync().first {
                 $0.accession == canonicalID
             }
+        )
+        XCTAssertTrue(
+            candidateGenBankRecord.definition?.hasPrefix(
+                candidate.provisionalName + ";"
+            ) == true
+        )
+        XCTAssertFalse(
+            candidateGenBankRecord.definition?.contains("_5nt_nov") == true
         )
         let source = try XCTUnwrap(candidateGenBankRecord.annotations.first {
             $0.type == .source
@@ -409,6 +423,48 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(Set(result.map(\.record.provisionalName)), ["Mafa-A1*001_1nt_nov"])
     }
 
+    func testCanonicalizerUsesRescuedSubstitutionCountToMergeClippedAndFullObservations() throws {
+        let sequence = "ATGCGAAAT"
+        let result = try FullLengthONTMHCCandidateCanonicalizer().aggregate([
+            canonicalizerInput(
+                rawID: "raw-clipped",
+                externalSequence: sequence,
+                provisionalName: "Mafa-A1*001_24nt_nov",
+                snpCount: 24,
+                canonicalSubstitutionCount: 25,
+                canonicalComparableBases: 2_688,
+                canonicalIdentity: Double(2_688 - 25) / 2_688,
+                canonicalShorterCoverage: 1
+            ),
+            canonicalizerInput(
+                rawID: "raw-full",
+                externalSequence: sequence,
+                provisionalName: "Mafa-A1*001_25nt_nov",
+                snpCount: 25,
+                canonicalSubstitutionCount: 25,
+                canonicalComparableBases: 2_688,
+                canonicalIdentity: Double(2_688 - 25) / 2_688,
+                canonicalShorterCoverage: 1
+            ),
+        ])
+
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].record.snpCount, 25)
+        XCTAssertEqual(result[0].record.provisionalName, "Mafa-A1*001_25nt_nov")
+        XCTAssertEqual(result[0].record.comparableBases, 2_688)
+        XCTAssertEqual(
+            result[0].record.identity,
+            Double(2_688 - 25) / 2_688,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(result[0].record.shorterCoverage, 1)
+        XCTAssertEqual(
+            Set(result[0].record.sourceSequenceClusterIDs),
+            ["raw-clipped", "raw-full"]
+        )
+        XCTAssertEqual(result[0].representativeCanonicalization.substitutionCount, 25)
+    }
+
     func testPublishesReciprocalEvidenceAndCanonicalCandidateArtifacts() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -571,6 +627,30 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         )
         XCTAssertEqual(canonicalization.resolvedOptions["rawCandidateCount"], "2")
         XCTAssertEqual(canonicalization.resolvedOptions["canonicalCandidateCount"], "2")
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["terminalLocalClipRescueRule"],
+            "complete-missing-reference-prefix-or-suffix-only;adjacent-terminal-soft-clip-must-supply-all-missing-bases;suffix-of-leading-S-or-prefix-of-trailing-S;oriented-query-base-comparison;substitution-only-no-indel-inference"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["terminalLocalClipRescueAudit"],
+            "GenBank-COMMENT-records-leading+trailing-rescued-bases+rescued-substitutions+substitution-only-no-indel-inference;selected-CIGAR-and-evidence-retained"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["terminalLocalClipRescueFeatureRule"],
+            "missing-range-wholly-within-one-terminal-CDS-interval"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["terminalLocalClipRescueCanonicalBases"],
+            "A,C,G,T"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["terminalLocalClipRescueMismatchAllowance"],
+            "max(1,floor(0.20*missing-bases))"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["terminalLocalClipRescueMissingBasesUpperBoundExclusive"],
+            "20"
+        )
         XCTAssertTrue(canonicalization.inputs.contains {
             $0.path == fixture.referenceAnnotationURL.path
         })
@@ -1328,7 +1408,12 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         closestReferenceClass: MHCReferenceMoleculeClass = .genomicDNA,
         totalReads: Int = 5,
         extensionOf: [String] = [],
-        provisionalNamingAmbiguous: Bool = false
+        provisionalNamingAmbiguous: Bool = false,
+        snpCount: Int = 1,
+        canonicalSubstitutionCount: Int = 1,
+        canonicalComparableBases: Int? = nil,
+        canonicalIdentity: Double? = nil,
+        canonicalShorterCoverage: Double? = nil
     ) throws -> FullLengthONTMHCCandidateCanonicalizer.Input {
         let evidence = ONTMHCEvidenceLocator(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",
@@ -1348,7 +1433,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             supportClass: .singleton,
             closestReferenceName: closestReferenceName,
             closestReferenceClass: closestReferenceClass,
-            snpCount: 1,
+            snpCount: snpCount,
             insertedBases: 0,
             deletedBases: 0,
             longGapBases: 0,
@@ -1402,7 +1487,13 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
                 externalSequence: externalSequence,
                 trimRange: 0..<externalSequence.count,
                 translationStatus: .fullLength,
-                referenceReadiness: .referenceReady
+                referenceReadiness: .referenceReady,
+                substitutionCount: canonicalSubstitutionCount,
+                comparableBases: canonicalComparableBases ?? externalSequence.count,
+                identity: canonicalIdentity ?? Double(
+                    externalSequence.count - canonicalSubstitutionCount
+                ) / Double(externalSequence.count),
+                shorterCoverage: canonicalShorterCoverage ?? 1
             )
         )
     }
@@ -1596,8 +1687,12 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
 
         static func referenceReadyCanonicalization(
             input: FullLengthONTMHCCandidateGenBankArtifactBuilder.Input,
-            trimRange: Range<Int>
+            trimRange: Range<Int>,
+            substitutionCountOverride: Int? = nil
         ) throws -> FullLengthONTMHCCandidateCanonicalization {
+            let substitutionCount = substitutionCountOverride
+                ?? input.subject.candidateRecord?.snpCount
+                ?? 0
             let external = String(input.sequence[input.sequence.index(
                 input.sequence.startIndex,
                 offsetBy: trimRange.lowerBound
@@ -1679,7 +1774,14 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
                 externalSequence: external,
                 trimRange: trimRange,
                 translationStatus: .fullLength,
-                referenceReadiness: .referenceReady
+                referenceReadiness: .referenceReady,
+                substitutionCount: substitutionCount,
+                comparableBases: external.count,
+                identity: external.isEmpty
+                    ? 0
+                    : Double(max(0, external.count - substitutionCount))
+                        / Double(external.count),
+                shorterCoverage: 1
             )
         }
 
@@ -1702,7 +1804,11 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
                 externalSequence: nil,
                 trimRange: nil,
                 translationStatus: .incompleteUnresolved,
-                referenceReadiness: .unavailable
+                referenceReadiness: .unavailable,
+                substitutionCount: diagnostic.substitutionCount,
+                comparableBases: diagnostic.comparableBases,
+                identity: diagnostic.identity,
+                shorterCoverage: diagnostic.shorterCoverage
             )
         }
 

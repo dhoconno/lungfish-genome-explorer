@@ -1552,6 +1552,17 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
                 )
             })
         }
+        let definition: String?
+        if let candidate = canonicalCandidate {
+            if let original = record.definition,
+               let separator = original.firstIndex(of: ";") {
+                definition = candidate.provisionalName + String(original[separator...])
+            } else {
+                definition = candidate.provisionalName
+            }
+        } else {
+            definition = record.definition
+        }
         return GenBankRecord(
             sequence: try Sequence(
                 name: externalID,
@@ -1566,7 +1577,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
                 moleculeType: .dna,
                 topology: .linear
             ),
-            definition: record.definition,
+            definition: definition,
             accession: externalID,
             version: nil,
             recordFields: recordFields
@@ -1728,6 +1739,12 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "canonicalStableID": "first-128-bits-SHA256-with-UUID-version-and-variant-bits",
             "outerCDSTrimRule": "reference-ready-only:outer-lifted-CDS-span;retain-intervening-introns",
             "referenceReadinessRule": "external-artifacts-require-reference-ready-canonicalization",
+            "terminalLocalClipRescueRule": "complete-missing-reference-prefix-or-suffix-only;adjacent-terminal-soft-clip-must-supply-all-missing-bases;suffix-of-leading-S-or-prefix-of-trailing-S;oriented-query-base-comparison;substitution-only-no-indel-inference",
+            "terminalLocalClipRescueAudit": "GenBank-COMMENT-records-leading+trailing-rescued-bases+rescued-substitutions+substitution-only-no-indel-inference;selected-CIGAR-and-evidence-retained",
+            "terminalLocalClipRescueFeatureRule": "missing-range-wholly-within-one-terminal-CDS-interval",
+            "terminalLocalClipRescueCanonicalBases": "A,C,G,T",
+            "terminalLocalClipRescueMismatchAllowance": "max(1,floor(0.20*missing-bases))",
+            "terminalLocalClipRescueMissingBasesUpperBoundExclusive": String(thresholds.minimumIntronGapBases),
             "candidateMergeFields": "classification,locus,provisional-name,closest-reference-name,closest-reference-raw-id,closest-reference-class,extension-of,provisional-naming-ambiguous",
             "representativeRule": "highest-total-cluster-reads;then-lexical-raw-stable-id",
             "observationMergeKey": "canonical-stable-cluster-id,sample-id,read-group-id",
