@@ -769,19 +769,16 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
         }
         var genBankByID: [String: GenBankRecord] = [:]
         for record in genBankRecords {
-            let sourceFeatures = record.annotations.filter { $0.type == .source }
-            let stableID = sourceFeatures.count == 1
-                ? sourceFeatures[0].qualifier("stable_cluster_id") ?? record.sequence.name
-                : record.sequence.name
-            guard expectedArtifactIDs.contains(stableID) else {
+            let artifactID = record.sequence.name
+            guard expectedArtifactIDs.contains(artifactID) else {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
-                    stableClusterID: stableID,
+                    stableClusterID: artifactID,
                     detail: "unexpected \(category.rawValue) GenBank record"
                 )
             }
-            guard genBankByID.updateValue(record, forKey: stableID) == nil else {
+            guard genBankByID.updateValue(record, forKey: artifactID) == nil else {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
-                    stableClusterID: stableID,
+                    stableClusterID: artifactID,
                     detail: "duplicate \(category.rawValue) GenBank record"
                 )
             }
@@ -827,7 +824,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             }
             let sourceFeatures = genBank.annotations.filter { $0.type == .source }
             guard sourceFeatures.count == 1,
-                  sourceFeatures[0].qualifier("stable_cluster_id") == artifactID else {
+                  sourceFeatures[0].qualifier("stable_cluster_id") == stableID else {
                 throw FullLengthONTMHCWorkbookProjectionError.invalidUnmatchedArtifactIdentity(
                     stableClusterID: stableID,
                     detail: "GenBank source stable_cluster_id is missing or inconsistent"

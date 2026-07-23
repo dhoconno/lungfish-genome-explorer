@@ -953,7 +953,7 @@ public struct GenotypeWorkbookRevisionService {
             )
             workbookSamples = workbookProjection.samples
             workbookKnownCalls = workbookProjection.knownCalls
-            guard artifacts.schemaVersion == 1 else {
+            guard (1 ... 2).contains(artifacts.schemaVersion) else {
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                     "Unsupported MHC candidate artifact schema \(artifacts.schemaVersion)."
                 )
@@ -1311,6 +1311,8 @@ public struct GenotypeWorkbookRevisionService {
             artifacts.unnameableJSON,
             artifacts.unnameableFASTA,
             artifacts.unnameableGenBank,
+            artifacts.rawUnmatchedFASTA,
+            artifacts.sourceIdentityMap,
             manifest.mhcReferenceVisualizations?.recordsJSON,
         ].compactMap { $0 }
         for reference in references {

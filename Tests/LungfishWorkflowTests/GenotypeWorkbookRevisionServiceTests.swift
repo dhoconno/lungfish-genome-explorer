@@ -26,6 +26,35 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertFalse((updatedManifest.workbookRevisions ?? []).isEmpty)
     }
 
+    func testExplicitWorkbookUpdateAcceptsCandidateArtifactManifestSchema2RawIdentityRefs() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "candidate-manifest-schema-2-update"
+        )
+        try installCandidateArtifacts(
+            in: fixture.bundleURL,
+            schemaVersion: 4,
+            artifactManifestSchemaVersion: 2
+        )
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let before = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let rawFASTA = try XCTUnwrap(before.mhcCandidateArtifacts?.rawUnmatchedFASTA)
+        let sourceIdentityMap = try XCTUnwrap(before.mhcCandidateArtifacts?.sourceIdentityMap)
+
+        let updated = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_300) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        XCTAssertEqual(updated.mhcCandidateArtifacts?.schemaVersion, 2)
+        XCTAssertEqual(updated.mhcCandidateArtifacts?.rawUnmatchedFASTA, rawFASTA)
+        XCTAssertEqual(updated.mhcCandidateArtifacts?.sourceIdentityMap, sourceIdentityMap)
+    }
+
     func testFullLengthMHCUpdateUsesSpeciesAgnosticBiologicalAlleleOrder() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -3141,7 +3170,11 @@ wb.save(path)
 """#, currentURL.path])
     }
 
-    private func installCandidateArtifacts(in bundleURL: URL, schemaVersion: Int = 1) throws {
+    private func installCandidateArtifacts(
+        in bundleURL: URL,
+        schemaVersion: Int = 1,
+        artifactManifestSchemaVersion: Int = 1
+    ) throws {
         let directory = bundleURL.appendingPathComponent("artifacts/mhc-candidates", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let candidateFASTAURL = directory.appendingPathComponent("candidate-alleles.fasta")
@@ -3324,8 +3357,34 @@ wb.save(path)
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(candidateDocument).write(to: candidateJSONURL, options: .atomic)
         try encoder.encode(unnameableDocument).write(to: unnameableJSONURL, options: .atomic)
+        let rawUnmatchedFASTA: ONTMHCArtifactReference?
+        let sourceIdentityMap: ONTMHCArtifactReference?
+        if artifactManifestSchemaVersion >= 2 {
+            let rawUnmatchedFASTAURL = directory.appendingPathComponent("raw-unmatched.fasta")
+            try ">raw-cluster\nACGT\n".write(
+                to: rawUnmatchedFASTAURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            let sourceIdentityMapURL = directory.appendingPathComponent("source-identity.json")
+            try Data(#"{"schema_version":1,"records":[]}"#.utf8).write(
+                to: sourceIdentityMapURL,
+                options: .atomic
+            )
+            rawUnmatchedFASTA = try artifactReference(
+                rawUnmatchedFASTAURL,
+                relativeTo: bundleURL
+            )
+            sourceIdentityMap = try artifactReference(
+                sourceIdentityMapURL,
+                relativeTo: bundleURL
+            )
+        } else {
+            rawUnmatchedFASTA = nil
+            sourceIdentityMap = nil
+        }
         let artifacts = ONTMHCCandidateArtifactManifest(
-            schemaVersion: 1,
+            schemaVersion: artifactManifestSchemaVersion,
             genotypingEvidence: nil,
             reciprocalEvidence: nil,
             candidateJSON: try artifactReference(candidateJSONURL, relativeTo: bundleURL),
@@ -3333,7 +3392,9 @@ wb.save(path)
             candidateGenBank: candidateGenBank,
             unnameableJSON: try artifactReference(unnameableJSONURL, relativeTo: bundleURL),
             unnameableFASTA: unnameableFASTA,
-            unnameableGenBank: unnameableGenBank
+            unnameableGenBank: unnameableGenBank,
+            rawUnmatchedFASTA: rawUnmatchedFASTA,
+            sourceIdentityMap: sourceIdentityMap
         )
         let referenceDirectory = bundleURL.appendingPathComponent("artifacts/mhc-reference", isDirectory: true)
         try FileManager.default.createDirectory(at: referenceDirectory, withIntermediateDirectories: true)

@@ -73,6 +73,13 @@ struct FullLengthONTMHCCandidateGenBankArtifactBuilder {
             }
         }
 
+        var externalArtifactID: String {
+            switch self {
+            case .candidate(let value): value.stableClusterID
+            case .unnameable(let value): value.fastaRecordID ?? value.stableClusterID
+            }
+        }
+
         var selectedEvidence: ONTMHCEvidenceLocator? {
             switch self {
             case .candidate(let value): value.selectedEvidence
@@ -230,6 +237,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
 
     func makeRecord(_ input: Input) throws -> GenBankRecord {
         let stableID = input.subject.stableClusterID
+        let externalArtifactID = input.subject.externalArtifactID
         let sequence = input.sequence.uppercased()
         guard !stableID.isEmpty, !sequence.isEmpty, input.minimumIntronGapBases > 0 else {
             throw Error.invalidInput(stableClusterID: stableID, detail: "identity, sequence, and intron threshold must be nonempty and positive")
@@ -438,11 +446,11 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         let recordFields = copiedRecordFields(input.closestReference)
             + comments.enumerated().map { GenBankRecordField(key: "COMMENT", value: $0.element, ordinal: recordFieldsBaseCount(input.closestReference) + $0.offset) }
         return GenBankRecord(
-            sequence: try Sequence(name: stableID, description: input.subject.definition, alphabet: .dna, bases: outputSequence),
+            sequence: try Sequence(name: externalArtifactID, description: input.subject.definition, alphabet: .dna, bases: outputSequence),
             annotations: annotations.sorted(by: annotationLessThan),
-            locus: LocusInfo(name: stableID, length: outputSequence.count, moleculeType: .dna, topology: .linear),
+            locus: LocusInfo(name: externalArtifactID, length: outputSequence.count, moleculeType: .dna, topology: .linear),
             definition: input.subject.definition,
-            accession: stableID,
+            accession: externalArtifactID,
             recordFields: recordFields
         )
     }

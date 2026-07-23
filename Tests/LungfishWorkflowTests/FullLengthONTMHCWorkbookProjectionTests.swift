@@ -134,7 +134,8 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
                     stableID: "canonical-u",
                     sequence: sequence,
                     translation: nil,
-                    status: "incomplete/unresolved"
+                    status: "incomplete/unresolved",
+                    sourceStableID: "raw-cluster-u"
                 ),
             ]
         )
@@ -144,6 +145,103 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(row.sequenceSHA256, sha256Hex(sequence))
         XCTAssertEqual(row.nucleotideSequence, sequence)
         XCTAssertNil(row.putativeAminoAcidTranslation)
+    }
+
+    func testSchemaV4CanonicalUnnameableGenBankBuilderOutputNormalizesByExternalIdentity() throws {
+        let legacy = makeDocuments()
+        let rawID = "raw-cluster-builder"
+        let canonicalID = "canonical-builder"
+        let sequence = "ACGTACGT"
+        let summary = try ONTMHCReciprocalQueryHitSummary(
+            bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+            queryName: rawID,
+            alignmentCount: 0,
+            targetAlignmentCounts: [:],
+            exactMatchTargetNames: [],
+            closestMatchTargetNames: []
+        )
+        let record = ONTMHCUnnameableRecord(
+            stableClusterID: rawID,
+            reason: .noAlignment,
+            failedMetrics: [:],
+            supportClass: .singleton,
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 4,
+            supportingSampleIDs: ["sample-a"],
+            fastaRecordID: canonicalID,
+            sequenceSHA256: sha256Hex(sequence),
+            reciprocalHitSummary: summary,
+            selectedEvidence: nil
+        )
+        let unnameableDocument = ONTMHCUnnameableClustersDocument(
+            schemaVersion: 4,
+            createdAt: legacy.unnameable.createdAt,
+            thresholds: legacy.unnameable.thresholds,
+            sequenceFASTA: legacy.unnameable.sequenceFASTA,
+            clusters: [record],
+            observations: [
+                ONTMHCCandidateObservation(
+                    stableClusterID: rawID,
+                    sourceSequenceClusterID: rawID,
+                    sampleID: "sample-a",
+                    readGroupID: "sample-a",
+                    sourceClusterIDs: ["source-\(rawID)-sample-a"],
+                    sourceClusterReadCounts: ["source-\(rawID)-sample-a": 4],
+                    aggregatedSampleReadCount: 4,
+                    genotypingHitSummaries: []
+                ),
+            ]
+        )
+        let projection = try singleCandidateProjection(from: (
+            candidates: legacy.candidates,
+            unnameable: unnameableDocument
+        ))
+        let genBank = try XCTUnwrap(
+            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [
+                .init(
+                    subject: .unnameable(record),
+                    sequence: sequence,
+                    selectedAlignmentIsReverse: nil,
+                    closestReference: nil,
+                    analysisName: "run",
+                    projectBundleName: nil,
+                    minimumIntronGapBases: 20
+                ),
+            ]).first
+        )
+
+        XCTAssertEqual(genBank.sequence.name, canonicalID)
+        XCTAssertEqual(genBank.locus.name, canonicalID)
+        XCTAssertEqual(genBank.accession, canonicalID)
+        XCTAssertEqual(
+            genBank.annotations.first(where: { $0.type == .source })?
+                .qualifier("stable_cluster_id"),
+            rawID
+        )
+
+        let candidateSequence = "ATGGCTTAA"
+        let rows = try projection.normalizedUnmatchedRows(
+            candidateFASTARecords: [
+                .init(name: "cluster-1", sequence: candidateSequence, readCount: 10),
+            ],
+            unnameableFASTARecords: [
+                .init(name: canonicalID, sequence: sequence, readCount: 4),
+            ],
+            candidateGenBankRecords: [
+                try normalizedGenBankRecord(
+                    stableID: "cluster-1",
+                    sequence: candidateSequence,
+                    translation: "MA",
+                    status: "full-length"
+                ),
+            ],
+            unnameableGenBankRecords: [genBank]
+        )
+
+        let row = try XCTUnwrap(rows.first { $0.stableClusterID == rawID })
+        XCTAssertEqual(row.fastaRecordID, canonicalID)
+        XCTAssertEqual(row.nucleotideSequence, sequence)
     }
 
     func testNormalizedUnmatchedRowsJoinFASTAAndGenBankByStableIdentity() throws {
@@ -1357,6 +1455,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         translation: String?,
         status: String,
         sourceSequenceSHA256: String? = nil,
+        sourceStableID: String? = nil,
         accession: String? = nil,
         locusName: String? = nil,
         trimMetadata: (
@@ -1368,7 +1467,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         )? = nil
     ) throws -> GenBankRecord {
         var sourceQualifiers: [String: AnnotationQualifier] = [
-            "stable_cluster_id": .init(stableID),
+            "stable_cluster_id": .init(sourceStableID ?? stableID),
             "sequence_sha256": .init(sourceSequenceSHA256 ?? sha256Hex(sequence)),
             "translation_status": .init(status),
         ]
