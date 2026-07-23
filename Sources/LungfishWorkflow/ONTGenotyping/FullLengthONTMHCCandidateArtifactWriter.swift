@@ -755,14 +755,21 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 canonicalization: try canonicalizationProvider(input)
             )
         }
+        let demotedCandidateInputs = preparedCandidates.filter {
+            $0.canonicalization.referenceReadiness != .referenceReady
+                || $0.canonicalization.externalSequence == nil
+        }
+        let demotedCandidateIDs = Set(demotedCandidateInputs.map(\.record.stableClusterID))
         let canonicalCandidates = try FullLengthONTMHCCandidateCanonicalizer()
-            .aggregate(preparedCandidates)
+            .aggregate(preparedCandidates.filter {
+                !demotedCandidateIDs.contains($0.record.stableClusterID)
+            })
         let candidates = canonicalCandidates.map(\.record)
         let canonicalSequenceByID = Dictionary(uniqueKeysWithValues: canonicalCandidates.map {
             ($0.record.stableClusterID, $0.sequence)
         })
 
-        let preparedUnnameable = try rawUnnameable.map { cluster -> (
+        var preparedUnnameable = try rawUnnameable.map { cluster -> (
             record: ONTMHCUnnameableRecord,
             canonicalization: FullLengthONTMHCCandidateCanonicalization
         ) in
@@ -779,6 +786,38 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             )
             return (cluster, try canonicalizationProvider(input))
         }
+        preparedUnnameable.append(contentsOf: demotedCandidateInputs.map { input in
+            let reason: ONTMHCUnnameableReason =
+                input.canonicalization.referenceReadiness == .incomplete
+                    ? .incompleteReferenceSpan
+                    : .referenceCanonicalizationUnavailable
+            return (
+                ONTMHCUnnameableRecord(
+                    stableClusterID: input.record.stableClusterID,
+                    reason: reason,
+                    failedMetrics: [
+                        "reference_ready": 0,
+                        "canonical_comparable_bases":
+                            Double(input.canonicalization.comparableBases),
+                        "canonical_identity": input.canonicalization.identity,
+                        "canonical_shorter_coverage":
+                            input.canonicalization.shorterCoverage,
+                    ],
+                    supportClass: input.record.supportClass,
+                    independentSampleCount: input.record.independentSampleCount,
+                    occurrenceCount: input.record.occurrenceCount,
+                    totalClusterReads: input.record.totalClusterReads,
+                    supportingSampleIDs: input.record.supportingSampleIDs,
+                    fastaRecordID: nil,
+                    sequenceSHA256: nil,
+                    reciprocalHitSummary: input.record.reciprocalHitSummary,
+                    selectedEvidence: input.record.selectedEvidence,
+                    selectedAlignmentIsReverse: input.record.selectedAlignmentIsReverse
+                ),
+                input.canonicalization
+            )
+        })
+        preparedUnnameable.sort { $0.record.stableClusterID < $1.record.stableClusterID }
         let unnameable = preparedUnnameable.map { prepared -> ONTMHCUnnameableRecord in
             guard let sequence = prepared.canonicalization.externalSequence,
                   prepared.canonicalization.referenceReadiness == .referenceReady else {
@@ -845,7 +884,13 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             rawCandidateCount: rawCandidates.count,
             canonicalCandidateCount: candidates.count,
             rawUnnameableCount: rawUnnameable.count,
-            externalUnnameableCount: unnameableExternalSequences.count
+            externalUnnameableCount: unnameableExternalSequences.count,
+            incompleteCandidateDemotionCount: demotedCandidateInputs.filter {
+                $0.canonicalization.referenceReadiness == .incomplete
+            }.count,
+            unavailableCandidateDemotionCount: demotedCandidateInputs.filter {
+                $0.canonicalization.referenceReadiness != .incomplete
+            }.count
         )
         transformations.append(.init(
             workflowName: "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates",
@@ -919,6 +964,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             clusters,
             classifications
         ).map { cluster, result -> (String, String) in
+            if demotedCandidateIDs.contains(cluster.stableClusterID) {
+                return (cluster.stableClusterID, "unnameable")
+            }
             let classification: String
             switch result {
             case .known:
@@ -1731,7 +1779,9 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         rawCandidateCount: Int,
         canonicalCandidateCount: Int,
         rawUnnameableCount: Int,
-        externalUnnameableCount: Int
+        externalUnnameableCount: Int,
+        incompleteCandidateDemotionCount: Int,
+        unavailableCandidateDemotionCount: Int
     ) -> [String: String] {
         candidateResolvedOptions(thresholds).merging([
             "rawIdentity": "exact-normalized-full-consensus-sequence",
@@ -1753,6 +1803,14 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "canonicalCandidateCount": String(canonicalCandidateCount),
             "rawUnnameableCount": String(rawUnnameableCount),
             "externalUnnameableCount": String(externalUnnameableCount),
+            "nonReferenceReadyCandidateDemotionRule": "incomplete=>unnameable:incomplete-reference-span;unavailable-or-missing-external-sequence=>unnameable:reference-canonicalization-unavailable",
+            "nonReferenceReadyCandidateDemotionCount": String(
+                incompleteCandidateDemotionCount + unavailableCandidateDemotionCount
+            ),
+            "incompleteCandidateDemotionCount": String(incompleteCandidateDemotionCount),
+            "unavailableCandidateDemotionCount": String(
+                unavailableCandidateDemotionCount
+            ),
         ]) { _, value in value }
     }
 

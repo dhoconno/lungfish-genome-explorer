@@ -138,6 +138,52 @@ final class ONTMHCCandidateAllelesV2Tests: XCTestCase {
         XCTAssertNil(decoded.sequenceSHA256)
     }
 
+    func testIncompleteReferenceSpanReasonRoundTripsForDemotedCandidate() throws {
+        let record = ONTMHCUnnameableRecord(
+            stableClusterID: "raw-partial-candidate",
+            reason: .incompleteReferenceSpan,
+            failedMetrics: [:],
+            supportClass: .shared,
+            independentSampleCount: 2,
+            occurrenceCount: 2,
+            totalClusterReads: 746,
+            supportingSampleIDs: ["CR1182", "CR1182b"],
+            reciprocalHitSummary: try ONTMHCReciprocalQueryHitSummary(
+                bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+                queryName: "raw-partial-candidate",
+                alignmentCount: 1,
+                targetAlignmentCounts: ["NHP12267": 1],
+                exactMatchTargetNames: [],
+                closestMatchTargetNames: ["NHP12267"]
+            ),
+            selectedEvidence: ONTMHCEvidenceLocator(
+                bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+                queryName: "raw-partial-candidate",
+                referenceName: "NHP12267",
+                readGroupID: nil,
+                referenceStart: 920,
+                cigar: "81S2025=27S"
+            )
+        )
+
+        let data = try JSONEncoder().encode(record)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let decoded = try JSONDecoder().decode(ONTMHCUnnameableRecord.self, from: data)
+
+        XCTAssertEqual(object["reason"] as? String, "incomplete-reference-span")
+        XCTAssertEqual(decoded.reason, .incompleteReferenceSpan)
+        XCTAssertNil(object["fasta_record_id"])
+        XCTAssertNil(object["sequence_sha256"])
+        XCTAssertEqual(decoded.selectedEvidence?.referenceName, "NHP12267")
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                ONTMHCUnnameableReason.self,
+                from: Data(#""reference-canonicalization-unavailable""#.utf8)
+            ),
+            .referenceCanonicalizationUnavailable
+        )
+    }
+
     func testSourceIdentityDocumentRoundTripsRawCanonicalReadiness() throws {
         let rawFASTA = ONTMHCArtifactReference(
             path: "artifacts/mhc-candidates/raw-unmatched.fasta",

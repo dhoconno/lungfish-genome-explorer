@@ -295,6 +295,143 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(render.resolvedOptions["recordCount"], "1")
     }
 
+    func testIncompleteNamedCandidateIsDemotedWithoutPublishingAnExternalSequence() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let incompleteCandidateID = fixture.novelID
+        let unavailableCandidateID = fixture.extensionID
+
+        let result = try await fixture.write(
+            observations: fixture.observations,
+            canonicalizationProvider: { input in
+                if input.subject.stableClusterID == incompleteCandidateID {
+                    return try Fixture.incompleteCanonicalization(input: input)
+                }
+                if input.subject.stableClusterID == unavailableCandidateID {
+                    return try Fixture.unavailableCanonicalization(input: input)
+                }
+                return try Fixture.referenceReadyCanonicalization(
+                    input: input,
+                    trimRange: 0..<input.sequence.count
+                )
+            }
+        )
+
+        let candidates = try JSONDecoder().decode(
+            ONTMHCCandidateAllelesDocument.self,
+            from: Data(contentsOf: result.candidateJSONURL)
+        )
+        XCTAssertFalse(candidates.candidates.contains {
+            $0.sourceSequenceClusterIDs.contains(fixture.novelID)
+        })
+        XCTAssertFalse(candidates.candidates.contains {
+            $0.sourceSequenceClusterIDs.contains(fixture.extensionID)
+        })
+
+        let unnameable = try JSONDecoder().decode(
+            ONTMHCUnnameableClustersDocument.self,
+            from: Data(contentsOf: result.unnameableJSONURL)
+        )
+        let demoted = try XCTUnwrap(unnameable.clusters.first {
+            $0.stableClusterID == fixture.novelID
+        })
+        XCTAssertEqual(demoted.reason.rawValue, "incomplete-reference-span")
+        XCTAssertEqual(demoted.failedMetrics["reference_ready"], 0)
+        XCTAssertEqual(
+            demoted.failedMetrics["canonical_comparable_bases"],
+            1_200
+        )
+        XCTAssertEqual(
+            demoted.failedMetrics["canonical_identity"],
+            Double(1_195) / 1_200
+        )
+        XCTAssertEqual(demoted.failedMetrics["canonical_shorter_coverage"], 1)
+        XCTAssertNil(demoted.fastaRecordID)
+        XCTAssertNil(demoted.sequenceSHA256)
+        XCTAssertEqual(demoted.selectedEvidence?.queryName, fixture.novelID)
+        XCTAssertEqual(demoted.reciprocalHitSummary.queryName, fixture.novelID)
+        XCTAssertEqual(demoted.supportingSampleIDs, ["sample-a", "sample-b"])
+        XCTAssertEqual(
+            Set(unnameable.observations.filter {
+                $0.stableClusterID == fixture.novelID
+            }.map(\.sampleID)),
+            ["sample-a", "sample-b"]
+        )
+        XCTAssertTrue(unnameable.evidence.contains {
+            $0.path == "artifacts/alignments/unmatched-to-reference.bam"
+        })
+        let unavailable = try XCTUnwrap(unnameable.clusters.first {
+            $0.stableClusterID == fixture.extensionID
+        })
+        XCTAssertEqual(
+            unavailable.reason,
+            .referenceCanonicalizationUnavailable
+        )
+        XCTAssertNil(unavailable.fastaRecordID)
+        XCTAssertNil(unavailable.sequenceSHA256)
+
+        XCTAssertFalse(try fastaHeaders(result.unnameableFASTAURL).contains(fixture.novelID))
+        XCTAssertFalse(try fastaHeaders(result.candidateFASTAURL).contains(fixture.novelID))
+        XCTAssertFalse(
+            try fastaHeaders(result.unnameableFASTAURL).contains(fixture.extensionID)
+        )
+        XCTAssertFalse(
+            try fastaHeaders(result.candidateFASTAURL).contains(fixture.extensionID)
+        )
+        let externalGenBankAccessions = try (
+            GenBankReader(url: result.candidateGenBankURL).readAllSync()
+                + GenBankReader(url: result.unnameableGenBankURL).readAllSync()
+        ).compactMap(\.accession)
+        XCTAssertFalse(externalGenBankAccessions.contains(fixture.novelID))
+
+        let rawFASTA = try String(
+            contentsOf: fixture.outputURL.appendingPathComponent(
+                "artifacts/internal/raw-unmatched-consensuses.fasta"
+            ),
+            encoding: .utf8
+        )
+        XCTAssertTrue(rawFASTA.contains(">\(fixture.novelID)"))
+        XCTAssertTrue(rawFASTA.contains(fixture.novelSequence))
+
+        let sourceMap = try JSONDecoder().decode(
+            ONTMHCCandidateSourceIdentityDocument.self,
+            from: Data(contentsOf: fixture.outputURL.appendingPathComponent(
+                "artifacts/internal/mhc-candidate-source-map.json"
+            ))
+        )
+        let sourceIdentity = try XCTUnwrap(sourceMap.records.first {
+            $0.rawStableClusterID == fixture.novelID
+        })
+        XCTAssertEqual(sourceIdentity.classification, "unnameable")
+        XCTAssertEqual(
+            sourceIdentity.referenceReadiness,
+            FullLengthONTMHCReferenceReadiness.incomplete.rawValue
+        )
+        XCTAssertNil(sourceIdentity.canonicalStableClusterID)
+        XCTAssertNil(sourceIdentity.canonicalSequenceSHA256)
+
+        let canonicalization = try XCTUnwrap(result.transformationRecords.first {
+            $0.workflowName
+                == "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates"
+        })
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["nonReferenceReadyCandidateDemotionRule"],
+            "incomplete=>unnameable:incomplete-reference-span;unavailable-or-missing-external-sequence=>unnameable:reference-canonicalization-unavailable"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["nonReferenceReadyCandidateDemotionCount"],
+            "2"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["incompleteCandidateDemotionCount"],
+            "1"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["unavailableCandidateDemotionCount"],
+            "1"
+        )
+    }
+
     func testUnnameableGenBankPreservesRawIdentityAndDeclaresCanonicalTrimmedIdentity() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -1805,6 +1942,27 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
                 trimRange: nil,
                 translationStatus: .incompleteUnresolved,
                 referenceReadiness: .unavailable,
+                substitutionCount: diagnostic.substitutionCount,
+                comparableBases: diagnostic.comparableBases,
+                identity: diagnostic.identity,
+                shorterCoverage: diagnostic.shorterCoverage
+            )
+        }
+
+        static func incompleteCanonicalization(
+            input: FullLengthONTMHCCandidateGenBankArtifactBuilder.Input
+        ) throws -> FullLengthONTMHCCandidateCanonicalization {
+            let diagnostic = try referenceReadyCanonicalization(
+                input: input,
+                trimRange: 0..<input.sequence.count
+            )
+            return .init(
+                record: diagnostic.record,
+                rawSequence: input.sequence,
+                externalSequence: nil,
+                trimRange: nil,
+                translationStatus: .incompleteUnresolved,
+                referenceReadiness: .incomplete,
                 substitutionCount: diagnostic.substitutionCount,
                 comparableBases: diagnostic.comparableBases,
                 identity: diagnostic.identity,
