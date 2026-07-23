@@ -214,6 +214,43 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         }
     }
 
+    func testGenomicLongCodingInsertionRemainsInLiftedCDSTranslationAndComments() throws {
+        let candidate = try makeCandidate(
+            stableID: "candidate-genomic-long-coding-insertion",
+            sequenceSHA256: "candidate-genomic-long-coding-insertion-hash",
+            cigar: "3=1X2=3I3=",
+            referenceName: "ref-genomic-long-coding-insertion",
+            referenceClass: .genomicDNA
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ATGGAACCCGCT",
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-genomic-long-coding-insertion", sequence: "ATGAAAGCT",
+                features: [feature(type: "CDS", start: 0, end: 9)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 3
+        )
+
+        let record = try XCTUnwrap(
+            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
+        )
+        let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
+        let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
+        let comments = record.values(forRecordField: "COMMENT")
+
+        XCTAssertEqual(record.sequence.asString(), "ATGGAACCCGCT")
+        XCTAssertEqual(cds.intervals.map { [$0.start, $0.end] }, [[0, 12]])
+        XCTAssertEqual(cds.qualifier("translation"), "MEPA")
+        XCTAssertEqual(source.qualifier("translation_status"), "full-length")
+        XCTAssertEqual(source.qualifier("reference_readiness_status"), "reference-ready")
+        XCTAssertTrue(comments.contains { $0.hasPrefix("CDS-NS-") && $0.contains("p.K2E") })
+        XCTAssertTrue(comments.contains {
+            $0.hasPrefix("CDS-NS-") && $0.contains("3 bp insertion") && $0.contains("frame-preserving")
+        })
+        XCTAssertFalse(comments.contains { $0.hasPrefix("INTRON-FILL-") })
+    }
+
     func testMultiBaseTouchingReplacementIndelsGroupButSeparatedIndelsRemainDistinct() throws {
         let cases = [
             (
@@ -280,14 +317,26 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let comments = try XCTUnwrap(
+        let record = try XCTUnwrap(
             FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        ).values(forRecordField: "COMMENT")
+        )
+        let comments = record.values(forRecordField: "COMMENT")
+        let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
 
         XCTAssertTrue(comments.contains { $0 == "Lungfish intronic changes: INTRON-FILL-1" }, comments.joined(separator: "\n"))
         XCTAssertTrue(comments.contains { $0.hasPrefix("INTRON-FILL-1:") && $0.contains("20 bp") && $0.contains("closest cDNA contains no homologous intron sequence") })
         XCTAssertTrue(comments.contains { $0.hasPrefix("CDS-NS-1:") && $0.contains("deletion") && $0.contains("frame-disrupting") })
         XCTAssertFalse(comments.contains { $0.hasPrefix("CDS-NS-") && $0.contains("20 bp insertion") })
+        XCTAssertEqual(cds.intervals.map { [$0.start, $0.end] }, [[0, 3], [23, 28]])
+        XCTAssertEqual(cds.qualifier("translation"), "MK")
+        XCTAssertEqual(
+            record.annotations.filter { $0.type == .exon }.map { [$0.start, $0.end] },
+            [[0, 3], [23, 28]]
+        )
+        XCTAssertEqual(
+            record.annotations.filter { $0.type == .intron }.map { [$0.start, $0.end] },
+            [[3, 23]]
+        )
     }
 
     func testMissingOrPartialAnnotationDoesNotEmitDefinitiveNone() throws {
@@ -422,6 +471,48 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertFalse(comments.contains { $0.contains("none detected in complete annotated region") })
     }
 
+    func testUnsupportedTranslationTableIsUnresolvedAndNotReferenceReady() throws {
+        let candidate = try makeCandidate(
+            stableID: "candidate-translation-table-2",
+            sequenceSHA256: "candidate-translation-table-2-hash",
+            cigar: "9=",
+            referenceName: "ref-translation-table-2",
+            referenceClass: .genomicDNA
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ATGAAAGCT",
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-translation-table-2", sequence: "ATGAAAGCT",
+                features: [feature(
+                    type: "CDS", start: 0, end: 9,
+                    qualifiers: ["transl_table": ["2"]]
+                )]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let record = try XCTUnwrap(
+            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
+        )
+        let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
+        let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
+        let comments = record.values(forRecordField: "COMMENT")
+
+        XCTAssertNil(cds.qualifier("translation"))
+        XCTAssertEqual(source.qualifier("translation_status"), "incomplete/unresolved")
+        XCTAssertEqual(source.qualifier("trim_status"), "trimmed-to-partial-lifted-CDS")
+        XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready")
+        for prefix in consequenceSummaryPrefixes {
+            XCTAssertTrue(comments.contains {
+                $0 == "\(prefix) unavailable: translation table 2 is unsupported"
+            }, comments.joined(separator: "\n"))
+        }
+        XCTAssertTrue(comments.contains(
+            "Lungfish reference readiness: not reference-ready; partial or unresolved lifted CDS"
+        ))
+    }
+
     func testConsequenceCommentsRoundTripThroughGenBankWriterAndReader() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("candidate-consequence-roundtrip-\(UUID().uuidString)", isDirectory: true)
@@ -477,6 +568,50 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertFalse(comments.contains { $0.contains("candidate -") }, comments.joined(separator: "\n"))
         XCTAssertTrue(comments.contains { $0.hasPrefix("UNCLASSIFIED-1:") && $0.contains("outside cropped candidate ORIGIN") })
         XCTAssertFalse(comments.contains { $0.hasPrefix("INTRON-") })
+    }
+
+    func testIntronicChangesOutsideCandidateCropUseReferenceOnlyCoordinates() throws {
+        let referenceSequence = "AAACCCATGGCTTAA"
+        let candidate = try makeCandidate(
+            stableID: "candidate-intronic-outside-crop",
+            sequenceSHA256: "candidate-intronic-outside-crop-hash",
+            cigar: "1=1X1I13=",
+            referenceName: "ref-intronic-outside-crop",
+            referenceClass: .genomicDNA
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate),
+            sequence: "AGT" + String(referenceSequence.dropFirst(2)),
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-intronic-outside-crop", sequence: referenceSequence,
+                features: [
+                    feature(type: "gene", start: 0, end: 15, sourceOrdinal: 1),
+                    feature(type: "intron", start: 0, end: 3, qualifiers: ["number": ["1"]], sourceOrdinal: 2),
+                    feature(type: "exon", start: 6, end: 15, qualifiers: ["number": ["2"]], sourceOrdinal: 3),
+                    feature(type: "CDS", start: 6, end: 15, sourceOrdinal: 4),
+                ]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let record = try XCTUnwrap(
+            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
+        )
+        let comments = record.values(forRecordField: "COMMENT")
+
+        XCTAssertEqual(record.sequence.asString(), "ATGGCTTAA")
+        XCTAssertTrue(comments.contains {
+            $0.hasPrefix("INTRON-1:")
+                && $0.contains("ref 2 A>G")
+                && $0.contains("outside cropped GenBank ORIGIN")
+        }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains {
+            $0.hasPrefix("INTRON-2:")
+                && $0.contains("1 bp insertion at ref boundary 2/3")
+                && $0.contains("outside cropped GenBank ORIGIN")
+        }, comments.joined(separator: "\n"))
+        XCTAssertFalse(comments.contains { $0.contains("candidate -") || $0.contains("candidate 0") })
     }
 
     func testCandidateOriginCropsTerminalUTRsRetainsIntronsAndRebasesFeaturesAndConsequences() throws {

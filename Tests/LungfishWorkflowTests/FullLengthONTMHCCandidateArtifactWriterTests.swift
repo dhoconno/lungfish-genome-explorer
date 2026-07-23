@@ -156,7 +156,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         })
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["translationRule"],
-            "recomputed-from-lifted-candidate-CDS;terminal-stop-removed;internal-stops-retained-and-counted"
+            "recomputed-from-lifted-candidate-CDS;translation-table-1-only;unsupported-omitted+unresolved;terminal-stop-removed;internal-stops-retained-and-counted"
         )
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["consequenceChangeSource"],
@@ -164,7 +164,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         )
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["consequenceCoordinateConvention"],
-            "one-based-reference+stored-candidate-ORIGIN+CDS+codon+exon+intron+amino-acid"
+            "one-based-reference+stored-candidate-ORIGIN+CDS+codon+exon+intron+amino-acid;outside-crop-reference-only"
         )
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["codingConsequenceRule"],
@@ -172,7 +172,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         )
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["cDNAIntronFillRule"],
-            "internal-query-insertion-at-least-minimum-intron-gap;excluded-from-CDS-indels"
+            "internal-query-insertion-at-least-minimum-intron-gap;excluded-from-cDNA-lifted-CDS+CDS-indels;genomic-long-insertions-retained;source-CDS-complete-assessment-includes-deletions"
         )
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["consequenceAmbiguityRule"],

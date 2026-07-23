@@ -53,7 +53,7 @@ Alleles are reported in closest-reference orientation. Reverse-query alignments 
 
 ## Coding consequences
 
-The primary annotated CDS is interpreted in transcript order using feature strand, `codon_start`, and `transl_table`. Unsupported or ambiguous CDS semantics are unresolved rather than silently treated as standard.
+The primary annotated CDS is interpreted in transcript order using feature strand, `codon_start`, and `transl_table`. Candidate translation currently supports table 1 only; any other or invalid table omits the candidate translation and forces incomplete/unresolved, non-reference-ready status. Unsupported or ambiguous CDS semantics are unresolved rather than silently treated as standard.
 
 Substitutions in the same codon are grouped and applied together before translating the alternate codon. A codon is synonymous only when the complete observed alternate codon translates to the same amino acid. Otherwise the detail reports missense, stop-gained, or stop-lost impact. Ambiguous codons/translations receive a `CDS-UNRESOLVED-*` detail and are not counted as synonymous or nonsynonymous.
 
@@ -65,9 +65,9 @@ Exon number qualifiers take precedence. If absent, exon numbers are inferred in 
 
 For genomic references, explicit intron features take precedence. Otherwise introns are inferred only from gaps between transcript-ordered exons within the annotated gene. Intronic substitutions and indels are enumerated with position and intron number. Their direct CDS translation effect is reported as none, while splice/regulatory impact is explicitly not assessed.
 
-For cDNA references, an internal query insertion at least `minimumIntronGapBases` that is used as an inferred intron fill is `INTRON-FILL`, not a coding insertion. Its reference boundary, stored candidate range, and length are reported, along with the statement that the closest cDNA contains no homologous intron sequence and splice impact is not assessed. Ordinary short CDS indels remain coding changes. A cDNA intron fill adjacent to an ordinary deletion reports both events independently.
+For cDNA references, an internal query insertion at least `minimumIntronGapBases` that is used as an inferred intron fill is `INTRON-FILL`, not part of the lifted CDS and not a coding insertion. Its reference boundary, stored candidate range, and length are reported, along with the statement that the closest cDNA contains no homologous intron sequence and splice impact is not assessed. Matches, mismatches, and observed deletions count as assessed source-CDS positions when inferring cDNA exons/introns; skipped or uncovered positions do not. Ordinary short CDS indels remain coding changes. A cDNA intron fill adjacent to an ordinary deletion reports both events independently. For genomic closest references, long internal insertions remain part of the lifted CDS, candidate translation, and coding consequences.
 
-Non-CDS exonic/UTR changes are not mislabeled as intronic. Unplaceable aligned changes are reported as unresolved/unclassified rather than omitted.
+Non-CDS exonic/UTR changes are not mislabeled as intronic. Unplaceable aligned changes are reported as unresolved/unclassified rather than omitted. Intronic changes outside the cropped candidate GenBank `ORIGIN` are reference-only and explicitly say `outside cropped GenBank ORIGIN`; they never emit zero or negative candidate coordinates.
 
 ## Partial and missing annotation
 
@@ -80,10 +80,11 @@ Candidates without a selected annotated reference receive all four stable summar
 The candidate and un-nameable GenBank render provenance records:
 
 - change source: selected closest-reference sequence, one-based start, CIGAR, and candidate sequence; no BAM reread;
-- one-based reference/candidate/CDS/exon/intron/amino-acid coordinate convention;
+- one-based reference/candidate/CDS/exon/intron/amino-acid coordinate convention with outside-crop changes reference-only;
 - grouped same-codon substitution, exon-scoped unresolved-summary, touching replacement-indel, and strand/codon-start/translation-table rules;
 - ordinary coding-indel frame rule;
-- cDNA intron-fill exclusion from CDS changes;
+- reference-class-aware long-insertion lifting, cDNA intron-fill exclusion from lifted CDS/coding changes, and deletion-aware complete-assessment inference;
+- table-1-only candidate translation with unsupported tables omitted and unresolved;
 - unresolved-never-coerced ambiguity/unassessed-CDS policy; and
 - candidate UTR trimming to the outer lifted-CDS span, including the original/full and cropped sequence identities.
 
@@ -97,12 +98,16 @@ Existing input/output descriptors, checksums, sizes, argv, runtime identity, exi
 - Frame-preserving and frame-disrupting coding indels are distinguished.
 - Touching multi-base deletion/insertion replacements are grouped by reference span while non-touching indels remain separate.
 - cDNA intron fills do not become coding indels, including when adjacent to an ordinary deletion.
+- A deletion adjacent to a cDNA intron fill still permits inferred exon/intron features, while the deletion remains a coding consequence.
+- Long genomic coding insertions remain in the lifted CDS and recomputed translation.
 - Partial/ambiguous records never emit false definitive `none` or false synonymous/nonsynonymous claims.
 - Skipped or uncovered CDS positions force incomplete/unresolved and non-reference-ready status, while observed deletions remain assessed changes.
 - Annotated un-nameable records retain their prior feature shape without lifted reference introns.
 - Annotated un-nameable records also retain prior boundary-coverage translation/status semantics when an internal reference region is skipped.
 - Exon-1-only unresolved evidence is excluded from a fully assessed exon-2/3 summary.
 - Placeable partial-CDS substitution details include candidate coordinate and known exon scope.
+- Unsupported translation tables never produce a standard translation or reference-ready candidate.
+- Intronic substitutions/insertions outside the candidate crop use explicit reference-only coordinates.
 - GenBank output is deterministic and round-trips through the reader/writer.
 - Published candidate artifacts and provenance contain the new comments/rules.
 - Candidate GenBank `ORIGIN` begins and ends at the outer lifted CDS span, preserves intervening introns, rebases features/comments, and verifies as the declared substring of the full candidate FASTA.

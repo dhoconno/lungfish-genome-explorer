@@ -195,9 +195,12 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                         exonNumber: regionNumber(at: refPosition, in: exonRegions)
                     ))
                 } else if let intronNumber = regionNumber(at: refPosition, in: intronRegions) {
+                    let candidate = input.projection.storedCandidatePositionInOrigin(
+                        orientedPosition: queryPosition
+                    ).map { "candidate \($0 + 1)" } ?? "outside cropped GenBank ORIGIN"
                     intronicDetails.append(.init(
                         sortPosition: refPosition,
-                        text: "ref \(refPosition + 1) \(refBase)>\(altBase); candidate \(input.projection.storedCandidatePosition(orientedPosition: queryPosition) + 1); intron \(intronNumber); direct CDS translation effect none; splice/regulatory impact not assessed"
+                        text: "ref \(refPosition + 1) \(refBase)>\(altBase); \(candidate); intron \(intronNumber); direct CDS translation effect none; splice/regulatory impact not assessed"
                     ))
                 } else {
                     let candidate = input.projection.storedCandidatePositionInOrigin(
@@ -237,10 +240,13 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                         ))
                     }
                 } else if let intronNumber = regionNumber(atBoundary: boundary, in: intronRegions) {
-                    let stored = input.projection.storedCandidateRange(orientedRange: queryRange)
+                    let candidate = input.projection.storedCandidateRangeInOrigin(
+                        orientedRange: queryRange
+                    ).map { "candidate \($0.lowerBound + 1)-\($0.upperBound)" }
+                        ?? "outside cropped GenBank ORIGIN"
                     intronicDetails.append(.init(
                         sortPosition: boundary,
-                        text: "\(bases.count) bp insertion at ref boundary \(boundary)/\(boundary + 1); candidate \(stored.lowerBound + 1)-\(stored.upperBound); inserted \(bases); intron \(intronNumber); direct CDS translation effect none; splice/regulatory impact not assessed"
+                        text: "\(bases.count) bp insertion at ref boundary \(boundary)/\(boundary + 1); \(candidate); inserted \(bases); intron \(intronNumber); direct CDS translation effect none; splice/regulatory impact not assessed"
                     ))
                 } else {
                     let candidate = input.projection.storedCandidateRangeInOrigin(

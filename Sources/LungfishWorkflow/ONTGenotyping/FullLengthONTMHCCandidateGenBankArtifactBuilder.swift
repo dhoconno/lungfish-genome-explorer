@@ -157,6 +157,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         let queryLength: Int
         let isReverse: Bool
         let minimumIntronGapBases: Int
+        let excludeLongInsertionsAsIntronFills: Bool
 
         func intervals(for feature: ONTMHCReferenceVisualizationFeature) -> [AnnotationInterval] {
             var positions = Set<Int>()
@@ -166,7 +167,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             }
             for insertion in insertions where insertion.referenceBoundary > feature.start
                 && insertion.referenceBoundary < feature.end
-                && insertion.orientedQueryRange.count < minimumIntronGapBases {
+                && (!excludeLongInsertionsAsIntronFills
+                    || insertion.orientedQueryRange.count < minimumIntronGapBases) {
                 for oriented in insertion.orientedQueryRange {
                     positions.insert(candidatePosition(oriented))
                 }
@@ -176,10 +178,6 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
 
         func maps(referencePosition: Int) -> Bool {
             referenceToOrientedQuery[referencePosition] != nil
-        }
-
-        func coversEveryReferenceBase(of feature: ONTMHCReferenceVisualizationFeature) -> Bool {
-            (feature.start..<feature.end).allSatisfy { referenceToOrientedQuery[$0] != nil }
         }
 
         func assessesEveryReferenceBase(of feature: ONTMHCReferenceVisualizationFeature) -> Bool {
@@ -255,7 +253,9 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 candidateSequence: sequence,
                 referenceSequence: reference.sequence,
                 isReverse: isReverse,
-                minimumIntronGapBases: input.minimumIntronGapBases
+                minimumIntronGapBases: input.minimumIntronGapBases,
+                excludeLongInsertionsAsIntronFills: !input.subject.isCandidate
+                    || input.subject.isCDNAReference
             )
             let lifted = liftFeatures(
                 reference.features,
@@ -263,7 +263,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 candidateSequence: sequence,
                 defaultName: input.subject.displayName,
                 retainReferenceIntrons: input.subject.isCandidate,
-                requireCompleteCDSAssessment: input.subject.isCandidate
+                requireCompleteCDSAssessment: input.subject.isCandidate,
+                requireSupportedTranslationTable: input.subject.isCandidate
             )
             translationStatus = lifted.translationStatus
             annotations.append(contentsOf: lifted.annotations)
@@ -276,7 +277,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                let sourceCDS = reference.features.first(where: {
                    AnnotationType.from(rawString: $0.type) == .cds
                }),
-               projection.coversEveryReferenceBase(of: sourceCDS),
+               projection.assessesEveryReferenceBase(of: sourceCDS),
                projection.longInsertionCount(inside: sourceCDS) == cds.intervals.count - 1,
                cds.intervals.count > 1,
                !lifted.hadSourceExons {
@@ -503,7 +504,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         candidateSequence: String,
         referenceSequence: String,
         isReverse: Bool,
-        minimumIntronGapBases: Int
+        minimumIntronGapBases: Int,
+        excludeLongInsertionsAsIntronFills: Bool
     ) throws -> Projection {
         guard referenceStart > 0 else { throw Error.alignmentOutOfBounds(stableClusterID: stableID) }
         let orientedCandidate = isReverse
@@ -607,7 +609,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             ),
             queryLength: queryLength,
             isReverse: isReverse,
-            minimumIntronGapBases: minimumIntronGapBases
+            minimumIntronGapBases: minimumIntronGapBases,
+            excludeLongInsertionsAsIntronFills: excludeLongInsertionsAsIntronFills
         )
     }
 
@@ -617,7 +620,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         candidateSequence: String,
         defaultName: String,
         retainReferenceIntrons: Bool,
-        requireCompleteCDSAssessment: Bool
+        requireCompleteCDSAssessment: Bool,
+        requireSupportedTranslationTable: Bool
     ) -> (
         annotations: [SequenceAnnotation],
         hadSourceExons: Bool,
@@ -672,7 +676,12 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                             || $0.rawGenBankLocation?.contains(">") == true
                     })
                     && (annotation.qualifier("codon_start").map { $0 == "1" } ?? true)
+                let translationTableText = annotation.qualifier("transl_table")
+                let hasSupportedTranslationTable = !requireSupportedTranslationTable
+                    || translationTableText == nil
+                    || translationTableText == "1"
                 if projection.maps(referencePosition: fivePrimeReferencePosition),
+                   hasSupportedTranslationTable,
                    let translation = translatedCDS(annotation, sequence: candidateSequence) {
                     annotation.qualifiers["translation"] = .init(translation)
                     cdsStatuses.append(
@@ -686,8 +695,11 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 } else {
                     cdsStatuses.append(.incompleteUnresolved)
                     let existingNotes = annotation.qualifiers["note"]?.values ?? []
+                    let reason = hasSupportedTranslationTable
+                        ? "the 5-prime CDS boundary is not aligned"
+                        : "translation table \(translationTableText ?? "unknown") is unsupported"
                     annotation.qualifiers["note"] = .init(
-                        existingNotes + ["Candidate translation omitted because the 5-prime CDS boundary is not aligned"]
+                        existingNotes + ["Candidate translation omitted because \(reason)"]
                     )
                 }
             }
