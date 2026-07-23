@@ -689,6 +689,43 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         }, comments.joined(separator: "\n"))
     }
 
+    func testCodingDeletionDisjointFromIntronDoesNotConstructInvalidOverlapRange() throws {
+        let referenceSequence = "ATGCCCGCTTAA"
+        let candidateSequence = String(referenceSequence.dropFirst())
+        let candidate = try makeCandidate(
+            stableID: "candidate-coding-deletion-before-intron",
+            sequenceSHA256: "candidate-coding-deletion-before-intron-hash",
+            cigar: "1D11=",
+            referenceName: "ref-coding-deletion-before-intron",
+            referenceClass: .genomicDNA
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-coding-deletion-before-intron", sequence: referenceSequence,
+                features: [
+                    feature(type: "gene", start: 0, end: 12, sourceOrdinal: 1),
+                    feature(type: "exon", start: 0, end: 3, qualifiers: ["number": ["1"]], sourceOrdinal: 2),
+                    feature(type: "intron", start: 3, end: 6, qualifiers: ["number": ["1"]], sourceOrdinal: 3),
+                    feature(type: "exon", start: 6, end: 12, qualifiers: ["number": ["2"]], sourceOrdinal: 4),
+                    feature(type: "CDS", start: 0, end: 3, rawGenBankLocation: "join(1..3,7..12)", sourceOrdinal: 5),
+                    feature(type: "CDS", start: 6, end: 12, rawGenBankLocation: "join(1..3,7..12)", sourceOrdinal: 5),
+                ]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let comments = try XCTUnwrap(
+            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
+        ).values(forRecordField: "COMMENT")
+
+        XCTAssertTrue(comments.contains {
+            $0.hasPrefix("CDS-NS-1:") && $0.contains("1 bp deletion at ref 1-1")
+        }, comments.joined(separator: "\n"))
+        XCTAssertFalse(comments.contains { $0.hasPrefix("INTRON-") })
+    }
+
     func testCandidateOriginCropsTerminalUTRsRetainsIntronsAndRebasesFeaturesAndConsequences() throws {
         let referenceSequence = "GGGATGAAACCCTTTGCTTAACCC"
         var candidateBases = Array(referenceSequence)

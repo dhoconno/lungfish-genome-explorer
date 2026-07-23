@@ -286,8 +286,10 @@ struct FullLengthONTMHCCandidateConsequenceAnnotator {
                     }
                 }
                 for region in intronRegions {
-                    let overlap = max(range.lowerBound, region.range.lowerBound)..<min(range.upperBound, region.range.upperBound)
-                    guard !overlap.isEmpty else { continue }
+                    let overlapLowerBound = max(range.lowerBound, region.range.lowerBound)
+                    let overlapUpperBound = min(range.upperBound, region.range.upperBound)
+                    guard overlapLowerBound < overlapUpperBound else { continue }
+                    let overlap = overlapLowerBound..<overlapUpperBound
                     let candidateBoundary = input.projection.storedCandidateBoundaryInOrigin(
                         orientedBoundary: queryBoundary
                     ).map { "candidate boundary \($0)/\($0 + 1)" }
