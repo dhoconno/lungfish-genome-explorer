@@ -2308,6 +2308,23 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         return .row(locus: row.locus, genotype: row.genotype, stableClusterID: row.stableClusterID)
     }
 
+    func orderedVisibleRowTargets(
+        from targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        let selectedRowIDs = Set(targets.compactMap { target -> GenotypeCandidateMatrixRowID? in
+            guard case let .row(locus, genotype, stableClusterID) = target else {
+                return nil
+            }
+            if let stableClusterID {
+                return .candidate(stableClusterID: stableClusterID)
+            }
+            return .known(locus: locus, genotype: genotype)
+        })
+        return visibleRows.compactMap { row in
+            selectedRowIDs.contains(row.id) ? matrixTarget(row: row, sample: nil) : nil
+        }
+    }
+
     func selectSupportedCellsInSelectedRow(minimumReads: Int) -> [GenotypeAnnotationSidecar.MatrixTarget] {
         guard let selectedGenotype,
               let selectedRowLocus,

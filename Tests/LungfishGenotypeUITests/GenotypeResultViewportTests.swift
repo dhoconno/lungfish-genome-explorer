@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CryptoKit
 @testable import LungfishGenotypeUI
 import LungfishCore
 import LungfishIO
@@ -8,6 +9,227 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeResultViewportTests: XCTestCase {
+    func testFullLengthMHCSequenceDetailIsEmptyUntilAlleleRowSelection() throws {
+        let known = makeMHCReferenceVisualizationRecord(
+            rawReferenceID: "known-a",
+            alleleName: "Mafa-A1*001:01"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "known-a", reads: 10)],
+            kind: "full-length-ont-mhc-genotype",
+            mhcReferenceVisualizations: .init(schemaVersion: 1, records: [known])
+        ))
+
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+        XCTAssertEqual(controller.testingAlleleSequenceText, "")
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+        XCTAssertEqual(controller.testingAlleleSequenceText, "")
+
+        controller.testingSelectMatrixCell(genotype: "known-a", sample: "AnimalA")
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+        XCTAssertEqual(controller.testingAlleleSequenceText, "")
+    }
+
+    func testFullLengthMHCKnownRowShowsExactRecordAndFormatToggles() {
+        let known = makeMHCReferenceVisualizationRecord(
+            rawReferenceID: "known-a",
+            alleleName: "Mafa-A1*001:01"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "known-a", reads: 10)],
+            kind: "full-length-ont-mhc-genotype",
+            mhcReferenceVisualizations: .init(schemaVersion: 1, records: [known])
+        ))
+
+        controller.testingSelectMatrixRows(genotypes: ["known-a"], sample: nil)
+
+        XCTAssertEqual(controller.testingAlleleSequenceFormat, .genBank)
+        XCTAssertEqual(controller.testingAlleleSequenceText, known.genBankText)
+        controller.testingSelectAlleleSequenceFormat(.fasta)
+        XCTAssertEqual(controller.testingAlleleSequenceText, known.fastaText)
+        controller.testingSelectAlleleSequenceFormat(.embl)
+        XCTAssertTrue(controller.testingAlleleSequenceText.contains("AC   known-a;"))
+    }
+
+    func testFullLengthMHCCandidateRowUsesExactCandidateArtifactNotClosestReference() throws {
+        let fixture = try makeSequenceDetailCandidateResult()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+
+        controller.testingSelectCandidateRow(stableClusterID: "candidate-stable")
+
+        XCTAssertEqual(controller.testingAlleleSequenceRecordIdentities, ["candidate-stable"])
+        XCTAssertTrue(controller.testingAlleleSequenceText.contains("ACCESSION   candidate-accession"))
+        XCTAssertFalse(controller.testingAlleleSequenceText.contains("closest-reference"))
+        controller.testingSelectAlleleSequenceFormat(.fasta)
+        XCTAssertEqual(
+            controller.testingAlleleSequenceText,
+            ">candidate-accession Mafa-A1*001:01_1nt_nov\nACGTACGT\n"
+        )
+        controller.testingSelectAlleleSequenceFormat(.embl)
+        XCTAssertTrue(controller.testingAlleleSequenceText.contains("AC   candidate-accession;"))
+    }
+
+    func testFullLengthMHCUnresolvedSelectionReplacesPriorRecordWithUnavailableRecord() {
+        let known = makeMHCReferenceVisualizationRecord(
+            rawReferenceID: "known-a",
+            alleleName: "Mafa-A1*001:01"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: "known-a", reads: 10),
+                makeCall(sample: "AnimalA", genotype: "missing", reads: 9),
+            ],
+            kind: "full-length-ont-mhc-genotype",
+            mhcReferenceVisualizations: .init(schemaVersion: 1, records: [known])
+        ))
+        controller.testingSelectMatrixRows(genotypes: ["known-a"], sample: nil)
+
+        controller.testingSelectMatrixRows(genotypes: ["missing"], sample: nil)
+
+        XCTAssertEqual(controller.testingAlleleSequenceRecordIdentities, ["missing"])
+        XCTAssertTrue(controller.testingAlleleSequenceText.contains("Validated allele record unavailable"))
+        XCTAssertFalse(controller.testingAlleleSequenceText.contains("known-a"))
+    }
+
+    func testReconfigureToCandidateOnlyFullLengthResultClearsPriorSequenceDetail() throws {
+        let known = makeMHCReferenceVisualizationRecord(
+            rawReferenceID: "known-a",
+            alleleName: "Mafa-A1*001:01"
+        )
+        let candidateFixture = try makeSequenceDetailCandidateResult()
+        defer { try? FileManager.default.removeItem(at: candidateFixture.root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "known-a", reads: 10)],
+            kind: "full-length-ont-mhc-genotype",
+            mhcReferenceVisualizations: .init(schemaVersion: 1, records: [known])
+        ))
+        controller.testingSelectMatrixRows(genotypes: ["known-a"], sample: nil)
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 1)
+
+        controller.configure(result: candidateFixture.result)
+
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+        XCTAssertEqual(controller.testingAlleleSequenceText, "")
+        XCTAssertTrue(controller.testingAlleleSequenceRecordIdentities.isEmpty)
+    }
+
+    func testMatrixOrdersArbitraryRowTargetsByVisibleRowsAndKeepsDuplicateCandidateLabels() {
+        let candidates = [
+            makeCandidate(id: "cluster-b", name: "Same_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
+            makeCandidate(id: "cluster-a", name: "Same_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: makeCandidateResult(
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 10)],
+            candidates: candidates,
+            observations: candidates.map {
+                makeCandidateObservation(cluster: $0.stableClusterID, sample: "AnimalA", reads: 5)
+            }
+        ))
+        let input: [GenotypeAnnotationSidecar.MatrixTarget] = [
+            .row(locus: "MHC-A1", genotype: "Same_nov", stableClusterID: "cluster-b"),
+            .column(sample: "AnimalA"),
+            .row(locus: "MHC-KNOWN", genotype: "Known"),
+            .cell(locus: "MHC-A1", genotype: "Same_nov", sample: "AnimalA", stableClusterID: "cluster-a"),
+            .row(locus: "MHC-A1", genotype: "Same_nov", stableClusterID: "cluster-a"),
+        ]
+
+        XCTAssertEqual(
+            matrix.orderedVisibleRowTargets(from: input),
+            matrix.testingVisibleRows.map {
+                .row(
+                    locus: $0.locus,
+                    genotype: $0.genotype,
+                    stableClusterID: $0.stableClusterID
+                )
+            }
+        )
+    }
+
+    func testFullLengthMHCMixedRowsUseViewportOrderPersistFormatAndKeepOneSequenceHierarchy() throws {
+        let fixture = try makeSequenceDetailCandidateResult(includeKnown: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+        try FileManager.default.removeItem(
+            at: fixture.result.mhcCandidateGenBankArtifactURLs.candidateAlleles!
+        )
+        let unordered: [GenotypeAnnotationSidecar.MatrixTarget] = [
+            .row(
+                locus: "MHC-A1",
+                genotype: "Mafa-A1*001:01_1nt_nov",
+                stableClusterID: "candidate-stable"
+            ),
+            .row(
+                locus: try XCTUnwrap(
+                    fixture.result.locusSummaries
+                        .flatMap(\.sharedCalls)
+                        .first { $0.genotype == "known-a" }?
+                        .locus
+                ),
+                genotype: "known-a"
+            ),
+        ]
+
+        controller.testingShowMatrixTargetSelection(unordered)
+
+        XCTAssertEqual(
+            controller.testingAlleleSequenceRecordIdentities,
+            ["known-a", "candidate-stable"]
+        )
+        XCTAssertEqual(controller.testingAlleleSequenceDetailMountCount, 1)
+        let knownRange = try XCTUnwrap(controller.testingAlleleSequenceText.range(of: "known-a"))
+        let candidateRange = try XCTUnwrap(
+            controller.testingAlleleSequenceText.range(of: "candidate-accession")
+        )
+        XCTAssertLessThan(knownRange.lowerBound, candidateRange.lowerBound)
+        controller.testingSelectAlleleSequenceFormat(.fasta)
+        let baselineSubviewCount = descendants(of: controller.view).count
+        for _ in 0..<50 {
+            controller.testingShowMatrixTargetSelection(Array(unordered.reversed()))
+            XCTAssertEqual(controller.testingAlleleSequenceFormat, .fasta)
+        }
+        XCTAssertEqual(controller.testingAlleleSequenceDetailMountCount, 1)
+        XCTAssertEqual(descendants(of: controller.view).count, baselineSubviewCount)
+        XCTAssertTrue(knownAlleleDetails(in: controller.view).isEmpty)
+        XCTAssertTrue(candidateAlleleDetails(in: controller.view).isEmpty)
+
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "known-b", reads: 4)],
+            kind: "full-length-ont-mhc-genotype",
+            mhcReferenceVisualizations: .init(
+                schemaVersion: 1,
+                records: [makeMHCReferenceVisualizationRecord(
+                    rawReferenceID: "known-b",
+                    alleleName: "Mafa-B*001:01"
+                )]
+            )
+        ))
+
+        XCTAssertEqual(controller.testingAlleleSequenceFormat, .genBank)
+        XCTAssertEqual(controller.testingAlleleSequenceText, "")
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+    }
+
     func testFullLengthMHCRowsUseSpeciesAgnosticBiologicalAlleleOrder() throws {
         let alleleFieldKey = "feature.allele"
         let knownAlleles = [
@@ -250,7 +472,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(viewModel.mhcCandidateDisplaySettings.tints, ONTMHCCandidateDisplaySettings.defaultTints)
     }
 
-    func testCompactSchemaTwoCandidateDocumentEnablesRowsAndGraphicalDetail() throws {
+    func testCompactSchemaTwoCandidateDocumentEnablesRowsAndUnavailableSequenceDetail() throws {
         let stableClusterID = "compact-candidate"
         let result = makeCandidateResult(
             calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 3)],
@@ -305,7 +527,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         _ = controller.view
         controller.configure(result: result)
         controller.testingSelectCandidateRow(stableClusterID: stableClusterID)
-        XCTAssertNotNil(onlyCandidateAlleleDetail(in: controller.view))
+        XCTAssertEqual(controller.testingAlleleSequenceRecordIdentities, [stableClusterID])
+        XCTAssertTrue(controller.testingAlleleSequenceText.contains("Validated allele record unavailable"))
         XCTAssertEqual(
             controller.testingCurrentSelectionDetailRows.first {
                 $0.0 == "Genotyping Evidence"
@@ -616,7 +839,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertLessThan(rows.count, 60, "Detail metadata must stay bounded as BAM evidence grows.")
     }
 
-    func testCandidateSelectionMountsPersistentGraphicalDetail() throws {
+    func testCandidateCellKeepsInspectorEvidenceWhileRowMountsSequenceDetail() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("CandidateGraphicalSelection-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -687,18 +910,8 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         controller.testingSelectCandidateCell(stableClusterID: "cluster-b", sample: "AnimalA")
 
-        let detail = try XCTUnwrap(onlyCandidateAlleleDetail(in: controller.view))
-        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 1)
-        XCTAssertEqual(controller.testingCandidateAlleleDetailMountCount, 1)
-        XCTAssertEqual(text("candidateAlleleName", in: detail), provisionalName)
-        XCTAssertEqual(text("candidateStableClusterID", in: detail), "cluster-b")
-        XCTAssertEqual(text("candidateClosestRawReferenceID", in: detail), "reference-b")
-        XCTAssertEqual(text("candidateSequenceLength", in: detail), "17 bp")
-        XCTAssertEqual(text("candidateSelectedSample", in: detail), "AnimalA")
-        XCTAssertEqual(text("candidateSelectedSampleReadCount", in: detail), "11")
-        XCTAssertEqual(text("candidateCommentBody.0", in: detail), "Cluster B row comment.")
-        XCTAssertEqual(text("candidateCommentBody.1", in: detail), "Cluster B cell comment.")
-        XCTAssertTrue(text("candidateWarning", in: detail)?.contains("Legacy candidate warning") == true)
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+        XCTAssertEqual(controller.testingAlleleSequenceText, "")
         XCTAssertEqual(selection?.highlightTarget?.stableClusterID, "cluster-b")
         XCTAssertEqual(selection?.matrixTargets, [
             .cell(
@@ -712,12 +925,10 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         controller.testingSelectCandidateRow(stableClusterID: "cluster-b")
 
-        let rowDetail = try XCTUnwrap(onlyCandidateAlleleDetail(in: controller.view))
-        XCTAssertTrue(detail === rowDetail)
-        XCTAssertEqual(text("candidateSelectedSample", in: rowDetail), "—")
-        XCTAssertEqual(text("candidateSelectedSampleReadCount", in: rowDetail), "—")
-        XCTAssertEqual(text("candidateCommentBody.0", in: rowDetail), "Cluster B row comment.")
-        XCTAssertNil(text("candidateCommentBody.1", in: rowDetail))
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 1)
+        XCTAssertEqual(controller.testingAlleleSequenceDetailMountCount, 1)
+        XCTAssertEqual(controller.testingAlleleSequenceRecordIdentities, ["cluster-b"])
+        XCTAssertTrue(controller.testingAlleleSequenceText.contains("Validated allele record unavailable"))
         XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == "Selected Sample" })
 
         let highlightColor = AnnotationColor(red: 0.2, green: 0.6, blue: 0.8, alpha: 1)
@@ -731,11 +942,11 @@ final class GenotypeResultViewportTests: XCTestCase {
             color: highlightColor
         ))
 
-        XCTAssertTrue(detail === onlyCandidateAlleleDetail(in: controller.view))
+        XCTAssertEqual(controller.testingAlleleSequenceRecordIdentities, ["cluster-b"])
         XCTAssertEqual(controller.testingCurrentSelectionStyle.fillColor, highlightColor)
     }
 
-    func testFullSizeCandidateGraphicalDetailOccupiesVisiblePane() throws {
+    func testFullSizeCandidateSequenceDetailOccupiesVisiblePane() throws {
         let stableClusterID = "cluster-visible"
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1_680, height: 1_475),
@@ -778,46 +989,23 @@ final class GenotypeResultViewportTests: XCTestCase {
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
-        let detail = try XCTUnwrap(onlyCandidateAlleleDetail(in: controller.view))
+        let detail = try XCTUnwrap(onlyAlleleSequenceDetail(in: controller.view))
         XCTAssertGreaterThan(controller.testingDetailPaneWidth, 1_000)
         XCTAssertEqual(
             detail.bounds.width,
             controller.testingDetailPaneWidth - 20,
             accuracy: 2,
-            "The graphical detail must fill the available detail pane instead of trailing-aligning at its fitting width."
+            "The sequence detail must fill the available detail pane."
         )
-        let identified: (String) -> NSView? = { identifier in
-            ([detail] + self.descendants(of: detail)).first {
-                $0.accessibilityIdentifier() == identifier
-            }
-        }
-        for identifier in [
-            "candidateHeader",
-            "candidateModeControl",
-            "candidateClosestReferenceOverview",
-            "candidateDifferenceTrack",
-        ] {
-            let child = try XCTUnwrap(identified(identifier), identifier)
-            let childFrame = child.convert(child.bounds, to: detail)
-            XCTAssertFalse(child.isHiddenOrHasHiddenAncestor, identifier)
-            XCTAssertGreaterThan(
-                childFrame.intersection(detail.bounds).width,
-                0,
-                "\(identifier) must occupy visible horizontal space."
-            )
-            XCTAssertGreaterThan(
-                childFrame.intersection(detail.bounds).height,
-                0,
-                "\(identifier) must occupy visible vertical space."
-            )
-        }
-        XCTAssertGreaterThan(
-            try XCTUnwrap(identified("candidateClosestReferenceOverview")).bounds.width,
-            300
-        )
+        XCTAssertNotNil(descendants(of: detail).first {
+            $0.accessibilityIdentifier() == "mhc-sequence-format"
+        })
+        XCTAssertNotNil(descendants(of: detail).first {
+            $0.accessibilityIdentifier() == "mhc-sequence-text"
+        })
     }
 
-    func testRepeatedCandidateSelectionsReuseOneGraphicalDetail() throws {
+    func testRepeatedCandidateRowSelectionsReuseOneSequenceDetail() throws {
         let result = makeCandidateResult(
             calls: [],
             candidates: [
@@ -856,16 +1044,16 @@ final class GenotypeResultViewportTests: XCTestCase {
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: result)
-        controller.testingSelectCandidateCell(stableClusterID: "cluster-heavy", sample: "AnimalA")
-        let detail = try XCTUnwrap(onlyCandidateAlleleDetail(in: controller.view))
+        controller.testingSelectCandidateRow(stableClusterID: "cluster-heavy")
+        let detail = try XCTUnwrap(onlyAlleleSequenceDetail(in: controller.view))
         let baselineDescendantCount = descendants(of: detail).count
         let baselineConstraintIDs = Set(activeConstraints(in: detail).map(ObjectIdentifier.init))
         XCTAssertLessThan(baselineDescendantCount, 300)
 
         for _ in 0..<20 {
             controller.testingSelectCandidateRow(stableClusterID: "cluster-light")
-            controller.testingSelectCandidateCell(stableClusterID: "cluster-heavy", sample: "AnimalA")
-            let current = try XCTUnwrap(onlyCandidateAlleleDetail(in: controller.view))
+            controller.testingSelectCandidateRow(stableClusterID: "cluster-heavy")
+            let current = try XCTUnwrap(onlyAlleleSequenceDetail(in: controller.view))
             XCTAssertTrue(detail === current)
             XCTAssertEqual(descendants(of: current).count, baselineDescendantCount)
             XCTAssertEqual(
@@ -874,7 +1062,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(controller.testingCandidateAlleleDetailMountCount, 1)
+        XCTAssertEqual(controller.testingAlleleSequenceDetailMountCount, 1)
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 1)
         XCTAssertLessThan(controller.testingCurrentSelectionDetailRows.count, 60)
         XCTAssertEqual(
@@ -883,7 +1071,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
-    func testMissingCandidateGraphicalDataUsesBoundedFallbackWithoutReloading() async throws {
+    func testMissingCandidateRecordUsesUnavailableSequenceWithoutReloading() async throws {
         let result = makeCandidateResult(
             calls: [],
             candidates: [
@@ -901,20 +1089,18 @@ final class GenotypeResultViewportTests: XCTestCase {
         }
         controller.configure(result: result)
 
-        controller.testingSelectCandidateCell(stableClusterID: "legacy-candidate", sample: "AnimalA")
+        controller.testingSelectCandidateRow(stableClusterID: "legacy-candidate")
 
-        let detail = try XCTUnwrap(onlyCandidateAlleleDetail(in: controller.view))
-        let fallback = try XCTUnwrap(text("candidateFallbackNote", in: detail))
-        XCTAssertTrue(fallback.contains("candidate sequence"))
-        XCTAssertTrue(fallback.contains("closest-reference visualization"))
+        let detail = try XCTUnwrap(onlyAlleleSequenceDetail(in: controller.view))
+        XCTAssertTrue(controller.testingAlleleSequenceText.contains("Validated allele record unavailable"))
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 1)
         XCTAssertLessThan(descendants(of: detail).count, 300)
-        XCTAssertFalse(visibleText(in: detail).contains("Candidate Allele Evidence"))
+        XCTAssertTrue(candidateAlleleDetails(in: controller.view).isEmpty)
         let loaderInvocationCount = await loaderSpy.currentInvocationCount()
         XCTAssertEqual(loaderInvocationCount, 0)
     }
 
-    func testKnownAndCandidateSelectionsReuseExclusiveGraphicalDetailSingletons() throws {
+    func testKnownAndCandidateRowsReuseOneSequenceDetailAndCellsClearIt() throws {
         let knownID = "01_Mafa_A1_Known"
         let knownRecord = makeMHCReferenceVisualizationRecord(
             rawReferenceID: knownID,
@@ -943,21 +1129,20 @@ final class GenotypeResultViewportTests: XCTestCase {
         _ = controller.view
         controller.configure(result: result)
         controller.testingSelectCandidateRow(stableClusterID: "candidate-a")
-        let candidateDetail = try XCTUnwrap(onlyCandidateAlleleDetail(in: controller.view))
+        let sequenceDetail = try XCTUnwrap(onlyAlleleSequenceDetail(in: controller.view))
 
         controller.testingSelectMatrixRows(genotypes: [knownID], sample: nil)
 
-        let knownDetail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
-        XCTAssertTrue(candidateAlleleDetails(in: controller.view).isEmpty)
+        XCTAssertTrue(sequenceDetail === onlyAlleleSequenceDetail(in: controller.view))
 
         controller.testingSelectCandidateCell(stableClusterID: "candidate-a", sample: "AnimalA")
 
-        XCTAssertTrue(candidateDetail === onlyCandidateAlleleDetail(in: controller.view))
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
         XCTAssertTrue(knownAlleleDetails(in: controller.view).isEmpty)
 
         controller.testingSelectMatrixRows(genotypes: [knownID], sample: nil)
 
-        XCTAssertTrue(knownDetail === onlyKnownAlleleDetail(in: controller.view))
+        XCTAssertTrue(sequenceDetail === onlyAlleleSequenceDetail(in: controller.view))
         XCTAssertTrue(candidateAlleleDetails(in: controller.view).isEmpty)
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 1)
     }
@@ -987,10 +1172,11 @@ final class GenotypeResultViewportTests: XCTestCase {
         _ = controller.view
         controller.configure(result: result)
         controller.testingSelectCandidateRow(stableClusterID: "candidate-a")
-        XCTAssertNotNil(onlyCandidateAlleleDetail(in: controller.view))
+        XCTAssertNotNil(onlyAlleleSequenceDetail(in: controller.view))
 
         controller.testingSelectMatrixCell(genotype: knownID, sample: "AnimalB")
         XCTAssertTrue(candidateAlleleDetails(in: controller.view).isEmpty)
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Evidence", "No supporting reads") })
 
         controller.applyHighlight(GenotypeResultHighlightRequest(
@@ -1000,6 +1186,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         ))
 
         XCTAssertTrue(candidateAlleleDetails(in: controller.view).isEmpty)
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Evidence", "No supporting reads") })
         XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, [
             .cell(locus: "MHC-A", genotype: knownID, sample: "AnimalB"),
@@ -8757,6 +8944,17 @@ final class GenotypeResultViewportTests: XCTestCase {
         ([root] + descendants(of: root)).compactMap { $0 as? GenotypeCandidateAlleleDetailView }
     }
 
+    private func onlyAlleleSequenceDetail(
+        in root: NSView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> GenotypeAlleleSequenceDetailView? {
+        let details = ([root] + descendants(of: root))
+            .compactMap { $0 as? GenotypeAlleleSequenceDetailView }
+        XCTAssertEqual(details.count, 1, file: file, line: line)
+        return details.first
+    }
+
     private func onlyKnownAlleleDetail(
         in root: NSView,
         file: StaticString = #filePath,
@@ -8855,7 +9053,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         integrityWarnings: [ONTGenotypeIntegrityWarning] = [],
         candidateDocumentSchemaVersion: Int = 1,
         candidateArtifactManifestSchemaVersion: Int = 1,
-        referenceMetadata: ONTGenotypeReferenceMetadata? = nil
+        referenceMetadata: ONTGenotypeReferenceMetadata? = nil,
+        mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty
     ) -> ONTGenotypeResultBundleData {
         let sampleIDs = Set(calls.map(\.sample) + observations.map(\.sampleID))
         let samples = sampleIDs.sorted().map { sample in
@@ -8922,6 +9121,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             mhcCandidates: document,
             mhcUnnameableClusters: nil,
             mhcCandidateSequencesByStableClusterID: candidateSequences,
+            mhcCandidateGenBankArtifactURLs: mhcCandidateGenBankArtifactURLs,
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: integrityWarnings,
             referenceMetadata: referenceMetadata
@@ -8953,12 +9153,102 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    private func makeSequenceDetailCandidateResult(
+        includeKnown: Bool = false
+    ) throws -> (
+        root: URL,
+        result: ONTGenotypeResultBundleData
+    ) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeSequenceDetail-\(UUID().uuidString)", isDirectory: true)
+        let bundleURL = root.appendingPathComponent("fixture.lungfishgenotype", isDirectory: true)
+        let candidateURL = bundleURL.appendingPathComponent(
+            "artifacts/candidates/candidate_alleles.gb"
+        )
+        try FileManager.default.createDirectory(
+            at: candidateURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let sequence = "ACGTACGT"
+        try """
+        LOCUS       candidate-accession 8 bp DNA linear
+        DEFINITION  Exact candidate record.
+        ACCESSION   candidate-accession
+        FEATURES             Location/Qualifiers
+             CDS             1..8
+                             /allele="Mafa-A1*001:01_1nt_nov"
+        ORIGIN
+                1 acgtacgt
+        //
+        """.write(to: candidateURL, atomically: true, encoding: .utf8)
+        let checksum = SHA256.hash(data: Data(sequence.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let stableID = "candidate-stable"
+        let candidate = makeCandidate(
+            id: stableID,
+            name: "Mafa-A1*001:01_1nt_nov",
+            classification: .novel,
+            support: .singleton,
+            samples: ["AnimalA"],
+            fastaRecordID: "candidate-accession",
+            sequenceSHA256: checksum
+        )
+        let closest = makeCandidateReferenceVisualizationRecord(
+            rawReferenceID: "closest-reference",
+            alleleName: "Mafa-A1*001:01",
+            stableClusterID: stableID
+        )
+        let known = makeMHCReferenceVisualizationRecord(
+            rawReferenceID: "known-a",
+            alleleName: "Mafa-A1*000:01"
+        )
+        return (
+            root,
+            makeCandidateResult(
+                bundleURL: bundleURL,
+                calls: includeKnown
+                    ? [makeCall(sample: "AnimalA", genotype: "known-a", reads: 6)]
+                    : [],
+                candidates: [candidate],
+                observations: [
+                    makeCandidateObservation(cluster: stableID, sample: "AnimalA", reads: 5),
+                ],
+                mhcReferenceVisualizations: .init(
+                    schemaVersion: 1,
+                    records: includeKnown ? [known, closest] : [closest]
+                ),
+                referenceMetadata: includeKnown ? ONTGenotypeReferenceMetadata(
+                    fields: [.init(
+                        key: "feature.allele",
+                        displayTitle: "Allele",
+                        valueType: "text",
+                        sourceCategory: "feature",
+                        preferredOrder: 0
+                    )],
+                    recordsBySequenceName: [
+                        "known-a": ["feature.allele": "Mafa-A1*000:01"],
+                    ],
+                    alleleFieldKey: "feature.allele"
+                ) : nil,
+                mhcCandidateGenBankArtifactURLs: .init(
+                    candidateAlleles: candidateURL,
+                    unnameableClusters: nil,
+                    candidateFASTA: nil,
+                    unnameableFASTA: nil
+                )
+            )
+        )
+    }
+
     private func makeCandidate(
         id: String,
         name: String,
         classification: ONTMHCCandidateClassification,
         support: ONTMHCCandidateSupportClass,
-        samples: [String]
+        samples: [String],
+        fastaRecordID: String? = nil,
+        sequenceSHA256: String = String(repeating: "b", count: 64)
     ) -> ONTMHCCandidateRecord {
         ONTMHCCandidateRecord(
             stableClusterID: id,
@@ -8981,8 +9271,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             occurrenceCount: samples.count,
             totalClusterReads: samples.count * 5,
             supportingSampleIDs: samples,
-            fastaRecordID: id,
-            sequenceSHA256: String(repeating: "b", count: 64),
+            fastaRecordID: fastaRecordID ?? id,
+            sequenceSHA256: sequenceSHA256,
             selectedEvidence: .init(
                 bamPath: "artifacts/alignments/unmatched-to-reference.bam",
                 queryName: id,
