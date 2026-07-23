@@ -5857,7 +5857,7 @@ public final class GenotypeResultViewController: NSViewController {
 
         let labelField = NSTextField(labelWithString: label)
         labelField.font = .systemFont(ofSize: 11, weight: .medium)
-        labelField.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        labelField.widthAnchor.constraint(equalToConstant: 176).isActive = true
         labelField.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let pathField = NSTextField(labelWithString: url.path)
@@ -6578,6 +6578,25 @@ extension GenotypeResultViewController {
 
     var testingResultTotalInputReads: Int? {
         result?.stats.totalInputReads
+    }
+
+    func testingArtifactLabelLayout(label: String) -> (renderedWidth: CGFloat, intrinsicWidth: CGFloat)? {
+        artifactStack.layoutSubtreeIfNeeded()
+        guard let field = testingTextField(in: artifactStack, text: label) else { return nil }
+        field.superview?.layoutSubtreeIfNeeded()
+        return (field.frame.width, field.intrinsicContentSize.width)
+    }
+
+    private func testingTextField(in view: NSView, text: String) -> NSTextField? {
+        if let field = view as? NSTextField, field.stringValue == text {
+            return field
+        }
+        for subview in view.subviews {
+            if let field = testingTextField(in: subview, text: text) {
+                return field
+            }
+        }
+        return nil
     }
 
     private func textContent(in view: NSView) -> [String] {

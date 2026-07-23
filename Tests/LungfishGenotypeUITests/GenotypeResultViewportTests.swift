@@ -2158,6 +2158,41 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(lensText.contains(reciprocalBAIURL.standardizedFileURL.path))
     }
 
+    func testArtifactsLensMHCAlignmentLabelsFitWithoutClipping() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMHCAlignmentArtifactLabelLayout-\(UUID().uuidString)", isDirectory: true)
+        let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
+            genotypingBAM: bundleURL.appendingPathComponent("genotyping.bam"),
+            genotypingBAI: bundleURL.appendingPathComponent("genotyping.bam.bai"),
+            reciprocalBAM: bundleURL.appendingPathComponent("reciprocal.bam"),
+            reciprocalBAI: bundleURL.appendingPathComponent("reciprocal.bam.bai")
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            mhcAlignmentArtifactURLs: alignmentArtifactURLs
+        ))
+        controller.testingSelectLens(.audit)
+        controller.view.layoutSubtreeIfNeeded()
+
+        for label in [
+            "Genotyping Evidence BAM",
+            "Genotyping Evidence BAI",
+            "Reciprocal Evidence BAM",
+            "Reciprocal Evidence BAI",
+        ] {
+            let layout = try XCTUnwrap(controller.testingArtifactLabelLayout(label: label))
+            XCTAssertGreaterThanOrEqual(
+                layout.renderedWidth,
+                layout.intrinsicWidth,
+                "\(label) is clipped"
+            )
+        }
+    }
+
     func testResultViewportOmitsSummaryStatisticsStripForEveryLens() {
         let controller = GenotypeResultViewController()
         _ = controller.view
