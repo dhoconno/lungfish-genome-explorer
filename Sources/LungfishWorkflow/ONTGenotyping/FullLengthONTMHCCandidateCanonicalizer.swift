@@ -86,7 +86,7 @@ struct FullLengthONTMHCCandidateCanonicalizer {
             let sorted = values.sorted(by: representativeLessThan)
             let representative = sorted[0]
             let rawIDs = values.map(\.record.stableClusterID).sorted()
-            let observations = values.flatMap { input in
+            let rawObservations = values.flatMap { input in
                 input.observations.map { observation in
                     ONTMHCCandidateObservation(
                         stableClusterID: canonicalID,
@@ -99,7 +99,11 @@ struct FullLengthONTMHCCandidateCanonicalizer {
                         genotypingHitSummaries: observation.genotypingHitSummaries
                     )
                 }
-            }.sorted(by: observationLessThan)
+            }
+            let observations = aggregateObservations(
+                rawObservations,
+                canonicalStableClusterID: canonicalID
+            )
             let sampleIDs = Set(observations.map(\.sampleID)).sorted()
             let totalReads = observations.reduce(0) { $0 + $1.aggregatedSampleReadCount }
             let occurrenceCount = observations.reduce(0) {
@@ -219,6 +223,56 @@ struct FullLengthONTMHCCandidateCanonicalizer {
             rhs.stableClusterID, rhs.sampleID, rhs.readGroupID,
             rhs.sourceSequenceClusterID,
         ])
+    }
+
+    private func aggregateObservations(
+        _ observations: [ONTMHCCandidateObservation],
+        canonicalStableClusterID: String
+    ) -> [ONTMHCCandidateObservation] {
+        struct Key: Hashable {
+            let sampleID: String
+            let readGroupID: String
+        }
+        return Dictionary(grouping: observations) {
+            Key(sampleID: $0.sampleID, readGroupID: $0.readGroupID)
+        }.map { key, values in
+            var sourceClusterReadCounts: [String: Int] = [:]
+            var summaries: [ONTMHCGenotypingTargetHitSummary] = []
+            for value in values {
+                for (sourceID, count) in value.sourceClusterReadCounts {
+                    sourceClusterReadCounts[sourceID, default: 0] += count
+                }
+                summaries.append(contentsOf: value.genotypingHitSummaries)
+            }
+            let sortedSummaries = summaries.sorted(by: genotypingSummaryLessThan)
+            let uniqueSummaries = sortedSummaries.enumerated().compactMap { index, summary in
+                index == 0 || sortedSummaries[index - 1] != summary ? summary : nil
+            }
+            let representativeRawID = values.sorted {
+                if $0.aggregatedSampleReadCount != $1.aggregatedSampleReadCount {
+                    return $0.aggregatedSampleReadCount > $1.aggregatedSampleReadCount
+                }
+                return $0.sourceSequenceClusterID < $1.sourceSequenceClusterID
+            }[0].sourceSequenceClusterID
+            return ONTMHCCandidateObservation(
+                stableClusterID: canonicalStableClusterID,
+                sourceSequenceClusterID: representativeRawID,
+                sampleID: key.sampleID,
+                readGroupID: key.readGroupID,
+                sourceClusterIDs: sourceClusterReadCounts.keys.sorted(),
+                sourceClusterReadCounts: sourceClusterReadCounts,
+                aggregatedSampleReadCount: sourceClusterReadCounts.values.reduce(0, +),
+                genotypingHitSummaries: uniqueSummaries
+            )
+        }.sorted(by: observationLessThan)
+    }
+
+    private func genotypingSummaryLessThan(
+        _ lhs: ONTMHCGenotypingTargetHitSummary,
+        _ rhs: ONTMHCGenotypingTargetHitSummary
+    ) -> Bool {
+        if lhs.targetName != rhs.targetName { return lhs.targetName < rhs.targetName }
+        return lhs.bamPath < rhs.bamPath
     }
 
     private func normalized(_ sequence: String) -> String {

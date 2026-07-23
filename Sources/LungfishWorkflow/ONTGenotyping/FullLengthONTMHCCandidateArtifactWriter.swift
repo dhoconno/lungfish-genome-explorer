@@ -32,6 +32,7 @@ struct FullLengthONTMHCCandidateSequenceObservation: Sendable, Equatable {
 struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     let observations: [FullLengthONTMHCCandidateSequenceObservation]
     let referenceAlleleFASTAURL: URL
+    let rawUnmatchedConsensusesFASTAURL: URL
     let referenceBundleURL: URL?
     let referenceAnnotationInputURLs: [URL]
     let referenceRecords: [MHCReferenceRecord]
@@ -47,6 +48,7 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     init(
         observations: [FullLengthONTMHCCandidateSequenceObservation],
         referenceAlleleFASTAURL: URL,
+        rawUnmatchedConsensusesFASTAURL: URL? = nil,
         referenceBundleURL: URL? = nil,
         referenceAnnotationInputURLs: [URL] = [],
         referenceRecords: [MHCReferenceRecord],
@@ -61,6 +63,12 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     ) {
         self.observations = observations
         self.referenceAlleleFASTAURL = referenceAlleleFASTAURL.standardizedFileURL
+        self.rawUnmatchedConsensusesFASTAURL = (
+            rawUnmatchedConsensusesFASTAURL
+                ?? outputDirectoryURL.appendingPathComponent(
+                    "artifacts/internal/raw-unmatched-consensuses.fasta"
+                )
+        ).standardizedFileURL
         self.referenceBundleURL = referenceBundleURL?.standardizedFileURL
         self.referenceAnnotationInputURLs = referenceAnnotationInputURLs.map(\.standardizedFileURL)
         self.referenceRecords = referenceRecords
@@ -303,12 +311,12 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         try safety.requireRegularFileNoFollow(request.referenceAlleleFASTAURL, role: "reference allele FASTA")
         try fileManager.createDirectory(at: request.outputDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: request.workDirectoryURL, withIntermediateDirectories: true)
-        let callerStagedUnmatchedFASTAURL = request.outputDirectoryURL.appendingPathComponent(
+        let canonicalUnmatchedFASTAURL = request.outputDirectoryURL.appendingPathComponent(
             "deduplicated_unmatched_clusters.fasta"
         )
         try safety.requireRegularFileNoFollow(
-            callerStagedUnmatchedFASTAURL,
-            role: "caller-staged deduplicated unmatched FASTA"
+            request.rawUnmatchedConsensusesFASTAURL,
+            role: "caller-staged raw unmatched consensus FASTA"
         )
         try requireFreshStagingTargets(in: request.outputDirectoryURL)
         let pathContext = try safety.prepareDirectories(
@@ -316,13 +324,15 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             workDirectoryURL: request.workDirectoryURL
         )
         let observationGroups = try groupedClusters(request.observations)
-        let canonicalRecords = try canonicalUnmatchedRecords(callerStagedUnmatchedFASTAURL)
+        let canonicalRecords = try canonicalUnmatchedRecords(
+            request.rawUnmatchedConsensusesFASTAURL
+        )
         let grouped = try bindCanonicalRecords(
             canonicalRecords,
             to: observationGroups
         )
         let capturedCanonicalDescriptor = try FullLengthONTMHCArtifactDescriptor(
-            url: callerStagedUnmatchedFASTAURL,
+            url: request.rawUnmatchedConsensusesFASTAURL,
             role: .sourceClusterFASTA,
             phase: .input
         )
@@ -350,6 +360,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             role: .referenceFASTA,
             phase: .input
         )
+        let annotationInputDescriptors = try request.referenceAnnotationInputURLs.map {
+            try FullLengthONTMHCArtifactDescriptor(url: $0, role: .commandInput, phase: .input)
+        }
         let stagedStableFASTAURL = stagedRootURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta")
         let stableFASTAStartedAt = Date()
         try writeFASTA(grouped.map { ($0.id, $0.sequence) }, to: stagedStableFASTAURL)
@@ -364,7 +377,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "lungfish-in-process", "construct-stable-unmatched-cluster-fasta",
                 "--stable-id", "sha256-uuid-v5-compatible",
                 "--line-width", "80",
-                "--input", callerStagedUnmatchedFASTAURL.path,
+                "--input", request.rawUnmatchedConsensusesFASTAURL.path,
                 "--output", stagedStableFASTAURL.path,
             ],
             resolvedOptions: [
@@ -550,8 +563,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             ($0.id, $0.observations)
         })
         let rawSequenceReference = try artifactReference(
-            callerStagedUnmatchedFASTAURL,
-            finalRelativePath: "deduplicated_unmatched_clusters.fasta"
+            request.rawUnmatchedConsensusesFASTAURL,
+            finalRelativePath: "artifacts/internal/raw-unmatched-consensuses.fasta"
         )
         let rawCreatedAt = Self.iso8601(Date())
         let rawCandidateDocument = ONTMHCCandidateAllelesDocument(
@@ -591,6 +604,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         } else {
             referenceVisualization = nil
         }
+        let canonicalizationStartedAt = Date()
         let preparedCandidates = try rawCandidates.map { candidate in
             let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
                 subject: .candidate(candidate),
@@ -688,6 +702,35 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                   let sequence = prepared.canonicalization.externalSequence else { return nil }
             return (id, Self.normalizedSequence(sequence))
         })
+        let canonicalizationInputDescriptors = [
+            canonicalDescriptor, referenceDescriptor, reciprocalViewDescriptor,
+            reciprocalBAMDescriptor, reciprocalBAIDescriptor,
+        ] + annotationInputDescriptors
+        let canonicalizationCompletedAt = Date()
+        let canonicalizationResolvedOptions = Self.canonicalizationResolvedOptions(
+            thresholds: request.thresholds,
+            rawCandidateCount: rawCandidates.count,
+            canonicalCandidateCount: candidates.count,
+            rawUnnameableCount: rawUnnameable.count,
+            externalUnnameableCount: unnameableExternalSequences.count
+        )
+        transformations.append(.init(
+            workflowName: "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-in-process", "canonicalize-and-aggregate-mhc-candidates",
+                "--observation-merge-key", "canonical-stable-cluster-id,sample-id,read-group-id",
+            ] + canonicalizationInputDescriptors.flatMap { ["--input", $0.path] },
+            resolvedOptions: canonicalizationResolvedOptions.merging([
+                "provenanceOutputException": "typed in-memory canonical candidates and external-ready unnameable records are consumed by artifact render steps",
+            ]) { _, value in value },
+            inputs: canonicalizationInputDescriptors,
+            outputs: [],
+            exitStatus: 0,
+            startedAt: canonicalizationStartedAt,
+            completedAt: canonicalizationCompletedAt,
+            wallTime: canonicalizationCompletedAt.timeIntervalSince(canonicalizationStartedAt)
+        ))
         let candidateFASTAURL = stagedRootURL.appendingPathComponent("candidate_alleles.fasta")
         let unnameableFASTAURL = stagedRootURL.appendingPathComponent("unnameable_unmatched_clusters.fasta")
         let candidateFASTAStartedAt = Date()
@@ -700,9 +743,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let candidateFASTACompletedAt = Date()
         transformations.append(Self.renderTransformation(
             name: "render-mhc-candidate-fasta",
-            source: stagedStableDescriptor,
+            inputs: canonicalizationInputDescriptors,
             output: candidateFASTADescriptor,
             recordCount: candidates.count,
+            additionalResolvedOptions: canonicalizationResolvedOptions,
             startedAt: candidateFASTAStartedAt,
             completedAt: candidateFASTACompletedAt
         ))
@@ -719,9 +763,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let unnameableFASTACompletedAt = Date()
         transformations.append(Self.renderTransformation(
             name: "render-mhc-unnameable-fasta",
-            source: stagedStableDescriptor,
+            inputs: canonicalizationInputDescriptors,
             output: unnameableFASTADescriptor,
             recordCount: unnameableFASTARecords.count,
+            additionalResolvedOptions: canonicalizationResolvedOptions,
             startedAt: unnameableFASTAStartedAt,
             completedAt: unnameableFASTACompletedAt
         ))
@@ -731,16 +776,12 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             isDirectory: true
         )
         try fileManager.createDirectory(at: internalDirectoryURL, withIntermediateDirectories: true)
-        let rawInternalFASTAURL = internalDirectoryURL.appendingPathComponent(
-            "raw-unmatched-consensuses.fasta"
-        )
         let sourceMapURL = internalDirectoryURL.appendingPathComponent(
             "mhc-candidate-source-map.json"
         )
         let sourceIdentityStartedAt = Date()
-        try fileManager.copyItem(at: callerStagedUnmatchedFASTAURL, to: rawInternalFASTAURL)
         let rawInternalFASTAReference = try artifactReference(
-            rawInternalFASTAURL,
+            request.rawUnmatchedConsensusesFASTAURL,
             finalRelativePath: "artifacts/internal/raw-unmatched-consensuses.fasta"
         )
         let canonicalCandidateByRawID = Dictionary(uniqueKeysWithValues: canonicalCandidates.flatMap {
@@ -808,11 +849,6 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             records: sourceIdentityRecords
         )
         try writeCanonicalJSON(sourceIdentityDocument, to: sourceMapURL)
-        let rawInternalFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
-            url: rawInternalFASTAURL,
-            role: .sourceClusterFASTA,
-            phase: .staging
-        )
         let sourceMapDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: sourceMapURL,
             role: .commandOutput,
@@ -824,20 +860,14 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             workflowVersion: WorkflowRun.currentAppVersion,
             argv: [
                 "lungfish-in-process", "render-mhc-candidate-source-identity",
-                "--raw-fasta", rawInternalFASTAURL.path,
+                "--raw-fasta", request.rawUnmatchedConsensusesFASTAURL.path,
                 "--source-map", sourceMapURL.path,
-            ],
-            resolvedOptions: [
-                "rawIdentity": "exact-normalized-full-consensus-sequence",
-                "canonicalIdentity": "exact-normalized-UTR-trimmed-genomic-sequence",
-                "canonicalStableID": "first-128-bits-SHA256-with-UUID-version-and-variant-bits",
-                "candidateMergeFields": "classification,locus,provisional-name,closest-reference-name,closest-reference-raw-id,closest-reference-class,extension-of,provisional-naming-ambiguous",
-                "representativeRule": "highest-total-cluster-reads;then-lexical-raw-stable-id",
+            ] + canonicalizationInputDescriptors.flatMap { ["--input", $0.path] },
+            resolvedOptions: canonicalizationResolvedOptions.merging([
                 "rawRecordCount": String(grouped.count),
-                "canonicalCandidateCount": String(candidates.count),
-            ],
-            inputs: [canonicalDescriptor],
-            outputs: [rawInternalFASTADescriptor, sourceMapDescriptor],
+            ]) { _, value in value },
+            inputs: canonicalizationInputDescriptors,
+            outputs: [sourceMapDescriptor],
             exitStatus: 0,
             startedAt: sourceIdentityStartedAt,
             completedAt: sourceIdentityCompletedAt,
@@ -901,16 +931,15 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let candidateJSONCompletedAt = Date()
         transformations.append(Self.renderTransformation(
             name: "render-mhc-candidate-json",
-            inputs: [
-                referenceDescriptor, stagedStableDescriptor, candidateFASTADescriptor,
-                reciprocalBAMDescriptor, reciprocalBAIDescriptor,
-            ],
+            inputs: canonicalizationInputDescriptors + [candidateFASTADescriptor],
             output: candidateJSONDescriptor,
             recordCount: candidates.count,
-            additionalResolvedOptions: Self.compactHitShapeResolvedOptions(
+            additionalResolvedOptions: canonicalizationResolvedOptions.merging(
+                Self.compactHitShapeResolvedOptions(
                 evidence: evidence,
                 reciprocalBAMPath: reciprocalBAMRelativePath
-            ),
+                )
+            ) { _, value in value },
             startedAt: candidateJSONStartedAt,
             completedAt: candidateJSONCompletedAt
         ))
@@ -922,16 +951,15 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let unnameableJSONCompletedAt = Date()
         transformations.append(Self.renderTransformation(
             name: "render-mhc-unnameable-json",
-            inputs: [
-                referenceDescriptor, stagedStableDescriptor, unnameableFASTADescriptor,
-                reciprocalBAMDescriptor, reciprocalBAIDescriptor,
-            ],
+            inputs: canonicalizationInputDescriptors + [unnameableFASTADescriptor],
             output: unnameableJSONDescriptor,
             recordCount: unnameable.count,
-            additionalResolvedOptions: Self.compactHitShapeResolvedOptions(
+            additionalResolvedOptions: canonicalizationResolvedOptions.merging(
+                Self.compactHitShapeResolvedOptions(
                 evidence: evidence,
                 reciprocalBAMPath: reciprocalBAMRelativePath
-            ),
+                )
+            ) { _, value in value },
             startedAt: unnameableJSONStartedAt,
             completedAt: unnameableJSONCompletedAt
         ))
@@ -945,7 +973,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 $0.representativeCanonicalization.record,
                 externalID: $0.record.stableClusterID,
                 externalSequence: $0.sequence,
-                rawSourceIDs: $0.record.sourceSequenceClusterIDs
+                rawSourceIDs: $0.record.sourceSequenceClusterIDs,
+                canonicalCandidate: $0.record
             )
         }
         try GenBankWriter(url: candidateGenBankURL).write(candidateGenBankRecords)
@@ -974,9 +1003,6 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             url: unnameableGenBankURL, role: .commandOutput, phase: .staging
         )
         let unnameableGenBankCompletedAt = Date()
-        let annotationInputDescriptors = try request.referenceAnnotationInputURLs.map {
-            try FullLengthONTMHCArtifactDescriptor(url: $0, role: .commandInput, phase: .input)
-        }
         let commonGenBankResolvedOptions: [String: String] = [
             "analysisName": request.analysisName,
             "projectBundleName": request.projectBundleName ?? "unavailable",
@@ -1033,7 +1059,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
 
         try Task.checkCancellation()
         try safety.revalidatePathContext(pathContext)
-        let stagedPublicationDescriptors = [
+        var stagedPublicationDescriptors = [
             try FullLengthONTMHCArtifactDescriptor(url: stagedBAMURL, role: .evidenceBAM, phase: .staging),
             try FullLengthONTMHCArtifactDescriptor(url: stagedBAIURL, role: .evidenceBAI, phase: .staging),
             candidateFASTADescriptor,
@@ -1042,40 +1068,15 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             unnameableFASTADescriptor,
             unnameableJSONDescriptor,
             unnameableGenBankDescriptor,
-            rawInternalFASTADescriptor,
             sourceMapDescriptor,
         ]
-        let materializationStartedAt = Date()
-        try materializeStagingGeneration(
-            stagedRootURL: stagedRootURL,
-            outputDirectoryURL: request.outputDirectoryURL,
-            relativePaths: [
-                "artifacts/alignments/unmatched-to-reference.bam",
-                "artifacts/alignments/unmatched-to-reference.bam.bai",
-                "candidate_alleles.fasta", "candidate-alleles.json",
-                "candidate_alleles.gb",
-                "unnameable_unmatched_clusters.fasta", "unnameable-unmatched-clusters.json",
-                "unnameable_unmatched_clusters.gb",
-                "artifacts/internal/raw-unmatched-consensuses.fasta",
-                "artifacts/internal/mhc-candidate-source-map.json",
-            ]
-        )
-        let materializationCompletedAt = Date()
         let canonicalDedupStartedAt = Date()
-        let publishedCandidateFASTAURL = request.outputDirectoryURL.appendingPathComponent(
-            "candidate_alleles.fasta"
-        )
-        try Data(contentsOf: publishedCandidateFASTAURL).write(
-            to: callerStagedUnmatchedFASTAURL,
+        try Data(contentsOf: candidateFASTAURL).write(
+            to: stagedStableFASTAURL,
             options: .atomic
         )
-        let publishedCandidateFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
-            url: publishedCandidateFASTAURL,
-            role: .sourceClusterFASTA,
-            phase: .staging
-        )
         let canonicalDedupDescriptor = try FullLengthONTMHCArtifactDescriptor(
-            url: callerStagedUnmatchedFASTAURL,
+            url: stagedStableFASTAURL,
             role: .sourceClusterFASTA,
             phase: .staging
         )
@@ -1085,31 +1086,48 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             workflowVersion: WorkflowRun.currentAppVersion,
             argv: [
                 "lungfish-in-process", "publish-canonical-deduplicated-unmatched-fasta",
-                "--input", publishedCandidateFASTAURL.path,
-                "--output", callerStagedUnmatchedFASTAURL.path,
+                "--input", candidateFASTAURL.path,
+                "--output", stagedStableFASTAURL.path,
             ],
             resolvedOptions: [
                 "sequenceBoundary": "UTR-trimmed-reference-ready-candidates-only",
                 "recordIdentity": "exact-trimmed-sequence-SHA256-derived-stable-id",
-                "replacementScope": "caller-owned-unpublished-staging-file",
+                "replacementScope": "private-staging-generation-before-fresh-publication",
             ],
-            inputs: [publishedCandidateFASTADescriptor],
+            inputs: [candidateFASTADescriptor],
             outputs: [canonicalDedupDescriptor],
             exitStatus: 0,
             startedAt: canonicalDedupStartedAt,
             completedAt: canonicalDedupCompletedAt,
             wallTime: canonicalDedupCompletedAt.timeIntervalSince(canonicalDedupStartedAt)
         ))
+        stagedPublicationDescriptors.append(canonicalDedupDescriptor)
+        let materializationStartedAt = Date()
+        try materializeStagingGeneration(
+            stagedRootURL: stagedRootURL,
+            outputDirectoryURL: request.outputDirectoryURL,
+            relativePaths: [
+                "artifacts/alignments/unmatched-to-reference.bam",
+                "artifacts/alignments/unmatched-to-reference.bam.bai",
+                "deduplicated_unmatched_clusters.fasta",
+                "candidate_alleles.fasta", "candidate-alleles.json",
+                "candidate_alleles.gb",
+                "unnameable_unmatched_clusters.fasta", "unnameable-unmatched-clusters.json",
+                "unnameable_unmatched_clusters.gb",
+                "artifacts/internal/mhc-candidate-source-map.json",
+            ]
+        )
+        let materializationCompletedAt = Date()
         let finalPublicationURLs: [(URL, FullLengthONTMHCArtifactRole)] = [
             (finalBAMURL, .evidenceBAM),
             (finalBAIURL, .evidenceBAI),
+            (canonicalUnmatchedFASTAURL, .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("candidate_alleles.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("candidate-alleles.json"), .commandOutput),
             (request.outputDirectoryURL.appendingPathComponent("candidate_alleles.gb"), .commandOutput),
             (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("unnameable-unmatched-clusters.json"), .commandOutput),
             (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.gb"), .commandOutput),
-            (request.outputDirectoryURL.appendingPathComponent("artifacts/internal/raw-unmatched-consensuses.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("artifacts/internal/mhc-candidate-source-map.json"), .commandOutput),
         ]
         let checksumStartedAt = Date()
@@ -1128,6 +1146,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             resolvedOptions: [
                 "destinationState": "fresh-caller-owned-unpublished-staging-directory",
                 "replacementAllowed": "false",
+                "preflightRule": "validate-all-destinations-before-moving-any-file",
             ],
             inputs: stagedPublicationDescriptors,
             outputs: finalPublicationDescriptors,
@@ -1171,7 +1190,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             )
         )
         return FullLengthONTMHCCandidateArtifactResult(
-            stableUnmatchedFASTAURL: request.outputDirectoryURL.appendingPathComponent("deduplicated_unmatched_clusters.fasta"),
+            stableUnmatchedFASTAURL: canonicalUnmatchedFASTAURL,
             reciprocalBAMURL: finalBAMURL,
             reciprocalBAIURL: finalBAIURL,
             candidateFASTAURL: request.outputDirectoryURL.appendingPathComponent("candidate_alleles.fasta"),
@@ -1216,19 +1235,93 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         _ record: GenBankRecord,
         externalID: String,
         externalSequence: String,
-        rawSourceIDs: [String]
+        rawSourceIDs: [String],
+        canonicalCandidate: ONTMHCCandidateRecord? = nil
     ) throws -> GenBankRecord {
         var annotations = record.annotations
+        let sequence = Self.normalizedSequence(externalSequence)
+        let sequenceSHA256 = Self.sha256(Data(sequence.utf8))
         if let sourceIndex = annotations.firstIndex(where: { $0.type == .source }) {
-            annotations[sourceIndex].qualifiers["stable_cluster_id"] = .init(externalID)
+            annotations[sourceIndex].qualifiers["stable_cluster_id"] = .init(
+                canonicalCandidate?.stableClusterID ?? rawSourceIDs.first ?? externalID
+            )
+            annotations[sourceIndex].qualifiers["fasta_record_id"] = .init(externalID)
             annotations[sourceIndex].qualifiers["source_sequence_cluster_ids"] = .init(
                 rawSourceIDs.sorted()
             )
-            annotations[sourceIndex].qualifiers["sequence_sha256"] = .init(
-                Self.sha256(Data(Self.normalizedSequence(externalSequence).utf8))
+            annotations[sourceIndex].qualifiers["sequence_sha256"] = .init(sequenceSHA256)
+            annotations[sourceIndex].qualifiers["genbank_sequence_sha256"] = .init(
+                sequenceSHA256
             )
+            if let candidate = canonicalCandidate {
+                annotations[sourceIndex].qualifiers[
+                    "representative_source_sequence_cluster_id"
+                ] = .init(candidate.representativeSourceSequenceClusterID)
+                annotations[sourceIndex].qualifiers["support_class"] = .init(
+                    candidate.supportClass.rawValue
+                )
+                annotations[sourceIndex].qualifiers["independent_sample_count"] = .init(
+                    String(candidate.independentSampleCount)
+                )
+                annotations[sourceIndex].qualifiers["occurrence_count"] = .init(
+                    String(candidate.occurrenceCount)
+                )
+                annotations[sourceIndex].qualifiers["total_cluster_reads"] = .init(
+                    String(candidate.totalClusterReads)
+                )
+                annotations[sourceIndex].qualifiers["supporting_sample_ids"] = .init(
+                    candidate.supportingSampleIDs.sorted()
+                )
+                annotations[sourceIndex].qualifiers["provisional_name"] = .init(
+                    candidate.provisionalName
+                )
+                annotations[sourceIndex].qualifiers["classification"] = .init(
+                    candidate.classification.rawValue
+                )
+                annotations[sourceIndex].qualifiers["original_sequence_length"] = .init(
+                    String(sequence.count)
+                )
+                annotations[sourceIndex].qualifiers["trim_start"] = .init("1")
+                annotations[sourceIndex].qualifiers["trim_end"] = .init(
+                    String(sequence.count)
+                )
+            }
         }
-        let sequence = Self.normalizedSequence(externalSequence)
+        var recordFields = record.recordFields
+        if let candidate = canonicalCandidate {
+            let canonicalCommentPrefixes = [
+                "Lungfish stable cluster ID:",
+                "Lungfish sequence SHA-256:",
+                "Lungfish support:",
+                "Lungfish supporting samples:",
+                "Lungfish source sequence cluster IDs:",
+                "Lungfish representative source sequence cluster ID:",
+                "Lungfish candidate sequence trim:",
+                "Lungfish GenBank sequence SHA-256:",
+            ]
+            recordFields.removeAll { field in
+                field.key == "COMMENT"
+                    && canonicalCommentPrefixes.contains { field.value.hasPrefix($0) }
+            }
+            let canonicalComments = [
+                "Lungfish stable cluster ID: \(candidate.stableClusterID)",
+                "Lungfish sequence SHA-256: \(sequenceSHA256)",
+                "Lungfish support: \(candidate.supportClass.rawValue); independent samples=\(candidate.independentSampleCount); occurrences=\(candidate.occurrenceCount); reads=\(candidate.totalClusterReads)",
+                "Lungfish supporting samples: \(candidate.supportingSampleIDs.sorted().joined(separator: ", "))",
+                "Lungfish source sequence cluster IDs: \(candidate.sourceSequenceClusterIDs.sorted().joined(separator: ", "))",
+                "Lungfish representative source sequence cluster ID: \(candidate.representativeSourceSequenceClusterID)",
+                "Lungfish candidate sequence trim: canonical UTR-trimmed genomic sequence; original length=\(sequence.count); trim start=1; trim end=\(sequence.count); retained length=\(sequence.count)",
+                "Lungfish GenBank sequence SHA-256: \(sequenceSHA256)",
+            ]
+            let nextOrdinal = (recordFields.map(\.ordinal).max() ?? -1) + 1
+            recordFields.append(contentsOf: canonicalComments.enumerated().map {
+                GenBankRecordField(
+                    key: "COMMENT",
+                    value: $0.element,
+                    ordinal: nextOrdinal + $0.offset
+                )
+            })
+        }
         return GenBankRecord(
             sequence: try Sequence(
                 name: externalID,
@@ -1246,7 +1339,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             definition: record.definition,
             accession: externalID,
             version: nil,
-            recordFields: record.recordFields
+            recordFields: recordFields
         )
     }
 
@@ -1379,6 +1472,30 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "reciprocalCDNAOrientation": "query=cluster,target=reference-cdna;cluster-structure=I+S;cdna-deficit=reference-flanks+D+N+H",
             "allCompatibleReferenceRule": "secondary=yes;-N=reference-record-count;no-fixed-secondary-cap",
         ]
+    }
+
+    static func canonicalizationResolvedOptions(
+        thresholds: ONTMHCCandidateThresholds,
+        rawCandidateCount: Int,
+        canonicalCandidateCount: Int,
+        rawUnnameableCount: Int,
+        externalUnnameableCount: Int
+    ) -> [String: String] {
+        candidateResolvedOptions(thresholds).merging([
+            "rawIdentity": "exact-normalized-full-consensus-sequence",
+            "canonicalIdentity": "exact-normalized-UTR-trimmed-genomic-sequence",
+            "canonicalStableID": "first-128-bits-SHA256-with-UUID-version-and-variant-bits",
+            "outerCDSTrimRule": "reference-ready-only:outer-lifted-CDS-span;retain-intervening-introns",
+            "referenceReadinessRule": "external-artifacts-require-reference-ready-canonicalization",
+            "candidateMergeFields": "classification,locus,provisional-name,closest-reference-name,closest-reference-raw-id,closest-reference-class,extension-of,provisional-naming-ambiguous",
+            "representativeRule": "highest-total-cluster-reads;then-lexical-raw-stable-id",
+            "observationMergeKey": "canonical-stable-cluster-id,sample-id,read-group-id",
+            "observationAggregationRule": "sum-read-counts;union-source-cluster-ids-and-counts;deduplicate-compact-hit-shapes",
+            "rawCandidateCount": String(rawCandidateCount),
+            "canonicalCandidateCount": String(canonicalCandidateCount),
+            "rawUnnameableCount": String(rawUnnameableCount),
+            "externalUnnameableCount": String(externalUnnameableCount),
+        ]) { _, value in value }
     }
 
     static func compactHitShapeResolvedOptions(
@@ -1605,6 +1722,8 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         [
             "artifacts/alignments/unmatched-to-reference.bam",
             "artifacts/alignments/unmatched-to-reference.bam.bai",
+            "artifacts/internal/mhc-candidate-source-map.json",
+            "deduplicated_unmatched_clusters.fasta",
             "candidate_alleles.fasta",
             "candidate-alleles.json",
             "candidate_alleles.gb",
@@ -1632,13 +1751,17 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
     ) throws {
         for relative in relativePaths {
             try Task.checkCancellation()
-            let staged = stagedRootURL.appendingPathComponent(relative)
             let destination = outputDirectoryURL.appendingPathComponent(relative)
             guard !fileManager.fileExists(atPath: destination.path) else {
                 throw FullLengthONTMHCCandidateArtifactWriterError(
                     "Candidate artifacts require a fresh caller-owned staging directory; target appeared during generation: \(relative)."
                 )
             }
+        }
+        for relative in relativePaths {
+            try Task.checkCancellation()
+            let staged = stagedRootURL.appendingPathComponent(relative)
+            let destination = outputDirectoryURL.appendingPathComponent(relative)
             try fileManager.createDirectory(
                 at: destination.deletingLastPathComponent(),
                 withIntermediateDirectories: true
