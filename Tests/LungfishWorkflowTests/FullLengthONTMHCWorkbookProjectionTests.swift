@@ -920,6 +920,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
 
         let candidate = try XCTUnwrap(rows.first { $0.stableClusterID == "cluster-1" })
         XCTAssertEqual(candidate.nucleotideSequence, croppedSequence)
+        XCTAssertEqual(candidate.sequenceSHA256, sha256Hex(croppedSequence))
         XCTAssertEqual(candidate.putativeAminoAcidTranslation, "A")
     }
 

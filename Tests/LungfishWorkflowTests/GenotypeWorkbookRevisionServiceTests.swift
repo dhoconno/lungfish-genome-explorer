@@ -7,13 +7,23 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
-    func testExplicitWorkbookUpdateAcceptsSchemaV4CandidateDocuments() throws {
+    func testExplicitWorkbookUpdateAcceptsWriterShapedSchemaV4UnnameableIdentity() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "schema-v4-update")
         try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 4)
         try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let installedManifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let unnameableDocument = try JSONDecoder().decode(
+            ONTMHCUnnameableClustersDocument.self,
+            from: Data(contentsOf: ONTGenotypeResultBundle.resolvedURL(
+                for: try XCTUnwrap(installedManifest.mhcCandidateArtifacts?.unnameableJSON?.path),
+                in: fixture.bundleURL
+            ))
+        )
+        XCTAssertEqual(unnameableDocument.clusters.first?.stableClusterID, "raw-cluster-u")
+        XCTAssertEqual(unnameableDocument.clusters.first?.fastaRecordID, "canonical-cluster-u")
 
         let updatedManifest = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 7_200) },
@@ -24,6 +34,13 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.candidateJSON)
         XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.unnameableJSON)
         XCTAssertFalse((updatedManifest.workbookRevisions ?? []).isEmpty)
+        let inspection = try inspectTwoSheetCandidateWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        )
+        XCTAssertTrue(
+            inspection["unmatchedIDs"]?.split(separator: "|").contains("raw-cluster-u") == true
+        )
+        XCTAssertEqual(inspection["unnameableSequence"], String(repeating: "N", count: 40))
     }
 
     func testExplicitWorkbookUpdateAcceptsCandidateArtifactManifestSchema2RawIdentityRefs() throws {
@@ -3185,11 +3202,13 @@ wb.save(path)
                 count: schemaVersion >= 4 ? 33 : 39
             ))
         })
+        let unnameableRawStableID = schemaVersion >= 4 ? "raw-cluster-u" : "cluster-u"
+        let unnameableCanonicalFASTAID = schemaVersion >= 4 ? "canonical-cluster-u" : "cluster-u"
         let unnameableSequence = String(repeating: "N", count: 40)
         try candidateSequences.keys.sorted().map { ">\($0)\n" + candidateSequences[$0]! }
             .joined(separator: "\n").appending("\n")
             .write(to: candidateFASTAURL, atomically: true, encoding: .utf8)
-        try ">cluster-u\n".appending(unnameableSequence).appending("\n")
+        try ">\(unnameableCanonicalFASTAID)\n".appending(unnameableSequence).appending("\n")
             .write(to: unnameableFASTAURL, atomically: true, encoding: .utf8)
         let candidateFASTA = try artifactReference(candidateFASTAURL, relativeTo: bundleURL)
         let unnameableFASTA = try artifactReference(unnameableFASTAURL, relativeTo: bundleURL)
@@ -3214,7 +3233,8 @@ wb.save(path)
         )
         try GenBankWriter(url: unnameableGenBankURL).write([
             try normalizedCandidateGenBankRecord(
-                stableID: "cluster-u",
+                stableID: unnameableCanonicalFASTAID,
+                sourceStableID: unnameableRawStableID,
                 sequence: unnameableSequence,
                 translation: nil,
                 status: "incomplete/unresolved"
@@ -3300,7 +3320,7 @@ wb.save(path)
         let unnameable: ONTMHCUnnameableRecord
         if schemaVersion >= 2 {
             unnameable = ONTMHCUnnameableRecord(
-                stableClusterID: "cluster-u",
+                stableClusterID: unnameableRawStableID,
                 reason: .unresolvedLocus,
                 failedMetrics: ["identity": 0.7],
                 supportClass: .singleton,
@@ -3308,11 +3328,11 @@ wb.save(path)
                 occurrenceCount: 1,
                 totalClusterReads: 4,
                 supportingSampleIDs: ["sample-a"],
-                fastaRecordID: "cluster-u",
+                fastaRecordID: unnameableCanonicalFASTAID,
                 sequenceSHA256: sha256Hex(unnameableSequence),
                 reciprocalHitSummary: try ONTMHCReciprocalQueryHitSummary(
                     bamPath: "artifacts/alignments/reciprocal.bam",
-                    queryName: "cluster-u",
+                    queryName: unnameableRawStableID,
                     alignmentCount: 3,
                     targetAlignmentCounts: ["ref-b": 1, "ref-a": 2],
                     exactMatchTargetNames: ["ref-a"],
@@ -3320,7 +3340,7 @@ wb.save(path)
                 ),
                 selectedEvidence: .init(
                     bamPath: "artifacts/alignments/reciprocal.bam",
-                    queryName: "cluster-u",
+                    queryName: unnameableRawStableID,
                     referenceName: "ref-a",
                     readGroupID: "sample-a",
                     referenceStart: 10,
@@ -3351,7 +3371,14 @@ wb.save(path)
             thresholds: .defaults,
             sequenceFASTA: unnameableFASTA,
             clusters: [unnameable],
-            observations: [candidateObservation("cluster-u", sample: "sample-a", reads: 4, schemaVersion: schemaVersion)]
+            observations: [
+                candidateObservation(
+                    unnameableRawStableID,
+                    sample: "sample-a",
+                    reads: 4,
+                    schemaVersion: schemaVersion
+                ),
+            ]
         )
         let candidateJSONURL = directory.appendingPathComponent("candidate-alleles.json")
         let unnameableJSONURL = directory.appendingPathComponent("unnameable-clusters.json")
@@ -3478,6 +3505,7 @@ wb.save(path)
 
     private func normalizedCandidateGenBankRecord(
         stableID: String,
+        sourceStableID: String? = nil,
         sequence: String,
         translation: String?,
         status: String,
@@ -3486,7 +3514,7 @@ wb.save(path)
         trimEnd: Int? = nil
     ) throws -> GenBankRecord {
         var sourceQualifiers: [String: AnnotationQualifier] = [
-            "stable_cluster_id": .init(stableID),
+            "stable_cluster_id": .init(sourceStableID ?? stableID),
             "sequence_sha256": .init(sha256Hex(fullSequence ?? sequence)),
             "translation_status": .init(status),
         ]
@@ -3694,7 +3722,7 @@ unmatched_rows = {
     for row in range(2, unmatched.max_row + 1)
 }
 candidate_row = unmatched_rows.get("cluster-1")
-unnameable_row = unmatched_rows.get("cluster-u")
+unnameable_row = unmatched_rows.get("raw-cluster-u") or unmatched_rows.get("cluster-u")
 payload = {
     "sheetNames": "|".join(wb.sheetnames),
     "tableHeaderRow": str(table_header_row),

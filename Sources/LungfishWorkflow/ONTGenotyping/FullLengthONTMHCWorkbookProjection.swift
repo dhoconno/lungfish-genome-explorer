@@ -479,7 +479,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 supportingSampleIDs: row.supportingSampleIDs,
                 readsBySample: row.readsBySample,
                 fastaRecordID: row.fastaRecordID,
-                sequenceSHA256: row.sequenceSHA256,
+                sequenceSHA256: Self.sha256Hex(artifact.sequence),
                 nucleotideSequence: artifact.sequence,
                 putativeAminoAcidTranslation: artifact.translation,
                 translationStatus: artifact.status,
@@ -529,7 +529,7 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 supportingSampleIDs: row.supportingSampleIDs,
                 readsBySample: row.readsBySample,
                 fastaRecordID: row.fastaRecordID,
-                sequenceSHA256: row.sequenceSHA256,
+                sequenceSHA256: Self.sha256Hex(artifact.sequence),
                 nucleotideSequence: artifact.sequence,
                 putativeAminoAcidTranslation: artifact.translation,
                 translationStatus: artifact.status,
@@ -539,6 +539,13 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
             )
         }
         return candidates + unnameable
+    }
+
+    private static func sha256Hex(_ sequence: String?) -> String {
+        guard let sequence else { return "" }
+        return SHA256.hash(data: Data(sequence.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     var candidateWorksheetRows: [[FullLengthONTMHCWorkbookCell]] {
