@@ -391,7 +391,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertFalse(comments.contains { $0.contains("none detected in complete annotated region") })
         XCTAssertEqual(source.qualifier("translation_status"), "incomplete/unresolved")
         XCTAssertEqual(source.qualifier("trim_status"), "trimmed-to-partial-lifted-CDS")
-        XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready")
+        XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready-incomplete")
         XCTAssertTrue(comments.contains("Lungfish reference readiness: not reference-ready; partial or unresolved lifted CDS"))
     }
 
@@ -502,7 +502,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertNil(cds.qualifier("translation"))
         XCTAssertEqual(source.qualifier("translation_status"), "incomplete/unresolved")
         XCTAssertEqual(source.qualifier("trim_status"), "trimmed-to-partial-lifted-CDS")
-        XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready")
+        XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready-incomplete")
         for prefix in consequenceSummaryPrefixes {
             XCTAssertTrue(comments.contains {
                 $0 == "\(prefix) unavailable: translation table 2 is unsupported"
@@ -734,9 +734,10 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         let candidate = try makeCandidate(
             stableID: "candidate-trimmed-forward",
             sequenceSHA256: sha256Hex(fullCandidateSequence),
-            cigar: "12=1X11=",
+            cigar: "3S9=1X8=3S",
             referenceName: "ref-trimmed-forward",
-            referenceClass: .genomicDNA
+            referenceClass: .genomicDNA,
+            referenceStart: 4
         )
         let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
             subject: .candidate(candidate),
@@ -759,14 +760,18 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+        let record = result.record
         let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
         let comments = record.values(forRecordField: "COMMENT")
         let expectedOrigin = String(fullCandidateSequence.dropFirst(3).prefix(18))
 
+        XCTAssertEqual(result.rawSequence, fullCandidateSequence)
+        XCTAssertEqual(result.externalSequence, expectedOrigin)
+        XCTAssertEqual(result.trimRange, 3..<21)
+        XCTAssertEqual(result.translationStatus, .fullLength)
+        XCTAssertEqual(result.referenceReadiness, .referenceReady)
         XCTAssertEqual(record.sequence.asString(), expectedOrigin)
         XCTAssertEqual(record.locus.length, 18)
         XCTAssertEqual(source.intervals.map { [$0.start, $0.end] }, [[0, 18]])
@@ -793,9 +798,10 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         let candidate = try makeCandidate(
             stableID: "candidate-trimmed-reverse",
             sequenceSHA256: sha256Hex(fullCandidateSequence),
-            cigar: "15=",
+            cigar: "2S9=4S",
             referenceName: "ref-trimmed-reverse",
-            referenceClass: .genomicDNA
+            referenceClass: .genomicDNA,
+            referenceStart: 3
         )
         let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
             subject: .candidate(candidate), sequence: fullCandidateSequence,
@@ -807,10 +813,14 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+        let record = result.record
         let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
+        XCTAssertEqual(result.rawSequence, fullCandidateSequence)
+        XCTAssertEqual(result.externalSequence, String(fullCandidateSequence.dropFirst(4).prefix(9)))
+        XCTAssertEqual(result.trimRange, 4..<13)
+        XCTAssertEqual(result.translationStatus, .fullLength)
+        XCTAssertEqual(result.referenceReadiness, .referenceReady)
         XCTAssertEqual(record.sequence.asString(), String(fullCandidateSequence.dropFirst(4).prefix(9)))
         XCTAssertEqual(source.qualifier("trim_start"), "5")
         XCTAssertEqual(source.qualifier("trim_end"), "13")
@@ -837,14 +847,18 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+        let record = result.record
         let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
+        XCTAssertEqual(result.rawSequence, fullCandidateSequence)
+        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.trimRange, 2..<8)
+        XCTAssertEqual(result.translationStatus, .incompleteUnresolved)
+        XCTAssertEqual(result.referenceReadiness, .incomplete)
         XCTAssertEqual(record.sequence.asString(), "CAAGCT")
         XCTAssertEqual(source.qualifier("translation_status"), "incomplete/unresolved")
         XCTAssertEqual(source.qualifier("trim_status"), "trimmed-to-partial-lifted-CDS")
-        XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready")
+        XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready-incomplete")
         let comments = record.values(forRecordField: "COMMENT")
         XCTAssertTrue(comments.contains { $0.contains("partial lifted CDS") }, comments.joined(separator: "\n"))
         XCTAssertTrue(comments.contains { $0.contains("not reference-ready") }, comments.joined(separator: "\n"))
@@ -866,15 +880,19 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+        let record = result.record
         let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
+        XCTAssertEqual(result.rawSequence, sequence)
+        XCTAssertNil(result.externalSequence)
+        XCTAssertNil(result.trimRange)
+        XCTAssertEqual(result.translationStatus, .incompleteUnresolved)
+        XCTAssertEqual(result.referenceReadiness, .unavailable)
         XCTAssertEqual(record.sequence.asString(), sequence)
         XCTAssertEqual(source.qualifier("trim_start"), "1")
         XCTAssertEqual(source.qualifier("trim_end"), "8")
         XCTAssertEqual(source.qualifier("trim_status"), "unavailable-no-lifted-CDS")
-        XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready")
+        XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready-unavailable")
         XCTAssertTrue(record.values(forRecordField: "COMMENT").contains { $0.contains("UTR trimming unavailable") && $0.contains("no lifted CDS") })
     }
 
@@ -975,11 +993,14 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             minimumIntronGapBases: 50
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+        let record = result.record
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
 
+        XCTAssertEqual(result.externalSequence, "ATGTAGGCT")
+        XCTAssertEqual(result.trimRange, 0..<9)
+        XCTAssertEqual(result.translationStatus, .pseudogene)
+        XCTAssertEqual(result.referenceReadiness, .referenceReady)
         XCTAssertEqual(cds.qualifier("translation"), "M*A")
         XCTAssertEqual(sourceTranslationStatus(record), "pseudogene")
         XCTAssertTrue(record.values(forRecordField: "COMMENT").contains {
@@ -1151,7 +1172,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(cds.qualifier("translation"), "MA")
     }
 
-    func testNoAlignmentUnnameableProducesSourceOnlyRecordWithSupportAndProjectComments() throws {
+    func testNoAlignmentUnnameableBuildRetainsDiagnosticRecordButCompatibilityWrapperOmitsIt() throws {
         let reciprocal = try ONTMHCReciprocalQueryHitSummary(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",
             queryName: "unnameable-a",
@@ -1184,9 +1205,16 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             minimumIntronGapBases: 50
         )
 
-        let record = try XCTUnwrap(FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first)
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+        let record = result.record
 
         XCTAssertEqual(record.annotations.map(\.type), [.source])
+        XCTAssertEqual(result.rawSequence, "ACGT")
+        XCTAssertNil(result.externalSequence)
+        XCTAssertNil(result.trimRange)
+        XCTAssertEqual(result.translationStatus, .incompleteUnresolved)
+        XCTAssertEqual(result.referenceReadiness, .unavailable)
+        XCTAssertTrue(try FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).isEmpty)
         XCTAssertEqual(sourceTranslationStatus(record), "incomplete/unresolved")
         let comments = record.values(forRecordField: "COMMENT")
         XCTAssertTrue(comments.contains("Lungfish project: Primate Cohort.lungfish"))
@@ -1195,7 +1223,11 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertFalse(comments.contains { comment in
             consequenceSummaryPrefixes.contains { comment.hasPrefix($0) }
         })
-        XCTAssertNil(record.annotations[0].qualifier("trim_status"))
+        XCTAssertEqual(record.annotations[0].qualifier("trim_status"), "unavailable-no-lifted-CDS")
+        XCTAssertEqual(
+            record.annotations[0].qualifier("reference_readiness_status"),
+            "not-reference-ready-unavailable"
+        )
         XCTAssertEqual(record.sequence.asString(), "ACGT")
     }
 
@@ -1232,17 +1264,73 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             minimumIntronGapBases: 50
         )
 
-        XCTAssertThrowsError(
-            try FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input])
-        ) { error in
-            XCTAssertEqual(
-                error as? FullLengthONTMHCCandidateGenBankArtifactBuilder.Error,
-                .invalidInput(
-                    stableClusterID: "unnameable-internal-only",
-                    detail: "un-nameable record has no external FASTA identity and checksum"
-                )
-            )
-        }
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+
+        XCTAssertEqual(result.record.sequence.name, "unnameable-internal-only")
+        XCTAssertEqual(result.rawSequence, "ACGT")
+        XCTAssertNil(result.externalSequence)
+        XCTAssertNil(result.trimRange)
+        XCTAssertEqual(result.referenceReadiness, .unavailable)
+        XCTAssertTrue(try FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).isEmpty)
+    }
+
+    func testPartialUnnameableRetainsRawDiagnosticButHasNoExternalSequence() throws {
+        let evidence = ONTMHCEvidenceLocator(
+            bamPath: "artifacts/alignments/unmatched-to-reference.bam",
+            queryName: "unnameable-partial",
+            referenceName: "ref-unnameable-partial",
+            readGroupID: nil,
+            referenceStart: 4,
+            cigar: "2S6=2S"
+        )
+        let reciprocal = try ONTMHCReciprocalQueryHitSummary(
+            bamPath: evidence.bamPath,
+            queryName: evidence.queryName,
+            alignmentCount: 1,
+            targetAlignmentCounts: [evidence.referenceName: 1],
+            exactMatchTargetNames: [],
+            closestMatchTargetNames: [evidence.referenceName]
+        )
+        let unnameable = ONTMHCUnnameableRecord(
+            stableClusterID: "unnameable-partial",
+            reason: .unresolvedLocus,
+            failedMetrics: [:],
+            supportClass: .singleton,
+            independentSampleCount: 1,
+            occurrenceCount: 1,
+            totalClusterReads: 4,
+            supportingSampleIDs: ["Sample-A"],
+            fastaRecordID: "unnameable-partial",
+            sequenceSHA256: "unnameable-partial-hash",
+            reciprocalHitSummary: reciprocal,
+            selectedEvidence: evidence
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .unnameable(unnameable),
+            sequence: "TTCAAGCTGG",
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: evidence.referenceName,
+                sequence: "ATGCAAGCT",
+                features: [feature(type: "CDS", start: 0, end: 9)]
+            ),
+            analysisName: "run",
+            projectBundleName: nil,
+            minimumIntronGapBases: 20
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+        let source = try XCTUnwrap(result.record.annotations.first(where: { $0.type == .source }))
+
+        XCTAssertEqual(result.rawSequence, "TTCAAGCTGG")
+        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.trimRange, 2..<8)
+        XCTAssertEqual(result.translationStatus, .incompleteUnresolved)
+        XCTAssertEqual(result.referenceReadiness, .incomplete)
+        XCTAssertEqual(result.record.sequence.asString(), "TTCAAGCTGG")
+        XCTAssertEqual(source.qualifier("trim_status"), "not-exported-partial-lifted-CDS")
+        XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready-incomplete")
+        XCTAssertTrue(try FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).isEmpty)
     }
 
     func testAnnotatedUnnameableKeepsBoundaryCoverageTranslationStatusAndPriorFeatureShape() throws {
@@ -1252,7 +1340,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             referenceName: "ref-unnameable-annotated",
             readGroupID: nil,
             referenceStart: 1,
-            cigar: "3=3N3="
+            cigar: "2S3=3N3=2S"
         )
         let reciprocal = try ONTMHCReciprocalQueryHitSummary(
             bamPath: evidence.bamPath,
@@ -1277,7 +1365,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             selectedEvidence: evidence
         )
         let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
-            subject: .unnameable(unnameable), sequence: "ATGGCT",
+            subject: .unnameable(unnameable), sequence: "CCATGGCTAA",
             selectedAlignmentIsReverse: false,
             closestReference: makeReference(
                 id: evidence.referenceName, sequence: "ATGAAAGCT",
@@ -1292,13 +1380,17 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
 
-        let record = try XCTUnwrap(
-            FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).first
-        )
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+        let record = result.record
         let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
         let cds = try XCTUnwrap(record.annotations.first(where: { $0.type == .cds }))
         let comments = record.values(forRecordField: "COMMENT")
 
+        XCTAssertEqual(result.rawSequence, "CCATGGCTAA")
+        XCTAssertEqual(result.externalSequence, "ATGGCT")
+        XCTAssertEqual(result.trimRange, 2..<8)
+        XCTAssertEqual(result.translationStatus, .fullLength)
+        XCTAssertEqual(result.referenceReadiness, .referenceReady)
         XCTAssertEqual(record.annotations.map(\.type), [.source, .gene, .exon, .exon, .cds])
         XCTAssertFalse(record.annotations.contains { $0.type == .intron })
         XCTAssertEqual(record.sequence.asString(), "ATGGCT")
@@ -1306,8 +1398,8 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(cds.qualifier("translation"), "MA")
         XCTAssertEqual(cds.qualifier("inference"), "alignment:reciprocal minimap2 CIGAR")
         XCTAssertEqual(source.qualifier("translation_status"), "full-length")
-        XCTAssertNil(source.qualifier("trim_status"))
-        XCTAssertNil(source.qualifier("reference_readiness_status"))
+        XCTAssertEqual(source.qualifier("trim_status"), "trimmed-to-outer-lifted-CDS")
+        XCTAssertEqual(source.qualifier("reference_readiness_status"), "reference-ready")
         XCTAssertFalse(comments.contains { comment in
             consequenceSummaryPrefixes.contains { comment.hasPrefix($0) }
         })

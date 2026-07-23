@@ -152,9 +152,18 @@ struct FullLengthONTMHCCandidateGenBankArtifactBuilder {
         }
     }
 
+    func build(from input: Input) throws -> FullLengthONTMHCCandidateCanonicalization {
+        try makeCanonicalization(input)
+    }
+
     func records(from inputs: [Input]) throws -> [GenBankRecord] {
         try inputs.sorted { $0.subject.stableClusterID < $1.subject.stableClusterID }
-            .map(makeRecord)
+            .compactMap { input in
+                let result = try build(from: input)
+                return input.subject.isCandidate || result.externalSequence != nil
+                    ? result.record
+                    : nil
+            }
     }
 }
 
@@ -235,19 +244,12 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         }
     }
 
-    func makeRecord(_ input: Input) throws -> GenBankRecord {
+    func makeCanonicalization(_ input: Input) throws -> FullLengthONTMHCCandidateCanonicalization {
         let stableID = input.subject.stableClusterID
         let externalArtifactID = input.subject.externalArtifactID
         let sequence = input.sequence.uppercased()
         guard !stableID.isEmpty, !sequence.isEmpty, input.minimumIntronGapBases > 0 else {
             throw Error.invalidInput(stableClusterID: stableID, detail: "identity, sequence, and intron threshold must be nonempty and positive")
-        }
-        if case .unnameable(let record) = input.subject,
-           record.fastaRecordID == nil || record.sequenceSHA256 == nil {
-            throw Error.invalidInput(
-                stableClusterID: stableID,
-                detail: "un-nameable record has no external FASTA identity and checksum"
-            )
         }
 
         var annotations = [SequenceAnnotation(
@@ -260,7 +262,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         )]
         var comments = baseComments(input)
         var translationStatus = FullLengthONTMHCTranslationStatus.incompleteUnresolved
-        var candidateTrimRange: Range<Int>?
+        var liftedCDSTrimRange: Range<Int>?
 
         if let evidence = input.subject.selectedEvidence,
            let isReverse = input.selectedAlignmentIsReverse,
@@ -290,9 +292,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             )
             translationStatus = lifted.translationStatus
             annotations.append(contentsOf: lifted.annotations)
-            if input.subject.isCandidate,
-               let cds = lifted.annotations.first(where: { $0.type == .cds }) {
-                candidateTrimRange = cds.start..<cds.end
+            if let cds = lifted.annotations.first(where: { $0.type == .cds }) {
+                liftedCDSTrimRange = cds.start..<cds.end
             }
             if input.subject.isCDNAReference,
                let cds = lifted.annotations.first(where: { $0.type == .cds }),
@@ -362,8 +363,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 comments.append(contentsOf: FullLengthONTMHCCandidateConsequenceAnnotator().comments(for: .init(
                     reference: reference,
                     projection: projection.changes.rebasedStoredCoordinates(
-                        by: candidateTrimRange?.lowerBound ?? 0,
-                        length: candidateTrimRange?.count ?? sequence.count
+                        by: liftedCDSTrimRange?.lowerBound ?? 0,
+                        length: liftedCDSTrimRange?.count ?? sequence.count
                     ),
                     isCDNAReference: input.subject.isCDNAReference,
                     minimumIntronGapBases: input.minimumIntronGapBases,
@@ -393,17 +394,28 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
 
         annotations[0].qualifiers["translation_status"] = .init(translationStatus.rawValue)
 
+        let referenceReadiness: FullLengthONTMHCReferenceReadiness
+        if liftedCDSTrimRange == nil {
+            referenceReadiness = .unavailable
+        } else if translationStatus == .incompleteUnresolved {
+            referenceReadiness = .incomplete
+        } else {
+            referenceReadiness = .referenceReady
+        }
+        let externalSequence = referenceReadiness == .referenceReady
+            ? liftedCDSTrimRange.map { substring(sequence, in: $0) }
+            : nil
+
         let outputSequence: String
-        if input.subject.isCandidate {
-            let trimRange = candidateTrimRange ?? 0..<sequence.count
+        let sequenceLabel = input.subject.isCandidate ? "candidate" : "un-nameable"
+        if input.subject.isCandidate || externalSequence != nil {
+            let trimRange = liftedCDSTrimRange ?? 0..<sequence.count
             outputSequence = substring(sequence, in: trimRange)
             let trimStatus: String
-            let readinessStatus: String
-            if candidateTrimRange == nil {
+            if liftedCDSTrimRange == nil {
                 trimStatus = "unavailable-no-lifted-CDS"
-                readinessStatus = "not-reference-ready"
                 comments.append(
-                    "Lungfish candidate sequence trim: UTR trimming unavailable; no lifted CDS; "
+                    "Lungfish \(sequenceLabel) sequence trim: UTR trimming unavailable; no lifted CDS; "
                         + "original length=" + String(sequence.count)
                         + "; trim start=1; trim end=" + String(sequence.count)
                         + "; retained length=" + String(outputSequence.count)
@@ -411,9 +423,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 comments.append("Lungfish reference readiness: not reference-ready; CDS/UTR boundaries could not be resolved")
             } else if translationStatus == .incompleteUnresolved {
                 trimStatus = "trimmed-to-partial-lifted-CDS"
-                readinessStatus = "not-reference-ready"
                 comments.append(
-                    "Lungfish candidate sequence trim: partial lifted CDS; original length="
+                    "Lungfish \(sequenceLabel) sequence trim: partial lifted CDS; original length="
                         + String(sequence.count) + "; trim start=" + String(trimRange.lowerBound + 1)
                         + "; trim end=" + String(trimRange.upperBound)
                         + "; retained length=" + String(outputSequence.count)
@@ -421,9 +432,8 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 comments.append("Lungfish reference readiness: not reference-ready; partial or unresolved lifted CDS")
             } else {
                 trimStatus = "trimmed-to-outer-lifted-CDS"
-                readinessStatus = "reference-ready"
                 comments.append(
-                    "Lungfish candidate sequence trim: outer lifted CDS span; original length="
+                    "Lungfish \(sequenceLabel) sequence trim: outer lifted CDS span; original length="
                         + String(sequence.count) + "; trim start=" + String(trimRange.lowerBound + 1)
                         + "; trim end=" + String(trimRange.upperBound)
                         + "; retained length=" + String(outputSequence.count)
@@ -436,22 +446,46 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             annotations[0].qualifiers["trim_end"] = .init(String(trimRange.upperBound))
             annotations[0].qualifiers["genbank_sequence_sha256"] = .init(outputSHA256)
             annotations[0].qualifiers["trim_status"] = .init(trimStatus)
-            annotations[0].qualifiers["reference_readiness_status"] = .init(readinessStatus)
+            annotations[0].qualifiers["reference_readiness_status"] = .init(referenceReadiness.rawValue)
             comments.append("Lungfish GenBank sequence SHA-256: " + outputSHA256)
             annotations = cropAndRebase(annotations, to: trimRange)
         } else {
             outputSequence = sequence
+            let outputSHA256 = sha256Hex(outputSequence)
+            annotations[0].qualifiers["original_sequence_length"] = .init(String(sequence.count))
+            if let trimRange = liftedCDSTrimRange {
+                annotations[0].qualifiers["trim_start"] = .init(String(trimRange.lowerBound + 1))
+                annotations[0].qualifiers["trim_end"] = .init(String(trimRange.upperBound))
+                annotations[0].qualifiers["trim_status"] = .init("not-exported-partial-lifted-CDS")
+                comments.append(
+                    "Lungfish \(sequenceLabel) sequence trim: partial lifted CDS boundaries retained for diagnostics; "
+                        + "external sequence omitted"
+                )
+            } else {
+                annotations[0].qualifiers["trim_status"] = .init("unavailable-no-lifted-CDS")
+            }
+            annotations[0].qualifiers["genbank_sequence_sha256"] = .init(outputSHA256)
+            annotations[0].qualifiers["reference_readiness_status"] = .init(referenceReadiness.rawValue)
+            comments.append("Lungfish GenBank sequence SHA-256: " + outputSHA256)
         }
 
         let recordFields = copiedRecordFields(input.closestReference)
             + comments.enumerated().map { GenBankRecordField(key: "COMMENT", value: $0.element, ordinal: recordFieldsBaseCount(input.closestReference) + $0.offset) }
-        return GenBankRecord(
+        let record = GenBankRecord(
             sequence: try Sequence(name: externalArtifactID, description: input.subject.definition, alphabet: .dna, bases: outputSequence),
             annotations: annotations.sorted(by: annotationLessThan),
             locus: LocusInfo(name: externalArtifactID, length: outputSequence.count, moleculeType: .dna, topology: .linear),
             definition: input.subject.definition,
             accession: externalArtifactID,
             recordFields: recordFields
+        )
+        return FullLengthONTMHCCandidateCanonicalization(
+            record: record,
+            rawSequence: sequence,
+            externalSequence: externalSequence,
+            trimRange: liftedCDSTrimRange,
+            translationStatus: translationStatus,
+            referenceReadiness: referenceReadiness
         )
     }
 

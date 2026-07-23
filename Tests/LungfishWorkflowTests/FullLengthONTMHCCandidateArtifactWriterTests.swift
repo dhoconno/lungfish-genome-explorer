@@ -46,10 +46,8 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertTrue(candidateGenBank.contains("/genbank_sequence_sha256="), candidateGenBank)
         XCTAssertTrue(candidateGenBank.contains("/trim_status="), candidateGenBank)
         XCTAssertTrue(candidateGenBank.contains("/reference_readiness_status="), candidateGenBank)
-        XCTAssertFalse(unnameableGenBank.contains("/trim_status="), unnameableGenBank)
         XCTAssertFalse(candidateGenBank.contains("annotation unavailable: no selected reciprocal alignment"))
-        XCTAssertTrue(unnameableGenBank.contains(fixture.unnameableID))
-        XCTAssertTrue(unnameableGenBank.contains("annotation unavailable: no selected reciprocal alignment"))
+        XCTAssertTrue(unnameableGenBank.isEmpty, unnameableGenBank)
         XCTAssertEqual(result.manifest.candidateGenBank?.path, "candidate_alleles.gb")
         XCTAssertEqual(result.manifest.unnameableGenBank?.path, "unnameable_unmatched_clusters.gb")
         let candidate = try JSONDecoder().decode(

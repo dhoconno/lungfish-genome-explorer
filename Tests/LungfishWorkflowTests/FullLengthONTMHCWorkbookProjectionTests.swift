@@ -151,18 +151,28 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         let legacy = makeDocuments()
         let rawID = "raw-cluster-builder"
         let canonicalID = "canonical-builder"
-        let sequence = "ACGTACGT"
-        let summary = try ONTMHCReciprocalQueryHitSummary(
+        let rawSequence = "CCATGGCTAA"
+        let sequence = "ATGGCT"
+        let referenceID = "ref-canonical-builder"
+        let evidence = ONTMHCEvidenceLocator(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",
             queryName: rawID,
-            alignmentCount: 0,
-            targetAlignmentCounts: [:],
+            referenceName: referenceID,
+            readGroupID: nil,
+            referenceStart: 1,
+            cigar: "2S6=2S"
+        )
+        let summary = try ONTMHCReciprocalQueryHitSummary(
+            bamPath: evidence.bamPath,
+            queryName: rawID,
+            alignmentCount: 1,
+            targetAlignmentCounts: [referenceID: 1],
             exactMatchTargetNames: [],
-            closestMatchTargetNames: []
+            closestMatchTargetNames: [referenceID]
         )
         let record = ONTMHCUnnameableRecord(
             stableClusterID: rawID,
-            reason: .noAlignment,
+            reason: .unresolvedLocus,
             failedMetrics: [:],
             supportClass: .singleton,
             independentSampleCount: 1,
@@ -172,7 +182,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             fastaRecordID: canonicalID,
             sequenceSHA256: sha256Hex(sequence),
             reciprocalHitSummary: summary,
-            selectedEvidence: nil
+            selectedEvidence: evidence
         )
         let unnameableDocument = ONTMHCUnnameableClustersDocument(
             schemaVersion: 4,
@@ -201,9 +211,32 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
             FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [
                 .init(
                     subject: .unnameable(record),
-                    sequence: sequence,
-                    selectedAlignmentIsReverse: nil,
-                    closestReference: nil,
+                    sequence: rawSequence,
+                    selectedAlignmentIsReverse: false,
+                    closestReference: ONTMHCReferenceVisualizationRecord(
+                        rawReferenceID: referenceID,
+                        sourceOrdinal: 0,
+                        alleleName: "Mafa-A1*001",
+                        locus: "Mafa-A1",
+                        sequence: sequence,
+                        sequenceSHA256: sha256Hex(sequence),
+                        recordFields: [:],
+                        features: [
+                            ONTMHCReferenceVisualizationFeature(
+                                type: "CDS",
+                                start: 0,
+                                end: sequence.count,
+                                strand: "+",
+                                sourceOrdinal: 0,
+                                rawGenBankLocation: nil,
+                                qualifiers: [:]
+                            ),
+                        ],
+                        annotatedTranslation: nil,
+                        genBankText: "",
+                        fastaText: "",
+                        roles: []
+                    ),
                     analysisName: "run",
                     projectBundleName: nil,
                     minimumIntronGapBases: 20
