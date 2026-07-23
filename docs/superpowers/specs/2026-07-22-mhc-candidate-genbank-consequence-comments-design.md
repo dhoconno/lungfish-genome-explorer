@@ -6,6 +6,21 @@ This change applies only to the forward full-length ONT MHC `Candidate Alleles G
 
 The renderer will use the already selected closest reference visualization, candidate sequence, reciprocal alignment start/orientation/CIGAR, and lifted reference features. It will not reread a BAM.
 
+Candidate GenBank records are reference-library-oriented artifacts. Their stored sequence must exclude terminal 5-prime and 3-prime UTR/flanking sequence while preserving the genomic span between the outer lifted CDS boundaries, including introns. Candidate FASTA remains the full unmatched cluster sequence so cluster identity is not lost. Un-nameable GenBank records remain full cluster records.
+
+## Candidate sequence trimming and identity
+
+When a lifted CDS exists, the candidate GenBank `ORIGIN` is cropped to the outer span of that CDS in stored-candidate orientation. All annotations are clipped and rebased to the cropped sequence; the source feature covers the complete cropped record. This removes terminal UTR/flanking bases while retaining introns and all coding intervals. Translation and consequence comments are computed from the same CDS, and candidate coordinates in those comments refer to the cropped GenBank `ORIGIN`.
+
+The record preserves two independently verifiable identities:
+
+- the stable cluster ID and existing `sequence_sha256` continue to identify the full candidate FASTA/cluster sequence; and
+- explicit trim start/end, original length, and a GenBank-sequence SHA-256 identify and verify the cropped `ORIGIN` as an exact substring of that full cluster.
+
+If no lifted CDS exists, trimming is unavailable. The record remains present and explicitly states that it is not reference-ready because CDS/UTR boundaries could not be resolved. Partial lifted CDS records are cropped to their observed lifted CDS span but retain `incomplete/unresolved` translation status and an explicit partial/reference-readiness warning; trimming must never upgrade their biological completeness.
+
+The current two-sheet workbook validator accepts both the new verifiable cropped candidate GenBank contract and older exact FASTA/GenBank records. It continues requiring exact FASTA/GenBank equality for un-nameable records. The workbook nucleotide sequence column continues to use the full candidate FASTA sequence.
+
 ## Required comments
 
 Every candidate with a selected annotated closest reference will contain these stable summary `COMMENT` fields:
@@ -32,7 +47,7 @@ The existing CIGAR projection becomes the single source of aligned change events
 - reference deletions; and
 - skipped/unassessed `N` regions.
 
-Alleles are reported in closest-reference orientation. Reverse-query alignments compare the reverse complement of the candidate to the reference while mapping positions back to the stored GenBank `ORIGIN`. All reported coordinates are 1-based and the record includes a coordinate-convention comment.
+Alleles are reported in closest-reference orientation. Reverse-query alignments compare the reverse complement of the candidate to the reference while mapping positions back to the stored GenBank `ORIGIN`. All reported coordinates are 1-based and the record includes a coordinate-convention comment. Candidate coordinates refer to the cropped GenBank `ORIGIN`; the record also reports the crop offset in the original full cluster.
 
 ## Coding consequences
 
@@ -67,7 +82,8 @@ The candidate and un-nameable GenBank render provenance records:
 - grouped same-codon substitution and strand/codon-start/translation-table rules;
 - ordinary coding-indel frame rule;
 - cDNA intron-fill exclusion from CDS changes; and
-- unresolved-never-coerced ambiguity policy.
+- unresolved-never-coerced ambiguity policy; and
+- candidate UTR trimming to the outer lifted-CDS span, including the original/full and cropped sequence identities.
 
 Existing input/output descriptors, checksums, sizes, argv, runtime identity, exit status, and timing remain required.
 
@@ -81,4 +97,6 @@ Existing input/output descriptors, checksums, sizes, argv, runtime identity, exi
 - Partial/ambiguous records never emit false definitive `none` or false synonymous/nonsynonymous claims.
 - GenBank output is deterministic and round-trips through the reader/writer.
 - Published candidate artifacts and provenance contain the new comments/rules.
+- Candidate GenBank `ORIGIN` begins and ends at the outer lifted CDS span, preserves intervening introns, rebases features/comments, and verifies as the declared substring of the full candidate FASTA.
+- Partial/unresolved candidates remain explicitly non-reference-ready; records without a lifted CDS state that UTR trimming is unavailable.
 - No BAM reread, schema change, legacy workflow change, or unrelated UI change is introduced.

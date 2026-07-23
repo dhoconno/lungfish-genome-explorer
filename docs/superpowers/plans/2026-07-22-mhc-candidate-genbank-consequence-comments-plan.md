@@ -69,13 +69,34 @@ Steps:
 4. Confirm existing provenance inputs/outputs, checksums, sizes, argv, runtime, status, and timing remain complete.
 5. Run builder, artifact-writer, and pipeline tests.
 
-## Task 5: Review and integrated verification
+## Task 5: Crop candidate GenBank records to the lifted CDS span
+
+Files:
+
+- Modify `Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCCandidateGenBankArtifactBuilder.swift`
+- Modify `Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCCandidateConsequenceAnnotator.swift`
+- Modify `Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCWorkbookProjection.swift`
+- Modify `Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCCandidateArtifactWriter.swift`
+- Modify focused builder, projection, writer, revision, and pipeline tests
+
+Steps:
+
+1. Add failing tests showing terminal UTR/flanking bases are removed at the outer lifted-CDS boundaries while intervening introns remain.
+2. Add failing reverse-orientation, partial-CDS, and no-CDS tests.
+3. Crop only candidate GenBank `ORIGIN`; preserve the full candidate FASTA/cluster identity.
+4. Rebase/clamp annotations and consequence candidate coordinates to the cropped `ORIGIN`.
+5. Add source qualifiers and comments for original length, 1-based trim start/end, full-cluster SHA-256, cropped GenBank SHA-256, trim status, and reference-readiness status.
+6. Update the current workbook validator to verify the cropped record is the declared exact substring of the full candidate FASTA, while retaining compatibility with existing exact-match candidate records and exact equality for un-nameable records.
+7. Record the UTR-trim derivation rule in GenBank-render provenance.
+8. Run builder, artifact-writer, pipeline, workbook projection, and explicit-update tests.
+
+## Task 6: Review and integrated verification
 
 1. Run specification review, then code-quality review; fix and rereview any findings.
 2. Run the combined focused MHC classifier, GenBank builder/writer, pipeline, workbook projection/revision, viewport, and debug-launch tests.
 3. Build a fresh signed `Lungfish Debug` app.
 4. Run the established four-sample CLI analysis with the newly bundled CLI.
 5. Verify sorted/indexed BAMs, candidate/un-nameable FASTA/JSON/GenBank artifacts, manifest entries, and complete provenance.
-6. Inspect representative GenBank comments for genomic novel alleles and cDNA extensions.
+6. Inspect representative GenBank comments for genomic novel alleles and cDNA extensions; verify terminal UTR removal, feature rebasing, intron retention, and both sequence checksums.
 7. Verify the two-sheet workbook cell types and render both sheets.
 8. Quit other Lungfish processes and launch only the exact fresh debug bundle for testing.
