@@ -275,6 +275,12 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
     private let publicationMove: PublicationMove
     private let artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding
 
+    private struct InternalPublicationPathContext {
+        let directoryURL: URL
+        let device: UInt64
+        let inode: UInt64
+    }
+
     init(
         executableDirectoryURL: URL? = nil,
         fileManager: FileManager = .default,
@@ -347,6 +353,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                     + requiredRawInputURL.path + "."
             )
         }
+        let internalPublicationPathContext = try validateInternalPublicationPath(
+            outputDirectoryURL: request.outputDirectoryURL,
+            rawInputURL: request.rawUnmatchedConsensusesFASTAURL,
+            safety: safety
+        )
         let canonicalUnmatchedFASTAURL = request.outputDirectoryURL.appendingPathComponent(
             "deduplicated_unmatched_clusters.fasta"
         )
@@ -360,8 +371,14 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             workDirectoryURL: request.workDirectoryURL
         )
         let observationGroups = try groupedClusters(request.observations)
+        try revalidateInternalPublicationPath(
+            internalPublicationPathContext,
+            safety: safety
+        )
         let canonicalRecords = try canonicalUnmatchedRecords(
-            request.rawUnmatchedConsensusesFASTAURL
+            request.rawUnmatchedConsensusesFASTAURL,
+            within: request.outputDirectoryURL,
+            safety: safety
         )
         let grouped = try bindCanonicalRecords(
             canonicalRecords,
@@ -1172,6 +1189,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
 
         try Task.checkCancellation()
         try safety.revalidatePathContext(pathContext)
+        try revalidateInternalPublicationPath(internalPublicationPathContext, safety: safety)
         var stagedPublicationDescriptors = [
             try FullLengthONTMHCArtifactDescriptor(url: stagedBAMURL, role: .evidenceBAM, phase: .staging),
             try FullLengthONTMHCArtifactDescriptor(url: stagedBAIURL, role: .evidenceBAI, phase: .staging),
@@ -1220,6 +1238,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         try materializeStagingGeneration(
             stagedRootURL: stagedRootURL,
             outputDirectoryURL: request.outputDirectoryURL,
+            internalPublicationPathContext: internalPublicationPathContext,
+            safety: safety,
             relativePaths: [
                 "artifacts/alignments/unmatched-to-reference.bam",
                 "artifacts/alignments/unmatched-to-reference.bam.bai",
@@ -1347,6 +1367,100 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         sequence.filter { !$0.isWhitespace }.uppercased()
     }
 
+    private func validateInternalPublicationPath(
+        outputDirectoryURL: URL,
+        rawInputURL: URL,
+        safety: FullLengthONTMHCAlignmentSafety
+    ) throws -> InternalPublicationPathContext {
+        let outputURL = outputDirectoryURL.standardizedFileURL
+        let artifactsURL = outputURL.appendingPathComponent("artifacts", isDirectory: true)
+        let internalURL = artifactsURL.appendingPathComponent("internal", isDirectory: true)
+
+        try safety.requireDirectoryNoFollow(outputURL, role: "output bundle")
+        try safety.requireDirectoryNoFollow(artifactsURL, role: "artifacts directory")
+        try safety.requireContained(artifactsURL, within: outputURL, role: "artifacts directory")
+        try safety.requireDirectoryNoFollow(
+            internalURL,
+            role: "internal artifact publication directory"
+        )
+        try safety.requireContained(
+            internalURL,
+            within: outputURL,
+            role: "internal artifact publication directory"
+        )
+
+        let rawDescriptor = try safety.openRegularFileNoFollow(
+            rawInputURL,
+            within: outputURL,
+            role: "caller-staged raw unmatched consensus FASTA"
+        )
+        Darwin.close(rawDescriptor)
+        let identity = try directoryIdentityNoFollow(
+            internalURL,
+            role: "internal artifact publication directory"
+        )
+        return .init(
+            directoryURL: internalURL,
+            device: identity.device,
+            inode: identity.inode
+        )
+    }
+
+    private func revalidateInternalPublicationPath(
+        _ context: InternalPublicationPathContext,
+        safety: FullLengthONTMHCAlignmentSafety
+    ) throws {
+        let outputURL = context.directoryURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let artifactsURL = context.directoryURL.deletingLastPathComponent()
+        try safety.requireDirectoryNoFollow(outputURL, role: "output bundle")
+        try safety.requireDirectoryNoFollow(artifactsURL, role: "artifacts directory")
+        try safety.requireContained(artifactsURL, within: outputURL, role: "artifacts directory")
+        try safety.requireDirectoryNoFollow(
+            context.directoryURL,
+            role: "internal artifact publication directory"
+        )
+        try safety.requireContained(
+            context.directoryURL,
+            within: outputURL,
+            role: "internal artifact publication directory"
+        )
+        let observed = try directoryIdentityNoFollow(
+            context.directoryURL,
+            role: "internal artifact publication directory"
+        )
+        guard observed.device == context.device,
+              observed.inode == context.inode else {
+            throw FullLengthONTMHCCandidateArtifactWriterError(
+                "Internal artifact publication directory identity changed after validation: "
+                    + context.directoryURL.path
+            )
+        }
+    }
+
+    func directoryIdentityNoFollow(
+        _ url: URL,
+        role: String
+    ) throws -> (device: UInt64, inode: UInt64) {
+        var info = stat()
+        guard Darwin.lstat(url.path, &info) == 0 else {
+            if errno == ENOENT {
+                throw FullLengthONTMHCCandidateArtifactWriterError(
+                    "Missing \(role): \(url.path)"
+                )
+            }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard info.st_mode & S_IFMT == S_IFDIR else {
+            throw FullLengthONTMHCCandidateArtifactWriterError(
+                "Expected \(role) to be a real directory reached without symlinks or special files: "
+                    + url.path
+            )
+        }
+        return (UInt64(info.st_dev), UInt64(info.st_ino))
+    }
+
     func canonicalGenBankRecord(
         _ record: GenBankRecord,
         externalID: String,
@@ -1459,12 +1573,23 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         )
     }
 
-    func canonicalUnmatchedRecords(_ url: URL) throws -> [CanonicalUnmatchedRecord] {
+    func canonicalUnmatchedRecords(
+        _ url: URL,
+        within outputDirectoryURL: URL,
+        safety: FullLengthONTMHCAlignmentSafety
+    ) throws -> [CanonicalUnmatchedRecord] {
         var records: [CanonicalUnmatchedRecord] = []
         var stableIDs = Set<String>()
         var currentHeader: String?
         var currentSequence = ""
         var lineNumber = 0
+        let descriptor = try safety.openRegularFileNoFollow(
+            url,
+            within: outputDirectoryURL,
+            role: "caller-staged raw unmatched consensus FASTA"
+        )
+        defer { Darwin.close(descriptor) }
+        let descriptorURL = URL(fileURLWithPath: "/dev/fd/\(descriptor)")
 
         func finishRecord() throws {
             guard let header = currentHeader else { return }
@@ -1498,7 +1623,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             currentSequence = ""
         }
 
-        try url.forEachLineAutoDecompressing { line in
+        try descriptorURL.forEachLineAutoDecompressing { line in
             try Task.checkCancellation()
             lineNumber += 1
             guard line.utf8.count <= Self.maximumCanonicalFASTALineBytes else {
@@ -1866,13 +1991,25 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         }
     }
 
-    func materializeStagingGeneration(
+    private func materializeStagingGeneration(
         stagedRootURL: URL,
         outputDirectoryURL: URL,
+        internalPublicationPathContext: InternalPublicationPathContext,
+        safety: FullLengthONTMHCAlignmentSafety,
         relativePaths: [String]
     ) throws {
+        try revalidateInternalPublicationPath(
+            internalPublicationPathContext,
+            safety: safety
+        )
         for relative in relativePaths {
             try Task.checkCancellation()
+            if relative.hasPrefix("artifacts/internal/") {
+                try revalidateInternalPublicationPath(
+                    internalPublicationPathContext,
+                    safety: safety
+                )
+            }
             let destination = outputDirectoryURL.appendingPathComponent(relative)
             guard try !pathEntryExistsNoFollow(destination) else {
                 throw FullLengthONTMHCCandidateArtifactWriterError(
@@ -1886,15 +2023,24 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
                 try Task.checkCancellation()
                 let staged = stagedRootURL.appendingPathComponent(relative)
                 let destination = outputDirectoryURL.appendingPathComponent(relative)
+                let isInternalPublication = relative.hasPrefix("artifacts/internal/")
+                if isInternalPublication {
+                    try revalidateInternalPublicationPath(
+                        internalPublicationPathContext,
+                        safety: safety
+                    )
+                }
                 guard try !pathEntryExistsNoFollow(destination) else {
                     throw FullLengthONTMHCCandidateArtifactWriterError(
                         "Candidate artifacts require a fresh caller-owned staging directory; target appeared during generation: \(relative)."
                     )
                 }
-                try fileManager.createDirectory(
-                    at: destination.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
+                if !isInternalPublication {
+                    try fileManager.createDirectory(
+                        at: destination.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                }
                 try publicationMove(staged, destination)
                 moved.append((staged, destination))
             }

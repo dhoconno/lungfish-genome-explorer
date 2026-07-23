@@ -1065,6 +1065,57 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         assertNoPublishedCandidateOutputs(fixture)
     }
 
+    func testSymlinkedInternalParentIsRejectedWithoutExternalMutationOrPartialPublication() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let outsideURL = fixture.rootURL.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outsideURL, withIntermediateDirectories: true)
+        let rawURL = outsideURL.appendingPathComponent("raw-unmatched-consensuses.fasta")
+        let rawData = Data(fixture.canonicalFASTA(records: [
+            (fixture.novelID, fixture.novelSequence),
+            (fixture.extensionID, fixture.extensionSequence),
+            (fixture.unnameableID, fixture.unnameableSequence),
+        ]).utf8)
+        try rawData.write(to: rawURL)
+        let sentinelURL = outsideURL.appendingPathComponent("sentinel.txt")
+        let sentinel = Data("outside-must-remain-unchanged".utf8)
+        try sentinel.write(to: sentinelURL)
+        let artifactsURL = fixture.outputURL.appendingPathComponent("artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifactsURL, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: artifactsURL.appendingPathComponent("internal"),
+            withDestinationURL: outsideURL
+        )
+
+        do {
+            _ = try await fixture.write(
+                observations: fixture.observations,
+                rawInputAlreadyStaged: true
+            )
+            XCTFail("Expected symlinked internal directory rejection")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains("symlink")
+                    || error.localizedDescription.localizedCaseInsensitiveContains(
+                        "without symlinks"
+                    ),
+                error.localizedDescription
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: rawURL), rawData)
+        XCTAssertEqual(try Data(contentsOf: sentinelURL), sentinel)
+        XCTAssertEqual(
+            try Set(FileManager.default.contentsOfDirectory(atPath: outsideURL.path)),
+            ["raw-unmatched-consensuses.fasta", "sentinel.txt"]
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: fixture.toolsURL.appendingPathComponent("commands.log").path
+            )
+        )
+        assertNoPublishedCandidateOutputs(fixture)
+    }
+
     func testRejectsCanonicalSequenceWhoseStableHeaderDoesNotMatchBasesBeforeMapping() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -1487,6 +1538,7 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             observations: [FullLengthONTMHCCandidateSequenceObservation],
             canonicalFASTAOverride: String? = nil,
             rawInputURLOverride: URL? = nil,
+            rawInputAlreadyStaged: Bool = false,
             finalOutputDirectoryURL: URL? = nil,
             referenceRecords: [MHCReferenceRecord]? = nil,
             genotypingEvidence: ONTMHCBAMArtifactPair? = nil,
@@ -1505,14 +1557,16 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             let rawInternalURL = rawInputURLOverride ?? outputURL.appendingPathComponent(
                 "artifacts/internal/raw-unmatched-consensuses.fasta"
             )
-            try FileManager.default.createDirectory(
-                at: rawInternalURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try Data(stagedUnmatched.utf8).write(
-                to: rawInternalURL,
-                options: .atomic
-            )
+            if !rawInputAlreadyStaged {
+                try FileManager.default.createDirectory(
+                    at: rawInternalURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try Data(stagedUnmatched.utf8).write(
+                    to: rawInternalURL,
+                    options: .atomic
+                )
+            }
             let writer = FullLengthONTMHCCandidateArtifactWriter(
                 executableDirectoryURL: toolsURL,
                 canonicalizationProvider: canonicalizationProvider ?? {
