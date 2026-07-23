@@ -83,6 +83,22 @@ struct FullLengthONTMHCCandidateArtifactWriteRequest: Sendable, Equatable {
     }
 }
 
+private struct FullLengthONTMHCCanonicalizationInputDocument: Codable {
+    let schemaVersion: Int
+    let thresholds: ONTMHCCandidateThresholds
+    let observations: [ONTMHCCandidateObservation]
+    let rawCandidates: [ONTMHCCandidateRecord]
+    let rawUnnameableClusters: [ONTMHCUnnameableRecord]
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case thresholds
+        case observations
+        case rawCandidates = "raw_candidates"
+        case rawUnnameableClusters = "raw_unnameable_clusters"
+    }
+}
+
 struct FullLengthONTMHCCandidateArtifactResult: Sendable, Equatable {
     let stableUnmatchedFASTAURL: URL
     let reciprocalBAMURL: URL
@@ -249,18 +265,21 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
     typealias CanonicalizationProvider = @Sendable (
         FullLengthONTMHCCandidateGenBankArtifactBuilder.Input
     ) throws -> FullLengthONTMHCCandidateCanonicalization
+    typealias PublicationMove = (_ source: URL, _ destination: URL) throws -> Void
 
     private let executableDirectoryURL: URL?
     private let minimap2ExecutableURL: URL?
     private let samtoolsExecutableURL: URL?
     private let fileManager: FileManager
     private let canonicalizationProvider: CanonicalizationProvider
+    private let publicationMove: PublicationMove
     private let artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding
 
     init(
         executableDirectoryURL: URL? = nil,
         fileManager: FileManager = .default,
         canonicalizationProvider: CanonicalizationProvider? = nil,
+        publicationMove: PublicationMove? = nil,
         artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding =
             DefaultFullLengthONTMHCArtifactDescriptorProvider()
     ) {
@@ -271,6 +290,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         self.canonicalizationProvider = canonicalizationProvider ?? {
             try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: $0)
         }
+        self.publicationMove = publicationMove ?? { source, destination in
+            try fileManager.moveItem(at: source, to: destination)
+        }
         self.artifactDescriptorProvider = artifactDescriptorProvider
     }
 
@@ -279,6 +301,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         samtoolsExecutableURL: URL,
         fileManager: FileManager = .default,
         canonicalizationProvider: CanonicalizationProvider? = nil,
+        publicationMove: PublicationMove? = nil,
         artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding =
             DefaultFullLengthONTMHCArtifactDescriptorProvider()
     ) {
@@ -288,6 +311,9 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         self.fileManager = fileManager
         self.canonicalizationProvider = canonicalizationProvider ?? {
             try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: $0)
+        }
+        self.publicationMove = publicationMove ?? { source, destination in
+            try fileManager.moveItem(at: source, to: destination)
         }
         self.artifactDescriptorProvider = artifactDescriptorProvider
     }
@@ -311,6 +337,16 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         try safety.requireRegularFileNoFollow(request.referenceAlleleFASTAURL, role: "reference allele FASTA")
         try fileManager.createDirectory(at: request.outputDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: request.workDirectoryURL, withIntermediateDirectories: true)
+        let requiredRawInputURL = request.outputDirectoryURL.appendingPathComponent(
+            "artifacts/internal/raw-unmatched-consensuses.fasta"
+        ).standardizedFileURL
+        guard request.rawUnmatchedConsensusesFASTAURL.standardizedFileURL.path
+                == requiredRawInputURL.path else {
+            throw FullLengthONTMHCCandidateArtifactWriterError(
+                "Raw unmatched consensus FASTA must be pre-staged at "
+                    + requiredRawInputURL.path + "."
+            )
+        }
         let canonicalUnmatchedFASTAURL = request.outputDirectoryURL.appendingPathComponent(
             "deduplicated_unmatched_clusters.fasta"
         )
@@ -591,6 +627,85 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 Set(rawUnnameable.map(\.stableClusterID)).contains($0.stableClusterID)
             }
         )
+        let internalDirectoryURL = stagedRootURL.appendingPathComponent(
+            "artifacts/internal",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: internalDirectoryURL, withIntermediateDirectories: true)
+        let canonicalizationPayloadURL = internalDirectoryURL.appendingPathComponent(
+            "mhc-candidate-canonicalization-input.json"
+        )
+        let rawObservationPayload = grouped.flatMap(\.observations)
+            .sorted(by: Self.observationLessThan)
+        let canonicalizationPayloadStartedAt = Date()
+        try writeCanonicalJSON(
+            FullLengthONTMHCCanonicalizationInputDocument(
+                schemaVersion: 1,
+                thresholds: request.thresholds,
+                observations: rawObservationPayload,
+                rawCandidates: rawCandidates,
+                rawUnnameableClusters: rawUnnameable
+            ),
+            to: canonicalizationPayloadURL
+        )
+        let stagedCanonicalizationPayloadDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: canonicalizationPayloadURL,
+            role: .commandInput,
+            phase: .staging
+        )
+        let canonicalizationPayloadDescriptor = stagedCanonicalizationPayloadDescriptor.relocated(
+            to: request.finalOutputDirectoryURL.appendingPathComponent(
+                "artifacts/internal/mhc-candidate-canonicalization-input.json"
+            ),
+            role: .commandInput,
+            phase: .final
+        )
+        let genotypingEvidenceInputDescriptors = try request.genotypingEvidence.map { evidence in
+            try [
+                descriptorForExistingArtifactReference(
+                    evidence.bam,
+                    outputDirectoryURL: request.outputDirectoryURL,
+                    role: .evidenceBAM
+                ),
+                descriptorForExistingArtifactReference(
+                    evidence.bai,
+                    outputDirectoryURL: request.outputDirectoryURL,
+                    role: .evidenceBAI
+                ),
+            ]
+        } ?? []
+        let canonicalizationPayloadSourceDescriptors = [
+            canonicalDescriptor, referenceDescriptor, reciprocalViewDescriptor,
+            reciprocalBAMDescriptor, reciprocalBAIDescriptor,
+        ] + annotationInputDescriptors + genotypingEvidenceInputDescriptors
+        let canonicalizationPayloadCompletedAt = Date()
+        transformations.append(.init(
+            workflowName: "lungfish-in-process:serialize-mhc-canonicalization-input",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            argv: [
+                "lungfish-in-process", "serialize-mhc-canonicalization-input",
+                "--canonical-order", "stable-cluster-id,sample-id,read-group-id",
+            ] + canonicalizationPayloadSourceDescriptors.flatMap {
+                ["--input", $0.path]
+            } + ["--output", canonicalizationPayloadURL.path],
+            resolvedOptions: [
+                "schemaVersion": "1",
+                "serialization": "canonical-json-sorted-keys-pretty-printed-LF",
+                "observationCount": String(rawObservationPayload.count),
+                "rawCandidateCount": String(rawCandidates.count),
+                "rawUnnameableCount": String(rawUnnameable.count),
+                "boundObservationFields": "stable-cluster-id,source-sequence-cluster-id,sample-id,read-group-id,source-cluster-ids,source-cluster-read-counts,aggregated-sample-read-count,genotyping-hit-summaries",
+                "boundClassificationFields": "raw-candidate-records,raw-unnameable-records",
+            ],
+            inputs: canonicalizationPayloadSourceDescriptors,
+            outputs: [stagedCanonicalizationPayloadDescriptor],
+            exitStatus: 0,
+            startedAt: canonicalizationPayloadStartedAt,
+            completedAt: canonicalizationPayloadCompletedAt,
+            wallTime: canonicalizationPayloadCompletedAt.timeIntervalSince(
+                canonicalizationPayloadStartedAt
+            )
+        ))
         let referenceVisualization: ONTMHCReferenceVisualizationArtifact?
         if let referenceBundleURL = request.referenceBundleURL,
            referenceBundleURL.pathExtension.lowercased() == "lungfishref",
@@ -703,9 +818,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             return (id, Self.normalizedSequence(sequence))
         })
         let canonicalizationInputDescriptors = [
-            canonicalDescriptor, referenceDescriptor, reciprocalViewDescriptor,
+            canonicalDescriptor, canonicalizationPayloadDescriptor,
+            referenceDescriptor, reciprocalViewDescriptor,
             reciprocalBAMDescriptor, reciprocalBAIDescriptor,
-        ] + annotationInputDescriptors
+        ] + annotationInputDescriptors + genotypingEvidenceInputDescriptors
         let canonicalizationCompletedAt = Date()
         let canonicalizationResolvedOptions = Self.canonicalizationResolvedOptions(
             thresholds: request.thresholds,
@@ -771,11 +887,6 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             completedAt: unnameableFASTACompletedAt
         ))
 
-        let internalDirectoryURL = stagedRootURL.appendingPathComponent(
-            "artifacts/internal",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: internalDirectoryURL, withIntermediateDirectories: true)
         let sourceMapURL = internalDirectoryURL.appendingPathComponent(
             "mhc-candidate-source-map.json"
         )
@@ -1032,7 +1143,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         ]) { _, unnameable in unnameable }
         transformations.append(Self.renderTransformation(
             name: "render-mhc-candidate-genbank",
-            inputs: [candidateJSONDescriptor, candidateFASTADescriptor] + annotationInputDescriptors,
+            inputs: canonicalizationInputDescriptors
+                + [candidateJSONDescriptor, candidateFASTADescriptor],
             output: candidateGenBankDescriptor,
             recordCount: candidateGenBankRecords.count,
             additionalResolvedOptions: candidateGenBankResolvedOptions,
@@ -1041,7 +1153,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         ))
         transformations.append(Self.renderTransformation(
             name: "render-mhc-unnameable-genbank",
-            inputs: [unnameableJSONDescriptor, unnameableFASTADescriptor] + annotationInputDescriptors,
+            inputs: canonicalizationInputDescriptors
+                + [unnameableJSONDescriptor, unnameableFASTADescriptor],
             output: unnameableGenBankDescriptor,
             recordCount: unnameableGenBankRecords.count,
             additionalResolvedOptions: unnameableGenBankResolvedOptions,
@@ -1068,6 +1181,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             unnameableFASTADescriptor,
             unnameableJSONDescriptor,
             unnameableGenBankDescriptor,
+            stagedCanonicalizationPayloadDescriptor,
             sourceMapDescriptor,
         ]
         let canonicalDedupStartedAt = Date()
@@ -1114,6 +1228,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "candidate_alleles.gb",
                 "unnameable_unmatched_clusters.fasta", "unnameable-unmatched-clusters.json",
                 "unnameable_unmatched_clusters.gb",
+                "artifacts/internal/mhc-candidate-canonicalization-input.json",
                 "artifacts/internal/mhc-candidate-source-map.json",
             ]
         )
@@ -1128,6 +1243,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("unnameable-unmatched-clusters.json"), .commandOutput),
             (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.gb"), .commandOutput),
+            (request.outputDirectoryURL.appendingPathComponent("artifacts/internal/mhc-candidate-canonicalization-input.json"), .commandInput),
             (request.outputDirectoryURL.appendingPathComponent("artifacts/internal/mhc-candidate-source-map.json"), .commandOutput),
         ]
         let checksumStartedAt = Date()
@@ -1722,6 +1838,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         [
             "artifacts/alignments/unmatched-to-reference.bam",
             "artifacts/alignments/unmatched-to-reference.bam.bai",
+            "artifacts/internal/mhc-candidate-canonicalization-input.json",
             "artifacts/internal/mhc-candidate-source-map.json",
             "deduplicated_unmatched_clusters.fasta",
             "candidate_alleles.fasta",
@@ -1734,8 +1851,13 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
     }
 
     func requireFreshStagingTargets(in outputDirectoryURL: URL) throws {
-        let existing = stagedRelativePaths.filter { relative in
-            fileManager.fileExists(atPath: outputDirectoryURL.appendingPathComponent(relative).path)
+        var existing: [String] = []
+        for relative in stagedRelativePaths {
+            if try pathEntryExistsNoFollow(
+                outputDirectoryURL.appendingPathComponent(relative)
+            ) {
+                existing.append(relative)
+            }
         }
         guard existing.isEmpty else {
             throw FullLengthONTMHCCandidateArtifactWriterError(
@@ -1752,22 +1874,54 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         for relative in relativePaths {
             try Task.checkCancellation()
             let destination = outputDirectoryURL.appendingPathComponent(relative)
-            guard !fileManager.fileExists(atPath: destination.path) else {
+            guard try !pathEntryExistsNoFollow(destination) else {
                 throw FullLengthONTMHCCandidateArtifactWriterError(
                     "Candidate artifacts require a fresh caller-owned staging directory; target appeared during generation: \(relative)."
                 )
             }
         }
-        for relative in relativePaths {
-            try Task.checkCancellation()
-            let staged = stagedRootURL.appendingPathComponent(relative)
-            let destination = outputDirectoryURL.appendingPathComponent(relative)
-            try fileManager.createDirectory(
-                at: destination.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try fileManager.moveItem(at: staged, to: destination)
+        var moved: [(staged: URL, destination: URL)] = []
+        do {
+            for relative in relativePaths {
+                try Task.checkCancellation()
+                let staged = stagedRootURL.appendingPathComponent(relative)
+                let destination = outputDirectoryURL.appendingPathComponent(relative)
+                guard try !pathEntryExistsNoFollow(destination) else {
+                    throw FullLengthONTMHCCandidateArtifactWriterError(
+                        "Candidate artifacts require a fresh caller-owned staging directory; target appeared during generation: \(relative)."
+                    )
+                }
+                try fileManager.createDirectory(
+                    at: destination.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try publicationMove(staged, destination)
+                moved.append((staged, destination))
+            }
+        } catch {
+            for item in moved.reversed() {
+                guard (try? pathEntryExistsNoFollow(item.destination)) == true else {
+                    continue
+                }
+                do {
+                    try fileManager.moveItem(at: item.destination, to: item.staged)
+                } catch {
+                    try? fileManager.removeItem(at: item.destination)
+                }
+            }
+            throw error
         }
+    }
+
+    func pathEntryExistsNoFollow(_ url: URL) throws -> Bool {
+        var metadata = stat()
+        let status = url.path.withCString { path in
+            lstat(path, &metadata)
+        }
+        if status == 0 { return true }
+        if errno == ENOENT { return false }
+        let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+        throw POSIXError(code)
     }
 
     func writeFASTA(_ records: [(String, String)], to url: URL) throws {
@@ -1804,6 +1958,28 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             },
             sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: url))
         )
+    }
+
+    func descriptorForExistingArtifactReference(
+        _ reference: ONTMHCArtifactReference,
+        outputDirectoryURL: URL,
+        role: FullLengthONTMHCArtifactRole
+    ) throws -> FullLengthONTMHCArtifactDescriptor {
+        let url = reference.path.hasPrefix("/")
+            ? URL(fileURLWithPath: reference.path)
+            : outputDirectoryURL.appendingPathComponent(reference.path)
+        let descriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: url,
+            role: role,
+            phase: .input
+        )
+        guard descriptor.sha256 == reference.sha256,
+              descriptor.byteSize == UInt64(reference.sizeBytes) else {
+            throw FullLengthONTMHCCandidateArtifactWriterError(
+                "Genotyping evidence does not match its declared checksum/size: \(reference.path)."
+            )
+        }
+        return descriptor
     }
 
     static func sha256(_ data: Data) -> String {

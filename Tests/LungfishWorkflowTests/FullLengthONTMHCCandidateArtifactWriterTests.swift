@@ -492,6 +492,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(Set(transformations.keys), [
             "lungfish-in-process:construct-stable-unmatched-cluster-fasta",
             "lungfish-in-process:parse-and-classify-reciprocal-mhc-alignments",
+            "lungfish-in-process:serialize-mhc-canonicalization-input",
             "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates",
             "lungfish-in-process:render-mhc-candidate-fasta",
             "lungfish-in-process:render-mhc-unnameable-fasta",
@@ -735,6 +736,9 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             result.unnameableJSONURL.path,
             result.unnameableGenBankURL.path,
             fixture.outputURL.appendingPathComponent(
+                "artifacts/internal/mhc-candidate-canonicalization-input.json"
+            ).path,
+            fixture.outputURL.appendingPathComponent(
                 "artifacts/internal/mhc-candidate-source-map.json"
             ).path,
         ].sorted())
@@ -842,7 +846,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             $0.workflowName == "lungfish-in-process:capture-mhc-candidate-artifact-checksums"
         })
         let captures = provider.captures
-        XCTAssertEqual(captures.count, 10)
+        XCTAssertEqual(captures.count, 11)
         XCTAssertLessThanOrEqual(checksum.startedAt, try XCTUnwrap(captures.first).startedAt)
         XCTAssertGreaterThanOrEqual(checksum.completedAt, try XCTUnwrap(captures.last).completedAt)
         XCTAssertEqual(
@@ -906,6 +910,159 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
                 ).path
             )
         )
+    }
+
+    func testWriterRejectsRawInputOutsideCanonicalInternalPathBeforeMapping() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let arbitraryURL = fixture.outputURL.appendingPathComponent("arbitrary-raw.fasta")
+
+        do {
+            _ = try await fixture.write(
+                observations: fixture.observations,
+                rawInputURLOverride: arbitraryURL
+            )
+            XCTFail("Expected canonical raw-input path rejection")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "artifacts/internal/raw-unmatched-consensuses.fasta"
+                ),
+                error.localizedDescription
+            )
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: fixture.toolsURL.appendingPathComponent(
+                "commands.log"
+            ).path)
+        )
+    }
+
+    func testCanonicalizationProvenanceBindsObservationsClassificationsAndGenotypingEvidence() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let genotypingBAMURL = fixture.outputURL.appendingPathComponent(
+            "artifacts/alignments/genotyping-evidence.bam"
+        )
+        let genotypingBAIURL = fixture.outputURL.appendingPathComponent(
+            "artifacts/alignments/genotyping-evidence.bam.bai"
+        )
+        try FileManager.default.createDirectory(
+            at: genotypingBAMURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("genotyping-bam".utf8).write(to: genotypingBAMURL)
+        try Data("genotyping-bai".utf8).write(to: genotypingBAIURL)
+        let evidence = ONTMHCBAMArtifactPair(
+            bam: try artifactReference(
+                genotypingBAMURL,
+                path: "artifacts/alignments/genotyping-evidence.bam"
+            ),
+            bai: try artifactReference(
+                genotypingBAIURL,
+                path: "artifacts/alignments/genotyping-evidence.bam.bai"
+            )
+        )
+
+        let result = try await fixture.write(
+            observations: fixture.observations,
+            genotypingEvidence: evidence
+        )
+        let transformations = Dictionary(uniqueKeysWithValues: result.transformationRecords.map {
+            ($0.workflowName, $0)
+        })
+        let canonicalization = try XCTUnwrap(
+            transformations["lungfish-in-process:canonicalize-and-aggregate-mhc-candidates"]
+        )
+        let payload = try XCTUnwrap(canonicalization.inputs.first {
+            $0.path.hasSuffix("artifacts/internal/mhc-candidate-canonicalization-input.json")
+        })
+        XCTAssertEqual(payload.sha256, try sha256(URL(fileURLWithPath: payload.path)))
+        XCTAssertTrue(canonicalization.inputs.contains { $0.path == genotypingBAMURL.path })
+        XCTAssertTrue(canonicalization.inputs.contains { $0.path == genotypingBAIURL.path })
+        let candidateGenBank = try XCTUnwrap(
+            transformations["lungfish-in-process:render-mhc-candidate-genbank"]
+        )
+        XCTAssertTrue(candidateGenBank.inputs.contains(payload))
+        XCTAssertTrue(candidateGenBank.inputs.contains { $0.path == genotypingBAMURL.path })
+        XCTAssertTrue(candidateGenBank.inputs.contains { $0.path == genotypingBAIURL.path })
+    }
+
+    func testPublicationRollbackRemovesEarlierOutputsWhenLaterMoveFails() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let lock = NSLock()
+        var moveCount = 0
+        do {
+            _ = try await fixture.write(
+                observations: fixture.observations,
+                publicationMove: { source, destination in
+                    let count = lock.withLock { () -> Int in
+                        moveCount += 1
+                        return moveCount
+                    }
+                    if count == 3 {
+                        throw FullLengthONTMHCCandidateArtifactWriterError("injected move failure")
+                    }
+                    try FileManager.default.moveItem(at: source, to: destination)
+                }
+            )
+            XCTFail("Expected injected publication failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("injected move failure"))
+        }
+        assertNoPublishedCandidateOutputs(fixture)
+    }
+
+    func testPublicationRollbackRemovesEarlierOutputsWhenMoveIsCancelled() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let lock = NSLock()
+        var moveCount = 0
+        do {
+            _ = try await fixture.write(
+                observations: fixture.observations,
+                publicationMove: { source, destination in
+                    let count = lock.withLock { () -> Int in
+                        moveCount += 1
+                        return moveCount
+                    }
+                    if count == 3 { throw CancellationError() }
+                    try FileManager.default.moveItem(at: source, to: destination)
+                }
+            )
+            XCTFail("Expected injected publication cancellation")
+        } catch is CancellationError {
+        }
+        assertNoPublishedCandidateOutputs(fixture)
+    }
+
+    func testDanglingSymlinkLateTargetBlocksPublicationBeforeAnyMove() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let target = fixture.outputURL.appendingPathComponent(
+            "artifacts/internal/mhc-candidate-source-map.json"
+        )
+        try FileManager.default.createDirectory(
+            at: target.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createSymbolicLink(
+            at: target,
+            withDestinationURL: fixture.rootURL.appendingPathComponent("missing-target")
+        )
+
+        do {
+            _ = try await fixture.write(observations: fixture.observations)
+            XCTFail("Expected dangling-symlink collision")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("mhc-candidate-source-map.json"))
+        }
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: target.path),
+            fixture.rootURL.appendingPathComponent("missing-target").path
+        )
+        assertNoPublishedCandidateOutputs(fixture)
     }
 
     func testRejectsCanonicalSequenceWhoseStableHeaderDoesNotMatchBasesBeforeMapping() async throws {
@@ -1230,6 +1387,38 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as! NSNumber).int64Value
     }
 
+    private func artifactReference(_ url: URL, path: String) throws -> ONTMHCArtifactReference {
+        .init(path: path, sha256: try sha256(url), sizeBytes: try fileSize(url))
+    }
+
+    private func assertNoPublishedCandidateOutputs(
+        _ fixture: Fixture,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for relative in [
+            "deduplicated_unmatched_clusters.fasta",
+            "candidate_alleles.fasta",
+            "candidate-alleles.json",
+            "candidate_alleles.gb",
+            "unnameable_unmatched_clusters.fasta",
+            "unnameable-unmatched-clusters.json",
+            "unnameable_unmatched_clusters.gb",
+            "artifacts/alignments/unmatched-to-reference.bam",
+            "artifacts/alignments/unmatched-to-reference.bam.bai",
+            "artifacts/internal/mhc-candidate-canonicalization-input.json",
+        ] {
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath: fixture.outputURL.appendingPathComponent(relative).path
+                ),
+                relative,
+                file: file,
+                line: line
+            )
+        }
+    }
+
     private func canonicalizedJSON(_ data: Data) throws -> Data {
         let object = try JSONSerialization.jsonObject(with: data)
         return try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) + Data([0x0a])
@@ -1297,9 +1486,12 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
         func write(
             observations: [FullLengthONTMHCCandidateSequenceObservation],
             canonicalFASTAOverride: String? = nil,
+            rawInputURLOverride: URL? = nil,
             finalOutputDirectoryURL: URL? = nil,
             referenceRecords: [MHCReferenceRecord]? = nil,
+            genotypingEvidence: ONTMHCBAMArtifactPair? = nil,
             canonicalizationProvider: FullLengthONTMHCCandidateArtifactWriter.CanonicalizationProvider? = nil,
+            publicationMove: FullLengthONTMHCCandidateArtifactWriter.PublicationMove? = nil,
             artifactDescriptorProvider: any FullLengthONTMHCArtifactDescriptorProviding =
                 DefaultFullLengthONTMHCArtifactDescriptorProvider()
         ) async throws -> FullLengthONTMHCCandidateArtifactResult {
@@ -1310,7 +1502,7 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             ).sorted { $0.key < $1.key }
             let stagedUnmatched = canonicalFASTAOverride
                 ?? records.map { ">\($0.key)\n\($0.value)\n" }.joined()
-            let rawInternalURL = outputURL.appendingPathComponent(
+            let rawInternalURL = rawInputURLOverride ?? outputURL.appendingPathComponent(
                 "artifacts/internal/raw-unmatched-consensuses.fasta"
             )
             try FileManager.default.createDirectory(
@@ -1329,6 +1521,7 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
                         trimRange: 0..<$0.sequence.count
                     )
                 },
+                publicationMove: publicationMove,
                 artifactDescriptorProvider: artifactDescriptorProvider
             )
             return try await writer.stage(.init(
@@ -1337,7 +1530,7 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
                 rawUnmatchedConsensusesFASTAURL: rawInternalURL,
                 referenceAnnotationInputURLs: [referenceAnnotationURL],
                 referenceRecords: referenceRecords ?? defaultReferenceRecords,
-                genotypingEvidence: nil,
+                genotypingEvidence: genotypingEvidence,
                 threads: 14,
                 outputDirectoryURL: outputURL,
                 finalOutputDirectoryURL: finalOutputDirectoryURL,
