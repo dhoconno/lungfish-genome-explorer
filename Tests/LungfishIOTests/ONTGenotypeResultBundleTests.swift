@@ -179,6 +179,23 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertEqual(result.calls.map(\.genotype), ["known-allele"])
         XCTAssertEqual(result.mhcCandidates?.candidates.map(\.stableClusterID), [fixture.candidateID])
         XCTAssertEqual(result.mhcUnnameableClusters?.clusters.map(\.stableClusterID), [fixture.unnameableID])
+        XCTAssertEqual(
+            result.mhcAlignmentArtifactURLs,
+            ONTMHCAlignmentArtifactURLs(
+                genotypingBAM: fixture.bundleURL.appendingPathComponent(
+                    "artifacts/alignments/genotyping.bam"
+                ),
+                genotypingBAI: fixture.bundleURL.appendingPathComponent(
+                    "artifacts/alignments/genotyping.bam.bai"
+                ),
+                reciprocalBAM: fixture.bundleURL.appendingPathComponent(
+                    "artifacts/alignments/reciprocal.bam"
+                ),
+                reciprocalBAI: fixture.bundleURL.appendingPathComponent(
+                    "artifacts/alignments/reciprocal.bam.bai"
+                )
+            )
+        )
         XCTAssertTrue(result.integrityWarnings.isEmpty)
     }
 
@@ -486,6 +503,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
 
         XCTAssertEqual(result.calls.count, 1)
         XCTAssertNil(result.mhcCandidates)
+        XCTAssertEqual(result.mhcAlignmentArtifactURLs, .empty)
         XCTAssertEqual(result.integrityWarnings.first?.code, .candidateArtifactChecksumMismatch)
         XCTAssertTrue(result.integrityWarnings.first?.path?.hasSuffix("genotyping.bam") == true)
     }
