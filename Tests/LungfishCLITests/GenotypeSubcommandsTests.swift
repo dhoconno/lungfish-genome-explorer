@@ -732,6 +732,115 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(result.skippedDuplicateCounts.matrixComments, 1)
     }
 
+    func testApplyAnnotationsMergesMatrixReviewsByExactTarget() {
+        let firstTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+            sample: "AnimalA",
+            stableClusterID: "cluster-a"
+        )
+        let sameGenotypeDifferentTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+            sample: "AnimalA",
+            stableClusterID: "cluster-b"
+        )
+        var existing = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T00:00:00Z")
+        existing.matrixReviews = [
+            .init(target: firstTarget, disposition: .falsePositive, author: "alice", timestamp: "2026-07-01T10:00:00Z"),
+            .init(target: sameGenotypeDifferentTarget, disposition: .falseNegative, author: "alice", timestamp: "2026-07-01T10:00:00Z"),
+        ]
+        var patch = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T11:00:00Z")
+        patch.matrixReviews = [
+            .init(target: firstTarget, disposition: .falseNegative, author: "bob", timestamp: "2026-07-01T11:00:00Z"),
+        ]
+
+        let result = GenotypeApplyAnnotationsSubcommand.merge(existing: existing, patch: patch)
+
+        XCTAssertEqual(result.sidecar.matrixReviews.count, 2)
+        XCTAssertEqual(result.sidecar.matrixReviews.first { $0.target == firstTarget }?.disposition, .falseNegative)
+        XCTAssertEqual(
+            result.sidecar.matrixReviews.first { $0.target == sameGenotypeDifferentTarget }?.disposition,
+            .falseNegative
+        )
+        XCTAssertEqual(result.appendedCounts.matrixReviews, 1)
+    }
+
+    func testApplyAnnotationsReplacesMatrixCommentsByExactTarget() {
+        let firstTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+            stableClusterID: "cluster-a"
+        )
+        let sameGenotypeDifferentTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-B",
+            genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+            stableClusterID: "cluster-a"
+        )
+        var existing = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T00:00:00Z")
+        existing.matrixComments = [
+            .init(target: firstTarget, body: "Old current.", author: "alice", timestamp: "2026-07-01T10:00:00Z"),
+            .init(target: sameGenotypeDifferentTarget, body: "Legacy duplicate one.", author: "alice", timestamp: "2026-07-01T10:00:00Z"),
+            .init(target: sameGenotypeDifferentTarget, body: "Keep this.", author: "alice", timestamp: "2026-07-01T10:01:00Z"),
+        ]
+        var patch = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T11:00:00Z")
+        patch.matrixComments = [
+            .init(target: firstTarget, body: "Replacement.", author: "bob", timestamp: "2026-07-01T11:00:00Z"),
+        ]
+
+        let result = GenotypeApplyAnnotationsSubcommand.merge(existing: existing, patch: patch)
+
+        XCTAssertEqual(result.sidecar.matrixComments.count, 3)
+        XCTAssertEqual(result.sidecar.resolvedMatrixComments[firstTarget]?.body, "Replacement.")
+        XCTAssertEqual(result.sidecar.resolvedMatrixComments[sameGenotypeDifferentTarget]?.body, "Keep this.")
+        XCTAssertEqual(result.appendedCounts.matrixComments, 1)
+    }
+
+    func testApplyAnnotationsReportsReviewAndCurrentCommentCounts() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeApplyAnnotationsReviewCounts-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+            sample: "AnimalA",
+            stableClusterID: "cluster-a"
+        )
+        var existing = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T00:00:00Z")
+        existing.matrixComments = [
+            .init(target: target, body: "Old.", author: "alice", timestamp: "2026-07-01T10:00:00Z"),
+        ]
+        try existing.encoded().write(to: annotationURL)
+        var patch = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T11:00:00Z")
+        patch.matrixComments = [
+            .init(target: target, body: "Current.", author: "bob", timestamp: "2026-07-01T11:00:00Z"),
+        ]
+        patch.matrixReviews = [
+            .init(target: target, disposition: .falseNegative, author: "bob", timestamp: "2026-07-01T11:00:00Z"),
+        ]
+        let patchURL = root.appendingPathComponent("patch.json")
+        try patch.encoded().write(to: patchURL)
+
+        let command = try GenotypeApplyAnnotationsSubcommand.parse([
+            "--bundle", bundleURL.path,
+            "--patch", patchURL.path,
+        ])
+        try await command.run()
+
+        let stored = try GenotypeAnnotationSidecar.decode(Data(contentsOf: annotationURL))
+        XCTAssertEqual(stored.matrixReviews.count, 1)
+        XCTAssertEqual(stored.resolvedMatrixComments[target]?.body, "Current.")
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(envelope.options.explicit["appendedMatrixReviews"], .integer(1))
+        XCTAssertEqual(envelope.options.explicit["appendedMatrixComments"], .integer(1))
+        let output = try XCTUnwrap(envelope.files.first { $0.path == annotationURL.path && $0.role == .output })
+        XCTAssertEqual(output.checksumSHA256, try ProvenanceFileHasher.sha256(of: annotationURL))
+    }
+
     // MARK: - export-pivot-xlsx
 
     func testExportPivotXlsxParsesBundleAndOutput() throws {

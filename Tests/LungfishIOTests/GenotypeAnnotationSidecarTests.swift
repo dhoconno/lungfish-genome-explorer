@@ -144,6 +144,100 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
         XCTAssertEqual(decoded.matrixComments, sidecar.matrixComments)
     }
 
+    func testVersionOneSidecarDecodesWithNoMatrixReviews() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "generatedAt": "2026-06-30T00:00:00Z"
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try GenotypeAnnotationSidecar.decode(json)
+
+        XCTAssertEqual(decoded.schemaVersion, 1)
+        XCTAssertTrue(decoded.matrixReviews.isEmpty)
+    }
+
+    func testVersionTwoSidecarRoundTripsStableIdentityReview() throws {
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T00:00:00Z")
+        let review = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
+            target: .cell(
+                locus: "MHC-A1",
+                genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+                sample: "AnimalA",
+                stableClusterID: "cluster-a"
+            ),
+            disposition: .falseNegative,
+            author: "dho",
+            timestamp: "2026-07-01T12:00:00Z"
+        )
+        sidecar.matrixReviews = [review]
+
+        let decoded = try GenotypeAnnotationSidecar.decode(sidecar.encoded())
+
+        XCTAssertEqual(GenotypeAnnotationSidecar.currentSchemaVersion, 2)
+        XCTAssertEqual(decoded.schemaVersion, 2)
+        XCTAssertEqual(decoded.matrixReviews, [review])
+    }
+
+    func testResolvedMatrixCommentsUsesLatestParseableTimestamp() {
+        let target = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-B",
+            genotype: "Mamu-I*01",
+            stableClusterID: "cluster-b"
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T00:00:00Z")
+        sidecar.matrixComments = [
+            .init(target: target, body: "Older.", author: "alice", timestamp: "2026-07-01T10:00:00Z"),
+            .init(target: target, body: "Latest.", author: "bob", timestamp: "2026-07-01T10:01:00Z"),
+        ]
+        let originalComments = sidecar.matrixComments
+
+        let resolved = sidecar.resolvedMatrixComments
+
+        XCTAssertEqual(resolved[target]?.body, "Latest.")
+        XCTAssertEqual(sidecar.matrixComments, originalComments)
+    }
+
+    func testResolvedMatrixCommentsUsesLastFileOrderForTiesAndUnparseableDates() throws {
+        let tiedTarget = GenotypeAnnotationSidecar.MatrixTarget.row(locus: "MHC-B", genotype: "Mamu-I*01")
+        let unparseableTarget = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T00:00:00Z")
+        sidecar.matrixComments = [
+            .init(target: tiedTarget, body: "First tie.", author: "alice", timestamp: "2026-07-01T10:00:00Z"),
+            .init(target: tiedTarget, body: "Last tie.", author: "bob", timestamp: "2026-07-01T10:00:00Z"),
+            .init(target: unparseableTarget, body: "First invalid.", author: "alice", timestamp: "not-a-date"),
+            .init(target: unparseableTarget, body: "Last invalid.", author: "bob", timestamp: "still-not-a-date"),
+        ]
+        let originalComments = sidecar.matrixComments
+        let originalData = try sidecar.encoded()
+        let sidecarURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ResolvedMatrixComments-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: sidecarURL) }
+        try originalData.write(to: sidecarURL)
+
+        let resolved = sidecar.resolvedMatrixComments
+
+        XCTAssertEqual(resolved[tiedTarget]?.body, "Last tie.")
+        XCTAssertEqual(resolved[unparseableTarget]?.body, "Last invalid.")
+        XCTAssertEqual(sidecar.matrixComments, originalComments)
+        XCTAssertEqual(try Data(contentsOf: sidecarURL), originalData)
+    }
+
+    func testStableAuditDescriptionIncludesTargetKindAndStableClusterID() {
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+            sample: "AnimalA",
+            stableClusterID: "cluster-a"
+        )
+
+        XCTAssertEqual(
+            target.stableAuditDescription,
+            "cell AnimalA MHC-A1 Mafa-A1*018:01:01:01_5nt_nov [cluster-a]"
+        )
+    }
+
     func testLegacySidecarDecodesWithEmptyAIHaplotypeReviewFields() throws {
         let json = """
         {

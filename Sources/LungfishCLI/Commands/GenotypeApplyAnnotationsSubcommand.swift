@@ -11,7 +11,8 @@ import LungfishWorkflow
 /// caller wants to merge. Existing entries in the bundle are preserved; new
 /// entries are appended after de-duplication on
 /// `sample+locus+slot+author+timestamp` (or the relevant subset for entries
-/// without a locus or slot).
+/// without a locus or slot). Matrix comments and semantic reviews instead
+/// retain one current value for each exact matrix target.
 ///
 /// Pipeline output files in the bundle are never touched. Only the sidecar
 /// (`annotations.json` peer to `genotype-result.json`) is rewritten.
@@ -110,7 +111,7 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
             parameters: parameters,
             defaults: [
                 "patchSchema": .string(GenotypeAnnotationSidecar.filename),
-                "mergeMode": .string("append-deduplicate"),
+                "mergeMode": .string("append-deduplicate-with-current-matrix-targets"),
             ],
             resolved: parameters,
             toolName: CLICommandIdentity.executableName,
@@ -148,6 +149,7 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         parameters["\(prefix)SmartCohorts"] = .integer(counts.smartCohorts)
         parameters["\(prefix)MatrixStyles"] = .integer(counts.matrixStyles)
         parameters["\(prefix)MatrixComments"] = .integer(counts.matrixComments)
+        parameters["\(prefix)MatrixReviews"] = .integer(counts.matrixReviews)
         parameters["\(prefix)ManualHaplotypeAssignments"] = .integer(counts.manualHaplotypeAssignments)
         parameters["\(prefix)AuditLog"] = .integer(counts.auditLog)
     }
@@ -206,11 +208,20 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
             changed: &appended.matrixStyles,
             skipped: &skipped.matrixStyles
         )
-        Self.mergeArray(into: &merged.matrixComments,
-                        from: patch.matrixComments,
-                        key: matrixCommentKey,
-                        appended: &appended.matrixComments,
-                        skipped: &skipped.matrixComments)
+        Self.mergeCurrentMatrixEntries(
+            into: &merged.matrixComments,
+            from: patch.matrixComments,
+            target: { $0.target },
+            changed: &appended.matrixComments,
+            skipped: &skipped.matrixComments
+        )
+        Self.mergeCurrentMatrixEntries(
+            into: &merged.matrixReviews,
+            from: patch.matrixReviews,
+            target: { $0.target },
+            changed: &appended.matrixReviews,
+            skipped: &skipped.matrixReviews
+        )
         Self.mergeArray(into: &merged.manualHaplotypeAssignments,
                         from: patch.manualHaplotypeAssignments,
                         key: manualHaplotypeKey,
@@ -265,6 +276,33 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
                 destination.append(entry)
                 changed += 1
             }
+        }
+    }
+
+    private static func mergeCurrentMatrixEntries<Element: Equatable>(
+        into destination: inout [Element],
+        from source: [Element],
+        target: (Element) -> GenotypeAnnotationSidecar.MatrixTarget,
+        changed: inout Int,
+        skipped: inout Int
+    ) {
+        for entry in source {
+            let targetKey = target(entry)
+            let matchingIndices = destination.indices.filter { target(destination[$0]) == targetKey }
+            guard let firstIndex = matchingIndices.first else {
+                destination.append(entry)
+                changed += 1
+                continue
+            }
+            if matchingIndices.count == 1, destination[firstIndex] == entry {
+                skipped += 1
+                continue
+            }
+            for index in matchingIndices.reversed() {
+                destination.remove(at: index)
+            }
+            destination.insert(entry, at: firstIndex)
+            changed += 1
         }
     }
 
@@ -352,6 +390,7 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         var smartCohorts: Int = 0
         var matrixStyles: Int = 0
         var matrixComments: Int = 0
+        var matrixReviews: Int = 0
         var manualHaplotypeAssignments: Int = 0
         var auditLog: Int = 0
     }

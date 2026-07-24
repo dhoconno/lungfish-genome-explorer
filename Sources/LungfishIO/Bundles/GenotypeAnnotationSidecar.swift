@@ -116,7 +116,7 @@ public struct ONTMHCCandidateDisplaySettings: Codable, Equatable, Sendable {
 
 public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
     public static let filename = "annotations.json"
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion: Int
     public var generatedAt: String
@@ -129,6 +129,7 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
     public var cellComments: [CellComment]
     public var matrixStyles: [MatrixStyleAnnotation]
     public var matrixComments: [MatrixComment]
+    public var matrixReviews: [MatrixReviewAnnotation]
     public var sampleStatusFlags: [SampleStatusFlag]
     public var callStatusFlags: [CallStatusFlag]
     public var smartCohorts: [GenotypeCohortSmartFilter]
@@ -141,7 +142,7 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, generatedAt, lastEditedAt, lastEditor
         case callOverrides, cellHighlights, rowHighlights, sampleNotes, cellComments
-        case matrixStyles, matrixComments
+        case matrixStyles, matrixComments, matrixReviews
         case sampleStatusFlags, callStatusFlags, smartCohorts, manualHaplotypeAssignments
         case aiHaplotypeReviews, activeAIHaplotypeReviewID, settings, auditLog
     }
@@ -153,6 +154,7 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
                 cellComments: [CellComment],
                 matrixStyles: [MatrixStyleAnnotation] = [],
                 matrixComments: [MatrixComment] = [],
+                matrixReviews: [MatrixReviewAnnotation] = [],
                 sampleStatusFlags: [SampleStatusFlag], callStatusFlags: [CallStatusFlag],
                 smartCohorts: [GenotypeCohortSmartFilter],
                 manualHaplotypeAssignments: [ManualHaplotypeAssignment],
@@ -170,6 +172,7 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
         self.cellComments = cellComments
         self.matrixStyles = matrixStyles
         self.matrixComments = matrixComments
+        self.matrixReviews = matrixReviews
         self.sampleStatusFlags = sampleStatusFlags
         self.callStatusFlags = callStatusFlags
         self.smartCohorts = smartCohorts
@@ -203,6 +206,7 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
             cellComments: cellComments,
             matrixStyles: [],
             matrixComments: [],
+            matrixReviews: [],
             sampleStatusFlags: sampleStatusFlags,
             callStatusFlags: callStatusFlags,
             smartCohorts: smartCohorts,
@@ -227,6 +231,7 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
         self.cellComments = try container.decodeIfPresent([CellComment].self, forKey: .cellComments) ?? []
         self.matrixStyles = try container.decodeIfPresent([MatrixStyleAnnotation].self, forKey: .matrixStyles) ?? []
         self.matrixComments = try container.decodeIfPresent([MatrixComment].self, forKey: .matrixComments) ?? []
+        self.matrixReviews = try container.decodeIfPresent([MatrixReviewAnnotation].self, forKey: .matrixReviews) ?? []
         self.sampleStatusFlags = try container.decodeIfPresent([SampleStatusFlag].self, forKey: .sampleStatusFlags) ?? []
         self.callStatusFlags = try container.decodeIfPresent([CallStatusFlag].self, forKey: .callStatusFlags) ?? []
         self.smartCohorts = try container.decodeIfPresent([GenotypeCohortSmartFilter].self, forKey: .smartCohorts) ?? []
@@ -252,7 +257,7 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
             lastEditedAt: nil, lastEditor: nil,
             callOverrides: [], cellHighlights: [], rowHighlights: [],
             sampleNotes: [], cellComments: [],
-            matrixStyles: [], matrixComments: [],
+            matrixStyles: [], matrixComments: [], matrixReviews: [],
             sampleStatusFlags: [], callStatusFlags: [],
             smartCohorts: [], manualHaplotypeAssignments: [],
             aiHaplotypeReviews: [], activeAIHaplotypeReviewID: nil,
@@ -269,6 +274,38 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
     public static func decode(_ data: Data) throws -> GenotypeAnnotationSidecar {
         let decoder = JSONDecoder()
         return try decoder.decode(GenotypeAnnotationSidecar.self, from: data)
+    }
+
+    public var resolvedMatrixComments: [MatrixTarget: MatrixComment] {
+        var resolved: [MatrixTarget: MatrixComment] = [:]
+        for comment in matrixComments {
+            guard let existing = resolved[comment.target] else {
+                resolved[comment.target] = comment
+                continue
+            }
+            if Self.shouldReplaceMatrixComment(existing: existing, with: comment) {
+                resolved[comment.target] = comment
+            }
+        }
+        return resolved
+    }
+
+    private static func shouldReplaceMatrixComment(
+        existing: MatrixComment,
+        with candidate: MatrixComment
+    ) -> Bool {
+        guard let existingDate = parseISO8601Date(existing.timestamp),
+              let candidateDate = parseISO8601Date(candidate.timestamp) else {
+            return true
+        }
+        return candidateDate >= existingDate
+    }
+
+    private static func parseISO8601Date(_ timestamp: String) -> Date? {
+        let fractionalSecondsFormatter = ISO8601DateFormatter()
+        fractionalSecondsFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractionalSecondsFormatter.date(from: timestamp)
+            ?? ISO8601DateFormatter().date(from: timestamp)
     }
 
     public mutating func append(audit: AuditEntry) {
@@ -529,6 +566,10 @@ public extension GenotypeAnnotationSidecar {
                 return "cell \(sample) \(locus) \(genotype)" + (stableClusterID.map { " [\($0)]" } ?? "")
             }
         }
+
+        public var stableAuditDescription: String {
+            auditDescription
+        }
     }
 
     struct MatrixStyle: Codable, Equatable, Sendable {
@@ -587,6 +628,30 @@ public extension GenotypeAnnotationSidecar {
         public init(target: MatrixTarget, body: String, author: String, timestamp: String) {
             self.target = target
             self.body = body
+            self.author = author
+            self.timestamp = timestamp
+        }
+    }
+
+    enum MatrixReviewDisposition: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
+        case falsePositive
+        case falseNegative
+    }
+
+    struct MatrixReviewAnnotation: Codable, Equatable, Sendable {
+        public var target: MatrixTarget
+        public var disposition: MatrixReviewDisposition
+        public var author: String
+        public var timestamp: String
+
+        public init(
+            target: MatrixTarget,
+            disposition: MatrixReviewDisposition,
+            author: String,
+            timestamp: String
+        ) {
+            self.target = target
+            self.disposition = disposition
             self.author = author
             self.timestamp = timestamp
         }
