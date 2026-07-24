@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import LungfishIO
 
 enum GenotypeAnnotationPublicationFaultPoint: Equatable, Sendable {
     case beforeProvenancePublication
@@ -31,15 +32,12 @@ struct GenotypeAnnotationPublicationTransactionError: Error, LocalizedError {
 
 private enum GenotypeAnnotationPublicationCoordinatorError: Error, LocalizedError {
     case unsafeFile(String)
-    case lockHeld(String)
     case systemFailure(operation: String, path: String, code: Int32)
 
     var errorDescription: String? {
         switch self {
         case .unsafeFile(let path):
             return "Genotype annotation publication requires a real regular file: \(path)"
-        case .lockHeld(let path):
-            return "Genotype annotation publication lock is already held: \(path)"
         case let .systemFailure(operation, path, code):
             return "Could not \(operation) at \(path) (errno \(code): \(String(cString: strerror(code))))."
         }
@@ -47,8 +45,6 @@ private enum GenotypeAnnotationPublicationCoordinatorError: Error, LocalizedErro
 }
 
 struct GenotypeAnnotationPublicationCoordinator {
-    static let lockFilename = ".annotations-publication.lock"
-
     let bundleURL: URL
     let annotationFilename: String
     let provenanceFilename: String
@@ -57,6 +53,9 @@ struct GenotypeAnnotationPublicationCoordinator {
     func transact(
         prepare: (GenotypeAnnotationPublicationSnapshot) throws -> GenotypeAnnotationPublicationPayload?
     ) throws -> GenotypeAnnotationPublicationPayload? {
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL)
+        defer { publicationLock.release() }
+
         let directoryFD = bundleURL.path.withCString {
             Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
         }
@@ -64,12 +63,6 @@ struct GenotypeAnnotationPublicationCoordinator {
             throw systemError("open bundle directory without following links", bundleURL.path)
         }
         defer { Darwin.close(directoryFD) }
-
-        let lockFD = try acquireLock(directoryFD: directoryFD)
-        defer {
-            _ = flock(lockFD, LOCK_UN)
-            Darwin.close(lockFD)
-        }
 
         let snapshot = GenotypeAnnotationPublicationSnapshot(
             annotationData: try readRegularFile(annotationFilename, directoryFD: directoryFD),
@@ -96,41 +89,6 @@ struct GenotypeAnnotationPublicationCoordinator {
                 rollbackError: rollbackError
             )
         }
-    }
-
-    private func acquireLock(directoryFD: Int32) throws -> Int32 {
-        let lockURL = bundleURL.appendingPathComponent(Self.lockFilename)
-        let descriptor = Self.lockFilename.withCString {
-            Darwin.openat(
-                directoryFD,
-                $0,
-                O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
-                mode_t(0o600)
-            )
-        }
-        guard descriptor >= 0 else {
-            if errno == ELOOP { throw GenotypeAnnotationPublicationCoordinatorError.unsafeFile(lockURL.path) }
-            throw systemError("open genotype annotation publication lock", lockURL.path)
-        }
-        var status = stat()
-        guard Darwin.fstat(descriptor, &status) == 0,
-              status.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
-            Darwin.close(descriptor)
-            throw GenotypeAnnotationPublicationCoordinatorError.unsafeFile(lockURL.path)
-        }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-            let code = errno
-            Darwin.close(descriptor)
-            if code == EWOULDBLOCK || code == EAGAIN {
-                throw GenotypeAnnotationPublicationCoordinatorError.lockHeld(lockURL.path)
-            }
-            throw GenotypeAnnotationPublicationCoordinatorError.systemFailure(
-                operation: "acquire genotype annotation publication lock",
-                path: lockURL.path,
-                code: code
-            )
-        }
-        return descriptor
     }
 
     private func readRegularFile(_ filename: String, directoryFD: Int32) throws -> Data? {

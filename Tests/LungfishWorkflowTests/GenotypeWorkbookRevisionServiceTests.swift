@@ -364,6 +364,289 @@ wb.save(path)
         XCTAssertTrue(pythonStep.inputs.contains { $0.path.hasSuffix("unnameable-clusters.gb") })
     }
 
+    func testTwoSheetCurrentWorkbookRetainsAndAppliesSemanticReviews() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "two-sheet-reviews")
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 2)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "Mafa-A1",
+                    genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+                    sample: "sample-a",
+                    stableClusterID: "cluster-1"
+                ),
+                disposition: .falsePositive,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:00:00Z"
+            )
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_150) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let output = try runPython(["-c", #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+ws = wb["Unified Genotype Pivot"]
+headers = {}
+header_row = None
+for row in range(1, ws.max_row + 1):
+    values = {str(ws.cell(row, col).value): col for col in range(1, ws.max_column + 1) if ws.cell(row, col).value is not None}
+    if "stable_cluster_id" in values:
+        headers = values
+        header_row = row
+        break
+target_row = next(
+    row for row in range(header_row + 1, ws.max_row + 1)
+    if ws.cell(row, headers["stable_cluster_id"]).value == "cluster-1"
+)
+cell = ws.cell(target_row, headers["sample-a"])
+annotation_rows = []
+if "Matrix Annotations" in wb.sheetnames:
+    annotations = wb["Matrix Annotations"]
+    annotation_rows = [
+        "|".join("" if annotations.cell(row, col).value is None else str(annotations.cell(row, col).value)
+                 for col in range(1, annotations.max_column + 1))
+        for row in range(2, annotations.max_row + 1)
+    ]
+print(json.dumps({
+    "sheet_names": wb.sheetnames,
+    "value": str(cell.value),
+    "italic": bool(cell.font.italic),
+    "has_annotations": "Matrix Annotations" in wb.sheetnames,
+    "has_audit": "Audit Log" in wb.sheetnames,
+    "annotations": annotation_rows,
+}))
+"""#, currentURL.path])
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
+        )
+        let diagnostic = String(describing: payload["annotations"])
+        XCTAssertEqual(payload["value"] as? String, "[7]", diagnostic)
+        XCTAssertEqual(payload["italic"] as? Bool, true, diagnostic)
+        XCTAssertEqual(payload["has_annotations"] as? Bool, true)
+        XCTAssertEqual(payload["has_audit"] as? Bool, true)
+    }
+
+    func testTwoSheetRebuildPreservesUnrelatedNativeCommentAndFormatting() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "two-sheet-native-content")
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 2)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_175) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+from openpyxl.comments import Comment
+from openpyxl.styles import PatternFill
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+header_row = next(
+    row for row in range(1, ws.max_row + 1)
+    if any(ws.cell(row, col).value == "stable_cluster_id" for col in range(1, ws.max_column + 1))
+)
+headers = {
+    str(ws.cell(header_row, col).value): col
+    for col in range(1, ws.max_column + 1)
+    if ws.cell(header_row, col).value is not None
+}
+target_row = next(
+    row for row in range(header_row + 1, ws.max_row + 1)
+    if ws.cell(row, headers["stable_cluster_id"]).value == "cluster-1"
+)
+cell = ws.cell(target_row, headers["sample-a"])
+cell.comment = Comment("Analyst-owned native note", "analyst")
+cell.fill = PatternFill(fill_type="solid", fgColor="FF123456")
+cell.font = cell.font.copy(bold=True)
+wb.save(path)
+"""#, currentURL.path])
+
+        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "Mafa-A1",
+                    genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+                    sample: "sample-a",
+                    stableClusterID: "cluster-1"
+                ),
+                disposition: .falsePositive,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:00:00Z"
+            )
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let output = try runPython(["-c", #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+ws = wb["Unified Genotype Pivot"]
+header_row = next(
+    row for row in range(1, ws.max_row + 1)
+    if any(ws.cell(row, col).value == "stable_cluster_id" for col in range(1, ws.max_column + 1))
+)
+headers = {
+    str(ws.cell(header_row, col).value): col
+    for col in range(1, ws.max_column + 1)
+    if ws.cell(header_row, col).value is not None
+}
+target_row = next(
+    row for row in range(header_row + 1, ws.max_row + 1)
+    if ws.cell(row, headers["stable_cluster_id"]).value == "cluster-1"
+)
+cell = ws.cell(target_row, headers["sample-a"])
+print(json.dumps({
+    "comment": "" if cell.comment is None else cell.comment.text,
+    "author": "" if cell.comment is None else cell.comment.author,
+    "fill": str(getattr(cell.fill.fgColor, "rgb", ""))[-6:],
+    "bold": bool(cell.font.bold),
+    "italic": bool(cell.font.italic),
+}))
+"""#, currentURL.path])
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(payload["comment"] as? String, "Analyst-owned native note")
+        XCTAssertEqual(payload["author"] as? String, "analyst")
+        XCTAssertEqual(payload["fill"] as? String, "123456")
+        XCTAssertEqual(payload["bold"] as? Bool, true)
+        XCTAssertEqual(payload["italic"] as? Bool, true)
+    }
+
+    func testTwoSheetRepeatUpdateRetainsAuthoritativeCandidateTintAndOtherNativeStyle() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "two-sheet-repeat-tint")
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 2)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_180) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let canonicalTint = try runPython(["-c", #"""
+import sys
+from copy import copy
+from openpyxl import load_workbook
+from openpyxl.comments import Comment
+from openpyxl.styles import PatternFill
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+header_row = next(
+    row for row in range(1, ws.max_row + 1)
+    if any(ws.cell(row, col).value == "stable_cluster_id" for col in range(1, ws.max_column + 1))
+)
+headers = {
+    str(ws.cell(header_row, col).value): col
+    for col in range(1, ws.max_column + 1)
+    if ws.cell(header_row, col).value is not None
+}
+target_row = next(
+    row for row in range(header_row + 1, ws.max_row + 1)
+    if ws.cell(row, headers["stable_cluster_id"]).value == "cluster-1"
+)
+cell = ws.cell(target_row, headers["display_name"])
+canonical = str(getattr(cell.fill.fgColor, "rgb", ""))[-6:]
+cell.fill = PatternFill(fill_type="solid", fgColor="FFABCDEF")
+font = copy(cell.font)
+font.bold = True
+cell.font = font
+cell.comment = Comment("Native label note", "analyst")
+wb.save(path)
+print(canonical)
+"""#, currentURL.path]).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertFalse(canonicalTint.isEmpty)
+        XCTAssertNotEqual(canonicalTint, "ABCDEF")
+
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        let output = try runPython(["-c", #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+ws = wb["Unified Genotype Pivot"]
+header_row = next(
+    row for row in range(1, ws.max_row + 1)
+    if any(ws.cell(row, col).value == "stable_cluster_id" for col in range(1, ws.max_column + 1))
+)
+headers = {
+    str(ws.cell(header_row, col).value): col
+    for col in range(1, ws.max_column + 1)
+    if ws.cell(header_row, col).value is not None
+}
+target_row = next(
+    row for row in range(header_row + 1, ws.max_row + 1)
+    if ws.cell(row, headers["stable_cluster_id"]).value == "cluster-1"
+)
+cell = ws.cell(target_row, headers["display_name"])
+print(json.dumps({
+    "fill": str(getattr(cell.fill.fgColor, "rgb", ""))[-6:],
+    "bold": bool(cell.font.bold),
+    "comment": "" if cell.comment is None else cell.comment.text,
+}))
+"""#, currentURL.path])
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(payload["fill"] as? String, canonicalTint)
+        XCTAssertEqual(payload["bold"] as? Bool, true)
+        XCTAssertEqual(payload["comment"] as? String, "Native label note")
+    }
+
     func testExplicitUpdateRetainsAllCandidateCategoriesAndUnnameableEvidenceWithNameOnlyTints() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -2451,8 +2734,22 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
 
         let inspection = try inspectGenericMatrixWorkbook(try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL))
         XCTAssertEqual(inspection["hasMatrixAnnotationsSheet"], "true")
-        XCTAssertEqual(inspection["matrixAnnotationStyleRow"], "style|cell|MHC-B|Mamu-I*expected|AR3628|#FFF2CC|#C00000|#666666|true|true|curator|2026-06-30T12:00:00Z|")
-        XCTAssertEqual(inspection["matrixAnnotationCommentRow"], "comment|cell|MHC-B|Mamu-I*expected|AR3628||||||curator|2026-06-30T12:00:00Z|Expected genotype missing from reads.")
+        XCTAssertEqual(
+            inspection["matrixAnnotationStyleRow"],
+            [
+                "style", "cell", "MHC-B", "Mamu-I*expected", "AR3628", "", "",
+                "not-applicable", "", "#FFF2CC", "#C00000", "#666666", "true", "true",
+                "curator", "2026-06-30T12:00:00Z", "",
+            ].joined(separator: "|")
+        )
+        XCTAssertEqual(
+            inspection["matrixAnnotationCommentRow"],
+            [
+                "comment", "cell", "MHC-B", "Mamu-I*expected", "AR3628", "", "",
+                "not-applicable", "", "", "", "", "", "", "curator",
+                "2026-06-30T12:00:00Z", "Expected genotype missing from reads.",
+            ].joined(separator: "|")
+        )
         XCTAssertEqual(inspection["cellFillSuffix"], "FFF2CC")
         XCTAssertEqual(inspection["cellTextColorSuffix"], "C00000")
         XCTAssertEqual(inspection["cellBorderSuffix"], "666666")
@@ -2461,6 +2758,484 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertTrue(inspection["cellComment"]?.contains("Expected genotype missing from reads.") == true)
         XCTAssertEqual(inspection["guideMatrixStyles"], "1")
         XCTAssertEqual(inspection["guideMatrixComments"], "1")
+    }
+
+    func testApplyHaplotypeOverridesFormatsReviewsUsingExactSemanticIdentity() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "semantic-reviews")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        try installSemanticReviewMatrix(in: currentURL)
+
+        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-FP",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falsePositive,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:00:00Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-Zero",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:01:00Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-Absent",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:02:00Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-FP",
+                    stableClusterID: "cluster-c"
+                ),
+                disposition: .falseNegative,
+                author: "imported-reviewer",
+                timestamp: "2026-07-24T10:03:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_000) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+
+        let inspection = try inspectSemanticReviewWorkbook(currentURL)
+        XCTAssertEqual(inspection["falsePositiveValue"], "[42]")
+        XCTAssertEqual(inspection["falsePositiveItalic"], "true")
+        XCTAssertEqual(inspection["falsePositiveColor"], "767676")
+        XCTAssertEqual(inspection["explicitZeroValue"], "0")
+        XCTAssertEqual(inspection["explicitZeroType"], "n")
+        XCTAssertEqual(inspection["explicitZeroBorders"], "thick|thick|thick|thick")
+        XCTAssertEqual(inspection["absentValue"], "")
+        XCTAssertEqual(inspection["absentType"], "n")
+        XCTAssertEqual(inspection["absentBorders"], "thick|thick|thick|thick")
+        XCTAssertEqual(inspection["otherLocusValue"], "42", "The colliding genotype at another locus must not be formatted")
+        XCTAssertEqual(inspection["otherStableIDValue"], "42", "The colliding genotype at another stable ID must not be formatted")
+        XCTAssertEqual(inspection["invalidReviewValue"], "42", "An ineligible false-negative import must not be formatted")
+        XCTAssertEqual(inspection["invalidReviewBorders"], "|||")
+        XCTAssertTrue(inspection["validReviewRow"]?.contains("|cluster-a|falsePositive|valid|") == true)
+        XCTAssertTrue(inspection["invalidReviewRow"]?.contains("|cluster-c|falseNegative|invalid|") == true)
+        XCTAssertTrue(inspection["invalidAuditRow"]?.contains("validateMatrixReview") == true)
+        XCTAssertTrue(inspection["invalidAuditRow"]?.contains("|cluster-c|falseNegative|invalid|") == true)
+    }
+
+    func testClearingMatrixReviewsRestoresManagedPresentationAndRemovesStaleSheets() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "review-clear")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        try installSemanticReviewMatrix(in: currentURL)
+        let originalInspection = try inspectSemanticReviewWorkbook(currentURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-FP",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falsePositive,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:00:00Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-Zero",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:01:00Z"
+            )
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_025) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        XCTAssertEqual(try inspectSemanticReviewWorkbook(currentURL)["falsePositiveValue"], "[42]")
+        _ = try runPython(["-c", #"""
+import sys
+from copy import copy
+from openpyxl import load_workbook
+from openpyxl.styles import Side
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+font = copy(ws["D7"].font)
+font.bold = True
+font.italic = False
+ws["D7"].font = font
+border = copy(ws["E7"].border)
+border.left = Side(style="thin", color="FF123456")
+ws["E7"].border = border
+wb.save(path)
+"""#, currentURL.path])
+
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let inspection = try inspectSemanticReviewWorkbook(currentURL)
+        XCTAssertEqual(inspection["falsePositiveValue"], "42")
+        XCTAssertEqual(inspection["falsePositiveItalic"], "false")
+        XCTAssertEqual(inspection["falsePositiveColor"], originalInspection["falsePositiveColor"])
+        XCTAssertEqual(inspection["falsePositiveBold"], "true")
+        XCTAssertEqual(inspection["explicitZeroBorders"], "thin|||")
+        XCTAssertEqual(inspection["hasMatrixAnnotationsSheet"], "false")
+        XCTAssertEqual(inspection["hasManagedReviewStateSheet"], "false")
+    }
+
+    func testMixedAwareAndNaiveReviewTimestampsResolveDeterministically() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "mixed-timezones")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        try installSemanticReviewMatrix(in: currentURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "Mamu-I*collision",
+            sample: "Sample-FP",
+            stableClusterID: "cluster-a"
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixReviews = [
+            .init(
+                target: target,
+                disposition: .falseNegative,
+                author: "naive-import",
+                timestamp: "2026-07-24T10:00:00"
+            ),
+            .init(
+                target: target,
+                disposition: .falsePositive,
+                author: "aware-import",
+                timestamp: "2026-07-24T10:01:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_035) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let inspection = try inspectSemanticReviewWorkbook(currentURL)
+        XCTAssertEqual(inspection["falsePositiveValue"], "[42]")
+        XCTAssertEqual(inspection["falsePositiveItalic"], "true")
+        XCTAssertTrue(inspection["validReviewRow"]?.contains("|falsePositive|valid|") == true)
+    }
+
+    func testReviewBecomingInvalidRestoresPriorManagedPresentation() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "review-valid-invalid")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        try installSemanticReviewMatrix(in: currentURL)
+        let originalInspection = try inspectSemanticReviewWorkbook(currentURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "Mamu-I*collision",
+            sample: "Sample-FP",
+            stableClusterID: "cluster-a"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: target,
+                disposition: .falsePositive,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:00:00Z"
+            )
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_050) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        sidecar.matrixReviews = [
+            .init(
+                target: target,
+                disposition: .falseNegative,
+                author: "imported-reviewer",
+                timestamp: "2026-07-24T10:01:00Z"
+            )
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let inspection = try inspectSemanticReviewWorkbook(currentURL)
+        XCTAssertEqual(inspection["falsePositiveValue"], "42")
+        XCTAssertEqual(inspection["falsePositiveItalic"], "false")
+        XCTAssertEqual(inspection["falsePositiveColor"], originalInspection["falsePositiveColor"])
+        XCTAssertEqual(inspection["invalidReviewBorders"], "|||")
+        XCTAssertTrue(inspection["invalidReviewRow"]?.contains("|cluster-a|falseNegative|invalid|") == true)
+        XCTAssertEqual(inspection["hasManagedReviewStateSheet"], "false")
+    }
+
+    func testApplyHaplotypeOverridesComposesResolvedNativeNotesByScope() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "semantic-notes")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        try installSemanticReviewMatrix(in: currentURL, withUnrelatedComments: true)
+
+        let rowTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A",
+            genotype: "Mamu-I*collision",
+            stableClusterID: "cluster-a"
+        )
+        let columnTarget = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "Sample-FP")
+        let cellTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "Mamu-I*collision",
+            sample: "Sample-FP",
+            stableClusterID: "cluster-a"
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixComments = [
+            .init(
+                target: cellTarget,
+                body: "Superseded cell note.",
+                author: "older",
+                timestamp: "2026-07-24T09:00:00Z"
+            ),
+            .init(
+                target: rowTarget,
+                body: "Allele-level note.",
+                author: "row-author",
+                timestamp: "2026-07-24T10:00:00Z"
+            ),
+            .init(
+                target: columnTarget,
+                body: "Sample-level note.",
+                author: "column-author",
+                timestamp: "2026-07-24T10:01:00Z"
+            ),
+            .init(
+                target: cellTarget,
+                body: "Current cell note.",
+                author: "cell-author",
+                timestamp: "2026-07-24T10:02:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_100) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+
+        let inspection = try inspectSemanticReviewWorkbook(currentURL)
+        let rowComment = try XCTUnwrap(inspection["rowComment"])
+        let columnComment = try XCTUnwrap(inspection["columnComment"])
+        let cellComment = try XCTUnwrap(inspection["cellComment"])
+        XCTAssertTrue(rowComment.contains("Existing row note"))
+        XCTAssertTrue(rowComment.contains("Allele Row"))
+        XCTAssertTrue(rowComment.contains("Body: Allele-level note."))
+        XCTAssertTrue(rowComment.contains("Author: row-author"))
+        XCTAssertTrue(rowComment.contains("Timestamp: 2026-07-24T10:00:00Z"))
+        XCTAssertTrue(columnComment.contains("Sample Column"))
+        XCTAssertTrue(columnComment.contains("Body: Sample-level note."))
+        XCTAssertTrue(cellComment.contains("Existing cell note"))
+        XCTAssertFalse(cellComment.contains("Superseded cell note."))
+        XCTAssertTrue(cellComment.contains("Current cell note."))
+        let rowRange = try XCTUnwrap(cellComment.range(of: "Allele Row"))
+        let columnRange = try XCTUnwrap(cellComment.range(of: "Sample Column"))
+        let cellRange = try XCTUnwrap(cellComment.range(of: "\nCell\n"))
+        XCTAssertLessThan(rowRange.lowerBound, columnRange.lowerBound)
+        XCTAssertLessThan(columnRange.lowerBound, cellRange.lowerBound)
+        XCTAssertEqual(inspection["resolvedCellCommentRows"], "1")
+        XCTAssertTrue(inspection["commentIdentityRow"]?.contains("|cell|MHC-A|Mamu-I*collision|Sample-FP|cluster-a|") == true)
+    }
+
+    func testApplyHaplotypeOverridesProvenanceNamesFinalStoredSidecarAndWorkbook() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "semantic-provenance")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        try installSemanticReviewMatrix(in: currentURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-FP",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falsePositive,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:00:00Z"
+            )
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+
+        let updated = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_200) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(envelope.steps.first { $0.toolName.contains("python openpyxl") })
+        let sidecarInput = try XCTUnwrap(pythonStep.inputs.first { $0.path == annotationURL.path })
+        XCTAssertEqual(sidecarInput.checksumSHA256, try ProvenanceFileHasher.sha256(of: annotationURL))
+        XCTAssertEqual(sidecarInput.fileSize, UInt64(try ProvenanceFileHasher.fileSize(of: annotationURL)))
+        let workbookOutput = try XCTUnwrap(pythonStep.outputs.first { $0.path == currentURL.path })
+        XCTAssertEqual(workbookOutput.checksumSHA256, try ProvenanceFileHasher.sha256(of: currentURL))
+        XCTAssertEqual(workbookOutput.fileSize, UInt64(try ProvenanceFileHasher.fileSize(of: currentURL)))
+        let durableReplayArgv = try XCTUnwrap(pythonStep.durableReplayArgv)
+        XCTAssertTrue(durableReplayArgv.contains(annotationURL.path))
+        XCTAssertTrue(durableReplayArgv.contains(currentURL.path))
+        XCTAssertTrue(pythonStep.reproducibleCommand.contains(annotationURL.path))
+        XCTAssertTrue(pythonStep.reproducibleCommand.contains(currentURL.path))
+    }
+
+    func testConcurrentAnnotationPublicationDuringWorkbookUpdateFailsClosedAndPreservesExactPair() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "annotation-race")
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        try installSemanticReviewMatrix(in: currentURL)
+        let workbookBefore = try Data(contentsOf: currentURL)
+        let manifestBefore = try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL))
+        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let annotationProvenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        var initial = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        initial.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-FP",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falsePositive,
+                author: "initial",
+                timestamp: "2026-07-24T10:00:00Z"
+            )
+        ]
+        try initial.encoded().write(to: annotationURL)
+        let initialProvenance = Data("initial-provenance".utf8)
+        try initialProvenance.write(to: annotationProvenanceURL)
+
+        var concurrent = initial
+        concurrent.matrixReviews = []
+        concurrent.matrixComments = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-FP",
+                    stableClusterID: "cluster-a"
+                ),
+                body: "Concurrent annotation edit",
+                author: "other-writer",
+                timestamp: "2026-07-24T10:01:00Z"
+            )
+        ]
+        let concurrentData = try concurrent.encoded()
+        let concurrentProvenance = Data("concurrent-provenance".utf8)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_250) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-python-before-source-conflict-check" else { return }
+                    try concurrentData.write(to: annotationURL, options: .atomic)
+                    try concurrentProvenance.write(to: annotationProvenanceURL, options: .atomic)
+                }
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: annotationURL), concurrentData)
+        XCTAssertEqual(try Data(contentsOf: annotationProvenanceURL), concurrentProvenance)
+        XCTAssertEqual(try Data(contentsOf: currentURL), workbookBefore)
+        XCTAssertEqual(
+            try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)),
+            manifestBefore
+        )
     }
 
     func testImportRevisedWorkbookKeepsPrimaryAndSnapshotsPreviousCurrent() throws {
@@ -2890,6 +3665,37 @@ wb.save(path)
         _ = try runPython(["-c", code, url.path])
     }
 
+    private func installSemanticReviewMatrix(
+        in url: URL,
+        withUnrelatedComments: Bool = false
+    ) throws {
+        let code = #"""
+import sys
+from openpyxl import Workbook
+from openpyxl.comments import Comment
+
+path = sys.argv[1]
+with_comments = sys.argv[2] == "true"
+wb = Workbook()
+ws = wb.active
+ws.title = "matrix"
+ws.append(["Animal ID", None, None, "Sample-FP", "Sample-Zero", "Sample-Absent"])
+ws.append(["GS ID", "Total", "Average", "Sample-FP", "Sample-Zero", "Sample-Absent"])
+ws.append(["Filtered exact-match read count", None, None, 84, 0, 0])
+ws.append([])
+ws.append(["Comments", "Subtotal", "# Obs.", None, None, None])
+ws.append(["Genotype", "Locus", "Stable Cluster ID", "Sample-FP", "Sample-Zero", "Sample-Absent"])
+ws.append(["Mamu-I*collision", "MHC-A", "cluster-a", 42, 0, None])
+ws.append(["Mamu-I*collision", "MHC-B", "cluster-b", 42, None, None])
+ws.append(["Mamu-I*collision", "MHC-A", "cluster-c", 42, None, None])
+if with_comments:
+    ws["A7"].comment = Comment("Existing row note", "existing-author")
+    ws["D7"].comment = Comment("Existing cell note", "existing-author")
+wb.save(path)
+"""#
+        _ = try runPython(["-c", code, url.path, withUnrelatedComments ? "true" : "false"])
+    }
+
     private func makeMinimalMCMWorkbook(at url: URL) throws {
         let code = #"""
 import sys
@@ -3071,6 +3877,75 @@ print(json.dumps(payload))
         return try XCTUnwrap(object as? [String: String])
     }
 
+    private func inspectSemanticReviewWorkbook(_ url: URL) throws -> [String: String] {
+        let code = #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+ws = wb["matrix"]
+
+def text(value):
+    return "" if value is None else str(value)
+
+def color_suffix(color):
+    value = getattr(color, "rgb", None)
+    return "" if not value else str(value)[-6:]
+
+def borders(cell):
+    return "|".join(text(getattr(getattr(cell.border, side), "style", None)) for side in ("left", "right", "top", "bottom"))
+
+def table_rows(name):
+    if name not in wb.sheetnames:
+        return []
+    sheet = wb[name]
+    return [[text(sheet.cell(row, col).value) for col in range(1, sheet.max_column + 1)] for row in range(2, sheet.max_row + 1)]
+
+annotations = table_rows("Matrix Annotations")
+audits = table_rows("Audit Log")
+valid_review = next(("|".join(row) for row in annotations if "cluster-a" in row and "falsePositive" in row), "")
+invalid_review = next((
+    "|".join(row) for row in annotations
+    if "falseNegative" in row and "invalid" in row
+), "")
+invalid_audit = next(("|".join(row) for row in audits if "cluster-c" in row and "invalid" in row), "")
+comment_identity = next(("|".join(row) for row in annotations if row and row[0] == "comment" and "cluster-a" in row), "")
+resolved_cell_comments = sum(1 for row in annotations if row and row[0] == "comment" and "cluster-a" in row and "Sample-FP" in row)
+
+payload = {
+    "falsePositiveValue": text(ws["D7"].value),
+    "falsePositiveItalic": str(bool(ws["D7"].font.italic)).lower(),
+    "falsePositiveBold": str(bool(ws["D7"].font.bold)).lower(),
+    "falsePositiveColor": color_suffix(ws["D7"].font.color),
+    "explicitZeroValue": text(ws["E7"].value),
+    "explicitZeroType": text(ws["E7"].data_type),
+    "explicitZeroBorders": borders(ws["E7"]),
+    "absentValue": text(ws["F7"].value),
+    "absentType": text(ws["F7"].data_type),
+    "absentBorders": borders(ws["F7"]),
+    "otherLocusValue": text(ws["D8"].value),
+    "otherStableIDValue": text(ws["D9"].value),
+    "invalidReviewValue": text(ws["D9"].value),
+    "invalidReviewBorders": borders(ws["D9"]),
+    "rowComment": "" if ws["A7"].comment is None else ws["A7"].comment.text,
+    "columnComment": "" if ws["D1"].comment is None else ws["D1"].comment.text,
+    "cellComment": "" if ws["D7"].comment is None else ws["D7"].comment.text,
+    "validReviewRow": valid_review,
+    "invalidReviewRow": invalid_review,
+    "invalidAuditRow": invalid_audit,
+    "commentIdentityRow": comment_identity,
+    "resolvedCellCommentRows": str(resolved_cell_comments),
+    "hasMatrixAnnotationsSheet": str("Matrix Annotations" in wb.sheetnames).lower(),
+    "hasManagedReviewStateSheet": str("_LGE Matrix Review State" in wb.sheetnames).lower(),
+}
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path])
+        let object = try JSONSerialization.jsonObject(with: Data(output.utf8))
+        return try XCTUnwrap(object as? [String: String])
+    }
+
     private func inspectGenericMatrixWorkbook(_ url: URL) throws -> [String: String] {
         let code = #"""
 import json
@@ -3109,8 +3984,8 @@ def guide_value(label):
 
 payload = {
     "hasMatrixAnnotationsSheet": str("Matrix Annotations" in wb.sheetnames).lower(),
-    "matrixAnnotationStyleRow": row_values("Matrix Annotations", 2, 13),
-    "matrixAnnotationCommentRow": row_values("Matrix Annotations", 3, 13),
+    "matrixAnnotationStyleRow": row_values("Matrix Annotations", 2, 17),
+    "matrixAnnotationCommentRow": row_values("Matrix Annotations", 3, 17),
     "cellFillSuffix": color_suffix(cell.fill.fgColor),
     "cellTextColorSuffix": color_suffix(cell.font.color),
     "cellBorderSuffix": color_suffix(cell.border.left.color),

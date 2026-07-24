@@ -317,7 +317,19 @@ public struct GenotypeWorkbookRevisionService {
         }
         try validateRegularBundleFile(sourceWorkbookURL, in: bundle, role: "workbook update source")
         let candidateInputs = try candidateArtifactInputURLs(from: manifest, in: bundle)
-        let sidecar = try loadAnnotationSidecarIfPresent(annotationSidecarURL)
+        let annotationSidecarData: Data?
+        let annotationSidecarWitness: SourceWorkbookWitness?
+        if let annotationSidecarURL, fileManager.fileExists(atPath: annotationSidecarURL.path) {
+            let snapshot = try readRegularFileNoFollow(annotationSidecarURL)
+            annotationSidecarData = snapshot.data
+            annotationSidecarWitness = snapshot.witness
+        } else {
+            annotationSidecarData = nil
+            annotationSidecarWitness = nil
+        }
+        let sidecar = try annotationSidecarData.map {
+            try JSONDecoder().decode(GenotypeAnnotationSidecar.self, from: $0)
+        }
         let configuration = try makeCandidateConfiguration(
             manifest: manifest,
             bundleURL: bundle,
@@ -345,13 +357,31 @@ public struct GenotypeWorkbookRevisionService {
         let stagedConfigurationURL = stageDirectory.appendingPathComponent(configName)
         let stagedRuntimeRecordURL = stageDirectory.appendingPathComponent(runtimeName)
         let stagedSourceWorkbookURL = stageDirectory.appendingPathComponent("source-workbook.xlsx")
+        let stagedAnnotationURL = stageDirectory.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let patchedURL = stageDirectory.appendingPathComponent("current.xlsx")
         let scriptURL = stageDirectory.appendingPathComponent("apply-current-workbook-overrides.py")
+        let hasAnnotationSidecar = annotationSidecarData != nil
+        func requireAnnotationSidecarUnchanged() throws {
+            guard let annotationSidecarURL else { return }
+            if let annotationSidecarWitness {
+                try requireUnchangedRegularFileNoFollow(
+                    annotationSidecarURL,
+                    witness: annotationSidecarWitness
+                )
+            } else if fileManager.fileExists(atPath: annotationSidecarURL.path) {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Annotation sidecar changed after the immutable workbook input snapshot was created."
+                )
+            }
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try writeStagedFile(try JSONEncoder().encode(calls), to: stagedCallsURL)
         try writeStagedFile(try encoder.encode(configuration), to: stagedConfigurationURL)
         try writeStagedFile(Data(workbookOverrideScript.utf8), to: scriptURL)
+        if let annotationSidecarData {
+            try writeStagedFile(annotationSidecarData, to: stagedAnnotationURL)
+        }
         let sourceWorkbookWitness = try snapshotRegularFileNoFollow(
             from: sourceWorkbookURL,
             to: stagedSourceWorkbookURL
@@ -360,7 +390,7 @@ public struct GenotypeWorkbookRevisionService {
             stagedSourceWorkbookURL.path,
             patchedURL.path,
             stagedCallsURL.path,
-            annotationSidecarURL?.path ?? "",
+            hasAnnotationSidecar ? stagedAnnotationURL.path : "",
             stagedConfigurationURL.path,
         ]
         try checkCancellation()
@@ -368,6 +398,7 @@ public struct GenotypeWorkbookRevisionService {
         try writeStagedFile(try encoder.encode(executionRecord), to: stagedRuntimeRecordURL)
         try validateWorkbook(patchedURL)
         try publicationFailureInjector?("after-python-before-source-conflict-check")
+        try requireAnnotationSidecarUnchanged()
         try checkCancellation()
 
         let cloneBundleURL = stageDirectory.appendingPathComponent(bundle.lastPathComponent, isDirectory: true)
@@ -397,19 +428,29 @@ public struct GenotypeWorkbookRevisionService {
         var additionalInputs = [cloneCallsURL, cloneConfigurationURL, cloneRuntimeURL, cloneScriptURL] + cloneCandidateInputs
         var pythonInputURLs = [cloneScriptURL, cloneCallsURL, cloneConfigurationURL] + cloneCandidateInputs
         var durableAnnotationPath = ""
-        if let annotationSidecarURL, fileManager.fileExists(atPath: annotationSidecarURL.path) {
-            try fileManager.copyItem(at: annotationSidecarURL, to: cloneAnnotationURL)
-            additionalInputs.append(cloneAnnotationURL)
-            pythonInputURLs.append(cloneAnnotationURL)
-            durableAnnotationPath = cloneAnnotationURL.path
+        if hasAnnotationSidecar {
+            try fileManager.copyItem(at: stagedAnnotationURL, to: cloneAnnotationURL)
+            let cloneFinalAnnotationURL = cloneBundleURL.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            )
+            try Data(contentsOf: stagedAnnotationURL).write(
+                to: cloneFinalAnnotationURL,
+                options: .atomic
+            )
+            additionalInputs += [cloneAnnotationURL, cloneFinalAnnotationURL]
+            pythonInputURLs.append(cloneFinalAnnotationURL)
+            durableAnnotationPath = cloneFinalAnnotationURL.path
         }
         let durableExecutableArgv = executionRecord.executable == "/usr/bin/env"
             ? [executionRecord.executable, "python3"]
             : [executionRecord.executable]
+        let cloneFinalWorkbookURL = cloneBundleURL.appendingPathComponent(
+            defaultCurrentWorkbookRelativePath
+        )
         let durableReplayArgv = durableExecutableArgv + [
             cloneScriptURL.path,
             cloneSourceWorkbookURL.path,
-            clonePatchedWorkbookURL.path,
+            cloneFinalWorkbookURL.path,
             cloneCallsURL.path,
             durableAnnotationPath,
             cloneConfigurationURL.path,
@@ -418,6 +459,7 @@ public struct GenotypeWorkbookRevisionService {
             executionRecord: executionRecord,
             sourceWorkbookURL: cloneSourceWorkbookURL,
             patchedWorkbookURL: clonePatchedWorkbookURL,
+            finalWorkbookURL: cloneFinalWorkbookURL,
             inputURLs: pythonInputURLs,
             durableReplayArgv: durableReplayArgv
         )
@@ -448,6 +490,7 @@ public struct GenotypeWorkbookRevisionService {
             sourceWorkbookURL,
             witness: sourceWorkbookWitness
         )
+        try requireAnnotationSidecarUnchanged()
 
         let oldCurrentPath = manifest.currentWorkbookPath ?? manifest.primaryWorkbookPath
         let newCurrentPath = cloneManifest.currentWorkbookPath ?? cloneManifest.primaryWorkbookPath
@@ -528,6 +571,7 @@ public struct GenotypeWorkbookRevisionService {
             sourceWorkbookURL,
             witness: sourceWorkbookWitness
         )
+        try requireAnnotationSidecarUnchanged()
         workbookTransaction = try ONTGenotypeWorkbookUpdateRecovery.createAttestation(
             for: workbookTransaction,
             attestationRootURL: workbookAttestationRootURL
@@ -570,6 +614,7 @@ public struct GenotypeWorkbookRevisionService {
                 sourceWorkbookURL,
                 witness: sourceWorkbookWitness
             )
+            try requireAnnotationSidecarUnchanged()
         } catch {
             try ONTGenotypeWorkbookUpdateRecovery.discardPreparedTransactionAssumingLock(
                 workbookTransaction,
@@ -1579,6 +1624,7 @@ public struct GenotypeWorkbookRevisionService {
         executionRecord: WorkbookOverrideExecutionRecord,
         sourceWorkbookURL: URL,
         patchedWorkbookURL: URL,
+        finalWorkbookURL: URL,
         inputURLs: [URL],
         durableReplayArgv: [String]
     ) throws -> ProvenanceStep {
@@ -1589,7 +1635,7 @@ public struct GenotypeWorkbookRevisionService {
             try ProvenanceFileDescriptor.file(url: $0, role: .input)
         }
         let output = ProvenanceFileDescriptor(
-            path: defaultCurrentWorkbookRelativePath,
+            path: finalWorkbookURL.path,
             checksumSHA256: try ProvenanceFileHasher.sha256(of: patchedWorkbookURL),
             fileSize: UInt64(try ProvenanceFileHasher.fileSize(of: patchedWorkbookURL)),
             format: .unknown,
@@ -2237,6 +2283,63 @@ public struct GenotypeWorkbookRevisionService {
             )
         }
         try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(stageURL, role: "workbook update staging directory")
+    }
+
+    private func readRegularFileNoFollow(
+        _ sourceURL: URL
+    ) throws -> (data: Data, witness: SourceWorkbookWitness) {
+        let descriptor = Darwin.open(sourceURL.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Could not open annotation sidecar without following links: \(sourceURL.path) (errno \(errno))."
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Annotation sidecar is not a regular file: \(sourceURL.path)"
+            )
+        }
+        var data = Data()
+        if before.st_size > 0, before.st_size <= Int.max {
+            data.reserveCapacity(Int(before.st_size))
+        }
+        var hasher = SHA256()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            if count == 0 { break }
+            guard count > 0 else {
+                if errno == EINTR { continue }
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Could not read annotation sidecar snapshot: \(sourceURL.path) (errno \(errno))."
+                )
+            }
+            let chunk = Data(buffer[0..<count])
+            data.append(chunk)
+            hasher.update(data: chunk)
+        }
+        var after = stat()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              Int64(data.count) == after.st_size else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Annotation sidecar changed while its immutable input snapshot was being created."
+            )
+        }
+        return (
+            data,
+            SourceWorkbookWitness(
+                device: before.st_dev,
+                inode: before.st_ino,
+                sizeBytes: Int64(data.count),
+                sha256: hasher.finalize().map { String(format: "%02x", $0) }.joined()
+            )
+        )
     }
 
     private func snapshotRegularFileNoFollow(

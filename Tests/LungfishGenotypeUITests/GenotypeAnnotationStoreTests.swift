@@ -690,7 +690,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let priorAnnotation = try Data(contentsOf: annotationURL)
         let priorProvenance = try Data(contentsOf: provenanceURL)
-        let lockURL = dir.appendingPathComponent(".annotations-publication.lock")
+        let lockURL = ONTGenotypeBundlePublicationLock.lockURL(for: dir)
         let lockFD = Darwin.open(lockURL.path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, mode_t(0o600))
         XCTAssertGreaterThanOrEqual(lockFD, 0)
         defer { if lockFD >= 0 { Darwin.close(lockFD) } }
@@ -713,8 +713,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let priorAnnotation = try Data(contentsOf: annotationURL)
         let priorProvenance = try Data(contentsOf: provenanceURL)
-        let lockURL = dir.appendingPathComponent(".annotations-publication.lock")
-        try FileManager.default.removeItem(at: lockURL)
+        let lockURL = ONTGenotypeBundlePublicationLock.lockURL(for: dir)
+        try? FileManager.default.removeItem(at: lockURL)
         try FileManager.default.createDirectory(at: lockURL, withIntermediateDirectories: false)
         var display = store.sidecar.settings.mhcCandidateDisplay
         display.showSharedCandidates = false

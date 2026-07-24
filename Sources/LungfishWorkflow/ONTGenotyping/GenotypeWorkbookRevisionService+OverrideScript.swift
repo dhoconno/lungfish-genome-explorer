@@ -224,6 +224,7 @@ call_overrides = sidecar.get("callOverrides") or []
 audit_entries = sidecar.get("auditLog") or []
 matrix_styles = sidecar.get("matrixStyles") or []
 matrix_comments = sidecar.get("matrixComments") or []
+matrix_reviews = sidecar.get("matrixReviews") or []
 
 
 def call_for(sample, locus):
@@ -447,7 +448,7 @@ def write_table_sheet(name, headers, rows):
     ws.freeze_panes = "A2"
 
 
-def write_override_sheets():
+def write_override_sheets(matrix_review_results):
     override_headers = [
         "Sample",
         "Locus",
@@ -485,6 +486,12 @@ def write_override_sheets():
         "Rationale",
         "Author",
         "Timestamp",
+        "Target Kind",
+        "Genotype",
+        "Stable Cluster ID",
+        "Disposition",
+        "Validation Status",
+        "Validation Reason",
     ]
     audit_rows = []
     for entry in audit_entries:
@@ -499,6 +506,35 @@ def write_override_sheets():
             clean(entry.get("rationale")),
             clean(entry.get("author")),
             clean(entry.get("timestamp")),
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ])
+    for result in matrix_review_results:
+        entry = result["entry"]
+        target = entry.get("target") or {}
+        kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
+        disposition = clean(entry.get("disposition"))
+        audit_rows.append([
+            "validateMatrixReview",
+            sample,
+            locus,
+            "",
+            "",
+            disposition,
+            "matrix-review-validation",
+            semantic_target_description(target),
+            clean(entry.get("author")),
+            clean(entry.get("timestamp")),
+            kind,
+            genotype,
+            stable_id,
+            disposition,
+            result["status"],
+            result["reason"],
         ])
     write_table_sheet("Audit Log", audit_headers, audit_rows)
 
@@ -510,14 +546,61 @@ def matrix_target_parts(target):
         clean(target.get("locus")),
         clean(target.get("genotype")),
         clean(target.get("sample")),
+        clean(target.get("stableClusterID")),
     )
 
 
-def write_matrix_annotation_sheet():
+def matrix_target_key(target):
+    return matrix_target_parts(target)
+
+
+def semantic_target_description(target):
+    kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
+    identity = " ".join(part for part in [locus, genotype, sample] if part)
+    if stable_id:
+        identity += f" [{stable_id}]"
+    return f"{kind} {identity}".strip()
+
+
+def timestamp_value(value):
+    text = clean(value)
+    if not text:
+        return None
+    try:
+        from datetime import datetime, timezone
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def resolve_current_annotations(entries):
+    resolved = {}
+    for entry in entries:
+        key = matrix_target_key(entry.get("target") or {})
+        existing = resolved.get(key)
+        if existing is None:
+            resolved[key] = entry
+            continue
+        existing_date = timestamp_value(existing.get("timestamp"))
+        candidate_date = timestamp_value(entry.get("timestamp"))
+        if existing_date is None or candidate_date is None or candidate_date >= existing_date:
+            resolved[key] = entry
+    return list(resolved.values())
+
+
+resolved_matrix_styles = resolve_current_annotations(matrix_styles)
+resolved_matrix_comments = resolve_current_annotations(matrix_comments)
+MANAGED_REVIEW_STATE_SHEET = "_LGE Matrix Review State"
+
+
+def write_matrix_annotation_sheet(matrix_review_results):
     rows = []
-    for entry in matrix_styles:
+    for entry in resolved_matrix_styles:
         target = entry.get("target") or {}
-        kind, locus, genotype, sample = matrix_target_parts(target)
+        kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
         style = entry.get("style") or {}
         rows.append([
             "style",
@@ -525,6 +608,10 @@ def write_matrix_annotation_sheet():
             locus,
             genotype,
             sample,
+            stable_id,
+            "",
+            "not-applicable",
+            "",
             clean(style.get("fillColor")),
             clean(style.get("textColor")),
             clean(style.get("borderColor")),
@@ -534,15 +621,19 @@ def write_matrix_annotation_sheet():
             clean(entry.get("timestamp")),
             "",
         ])
-    for entry in matrix_comments:
+    for entry in resolved_matrix_comments:
         target = entry.get("target") or {}
-        kind, locus, genotype, sample = matrix_target_parts(target)
+        kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
         rows.append([
             "comment",
             kind,
             locus,
             genotype,
             sample,
+            stable_id,
+            "",
+            "not-applicable",
+            "",
             "",
             "",
             "",
@@ -552,6 +643,31 @@ def write_matrix_annotation_sheet():
             clean(entry.get("timestamp")),
             clean(entry.get("body")),
         ])
+    for result in matrix_review_results:
+        entry = result["entry"]
+        target = entry.get("target") or {}
+        kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
+        rows.append([
+            "review",
+            kind,
+            locus,
+            genotype,
+            sample,
+            stable_id,
+            clean(entry.get("disposition")),
+            result["status"],
+            result["reason"],
+            "",
+            "",
+            "",
+            "",
+            "",
+            clean(entry.get("author")),
+            clean(entry.get("timestamp")),
+            "",
+        ])
+    if "Matrix Annotations" in wb.sheetnames:
+        del wb["Matrix Annotations"]
     if not rows:
         return
     write_table_sheet(
@@ -562,6 +678,10 @@ def write_matrix_annotation_sheet():
             "Locus",
             "Genotype",
             "Sample",
+            "Stable Cluster ID",
+            "Disposition",
+            "Validation Status",
+            "Validation Reason",
             "Fill Color",
             "Text Color",
             "Border Color",
@@ -623,45 +743,23 @@ def collect_matrix_style_maps():
     row_styles = {}
     column_styles = {}
     cell_styles = {}
-    for entry in matrix_styles:
+    for entry in resolved_matrix_styles:
         target = entry.get("target") or {}
         style = entry.get("style") or {}
-        kind, locus, genotype, sample = matrix_target_parts(target)
+        kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
         if kind == "row" and genotype:
-            row_styles[(locus, genotype)] = style
+            row_styles[(locus, genotype, stable_id)] = style
         elif kind == "column" and sample:
             column_styles[sample] = style
         elif kind == "cell" and genotype and sample:
-            cell_styles[(locus, genotype, sample)] = style
+            cell_styles[(locus, genotype, sample, stable_id)] = style
     return row_styles, column_styles, cell_styles
-
-
-def collect_matrix_comment_maps():
-    row_comments = {}
-    column_comments = {}
-    cell_comments = {}
-    for entry in matrix_comments:
-        target = entry.get("target") or {}
-        body = clean(entry.get("body"))
-        if not body:
-            continue
-        author = clean(entry.get("author")) or "Lungfish"
-        timestamp = clean(entry.get("timestamp"))
-        line = f"{body} ({author}{', ' + timestamp if timestamp else ''})"
-        kind, locus, genotype, sample = matrix_target_parts(target)
-        if kind == "row" and genotype:
-            row_comments.setdefault((locus, genotype), []).append(line)
-        elif kind == "column" and sample:
-            column_comments.setdefault(sample, []).append(line)
-        elif kind == "cell" and genotype and sample:
-            cell_comments.setdefault((locus, genotype, sample), []).append(line)
-    return row_comments, column_comments, cell_comments
 
 
 def known_matrix_samples():
     names = set(calls_by_sample_locus.keys())
-    for entry in matrix_styles + matrix_comments:
-        _kind, _locus, _genotype, sample = matrix_target_parts(entry.get("target") or {})
+    for entry in resolved_matrix_styles + resolved_matrix_comments + matrix_reviews:
+        _kind, _locus, _genotype, sample, _stable_id = matrix_target_parts(entry.get("target") or {})
         if sample:
             names.add(sample)
     return names
@@ -688,90 +786,456 @@ def sample_columns_for_matrix(ws, sample_names):
     return columns
 
 
-def genotype_rows_for_matrix(ws):
-    rows = {}
+def normalized_header(value):
+    return re.sub(r"[^a-z0-9]+", "_", clean(value).lower()).strip("_")
+
+
+def matrix_row_descriptors(ws):
+    genotype_aliases = ("genotype", "display_name", "provisional_allele_name", "provisional_name")
+    stable_aliases = ("stable_cluster_id", "stable_id")
+    layout = None
+    for row in range(1, min(ws.max_row, 60) + 1):
+        headers = {}
+        for col in range(1, ws.max_column + 1):
+            header = normalized_header(ws.cell(row, col).value)
+            if header and header not in headers:
+                headers[header] = col
+        genotype_col = next((headers[name] for name in genotype_aliases if name in headers), None)
+        if genotype_col is None:
+            continue
+        stable_col = next((headers[name] for name in stable_aliases if name in headers), None)
+        locus_col = headers.get("locus")
+        layout = (row, genotype_col, locus_col, stable_col)
+        if locus_col is not None or stable_col is not None:
+            break
+
+    descriptors = []
+    if layout is not None:
+        header_row, genotype_col, locus_col, stable_col = layout
+        for row in range(header_row + 1, ws.max_row + 1):
+            genotype = clean(ws.cell(row, genotype_col).value)
+            if not genotype:
+                continue
+            descriptors.append({
+                "row": row,
+                "label_col": genotype_col,
+                "genotype": genotype,
+                "locus": clean(ws.cell(row, locus_col).value) if locus_col else "",
+                "stable_id": clean(ws.cell(row, stable_col).value) if stable_col else "",
+            })
+        return descriptors
+
     for row in range(1, ws.max_row + 1):
-        value = clean(ws.cell(row, 1).value)
-        if value:
-            rows.setdefault(value, []).append(row)
-    return rows
+        genotype = clean(ws.cell(row, 1).value)
+        if genotype:
+            descriptors.append({
+                "row": row,
+                "label_col": 1,
+                "genotype": genotype,
+                "locus": "",
+                "stable_id": "",
+            })
+    return descriptors
 
 
-def style_for_matrix_cell(genotype, sample, row_styles, column_styles, cell_styles):
-    styles = []
-    for (_locus, style_genotype), style in row_styles.items():
-        if style_genotype == genotype:
-            styles.append(style)
-    if sample in column_styles:
-        styles.append(column_styles[sample])
-    for (_locus, style_genotype, style_sample), style in cell_styles.items():
-        if style_genotype == genotype and style_sample == sample:
-            styles.append(style)
-    return styles
+def matching_matrix_rows(descriptors, target):
+    _kind, locus, genotype, _sample, stable_id = matrix_target_parts(target)
+    matches = [item for item in descriptors if item["genotype"] == genotype]
+    if not matches:
+        return [], "No workbook row matches the exact genotype."
+
+    workbook_loci = {item["locus"] for item in matches if item["locus"]}
+    if workbook_loci:
+        matches = [item for item in matches if item["locus"] == locus]
+        if not matches:
+            return [], "No workbook row matches the exact locus and genotype."
+
+    workbook_stable_ids = {item["stable_id"] for item in matches if item["stable_id"]}
+    if stable_id:
+        if workbook_stable_ids:
+            matches = [item for item in matches if item["stable_id"] == stable_id]
+            if not matches:
+                return [], "No workbook row matches the exact stable cluster ID."
+        else:
+            return [], "The workbook row does not expose the requested stable cluster ID."
+    elif workbook_stable_ids:
+        return [], "The target omits a stable cluster ID required to disambiguate workbook rows."
+
+    if len(matches) > 1:
+        identities = {(item["locus"], item["genotype"], item["stable_id"]) for item in matches}
+        if len(identities) > 1 or not stable_id:
+            return [], "The workbook target is ambiguous at the available semantic identity."
+    return matches, ""
 
 
-def append_lge_comment(pending, cell, lines):
-    if lines:
-        pending.setdefault(cell.coordinate, (cell, []))[1].extend(lines)
+def numeric_review_evidence(value):
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = clean(value)
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1].strip()
+    text = text.replace(",", "")
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
-def set_lge_comments(comment_targets):
+def review_display_value(value, number):
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    text = clean(value)
+    if text.startswith("[") and text.endswith("]"):
+        return text[1:-1].strip()
+    return text if text else str(int(number) if number.is_integer() else number)
+
+
+def validate_matrix_reviews():
+    current_ids = {id(entry) for entry in resolve_current_annotations(matrix_reviews)}
+    sample_names = known_matrix_samples()
+    worksheets = [
+        ws for ws in wb.worksheets
+        if ws.title not in {
+            "Matrix Annotations", "Overrides", "Audit Log", MANAGED_REVIEW_STATE_SHEET
+        }
+    ]
+    results = []
+    for entry in matrix_reviews:
+        target = entry.get("target") or {}
+        kind, _locus, genotype, sample, _stable_id = matrix_target_parts(target)
+        result = {"entry": entry, "status": "invalid", "reason": "", "destinations": []}
+        if id(entry) not in current_ids:
+            result["reason"] = "Superseded by the current review for this exact target."
+            results.append(result)
+            continue
+        if kind != "cell" or not genotype or not sample:
+            result["reason"] = "Matrix reviews require an exact cell target."
+            results.append(result)
+            continue
+
+        target_destinations = []
+        target_errors = []
+        for ws in worksheets:
+            sample_columns = sample_columns_for_matrix(ws, sample_names)
+            if sample not in sample_columns:
+                continue
+            descriptors = matrix_row_descriptors(ws)
+            matches, match_error = matching_matrix_rows(descriptors, target)
+            if not matches:
+                if any(item["genotype"] == genotype for item in descriptors):
+                    target_errors.append(match_error)
+                continue
+            col, _header_row = sample_columns[sample]
+            target_destinations.extend((ws, item, ws.cell(item["row"], col)) for item in matches)
+
+        if not target_destinations:
+            result["reason"] = (
+                target_errors[0]
+                if target_errors
+                else "No workbook cell matches the exact review target."
+            )
+            results.append(result)
+            continue
+
+        disposition = clean(entry.get("disposition"))
+        evidence = [numeric_review_evidence(cell.value) for _ws, _item, cell in target_destinations]
+        if disposition == "falsePositive":
+            supported_destinations = [
+                destination for destination, number in zip(target_destinations, evidence)
+                if number is not None and number > 0
+            ]
+            if not supported_destinations:
+                result["reason"] = "False-positive reviews require passedUniqueReads > 0."
+                results.append(result)
+                continue
+            target_destinations = supported_destinations
+        elif disposition == "falseNegative":
+            if not all(cell.value is None or (number is not None and number <= 0)
+                       for (_ws, _item, cell), number in zip(target_destinations, evidence)):
+                result["reason"] = "False-negative reviews require passedUniqueReads <= 0 or absent."
+                results.append(result)
+                continue
+        else:
+            result["reason"] = f"Unsupported matrix review disposition '{disposition}'."
+            results.append(result)
+            continue
+
+        result["status"] = "valid"
+        result["destinations"] = target_destinations
+        results.append(result)
+    return results
+
+
+def comment_section(label, entry):
+    return "\n".join([
+        label,
+        f"Body: {clean(entry.get('body'))}",
+        f"Author: {clean(entry.get('author')) or 'Lungfish'}",
+        f"Timestamp: {clean(entry.get('timestamp'))}",
+    ])
+
+
+def strip_lge_comment(cell):
     marker = "[LGE Matrix Comments]"
-    for cell, lines in comment_targets.values():
-        unique = []
-        for line in lines:
-            if line and line not in unique:
-                unique.append(line)
-        existing = cell.comment.text if cell.comment else ""
-        base = existing.split(marker, 1)[0].rstrip()
-        lge_text = marker + "\n" + "\n".join(unique) if unique else ""
-        combined = "\n\n".join(part for part in [base, lge_text] if part)
-        cell.comment = Comment(combined, "Lungfish") if combined else None
+    if cell.comment is None:
+        return "", "Lungfish"
+    base = cell.comment.text.split(marker, 1)[0].rstrip()
+    return base, cell.comment.author or "Lungfish"
 
 
-def apply_matrix_annotations_to_workbook():
-    if not matrix_styles and not matrix_comments:
+def set_lge_comment(cell, sections):
+    base, existing_author = strip_lge_comment(cell)
+    marker = "[LGE Matrix Comments]"
+    lge_text = marker + "\n" + "\n\n".join(sections) if sections else ""
+    combined = "\n\n".join(part for part in [base, lge_text] if part)
+    cell.comment = Comment(combined, existing_author if base else "Lungfish") if combined else None
+
+
+def managed_review_state_sheet():
+    if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
+        return wb[MANAGED_REVIEW_STATE_SHEET]
+    ws = wb.create_sheet(MANAGED_REVIEW_STATE_SHEET)
+    ws.append([
+        "Sheet",
+        "Target Kind",
+        "Locus",
+        "Genotype",
+        "Sample",
+        "Stable Cluster ID",
+        "Coordinate",
+        "Disposition",
+        "Original Value",
+        "Original Font",
+        "Original Border",
+    ])
+    ws.sheet_state = "veryHidden"
+    return ws
+
+
+def record_managed_review_state(ws, cell, target, disposition):
+    state = managed_review_state_sheet()
+    kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
+    row = state.max_row + 1
+    values = [
+        ws.title,
+        kind,
+        locus,
+        genotype,
+        sample,
+        stable_id,
+        cell.coordinate,
+        disposition,
+        cell.value,
+    ]
+    for col, value in enumerate(values, start=1):
+        state.cell(row, col).value = value
+    state.cell(row, 10).font = copy(cell.font)
+    state.cell(row, 11).border = copy(cell.border)
+
+
+def state_destination(state, row):
+    sheet_name = clean(state.cell(row, 1).value)
+    if not sheet_name or sheet_name not in wb.sheetnames:
+        return None
+    ws = wb[sheet_name]
+    target = {
+        "kind": clean(state.cell(row, 2).value),
+        "locus": clean(state.cell(row, 3).value),
+        "genotype": clean(state.cell(row, 4).value),
+        "sample": clean(state.cell(row, 5).value),
+    }
+    stable_id = clean(state.cell(row, 6).value)
+    if stable_id:
+        target["stableClusterID"] = stable_id
+    sample = target["sample"]
+    sample_columns = sample_columns_for_matrix(ws, {sample})
+    if sample not in sample_columns:
+        return None
+    matches, _error = matching_matrix_rows(matrix_row_descriptors(ws), target)
+    if len(matches) != 1:
+        return None
+    col, _header_row = sample_columns[sample]
+    return ws.cell(matches[0]["row"], col)
+
+
+def color_has_rgb_suffix(color, suffix):
+    return clean(getattr(color, "rgb", None)).upper().endswith(suffix)
+
+
+def restore_prior_managed_matrix_annotations():
+    for ws in wb.worksheets:
+        if ws.title == MANAGED_REVIEW_STATE_SHEET:
+            continue
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.comment and "[LGE Matrix Comments]" in cell.comment.text:
+                    set_lge_comment(cell, [])
+
+    if MANAGED_REVIEW_STATE_SHEET not in wb.sheetnames:
+        return
+    state = wb[MANAGED_REVIEW_STATE_SHEET]
+    for row in range(2, state.max_row + 1):
+        cell = state_destination(state, row)
+        if cell is None:
+            continue
+        disposition = clean(state.cell(row, 8).value)
+        if disposition == "falsePositive":
+            value = clean(cell.value)
+            if value.startswith("[") and value.endswith("]"):
+                cell.value = state.cell(row, 9).value
+            font = copy(cell.font)
+            original_font = state.cell(row, 10).font
+            if bool(font.italic):
+                font.italic = original_font.italic
+            if color_has_rgb_suffix(font.color, "767676"):
+                font.color = copy(original_font.color)
+            cell.font = font
+        elif disposition == "falseNegative":
+            border = copy(cell.border)
+            original_border = state.cell(row, 11).border
+            for side_name in ("left", "right", "top", "bottom"):
+                current_side = copy(getattr(border, side_name))
+                original_side = getattr(original_border, side_name)
+                if clean(current_side.style) == "thick":
+                    current_side.style = original_side.style
+                if color_has_rgb_suffix(current_side.color, "000000"):
+                    current_side.color = copy(original_side.color)
+                setattr(border, side_name, current_side)
+            cell.border = border
+    del wb[MANAGED_REVIEW_STATE_SHEET]
+
+
+def apply_review_format(result):
+    if result["status"] != "valid":
+        return
+    disposition = clean(result["entry"].get("disposition"))
+    target = result["entry"].get("target") or {}
+    for ws, _item, cell in result["destinations"]:
+        record_managed_review_state(ws, cell, target, disposition)
+        if disposition == "falsePositive":
+            number = numeric_review_evidence(cell.value)
+            cell.value = f"[{review_display_value(cell.value, number)}]"
+            font = copy(cell.font)
+            font.italic = True
+            font.color = "FF767676"
+            cell.font = font
+        else:
+            side = Side(style="thick", color="FF000000")
+            border = copy(cell.border)
+            border.left = side
+            border.right = side
+            border.top = side
+            border.bottom = side
+            cell.border = border
+
+
+def apply_matrix_annotations_to_workbook(matrix_review_results):
+    if not resolved_matrix_styles and not resolved_matrix_comments and not matrix_review_results:
         return
     row_styles, column_styles, cell_styles = collect_matrix_style_maps()
-    row_comments, column_comments, cell_comments = collect_matrix_comment_maps()
+    row_comments = {}
+    column_comments = {}
+    cell_comments = {}
+    for entry in resolved_matrix_comments:
+        target = entry.get("target") or {}
+        kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
+        if not clean(entry.get("body")):
+            continue
+        if kind == "row":
+            row_comments[(locus, genotype, stable_id)] = entry
+        elif kind == "column":
+            column_comments[sample] = entry
+        elif kind == "cell":
+            cell_comments[(locus, genotype, sample, stable_id)] = entry
+
     sample_names = known_matrix_samples()
     for ws in wb.worksheets:
-        if ws.title in {"Matrix Annotations", "Overrides", "Audit Log"}:
+        if ws.title in {
+            "Matrix Annotations", "Overrides", "Audit Log", MANAGED_REVIEW_STATE_SHEET
+        }:
             continue
         sample_columns = sample_columns_for_matrix(ws, sample_names)
-        genotype_rows = genotype_rows_for_matrix(ws)
-        if not sample_columns or not genotype_rows:
+        descriptors = matrix_row_descriptors(ws)
+        if not sample_columns or not descriptors:
             continue
 
-        pending_comments = {}
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.comment and "[LGE Matrix Comments]" in cell.comment.text:
+                    set_lge_comment(cell, [])
+
         for sample, (col, header_row) in sample_columns.items():
-            append_lge_comment(pending_comments, ws.cell(header_row, col), column_comments.get(sample, []))
+            if sample in column_styles:
+                for item in descriptors:
+                    apply_matrix_style(ws.cell(item["row"], col), column_styles[sample])
+            column_entry = column_comments.get(sample)
+            if column_entry:
+                set_lge_comment(ws.cell(header_row, col), [comment_section("Sample Column", column_entry)])
 
-        target_genotypes = {
-            genotype
-            for _locus, genotype in list(row_styles.keys()) + list(row_comments.keys())
-            if genotype
-        }
-        target_genotypes.update(
-            genotype
-            for _locus, genotype, _sample in list(cell_styles.keys()) + list(cell_comments.keys())
-            if genotype
-        )
-        for genotype in target_genotypes:
-            for row in genotype_rows.get(genotype, []):
-                label_cell = ws.cell(row, 1)
-                for (locus, row_genotype), lines in row_comments.items():
-                    if row_genotype == genotype:
-                        append_lge_comment(pending_comments, label_cell, lines)
-                for sample, (col, _header_row) in sample_columns.items():
-                    cell = ws.cell(row, col)
-                    for style in style_for_matrix_cell(genotype, sample, row_styles, column_styles, cell_styles):
-                        apply_matrix_style(cell, style)
-                    for (locus, cell_genotype, cell_sample), lines in cell_comments.items():
-                        if cell_genotype == genotype and cell_sample == sample:
-                            append_lge_comment(pending_comments, cell, lines)
+        for (locus, genotype, stable_id), style in row_styles.items():
+            target = {"kind": "row", "locus": locus, "genotype": genotype}
+            if stable_id:
+                target["stableClusterID"] = stable_id
+            matches, _error = matching_matrix_rows(descriptors, target)
+            for item in matches:
+                for _sample, (col, _header_row) in sample_columns.items():
+                    apply_matrix_style(ws.cell(item["row"], col), style)
 
-        set_lge_comments(pending_comments)
+        for (locus, genotype, sample, stable_id), style in cell_styles.items():
+            if sample not in sample_columns:
+                continue
+            target = {"kind": "cell", "locus": locus, "genotype": genotype, "sample": sample}
+            if stable_id:
+                target["stableClusterID"] = stable_id
+            matches, _error = matching_matrix_rows(descriptors, target)
+            col, _header_row = sample_columns[sample]
+            for item in matches:
+                apply_matrix_style(ws.cell(item["row"], col), style)
+
+        matched_row_comments = {}
+        for (locus, genotype, stable_id), entry in row_comments.items():
+            target = {"kind": "row", "locus": locus, "genotype": genotype}
+            if stable_id:
+                target["stableClusterID"] = stable_id
+            matches, _error = matching_matrix_rows(descriptors, target)
+            for item in matches:
+                matched_row_comments[item["row"]] = entry
+                set_lge_comment(
+                    ws.cell(item["row"], item["label_col"]),
+                    [comment_section("Allele Row", entry)]
+                )
+
+        matched_cell_comments = {}
+        for (locus, genotype, sample, stable_id), entry in cell_comments.items():
+            if sample not in sample_columns:
+                continue
+            target = {"kind": "cell", "locus": locus, "genotype": genotype, "sample": sample}
+            if stable_id:
+                target["stableClusterID"] = stable_id
+            matches, _error = matching_matrix_rows(descriptors, target)
+            for item in matches:
+                matched_cell_comments[(item["row"], sample)] = entry
+
+        for item in descriptors:
+            row_entry = matched_row_comments.get(item["row"])
+            for sample, (col, _header_row) in sample_columns.items():
+                sections = []
+                if row_entry:
+                    sections.append(comment_section("Allele Row", row_entry))
+                if sample in column_comments:
+                    sections.append(comment_section("Sample Column", column_comments[sample]))
+                cell_entry = matched_cell_comments.get((item["row"], sample))
+                if cell_entry:
+                    sections.append(comment_section("Cell", cell_entry))
+                if sections:
+                    set_lge_comment(ws.cell(item["row"], col), sections)
+
+    for result in matrix_review_results:
+        apply_review_format(result)
 
 
 # Candidate display visibility is deliberately ignored here: workbooks are durable
@@ -1257,6 +1721,130 @@ def find_unified_table(ws):
     return row, headers
 
 
+def native_cell_payload(cell):
+    if cell.comment is None and not cell.has_style:
+        return None
+    return {
+        "style": copy(cell._style) if cell.has_style else None,
+        "comment": copy(cell.comment) if cell.comment is not None else None,
+    }
+
+
+def restore_native_cell_payload(cell, payload):
+    if payload is None:
+        return
+    if payload["style"] is not None:
+        cell._style = copy(payload["style"])
+    if payload["comment"] is not None:
+        cell.comment = copy(payload["comment"])
+
+
+def unified_native_key(ws, table_header_row, headers, row, col):
+    header = clean(ws.cell(table_header_row, col).value) or f"column:{col}"
+    if row == table_header_row:
+        return ("table-header", header)
+    if row > table_header_row:
+        identity = tuple(
+            clean(ws.cell(row, headers[name]).value)
+            for name in ("call_type", "call_id", "display_name", "stable_cluster_id", "locus")
+        )
+        if not any(identity):
+            return None
+        return ("table-cell",) + identity + (header,)
+    row_label = clean(ws.cell(row, 1).value) or f"row:{row}"
+    column_label = clean(ws.cell(1, col).value) or f"column:{col}"
+    return ("summary-cell", row_label, column_label)
+
+
+def capture_unified_native_content(ws, table_header_row, headers):
+    captured = {}
+    for row in range(1, ws.max_row + 1):
+        for col in range(1, ws.max_column + 1):
+            payload = native_cell_payload(ws.cell(row, col))
+            if payload is None:
+                continue
+            key = unified_native_key(ws, table_header_row, headers, row, col)
+            if key is not None and key not in captured:
+                captured[key] = payload
+    return captured
+
+
+def restore_unified_native_content(ws, table_header_row, headers, captured):
+    for row in range(1, ws.max_row + 1):
+        for col in range(1, ws.max_column + 1):
+            key = unified_native_key(ws, table_header_row, headers, row, col)
+            if key in captured:
+                cell = ws.cell(row, col)
+                header = clean(ws.cell(table_header_row, col).value)
+                call_type_col = headers.get("call_type")
+                retains_authoritative_fill = (
+                    row > table_header_row
+                    and header == "display_name"
+                    and call_type_col is not None
+                    and clean(ws.cell(row, call_type_col).value).startswith("candidate-")
+                )
+                authoritative_fill = copy(cell.fill) if retains_authoritative_fill else None
+                restore_native_cell_payload(cell, captured[key])
+                if authoritative_fill is not None:
+                    cell.fill = authoritative_fill
+
+
+def unmatched_native_key(ws, headers, row, col):
+    header = clean(ws.cell(1, col).value) or f"column:{col}"
+    if row == 1:
+        return ("unmatched-header", header)
+    stable_col = headers.get("Stable Cluster ID")
+    category_col = headers.get("Record Category")
+    stable_id = clean(ws.cell(row, stable_col).value) if stable_col else ""
+    category = clean(ws.cell(row, category_col).value) if category_col else ""
+    if not stable_id and not category:
+        return None
+    return ("unmatched-cell", category, stable_id, header)
+
+
+def capture_unmatched_native_content(ws):
+    headers = {
+        clean(ws.cell(1, col).value): col
+        for col in range(1, ws.max_column + 1)
+        if clean(ws.cell(1, col).value)
+    }
+    captured = {}
+    for row in range(1, ws.max_row + 1):
+        for col in range(1, ws.max_column + 1):
+            payload = native_cell_payload(ws.cell(row, col))
+            if payload is None:
+                continue
+            key = unmatched_native_key(ws, headers, row, col)
+            if key is not None and key not in captured:
+                captured[key] = payload
+    return captured
+
+
+def restore_unmatched_native_content(ws, captured):
+    headers = {
+        clean(ws.cell(1, col).value): col
+        for col in range(1, ws.max_column + 1)
+        if clean(ws.cell(1, col).value)
+    }
+    for row in range(1, ws.max_row + 1):
+        for col in range(1, ws.max_column + 1):
+            key = unmatched_native_key(ws, headers, row, col)
+            if key in captured:
+                cell = ws.cell(row, col)
+                category_col = headers.get("Record Category")
+                header = clean(ws.cell(1, col).value)
+                retains_authoritative_fill = (
+                    row > 1
+                    and header == "Provisional Allele Name"
+                    and category_col is not None
+                    and clean(ws.cell(row, category_col).value) == "candidate"
+                )
+                authoritative_fill = copy(cell.fill) if retains_authoritative_fill else None
+                restore_native_cell_payload(cell, captured[key])
+                if authoritative_fill is not None:
+                    cell.fill = authoritative_fill
+
+
 def normalized_candidate_argb(row):
     classification = clean(row.get("classification_or_reason"))
     support = clean(row.get("support_class"))
@@ -1316,7 +1904,17 @@ def write_two_sheet_mhc_contract():
     if "Unified Genotype Pivot" not in wb.sheetnames:
         raise ValueError("Unified Genotype Pivot is required for an explicit full-length MHC workbook update")
     source_unified = wb["Unified Genotype Pivot"]
-    find_unified_table(source_unified)
+    source_table_header_row, source_headers = find_unified_table(source_unified)
+    preserved_unified_native_content = capture_unified_native_content(
+        source_unified,
+        source_table_header_row,
+        source_headers,
+    )
+    preserved_unmatched_native_content = (
+        capture_unmatched_native_content(wb["Unmatched Alleles"])
+        if "Unmatched Alleles" in wb.sheetnames
+        else {}
+    )
     sample_names = [clean(item.get("sample")) for item in workbook_samples if clean(item.get("sample"))]
     seen_sample_names = set(sample_names)
     for row in normalized_unmatched_rows:
@@ -1503,18 +2101,29 @@ def write_two_sheet_mhc_contract():
     style_table_body(unmatched)
     autosize_columns(unmatched)
     unmatched.freeze_panes = "A2"
+    restore_unified_native_content(
+        unified,
+        header_row,
+        headers,
+        preserved_unified_native_content,
+    )
+    restore_unmatched_native_content(unmatched, preserved_unmatched_native_content)
 
     for worksheet in list(wb.worksheets):
         if worksheet.title not in {"Unified Genotype Pivot", "Unmatched Alleles"}:
             del wb[worksheet.title]
 
 
+restore_prior_managed_matrix_annotations()
 patch_summary_sheet("Abbreviated Haplotypes")
 patch_summary_sheet("Custom Sort")
 patch_full_sheet()
-write_override_sheets()
-write_matrix_annotation_sheet()
-apply_matrix_annotations_to_workbook()
+matrix_review_results = []
+if not uses_two_sheet_mhc_contract:
+    matrix_review_results = validate_matrix_reviews()
+    write_override_sheets(matrix_review_results)
+    write_matrix_annotation_sheet(matrix_review_results)
+    apply_matrix_annotations_to_workbook(matrix_review_results)
 if not uses_two_sheet_mhc_contract and (
     candidate_configuration.get("candidate_json_path") or candidate_configuration.get("unnameable_json_path")
 ):
@@ -1527,6 +2136,13 @@ upsert_guide_row("Workbook updated haplotype calls", str(sum(len(calls) for call
 upsert_guide_row("Workbook update overrides", str(len(call_overrides)))
 upsert_guide_row("Workbook update matrix styles", str(len(matrix_styles)))
 upsert_guide_row("Workbook update matrix comments", str(len(matrix_comments)))
+upsert_guide_row("Workbook update matrix reviews", str(len(matrix_reviews)))
+upsert_guide_row("Workbook update valid matrix reviews", str(sum(
+    1 for result in matrix_review_results if result["status"] == "valid"
+)))
+upsert_guide_row("Workbook update invalid matrix reviews", str(sum(
+    1 for result in matrix_review_results if result["status"] == "invalid"
+)))
 upsert_guide_row("Workbook update audit entries", str(len(audit_entries)))
 upsert_guide_row("Workbook update audit source", "annotations.json")
 upsert_guide_row("Workbook update MHC candidates", str(len(candidate_records)))
@@ -1535,6 +2151,11 @@ upsert_guide_row("Workbook candidate tint encoding", candidate_configuration.get
 
 if uses_two_sheet_mhc_contract:
     write_two_sheet_mhc_contract()
+    if resolved_matrix_styles or resolved_matrix_comments or matrix_reviews:
+        matrix_review_results = validate_matrix_reviews()
+        write_override_sheets(matrix_review_results)
+        write_matrix_annotation_sheet(matrix_review_results)
+        apply_matrix_annotations_to_workbook(matrix_review_results)
 
 wb.save(output_path)
 print(json.dumps({
