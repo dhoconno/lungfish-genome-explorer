@@ -27,6 +27,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         includedLoci: [String] = [],
         annotationSidecarURL: URL?,
         annotationOnly: Bool = false,
+        inputFingerprint: GenotypeCurrentWorkbookInputFingerprint? = nil,
+        syncIntent: GenotypeCurrentWorkbookSyncIntent? = nil,
         routeContext: OperationRouteContext? = nil
     ) async throws -> URL {
         let bundle = bundleURL.standardizedFileURL
@@ -36,7 +38,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             callsURL: callsURL,
             includedLoci: includedLoci,
             annotationSidecarURL: annotationSidecarURL,
-            annotationOnly: annotationOnly
+            annotationOnly: annotationOnly,
+            inputFingerprint: inputFingerprint,
+            syncIntent: syncIntent
         )
         let cliCommand = ViralReconWorkflowCommandPreview.build(
             executableName: CLICommandIdentity.executableName,
@@ -121,7 +125,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         callsURL: URL,
         includedLoci: [String],
         annotationSidecarURL: URL?,
-        annotationOnly: Bool
+        annotationOnly: Bool,
+        inputFingerprint: GenotypeCurrentWorkbookInputFingerprint?,
+        syncIntent: GenotypeCurrentWorkbookSyncIntent?
     ) -> [String] {
         var arguments = [
             "fastq",
@@ -139,6 +145,15 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         }
         if annotationOnly {
             arguments.append("--annotation-only")
+        }
+        if let inputFingerprint {
+            arguments += [
+                "--input-fingerprint", inputFingerprint.sha256,
+                "--input-fingerprint-schema", String(inputFingerprint.schemaVersion),
+            ]
+        }
+        if let syncIntent {
+            arguments += ["--sync-intent", syncIntent.rawValue]
         }
         return arguments
     }

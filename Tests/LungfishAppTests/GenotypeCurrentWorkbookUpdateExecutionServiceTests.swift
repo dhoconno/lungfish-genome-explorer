@@ -35,12 +35,18 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             operationCenter: operationCenter,
             processRunner: runner
         )
+        let fingerprint = try GenotypeCurrentWorkbookInputFingerprint(
+            schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
+            sha256: String(repeating: "b", count: 64)
+        )
 
         try await service.run(
             bundleURL: bundleURL,
             calls: calls,
             includedLoci: ["MHC-A", "MHC-DP"],
-            annotationSidecarURL: annotationURL
+            annotationSidecarURL: annotationURL,
+            inputFingerprint: fingerprint,
+            syncIntent: .updateAndView
         )
 
         let invocation = try XCTUnwrap(runner.invocations.first)
@@ -60,6 +66,15 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         )
         XCTAssertEqual(try values(after: "--included-locus", in: invocation.arguments), ["MHC-A", "MHC-DP"])
         XCTAssertEqual(try value(after: "--annotations", in: invocation.arguments), annotationURL.standardizedFileURL.path)
+        XCTAssertEqual(invocation.arguments.filter { $0 == "--input-fingerprint" }.count, 1)
+        XCTAssertEqual(invocation.arguments.filter { $0 == "--input-fingerprint-schema" }.count, 1)
+        XCTAssertEqual(invocation.arguments.filter { $0 == "--sync-intent" }.count, 1)
+        XCTAssertEqual(try value(after: "--input-fingerprint", in: invocation.arguments), fingerprint.sha256)
+        XCTAssertEqual(
+            try value(after: "--input-fingerprint-schema", in: invocation.arguments),
+            String(fingerprint.schemaVersion)
+        )
+        XCTAssertEqual(try value(after: "--sync-intent", in: invocation.arguments), "update-and-view")
 
         let item = try XCTUnwrap(operationCenter.items.first)
         XCTAssertEqual(item.title, "Update current.xlsx")
@@ -68,6 +83,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         XCTAssertEqual(item.targetBundleURL, bundleURL.standardizedFileURL)
         XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq update-current-workbook") == true)
         XCTAssertTrue(item.cliCommand?.contains("--included-locus MHC-A --included-locus MHC-DP") == true)
+        XCTAssertTrue(item.cliCommand?.contains("--input-fingerprint \(fingerprint.sha256)") == true)
+        XCTAssertTrue(item.cliCommand?.contains("--input-fingerprint-schema 1") == true)
+        XCTAssertTrue(item.cliCommand?.contains("--sync-intent update-and-view") == true)
         XCTAssertTrue(item.outputURLs.contains(bundleURL.appendingPathComponent("artifacts/workbooks/current.xlsx").standardizedFileURL))
         XCTAssertTrue(item.logEntries.contains { $0.message == "Updated current.xlsx" })
         XCTAssertTrue(item.logEntries.contains { $0.message == "Included loci: MHC-A, MHC-DP" })

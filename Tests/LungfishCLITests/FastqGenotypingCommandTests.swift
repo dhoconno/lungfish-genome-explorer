@@ -28,6 +28,71 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertTrue(command.annotationOnly)
     }
 
+    func testUpdateCurrentWorkbookParsesAndValidatesAttestationFlags() throws {
+        let digest = String(repeating: "a", count: 64)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            "/tmp/barcode11-mhc.lungfishgenotype",
+            "--calls-json", "/tmp/calls.json",
+            "--input-fingerprint", digest,
+            "--input-fingerprint-schema", "1",
+            "--sync-intent", "update-and-view",
+        ])
+
+        let attestation = try command.validatedAttestation()
+
+        XCTAssertEqual(attestation.inputFingerprint?.sha256, digest)
+        XCTAssertEqual(attestation.inputFingerprint?.schemaVersion, 1)
+        XCTAssertEqual(attestation.syncIntent, .updateAndView)
+    }
+
+    func testUpdateCurrentWorkbookRejectsIncompleteFingerprintPair() throws {
+        let digestOnly = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            "/tmp/barcode11-mhc.lungfishgenotype",
+            "--calls-json", "/tmp/calls.json",
+            "--input-fingerprint", String(repeating: "a", count: 64),
+        ])
+        let schemaOnly = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            "/tmp/barcode11-mhc.lungfishgenotype",
+            "--calls-json", "/tmp/calls.json",
+            "--input-fingerprint-schema", "1",
+        ])
+
+        XCTAssertThrowsError(try digestOnly.validatedAttestation())
+        XCTAssertThrowsError(try schemaOnly.validatedAttestation())
+    }
+
+    func testUpdateCurrentWorkbookRejectsMalformedDigestUnsupportedSchemaAndUnknownIntent() throws {
+        let malformedDigest = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            "/tmp/barcode11-mhc.lungfishgenotype",
+            "--calls-json", "/tmp/calls.json",
+            "--input-fingerprint", String(repeating: "A", count: 64),
+            "--input-fingerprint-schema", "1",
+        ])
+        let unsupportedSchema = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            "/tmp/barcode11-mhc.lungfishgenotype",
+            "--calls-json", "/tmp/calls.json",
+            "--input-fingerprint", String(repeating: "a", count: 64),
+            "--input-fingerprint-schema", "2",
+        ])
+        let unknownIntent = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            "/tmp/barcode11-mhc.lungfishgenotype",
+            "--calls-json", "/tmp/calls.json",
+            "--sync-intent", "background-ish",
+        ])
+
+        XCTAssertThrowsError(try malformedDigest.validatedAttestation())
+        XCTAssertThrowsError(try unsupportedSchema.validatedAttestation())
+        XCTAssertThrowsError(try unknownIntent.validatedAttestation())
+    }
+
+    func testUpdateCurrentWorkbookAttestationFlagsHaveHelpText() {
+        let help = FastqUpdateCurrentWorkbookSubcommand.helpMessage()
+
+        XCTAssertTrue(help.contains("--input-fingerprint"))
+        XCTAssertTrue(help.contains("--input-fingerprint-schema"))
+        XCTAssertTrue(help.contains("--sync-intent"))
+    }
+
     func testONTFluidigmSamplesCommandParsesRequiredInputs() throws {
         let command = try FastqONTFluidigmSamplesSubcommand.parse([
             "/tmp/barcode11.lungfishfastq",

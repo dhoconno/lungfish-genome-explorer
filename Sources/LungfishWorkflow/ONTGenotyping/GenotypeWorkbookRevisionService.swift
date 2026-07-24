@@ -69,22 +69,34 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
     }
 }
 
+public enum GenotypeCurrentWorkbookSyncIntent: String, Codable, CaseIterable, Equatable, Sendable {
+    case automaticIdle = "automatic-idle"
+    case bundleSwitch = "bundle-switch"
+    case updateAndView = "update-and-view"
+}
+
 public struct GenotypeWorkbookRevisionProvenanceContext: Equatable, Sendable {
     public let toolName: String
     public let toolKind: String
     public let argv: [String]
     public let durableReplayArgv: [String]
+    public let inputFingerprint: GenotypeCurrentWorkbookInputFingerprint?
+    public let syncIntent: GenotypeCurrentWorkbookSyncIntent?
 
     public init(
         toolName: String,
         toolKind: String,
         argv: [String],
-        durableReplayArgv: [String]? = nil
+        durableReplayArgv: [String]? = nil,
+        inputFingerprint: GenotypeCurrentWorkbookInputFingerprint? = nil,
+        syncIntent: GenotypeCurrentWorkbookSyncIntent? = nil
     ) {
         self.toolName = toolName
         self.toolKind = toolKind
         self.argv = argv
         self.durableReplayArgv = durableReplayArgv ?? argv
+        self.inputFingerprint = inputFingerprint
+        self.syncIntent = syncIntent
     }
 }
 
@@ -1606,6 +1618,15 @@ public struct GenotypeWorkbookRevisionService {
             explicitOptions["additionalInputs"] = .array(additionalInputURLs.map { .file($0) })
         }
         explicitOptions.merge(additionalExplicitOptions) { _, new in new }
+        if let fingerprint = provenanceContext?.inputFingerprint {
+            explicitOptions["currentWorkbookInputFingerprint"] = .string(fingerprint.sha256)
+            explicitOptions["currentWorkbookInputFingerprintSchemaVersion"] = .integer(
+                fingerprint.schemaVersion
+            )
+        }
+        if let syncIntent = provenanceContext?.syncIntent {
+            explicitOptions["currentWorkbookSyncIntent"] = .string(syncIntent.rawValue)
+        }
         let envelope = ProvenanceEnvelope(
             createdAt: completedAt,
             workflowName: "Genotype Workbook Revision",

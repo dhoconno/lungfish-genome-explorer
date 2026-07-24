@@ -53,13 +53,28 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         case sha256
     }
 
-    private enum ValidationError: Error {
-        case unsupportedSchemaVersion
-        case invalidSHA256
+    public enum ValidationError: Error, LocalizedError, Equatable, Sendable {
+        case unsupportedSchemaVersion(Int)
+        case invalidSHA256(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .unsupportedSchemaVersion(let version):
+                return "Unsupported current workbook input fingerprint schema version: \(version)."
+            case .invalidSHA256:
+                return "Current workbook input fingerprint must be a lowercase 64-character SHA-256 digest."
+            }
+        }
     }
 
-    private init(sha256: String) {
-        schemaVersion = Self.schemaVersion
+    public init(schemaVersion: Int, sha256: String) throws {
+        guard schemaVersion == Self.schemaVersion else {
+            throw ValidationError.unsupportedSchemaVersion(schemaVersion)
+        }
+        guard Self.isValidSHA256(sha256) else {
+            throw ValidationError.invalidSHA256(sha256)
+        }
+        self.schemaVersion = schemaVersion
         self.sha256 = sha256
     }
 
@@ -68,10 +83,10 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         let sha256 = try container.decode(String.self, forKey: .sha256)
         guard schemaVersion == Self.schemaVersion else {
-            throw ValidationError.unsupportedSchemaVersion
+            throw ValidationError.unsupportedSchemaVersion(schemaVersion)
         }
         guard Self.isValidSHA256(sha256) else {
-            throw ValidationError.invalidSHA256
+            throw ValidationError.invalidSHA256(sha256)
         }
         self.schemaVersion = schemaVersion
         self.sha256 = sha256
@@ -123,7 +138,10 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let digest = SHA256.hash(data: try encoder.encode(input))
-        return Self(sha256: digest.map { String(format: "%02x", $0) }.joined())
+        return try Self(
+            schemaVersion: schemaVersion,
+            sha256: digest.map { String(format: "%02x", $0) }.joined()
+        )
     }
 
     public static func recorded(
@@ -149,7 +167,7 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
               isValidSHA256(digest) else {
             return nil
         }
-        return Self(sha256: digest)
+        return try Self(schemaVersion: recordedSchemaVersion, sha256: digest)
     }
 
     private static func canonicalCandidateArtifacts(

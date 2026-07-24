@@ -2995,6 +2995,90 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertTrue(provenance.contains("update-current-workbook"))
     }
 
+    func testApplyHaplotypeOverridesAttestsInputFingerprintAndSyncIntentInPublishedRevision() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "attested-update")
+        let fingerprint = try GenotypeCurrentWorkbookInputFingerprint(
+            schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
+            sha256: String(repeating: "c", count: 64)
+        )
+
+        let updated = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_100) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL,
+            provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
+                toolName: "lungfish-cli fastq update-current-workbook",
+                toolKind: "cli",
+                argv: [
+                    "lungfish-cli", "fastq", "update-current-workbook",
+                    fixture.bundleURL.path,
+                    "--input-fingerprint", fingerprint.sha256,
+                    "--input-fingerprint-schema", String(fingerprint.schemaVersion),
+                    "--sync-intent", GenotypeCurrentWorkbookSyncIntent.updateAndView.rawValue,
+                ],
+                inputFingerprint: fingerprint,
+                syncIntent: .updateAndView
+            )
+        )
+
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["currentWorkbookInputFingerprint"],
+            .string(fingerprint.sha256)
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["currentWorkbookInputFingerprintSchemaVersion"],
+            .integer(fingerprint.schemaVersion)
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["currentWorkbookSyncIntent"],
+            .string("update-and-view")
+        )
+        XCTAssertEqual(envelope.argv.filter { $0 == "--input-fingerprint" }.count, 1)
+        XCTAssertEqual(envelope.argv.filter { $0 == "--input-fingerprint-schema" }.count, 1)
+        XCTAssertEqual(envelope.argv.filter { $0 == "--sync-intent" }.count, 1)
+        XCTAssertEqual(envelope.durableReplayArgv, envelope.argv)
+    }
+
+    func testApplyHaplotypeOverridesLegacyProvenanceOmitsWorkbookAttestationOptions() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "legacy-update")
+
+        let updated = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_200) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertNil(envelope.options.explicit["currentWorkbookInputFingerprint"])
+        XCTAssertNil(envelope.options.explicit["currentWorkbookInputFingerprintSchemaVersion"])
+        XCTAssertNil(envelope.options.explicit["currentWorkbookSyncIntent"])
+    }
+
     func testApplyHaplotypeOverridesWritesMatrixAnnotationsToCurrentWorkbook() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()

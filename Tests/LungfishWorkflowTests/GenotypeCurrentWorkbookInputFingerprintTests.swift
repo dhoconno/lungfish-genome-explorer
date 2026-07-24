@@ -304,6 +304,33 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
         )
     }
 
+    func testValidatedConstructionAcceptsSupportedLowercaseSHA256() throws {
+        let digest = String(repeating: "a", count: 64)
+
+        let fingerprint = try GenotypeCurrentWorkbookInputFingerprint(
+            schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
+            sha256: digest
+        )
+
+        XCTAssertEqual(fingerprint.schemaVersion, 1)
+        XCTAssertEqual(fingerprint.sha256, digest)
+    }
+
+    func testValidatedConstructionRejectsUnsupportedSchemaAndMalformedDigest() {
+        XCTAssertThrowsError(
+            try GenotypeCurrentWorkbookInputFingerprint(
+                schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion + 1,
+                sha256: String(repeating: "a", count: 64)
+            )
+        )
+        XCTAssertThrowsError(
+            try GenotypeCurrentWorkbookInputFingerprint(
+                schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
+                sha256: String(repeating: "A", count: 64)
+            )
+        )
+    }
+
     func testRecordedUsesLatestAppendOrderedRevisionMatchingCurrentWorkbook() throws {
         let bundleURL = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: bundleURL) }
