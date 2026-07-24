@@ -141,7 +141,9 @@ public final class GenotypeAnnotationStore {
     func applyOverride(sample: String, locus: String, slot: HaplotypeSlot,
                        originalCall: String, overrideCall: String,
                        reasonTag: GenotypeAnnotationSidecar.OverrideReasonTag,
-                       rationale: String) throws {
+                       rationale: String,
+                       author editAuthor: String? = nil) throws {
+        let author = editAuthor ?? self.author
         let timestamp = now()
         let existing = sidecar.callOverrides.first {
             $0.sample == sample && $0.locus == locus && $0.slot == slot
@@ -178,7 +180,14 @@ public final class GenotypeAnnotationStore {
         try persist(action: "applyOverride")
     }
 
-    func confirmCall(sample: String, locus: String, h1: String, h2: String) throws {
+    func confirmCall(
+        sample: String,
+        locus: String,
+        h1: String,
+        h2: String,
+        author editAuthor: String? = nil
+    ) throws {
+        let author = editAuthor ?? self.author
         let timestamp = now()
         let diploidCall = "\(h1)/\(h2)"
         sidecar.callStatusFlags.removeAll {
@@ -201,8 +210,9 @@ public final class GenotypeAnnotationStore {
         try persist(action: "confirmCall")
     }
 
-    func undoLastOverride() throws {
+    func undoLastOverride(author editAuthor: String? = nil) throws {
         guard let last = sidecar.callOverrides.popLast() else { return }
+        let author = editAuthor ?? self.author
         let timestamp = now()
         sidecar.append(audit: .init(
             action: "undoOverride", sample: last.sample, locus: last.locus, slot: last.slot,
@@ -213,7 +223,12 @@ public final class GenotypeAnnotationStore {
         try persist(action: "undoLastOverride")
     }
 
-    func setSampleStatus(_ value: GenotypeAnnotationSidecar.StatusValue, sample: String) throws {
+    func setSampleStatus(
+        _ value: GenotypeAnnotationSidecar.StatusValue,
+        sample: String,
+        author editAuthor: String? = nil
+    ) throws {
+        let author = editAuthor ?? self.author
         let timestamp = now()
         sidecar.sampleStatusFlags.removeAll { $0.sample == sample }
         sidecar.sampleStatusFlags.append(.init(
@@ -229,7 +244,9 @@ public final class GenotypeAnnotationStore {
     }
 
     func setCallStatus(_ value: GenotypeAnnotationSidecar.StatusValue,
-                       sample: String, locus: String, slot: HaplotypeSlot) throws {
+                       sample: String, locus: String, slot: HaplotypeSlot,
+                       author editAuthor: String? = nil) throws {
+        let author = editAuthor ?? self.author
         let timestamp = now()
         sidecar.callStatusFlags.removeAll {
             $0.sample == sample && $0.locus == locus && $0.slot == slot
@@ -248,7 +265,9 @@ public final class GenotypeAnnotationStore {
     }
 
     func setCellHighlight(sample: String, locus: String, slot: HaplotypeSlot,
-                          fillHex: String?, borderHex: String?) throws {
+                          fillHex: String?, borderHex: String?,
+                          author editAuthor: String? = nil) throws {
+        let author = editAuthor ?? self.author
         let timestamp = now()
         sidecar.cellHighlights.removeAll {
             $0.sample == sample && $0.locus == locus && $0.slot == slot
@@ -269,7 +288,14 @@ public final class GenotypeAnnotationStore {
         try persist(action: "setCellHighlight")
     }
 
-    func addCellComment(sample: String, locus: String, slot: HaplotypeSlot, body: String) throws {
+    func addCellComment(
+        sample: String,
+        locus: String,
+        slot: HaplotypeSlot,
+        body: String,
+        author editAuthor: String? = nil
+    ) throws {
+        let author = editAuthor ?? self.author
         let timestamp = now()
         sidecar.cellComments.append(.init(
             sample: sample, locus: locus, slot: slot,
@@ -285,15 +311,18 @@ public final class GenotypeAnnotationStore {
 
     func setMatrixStyle(
         target: GenotypeAnnotationSidecar.MatrixTarget,
-        style: GenotypeAnnotationSidecar.MatrixStyle?
+        style: GenotypeAnnotationSidecar.MatrixStyle?,
+        author editAuthor: String? = nil
     ) throws {
-        try setMatrixStyles([(target: target, style: style)])
+        try setMatrixStyles([(target: target, style: style)], author: editAuthor)
     }
 
     func setMatrixStyles(
-        _ edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, style: GenotypeAnnotationSidecar.MatrixStyle?)]
+        _ edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, style: GenotypeAnnotationSidecar.MatrixStyle?)],
+        author editAuthor: String? = nil
     ) throws {
         guard !edits.isEmpty else { return }
+        let author = editAuthor ?? self.author
         let timestamp = now()
         for edit in edits {
             let target = edit.target
@@ -325,14 +354,20 @@ public final class GenotypeAnnotationStore {
         try persist(action: edits.count == 1 ? "setMatrixStyle" : "setMatrixStyles", editContext: matrixStyleEditContext(edits: edits))
     }
 
-    func addMatrixComment(target: GenotypeAnnotationSidecar.MatrixTarget, body: String) throws {
-        try addMatrixComments([(target: target, body: body)])
+    func addMatrixComment(
+        target: GenotypeAnnotationSidecar.MatrixTarget,
+        body: String,
+        author editAuthor: String? = nil
+    ) throws {
+        try addMatrixComments([(target: target, body: body)], author: editAuthor)
     }
 
     func addMatrixComments(
-        _ edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, body: String)]
+        _ edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, body: String)],
+        author editAuthor: String? = nil
     ) throws {
         guard !edits.isEmpty else { return }
+        let author = editAuthor ?? self.author
         let timestamp = now()
         for edit in edits {
             let target = edit.target
@@ -654,7 +689,8 @@ public final class GenotypeAnnotationStore {
         }
     }
 
-    func addSampleNote(sample: String, body: String) throws {
+    func addSampleNote(sample: String, body: String, author editAuthor: String? = nil) throws {
+        let author = editAuthor ?? self.author
         let timestamp = now()
         sidecar.sampleNotes.append(.init(
             sample: sample, body: body, author: author, timestamp: timestamp
@@ -667,10 +703,14 @@ public final class GenotypeAnnotationStore {
         try persist(action: "addSampleNote")
     }
 
-    func updateSettings(_ mutate: (inout GenotypeAnnotationSidecar.Settings) -> Void) throws {
+    func updateSettings(
+        author editAuthor: String? = nil,
+        _ mutate: (inout GenotypeAnnotationSidecar.Settings) -> Void
+    ) throws {
         let before = sidecar.settings
         mutate(&sidecar.settings)
         guard sidecar.settings != before else { return }
+        let author = editAuthor ?? self.author
         let timestamp = now()
         sidecar.append(audit: .init(
             action: "updateSettings", sample: "bundle", locus: nil, slot: nil,
@@ -681,8 +721,12 @@ public final class GenotypeAnnotationStore {
         try persist(action: "updateSettings")
     }
 
-    func updateMHCCandidateDisplaySettings(_ display: ONTMHCCandidateDisplaySettings) throws {
+    func updateMHCCandidateDisplaySettings(
+        _ display: ONTMHCCandidateDisplaySettings,
+        author editAuthor: String? = nil
+    ) throws {
         guard !isReadOnly else { return }
+        let author = editAuthor ?? self.author
         let startedAt = Date()
         let timestamp = now()
         var latestForRollback = sidecar
@@ -736,7 +780,11 @@ public final class GenotypeAnnotationStore {
         }
     }
 
-    func saveSmartCohort(_ cohort: GenotypeCohortSmartFilter) throws {
+    func saveSmartCohort(
+        _ cohort: GenotypeCohortSmartFilter,
+        author editAuthor: String? = nil
+    ) throws {
+        let author = editAuthor ?? self.author
         let existing = sidecar.smartCohorts.first { $0.name == cohort.name && $0.scope == cohort.scope }
         sidecar.smartCohorts.removeAll { $0.name == cohort.name && $0.scope == cohort.scope }
         sidecar.smartCohorts.append(cohort)
@@ -751,7 +799,12 @@ public final class GenotypeAnnotationStore {
         try persist(action: "saveSmartCohort")
     }
 
-    func deleteSmartCohort(name: String, scope: String) throws {
+    func deleteSmartCohort(
+        name: String,
+        scope: String,
+        author editAuthor: String? = nil
+    ) throws {
+        let author = editAuthor ?? self.author
         let existing = sidecar.smartCohorts.first { $0.name == name && $0.scope == scope }
         sidecar.smartCohorts.removeAll { $0.name == name && $0.scope == scope }
         guard let existing else { return }
@@ -765,17 +818,26 @@ public final class GenotypeAnnotationStore {
         try persist(action: "deleteSmartCohort")
     }
 
-    func addManualHaplotypeAssignment(_ assignment: ManualHaplotypeAssignment) throws {
+    func addManualHaplotypeAssignment(
+        _ assignment: ManualHaplotypeAssignment,
+        author editAuthor: String? = nil
+    ) throws {
+        let author = editAuthor ?? self.author
         sidecar.manualHaplotypeAssignments.append(assignment)
         appendManualHaplotypeAssignmentAudit(action: "addManualHaplotypeAssignment",
                                              assignment: assignment,
                                              before: nil,
                                              after: assignment.label,
-                                             timestamp: now())
+                                             timestamp: now(),
+                                             author: author)
         try persist(action: "addManualHaplotypeAssignment")
     }
 
-    func removeManualHaplotypeAssignments(matching predicate: (ManualHaplotypeAssignment) -> Bool) throws {
+    func removeManualHaplotypeAssignments(
+        matching predicate: (ManualHaplotypeAssignment) -> Bool,
+        author editAuthor: String? = nil
+    ) throws {
+        let author = editAuthor ?? self.author
         let timestamp = now()
         var removed: [ManualHaplotypeAssignment] = []
         sidecar.manualHaplotypeAssignments.removeAll { assignment in
@@ -791,7 +853,8 @@ public final class GenotypeAnnotationStore {
                                                  assignment: assignment,
                                                  before: assignment.label,
                                                  after: nil,
-                                                 timestamp: timestamp)
+                                                 timestamp: timestamp,
+                                                 author: author)
         }
         try persist(action: "removeManualHaplotypeAssignments")
     }
@@ -799,10 +862,16 @@ public final class GenotypeAnnotationStore {
     /// Removes the call override for the given (sample, locus, slot) and
     /// appends a "clearOverride" audit entry that records the previous
     /// override and the call it reverts to. A no-op if no override exists.
-    func clearOverride(sample: String, locus: String, slot: HaplotypeSlot) throws {
+    func clearOverride(
+        sample: String,
+        locus: String,
+        slot: HaplotypeSlot,
+        author editAuthor: String? = nil
+    ) throws {
         guard let existing = sidecar.callOverrides.first(where: {
             $0.sample == sample && $0.locus == locus && $0.slot == slot
         }) else { return }
+        let author = editAuthor ?? self.author
         sidecar.callOverrides.removeAll {
             $0.sample == sample && $0.locus == locus && $0.slot == slot
         }
@@ -891,8 +960,12 @@ public final class GenotypeAnnotationStore {
     /// Bulk-add manual haplotype assignments in a single persist call.
     /// Use this instead of looping `addManualHaplotypeAssignment` when adding
     /// many at once (e.g. one assignment per sample sharing a manual haplotype).
-    func addManualHaplotypeAssignments(_ assignments: [ManualHaplotypeAssignment]) throws {
+    func addManualHaplotypeAssignments(
+        _ assignments: [ManualHaplotypeAssignment],
+        author editAuthor: String? = nil
+    ) throws {
         guard !assignments.isEmpty else { return }
+        let author = editAuthor ?? self.author
         let timestamp = now()
         sidecar.manualHaplotypeAssignments.append(contentsOf: assignments)
         for assignment in assignments {
@@ -900,7 +973,8 @@ public final class GenotypeAnnotationStore {
                                                  assignment: assignment,
                                                  before: nil,
                                                  after: assignment.label,
-                                                 timestamp: timestamp)
+                                                 timestamp: timestamp,
+                                                 author: author)
         }
         try persist(action: "addManualHaplotypeAssignments")
     }
@@ -910,8 +984,10 @@ public final class GenotypeAnnotationStore {
         assignment: ManualHaplotypeAssignment,
         before: String?,
         after: String?,
-        timestamp: String
+        timestamp: String,
+        author: String? = nil
     ) {
+        let author = author ?? self.author
         let alleleSummary = assignment.diagnosticAlleles.isEmpty
             ? nil
             : "Diagnostic alleles: \(assignment.diagnosticAlleles.joined(separator: ", "))"
@@ -1220,7 +1296,9 @@ public final class GenotypeAnnotationStore {
             explicitOptions["replayPayloadSHA256"] = .string(sha256Hex(replayData))
         }
         let wallTime = max(0, endedAt.timeIntervalSince(startedAt))
-        let resolvedAuthor = editContext?.resolvedAuthor ?? author
+        let resolvedAuthor = editContext?.resolvedAuthor
+            ?? sidecar.auditLog.last?.author
+            ?? author
         var resolvedDefaults: [String: ParameterValue] = [
             "author": .string(resolvedAuthor),
             "auditEntryCount": .integer(sidecar.auditLog.count),

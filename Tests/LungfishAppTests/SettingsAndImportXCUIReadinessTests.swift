@@ -157,7 +157,9 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertTrue(inspectorSource.contains("InspectorAccessibilityID.analystIdentitySettingsButton"))
         XCTAssertTrue(inspectorControllerSource.contains("resolvedAnalystIdentity()"))
         XCTAssertTrue(genotypeControllerSource.contains("annotationAuthorProvider"))
-        XCTAssertFalse(genotypeControllerSource.contains("NSUserName()"))
+        XCTAssertTrue(genotypeControllerSource.contains("annotationAuthorProvider: () -> String = { NSUserName() }"))
+        XCTAssertTrue(genotypeControllerSource.contains("author: annotationAuthorProvider()"))
+        XCTAssertFalse(genotypeControllerSource.contains("author: NSUserName()"))
         XCTAssertFalse(inspectorControllerSource.contains("NSUserName()"))
     }
 

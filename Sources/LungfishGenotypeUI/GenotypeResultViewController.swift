@@ -73,7 +73,7 @@ public final class GenotypeResultViewController: NSViewController {
     public var onCurrentWorkbookUpdateRequested: ((URL, [GenotypeWorkbookHaplotypeCall], [String]) -> Void)?
     public var onAIHaplotypingRequested: ((URL, GenotypeAIHaplotypingUIRequest) -> Void)?
     /// Supplied by the host application so annotations capture the active identity at edit time.
-    public var annotationAuthorProvider: () -> String = { "Unknown analyst" }
+    public var annotationAuthorProvider: () -> String = { NSUserName() }
     public var windowStateScope: WindowStateScope?
     var genotypeResultLoader: GenotypeResultLoader = { bundleURL in
         try await ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)
@@ -313,8 +313,9 @@ public final class GenotypeResultViewController: NSViewController {
         guard let data = notification.userInfo?["cohort"] as? Data,
               let cohort = try? JSONDecoder().decode(GenotypeCohortSmartFilter.self, from: data),
               let store = annotationStore else { return }
+        let author = annotationAuthorProvider()
         do {
-            try store.deleteSmartCohort(name: cohort.name, scope: cohort.scope)
+            try store.deleteSmartCohort(name: cohort.name, scope: cohort.scope, author: author)
             if activeSmartCohort?.name == cohort.name && activeSmartCohort?.scope == cohort.scope {
                 activeSmartCohort = nil
                 quickFilterBar.setSavedCohortName(nil)
@@ -328,6 +329,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func saveCurrentFilterAsSmartCohort() throws {
         guard let store = annotationStore else { return }
+        let author = annotationAuthorProvider()
         var predicates: [SmartCohortPredicate] = []
         var summaryParts: [String] = []
         if let activeSmartCohort {
@@ -351,7 +353,7 @@ public final class GenotypeResultViewController: NSViewController {
             isStarred: true,
             predicate: predicate
         )
-        try store.saveSmartCohort(cohort)
+        try store.saveSmartCohort(cohort, author: author)
         activeSmartCohort = cohort
         quickFilterBar.setSavedCohortName(cohort.name)
         refreshVisibleFilterDependentViews(rebuildCohortSummary: true)
@@ -503,8 +505,9 @@ public final class GenotypeResultViewController: NSViewController {
         animalId: String, to value: GenotypeAnnotationSidecar.StatusValue
     ) {
         guard let store = annotationStore else { return }
+        let author = annotationAuthorProvider()
         do {
-            try store.setSampleStatus(value, sample: animalId)
+            try store.setSampleStatus(value, sample: animalId, author: author)
         } catch {
             presentSheetAlert(error: error)
         }
@@ -873,7 +876,7 @@ public final class GenotypeResultViewController: NSViewController {
         let generation = candidateSettingsPersistenceGeneration
         let expectedSettings = store.sidecar.settings.mhcCandidateDisplay
         let bundleURL = store.bundleURL
-        let author = store.author
+        let author = annotationAuthorProvider()
         candidateSettingsPersistenceTask = Task { @MainActor [weak self] in
             guard let self, !Task.isCancelled,
                   generation == self.candidateSettingsPersistenceGeneration else { return }
@@ -956,8 +959,9 @@ public final class GenotypeResultViewController: NSViewController {
         guard previousViewMode != nextViewMode,
               let store = annotationStore,
               !store.isReadOnly else { return }
+        let author = annotationAuthorProvider()
         do {
-            try store.updateSettings { settings in
+            try store.updateSettings(author: author) { settings in
                 settings.preferredSummaryViewMode = nextViewMode.rawValue
             }
             onAnnotationSidecarChanged?(store.sidecar)
@@ -978,6 +982,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func applyMatrixStyle(_ request: GenotypeMatrixStyleRequest) {
         guard let store = annotationStore else { return }
+        let author = annotationAuthorProvider()
         let requestedTargets = uniqueMatrixTargets(request.targets)
         if case .clear = request.field {
             let targets = matrixStyleTargetsToClear(for: requestedTargets, in: store.sidecar)
@@ -985,7 +990,7 @@ public final class GenotypeResultViewController: NSViewController {
             guard !reloadTargets.isEmpty else { return }
             do {
                 if !targets.isEmpty {
-                    try store.setMatrixStyles(targets.map { (target: $0, style: nil) })
+                    try store.setMatrixStyles(targets.map { (target: $0, style: nil) }, author: author)
                 }
                 comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
                 refreshCurrentSelectionDetails()
@@ -1023,7 +1028,7 @@ public final class GenotypeResultViewController: NSViewController {
                 return (target: target, style: next)
             }
             let edits = broadEdits + cellEdits
-            try store.setMatrixStyles(edits)
+            try store.setMatrixStyles(edits, author: author)
             comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
             if targets != requestedTargets {
                 comparisonMatrix.replaceMatrixTargetSelection(targets)
@@ -1044,11 +1049,12 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func addMatrixComment(_ request: GenotypeMatrixCommentRequest) {
         guard let store = annotationStore else { return }
+        let author = annotationAuthorProvider()
         let body = request.body.trimmingCharacters(in: .whitespacesAndNewlines)
         let targets = uniqueMatrixTargets(request.targets)
         guard !body.isEmpty, !targets.isEmpty else { return }
         do {
-            try store.addMatrixComments(targets.map { (target: $0, body: body) })
+            try store.addMatrixComments(targets.map { (target: $0, body: body) }, author: author)
             comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: targets)
             refreshCurrentSelectionDetails()
             onAnnotationSidecarChanged?(store.sidecar)
@@ -3813,7 +3819,8 @@ public final class GenotypeResultViewController: NSViewController {
     private func useHaplotypeDefinition(id: String) throws {
         guard let definitionSet = haplotypeDefinitionStore.mergedRegistry().definitionSet(id: id) else { return }
         guard let store = annotationStore else { return }
-        try store.updateSettings { settings in
+        let author = annotationAuthorProvider()
+        try store.updateSettings(author: author) { settings in
             settings.activeHaplotypeDefinitionSetID = id
             settings.activeHaplotypeAssayID = definitionSet.assayID
         }
@@ -3920,6 +3927,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func commitManualHaplotype() {
         guard let result, let store = annotationStore else { return }
+        let author = annotationAuthorProvider()
         let label = manualHaplotypingDraftLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !label.isEmpty, !manualHaplotypingSelection.isEmpty else { return }
         let selectedIds = manualHaplotypingSelection
@@ -3943,7 +3951,7 @@ public final class GenotypeResultViewController: NSViewController {
                 }
             }
             guard !bulk.isEmpty else { return }
-            try store.addManualHaplotypeAssignments(bulk)
+            try store.addManualHaplotypeAssignments(bulk, author: author)
             currentWorkbookNeedsRefresh = true
             currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
             onAnnotationSidecarChanged?(store.sidecar)
@@ -3961,10 +3969,12 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func deleteManualHaplotype(matching assignment: ManualHaplotypeAssignment) {
         guard let store = annotationStore else { return }
+        let author = annotationAuthorProvider()
         do {
-            try store.removeManualHaplotypeAssignments { other in
-                other.label == assignment.label
-            }
+            try store.removeManualHaplotypeAssignments(
+                matching: { other in other.label == assignment.label },
+                author: author
+            )
             currentWorkbookNeedsRefresh = true
             currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
             onAnnotationSidecarChanged?(store.sidecar)
@@ -4910,6 +4920,7 @@ public final class GenotypeResultViewController: NSViewController {
     private func applyOverridesFromInspector(_ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest]) {
         guard let store = annotationStore else { return }
         guard let evidence = callEvidence else { return }
+        let author = annotationAuthorProvider()
         let requests = requests.filter { !$0.haplotypeName.isEmpty }
         guard !requests.isEmpty else { return }
         let rawCall = rawLocusCall(sample: evidence.sample, locus: evidence.locus)
@@ -4926,7 +4937,8 @@ public final class GenotypeResultViewController: NSViewController {
                     originalCall: originalCall,
                     overrideCall: request.haplotypeName,
                     reasonTag: .misCall,
-                    rationale: "Replaced \(evidence.locus) \(request.slot.displayName) \(displayOriginal) -> \(request.haplotypeName) from Review inspector candidate matrix."
+                    rationale: "Replaced \(evidence.locus) \(request.slot.displayName) \(displayOriginal) -> \(request.haplotypeName) from Review inspector candidate matrix.",
+                    author: author
                 )
             }
             currentWorkbookNeedsRefresh = true
@@ -4967,10 +4979,11 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func confirmCurrentCallEvidence() {
         guard let store = annotationStore, let evidence = callEvidence else { return }
+        let author = annotationAuthorProvider()
         let h1 = evidence.h1Name.isEmpty ? evidence.callName : evidence.h1Name
         let h2 = evidence.h2Name.isEmpty || evidence.h2Name == "-" ? h1 : evidence.h2Name
         do {
-            try store.confirmCall(sample: evidence.sample, locus: evidence.locus, h1: h1, h2: h2)
+            try store.confirmCall(sample: evidence.sample, locus: evidence.locus, h1: h1, h2: h2, author: author)
             rebuildHaplotypeLens()
             rebuildOutline()
             rebuildHaplotypeMatrix()
@@ -5135,6 +5148,7 @@ public final class GenotypeResultViewController: NSViewController {
                               row: GenotypeSampleDetailSheet.CallRow,
                               draft: GenotypeOverrideSection.OverrideDraft) {
         guard let store = annotationStore else { return }
+        let author = annotationAuthorProvider()
         let originalCall = row.callName
         do {
             try store.applyOverride(
@@ -5144,7 +5158,8 @@ public final class GenotypeResultViewController: NSViewController {
                 originalCall: originalCall,
                 overrideCall: draft.target,
                 reasonTag: draft.reason,
-                rationale: draft.rationale
+                rationale: draft.rationale,
+                author: author
             )
         } catch {
             presentSheetAlert(error: error)
@@ -5161,8 +5176,9 @@ public final class GenotypeResultViewController: NSViewController {
     private func clearOverride(forAnimal animalId: String,
                                row: GenotypeSampleDetailSheet.CallRow) {
         guard let store = annotationStore else { return }
+        let author = annotationAuthorProvider()
         do {
-            try store.clearOverride(sample: animalId, locus: row.locus, slot: row.slot)
+            try store.clearOverride(sample: animalId, locus: row.locus, slot: row.slot, author: author)
         } catch {
             presentSheetAlert(error: error)
             return

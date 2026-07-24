@@ -9,6 +9,49 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeResultViewportTests: XCTestCase {
+    func testMatrixEditsCaptureCurrentAuthorProviderAfterSingleConfigure() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeEditAuthorProvider-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        var author = "First analyst"
+        let controller = GenotypeResultViewController()
+        controller.annotationAuthorProvider = { author }
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: "Mafa-A1*001:01", reads: 8)]
+        ))
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*001:01",
+            sample: "AnimalA"
+        )
+
+        controller.applyMatrixStyle(.init(targets: [target], field: .isBold(true)))
+        let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let styleProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        ))
+        XCTAssertEqual(styleProvenance.options.resolvedDefaults["author"], .string("First analyst"))
+        author = "Second analyst"
+        controller.addMatrixComment(.init(targets: [target], body: "Reviewed after handoff"))
+
+        let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+        let commentProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        ))
+        XCTAssertEqual(persisted.matrixStyles.first?.author, "First analyst")
+        XCTAssertEqual(persisted.matrixComments.first?.author, "Second analyst")
+        XCTAssertEqual(commentProvenance.options.resolvedDefaults["author"], .string("Second analyst"))
+        XCTAssertEqual(
+            persisted.auditLog.filter { $0.action == "setMatrixStyle" || $0.action == "addMatrixComment" }.map(\.author),
+            ["First analyst", "Second analyst"]
+        )
+    }
+
     func testFullLengthMHCSequenceDetailIsEmptyUntilAlleleRowSelection() throws {
         let known = makeMHCReferenceVisualizationRecord(
             rawReferenceID: "known-a",
