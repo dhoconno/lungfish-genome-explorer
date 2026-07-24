@@ -4,7 +4,7 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
-    func testMakeIsDeterministicAcrossCallLocusAndArtifactOrdering() throws {
+    func testMakeIsDeterministicAcrossCallAndLocusOrdering() throws {
         let calls = [
             call(sample: "Beta", locus: " MHC-DQA ", haplotype1: "DQA*02", haplotype2: "DQA*03"),
             call(sample: "Alpha", locus: "MHC-A", haplotype1: "A*01", haplotype2: "A*02"),
@@ -14,7 +14,6 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
             artifact(path: "candidate/candidates.fasta", checksum: "b", size: 20),
         ]
         let firstArtifacts = candidateArtifacts(candidateJSON: references[0], candidateFASTA: references[1])
-        let secondArtifacts = candidateArtifacts(candidateJSON: references[1], candidateFASTA: references[0])
 
         let first = try GenotypeCurrentWorkbookInputFingerprint.make(
             calls: calls,
@@ -34,10 +33,56 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
             ],
             includedLoci: ["MHC-A", "MHC-DQ"],
             annotationSidecar: nil,
-            candidateArtifacts: secondArtifacts
+            candidateArtifacts: firstArtifacts
         )
 
         XCTAssertEqual(first, second)
+    }
+
+    func testMakeChangesWhenCandidateJSONAndFASTARolesAreSwapped() throws {
+        let json = artifact(path: "candidate/candidates.json", checksum: "a", size: 10)
+        let fasta = artifact(path: "candidate/candidates.fasta", checksum: "b", size: 20)
+
+        let first = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: [],
+            annotationSidecar: nil,
+            candidateArtifacts: candidateArtifacts(candidateJSON: json, candidateFASTA: fasta)
+        )
+        let swapped = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: [],
+            annotationSidecar: nil,
+            candidateArtifacts: candidateArtifacts(candidateJSON: fasta, candidateFASTA: json)
+        )
+
+        XCTAssertNotEqual(first, swapped)
+    }
+
+    func testMakeChangesWhenGenotypingBAMAndBAIRolesAreSwapped() throws {
+        let bam = artifact(path: "alignments/genotyping.bam", checksum: "d", size: 30)
+        let bai = artifact(path: "alignments/genotyping.bam.bai", checksum: "e", size: 31)
+
+        let first = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: [],
+            annotationSidecar: nil,
+            candidateArtifacts: candidateArtifacts(
+                candidateJSON: nil,
+                genotypingEvidence: ONTMHCBAMArtifactPair(bam: bam, bai: bai)
+            )
+        )
+        let swapped = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: [],
+            annotationSidecar: nil,
+            candidateArtifacts: candidateArtifacts(
+                candidateJSON: nil,
+                genotypingEvidence: ONTMHCBAMArtifactPair(bam: bai, bai: bam)
+            )
+        )
+
+        XCTAssertNotEqual(first, swapped)
     }
 
     func testMakeChangesWhenAnySemanticInputChanges() throws {
@@ -225,11 +270,12 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
 
     private func candidateArtifacts(
         candidateJSON: ONTMHCArtifactReference?,
-        candidateFASTA: ONTMHCArtifactReference? = nil
+        candidateFASTA: ONTMHCArtifactReference? = nil,
+        genotypingEvidence: ONTMHCBAMArtifactPair? = nil
     ) -> ONTMHCCandidateArtifactManifest {
         ONTMHCCandidateArtifactManifest(
             schemaVersion: 4,
-            genotypingEvidence: ONTMHCBAMArtifactPair(
+            genotypingEvidence: genotypingEvidence ?? ONTMHCBAMArtifactPair(
                 bam: artifact(path: "alignments/genotyping.bam", checksum: "d", size: 30),
                 bai: artifact(path: "alignments/genotyping.bam.bai", checksum: "e", size: 31)
             ),

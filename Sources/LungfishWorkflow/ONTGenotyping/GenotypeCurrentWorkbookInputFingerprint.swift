@@ -35,6 +35,7 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
     }
 
     private struct CanonicalArtifact: Encodable {
+        let role: String
         let path: String
         let sha256: String
         let sizeBytes: Int64
@@ -132,26 +133,41 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
     private static func canonicalCandidateArtifacts(
         _ manifest: ONTMHCCandidateArtifactManifest
     ) -> CanonicalCandidateArtifacts {
-        var references: [ONTMHCArtifactReference] = []
+        var references: [(role: String, reference: ONTMHCArtifactReference)] = []
         if let pair = manifest.genotypingEvidence {
-            references.append(contentsOf: [pair.bam, pair.bai])
+            references.append(("genotypingEvidence.bam", pair.bam))
+            references.append(("genotypingEvidence.bai", pair.bai))
         }
         if let pair = manifest.reciprocalEvidence {
-            references.append(contentsOf: [pair.bam, pair.bai])
+            references.append(("reciprocalEvidence.bam", pair.bam))
+            references.append(("reciprocalEvidence.bai", pair.bai))
         }
-        references.append(contentsOf: [
-            manifest.candidateJSON,
-            manifest.candidateFASTA,
-            manifest.candidateGenBank,
-            manifest.unnameableJSON,
-            manifest.unnameableFASTA,
-            manifest.unnameableGenBank,
-            manifest.rawUnmatchedFASTA,
-            manifest.sourceIdentityMap,
-        ].compactMap { $0 })
+        let optionalReferences: [(String, ONTMHCArtifactReference?)] = [
+            ("candidateJSON", manifest.candidateJSON),
+            ("candidateFASTA", manifest.candidateFASTA),
+            ("candidateGenBank", manifest.candidateGenBank),
+            ("unnameableJSON", manifest.unnameableJSON),
+            ("unnameableFASTA", manifest.unnameableFASTA),
+            ("unnameableGenBank", manifest.unnameableGenBank),
+            ("rawUnmatchedFASTA", manifest.rawUnmatchedFASTA),
+            ("sourceIdentityMap", manifest.sourceIdentityMap),
+        ]
+        for (role, reference) in optionalReferences {
+            if let reference {
+                references.append((role, reference))
+            }
+        }
         let artifacts = references.map {
-            CanonicalArtifact(path: $0.path, sha256: $0.sha256, sizeBytes: $0.sizeBytes)
+            CanonicalArtifact(
+                role: $0.role,
+                path: $0.reference.path,
+                sha256: $0.reference.sha256,
+                sizeBytes: $0.reference.sizeBytes
+            )
         }.sorted {
+            if $0.role != $1.role {
+                return $0.role < $1.role
+            }
             if $0.path != $1.path {
                 return $0.path < $1.path
             }
