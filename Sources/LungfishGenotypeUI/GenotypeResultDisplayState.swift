@@ -302,12 +302,6 @@ enum GenotypeMatrixContextCommand: Int, CaseIterable, Equatable {
     case selectSupportedCells
 }
 
-enum GenotypeMatrixContextMenuAccessEvent: Equatable {
-    case cachedSelection
-    case cachedCapability
-    case fileSystem
-}
-
 struct GenotypeMatrixContextMenuItemState: Equatable {
     let title: String
     let command: GenotypeMatrixContextCommand
@@ -322,33 +316,52 @@ struct GenotypeMatrixContextMenuState: Equatable {
     let inspectedTargetCount: Int
 }
 
+struct GenotypeMatrixContextMenuSnapshot: Equatable, Sendable {
+    let selectionTargets: [GenotypeAnnotationSidecar.MatrixTarget]
+    let capability: GenotypeMatrixReviewCapabilityState
+    let keyModifierRawValue: UInt
+}
+
+@MainActor
+protocol GenotypeMatrixContextMenuSnapshotProviding: AnyObject {
+    var cachedSnapshot: GenotypeMatrixContextMenuSnapshot { get }
+}
+
+@MainActor
+final class GenotypeMatrixImmutableContextMenuSnapshotSource:
+    GenotypeMatrixContextMenuSnapshotProviding {
+    let cachedSnapshot: GenotypeMatrixContextMenuSnapshot
+
+    init(snapshot: GenotypeMatrixContextMenuSnapshot) {
+        cachedSnapshot = snapshot
+    }
+}
+
 struct GenotypeMatrixContextMenuBuilder {
-    static func make(
-        selectionTargets: [GenotypeAnnotationSidecar.MatrixTarget],
-        capability: GenotypeMatrixReviewCapabilityState,
-        keyModifierRawValue: UInt
-    ) -> GenotypeMatrixContextMenuState {
+    static func make(snapshot: GenotypeMatrixContextMenuSnapshot) -> GenotypeMatrixContextMenuState {
+        let selectionTargets = snapshot.selectionTargets
+        let capability = snapshot.capability
         var items = [
             GenotypeMatrixContextMenuItemState(
                 title: "Mark False Positive",
                 command: .markFalsePositive,
                 availability: capability.falsePositive,
                 keyEquivalent: "p",
-                keyModifierRawValue: keyModifierRawValue
+                keyModifierRawValue: snapshot.keyModifierRawValue
             ),
             GenotypeMatrixContextMenuItemState(
                 title: "Mark False Negative",
                 command: .markFalseNegative,
                 availability: capability.falseNegative,
                 keyEquivalent: "n",
-                keyModifierRawValue: keyModifierRawValue
+                keyModifierRawValue: snapshot.keyModifierRawValue
             ),
             GenotypeMatrixContextMenuItemState(
                 title: "Clear Review",
                 command: .clearReview,
                 availability: capability.clearReview,
                 keyEquivalent: "r",
-                keyModifierRawValue: keyModifierRawValue
+                keyModifierRawValue: snapshot.keyModifierRawValue
             ),
             GenotypeMatrixContextMenuItemState(
                 title: commentMenuTitle(
@@ -358,7 +371,7 @@ struct GenotypeMatrixContextMenuBuilder {
                 command: .editComment,
                 availability: capability.upsertComment,
                 keyEquivalent: "m",
-                keyModifierRawValue: keyModifierRawValue
+                keyModifierRawValue: snapshot.keyModifierRawValue
             ),
             GenotypeMatrixContextMenuItemState(
                 title: selectionTargets.count == 1 ? "Remove Comment" : "Remove Comments",

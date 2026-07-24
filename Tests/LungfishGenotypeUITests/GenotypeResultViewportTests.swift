@@ -39,6 +39,22 @@ private final class MatrixWorkbookUpdateSchedulerSpy: GenotypeMatrixWorkbookUpda
 }
 
 @MainActor
+private final class MatrixContextMenuSnapshotSourceSpy:
+    GenotypeMatrixContextMenuSnapshotProviding {
+    private let snapshot: GenotypeMatrixContextMenuSnapshot
+    private(set) var snapshotReadCount = 0
+
+    init(snapshot: GenotypeMatrixContextMenuSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    var cachedSnapshot: GenotypeMatrixContextMenuSnapshot {
+        snapshotReadCount += 1
+        return snapshot
+    }
+}
+
+@MainActor
 final class GenotypeResultViewportTests: XCTestCase {
     func testMatrixFalsePositiveRendersBracketedReadCountWithoutChangingEvidence() {
         let genotype = "01_Mafa_A1_FALSE_POSITIVE"
@@ -429,11 +445,6 @@ final class GenotypeResultViewportTests: XCTestCase {
         let selected = controller.testingCurrentSelectionMatrixTargets
         let evidenceBuildCount = controller.testingMatrixEvidenceIndexBuildCount
         let annotationBuildCount = controller.testingMatrixAnnotationIndexBuildCount
-        var contextMenuAccessEvents: [GenotypeMatrixContextMenuAccessEvent] = []
-        controller.testingSetMatrixContextMenuAccessObserver {
-            contextMenuAccessEvents.append($0)
-        }
-        defer { controller.testingSetMatrixContextMenuAccessObserver(nil) }
 
         let inside = try XCTUnwrap(controller.testingBuildMatrixContextMenu(
             for: .cell(locus: "MHC-A", genotype: first, sample: "AnimalA")
@@ -441,8 +452,6 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, selected)
         XCTAssertEqual(inside.selectionTargets, selected)
-        XCTAssertEqual(contextMenuAccessEvents, [.cachedCapability, .cachedSelection])
-        XCTAssertFalse(contextMenuAccessEvents.contains(.fileSystem))
         XCTAssertEqual(controller.testingMatrixEvidenceIndexBuildCount, evidenceBuildCount)
         XCTAssertEqual(controller.testingMatrixAnnotationIndexBuildCount, annotationBuildCount)
 
@@ -459,63 +468,56 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingMatrixAnnotationIndexBuildCount, annotationBuildCount)
     }
 
-    func testMatrixContextMenuCachedBoundaryContainsNoFileIOCalls() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let matrixSource = try String(
-            contentsOf: repositoryRoot.appendingPathComponent(
-                "Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift"
-            ),
-            encoding: .utf8
-        )
-        let stateSource = try String(
-            contentsOf: repositoryRoot.appendingPathComponent(
-                "Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift"
-            ),
-            encoding: .utf8
-        )
-
-        func region(_ source: String, from start: String, through end: String) throws -> String {
-            let startRange = try XCTUnwrap(source.range(of: start))
-            let endRange = try XCTUnwrap(
-                source.range(of: end, range: startRange.upperBound..<source.endIndex)
-            )
-            return String(source[startRange.lowerBound..<endRange.lowerBound])
+    func testMatrixActualContextMenuKeepsCachedDisabledStateAfterAppKitUpdate() throws {
+        let genotype = "01_Mafa_A1_ACTUAL_MENU"
+        let supported = makeCall(sample: "AnimalB", genotype: genotype, reads: 9)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 0,
+                    passedUniqueReads: 0,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: []
+                ),
+                ONTGenotypeSampleResult(
+                    sample: "AnimalB",
+                    passedAlignments: 9,
+                    passedUniqueReads: 9,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [supported]
+                ),
+            ],
+            calls: [supported]
+        ))
+        var snapshotSourceSpy: MatrixContextMenuSnapshotSourceSpy?
+        controller.testingSetMatrixContextMenuSnapshotSourceFactory { snapshot in
+            let spy = MatrixContextMenuSnapshotSourceSpy(snapshot: snapshot)
+            snapshotSourceSpy = spy
+            return spy
         }
+        defer { controller.testingSetMatrixContextMenuSnapshotSourceFactory(nil) }
 
-        let cachedMenuBoundary = try region(
-            matrixSource,
-            from: "private func prepareContextMenu(",
-            through: "private func makeContextMenu(from"
-        )
-        let pureMenuBuilder = try region(
-            stateSource,
-            from: "struct GenotypeMatrixContextMenuBuilder {",
-            through: "public enum GenotypeMatrixStyleField"
-        )
-        XCTAssertTrue(cachedMenuBoundary.contains("GenotypeMatrixContextMenuBuilder.make"))
-        for forbidden in [
-            "FileManager",
-            "GenotypeAnnotationStore",
-            "loadOrCreateAnnotationSidecar",
-            "Data(contentsOf:",
-            "String(contentsOf:",
-            "contentsOfDirectory",
-            "fileExists",
-            "URLSession",
-            ".write(",
-        ] {
-            XCTAssertFalse(
-                cachedMenuBoundary.contains(forbidden),
-                "Context-menu cached boundary must not contain \(forbidden)"
+        let menu = try XCTUnwrap(controller.testingBuildActualMatrixContextMenu(
+            for: .cell(
+                locus: "MHC-A",
+                genotype: genotype,
+                sample: "AnimalA"
             )
-            XCTAssertFalse(
-                pureMenuBuilder.contains(forbidden),
-                "Pure context-menu builder must not contain \(forbidden)"
-            )
-        }
+        ))
+        let falsePositive = try XCTUnwrap(menu.items.first {
+            $0.title == "Mark False Positive"
+        })
+
+        XCTAssertFalse(menu.autoenablesItems)
+        XCTAssertFalse(falsePositive.isEnabled)
+        menu.update()
+        XCTAssertFalse(falsePositive.isEnabled)
+        XCTAssertEqual(snapshotSourceSpy?.snapshotReadCount, 1)
     }
 
     func testMatrixCandidateSelectionHotPathUsesIndexedRowIdentity() throws {
@@ -531,13 +533,14 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
         let start = try XCTUnwrap(source.range(of: "private func stableSelectionAllows("))
         let end = try XCTUnwrap(source.range(
-            of: "private func targetIdentity(",
+            of: "private static func color(",
             range: start.upperBound..<source.endIndex
         ))
         let hotPath = String(source[start.lowerBound..<end.lowerBound])
 
         XCTAssertTrue(hotPath.contains("visibleRowIndexByID[selectedRowID]"))
         XCTAssertFalse(hotPath.contains("visibleRows.first"))
+        XCTAssertFalse(hotPath.contains("private func targetIdentity"))
     }
 
     func testMatrixRowCommentMarkerFallsBackToVisibleSelectorAndRetainsAccessibility() throws {
@@ -564,6 +567,70 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(
             try XCTUnwrap(matrix.testingNativeRowCommentAccessibilityLabel(genotype: genotype))
                 .contains("1 allele row comment")
+        )
+    }
+
+    func testMatrixRowCommentMarkerHostsExposeScopedTooltipAcrossFallbackColumns() throws {
+        let genotype = "01_Mafa_A1_ROW_TOOLTIP"
+        let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 4)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixComments = [
+            .init(
+                target: .row(locus: "MHC-A", genotype: genotype),
+                body: "Scoped row note.",
+                author: "test",
+                timestamp: "2026-07-24T00:00:01Z"
+            ),
+        ]
+        let fastaMatrix = GenotypeComparisonMatrixView()
+        fastaMatrix.configure(
+            result: makeResult(samples: [], calls: [call]),
+            sidecar: sidecar
+        )
+        fastaMatrix.testingSetStandardColumnVisibleWithoutPersist("genotype", visible: true)
+        XCTAssertTrue(
+            try XCTUnwrap(fastaMatrix.testingNativeRowCommentToolTip(genotype: genotype))
+                .contains("Allele Row: Scoped row note.")
+        )
+
+        fastaMatrix.testingSetStandardColumnVisibleWithoutPersist("genotype", visible: false)
+        fastaMatrix.testingSetStandardColumnVisibleWithoutPersist("locus", visible: true)
+        XCTAssertTrue(
+            try XCTUnwrap(fastaMatrix.testingNativeRowCommentToolTip(genotype: genotype))
+                .contains("Allele Row: Scoped row note.")
+        )
+
+        fastaMatrix.testingSetStandardColumnVisibleWithoutPersist("locus", visible: false)
+        XCTAssertEqual(
+            fastaMatrix.testingNativeRowCommentMarkerColumnIdentifier(genotype: genotype),
+            "rowSelector"
+        )
+        XCTAssertTrue(
+            try XCTUnwrap(fastaMatrix.testingNativeRowCommentToolTip(genotype: genotype))
+                .contains("Allele Row: Scoped row note.")
+        )
+
+        let referenceMatrix = GenotypeComparisonMatrixView()
+        referenceMatrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [call],
+                referenceMetadata: makeGenBankReferenceMetadata()
+            ),
+            sidecar: sidecar
+        )
+        referenceMatrix.testingSetStandardColumnVisibleWithoutPersist("genotype", visible: false)
+        referenceMatrix.testingSetReferenceColumnVisibleWithoutPersist(
+            fieldKey: "feature.allele",
+            visible: true
+        )
+        XCTAssertEqual(
+            referenceMatrix.testingNativeRowCommentMarkerColumnIdentifier(genotype: genotype),
+            "reference.feature.allele"
+        )
+        XCTAssertTrue(
+            try XCTUnwrap(referenceMatrix.testingNativeRowCommentToolTip(genotype: genotype))
+                .contains("Allele Row: Scoped row note.")
         )
     }
 
@@ -722,7 +789,17 @@ final class GenotypeResultViewportTests: XCTestCase {
             try XCTUnwrap(matrix.testingColumnAccessibilityLabel(sample: "AnimalA"))
                 .contains("1 sample column comment")
         )
-        XCTAssertEqual(matrix.testingCommentMarkerAccessibilityElementCount, 0)
+        let commentHost = try XCTUnwrap(matrix.testingCellCommentMarkerHost(
+            genotype: genotype,
+            sample: "AnimalA"
+        ))
+        let accessibilityElements = ([commentHost] + descendants(of: commentHost))
+            .filter { $0.isAccessibilityElement() }
+        XCTAssertEqual(accessibilityElements.count, 1)
+        XCTAssertTrue(
+            try XCTUnwrap(accessibilityElements.first?.accessibilityLabel())
+                .contains("Comments: allele row 1, sample column 1, cell 1")
+        )
         XCTAssertEqual(
             matrix.testingReviewLegendText,
             "[n] False positive   ▣ False negative   ◥ Comment"
@@ -781,8 +858,10 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.editComment))
 
-        XCTAssertEqual(controller.testingMatrixFullReloadCount, 0)
-        XCTAssertGreaterThanOrEqual(controller.testingMatrixPartialReloadCount, 2)
+        XCTAssertEqual(controller.testingPinnedMatrixFullReloadCount, 0)
+        XCTAssertEqual(controller.testingSampleMatrixFullReloadCount, 0)
+        XCTAssertGreaterThan(controller.testingPinnedMatrixPartialReloadCount, 0)
+        XCTAssertGreaterThan(controller.testingSampleMatrixPartialReloadCount, 0)
     }
 
     func testMatrixRepresentativeBenchmarkRecordsLinearTargetsAndMenuProductObservation() {
@@ -815,7 +894,6 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(record.smallSelectionAggregation.targetCount, 8)
         XCTAssertEqual(record.largeSelectionAggregation.targetCount, 200)
-        XCTAssertEqual(record.menuConstruction.fileAccessCount, 0)
         XCTAssertEqual(record.menuConstruction.targetCount, 200)
         XCTAssertEqual(record.visibleRedraw.targetCount, 30 * 8)
         XCTAssertEqual(record.bulkSidecarMutation.targetCount, 200)

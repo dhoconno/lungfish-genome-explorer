@@ -116,7 +116,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     var onSelectionCleared: (() -> Void)?
     var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
     var matrixCommentBodyProvider: ((String?) -> String?)?
-    private var contextMenuAccessObserver: ((GenotypeMatrixContextMenuAccessEvent) -> Void)?
+    private var contextMenuSnapshotSourceFactory:
+        (GenotypeMatrixContextMenuSnapshot) -> any GenotypeMatrixContextMenuSnapshotProviding = {
+            GenotypeMatrixImmutableContextMenuSnapshotSource(snapshot: $0)
+        }
     private(set) var matrixReviewCapability = GenotypeMatrixReviewCapability.evaluate(
         selection: [],
         evidence: .init(),
@@ -1630,7 +1633,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 isSelected: isSelectedCell(identifier: identifier, row: sharedCall),
                 commentFoldSize: hasNativeRowComment ? semanticGeometry().commentFoldSize : nil
             )
-            cell.toolTip = "Select \(sharedCall.genotype)"
+            cell.toolTip = rowTooltip(
+                row: sharedCall,
+                fallback: "Select \(sharedCall.genotype)"
+            )
             cell.setAccessibilityLabel(
                 hasNativeRowComment
                     ? rowAccessibilityLabel(sharedCall)
@@ -1698,6 +1704,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         field.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         field.lineBreakMode = .byTruncatingMiddle
         field.usesSingleLineMode = true
+        field.setAccessibilityElement(true)
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         cell.addSubview(field)
         cell.textField = field
@@ -1712,6 +1719,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func makeRowSelectorCellView(identifier: NSUserInterfaceItemIdentifier) -> GenotypeMatrixRowSelectorCellView {
         let cell = GenotypeMatrixRowSelectorCellView()
         cell.identifier = identifier
+        cell.setAccessibilityElement(true)
         return cell
     }
 
@@ -1739,7 +1747,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             if identifier.rawValue.hasPrefix(ColumnID.referencePrefix) {
                 let key = String(identifier.rawValue.dropFirst(ColumnID.referencePrefix.count))
                 let text = referenceValue(for: row, fieldKey: key)
-                return (text, .left, text.isEmpty ? nil : text)
+                let toolTip = key == alleleFieldKey
+                    ? rowTooltip(row: row, fallback: text)
+                    : (text.isEmpty ? nil : text)
+                return (text, .left, toolTip)
             }
             guard let sample = sampleColumnLookup[identifier] else {
                 return ("", .right, nil)
@@ -1934,18 +1945,20 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func contextMenu(
         for target: GenotypeAnnotationSidecar.MatrixTarget
     ) -> NSMenu? {
-        guard let state = prepareContextMenu(for: target) else { return nil }
-        return makeContextMenu(from: state)
+        guard let snapshot = prepareContextMenuSnapshot(for: target) else { return nil }
+        return makeContextMenu(
+            using: contextMenuSnapshotSourceFactory(snapshot)
+        )
     }
 
-    private func prepareContextMenu(
+    private func prepareContextMenuSnapshot(
         for target: GenotypeAnnotationSidecar.MatrixTarget
-    ) -> GenotypeMatrixContextMenuState? {
+    ) -> GenotypeMatrixContextMenuSnapshot? {
         guard isVisibleContextTarget(target) else { return nil }
         if !contextTargetIsInsideSelection(target) {
             publishMatrixTargetSelection([target], anchor: target)
         }
-        return makeContextMenuState()
+        return makeContextMenuSnapshot()
     }
 
     private func isVisibleContextTarget(
@@ -1989,19 +2002,29 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             || selectedMatrixTargetSet.contains(.column(sample: sample))
     }
 
-    private func makeContextMenuState() -> GenotypeMatrixContextMenuState {
-        contextMenuAccessObserver?(.cachedCapability)
-        contextMenuAccessObserver?(.cachedSelection)
-        let modifiers = NSEvent.ModifierFlags([.command, .option]).rawValue
-        return GenotypeMatrixContextMenuBuilder.make(
+    private func makeContextMenuSnapshot() -> GenotypeMatrixContextMenuSnapshot {
+        GenotypeMatrixContextMenuSnapshot(
             selectionTargets: selectedMatrixTargets,
             capability: matrixReviewCapability,
-            keyModifierRawValue: modifiers
+            keyModifierRawValue: NSEvent.ModifierFlags([.command, .option]).rawValue
         )
+    }
+
+    private func makeContextMenuState() -> GenotypeMatrixContextMenuState {
+        GenotypeMatrixContextMenuBuilder.make(snapshot: makeContextMenuSnapshot())
+    }
+
+    private func makeContextMenu(
+        using snapshotSource: any GenotypeMatrixContextMenuSnapshotProviding
+    ) -> NSMenu {
+        makeContextMenu(from: GenotypeMatrixContextMenuBuilder.make(
+            snapshot: snapshotSource.cachedSnapshot
+        ))
     }
 
     private func makeContextMenu(from state: GenotypeMatrixContextMenuState) -> NSMenu {
         let menu = NSMenu(title: "Matrix Review")
+        menu.autoenablesItems = false
         for itemState in state.items {
             if itemState.command == .editComment || itemState.command == .selectSupportedCells {
                 menu.addItem(.separator())
@@ -3441,13 +3464,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         return selectedRowID == row.id
     }
 
-    private func targetIdentity(_ stableClusterID: String?, allows row: GenotypeCandidateMatrixRow) -> Bool {
-        if let stableClusterID {
-            return row.stableClusterID == stableClusterID
-        }
-        return stableSelectionAllows(row)
-    }
-
     private static func color(from annotationColor: AnnotationColor) -> NSColor {
         NSColor(
             calibratedRed: annotationColor.red,
@@ -3861,7 +3877,6 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
 struct GenotypeMatrixBenchmarkSample {
     let wallTime: TimeInterval
     let targetCount: Int
-    let fileAccessCount: Int
 }
 
 struct GenotypeMatrixRepresentativeBenchmarkRecord {
@@ -4098,6 +4113,16 @@ extension GenotypeComparisonMatrixView {
     func testingSetReferenceColumnVisible(fieldKey: String, visible: Bool) {
         setReferenceColumnVisible(fieldKey, visible: visible)
     }
+    func testingSetReferenceColumnVisibleWithoutPersist(fieldKey: String, visible: Bool) {
+        guard referenceFields.contains(where: { $0.key == fieldKey }) else { return }
+        if visible {
+            visibleReferenceFieldKeys.insert(fieldKey)
+        } else {
+            visibleReferenceFieldKeys.remove(fieldKey)
+        }
+        rebuildColumns()
+        applyFilterAndSort()
+    }
     func testingSetStandardColumnVisibleWithoutPersist(_ identifier: String, visible: Bool) {
         if visible {
             visibleStandardColumnIDs.insert(identifier)
@@ -4316,6 +4341,21 @@ extension GenotypeComparisonMatrixView {
         return cell.textField?.accessibilityLabel() ?? cell.accessibilityLabel()
     }
 
+    func testingNativeRowCommentToolTip(genotype: String) -> String? {
+        guard let rowIndex = visibleRows.firstIndex(where: { $0.genotype == genotype }),
+              let column = pinnedTableView.tableColumns.first(where: {
+                  isNativeRowCommentMarkerColumn($0.identifier)
+              }),
+              let cell = tableView(
+                  pinnedTableView,
+                  viewFor: column,
+                  row: rowIndex
+              ) as? NSTableCellView else {
+            return nil
+        }
+        return cell.textField?.toolTip ?? cell.toolTip
+    }
+
     func testingHasColumnCommentMarker(sample: String) -> Bool {
         sidecarColumnComments[sample] != nil
     }
@@ -4337,6 +4377,17 @@ extension GenotypeComparisonMatrixView {
         )
     }
 
+    func testingCellCommentMarkerHost(genotype: String, sample: String) -> NSView? {
+        guard let rowIndex = visibleRows.firstIndex(where: { $0.genotype == genotype }),
+              !commentsForCell(visibleRows[rowIndex], sample: sample).isEmpty,
+              let column = tableView.tableColumns.first(where: {
+                  sampleColumnLookup[$0.identifier] == sample
+              }) else {
+            return nil
+        }
+        return tableView(tableView, viewFor: column, row: rowIndex)
+    }
+
     func testingSetIncreaseContrastOverride(_ value: Bool?) {
         testingIncreaseContrastOverride = value
         reloadVisibleMatrix()
@@ -4354,12 +4405,6 @@ extension GenotypeComparisonMatrixView {
             .accessibilityLabel()
     }
 
-    var testingCommentMarkerAccessibilityElementCount: Int {
-        // Folded corners are painted into their containing cell/header and
-        // therefore never become independent VoiceOver stops.
-        0
-    }
-
     var testingReviewLegendText: String {
         reviewLegend.stringValue
     }
@@ -4367,13 +4412,26 @@ extension GenotypeComparisonMatrixView {
     func testingBuildContextMenu(
         for target: GenotypeAnnotationSidecar.MatrixTarget
     ) -> GenotypeMatrixContextMenuState? {
-        prepareContextMenu(for: target)
+        prepareContextMenuSnapshot(for: target).map {
+            GenotypeMatrixContextMenuBuilder.make(snapshot: $0)
+        }
     }
 
-    func testingSetContextMenuAccessObserver(
-        _ observer: ((GenotypeMatrixContextMenuAccessEvent) -> Void)?
+    func testingBuildActualContextMenu(
+        for target: GenotypeAnnotationSidecar.MatrixTarget
+    ) -> NSMenu? {
+        contextMenu(for: target)
+    }
+
+    func testingSetContextMenuSnapshotSourceFactory(
+        _ factory: (
+            (GenotypeMatrixContextMenuSnapshot)
+                -> any GenotypeMatrixContextMenuSnapshotProviding
+        )?
     ) {
-        contextMenuAccessObserver = observer
+        contextMenuSnapshotSourceFactory = factory ?? {
+            GenotypeMatrixImmutableContextMenuSnapshotSource(snapshot: $0)
+        }
     }
 
     func testingPerformContextCommand(_ command: GenotypeMatrixContextCommand) -> Bool {
@@ -4397,15 +4455,13 @@ extension GenotypeComparisonMatrixView {
 
         func record(
             targetCount: Int,
-            fileAccessCount: Int = 0,
             action: () -> Void
         ) -> GenotypeMatrixBenchmarkSample {
             let start = Date()
             action()
             return GenotypeMatrixBenchmarkSample(
                 wallTime: Date().timeIntervalSince(start),
-                targetCount: targetCount,
-                fileAccessCount: fileAccessCount
+                targetCount: targetCount
             )
         }
 
@@ -4416,23 +4472,12 @@ extension GenotypeComparisonMatrixView {
             replaceMatrixTargetSelection(largeTargets)
         }
 
-        var menuFileAccessCount = 0
-        let previousContextMenuAccessObserver = contextMenuAccessObserver
-        contextMenuAccessObserver = { event in
-            previousContextMenuAccessObserver?(event)
-            if event == .fileSystem {
-                menuFileAccessCount += 1
-            }
-        }
         let menuConstruction = record(targetCount: largeTargets.count) {
-            _ = makeContextMenuState()
+            let source = GenotypeMatrixImmutableContextMenuSnapshotSource(
+                snapshot: makeContextMenuSnapshot()
+            )
+            _ = GenotypeMatrixContextMenuBuilder.make(snapshot: source.cachedSnapshot)
         }
-        contextMenuAccessObserver = previousContextMenuAccessObserver
-        let observedMenuConstruction = GenotypeMatrixBenchmarkSample(
-            wallTime: menuConstruction.wallTime,
-            targetCount: menuConstruction.targetCount,
-            fileAccessCount: menuFileAccessCount
-        )
 
         let rowsToRender = min(max(0, visibleRowLimit), visibleRows.count)
         let visibleRedraw = record(targetCount: rowsToRender * visibleSampleNames.count) {
@@ -4455,7 +4500,7 @@ extension GenotypeComparisonMatrixView {
         return GenotypeMatrixRepresentativeBenchmarkRecord(
             smallSelectionAggregation: smallSelectionAggregation,
             largeSelectionAggregation: largeSelectionAggregation,
-            menuConstruction: observedMenuConstruction,
+            menuConstruction: menuConstruction,
             visibleRedraw: visibleRedraw,
             bulkSidecarMutation: bulkSidecarMutation
         )
@@ -4503,8 +4548,24 @@ extension GenotypeComparisonMatrixView {
         pinnedTableView.testingFullReloadCount + tableView.testingFullReloadCount
     }
 
+    var testingPinnedFullReloadCount: Int {
+        pinnedTableView.testingFullReloadCount
+    }
+
+    var testingSampleFullReloadCount: Int {
+        tableView.testingFullReloadCount
+    }
+
     var testingPartialReloadCount: Int {
         pinnedTableView.testingPartialReloadCount + tableView.testingPartialReloadCount
+    }
+
+    var testingPinnedPartialReloadCount: Int {
+        pinnedTableView.testingPartialReloadCount
+    }
+
+    var testingSamplePartialReloadCount: Int {
+        tableView.testingPartialReloadCount
     }
 
     var testingPartialReloadedCellCount: Int {

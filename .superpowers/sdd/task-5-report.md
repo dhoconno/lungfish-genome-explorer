@@ -15,10 +15,10 @@ Completed.
 
   `[n] False positive   ▣ False negative   ◥ Comment`
 
-- VoiceOver cell descriptions include sample, genotype, locus, evidence, review state, selection state, and scoped comment counts. Drawn markers add no independent focus stops.
+- VoiceOver cell descriptions include sample, genotype, locus, evidence, review state, selection state, and scoped comment counts. Drawn markers remain part of a single accessible host instead of becoming independent focus stops.
 - Dynamic AppKit colors and larger Increased Contrast geometry are used.
 - Visible-cell rendering uses cached row, sample-column, evidence, annotation, and selection dictionaries/sets. Context-menu selection membership is constant-time and performs no evidence/index rebuild.
-- Targeted reload counters now aggregate and reset both the pinned and sample tables.
+- Targeted reload counters expose, aggregate, and reset the pinned and sample tables independently.
 
 ## TDD Evidence
 
@@ -37,11 +37,11 @@ structural issues during re-review; all were addressed:
 
 1. Replaced reverse sample-column and selection-array scans in visible-cell rendering with direct dictionaries and a cached target set.
 2. Added a visible row-comment marker fallback to the row selector and preserved its containing-cell accessibility description when identity/locus columns are hidden.
-3. Replaced the hardcoded menu `fileAccessCount` with an injectable access-event observer used as a real spy seam. Tests observe cached selection/capability access and assert no filesystem event or index rebuild.
+3. Replaced the vacuous menu access-event observer with an immutable cached snapshot boundary and an injected snapshot source. A real spy verifies that actual AppKit menu creation reads that snapshot once, while the production builder accepts only cached value state.
 4. Kept representative timings as recorded observations and removed the hard 50 ms ordinary-CI gate.
-5. Aggregated/reset DEBUG reload counters for both matrix tables and added a row-comment regression covering the pinned and sample panes.
+5. Exposed separate DEBUG full/partial reload counters for both matrix tables and added a row-comment regression proving each pane receives a partial reload and neither receives a full reload.
 6. Added a row-ID index so legacy candidate selection disambiguation performs no visible-row scan in the render hot path.
-7. Isolated menu-state construction in a pure cached-input builder and added a deterministic source-boundary regression that rejects direct file/store/load/read/write calls in menu construction.
+7. Isolated menu-state construction in a pure immutable cached-input builder. The actual `NSMenu` disables AppKit auto-enabling, and a regression calls `NSMenu.update()` to prove a cached disabled command stays disabled.
 
 ## Representative Benchmark Record
 
@@ -50,18 +50,29 @@ Fresh full-suite run on 2026-07-24:
 | Operation | Targets | Observed wall time |
 |---|---:|---:|
 | Small selection aggregation | 8 | 0.0000360 s |
-| Large selection aggregation | 200 | 0.0004280 s |
-| Cached menu construction | 200 | 0.00000906 s |
-| Visible redraw | 240 | 0.0267179 s |
-| Bulk sidecar application | 200 | 0.0006349 s |
+| Large selection aggregation | 200 | 0.0004510 s |
+| Cached menu construction | 200 | 0.00001299 s |
+| Visible redraw | 240 | 0.0265170 s |
+| Bulk sidecar application | 200 | 0.0005900 s |
 
-The menu observation was below the 50 ms product target. Timing values are recorded, not used as fragile pass/fail gates. CI assertions remain structural: exact target counts, zero observed filesystem events during menu construction, unchanged evidence/annotation index build counts, and targeted rather than full reloads.
+The menu observation was below the 50 ms product target. Timing values are recorded, not used as fragile pass/fail gates. CI assertions remain structural: exact target counts, immutable cached menu input read once by a real spy, unchanged evidence/annotation index build counts, and targeted rather than full reloads.
+
+## Review-Fix Follow-up
+
+The Task 5 review follow-up was completed with a second red-green cycle:
+
+- Added an actual `NSMenu` regression that calls `update()` and verifies `autoenablesItems == false` preserves cached capability state.
+- Removed the fake `.fileSystem` event, source-string filesystem scan, and benchmark `fileAccessCount`. Menu acquisition now crosses an injected immutable snapshot boundary, and the production renderer/builder consumes only the cached snapshot.
+- Extended cached `Allele Row:` tooltips to every possible native row-comment marker host: genotype, allele-reference, locus, and row selector.
+- Replaced aggregate-only reload assertions with independent pinned/sample full and partial counters.
+- Replaced the hardcoded marker accessibility count with inspection of the actual rendered cell subtree, proving the containing host exposes exactly one accessibility element.
+- Removed the unused `targetIdentity` helper.
 
 ## Verification
 
 ```text
 swift test --skip-update --filter GenotypeResultViewportTests
-Executed 254 tests, with 0 failures in 30.610 seconds.
+Executed 255 tests, with 0 failures in 30.443 seconds.
 
 git diff --check
 Passed.

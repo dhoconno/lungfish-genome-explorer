@@ -6969,11 +6969,21 @@ extension GenotypeResultViewController {
         return comparisonMatrix.testingBuildContextMenu(for: target)
     }
 
-    func testingSetMatrixContextMenuAccessObserver(
-        _ observer: ((GenotypeMatrixContextMenuAccessEvent) -> Void)?
+    func testingBuildActualMatrixContextMenu(
+        for target: GenotypeAnnotationSidecar.MatrixTarget
+    ) -> NSMenu? {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingBuildActualContextMenu(for: target)
+    }
+
+    func testingSetMatrixContextMenuSnapshotSourceFactory(
+        _ factory: (
+            (GenotypeMatrixContextMenuSnapshot)
+                -> any GenotypeMatrixContextMenuSnapshotProviding
+        )?
     ) {
         ensureComparisonMatrixConfigured()
-        comparisonMatrix.testingSetContextMenuAccessObserver(observer)
+        comparisonMatrix.testingSetContextMenuSnapshotSourceFactory(factory)
     }
 
     func testingPerformMatrixContextCommand(_ command: GenotypeMatrixContextCommand) -> Bool {
@@ -7059,9 +7069,29 @@ extension GenotypeResultViewController {
         return comparisonMatrix.testingFullReloadCount
     }
 
+    var testingPinnedMatrixFullReloadCount: Int {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPinnedFullReloadCount
+    }
+
+    var testingSampleMatrixFullReloadCount: Int {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingSampleFullReloadCount
+    }
+
     var testingMatrixPartialReloadCount: Int {
         ensureComparisonMatrixConfigured()
         return comparisonMatrix.testingPartialReloadCount
+    }
+
+    var testingPinnedMatrixPartialReloadCount: Int {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPinnedPartialReloadCount
+    }
+
+    var testingSampleMatrixPartialReloadCount: Int {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingSamplePartialReloadCount
     }
 
     var testingMatrixPartialReloadedCellCount: Int {
