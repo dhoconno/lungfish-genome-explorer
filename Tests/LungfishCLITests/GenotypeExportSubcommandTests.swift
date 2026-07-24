@@ -56,6 +56,8 @@ final class GenotypeExportSubcommandTests: XCTestCase {
             rows: [
                 GenotypeViewProjectionRow(
                     label: "MHC-A H1",
+                    locus: "MHC-A",
+                    stableClusterID: "cluster-001",
                     cells: ["M1A", "M2A"],
                     rowColorHex: "#D47B3A"
                 )
@@ -65,6 +67,7 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         let data = try JSONEncoder().encode(projection)
         let decoded = try JSONDecoder().decode(GenotypeViewProjection.self, from: data)
         XCTAssertEqual(decoded, projection)
+        XCTAssertEqual(decoded.rows.first?.stableClusterID, "cluster-001")
     }
 
     func testViewProjectionDecodesLegacyRowsWithoutLocus() throws {
@@ -88,6 +91,7 @@ final class GenotypeExportSubcommandTests: XCTestCase {
 
         XCTAssertEqual(decoded.rows.first?.label, "01_M1A_A1_063")
         XCTAssertNil(decoded.rows.first?.locus)
+        XCTAssertNil(decoded.rows.first?.stableClusterID)
         XCTAssertEqual(decoded.rows.first?.cells, ["39"])
     }
 
@@ -116,6 +120,14 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertEqual(env.exitStatus, 0)
         XCTAssertFalse(env.argv.isEmpty)
         XCTAssertTrue(env.argv.contains("export"))
+        XCTAssertTrue(env.argv.contains("--force"))
+        let outputDescriptor = try XCTUnwrap(
+            (env.outputs + env.steps.flatMap(\.outputs)).first {
+                URL(fileURLWithPath: $0.path).standardizedFileURL == out.standardizedFileURL
+            }
+        )
+        XCTAssertNotNil(outputDescriptor.checksumSHA256)
+        XCTAssertGreaterThan(outputDescriptor.fileSize ?? 0, 0)
     }
 
     // MARK: - Projection filters visible samples
@@ -133,10 +145,12 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         // produced workbook's sample columns must reproduce that view.
         let projection = GenotypeViewProjection(
             lens: "haplotype",
-            sampleColumns: ["S1", "S2"],
+            sampleColumns: ["S1", "S2", "S3"],
             rows: [
                 GenotypeViewProjectionRow(
                     label: "MHC-A H1",
+                    locus: "MHC-A",
+                    stableClusterID: "cluster-filtered",
                     cells: ["M1A", "M2A"],
                     rowColorHex: nil
                 ),
@@ -164,6 +178,8 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         let resolved = try await cmd.runReturningResolvedColumns()
         XCTAssertEqual(resolved, ["S1", "S2"], "expected only the projection's visible sample columns")
         XCTAssertTrue(FileManager.default.fileExists(atPath: out.path))
+        let sheet = try unzipEntry("xl/worksheets/sheet1.xml", from: out)
+        XCTAssertTrue(sheet.contains("cluster-filtered"))
     }
 
     func testAnnotationBearingProjectionExportEmbedsMatrixAnnotationsAndStableSidecarProvenance() async throws {
@@ -244,11 +260,21 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         })
 
         let env = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: out.appendingPathExtension("lungfish-provenance.json")))
-        let inputPaths = Set(env.steps.flatMap(\.inputs).map(\.path))
+        let inputDescriptors = env.files + env.steps.flatMap(\.inputs)
+        let inputPaths = Set(inputDescriptors.map(\.path))
         XCTAssertTrue(
             inputPaths.contains(sidecarURL.path),
             "annotation-bearing exports must record the stable annotations.json sidecar as an input"
         )
+        for requiredURL in [projectionURL, sidecarURL] {
+            let descriptor = try XCTUnwrap(inputDescriptors.first {
+                URL(fileURLWithPath: $0.path).standardizedFileURL
+                    == requiredURL.standardizedFileURL
+            })
+            XCTAssertNotNil(descriptor.checksumSHA256)
+            XCTAssertGreaterThan(descriptor.fileSize ?? 0, 0)
+        }
+        XCTAssertTrue(env.argv.contains("--force"))
     }
 
     func testFullMatrixExportEmbedsMatrixAnnotationsAndStableSidecarProvenance() async throws {
@@ -343,6 +369,323 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         )
         let columns = GenotypeXlsxWorkbookWriter.resolvedSampleColumns(for: projection)
         XCTAssertEqual(columns, ["S1", "S2"])
+    }
+
+    func testProjectionWorkbookAppliesExactReviewsAndNativeScopedNotes() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("genotype-export-semantic-ooxml-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let outputURL = root.appendingPathComponent("semantic.xlsx")
+        let projection = GenotypeViewProjection(
+            lens: "allele",
+            sampleColumns: ["S1", "S2", "S3"],
+            rows: [
+                GenotypeViewProjectionRow(
+                    label: "Collision_nov",
+                    locus: "MHC-A",
+                    stableClusterID: "cluster-a",
+                    cells: ["42", "", ""],
+                    cellColorsHex: ["#FFF2CC", nil, nil]
+                ),
+                GenotypeViewProjectionRow(
+                    label: "Collision_nov",
+                    locus: "MHC-A",
+                    stableClusterID: "cluster-b",
+                    cells: ["17", "-", "0"],
+                    cellColorsHex: ["#D9EAD3", nil, nil]
+                ),
+            ]
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Collision_nov",
+                    sample: "S1",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falsePositive,
+                author: "Analyst A",
+                timestamp: "2026-07-24T01:00:00Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Collision_nov",
+                    sample: "S2",
+                    stableClusterID: "cluster-b"
+                ),
+                disposition: .falseNegative,
+                author: "Analyst B",
+                timestamp: "2026-07-24T01:01:00Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Collision_nov",
+                    sample: "S3",
+                    stableClusterID: "cluster-b"
+                ),
+                disposition: .falseNegative,
+                author: "Analyst B",
+                timestamp: "2026-07-24T01:01:01Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Collision_nov",
+                    sample: "S2",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falsePositive,
+                author: "Imported",
+                timestamp: "2026-07-24T01:01:02Z"
+            ),
+        ]
+        sidecar.matrixComments = [
+            .init(
+                target: .row(locus: "MHC-A", genotype: "Collision_nov", stableClusterID: "cluster-a"),
+                body: "Allele context",
+                author: "Row Author",
+                timestamp: "2026-07-24T02:00:00Z"
+            ),
+            .init(
+                target: .column(sample: "S1"),
+                body: "Sample context",
+                author: "Column Author",
+                timestamp: "2026-07-24T02:01:00Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Collision_nov",
+                    sample: "S1",
+                    stableClusterID: "cluster-a"
+                ),
+                body: "Cell context",
+                author: "Cell Author",
+                timestamp: "2026-07-24T02:02:00Z"
+            ),
+        ]
+        sidecar.auditLog = [
+            .init(
+                action: "setMatrixReview",
+                sample: "cell|locus=MHC-A|genotype=Collision_nov|sample=S1|stableClusterID=cluster-a",
+                locus: "MHC-A",
+                slot: nil,
+                before: nil,
+                after: "falsePositive",
+                color: nil,
+                reason: "passedUniqueReads > 0",
+                rationale: nil,
+                author: "Analyst A",
+                timestamp: "2026-07-24T01:00:00Z"
+            ),
+        ]
+
+        try GenotypeXlsxWorkbookWriter().writeViewProjection(
+            projection,
+            to: outputURL,
+            annotations: sidecar
+        )
+
+        let sheet = try unzipEntry("xl/worksheets/sheet1.xml", from: outputURL)
+        XCTAssertTrue(sheet.contains("<t>Stable Cluster ID</t>"))
+        XCTAssertTrue(sheet.contains("<t>cluster-a</t>"))
+        XCTAssertTrue(sheet.contains("<t>cluster-b</t>"))
+        XCTAssertTrue(sheet.contains("<t>[42]</t>"))
+        XCTAssertTrue(sheet.contains(#"r="D2""#), "cluster-a / S1 must be the false-positive cell")
+        XCTAssertTrue(sheet.contains(#"r="E3""#), "empty false-negative cells must be emitted")
+        XCTAssertTrue(sheet.contains(#"r="F3""#), "explicit-zero false-negative cells must be emitted")
+        XCTAssertTrue(sheet.contains("<t>0</t>"), "false-negative formatting must retain explicit zero")
+        XCTAssertFalse(sheet.contains("<t>-</t>"), "absent false-negative values must remain empty")
+        XCTAssertFalse(sheet.contains("<t>[]</t>"), "invalid false-positive reviews must not format empty cells")
+        XCTAssertTrue(sheet.contains("legacyDrawing"))
+
+        let styles = try unzipEntry("xl/styles.xml", from: outputURL)
+        XCTAssertTrue(styles.contains("<i/>"))
+        XCTAssertTrue(styles.contains("FF767676"))
+        XCTAssertTrue(styles.contains(#"<left style="thick""#))
+        XCTAssertTrue(styles.contains(#"<right style="thick""#))
+        XCTAssertTrue(styles.contains(#"<top style="thick""#))
+        XCTAssertTrue(styles.contains(#"<bottom style="thick""#))
+
+        let comments = try unzipEntry("xl/comments1.xml", from: outputURL)
+        XCTAssertTrue(comments.contains("<authors>"))
+        XCTAssertTrue(comments.contains("Row Author"))
+        XCTAssertTrue(comments.contains("Column Author"))
+        XCTAssertTrue(comments.contains("Cell Author"))
+        let combinedStart = try XCTUnwrap(comments.range(of: #"ref="D2""#)).lowerBound
+        let combinedEnd = try XCTUnwrap(
+            comments.range(of: "</comment>", range: combinedStart..<comments.endIndex)
+        ).upperBound
+        let combinedComment = String(comments[combinedStart..<combinedEnd])
+        let alleleRange = try XCTUnwrap(combinedComment.range(of: "Allele Row"))
+        let sampleRange = try XCTUnwrap(combinedComment.range(of: "Sample Column"))
+        let cellRange = try XCTUnwrap(combinedComment.range(of: "Cell"))
+        XCTAssertLessThan(alleleRange.lowerBound, sampleRange.lowerBound)
+        XCTAssertLessThan(sampleRange.lowerBound, cellRange.lowerBound)
+        XCTAssertEqual(comments.components(separatedBy: #"ref="D2""#).count - 1, 1)
+
+        let vml = try unzipEntry("xl/drawings/commentsDrawing1.vml", from: outputURL)
+        XCTAssertTrue(vml.contains("<x:Row>1</x:Row>"))
+        XCTAssertTrue(vml.contains("<x:Column>3</x:Column>"))
+        let sheetRels = try unzipEntry("xl/worksheets/_rels/sheet1.xml.rels", from: outputURL)
+        XCTAssertTrue(sheetRels.contains("relationships/comments"))
+        XCTAssertTrue(sheetRels.contains("relationships/vmlDrawing"))
+        let contentTypes = try unzipEntry("[Content_Types].xml", from: outputURL)
+        XCTAssertTrue(contentTypes.contains("/xl/comments1.xml"))
+        XCTAssertTrue(contentTypes.contains(#"Extension="vml""#))
+
+        let annotationSheet = try unzipEntry("xl/worksheets/sheet2.xml", from: outputURL)
+        XCTAssertTrue(annotationSheet.contains("<t>Disposition</t>"))
+        XCTAssertTrue(annotationSheet.contains("<t>Validation Status</t>"))
+        XCTAssertTrue(annotationSheet.contains("falsePositive"))
+        XCTAssertTrue(annotationSheet.contains("falseNegative"))
+        XCTAssertTrue(annotationSheet.contains("valid"))
+        XCTAssertTrue(annotationSheet.contains("invalid"))
+        XCTAssertTrue(annotationSheet.contains("passedUniqueReads &gt; 0"))
+        let auditSheet = try unzipEntry("xl/worksheets/sheet3.xml", from: outputURL)
+        XCTAssertTrue(auditSheet.contains("setMatrixReview"))
+        XCTAssertTrue(auditSheet.contains("stableClusterID=cluster-a"))
+        XCTAssertTrue(auditSheet.contains("matrixReviewExportValidation"))
+        XCTAssertTrue(
+            auditSheet.contains("cell S2 MHC-A Collision_nov [cluster-a]")
+        )
+        XCTAssertTrue(auditSheet.contains(">invalid<"))
+        XCTAssertTrue(auditSheet.contains("False-positive reviews require passedUniqueReads &gt; 0."))
+
+        let csv = GenotypeXlsxWorkbookWriter.renderDelimited(projection, separator: ",")
+        XCTAssertTrue(csv.contains("MHC-A,Collision_nov,42,"))
+        XCTAssertFalse(csv.contains("[42]"), "semantic Excel typography must not alter delimited values")
+    }
+
+    func testProjectionWorkbookFailsClosedForConflictingDuplicateImportedReviews() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("genotype-export-conflicting-reviews-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let projection = GenotypeViewProjection(
+            lens: "allele",
+            sampleColumns: ["S1"],
+            rows: [
+                GenotypeViewProjectionRow(
+                    label: "Collision_nov",
+                    locus: "MHC-A",
+                    stableClusterID: "cluster-a",
+                    cells: ["42"]
+                )
+            ]
+        )
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "Collision_nov",
+            sample: "S1",
+            stableClusterID: "cluster-a"
+        )
+        let falsePositive = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
+            target: target,
+            disposition: .falsePositive,
+            author: "FP Author",
+            timestamp: "2026-07-24T03:00:00Z"
+        )
+        let falseNegative = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
+            target: target,
+            disposition: .falseNegative,
+            author: "FN Author",
+            timestamp: "2026-07-24T03:01:00Z"
+        )
+
+        for (offset, reviews) in [
+            [falsePositive, falseNegative],
+            [falseNegative, falsePositive],
+        ].enumerated() {
+            var sidecar = GenotypeAnnotationSidecar.empty(
+                generatedAt: "2026-07-24T00:00:00Z"
+            )
+            sidecar.matrixReviews = reviews
+            let outputURL = root.appendingPathComponent("conflict-\(offset).xlsx")
+
+            try GenotypeXlsxWorkbookWriter().writeViewProjection(
+                projection,
+                to: outputURL,
+                annotations: sidecar
+            )
+
+            let sheet = try unzipEntry("xl/worksheets/sheet1.xml", from: outputURL)
+            XCTAssertTrue(sheet.contains(#"<c r="D2" s="3" t="inlineStr"><is><t>42</t>"#))
+            XCTAssertFalse(sheet.contains("[42]"))
+
+            for entry in ["xl/worksheets/sheet2.xml", "xl/worksheets/sheet3.xml"] {
+                let semanticSheet = try unzipEntry(entry, from: outputURL)
+                XCTAssertEqual(
+                    semanticSheet.components(separatedBy: ">invalid<").count - 1,
+                    2
+                )
+                XCTAssertEqual(
+                    semanticSheet.components(
+                        separatedBy: "Conflicting duplicate review records target the same projection cell."
+                    ).count - 1,
+                    2
+                )
+                XCTAssertTrue(semanticSheet.contains("falsePositive"))
+                XCTAssertTrue(semanticSheet.contains("falseNegative"))
+                XCTAssertTrue(semanticSheet.contains("FP Author"))
+                XCTAssertTrue(semanticSheet.contains("FN Author"))
+            }
+        }
+    }
+
+    func testFullMatrixListsExactCellReviewsAsUnappliedInsteadOfHeuristicMatching() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("genotype-export-full-unapplied-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let outputURL = root.appendingPathComponent("matrix.xlsx")
+        let matrix = GenotypeXlsxWorkbookWriter.Matrix(
+            loci: ["MHC-A"],
+            rows: [
+                .init(sample: "S1", cells: [.haplotype("M1A", 1), .absent])
+            ]
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Collision_nov",
+                    sample: "S1",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falsePositive,
+                author: "Analyst",
+                timestamp: "2026-07-24T01:00:00Z"
+            )
+        ]
+
+        try GenotypeXlsxWorkbookWriter().writeMatrix(
+            to: outputURL,
+            matrix: matrix,
+            overrides: [],
+            audit: [],
+            annotations: sidecar
+        )
+
+        let matrixSheet = try unzipEntry("xl/worksheets/sheet1.xml", from: outputURL)
+        XCTAssertFalse(matrixSheet.contains("[M1A]"))
+        let annotations = try unzipEntry("xl/worksheets/sheet5.xml", from: outputURL)
+        XCTAssertTrue(annotations.contains("falsePositive"))
+        XCTAssertTrue(annotations.contains("unapplied"))
+        XCTAssertTrue(annotations.contains("sample-by-haplotype"))
+        let audit = try unzipEntry("xl/worksheets/sheet4.xml", from: outputURL)
+        XCTAssertTrue(audit.contains("matrixReviewExportValidation"))
+        XCTAssertTrue(audit.contains("cell S1 MHC-A Collision_nov [cluster-a]"))
+        XCTAssertTrue(audit.contains(">falsePositive<"))
+        XCTAssertTrue(audit.contains(">unapplied<"))
+        XCTAssertTrue(audit.contains("Analyst"))
+        XCTAssertTrue(audit.contains("2026-07-24T01:00:00Z"))
     }
 
     // MARK: - Fixture

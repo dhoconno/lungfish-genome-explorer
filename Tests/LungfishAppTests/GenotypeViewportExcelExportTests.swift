@@ -25,6 +25,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
                 GenotypeViewportExportRow(
                     genotype: "01_M1_A_01",
                     locus: "MHC-A",
+                    stableClusterID: "cluster-viewport-1",
                     sampleCount: 1,
                     totalUniqueReads: 42,
                     sampleReads: ["AnimalA": 42],
@@ -75,6 +76,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         let projectedRow = try XCTUnwrap(projection.rows.first)
         XCTAssertEqual(projectedRow.label, "01_M1_A_01")
         XCTAssertEqual(projectedRow.locus, "MHC-A")
+        XCTAssertEqual(projectedRow.stableClusterID, "cluster-viewport-1")
         XCTAssertEqual(projectedRow.cells.count, projection.sampleColumns.count)
         XCTAssertEqual(projectedRow.cells, ["42", ""])
         let cellColors = try XCTUnwrap(projectedRow.cellColorsHex)
@@ -263,6 +265,56 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
                 to: outputURL
             )
         )
+    }
+
+    func testFailedOverwriteRestoresExistingOutputProvenanceAndProjection() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceBundle = try makeBundle(in: root, named: "test.lungfishgenotype")
+        let outputURL = root.appendingPathComponent("export.xlsx").standardizedFileURL
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let projectionURL = outputURL.appendingPathExtension("view-projection.json")
+        let priorOutput = Data("prior-workbook".utf8)
+        let priorProvenance = Data("prior-provenance".utf8)
+        let priorProjection = Data("prior-projection".utf8)
+        try priorOutput.write(to: outputURL)
+        try priorProvenance.write(to: provenanceURL)
+        try priorProjection.write(to: projectionURL)
+
+        let snapshot = GenotypeViewportExportSnapshot(
+            bundleURL: sourceBundle,
+            analysisName: "test",
+            lens: "summary.matrix",
+            filters: [:],
+            sampleNames: ["AnimalA"],
+            rows: [
+                GenotypeViewportExportRow(
+                    genotype: "01_M1_A_01",
+                    locus: "MHC-A",
+                    sampleCount: 1,
+                    totalUniqueReads: 42,
+                    sampleReads: ["AnimalA": 42],
+                    rowStyle: GenotypeResultHighlightStyle(),
+                    cellStyles: [:]
+                )
+            ]
+        )
+
+        let runner = StubGenotypeExportCLIRunner(
+            writesOutput: true,
+            writesProvenance: false
+        )
+        XCTAssertThrowsError(
+            try GenotypeViewportExportService(runner: runner).export(
+                snapshot: snapshot,
+                format: .excel,
+                to: outputURL
+            )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: outputURL), priorOutput)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), priorProvenance)
+        XCTAssertEqual(try Data(contentsOf: projectionURL), priorProjection)
     }
 
     func testProjectionPadsRaggedRowsToColumnCount() throws {

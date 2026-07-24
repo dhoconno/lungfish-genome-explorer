@@ -473,6 +473,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return GenotypeViewportExportRow(
                 genotype: row.genotype,
                 locus: row.locus,
+                stableClusterID: row.stableClusterID,
                 sampleCount: reads.count,
                 totalUniqueReads: reads.values.reduce(0, +),
                 sampleReads: reads,

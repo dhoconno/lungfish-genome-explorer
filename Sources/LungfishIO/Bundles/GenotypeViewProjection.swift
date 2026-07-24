@@ -54,6 +54,11 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
     /// Older projection JSON omits this and remains decodable.
     public let locus: String?
 
+    /// Optional stable candidate identity used to disambiguate rows whose
+    /// rendered genotype labels and loci are identical. Older projection JSON
+    /// omits this and decodes it as `nil`.
+    public let stableClusterID: String?
+
     /// Cell values aligned positionally to the projection's `sampleColumns`.
     /// An empty / absent cell is the empty string (or `"-"`).
     public let cells: [String]
@@ -71,12 +76,14 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
     public init(
         label: String,
         locus: String? = nil,
+        stableClusterID: String? = nil,
         cells: [String],
         cellColorsHex: [String?]? = nil,
         rowColorHex: String? = nil
     ) {
         self.label = label
         self.locus = locus
+        self.stableClusterID = stableClusterID
         self.cells = cells
         self.cellColorsHex = cellColorsHex
         self.rowColorHex = rowColorHex

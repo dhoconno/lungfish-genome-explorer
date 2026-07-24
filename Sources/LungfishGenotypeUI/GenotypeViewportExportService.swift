@@ -107,7 +107,6 @@ struct GenotypeViewportExportService {
         let projection = GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
         let projectionURL = standardizedOutputURL.appendingPathExtension("view-projection.json")
         let projectionData = try JSONEncoder().encode(projection)
-        try projectionData.write(to: projectionURL, options: .atomic)
 
         var arguments = [
             "genotype", "export",
@@ -135,7 +134,12 @@ struct GenotypeViewportExportService {
         }
         arguments.append("--force")
 
+        let rollbackSnapshot = try GenotypeViewportExportRollbackSnapshot(
+            urls: [standardizedOutputURL, provenanceURL, projectionURL],
+            fileManager: fileManager
+        )
         do {
+            try projectionData.write(to: projectionURL, options: .atomic)
             _ = try runner.run(arguments: arguments)
             guard fileManager.fileExists(atPath: standardizedOutputURL.path) else {
                 throw GenotypeViewportExportError.missingOutput(standardizedOutputURL.path)
@@ -148,14 +152,20 @@ struct GenotypeViewportExportService {
                 outputURL: standardizedOutputURL,
                 expectedInputURLs: [projectionURL] + (snapshot.annotationSidecarURL.map { [$0] } ?? [])
             )
+            rollbackSnapshot.discard()
             return GenotypeViewportExportResult(
                 outputURL: standardizedOutputURL,
                 provenanceURL: provenanceURL
             )
         } catch {
-            try? fileManager.removeItem(at: standardizedOutputURL)
-            try? fileManager.removeItem(at: provenanceURL)
-            try? fileManager.removeItem(at: projectionURL)
+            do {
+                try rollbackSnapshot.restore()
+            } catch let rollbackError {
+                throw GenotypeViewportExportError.rollbackFailed(
+                    original: String(describing: error),
+                    rollback: String(describing: rollbackError)
+                )
+            }
             throw error
         }
     }
@@ -255,6 +265,7 @@ enum GenotypeViewProjectionSerializer {
             return GenotypeViewProjectionRow(
                 label: row.genotype,
                 locus: row.locus,
+                stableClusterID: row.stableClusterID,
                 cells: cells,
                 cellColorsHex: hasAnyCellColor ? cellColors : nil,
                 rowColorHex: normalizedHex(row.rowStyle.fillColor)
@@ -280,10 +291,103 @@ enum GenotypeViewProjectionSerializer {
     }
 }
 
+/// Keeps a byte-for-byte rollback copy of every durable file in a viewport
+/// export generation. The CLI is allowed to atomically replace individual
+/// files; if the runner or the cross-file provenance verification fails, this
+/// restores the prior output/provenance/projection trio instead of deleting it.
+private final class GenotypeViewportExportRollbackSnapshot {
+    private struct Entry {
+        let destinationURL: URL
+        let backupURL: URL?
+    }
+
+    private let fileManager: FileManager
+    private let backupDirectoryURL: URL
+    private var entries: [Entry] = []
+    private var isFinished = false
+
+    init(urls: [URL], fileManager: FileManager) throws {
+        self.fileManager = fileManager
+        backupDirectoryURL = urls[0].deletingLastPathComponent().appendingPathComponent(
+            ".lungfish-genotype-export-rollback-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        do {
+            try fileManager.createDirectory(
+                at: backupDirectoryURL,
+                withIntermediateDirectories: false
+            )
+            for (index, url) in urls.enumerated() {
+                let backupURL: URL?
+                if fileManager.fileExists(atPath: url.path) {
+                    let candidate = backupDirectoryURL.appendingPathComponent(String(index))
+                    try fileManager.copyItem(at: url, to: candidate)
+                    backupURL = candidate
+                } else {
+                    backupURL = nil
+                }
+                entries.append(Entry(destinationURL: url, backupURL: backupURL))
+            }
+        } catch {
+            try? fileManager.removeItem(at: backupDirectoryURL)
+            throw error
+        }
+    }
+
+    func restore() throws {
+        guard !isFinished else { return }
+        var failures: [String] = []
+        for entry in entries {
+            do {
+                if let backupURL = entry.backupURL {
+                    if fileManager.fileExists(atPath: entry.destinationURL.path) {
+                        _ = try fileManager.replaceItemAt(
+                            entry.destinationURL,
+                            withItemAt: backupURL
+                        )
+                    } else {
+                        try fileManager.moveItem(
+                            at: backupURL,
+                            to: entry.destinationURL
+                        )
+                    }
+                } else if fileManager.fileExists(atPath: entry.destinationURL.path) {
+                    try fileManager.removeItem(at: entry.destinationURL)
+                }
+            } catch {
+                failures.append("\(entry.destinationURL.path): \(error)")
+            }
+        }
+        isFinished = true
+        try? fileManager.removeItem(at: backupDirectoryURL)
+        if !failures.isEmpty {
+            throw NSError(
+                domain: "GenotypeViewportExportRollbackSnapshot",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Failed to restore viewport export generation: \(failures.joined(separator: "; "))"
+                ]
+            )
+        }
+    }
+
+    func discard() {
+        guard !isFinished else { return }
+        isFinished = true
+        try? fileManager.removeItem(at: backupDirectoryURL)
+    }
+
+    deinit {
+        discard()
+    }
+}
+
 enum GenotypeViewportExportError: Error, LocalizedError, Equatable {
     case missingOutput(String)
     case missingProvenance(String)
     case invalidProvenance(String)
+    case rollbackFailed(original: String, rollback: String)
 
     var errorDescription: String? {
         switch self {
@@ -293,6 +397,8 @@ enum GenotypeViewportExportError: Error, LocalizedError, Equatable {
             return "The genotype export did not create required provenance at \(path)."
         case .invalidProvenance(let path):
             return "The genotype export provenance is missing required lungfish-cli execution metadata at \(path)."
+        case .rollbackFailed(let original, let rollback):
+            return "The genotype export failed (\(original)) and its prior files could not be restored (\(rollback))."
         }
     }
 }

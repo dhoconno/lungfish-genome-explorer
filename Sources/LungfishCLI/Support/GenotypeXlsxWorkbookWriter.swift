@@ -170,12 +170,19 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
 
     /// Audit-trail row mirrored from `annotations.json`.
     struct AuditRow {
-        let action, sample, locus, slot, before, after, author, timestamp: String
+        let action, target, disposition, validationStatus, validationReason: String
+        let sample, locus, slot, before, after, author, timestamp: String
         init(
             action: String, sample: String, locus: String, slot: String,
-            before: String, after: String, author: String, timestamp: String
+            before: String, after: String, author: String, timestamp: String,
+            target: String = "", disposition: String = "",
+            validationStatus: String = "", validationReason: String = ""
         ) {
             self.action = action
+            self.target = target
+            self.disposition = disposition
+            self.validationStatus = validationStatus
+            self.validationReason = validationReason
             self.sample = sample
             self.locus = locus
             self.slot = slot
@@ -193,6 +200,9 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         let locus: String
         let genotype: String
         let stableClusterID: String
+        let disposition: String
+        let validationStatus: String
+        let validationReason: String
         let fillColor: String
         let textColor: String
         let borderColor: String
@@ -235,7 +245,22 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         try fm.createDirectory(at: buildDir.appendingPathComponent("xl/_rels"), withIntermediateDirectories: true)
         try fm.createDirectory(at: buildDir.appendingPathComponent("xl/worksheets"), withIntermediateDirectories: true)
 
-        let annotationRows = matrixAnnotationRows(from: sidecar)
+        let fullMatrixReviewValidation:
+            (GenotypeAnnotationSidecar.MatrixReviewAnnotation) -> (status: String, reason: String) =
+                { _ in
+                    (
+                        "unapplied",
+                        "The full Matrix worksheet is sample-by-haplotype and does not carry exact genotype-row identity."
+                    )
+                }
+        let annotationRows = matrixAnnotationRows(
+            from: sidecar,
+            reviewValidation: fullMatrixReviewValidation
+        )
+        let exportAudit = audit + matrixReviewAuditRows(
+            from: sidecar,
+            reviewValidation: fullMatrixReviewValidation
+        )
         let hasAnnotations = !annotationRows.isEmpty
 
         try Self.matrixContentTypesXML(includeAnnotations: hasAnnotations)
@@ -249,7 +274,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         try makeMatrixSheet(matrix).write(to: buildDir.appendingPathComponent("xl/worksheets/sheet1.xml"), atomically: true, encoding: .utf8)
         try makeLegendSheet().write(to: buildDir.appendingPathComponent("xl/worksheets/sheet2.xml"), atomically: true, encoding: .utf8)
         try makeOverridesSheet(overrides).write(to: buildDir.appendingPathComponent("xl/worksheets/sheet3.xml"), atomically: true, encoding: .utf8)
-        try makeAuditSheet(audit).write(to: buildDir.appendingPathComponent("xl/worksheets/sheet4.xml"), atomically: true, encoding: .utf8)
+        try makeAuditSheet(exportAudit).write(to: buildDir.appendingPathComponent("xl/worksheets/sheet4.xml"), atomically: true, encoding: .utf8)
         if hasAnnotations {
             try makeMatrixAnnotationsSheet(annotationRows).write(
                 to: buildDir.appendingPathComponent("xl/worksheets/sheet5.xml"),
@@ -286,20 +311,44 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         // The view sheet draws ad-hoc colors from the projection, so it
         // carries its own dynamic style table built from the hex strings
         // present in the projection (plus the canonical body/header styles).
-        let palette = ProjectionPalette(projection: projection)
+        let semantics = ProjectionSemantics(projection: projection, sidecar: sidecar)
+        let palette = ProjectionPalette(projection: projection, reviews: semantics.validReviews)
 
-        let annotationRows = matrixAnnotationRows(from: sidecar)
+        let annotationRows = matrixAnnotationRows(
+            from: sidecar,
+            reviewValidation: { review in
+                semantics.validationByTarget[review.target]
+                    ?? ("invalid", "No exact projection cell matches the review target.")
+            }
+        )
         let hasAnnotations = !annotationRows.isEmpty
+        let reviewAuditRows = matrixReviewAuditRows(
+            from: sidecar,
+            reviewValidation: { review in
+                semantics.validationByTarget[review.target]
+                    ?? ("invalid", "No exact projection cell matches the review target.")
+            }
+        )
+        let hasAudit = !(sidecar?.auditLog.isEmpty ?? true) || !reviewAuditRows.isEmpty
 
-        try Self.projectionContentTypesXML(includeAnnotations: hasAnnotations)
+        try Self.projectionContentTypesXML(
+            includeAnnotations: hasAnnotations,
+            includeAudit: hasAudit,
+            includeComments: !semantics.notes.isEmpty
+        )
             .write(to: buildDir.appendingPathComponent("[Content_Types].xml"), atomically: true, encoding: .utf8)
         try Self.rootRelsXML.write(to: buildDir.appendingPathComponent("_rels/.rels"), atomically: true, encoding: .utf8)
-        try Self.projectionWorkbookXML(includeAnnotations: hasAnnotations)
+        try Self.projectionWorkbookXML(includeAnnotations: hasAnnotations, includeAudit: hasAudit)
             .write(to: buildDir.appendingPathComponent("xl/workbook.xml"), atomically: true, encoding: .utf8)
-        try Self.projectionWorkbookRelsXML(includeAnnotations: hasAnnotations)
+        try Self.projectionWorkbookRelsXML(includeAnnotations: hasAnnotations, includeAudit: hasAudit)
             .write(to: buildDir.appendingPathComponent("xl/_rels/workbook.xml.rels"), atomically: true, encoding: .utf8)
         try palette.stylesXML.write(to: buildDir.appendingPathComponent("xl/styles.xml"), atomically: true, encoding: .utf8)
-        try makeProjectionSheet(projection, palette: palette).write(
+        try makeProjectionSheet(
+            projection,
+            palette: palette,
+            semantics: semantics,
+            includeLegacyDrawing: !semantics.notes.isEmpty
+        ).write(
             to: buildDir.appendingPathComponent("xl/worksheets/sheet1.xml"),
             atomically: true,
             encoding: .utf8
@@ -307,6 +356,50 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         if hasAnnotations {
             try makeMatrixAnnotationsSheet(annotationRows).write(
                 to: buildDir.appendingPathComponent("xl/worksheets/sheet2.xml"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        if hasAudit, let sidecar {
+            let auditRows = sidecar.auditLog.map {
+                AuditRow(
+                    action: $0.action,
+                    sample: $0.sample,
+                    locus: $0.locus ?? "",
+                    slot: $0.slot?.rawValue ?? "",
+                    before: $0.before ?? "",
+                    after: $0.after ?? "",
+                    author: $0.author,
+                    timestamp: $0.timestamp
+                )
+            } + reviewAuditRows
+            try makeAuditSheet(auditRows).write(
+                to: buildDir.appendingPathComponent("xl/worksheets/sheet3.xml"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        if !semantics.notes.isEmpty {
+            try fm.createDirectory(
+                at: buildDir.appendingPathComponent("xl/worksheets/_rels"),
+                withIntermediateDirectories: true
+            )
+            try fm.createDirectory(
+                at: buildDir.appendingPathComponent("xl/drawings"),
+                withIntermediateDirectories: true
+            )
+            try makeCommentsXML(semantics.notes).write(
+                to: buildDir.appendingPathComponent("xl/comments1.xml"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try makeCommentsVML(semantics.notes).write(
+                to: buildDir.appendingPathComponent("xl/drawings/commentsDrawing1.vml"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try Self.commentsSheetRelationshipsXML.write(
+                to: buildDir.appendingPathComponent("xl/worksheets/_rels/sheet1.xml.rels"),
                 atomically: true,
                 encoding: .utf8
             )
@@ -454,13 +547,17 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
     private func makeAuditSheet(_ rows: [AuditRow]) -> String {
         var sheet = sheetHeader()
         sheet += rowXML(index: 1, cells: [
-            .header("Action"), .header("Sample"), .header("Locus"),
+            .header("Action"), .header("Target"), .header("Disposition"),
+            .header("Validation Status"), .header("Validation Reason"),
+            .header("Sample"), .header("Locus"),
             .header("Slot"), .header("Before"), .header("After"),
             .header("Author"), .header("Timestamp")
         ])
         for (i, r) in rows.enumerated() {
             sheet += rowXML(index: i + 2, cells: [
-                .body(r.action), .body(r.sample), .body(r.locus),
+                .body(r.action), .body(r.target), .body(r.disposition),
+                .body(r.validationStatus), .body(r.validationReason),
+                .body(r.sample), .body(r.locus),
                 .body(r.slot), .body(r.before), .body(r.after),
                 .body(r.author), .body(r.timestamp)
             ])
@@ -478,6 +575,9 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
             .header("Locus"),
             .header("Genotype"),
             .header("Stable Cluster ID"),
+            .header("Disposition"),
+            .header("Validation Status"),
+            .header("Validation Reason"),
             .header("Fill Color"),
             .header("Text Color"),
             .header("Border Color"),
@@ -497,6 +597,9 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                 .body(row.locus),
                 .body(row.genotype),
                 .body(row.stableClusterID),
+                .body(row.disposition),
+                .body(row.validationStatus),
+                .body(row.validationReason),
                 .body(row.fillColor),
                 .body(row.textColor),
                 .body(row.borderColor),
@@ -513,10 +616,19 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         return sheet
     }
 
-    private func matrixAnnotationRows(from sidecar: GenotypeAnnotationSidecar?) -> [MatrixAnnotationRow] {
+    private func matrixAnnotationRows(
+        from sidecar: GenotypeAnnotationSidecar?,
+        reviewValidation: (
+            (GenotypeAnnotationSidecar.MatrixReviewAnnotation) -> (status: String, reason: String)
+        )? = nil
+    ) -> [MatrixAnnotationRow] {
         guard let sidecar else { return [] }
         var rows: [MatrixAnnotationRow] = []
-        rows.reserveCapacity(sidecar.matrixStyles.count + sidecar.matrixComments.count)
+        rows.reserveCapacity(
+            sidecar.matrixStyles.count
+                + sidecar.resolvedMatrixComments.count
+                + sidecar.matrixReviews.count
+        )
         for style in sidecar.matrixStyles {
             let target = matrixTargetFields(style.target)
             rows.append(MatrixAnnotationRow(
@@ -526,6 +638,9 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                 locus: target.locus,
                 genotype: target.genotype,
                 stableClusterID: target.stableClusterID,
+                disposition: "",
+                validationStatus: "not-applicable",
+                validationReason: "",
                 fillColor: style.style.fillColor ?? "",
                 textColor: style.style.textColor ?? "",
                 borderColor: style.style.borderColor ?? "",
@@ -538,7 +653,9 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                 timestamp: style.timestamp
             ))
         }
-        for comment in sidecar.matrixComments {
+        for comment in sidecar.resolvedMatrixComments.values.sorted(by: {
+            $0.target.stableAuditDescription < $1.target.stableAuditDescription
+        }) {
             let target = matrixTargetFields(comment.target)
             rows.append(MatrixAnnotationRow(
                 recordType: "comment",
@@ -547,6 +664,9 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                 locus: target.locus,
                 genotype: target.genotype,
                 stableClusterID: target.stableClusterID,
+                disposition: "",
+                validationStatus: "not-applicable",
+                validationReason: "",
                 fillColor: "",
                 textColor: "",
                 borderColor: "",
@@ -559,7 +679,63 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                 timestamp: comment.timestamp
             ))
         }
+        for review in sidecar.matrixReviews {
+            let target = matrixTargetFields(review.target)
+            let validation: (status: String, reason: String) = reviewValidation?(review)
+                ?? (
+                    status: "unapplied",
+                    reason: "No workbook validation context was supplied."
+                )
+            rows.append(MatrixAnnotationRow(
+                recordType: "review",
+                targetKind: target.kind,
+                sample: target.sample,
+                locus: target.locus,
+                genotype: target.genotype,
+                stableClusterID: target.stableClusterID,
+                disposition: review.disposition.rawValue,
+                validationStatus: validation.status,
+                validationReason: validation.reason,
+                fillColor: "",
+                textColor: "",
+                borderColor: "",
+                isBold: "",
+                boldOverride: "",
+                isItalic: "",
+                italicOverride: "",
+                comment: "",
+                author: review.author,
+                timestamp: review.timestamp
+            ))
+        }
         return rows
+    }
+
+    private func matrixReviewAuditRows(
+        from sidecar: GenotypeAnnotationSidecar?,
+        reviewValidation: (
+            (GenotypeAnnotationSidecar.MatrixReviewAnnotation) -> (status: String, reason: String)
+        )
+    ) -> [AuditRow] {
+        guard let sidecar else { return [] }
+        return sidecar.matrixReviews.map { review in
+            let target = matrixTargetFields(review.target)
+            let validation = reviewValidation(review)
+            return AuditRow(
+                action: "matrixReviewExportValidation",
+                sample: target.sample,
+                locus: target.locus,
+                slot: "",
+                before: "",
+                after: "",
+                author: review.author,
+                timestamp: review.timestamp,
+                target: review.target.stableAuditDescription,
+                disposition: review.disposition.rawValue,
+                validationStatus: validation.status,
+                validationReason: validation.reason
+            )
+        }
     }
 
     private func matrixTargetFields(
@@ -577,27 +753,305 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
 
     private func makeProjectionSheet(
         _ projection: GenotypeViewProjection,
-        palette: ProjectionPalette
+        palette: ProjectionPalette,
+        semantics: ProjectionSemantics,
+        includeLegacyDrawing: Bool
     ) -> String {
         var sheet = sheetHeader()
         // Header: stable row identity columns + one column per visible sample.
-        var header: [StyledCell] = [.header("Locus"), .header("Row")]
+        var header: [StyledCell] = [
+            .header("Locus"),
+            .header("Row"),
+            .header("Stable Cluster ID"),
+        ]
         for sample in projection.sampleColumns {
             header.append(.header(sample))
         }
         sheet += rowXML(index: 1, cells: header)
 
         for (offset, row) in projection.rows.enumerated() {
-            var cells: [StyledCell] = [.body(row.locus ?? ""), projectionLabelCell(row, palette: palette)]
+            var cells: [StyledCell] = [
+                .body(row.locus ?? ""),
+                projectionLabelCell(row, palette: palette),
+                .body(row.stableClusterID ?? ""),
+            ]
             for (column, _) in projection.sampleColumns.enumerated() {
                 let value = column < row.cells.count ? row.cells[column] : ""
                 let hex = projectionCellHex(row, column: column)
-                cells.append(palette.styledCell(value: value, hex: hex))
+                let review = semantics.validReviews[
+                    ProjectionCoordinate(row: offset, sampleColumn: column)
+                ]
+                let displayValue: String
+                if review == .falsePositive {
+                    displayValue = "[\(value)]"
+                } else if review == .falseNegative,
+                          value.trimmingCharacters(in: .whitespacesAndNewlines) == "-" {
+                    displayValue = ""
+                } else {
+                    displayValue = value
+                }
+                cells.append(palette.styledCell(value: displayValue, hex: hex, review: review))
             }
             sheet += rowXML(index: offset + 2, cells: cells)
         }
-        sheet += sheetFooter()
+        sheet += sheetFooter(includeLegacyDrawing: includeLegacyDrawing)
         return sheet
+    }
+
+    fileprivate struct ProjectionCoordinate: Hashable {
+        let row: Int
+        let sampleColumn: Int
+    }
+
+    private struct ProjectionNoteSection {
+        let label: String
+        let body: String
+        let author: String
+        let timestamp: String
+
+        var renderedText: String {
+            """
+            \(label)
+            Body: \(body)
+            Author: \(author)
+            Timestamp: \(timestamp)
+            """
+        }
+    }
+
+    private struct NativeNote {
+        let reference: String
+        let zeroBasedRow: Int
+        let zeroBasedColumn: Int
+        let sections: [ProjectionNoteSection]
+
+        var body: String {
+            sections.map(\.renderedText).joined(separator: "\n\n")
+        }
+    }
+
+    private struct ProjectionSemantics {
+        let validReviews: [
+            ProjectionCoordinate: GenotypeAnnotationSidecar.MatrixReviewDisposition
+        ]
+        let validationByTarget: [
+            GenotypeAnnotationSidecar.MatrixTarget: (status: String, reason: String)
+        ]
+        let notes: [NativeNote]
+
+        init(
+            projection: GenotypeViewProjection,
+            sidecar: GenotypeAnnotationSidecar?
+        ) {
+            guard let sidecar else {
+                validReviews = [:]
+                validationByTarget = [:]
+                notes = []
+                return
+            }
+
+            var reviews: [
+                ProjectionCoordinate: GenotypeAnnotationSidecar.MatrixReviewDisposition
+            ] = [:]
+            var validation: [
+                GenotypeAnnotationSidecar.MatrixTarget: (status: String, reason: String)
+            ] = [:]
+            let reviewCountByTarget = Dictionary(
+                grouping: sidecar.matrixReviews,
+                by: \.target
+            ).mapValues(\.count)
+            for review in sidecar.matrixReviews {
+                if reviewCountByTarget[review.target, default: 0] > 1 {
+                    validation[review.target] = (
+                        "invalid",
+                        "Conflicting duplicate review records target the same projection cell."
+                    )
+                    continue
+                }
+                guard case let .cell(locus, genotype, sample, stableClusterID) = review.target else {
+                    validation[review.target] = (
+                        "invalid",
+                        "Matrix reviews require an exact cell target."
+                    )
+                    continue
+                }
+                let matchingRows = projection.rows.indices.filter { index in
+                    let row = projection.rows[index]
+                    return row.locus == locus
+                        && row.label == genotype
+                        && row.stableClusterID == stableClusterID
+                }
+                guard matchingRows.count == 1,
+                      let sampleColumn = projection.sampleColumns.firstIndex(of: sample),
+                      projection.sampleColumns.lastIndex(of: sample) == sampleColumn else {
+                    validation[review.target] = (
+                        "invalid",
+                        "No unique projection cell matches the exact locus, genotype, sample, and stable cluster ID."
+                    )
+                    continue
+                }
+                let rowIndex = matchingRows[0]
+                let rawValue = sampleColumn < projection.rows[rowIndex].cells.count
+                    ? projection.rows[rowIndex].cells[sampleColumn]
+                    : ""
+                let evidence = Self.numericEvidence(rawValue)
+                switch review.disposition {
+                case .falsePositive:
+                    guard let evidence, evidence > 0 else {
+                        validation[review.target] = (
+                            "invalid",
+                            "False-positive reviews require passedUniqueReads > 0."
+                        )
+                        continue
+                    }
+                case .falseNegative:
+                    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard trimmed.isEmpty
+                            || trimmed == "-"
+                            || evidence == 0 else {
+                        validation[review.target] = (
+                            "invalid",
+                            "False-negative reviews require zero or absent passedUniqueReads."
+                        )
+                        continue
+                    }
+                }
+                reviews[ProjectionCoordinate(row: rowIndex, sampleColumn: sampleColumn)] =
+                    review.disposition
+                validation[review.target] = ("valid", "")
+            }
+
+            let comments = sidecar.resolvedMatrixComments
+            var rowComments: [Int: GenotypeAnnotationSidecar.MatrixComment] = [:]
+            var columnComments: [Int: GenotypeAnnotationSidecar.MatrixComment] = [:]
+            var cellComments: [
+                ProjectionCoordinate: GenotypeAnnotationSidecar.MatrixComment
+            ] = [:]
+            for comment in comments.values {
+                switch comment.target {
+                case let .row(locus, genotype, stableClusterID):
+                    let matches = projection.rows.indices.filter {
+                        projection.rows[$0].locus == locus
+                            && projection.rows[$0].label == genotype
+                            && projection.rows[$0].stableClusterID == stableClusterID
+                    }
+                    if matches.count == 1 {
+                        rowComments[matches[0]] = comment
+                    }
+                case let .column(sample):
+                    if let index = projection.sampleColumns.firstIndex(of: sample),
+                       projection.sampleColumns.lastIndex(of: sample) == index {
+                        columnComments[index] = comment
+                    }
+                case let .cell(locus, genotype, sample, stableClusterID):
+                    let matches = projection.rows.indices.filter {
+                        projection.rows[$0].locus == locus
+                            && projection.rows[$0].label == genotype
+                            && projection.rows[$0].stableClusterID == stableClusterID
+                    }
+                    if matches.count == 1,
+                       let sampleIndex = projection.sampleColumns.firstIndex(of: sample),
+                       projection.sampleColumns.lastIndex(of: sample) == sampleIndex {
+                        cellComments[
+                            ProjectionCoordinate(row: matches[0], sampleColumn: sampleIndex)
+                        ] = comment
+                    }
+                }
+            }
+
+            func section(
+                _ label: String,
+                _ comment: GenotypeAnnotationSidecar.MatrixComment
+            ) -> ProjectionNoteSection {
+                ProjectionNoteSection(
+                    label: label,
+                    body: comment.body,
+                    author: comment.author,
+                    timestamp: comment.timestamp
+                )
+            }
+
+            var noteByReference: [String: NativeNote] = [:]
+            for (rowIndex, comment) in rowComments {
+                let workbookRow = rowIndex + 2
+                let ref = "B\(workbookRow)"
+                noteByReference[ref] = NativeNote(
+                    reference: ref,
+                    zeroBasedRow: workbookRow - 1,
+                    zeroBasedColumn: 1,
+                    sections: [section("Allele Row", comment)]
+                )
+            }
+            for (sampleIndex, comment) in columnComments {
+                let workbookColumn = sampleIndex + 4
+                let ref = "\(Self.columnName(workbookColumn))1"
+                noteByReference[ref] = NativeNote(
+                    reference: ref,
+                    zeroBasedRow: 0,
+                    zeroBasedColumn: workbookColumn - 1,
+                    sections: [section("Sample Column", comment)]
+                )
+            }
+            for rowIndex in projection.rows.indices {
+                for sampleIndex in projection.sampleColumns.indices {
+                    let coordinate = ProjectionCoordinate(
+                        row: rowIndex,
+                        sampleColumn: sampleIndex
+                    )
+                    var sections: [ProjectionNoteSection] = []
+                    if let comment = rowComments[rowIndex] {
+                        sections.append(section("Allele Row", comment))
+                    }
+                    if let comment = columnComments[sampleIndex] {
+                        sections.append(section("Sample Column", comment))
+                    }
+                    if let comment = cellComments[coordinate] {
+                        sections.append(section("Cell", comment))
+                    }
+                    guard !sections.isEmpty else { continue }
+                    let workbookRow = rowIndex + 2
+                    let workbookColumn = sampleIndex + 4
+                    let ref = "\(Self.columnName(workbookColumn))\(workbookRow)"
+                    noteByReference[ref] = NativeNote(
+                        reference: ref,
+                        zeroBasedRow: workbookRow - 1,
+                        zeroBasedColumn: workbookColumn - 1,
+                        sections: sections
+                    )
+                }
+            }
+
+            validReviews = reviews
+            validationByTarget = validation
+            notes = noteByReference.values.sorted {
+                if $0.zeroBasedRow != $1.zeroBasedRow {
+                    return $0.zeroBasedRow < $1.zeroBasedRow
+                }
+                return $0.zeroBasedColumn < $1.zeroBasedColumn
+            }
+        }
+
+        private static func numericEvidence(_ value: String) -> Int? {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let unwrapped: String
+            if trimmed.hasPrefix("["), trimmed.hasSuffix("]") {
+                unwrapped = String(trimmed.dropFirst().dropLast())
+            } else {
+                unwrapped = trimmed
+            }
+            return Int(unwrapped)
+        }
+
+        private static func columnName(_ oneBased: Int) -> String {
+            var value = oneBased
+            var result = ""
+            while value > 0 {
+                value -= 1
+                result = String(UnicodeScalar(65 + (value % 26))!) + result
+                value /= 26
+            }
+            return result
+        }
     }
 
     private func projectionLabelCell(
@@ -621,17 +1075,22 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
 
     private func zipBuildDir(_ buildDir: URL, to outputURL: URL) throws {
         let fm = FileManager.default
-        if fm.fileExists(atPath: outputURL.path) {
-            try fm.removeItem(at: outputURL)
-        }
+        let publicationURL = outputURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(outputURL.lastPathComponent).\(UUID().uuidString).tmp")
+        defer { try? fm.removeItem(at: publicationURL) }
         let zip = Process()
         zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
         zip.currentDirectoryURL = buildDir
-        zip.arguments = ["-qr", outputURL.path, "."]
+        zip.arguments = ["-qr", publicationURL.path, "."]
         try zip.run()
         zip.waitUntilExit()
         if zip.terminationStatus != 0 {
             throw GenotypeXlsxWorkbookWriterError.zipFailed
+        }
+        if fm.fileExists(atPath: outputURL.path) {
+            _ = try fm.replaceItemAt(outputURL, withItemAt: publicationURL)
+        } else {
+            try fm.moveItem(at: publicationURL, to: outputURL)
         }
     }
 
@@ -688,13 +1147,14 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
     private func sheetHeader() -> String {
         """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+        <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetData>
 
         """
     }
 
-    private func sheetFooter() -> String {
-        "</sheetData></worksheet>"
+    private func sheetFooter(includeLegacyDrawing: Bool = false) -> String {
+        let legacyDrawing = includeLegacyDrawing ? #"<legacyDrawing r:id="rId2"/>"# : ""
+        return "</sheetData>\(legacyDrawing)</worksheet>"
     }
 
     private func rowXML(index: Int, cells: [StyledCell]) -> String {
@@ -727,6 +1187,62 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
             .replacingOccurrences(of: "'", with: "&apos;")
     }
 
+    private func makeCommentsXML(_ notes: [NativeNote]) -> String {
+        var authors: [String] = []
+        var authorIndex: [String: Int] = [:]
+        for note in notes {
+            for section in note.sections where authorIndex[section.author] == nil {
+                authorIndex[section.author] = authors.count
+                authors.append(section.author)
+            }
+        }
+        let authorsXML = authors
+            .map { "<author>\(xmlEscape($0))</author>" }
+            .joined()
+        let commentsXML = notes.map { note in
+            let author = note.sections.first?.author ?? "Lungfish"
+            let id = authorIndex[author] ?? 0
+            return #"<comment ref="\#(note.reference)" authorId="\#(id)"><text><t xml:space="preserve">\#(xmlEscape(note.body))</t></text></comment>"#
+        }.joined()
+        return """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+          <authors>\(authorsXML)</authors>
+          <commentList>\(commentsXML)</commentList>
+        </comments>
+        """
+    }
+
+    private func makeCommentsVML(_ notes: [NativeNote]) -> String {
+        let shapes = notes.enumerated().map { offset, note in
+            let shapeID = 1025 + offset
+            return """
+              <v:shape id="_x0000_s\(shapeID)" type="#_x0000_t202" style="position:absolute;margin-left:80pt;margin-top:5pt;width:160pt;height:80pt;z-index:\(offset + 1);visibility:hidden" fillcolor="#ffffe1" o:insetmode="auto">
+                <v:fill color2="#ffffe1"/>
+                <v:shadow on="t" color="black" obscured="t"/>
+                <v:path o:connecttype="none"/>
+                <v:textbox style="mso-direction-alt:auto"><div style="text-align:left"/></v:textbox>
+                <x:ClientData ObjectType="Note">
+                  <x:MoveWithCells/><x:SizeWithCells/>
+                  <x:Anchor>\(note.zeroBasedColumn), 15, \(note.zeroBasedRow), 2, \(note.zeroBasedColumn + 3), 15, \(note.zeroBasedRow + 5), 4</x:Anchor>
+                  <x:AutoFill>False</x:AutoFill>
+                  <x:Row>\(note.zeroBasedRow)</x:Row>
+                  <x:Column>\(note.zeroBasedColumn)</x:Column>
+                </x:ClientData>
+              </v:shape>
+            """
+        }.joined()
+        return """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+          <o:shapelayout v:ext="edit"><o:idmap v:ext="edit" data="1"/></o:shapelayout>
+          <v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202" path="m,l,21600r21600,l21600,xe">
+            <v:stroke joinstyle="miter"/><v:path gradientshapeok="t" o:connecttype="rect"/>
+          </v:shapetype>
+        \(shapes)</xml>
+        """
+    }
+
     // MARK: - Static workbook scaffolding
 
     private static func matrixContentTypesXML(includeAnnotations: Bool) -> String {
@@ -748,9 +1264,23 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         """
     }
 
-    private static func projectionContentTypesXML(includeAnnotations: Bool) -> String {
+    private static func projectionContentTypesXML(
+        includeAnnotations: Bool,
+        includeAudit: Bool,
+        includeComments: Bool
+    ) -> String {
         let annotationOverride = includeAnnotations
             ? #"  <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>"# + "\n"
+            : ""
+        let auditOverride = includeAudit
+            ? #"  <Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>"# + "\n"
+            : ""
+        let commentTypes = includeComments
+            ? """
+              <Default Extension="vml" ContentType="application/vnd.openxmlformats-officedocument.vmlDrawing"/>
+              <Override PartName="/xl/comments1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"/>
+
+            """
             : ""
         return """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -760,7 +1290,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
           <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
           <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
           <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-        \(annotationOverride)</Types>
+        \(annotationOverride)\(auditOverride)\(commentTypes)</Types>
         """
     }
 
@@ -788,16 +1318,19 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         """
     }
 
-    private static func projectionWorkbookXML(includeAnnotations: Bool) -> String {
+    private static func projectionWorkbookXML(includeAnnotations: Bool, includeAudit: Bool) -> String {
         let annotationSheet = includeAnnotations
             ? #"    <sheet name="Matrix Annotations" sheetId="2" r:id="rId2"/>"# + "\n"
+            : ""
+        let auditSheet = includeAudit
+            ? #"    <sheet name="Audit Log" sheetId="3" r:id="rId3"/>"# + "\n"
             : ""
         return """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
           <sheets>
             <sheet name="View" sheetId="1" r:id="rId1"/>
-        \(annotationSheet)  </sheets>
+        \(annotationSheet)\(auditSheet)  </sheets>
         </workbook>
         """
     }
@@ -818,18 +1351,32 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         """
     }
 
-    private static func projectionWorkbookRelsXML(includeAnnotations: Bool) -> String {
+    private static func projectionWorkbookRelsXML(
+        includeAnnotations: Bool,
+        includeAudit: Bool
+    ) -> String {
         let annotationRelationship = includeAnnotations
             ? #"  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>"# + "\n"
+            : ""
+        let auditRelationship = includeAudit
+            ? #"  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/>"# + "\n"
             : ""
         return """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
           <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-        \(annotationRelationship)  <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+        \(annotationRelationship)\(auditRelationship)  <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
         </Relationships>
         """
     }
+
+    private static let commentsSheetRelationshipsXML = """
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+      <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments1.xml"/>
+      <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing" Target="../drawings/commentsDrawing1.vml"/>
+    </Relationships>
+    """
 
     /// Hex for the lungfishDanger NSColor (light-mode value) used to
     /// signal "ERR" cells. Mirrors `NSColor.lungfishDanger` defined in
@@ -917,42 +1464,83 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
 /// fill hex in the projection gets its own appended `<xf>` so the view sheet
 /// reproduces the analyst's exact colors.
 private struct ProjectionPalette {
-    /// Maps an uppercased `RRGGBB` (no `#`) to its `<xf>` index.
-    private var styleIndexByHex: [String: Int] = [:]
+    private struct StyleKey: Hashable {
+        let hex: String?
+        let bold: Bool
+        let review: GenotypeAnnotationSidecar.MatrixReviewDisposition?
+    }
+
+    private var styleIndexByKey: [StyleKey: Int] = [:]
+    private var orderedKeys: [StyleKey] = []
+    private var fillIDByHex: [String: Int] = [:]
     private var orderedHex: [String] = []
 
-    init(projection: GenotypeViewProjection) {
-        var seen = Set<String>()
-        func register(_ hex: String?) {
-            guard let hex, let key = Self.normalize(hex), seen.insert(key).inserted else { return }
-            orderedHex.append(key)
+    init(
+        projection: GenotypeViewProjection,
+        reviews: [
+            GenotypeXlsxWorkbookWriter.ProjectionCoordinate:
+                GenotypeAnnotationSidecar.MatrixReviewDisposition
+        ]
+    ) {
+        var seenHex = Set<String>()
+        func registerHex(_ hex: String?) {
+            guard let hex, let normalized = Self.normalize(hex),
+                  seenHex.insert(normalized).inserted else { return }
+            orderedHex.append(normalized)
         }
         for row in projection.rows {
-            register(row.rowColorHex)
+            registerHex(row.rowColorHex)
             for hex in row.cellColorsHex ?? [] {
-                register(hex)
+                registerHex(hex)
             }
         }
-        // Styles 0/1 are body/header; dynamic fills start at index 2.
         for (offset, hex) in orderedHex.enumerated() {
-            styleIndexByHex[hex] = 2 + offset
+            fillIDByHex[hex] = 2 + offset
+        }
+
+        var seenKeys = Set<StyleKey>()
+        func register(_ key: StyleKey) {
+            guard seenKeys.insert(key).inserted else { return }
+            orderedKeys.append(key)
+        }
+        for row in projection.rows {
+            register(StyleKey(hex: Self.normalize(row.rowColorHex), bold: true, review: nil))
+        }
+        for rowIndex in projection.rows.indices {
+            let row = projection.rows[rowIndex]
+            for sampleIndex in projection.sampleColumns.indices {
+                let explicitHex = row.cellColorsHex.flatMap {
+                    sampleIndex < $0.count ? $0[sampleIndex] : nil
+                }
+                let hex = Self.normalize(explicitHex ?? row.rowColorHex)
+                let review = reviews[
+                    .init(row: rowIndex, sampleColumn: sampleIndex)
+                ]
+                register(StyleKey(hex: hex, bold: hex != nil, review: review))
+            }
+        }
+        for (offset, key) in orderedKeys.enumerated() {
+            styleIndexByKey[key] = 2 + offset
         }
     }
 
     func styledCell(
         value: String,
         hex: String?,
-        bold: Bool = false
+        bold: Bool = false,
+        review: GenotypeAnnotationSidecar.MatrixReviewDisposition? = nil
     ) -> GenotypeXlsxWorkbookWriter.StyledCell {
-        guard let hex, let key = Self.normalize(hex), let index = styleIndexByHex[key] else {
+        let key = StyleKey(hex: Self.normalize(hex), bold: bold || hex != nil, review: review)
+        guard let index = styleIndexByKey[key] else {
             return bold ? .header(value) : .body(value)
         }
         return .dynamic(value, styleIndex: index)
     }
 
-    private static func normalize(_ hex: String) -> String? {
+    private static func normalize(_ hex: String?) -> String? {
+        guard let hex else { return nil }
         let trimmed = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
-        guard trimmed.count == 6 else { return nil }
+        guard trimmed.count == 6, trimmed.allSatisfy(\.isHexDigit) else { return nil }
         return trimmed.uppercased()
     }
 
@@ -970,18 +1558,43 @@ private struct ProjectionPalette {
         let fonts = [
             #"<font><sz val="11"/><name val="Aptos"/></font>"#,
             #"<font><b/><sz val="11"/><name val="Aptos"/></font>"#,
+            #"<font><i/><sz val="11"/><color rgb="FF767676"/><name val="Aptos"/></font>"#,
         ]
         let fontsXML = fonts.joined()
 
-        // cellXfs index layout: 0 = body, 1 = header (bold), 2.. = dynamic
-        // fills (bold, fill index offset by the two leading non-color fills).
+        let borders = [
+            #"<border><left/><right/><top/><bottom/><diagonal/></border>"#,
+            #"<border><left style="thick"><color rgb="FF000000"/></left><right style="thick"><color rgb="FF000000"/></right><top style="thick"><color rgb="FF000000"/></top><bottom style="thick"><color rgb="FF000000"/></bottom><diagonal/></border>"#,
+        ]
+        let bordersXML = borders.joined()
+
+        // cellXfs index layout: 0 = body, 1 = header, 2.. = deduplicated
+        // combinations of viewport fill and semantic review presentation.
         var xfs = [
             #"<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>"#,
             #"<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>"#,
         ]
-        for offset in orderedHex.indices {
-            let fillID = 2 + offset
-            xfs.append(#"<xf numFmtId="0" fontId="1" fillId="\#(fillID)" borderId="0" xfId="0" applyFont="1" applyFill="1"/>"#)
+        for key in orderedKeys {
+            let fillID = key.hex.flatMap { fillIDByHex[$0] } ?? 0
+            let fontID: Int
+            let borderID: Int
+            switch key.review {
+            case .falsePositive:
+                fontID = 2
+                borderID = 0
+            case .falseNegative:
+                fontID = key.bold ? 1 : 0
+                borderID = 1
+            case nil:
+                fontID = key.bold ? 1 : 0
+                borderID = 0
+            }
+            let applyFill = fillID == 0 ? "" : #" applyFill="1""#
+            let applyFont = fontID == 0 ? "" : #" applyFont="1""#
+            let applyBorder = borderID == 0 ? "" : #" applyBorder="1""#
+            xfs.append(
+                #"<xf numFmtId="0" fontId="\#(fontID)" fillId="\#(fillID)" borderId="\#(borderID)" xfId="0"\#(applyFont)\#(applyFill)\#(applyBorder)/>"#
+            )
         }
         let xfsXML = xfs.joined()
 
@@ -990,7 +1603,7 @@ private struct ProjectionPalette {
         <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
           <fonts count="\(fonts.count)">\(fontsXML)</fonts>
           <fills count="\(fills.count)">\(fillsXML)</fills>
-          <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+          <borders count="\(borders.count)">\(bordersXML)</borders>
           <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
           <cellXfs count="\(xfs.count)">\(xfsXML)</cellXfs>
           <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>

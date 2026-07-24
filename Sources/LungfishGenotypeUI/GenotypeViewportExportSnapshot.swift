@@ -81,9 +81,30 @@ struct GenotypeAnnotationAuditEntry: Equatable {
 struct GenotypeViewportExportRow: Equatable {
     let genotype: String
     let locus: String
+    let stableClusterID: String?
     let sampleCount: Int
     let totalUniqueReads: Int
     let sampleReads: [String: Int]
     let rowStyle: GenotypeResultHighlightStyle
     let cellStyles: [String: GenotypeResultHighlightStyle]
+
+    init(
+        genotype: String,
+        locus: String,
+        stableClusterID: String? = nil,
+        sampleCount: Int,
+        totalUniqueReads: Int,
+        sampleReads: [String: Int],
+        rowStyle: GenotypeResultHighlightStyle,
+        cellStyles: [String: GenotypeResultHighlightStyle]
+    ) {
+        self.genotype = genotype
+        self.locus = locus
+        self.stableClusterID = stableClusterID
+        self.sampleCount = sampleCount
+        self.totalUniqueReads = totalUniqueReads
+        self.sampleReads = sampleReads
+        self.rowStyle = rowStyle
+        self.cellStyles = cellStyles
+    }
 }

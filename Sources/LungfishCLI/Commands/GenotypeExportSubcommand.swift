@@ -249,6 +249,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             return GenotypeViewProjectionRow(
                 label: row.label,
                 locus: row.locus,
+                stableClusterID: row.stableClusterID,
                 cells: cells,
                 cellColorsHex: colors,
                 rowColorHex: row.rowColorHex
@@ -299,6 +300,9 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             command += ["--annotations", annotationURL.path]
             optionPaths["annotations"] = annotationURL
             additionalInputURLs.append(annotationURL)
+        }
+        if force {
+            command.append("--force")
         }
         if let activeDefinitionURL = loadedResult.flatMap({
             GenotypeActiveHaplotypeAnalysisResolver.activeDefinitionFileURL(
