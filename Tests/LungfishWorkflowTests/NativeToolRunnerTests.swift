@@ -889,7 +889,7 @@ final class NativeToolRunnerTests: XCTestCase {
 
         let stages = [
             NativePipelineStage(.reformat, arguments: []),
-            NativePipelineStage(.reformat, arguments: []),
+            NativePipelineStage(.reformat, arguments: ["consume-stdin"]),
         ]
         let pipelineResult = try await fixture.runner.runPipeline(stages, environment: environment)
         XCTAssertTrue(pipelineResult.isSuccess, "BBTools pipeline should receive managed Java: \(pipelineResult.combinedStderr)")
@@ -899,7 +899,14 @@ final class NativeToolRunnerTests: XCTestCase {
             outputFile: pipelineOutput,
             environment: environment
         )
-        XCTAssertTrue(pipelineFileResult.isSuccess, "BBTools file pipeline should receive managed Java: \(pipelineFileResult.combinedStderr)")
+        XCTAssertTrue(
+            pipelineFileResult.isSuccess,
+            """
+            BBTools file pipeline should receive managed Java:
+            exitCodes=\(pipelineFileResult.exitCodes)
+            stderr=\(pipelineFileResult.combinedStderr)
+            """
+        )
     }
 
     // MARK: - Managed Fixture
@@ -1036,6 +1043,9 @@ final class NativeToolRunnerTests: XCTestCase {
           "$expected_java_home/bin":*) ;;
           *) exit 3 ;;
         esac
+        if [ "${1:-}" = "consume-stdin" ]; then
+          cat >/dev/null
+        fi
         printf 'managed-java\\n'
         """
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
