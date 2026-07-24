@@ -1,4 +1,5 @@
 import XCTest
+import CryptoKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
@@ -18,7 +19,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
             Set(names),
             [
                 "list-samples", "list-cohorts", "ai-haplotyping", "apply-annotations",
-                "export", "export-xlsx", "export-pivot-xlsx", "export-labkey"
+                "replay-matrix-annotation", "export", "export-xlsx",
+                "export-pivot-xlsx", "export-labkey"
             ]
         )
     }
@@ -893,6 +895,239 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["appendedMatrixComments"], .integer(1))
         let output = try XCTUnwrap(envelope.files.first { $0.path == annotationURL.path && $0.role == .output })
         XCTAssertEqual(output.checksumSHA256, try ProvenanceFileHasher.sha256(of: annotationURL))
+    }
+
+    func testReplayMatrixAnnotationCommandReconstructsFinalBytesAndWritesProvenance() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixAnnotationReplay-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*001:01",
+            sample: "Animal-1",
+            stableClusterID: "candidate-17"
+        )
+        let timestamp = "2026-07-24T12:00:00Z"
+        let prior = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T11:00:00Z")
+        let review = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
+            target: target,
+            disposition: .falsePositive,
+            author: "Resolved Reviewer",
+            timestamp: timestamp
+        )
+        let audit = GenotypeAnnotationSidecar.AuditEntry(
+            action: "setMatrixReview",
+            sample: target.auditSample,
+            locus: target.locus,
+            slot: nil,
+            before: nil,
+            after: "falsePositive",
+            color: nil,
+            reason: "matrix-review",
+            rationale: target.stableAuditDescription,
+            author: "Resolved Reviewer",
+            timestamp: timestamp
+        )
+        let replayPayload = GenotypeMatrixAnnotationReplayPayload(
+            action: .setMatrixReview,
+            author: "Resolved Reviewer",
+            timestamp: timestamp,
+            targetMutations: [
+                .init(
+                    target: target,
+                    beforeComments: nil,
+                    resolvedCurrentComment: nil,
+                    afterComments: nil,
+                    beforeReviews: [],
+                    afterReviews: [review],
+                    canonicalizationAudits: [],
+                    actionAudit: audit
+                ),
+            ]
+        )
+        let priorData = try prior.encoded()
+        let replayData = try replayPayload.encoded()
+        let finalSidecar = try replayPayload.applying(to: prior)
+        let finalData = try finalSidecar.encoded()
+        let finalStoredURL = root.appendingPathComponent("final-stored-annotations.json")
+        try finalData.write(to: finalStoredURL)
+
+        let provenanceURL = root.appendingPathComponent("annotations.json.lungfish-provenance.json")
+        let replayOutputURL = root.appendingPathComponent("reconstructed-annotations.json")
+        let replayProvenanceURL = root.appendingPathComponent("replay-output.provenance.json")
+        let priorChecksum = SHA256.hash(data: priorData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let replayChecksum = SHA256.hash(data: replayData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let originalEnvelope = ProvenanceEnvelope(
+            workflowName: "Genotype annotation sidecar edit",
+            toolName: "Lungfish Genome Explorer",
+            toolVersion: WorkflowRun.currentAppVersion,
+            options: ProvenanceOptions(explicit: [
+                "action": .string("setMatrixReview"),
+                "replayFormat": .string(GenotypeMatrixAnnotationReplayPayload.format),
+                "replayPriorSidecarBase64": .string(priorData.base64EncodedString()),
+                "replayPayloadBase64": .string(replayData.base64EncodedString()),
+                "replayPayloadSHA256": .string(replayChecksum),
+            ]),
+            files: [
+                ProvenanceFileDescriptor(
+                    path: provenanceURL.path + "#/options/explicit/replayPriorSidecarBase64",
+                    checksumSHA256: priorChecksum,
+                    fileSize: UInt64(priorData.count),
+                    format: .json,
+                    role: .input,
+                    originPath: root.appendingPathComponent("annotations.json").path
+                ),
+                try .file(url: finalStoredURL, format: .json, role: .output),
+            ],
+            output: try .file(url: finalStoredURL, format: .json, role: .output),
+            outputs: [try .file(url: finalStoredURL, format: .json, role: .output)],
+            exitStatus: 0
+        )
+        try ProvenanceJSON.encoder.encode(originalEnvelope).write(to: provenanceURL)
+        let originalProvenanceData = try Data(contentsOf: provenanceURL)
+
+        let parsed = try GenotypeReplayMatrixAnnotationSubcommand.parse([
+            "--provenance", provenanceURL.path,
+            "--output", replayOutputURL.path,
+            "--output-provenance", replayProvenanceURL.path,
+        ])
+        try await parsed.run()
+
+        XCTAssertEqual(try Data(contentsOf: replayOutputURL), finalData)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), originalProvenanceData)
+        XCTAssertNotEqual(provenanceURL.standardizedFileURL, replayProvenanceURL.standardizedFileURL)
+        let replayEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: replayProvenanceURL)
+        )
+        let expectedArgv = [
+            "lungfish-cli",
+            "genotype",
+            "replay-matrix-annotation",
+            "--provenance", provenanceURL.path,
+            "--output", replayOutputURL.path,
+            "--output-provenance", replayProvenanceURL.path,
+        ]
+        XCTAssertEqual(replayEnvelope.argv, expectedArgv)
+        XCTAssertEqual(replayEnvelope.durableReplayArgv, expectedArgv)
+        XCTAssertEqual(
+            replayEnvelope.reproducibleCommand,
+            expectedArgv.map(shellEscape).joined(separator: " ")
+        )
+        XCTAssertEqual(replayEnvelope.exitStatus, 0)
+        XCTAssertGreaterThanOrEqual(replayEnvelope.wallTimeSeconds ?? -1, 0)
+        XCTAssertEqual(replayEnvelope.stderr, "")
+        XCTAssertEqual(
+            replayEnvelope.options.explicit["provenance"]?.fileValue?.path,
+            provenanceURL.path
+        )
+        XCTAssertEqual(
+            replayEnvelope.options.explicit["output"]?.fileValue?.path,
+            replayOutputURL.path
+        )
+        XCTAssertEqual(
+            replayEnvelope.options.explicit["outputProvenance"]?.fileValue?.path,
+            replayProvenanceURL.path
+        )
+        let recordedInput = try XCTUnwrap(replayEnvelope.files.first {
+            $0.path == provenanceURL.path && $0.role == .input
+        })
+        XCTAssertEqual(
+            recordedInput.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: provenanceURL)
+        )
+        XCTAssertEqual(
+            recordedInput.fileSize,
+            try ProvenanceFileHasher.fileSize(of: provenanceURL)
+        )
+        let recordedOutput = try XCTUnwrap(replayEnvelope.files.first {
+            $0.path == replayOutputURL.path && $0.role == .output
+        })
+        XCTAssertEqual(
+            recordedOutput.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: replayOutputURL)
+        )
+        XCTAssertEqual(
+            recordedOutput.fileSize,
+            try ProvenanceFileHasher.fileSize(of: replayOutputURL)
+        )
+        XCTAssertEqual(replayEnvelope.steps.first?.argv, expectedArgv)
+        XCTAssertEqual(replayEnvelope.steps.first?.durableReplayArgv, expectedArgv)
+        XCTAssertEqual(replayEnvelope.steps.first?.stderr, "")
+        XCTAssertEqual(
+            replayEnvelope.steps.first?.reproducibleCommand,
+            expectedArgv.map(shellEscape).joined(separator: " ")
+        )
+    }
+
+    func testReplayMatrixAnnotationCommandRejectsTamperedPayloadChecksumWithoutOutput() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixAnnotationTamper-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let provenanceURL = root.appendingPathComponent("annotations.json.lungfish-provenance.json")
+        let outputURL = root.appendingPathComponent("reconstructed-annotations.json")
+        let outputProvenanceURL =
+            GenotypeMatrixAnnotationReplayPayload.replayOutputProvenanceURL(for: outputURL)
+        let priorData = try GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-24T11:00:00Z"
+        ).encoded()
+        let payloadData = Data("tampered replay payload".utf8)
+        let priorChecksum = SHA256.hash(data: priorData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let actualPayloadChecksum = SHA256.hash(data: payloadData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let recordedPayloadChecksum = String(repeating: "0", count: 64)
+        let envelope = ProvenanceEnvelope(
+            workflowName: "Genotype annotation sidecar edit",
+            toolName: "Lungfish Genome Explorer",
+            toolVersion: WorkflowRun.currentAppVersion,
+            options: ProvenanceOptions(explicit: [
+                "replayFormat": .string(GenotypeMatrixAnnotationReplayPayload.format),
+                "replayPriorSidecarBase64": .string(priorData.base64EncodedString()),
+                "replayPayloadBase64": .string(payloadData.base64EncodedString()),
+                "replayPayloadSHA256": .string(recordedPayloadChecksum),
+            ]),
+            files: [
+                ProvenanceFileDescriptor(
+                    path: provenanceURL.path + "#/options/explicit/replayPriorSidecarBase64",
+                    checksumSHA256: priorChecksum,
+                    fileSize: UInt64(priorData.count),
+                    format: .json,
+                    role: .input
+                ),
+            ],
+            exitStatus: 0
+        )
+        try ProvenanceJSON.encoder.encode(envelope).write(to: provenanceURL)
+
+        let parsed = try GenotypeReplayMatrixAnnotationSubcommand.parse([
+            "--provenance", provenanceURL.path,
+            "--output", outputURL.path,
+        ])
+        do {
+            try await parsed.run()
+            XCTFail("Expected tampered replay payload checksum to be rejected")
+        } catch {
+            XCTAssertEqual(
+                error as? GenotypeReplayMatrixAnnotationError,
+                .checksumMismatch(
+                    name: "Replay payload",
+                    expected: recordedPayloadChecksum,
+                    actual: actualPayloadChecksum
+                )
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputProvenanceURL.path))
     }
 
     // MARK: - export-pivot-xlsx

@@ -1169,7 +1169,7 @@ public final class GenotypeAnnotationStore {
         startedAt: Date,
         endedAt: Date
     ) throws -> ProvenanceEnvelope {
-        let argv: [String] = []
+        let executionArgv = CommandLine.arguments
         var explicitOptions: [String: ParameterValue] = [
             "bundle": .file(bundleURL),
             "annotationSidecar": .file(annotationURL),
@@ -1180,6 +1180,26 @@ public final class GenotypeAnnotationStore {
             explicitOptions.merge(editContext.explicitOptions) { _, payload in payload }
         }
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let replayOutputProvenanceURL =
+            GenotypeMatrixAnnotationReplayPayload.replayOutputProvenanceURL(for: annotationURL)
+        let durableReplayArgv: [String]?
+        if editContext?.replayPayload != nil {
+            durableReplayArgv = [
+                CLICommandIdentity.executableName,
+                "genotype",
+                GenotypeMatrixAnnotationReplayPayload.cliSubcommandName,
+                "--provenance", provenanceURL.path,
+                "--output", annotationURL.path,
+                "--output-provenance", replayOutputProvenanceURL.path,
+                "--force",
+            ]
+            explicitOptions["replayOutputProvenance"] = .file(replayOutputProvenanceURL)
+        } else {
+            durableReplayArgv = nil
+        }
+        let reproducibleCommand = (durableReplayArgv ?? executionArgv)
+            .map(shellEscape)
+            .joined(separator: " ")
         var inputs: [ProvenanceFileDescriptor] = []
         if let priorData {
             let checksum = sha256Hex(priorData)
@@ -1218,8 +1238,11 @@ public final class GenotypeAnnotationStore {
         let step = ProvenanceStep(
             toolName: "Lungfish Genome Explorer",
             toolVersion: WorkflowRun.currentAppVersion,
-            argv: argv,
-            reproducibleCommand: "",
+            argv: executionArgv,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: reproducibleCommand,
+            resolvedOptions: resolvedDefaults,
+            runtimeIdentity: ProvenanceRuntimeIdentity(user: WorkflowRun.currentUser),
             inputs: inputs,
             outputs: [output],
             exitStatus: 0,
@@ -1238,8 +1261,9 @@ public final class GenotypeAnnotationStore {
                 version: WorkflowRun.currentAppVersion,
                 kind: "gui"
             ),
-            argv: argv,
-            reproducibleCommand: "",
+            argv: executionArgv,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: reproducibleCommand,
             options: ProvenanceOptions(
                 explicit: explicitOptions,
                 defaults: [

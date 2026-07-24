@@ -24,6 +24,7 @@ struct GenotypeCommandGroup: AsyncParsableCommand {
             GenotypeListCohortsSubcommand.self,
             GenotypeAIHaplotypingSubcommand.self,
             GenotypeApplyAnnotationsSubcommand.self,
+            GenotypeReplayMatrixAnnotationSubcommand.self,
             GenotypeExportSubcommand.self,
             GenotypeExportXlsxSubcommand.self,
             GenotypeExportPivotXlsxSubcommand.self,

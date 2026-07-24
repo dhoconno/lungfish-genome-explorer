@@ -237,8 +237,13 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
         XCTAssertEqual(envelope.options.explicit["action"], .string("addMatrixComment"))
-        XCTAssertEqual(envelope.argv, [])
-        XCTAssertEqual(envelope.reproducibleCommand, "")
+        XCTAssertEqual(envelope.argv, CommandLine.arguments)
+        XCTAssertNil(envelope.durableReplayArgv)
+        XCTAssertEqual(
+            envelope.reproducibleCommand,
+            CommandLine.arguments.map(shellEscape).joined(separator: " ")
+        )
+        XCTAssertNil(envelope.steps.first?.durableReplayArgv)
         XCTAssertNil(envelope.options.explicit["patch"])
         XCTAssertEqual(envelope.options.explicit["targetCount"], .integer(1))
         XCTAssertEqual(envelope.options.explicit["targets"], .array([
@@ -758,8 +763,13 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
         XCTAssertEqual(envelope.workflowName, "Genotype annotation sidecar edit")
         XCTAssertEqual(envelope.toolName, "Lungfish Genome Explorer")
-        XCTAssertEqual(envelope.argv, [])
-        XCTAssertEqual(envelope.reproducibleCommand, "")
+        XCTAssertEqual(envelope.argv, CommandLine.arguments)
+        XCTAssertNil(envelope.durableReplayArgv)
+        XCTAssertEqual(
+            envelope.reproducibleCommand,
+            CommandLine.arguments.map(shellEscape).joined(separator: " ")
+        )
+        XCTAssertNil(envelope.steps.first?.durableReplayArgv)
         XCTAssertNil(envelope.options.explicit["patch"])
         XCTAssertEqual(envelope.options.explicit["bundle"]?.fileValue?.path, dir.path)
         XCTAssertEqual(envelope.options.explicit["annotationSidecar"]?.fileValue?.path, annotationURL.path)
@@ -1028,8 +1038,28 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let finalData = try Data(contentsOf: annotationURL)
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
-        XCTAssertEqual(envelope.argv, [])
-        XCTAssertEqual(envelope.reproducibleCommand, "")
+        let replayOutputProvenanceURL =
+            GenotypeMatrixAnnotationReplayPayload.replayOutputProvenanceURL(for: annotationURL)
+        let expectedReplayArgv = [
+            CLICommandIdentity.executableName,
+            "genotype",
+            GenotypeMatrixAnnotationReplayPayload.cliSubcommandName,
+            "--provenance", provenanceURL.path,
+            "--output", annotationURL.path,
+            "--output-provenance", replayOutputProvenanceURL.path,
+            "--force",
+        ]
+        let expectedReplayCommand = expectedReplayArgv.map(shellEscape).joined(separator: " ")
+        XCTAssertEqual(envelope.argv, CommandLine.arguments)
+        XCTAssertEqual(envelope.durableReplayArgv, expectedReplayArgv)
+        XCTAssertEqual(envelope.reproducibleCommand, expectedReplayCommand)
+        XCTAssertEqual(envelope.steps.first?.argv, CommandLine.arguments)
+        XCTAssertEqual(envelope.steps.first?.durableReplayArgv, expectedReplayArgv)
+        XCTAssertEqual(envelope.steps.first?.reproducibleCommand, expectedReplayCommand)
+        XCTAssertEqual(
+            envelope.options.explicit["replayOutputProvenance"]?.fileValue?.path,
+            replayOutputProvenanceURL.path
+        )
         XCTAssertNil(envelope.options.explicit["patch"])
 
         let priorBase64 = try XCTUnwrap(
