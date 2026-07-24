@@ -135,8 +135,11 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
                   $0.path == currentWorkbookPath
               }),
               let provenancePath = revision.provenancePath,
-              let provenanceURL = safeURL(for: provenancePath, in: bundleURL),
-              let data = boundedRegularFileData(at: provenanceURL),
+              let provenanceComponents = safeRelativePathComponents(provenancePath),
+              let data = boundedRegularFileData(
+                  at: provenanceComponents,
+                  in: bundleURL
+              ),
               let envelope = try? ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data),
               let digest = envelope.options.explicit["currentWorkbookInputFingerprint"]?.stringValue,
               let recordedSchemaVersion = envelope.options.explicit[
@@ -201,7 +204,7 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         )
     }
 
-    private static func safeURL(for path: String, in bundleURL: URL) -> URL? {
+    private static func safeRelativePathComponents(_ path: String) -> [String]? {
         guard path == path.trimmingCharacters(in: .whitespacesAndNewlines),
               !path.isEmpty,
               !path.hasPrefix("/"),
@@ -214,26 +217,53 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
             return nil
         }
-
-        let root = bundleURL.standardizedFileURL.resolvingSymlinksInPath()
-        let candidate = components.reduce(root) {
-            $0.appendingPathComponent($1)
-        }.standardizedFileURL
-        let resolvedCandidate = candidate.resolvingSymlinksInPath()
-        let rootComponents = root.pathComponents
-        let candidateComponents = resolvedCandidate.pathComponents
-        guard candidateComponents.count > rootComponents.count,
-              candidateComponents.prefix(rootComponents.count).elementsEqual(rootComponents) else {
-            return nil
-        }
-        return candidate
+        return components
     }
 
-    private static func boundedRegularFileData(at url: URL) -> Data? {
-        let descriptor = Darwin.open(
-            url.path,
-            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+    private static func boundedRegularFileData(
+        at components: [String],
+        in bundleURL: URL
+    ) -> Data? {
+        var directoryDescriptor = Darwin.open(
+            bundleURL.standardizedFileURL.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
         )
+        guard directoryDescriptor >= 0 else { return nil }
+        defer { Darwin.close(directoryDescriptor) }
+
+        var directoryInformation = stat()
+        guard Darwin.fstat(directoryDescriptor, &directoryInformation) == 0,
+              directoryInformation.st_mode & S_IFMT == S_IFDIR else {
+            return nil
+        }
+
+        for component in components.dropLast() {
+            let nextDescriptor = component.withCString {
+                Darwin.openat(
+                    directoryDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+                )
+            }
+            guard nextDescriptor >= 0 else { return nil }
+            var information = stat()
+            guard Darwin.fstat(nextDescriptor, &information) == 0,
+                  information.st_mode & S_IFMT == S_IFDIR else {
+                Darwin.close(nextDescriptor)
+                return nil
+            }
+            Darwin.close(directoryDescriptor)
+            directoryDescriptor = nextDescriptor
+        }
+
+        guard let finalComponent = components.last else { return nil }
+        let descriptor = finalComponent.withCString {
+            Darwin.openat(
+                directoryDescriptor,
+                $0,
+                O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+            )
+        }
         guard descriptor >= 0 else { return nil }
         defer { Darwin.close(descriptor) }
 
@@ -244,7 +274,6 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
               information.st_size <= maximumProvenanceBytes else {
             return nil
         }
-
         var data = Data()
         data.reserveCapacity(Int(information.st_size))
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)

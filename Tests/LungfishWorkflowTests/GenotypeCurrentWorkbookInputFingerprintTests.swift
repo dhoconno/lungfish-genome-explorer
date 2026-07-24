@@ -410,8 +410,12 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
             },
             bytes.count
         )
-        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(200)) {
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let writerClosed = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            _ = releaseWriter.wait(timeout: .now() + .seconds(2))
             Darwin.close(writer)
+            writerClosed.signal()
         }
         let started = Date()
 
@@ -425,8 +429,10 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
             bundleURL: bundleURL
         )
 
+        releaseWriter.signal()
+        XCTAssertEqual(writerClosed.wait(timeout: .now() + .seconds(1)), .success)
         XCTAssertNil(recorded)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 0.15)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
     }
 
     func testRecordedRejectsFinalSymlinkProvenance() throws {
@@ -444,6 +450,32 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
                 currentWorkbookPath: "current.xlsx",
                 revisions: [
                     revision(id: "symlink", path: "current.xlsx", provenancePath: "linked.json"),
+                ]
+            ),
+            bundleURL: bundleURL
+        ))
+    }
+
+    func testRecordedRejectsIntermediateSymlinkProvenance() throws {
+        let bundleURL = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let valid = try fingerprint(haplotype: "A*01")
+        let realDirectory = bundleURL.appendingPathComponent("real-provenance")
+        try writeProvenance(valid, to: "valid.json", in: realDirectory)
+        try FileManager.default.createSymbolicLink(
+            at: bundleURL.appendingPathComponent("linked-provenance"),
+            withDestinationURL: realDirectory
+        )
+
+        XCTAssertNil(try GenotypeCurrentWorkbookInputFingerprint.recorded(
+            in: manifest(
+                currentWorkbookPath: "current.xlsx",
+                revisions: [
+                    revision(
+                        id: "intermediate-symlink",
+                        path: "current.xlsx",
+                        provenancePath: "linked-provenance/valid.json"
+                    ),
                 ]
             ),
             bundleURL: bundleURL
