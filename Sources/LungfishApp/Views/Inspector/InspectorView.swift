@@ -163,18 +163,26 @@ public struct InspectorView: View {
     }
 }
 
-private struct GenotypeAnnotationIdentitySection: View {
+struct GenotypeAnnotationIdentitySection: View {
     let analystIdentity: String
     let openSettings: () -> Void
 
+    var savingAsText: String {
+        "Saving as: \(analystIdentity)"
+    }
+
+    func openSettingsPane() {
+        openSettings()
+    }
+
     var body: some View {
         HStack(spacing: 8) {
-            Text("Saving as: \(analystIdentity)")
+            Text(savingAsText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier(InspectorAccessibilityID.analystIdentityLabel)
             Spacer(minLength: 0)
-            Button("Settings", action: openSettings)
+            Button("Settings", action: openSettingsPane)
                 .controlSize(.small)
                 .accessibilityIdentifier(InspectorAccessibilityID.analystIdentitySettingsButton)
         }

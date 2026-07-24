@@ -455,6 +455,10 @@ public final class GenotypeResultDisplaySectionViewModel {
         matrixReviewCapability.upsertComment.disabledReason
     }
 
+    public var isMatrixCommentEditorEnabled: Bool {
+        matrixReviewCapability.upsertComment.isEnabled
+    }
+
     public func saveMatrixComment(scope: GenotypeMatrixCommentScope) {
         guard matrixReviewCapability.upsertComment.isEnabled,
               let card = matrixCommentCards.first(where: { $0.scope == scope }) else { return }

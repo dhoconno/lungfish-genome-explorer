@@ -1290,8 +1290,21 @@ public final class GenotypeResultViewController: NSViewController {
                 from: sidecarBeforeAttempt,
                 to: store.sidecar
             )
+            let candidateDisplayChanged =
+                sidecarBeforeAttempt.settings.mhcCandidateDisplay
+                    != store.sidecar.settings.mhcCandidateDisplay
             rebuildMatrixAnnotationIndexes()
-            if !changedTargets.isEmpty {
+            if candidateDisplayChanged {
+                comparisonMatrix.applyAnnotationSidecar(store.sidecar, reload: false)
+                var reconciledDisplayState = displayState
+                reconciledDisplayState.mhcCandidateDisplaySettings =
+                    store.sidecar.settings.mhcCandidateDisplay
+                applyDisplayStateImmediately(reconciledDisplayState)
+                onDisplayStateChanged?(reconciledDisplayState)
+                refreshCandidateSelectionDetails()
+            } else if changedTargets.isEmpty {
+                comparisonMatrix.applyAnnotationSidecar(store.sidecar, reload: false)
+            } else {
                 comparisonMatrix.applyAnnotationSidecar(
                     store.sidecar,
                     reloading: changedTargets

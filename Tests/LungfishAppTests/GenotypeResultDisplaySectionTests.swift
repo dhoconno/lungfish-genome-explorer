@@ -612,6 +612,145 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(readOnly.allCommands.allSatisfy { !$0.isEnabled })
     }
 
+    func testAnnotationInspectorSummarizesRowColumnAndMixedTargetCountsAndTypes() {
+        let rowA = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01"
+        )
+        let rowB = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-B",
+            genotype: "02_Mafa_B1_001_01"
+        )
+        let column = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
+        let cell = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01",
+            sample: "AnimalA"
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+
+        func update(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+            viewModel.updateSelection(.init(
+                title: "Matrix selection",
+                subtitle: "Annotations",
+                detailRows: [],
+                matrixTargets: targets
+            ))
+            viewModel.updateMatrixReviewCapability(GenotypeMatrixReviewCapability.evaluate(
+                selection: targets,
+                evidence: .init(),
+                reviews: [],
+                comments: [],
+                isWritable: true
+            ))
+        }
+
+        update([rowA, rowB])
+        XCTAssertEqual(viewModel.matrixReviewCapability.selectionShape, .rows)
+        XCTAssertEqual(viewModel.matrixSelectionSummary, "2 allele rows selected")
+
+        update([column])
+        XCTAssertEqual(viewModel.matrixReviewCapability.selectionShape, .columns)
+        XCTAssertEqual(viewModel.matrixSelectionSummary, "1 sample column selected")
+
+        update([rowA, column, cell])
+        XCTAssertEqual(viewModel.matrixReviewCapability.selectionShape, .mixed)
+        XCTAssertEqual(viewModel.matrixSelectionSummary, "3 mixed matrix targets selected")
+    }
+
+    func testAnnotationIdentitySectionReportsSavingIdentityAndInvokesSettingsCallback() {
+        var settingsOpenCount = 0
+        let section = GenotypeAnnotationIdentitySection(
+            analystIdentity: "Dr. Test",
+            openSettings: { settingsOpenCount += 1 }
+        )
+
+        XCTAssertEqual(section.savingAsText, "Saving as: Dr. Test")
+        section.openSettingsPane()
+
+        XCTAssertEqual(settingsOpenCount, 1)
+    }
+
+    func testAnnotationCommentDraftSurvivesCapabilityRefreshAndRehydratesSavedChanges() throws {
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01",
+            sample: "AnimalA"
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.updateSelection(.init(
+            title: "Cell",
+            subtitle: "Annotations",
+            detailRows: [],
+            matrixTargets: [target]
+        ))
+
+        func capability(comment: String) -> GenotypeMatrixReviewCapabilityState {
+            GenotypeMatrixReviewCapability.evaluate(
+                selection: [target],
+                evidence: .init([target: 8]),
+                reviews: [],
+                comments: [
+                    .init(
+                        target: target,
+                        body: comment,
+                        author: "Analyst",
+                        timestamp: "2026-07-24T12:00:00Z"
+                    ),
+                ],
+                isWritable: true
+            )
+        }
+
+        viewModel.updateMatrixReviewCapability(capability(comment: "Saved"))
+        XCTAssertEqual(viewModel.matrixCommentDraft(scope: .cell), "Saved")
+
+        viewModel.setMatrixCommentDraft("Unsaved edit", scope: .cell)
+        viewModel.updateMatrixReviewCapability(capability(comment: "Saved"))
+        XCTAssertEqual(viewModel.matrixCommentDraft(scope: .cell), "Unsaved edit")
+
+        viewModel.setMatrixCommentDraft("Saved", scope: .cell)
+        viewModel.updateMatrixReviewCapability(capability(comment: "Changed elsewhere"))
+        XCTAssertEqual(viewModel.matrixCommentDraft(scope: .cell), "Changed elsewhere")
+    }
+
+    func testReadOnlyAnnotationCapabilityGatesEditorAndMutationCallbacks() {
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01",
+            sample: "AnimalA"
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.updateSelection(.init(
+            title: "Cell",
+            subtitle: "Annotations",
+            detailRows: [],
+            matrixTargets: [target]
+        ))
+        viewModel.updateMatrixReviewCapability(GenotypeMatrixReviewCapability.evaluate(
+            selection: [target],
+            evidence: .init([target: 8]),
+            reviews: [],
+            comments: [],
+            isWritable: false
+        ))
+        var reviewRequests: [GenotypeMatrixReviewRequest] = []
+        var commentRequests: [GenotypeMatrixCommentEditRequest] = []
+        viewModel.onMatrixReviewRequested = { reviewRequests.append($0) }
+        viewModel.onMatrixCommentRequested = { commentRequests.append($0) }
+        viewModel.setMatrixCommentDraft("Blocked", scope: .cell)
+
+        XCTAssertFalse(viewModel.isMatrixCommentEditorEnabled)
+        viewModel.markMatrixFalsePositive()
+        viewModel.markMatrixFalseNegative()
+        viewModel.clearMatrixReview()
+        viewModel.saveMatrixComment(scope: .cell)
+        viewModel.removeMatrixComment(scope: .cell)
+
+        XCTAssertEqual(reviewRequests, [])
+        XCTAssertEqual(commentRequests, [])
+    }
+
     func testScopedCommentCardsKeepCellRowAndColumnValuesAndMetadataDistinct() throws {
         let cell = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A",
@@ -889,9 +1028,6 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(source.contains("genotype-annotation-comment-bulk-replace-cell"))
         XCTAssertTrue(source.contains("genotype-annotation-comment-remove-cell"))
         XCTAssertTrue(source.contains("genotype-annotation-comment-disabled-reason-cell"))
-        XCTAssertTrue(source.contains(
-            ".disabled(!viewModel.matrixReviewCapability.upsertComment.isEnabled)"
-        ))
         XCTAssertTrue(source.contains("genotype-annotation-appearance-disclosure"))
         XCTAssertTrue(identifiers.contains("reviewFalsePositiveButton"))
         XCTAssertTrue(identifiers.contains("commentCellCard"))

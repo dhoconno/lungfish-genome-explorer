@@ -1317,6 +1317,59 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(scheduler.scheduledCount, 0)
     }
 
+    func testStaleAnnotationFailureReconcilesCandidateDisplayOnlySidecarChangeIntoMatrix() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixStaleCandidateDisplay-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeCandidateResult(
+            bundleURL: bundleURL,
+            calls: [makeCall(sample: "AnimalA", genotype: "Known", reads: 8)],
+            candidates: [
+                makeCandidate(
+                    id: "candidate",
+                    name: "Candidate_nov",
+                    classification: .novel,
+                    support: .singleton,
+                    samples: ["AnimalA"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(
+                    cluster: "candidate",
+                    sample: "AnimalA",
+                    reads: 5
+                ),
+            ]
+        ))
+        XCTAssertEqual(Set(controller.testingVisibleMatrixGenotypes), ["Known", "Candidate_nov"])
+
+        let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
+        var latestSettings = concurrent.sidecar.settings.mhcCandidateDisplay
+        latestSettings.showKnown = false
+        try concurrent.updateMHCCandidateDisplaySettings(latestSettings)
+        var surfacedError: Error?
+        controller.onMatrixAnnotationCommandError = { surfacedError = $0 }
+        controller.testingResetMatrixReloadCounters()
+
+        controller.editMatrixComment(.init(
+            targets: [.column(sample: "AnimalA")],
+            intent: .upsert(body: "stale")
+        ))
+
+        XCTAssertTrue(
+            surfacedError?.localizedDescription.contains("changed in another process") == true
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(controller.testingDisplayState.mhcCandidateDisplaySettings).showKnown
+        )
+        XCTAssertEqual(controller.testingVisibleMatrixGenotypes, ["Candidate_nov"])
+        XCTAssertEqual(controller.testingLastMatrixReloadTargets, [])
+    }
+
     func testSemanticPublicationReloadsMultipleIsolatedCellsWithoutCartesianExpansion() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("MatrixExactPartialReload-\(UUID().uuidString)", isDirectory: true)

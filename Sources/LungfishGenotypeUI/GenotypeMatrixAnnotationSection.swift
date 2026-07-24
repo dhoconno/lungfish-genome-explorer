@@ -136,7 +136,7 @@ public struct GenotypeMatrixAnnotationSection: View {
             .textFieldStyle(.roundedBorder)
             .lineLimit(2...5)
             .controlSize(.small)
-            .disabled(!viewModel.matrixReviewCapability.upsertComment.isEnabled)
+            .disabled(!viewModel.isMatrixCommentEditorEnabled)
             .accessibilityIdentifier(commentFieldAccessibilityIdentifier(card.scope))
 
             if let reason = viewModel.matrixCommentMutationDisabledReason {
