@@ -100,6 +100,12 @@ enum InspectorAccessibilityID {
         "genotype-annotation-comment-remove-allele-row"
     static let commentSampleColumnRemoveButton =
         "genotype-annotation-comment-remove-sample-column"
+    static let commentCellDisabledReason =
+        "genotype-annotation-comment-disabled-reason-cell"
+    static let commentAlleleRowDisabledReason =
+        "genotype-annotation-comment-disabled-reason-allele-row"
+    static let commentSampleColumnDisabledReason =
+        "genotype-annotation-comment-disabled-reason-sample-column"
     static let appearanceDisclosure = "genotype-annotation-appearance-disclosure"
 }
 

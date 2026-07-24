@@ -102,6 +102,20 @@ public struct GenotypeMatrixReviewCapabilityState: Equatable, Sendable {
     public var allCommands: [GenotypeMatrixCommandAvailability] {
         [falsePositive, falseNegative, clearReview, upsertComment, removeComments]
     }
+
+    /// Returns the shared mutation decision for removing comments from an
+    /// inspector scope. Scoped cards can address applicable row and column
+    /// targets in addition to the exact selected targets, so they must ask the
+    /// capability snapshot instead of reimplementing the writable/comment gate.
+    public func removeCommentsAvailability(
+        for targets: [Target]
+    ) -> GenotypeMatrixCommandAvailability {
+        GenotypeMatrixReviewCapability.commentRemovalAvailability(
+            mutationGate: upsertComment,
+            targets: targets,
+            commentsByTarget: commentsByTarget
+        )
+    }
 }
 
 public enum GenotypeMatrixReviewCapability {
@@ -174,14 +188,11 @@ public enum GenotypeMatrixReviewCapability {
             clearReview = .disabled(reason: "No review marks to clear.")
         }
 
-        let removeComments: GenotypeMatrixCommandAvailability
-        if mutationGate != .enabled {
-            removeComments = mutationGate
-        } else if commentsByTarget.keys.contains(where: Set(targets).contains) {
-            removeComments = .enabled
-        } else {
-            removeComments = .disabled(reason: "No comments to remove.")
-        }
+        let removeComments = commentRemovalAvailability(
+            mutationGate: mutationGate,
+            targets: targets,
+            commentsByTarget: commentsByTarget
+        )
 
         return GenotypeMatrixReviewCapabilityState(
             selectionShape: shape,
@@ -275,6 +286,18 @@ public enum GenotypeMatrixReviewCapability {
         guard let first = values.first else { return .none }
         guard values.dropFirst().allSatisfy({ $0 == first }) else { return .mixed }
         return first.map(GenotypeMatrixValueState.uniform) ?? .none
+    }
+
+    fileprivate static func commentRemovalAvailability(
+        mutationGate: GenotypeMatrixCommandAvailability,
+        targets: [Target],
+        commentsByTarget: [Target: Comment]
+    ) -> GenotypeMatrixCommandAvailability {
+        guard mutationGate.isEnabled else { return mutationGate }
+        guard targets.contains(where: { commentsByTarget[$0] != nil }) else {
+            return .disabled(reason: "No comments to remove.")
+        }
+        return .enabled
     }
 
     private static func resolvedComments(_ comments: [Comment]) -> [Target: Comment] {

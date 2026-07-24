@@ -27,6 +27,15 @@ Implemented and verified.
 - Scoped drafts remain stable through capability refreshes while still
   rehydrating when the saved value changes. Draft storage is observable so
   Add/Save/Replace enablement updates while typing.
+- Scoped Remove availability is resolved by the shared capability for the
+  exact card targets, including applicable row and column scopes. The
+  inspector neither substitutes the upsert gate nor duplicates eligibility.
+- Bulk existing cards retain every resolved comment's author and timestamp.
+  Uniform metadata is shown directly; differing metadata is shown explicitly
+  as `Multiple authors` and/or `Multiple timestamps`, never as an arbitrary
+  comment's metadata.
+- Read-only comment editors are non-editable and show the shared mutation
+  reason within each card.
 - The capability snapshot now carries resolved comments already present in the
   controller cache for the exact selection and applicable row/column scopes.
   This adds no sidecar scan, disk access, or independent eligibility path.
@@ -54,6 +63,9 @@ Focused tests now cover:
 - distinct Cell, Allele Row, and Sample Column values and metadata;
 - Add, Save, Remove, and explicit bulk Replace request intents;
 - empty, uniform, and mixed bulk comments with no arbitrary mixed draft;
+- shared scoped remove availability for applicable row/column targets;
+- bulk metadata preservation and explicit mixed metadata state;
+- read-only editor gating and card-local disabled copy;
 - inspector hierarchy and stable identifier readiness; and
 - controller-to-inspector delivery of cached applicable scoped comments.
 
@@ -63,7 +75,7 @@ Fresh final verification:
 
 ```text
 swift test --skip-update --filter GenotypeResultDisplaySectionTests
-Executed 33 tests, with 0 failures.
+Executed 34 tests, with 0 failures.
 
 swift test --skip-update --filter GenotypeResultViewportTests
 Executed 256 tests, with 0 failures.
@@ -79,6 +91,9 @@ Passed.
   evidence eligibility.
 - Review and comment actions emit the exact Task 4 request targets and intents
   through the already-wired controller callbacks.
+- Save uses the shared upsert mutation gate, while Remove asks the same shared
+  capability snapshot for the exact scoped card targets. Both the button and
+  callback guard consume that decision.
 - Applicable comment metadata comes from `matrixCommentsByTarget`, which Task 4
   rebuilds on sidecar revision, and not from a new data source.
 - Scope target expansion preserves full locus/genotype/sample/stable-cluster

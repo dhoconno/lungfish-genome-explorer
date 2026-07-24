@@ -601,6 +601,14 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         )
         viewModel.updateMatrixReviewCapability(readOnly)
         XCTAssertEqual(viewModel.matrixReviewDisabledReason, "This bundle is read-only.")
+        XCTAssertEqual(
+            viewModel.matrixCommentMutationDisabledReason,
+            "This bundle is read-only."
+        )
+        XCTAssertEqual(
+            viewModel.matrixCommentRemovalAvailability(scope: .cell),
+            .disabled(reason: "This bundle is read-only.")
+        )
         XCTAssertTrue(readOnly.allCommands.allSatisfy { !$0.isEnabled })
     }
 
@@ -661,6 +669,18 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             "Row analyst",
             "Column analyst",
         ])
+        XCTAssertEqual(
+            viewModel.matrixCommentRemovalAvailability(scope: .cell),
+            .enabled
+        )
+        XCTAssertEqual(
+            viewModel.matrixCommentRemovalAvailability(scope: .alleleRow),
+            .enabled
+        )
+        XCTAssertEqual(
+            viewModel.matrixCommentRemovalAvailability(scope: .sampleColumn),
+            .enabled
+        )
         XCTAssertEqual(viewModel.matrixCommentCards.map(\.actionTitle), [
             "Save Changes",
             "Save Changes",
@@ -735,6 +755,12 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         cellCard = try XCTUnwrap(viewModel.matrixCommentCards.first { $0.scope == .cell })
         XCTAssertEqual(cellCard.valueState, .uniform("Uniform note"))
         XCTAssertEqual(cellCard.displayBody, "Uniform note")
+        XCTAssertEqual(cellCard.currentComments.map(\.author), ["Analyst A", "Analyst B"])
+        XCTAssertEqual(cellCard.currentComments.map(\.timestamp), [
+            "2026-07-24T10:00:00Z",
+            "2026-07-24T11:00:00Z",
+        ])
+        XCTAssertEqual(cellCard.metadataSummary, "Multiple authors · Multiple timestamps")
         XCTAssertEqual(cellCard.actionTitle, "Replace Comments on 2 Targets")
 
         let mixedComments = [
@@ -770,6 +796,67 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         )
     }
 
+    func testScopedCommentRemovalUsesSharedCapabilityForApplicableTargets() throws {
+        let cell = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01",
+            sample: "AnimalA"
+        )
+        let row = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01"
+        )
+        let capability = GenotypeMatrixReviewCapability.evaluate(
+            selection: [cell],
+            evidence: .init([cell: 3]),
+            reviews: [],
+            comments: [
+                .init(
+                    target: row,
+                    body: "Applicable row note",
+                    author: "Analyst",
+                    timestamp: "2026-07-24T10:00:00Z"
+                ),
+            ],
+            isWritable: true
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.updateSelection(.init(
+            title: "Cell",
+            subtitle: "Matrix annotations",
+            detailRows: [],
+            matrixTargets: [cell]
+        ))
+        viewModel.updateMatrixReviewCapability(capability)
+
+        XCTAssertFalse(capability.removeComments.isEnabled)
+        XCTAssertEqual(
+            capability.removeCommentsAvailability(for: [cell]),
+            .disabled(reason: "No comments to remove.")
+        )
+        XCTAssertEqual(
+            capability.removeCommentsAvailability(for: [row]),
+            .enabled
+        )
+        XCTAssertEqual(
+            viewModel.matrixCommentRemovalAvailability(scope: .cell),
+            .disabled(reason: "No comments to remove.")
+        )
+        XCTAssertEqual(
+            viewModel.matrixCommentRemovalAvailability(scope: .alleleRow),
+            .enabled
+        )
+
+        var requests: [GenotypeMatrixCommentEditRequest] = []
+        viewModel.onMatrixCommentRequested = { requests.append($0) }
+        viewModel.removeMatrixComment(scope: .cell)
+        viewModel.removeMatrixComment(scope: .alleleRow)
+
+        XCTAssertEqual(requests, [
+            .init(targets: [row], intent: .remove),
+        ])
+    }
+
     func testAnnotationInspectorSourceOrdersReviewCommentsAndAppearanceAndUsesStableIDs() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -801,11 +888,16 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(source.contains("genotype-annotation-comment-card-sample-column"))
         XCTAssertTrue(source.contains("genotype-annotation-comment-bulk-replace-cell"))
         XCTAssertTrue(source.contains("genotype-annotation-comment-remove-cell"))
+        XCTAssertTrue(source.contains("genotype-annotation-comment-disabled-reason-cell"))
+        XCTAssertTrue(source.contains(
+            ".disabled(!viewModel.matrixReviewCapability.upsertComment.isEnabled)"
+        ))
         XCTAssertTrue(source.contains("genotype-annotation-appearance-disclosure"))
         XCTAssertTrue(identifiers.contains("reviewFalsePositiveButton"))
         XCTAssertTrue(identifiers.contains("commentCellCard"))
         XCTAssertTrue(identifiers.contains("commentCellBulkReplaceButton"))
         XCTAssertTrue(identifiers.contains("commentCellRemoveButton"))
+        XCTAssertTrue(identifiers.contains("commentCellDisabledReason"))
         XCTAssertTrue(identifiers.contains("appearanceDisclosure"))
     }
 

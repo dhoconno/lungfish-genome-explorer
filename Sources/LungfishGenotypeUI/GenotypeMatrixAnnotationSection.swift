@@ -122,8 +122,8 @@ public struct GenotypeMatrixAnnotationSection: View {
                 .font(.caption2)
                 .foregroundStyle(card.valueState == .mixed ? .primary : .secondary)
 
-            if let comment = card.currentComment {
-                Text("\(comment.author) · \(formattedTimestamp(comment.timestamp))")
+            if !card.currentComments.isEmpty {
+                Text(commentMetadataText(card))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -136,7 +136,18 @@ public struct GenotypeMatrixAnnotationSection: View {
             .textFieldStyle(.roundedBorder)
             .lineLimit(2...5)
             .controlSize(.small)
+            .disabled(!viewModel.matrixReviewCapability.upsertComment.isEnabled)
             .accessibilityIdentifier(commentFieldAccessibilityIdentifier(card.scope))
+
+            if let reason = viewModel.matrixCommentMutationDisabledReason {
+                Text(reason)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(
+                        commentDisabledReasonAccessibilityIdentifier(card.scope)
+                    )
+            }
 
             HStack(spacing: 10) {
                 Button {
@@ -172,7 +183,13 @@ public struct GenotypeMatrixAnnotationSection: View {
                     }
                     .buttonStyle(.borderless)
                     .controlSize(.small)
-                    .disabled(!viewModel.matrixReviewCapability.upsertComment.isEnabled)
+                    .disabled(
+                        !viewModel.matrixCommentRemovalAvailability(scope: card.scope).isEnabled
+                    )
+                    .help(
+                        viewModel.matrixCommentRemovalAvailability(scope: card.scope)
+                            .disabledReason ?? "Remove comment"
+                    )
                     .accessibilityIdentifier(commentRemoveAccessibilityIdentifier(card.scope))
                 }
             }
@@ -340,6 +357,31 @@ public struct GenotypeMatrixAnnotationSection: View {
         return date.formatted(date: .abbreviated, time: .shortened)
     }
 
+    private func commentMetadataText(
+        _ card: GenotypeMatrixCommentCardState
+    ) -> String {
+        let author: String
+        switch card.authorState {
+        case .none:
+            author = ""
+        case let .uniform(value):
+            author = value
+        case .mixed:
+            author = "Multiple authors"
+        }
+
+        let timestamp: String
+        switch card.timestampState {
+        case .none:
+            timestamp = ""
+        case let .uniform(value):
+            timestamp = formattedTimestamp(value)
+        case .mixed:
+            timestamp = "Multiple timestamps"
+        }
+        return "\(author) · \(timestamp)"
+    }
+
     private func commentCardAccessibilityIdentifier(
         _ scope: GenotypeMatrixCommentScope
     ) -> String {
@@ -399,6 +441,19 @@ public struct GenotypeMatrixAnnotationSection: View {
             return "genotype-annotation-comment-remove-allele-row"
         case .sampleColumn:
             return "genotype-annotation-comment-remove-sample-column"
+        }
+    }
+
+    private func commentDisabledReasonAccessibilityIdentifier(
+        _ scope: GenotypeMatrixCommentScope
+    ) -> String {
+        switch scope {
+        case .cell:
+            return "genotype-annotation-comment-disabled-reason-cell"
+        case .alleleRow:
+            return "genotype-annotation-comment-disabled-reason-allele-row"
+        case .sampleColumn:
+            return "genotype-annotation-comment-disabled-reason-sample-column"
         }
     }
 }

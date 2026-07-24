@@ -429,7 +429,7 @@ public final class GenotypeResultDisplaySectionViewModel {
                 scope: scope,
                 targets: targets,
                 valueState: valueState,
-                currentComment: targets.count == 1 ? comments.first : nil
+                currentComments: comments
             )
         }
     }
@@ -442,6 +442,17 @@ public final class GenotypeResultDisplaySectionViewModel {
 
     public func setMatrixCommentDraft(_ body: String, scope: GenotypeMatrixCommentScope) {
         matrixCommentDrafts[scope] = body
+    }
+
+    public func matrixCommentRemovalAvailability(
+        scope: GenotypeMatrixCommentScope
+    ) -> GenotypeMatrixCommandAvailability {
+        let targets = matrixCommentCards.first(where: { $0.scope == scope })?.targets ?? []
+        return matrixReviewCapability.removeCommentsAvailability(for: targets)
+    }
+
+    public var matrixCommentMutationDisabledReason: String? {
+        matrixReviewCapability.upsertComment.disabledReason
     }
 
     public func saveMatrixComment(scope: GenotypeMatrixCommentScope) {
@@ -458,9 +469,8 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     public func removeMatrixComment(scope: GenotypeMatrixCommentScope) {
-        guard matrixReviewCapability.upsertComment.isEnabled,
-              let card = matrixCommentCards.first(where: { $0.scope == scope }),
-              card.hasAnyComment else { return }
+        guard matrixCommentRemovalAvailability(scope: scope).isEnabled,
+              let card = matrixCommentCards.first(where: { $0.scope == scope }) else { return }
         onMatrixCommentRequested?(.init(targets: card.targets, intent: .remove))
         matrixCommentDrafts[scope] = ""
     }
