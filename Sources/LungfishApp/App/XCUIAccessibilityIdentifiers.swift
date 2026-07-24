@@ -72,6 +72,35 @@ enum SettingsAccessibilityID {
 enum InspectorAccessibilityID {
     static let analystIdentityLabel = "genotype-annotation-analyst-identity-label"
     static let analystIdentitySettingsButton = "genotype-annotation-analyst-identity-settings-button"
+    static let reviewGroup = "genotype-annotation-review-group"
+    static let reviewSelectionSummary = "genotype-annotation-review-selection-summary"
+    static let reviewEvidenceSummary = "genotype-annotation-review-evidence-summary"
+    static let reviewCurrentState = "genotype-annotation-review-current-state"
+    static let reviewFalsePositiveButton = "genotype-annotation-review-false-positive-button"
+    static let reviewFalseNegativeButton = "genotype-annotation-review-false-negative-button"
+    static let reviewClearButton = "genotype-annotation-review-clear-button"
+    static let reviewDisabledReason = "genotype-annotation-review-disabled-reason"
+    static let commentCellCard = "genotype-annotation-comment-card-cell"
+    static let commentAlleleRowCard = "genotype-annotation-comment-card-allele-row"
+    static let commentSampleColumnCard = "genotype-annotation-comment-card-sample-column"
+    static let commentCellField = "genotype-annotation-comment-field-cell"
+    static let commentAlleleRowField = "genotype-annotation-comment-field-allele-row"
+    static let commentSampleColumnField = "genotype-annotation-comment-field-sample-column"
+    static let commentCellSaveButton = "genotype-annotation-comment-save-cell"
+    static let commentAlleleRowSaveButton = "genotype-annotation-comment-save-allele-row"
+    static let commentSampleColumnSaveButton = "genotype-annotation-comment-save-sample-column"
+    static let commentCellBulkReplaceButton =
+        "genotype-annotation-comment-bulk-replace-cell"
+    static let commentAlleleRowBulkReplaceButton =
+        "genotype-annotation-comment-bulk-replace-allele-row"
+    static let commentSampleColumnBulkReplaceButton =
+        "genotype-annotation-comment-bulk-replace-sample-column"
+    static let commentCellRemoveButton = "genotype-annotation-comment-remove-cell"
+    static let commentAlleleRowRemoveButton =
+        "genotype-annotation-comment-remove-allele-row"
+    static let commentSampleColumnRemoveButton =
+        "genotype-annotation-comment-remove-sample-column"
+    static let appearanceDisclosure = "genotype-annotation-appearance-disclosure"
 }
 
 enum WorkflowBuilderAccessibilityID {

@@ -81,11 +81,17 @@ public enum GenotypeMatrixCommandAvailability: Equatable, Sendable {
 }
 
 public struct GenotypeMatrixReviewCapabilityState: Equatable, Sendable {
+    public typealias Target = GenotypeAnnotationSidecar.MatrixTarget
+    public typealias Comment = GenotypeAnnotationSidecar.MatrixComment
+
     public let selectionShape: GenotypeMatrixSelectionShape
     public let selectedCellCount: Int
     public let support: GenotypeMatrixSupportSummary
     public let reviewState: GenotypeMatrixValueState<GenotypeAnnotationSidecar.MatrixReviewDisposition>
     public let commentState: GenotypeMatrixValueState<String>
+    /// Resolved current comments already loaded in the controller cache for the
+    /// exact selection and its applicable row/column scopes.
+    public let commentsByTarget: [Target: Comment]
     public let isWritable: Bool
     public let falsePositive: GenotypeMatrixCommandAvailability
     public let falseNegative: GenotypeMatrixCommandAvailability
@@ -186,6 +192,7 @@ public enum GenotypeMatrixReviewCapability {
             support: support,
             reviewState: reviewState,
             commentState: commentState,
+            commentsByTarget: commentsByTarget,
             isWritable: isWritable,
             falsePositive: reviewCommands.falsePositive,
             falseNegative: reviewCommands.falseNegative,

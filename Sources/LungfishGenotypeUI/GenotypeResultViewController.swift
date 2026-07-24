@@ -929,7 +929,9 @@ public final class GenotypeResultViewController: NSViewController {
             selection: targets,
             evidence: matrixEvidenceIndex,
             reviews: targets.compactMap { matrixReviewsByTarget[$0] },
-            comments: targets.compactMap { matrixCommentsByTarget[$0] },
+            comments: applicableCommentTargets(for: targets).compactMap {
+                matrixCommentsByTarget[$0]
+            },
             isWritable: !(annotationStore?.isReadOnly ?? true)
         )
         comparisonMatrix.applyMatrixReviewCapability(matrixReviewCapability)

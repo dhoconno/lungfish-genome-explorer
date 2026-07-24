@@ -479,6 +479,336 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertEqual(requests.map(\.minimumReads), [nil, nil, nil])
     }
 
+    func testAnnotationInspectorUsesSharedCapabilityForReviewPresentationAndRequests() throws {
+        let first = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01",
+            sample: "AnimalA"
+        )
+        let second = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01",
+            sample: "AnimalB"
+        )
+        let capability = GenotypeMatrixReviewCapability.evaluate(
+            selection: [first, second],
+            evidence: .init([first: 9, second: 4]),
+            reviews: [
+                .init(
+                    target: first,
+                    disposition: .falsePositive,
+                    author: "Analyst",
+                    timestamp: "2026-07-24T12:00:00Z"
+                ),
+                .init(
+                    target: second,
+                    disposition: .falsePositive,
+                    author: "Analyst",
+                    timestamp: "2026-07-24T12:00:00Z"
+                ),
+            ],
+            comments: [],
+            isWritable: true
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.updateSelection(.init(
+            title: "Two cells",
+            subtitle: "Matrix annotations",
+            detailRows: [],
+            matrixTargets: [first, second]
+        ))
+        viewModel.updateMatrixReviewCapability(capability)
+        var requests: [GenotypeMatrixReviewRequest] = []
+        viewModel.onMatrixReviewRequested = { requests.append($0) }
+
+        XCTAssertEqual(viewModel.matrixSelectionSummary, "2 genotype cells selected")
+        XCTAssertEqual(viewModel.matrixEvidenceSummary, "All have read support.")
+        XCTAssertEqual(viewModel.matrixCurrentReviewSummary, "False positive")
+        XCTAssertEqual(viewModel.matrixFalsePositiveAvailability, capability.falsePositive)
+        XCTAssertEqual(viewModel.matrixFalseNegativeAvailability, capability.falseNegative)
+        XCTAssertEqual(viewModel.matrixClearReviewAvailability, capability.clearReview)
+
+        viewModel.markMatrixFalsePositive()
+        viewModel.markMatrixFalseNegative()
+        viewModel.clearMatrixReview()
+
+        XCTAssertEqual(requests, [
+            .init(targets: [first, second], intent: .set(.falsePositive)),
+            .init(targets: [first, second], intent: .clear),
+        ])
+
+        let mixed = GenotypeMatrixReviewCapability.evaluate(
+            selection: [first, second],
+            evidence: .init([first: 9]),
+            reviews: [],
+            comments: [],
+            isWritable: true
+        )
+        viewModel.updateMatrixReviewCapability(mixed)
+
+        XCTAssertEqual(
+            viewModel.matrixEvidenceSummary,
+            "Selection contains cells with and without read support."
+        )
+        XCTAssertEqual(
+            viewModel.matrixReviewDisabledReason,
+            mixed.falsePositive.disabledReason
+        )
+
+        let unsupported = GenotypeMatrixReviewCapability.evaluate(
+            selection: [first, second],
+            evidence: .init(),
+            reviews: [],
+            comments: [],
+            isWritable: true
+        )
+        viewModel.updateMatrixReviewCapability(unsupported)
+        XCTAssertEqual(viewModel.matrixEvidenceSummary, "No read support.")
+        XCTAssertFalse(viewModel.matrixFalsePositiveAvailability.isEnabled)
+        XCTAssertTrue(viewModel.matrixFalseNegativeAvailability.isEnabled)
+        XCTAssertEqual(viewModel.matrixCurrentReviewSummary, "None")
+
+        let mixedReviews = GenotypeMatrixReviewCapability.evaluate(
+            selection: [first, second],
+            evidence: .init([first: 9, second: 4]),
+            reviews: [
+                .init(
+                    target: first,
+                    disposition: .falsePositive,
+                    author: "Analyst",
+                    timestamp: "2026-07-24T12:00:00Z"
+                ),
+                .init(
+                    target: second,
+                    disposition: .falseNegative,
+                    author: "Analyst",
+                    timestamp: "2026-07-24T12:01:00Z"
+                ),
+            ],
+            comments: [],
+            isWritable: true
+        )
+        viewModel.updateMatrixReviewCapability(mixedReviews)
+        XCTAssertEqual(viewModel.matrixCurrentReviewSummary, "Multiple review states")
+        XCTAssertTrue(viewModel.matrixClearReviewAvailability.isEnabled)
+
+        let readOnly = GenotypeMatrixReviewCapability.evaluate(
+            selection: [first, second],
+            evidence: .init([first: 9, second: 4]),
+            reviews: [],
+            comments: [],
+            isWritable: false
+        )
+        viewModel.updateMatrixReviewCapability(readOnly)
+        XCTAssertEqual(viewModel.matrixReviewDisabledReason, "This bundle is read-only.")
+        XCTAssertTrue(readOnly.allCommands.allSatisfy { !$0.isEnabled })
+    }
+
+    func testScopedCommentCardsKeepCellRowAndColumnValuesAndMetadataDistinct() throws {
+        let cell = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01",
+            sample: "AnimalA"
+        )
+        let row = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01"
+        )
+        let column = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
+        let comments = [
+            GenotypeAnnotationSidecar.MatrixComment(
+                target: cell,
+                body: "Cell note",
+                author: "Cell analyst",
+                timestamp: "2026-07-24T12:00:00Z"
+            ),
+            GenotypeAnnotationSidecar.MatrixComment(
+                target: row,
+                body: "Allele note",
+                author: "Row analyst",
+                timestamp: "2026-07-24T11:00:00Z"
+            ),
+            GenotypeAnnotationSidecar.MatrixComment(
+                target: column,
+                body: "Sample note",
+                author: "Column analyst",
+                timestamp: "2026-07-24T10:00:00Z"
+            ),
+        ]
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.updateSelection(.init(
+            title: "Cell",
+            subtitle: "Matrix annotations",
+            detailRows: [],
+            matrixTargets: [cell]
+        ))
+        viewModel.updateMatrixReviewCapability(GenotypeMatrixReviewCapability.evaluate(
+            selection: [cell],
+            evidence: .init([cell: 9]),
+            reviews: [],
+            comments: comments,
+            isWritable: true
+        ))
+
+        XCTAssertEqual(viewModel.matrixCommentCards.map(\.scope), [.cell, .alleleRow, .sampleColumn])
+        XCTAssertEqual(viewModel.matrixCommentCards.map(\.displayBody), [
+            "Cell note",
+            "Allele note",
+            "Sample note",
+        ])
+        XCTAssertEqual(viewModel.matrixCommentCards.map(\.currentComment?.author), [
+            "Cell analyst",
+            "Row analyst",
+            "Column analyst",
+        ])
+        XCTAssertEqual(viewModel.matrixCommentCards.map(\.actionTitle), [
+            "Save Changes",
+            "Save Changes",
+            "Save Changes",
+        ])
+
+        var requests: [GenotypeMatrixCommentEditRequest] = []
+        viewModel.onMatrixCommentRequested = { requests.append($0) }
+        viewModel.setMatrixCommentDraft("Updated cell note", scope: .cell)
+        viewModel.saveMatrixComment(scope: .cell)
+        viewModel.removeMatrixComment(scope: .alleleRow)
+
+        XCTAssertEqual(requests, [
+            .init(targets: [cell], intent: .upsert(body: "Updated cell note")),
+            .init(targets: [row], intent: .remove),
+        ])
+    }
+
+    func testBulkCommentCardsRequireExplicitReplaceForUniformMixedOrExistingValues() throws {
+        let first = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01",
+            sample: "AnimalA"
+        )
+        let second = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: "01_Mafa_A1_001_01",
+            sample: "AnimalB"
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.updateSelection(.init(
+            title: "Cells",
+            subtitle: "Matrix annotations",
+            detailRows: [],
+            matrixTargets: [first, second]
+        ))
+        viewModel.updateMatrixReviewCapability(GenotypeMatrixReviewCapability.evaluate(
+            selection: [first, second],
+            evidence: .init([first: 4, second: 5]),
+            reviews: [],
+            comments: [],
+            isWritable: true
+        ))
+
+        var cellCard = try XCTUnwrap(
+            viewModel.matrixCommentCards.first { $0.scope == .cell }
+        )
+        XCTAssertEqual(cellCard.valueState, .none)
+        XCTAssertEqual(cellCard.actionTitle, "Add Comment")
+
+        let uniformComments = [
+            GenotypeAnnotationSidecar.MatrixComment(
+                target: first,
+                body: "Uniform note",
+                author: "Analyst A",
+                timestamp: "2026-07-24T10:00:00Z"
+            ),
+            GenotypeAnnotationSidecar.MatrixComment(
+                target: second,
+                body: "Uniform note",
+                author: "Analyst B",
+                timestamp: "2026-07-24T11:00:00Z"
+            ),
+        ]
+        viewModel.updateMatrixReviewCapability(GenotypeMatrixReviewCapability.evaluate(
+            selection: [first, second],
+            evidence: .init([first: 4, second: 5]),
+            reviews: [],
+            comments: uniformComments,
+            isWritable: true
+        ))
+        cellCard = try XCTUnwrap(viewModel.matrixCommentCards.first { $0.scope == .cell })
+        XCTAssertEqual(cellCard.valueState, .uniform("Uniform note"))
+        XCTAssertEqual(cellCard.displayBody, "Uniform note")
+        XCTAssertEqual(cellCard.actionTitle, "Replace Comments on 2 Targets")
+
+        let mixedComments = [
+            uniformComments[0],
+            .init(
+                target: second,
+                body: "Different note",
+                author: "Analyst B",
+                timestamp: "2026-07-24T12:00:00Z"
+            ),
+        ]
+        viewModel.updateMatrixReviewCapability(GenotypeMatrixReviewCapability.evaluate(
+            selection: [first, second],
+            evidence: .init([first: 4, second: 5]),
+            reviews: [],
+            comments: mixedComments,
+            isWritable: true
+        ))
+        cellCard = try XCTUnwrap(viewModel.matrixCommentCards.first { $0.scope == .cell })
+        XCTAssertEqual(cellCard.valueState, .mixed)
+        XCTAssertEqual(cellCard.currentValueSummary, "Multiple comments")
+        XCTAssertEqual(viewModel.matrixCommentDraft(scope: .cell), "")
+        XCTAssertEqual(cellCard.actionTitle, "Replace Comments on 2 Targets")
+
+        var request: GenotypeMatrixCommentEditRequest?
+        viewModel.onMatrixCommentRequested = { request = $0 }
+        viewModel.setMatrixCommentDraft("One replacement", scope: .cell)
+        viewModel.saveMatrixComment(scope: .cell)
+
+        XCTAssertEqual(
+            request,
+            .init(targets: [first, second], intent: .replace(body: "One replacement"))
+        )
+    }
+
+    func testAnnotationInspectorSourceOrdersReviewCommentsAndAppearanceAndUsesStableIDs() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishGenotypeUI/GenotypeMatrixAnnotationSection.swift"
+            ),
+            encoding: .utf8
+        )
+        let identifiers = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishApp/App/XCUIAccessibilityIdentifiers.swift"
+            ),
+            encoding: .utf8
+        )
+
+        let review = try XCTUnwrap(source.range(of: "private var reviewControls"))
+        let comments = try XCTUnwrap(source.range(of: "private var commentCards"))
+        let appearance = try XCTUnwrap(source.range(of: "private var appearanceControls"))
+        XCTAssertLessThan(review.lowerBound, comments.lowerBound)
+        XCTAssertLessThan(comments.lowerBound, appearance.lowerBound)
+        XCTAssertTrue(source.contains("DisclosureGroup(\"Appearance\""))
+        XCTAssertTrue(source.contains("genotype-annotation-review-false-positive-button"))
+        XCTAssertTrue(source.contains("genotype-annotation-review-false-negative-button"))
+        XCTAssertTrue(source.contains("genotype-annotation-comment-card-cell"))
+        XCTAssertTrue(source.contains("genotype-annotation-comment-card-allele-row"))
+        XCTAssertTrue(source.contains("genotype-annotation-comment-card-sample-column"))
+        XCTAssertTrue(source.contains("genotype-annotation-comment-bulk-replace-cell"))
+        XCTAssertTrue(source.contains("genotype-annotation-comment-remove-cell"))
+        XCTAssertTrue(source.contains("genotype-annotation-appearance-disclosure"))
+        XCTAssertTrue(identifiers.contains("reviewFalsePositiveButton"))
+        XCTAssertTrue(identifiers.contains("commentCellCard"))
+        XCTAssertTrue(identifiers.contains("commentCellBulkReplaceButton"))
+        XCTAssertTrue(identifiers.contains("commentCellRemoveButton"))
+        XCTAssertTrue(identifiers.contains("appearanceDisclosure"))
+    }
+
     func testSelectionViewModelEmitsGenotypeHighlightRequests() {
         let viewModel = SelectionSectionViewModel()
         let target = GenotypeResultHighlightTarget(

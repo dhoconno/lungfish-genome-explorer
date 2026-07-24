@@ -1041,6 +1041,49 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingMatrixAnnotationIndexBuildCount, annotationBuildCount)
     }
 
+    func testInspectorCapabilityCarriesApplicableCachedScopedCommentsForSelectedCell() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixInspectorScopedComments-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_SUPPORTED"
+        let cell = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: genotype,
+            sample: "AnimalA"
+        )
+        let row = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A",
+            genotype: genotype
+        )
+        let column = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        let controller = GenotypeResultViewController()
+        controller.onSelectionStateChanged = { viewModel.updateSelection($0) }
+        controller.onMatrixReviewCapabilityChanged = { viewModel.updateMatrixReviewCapability($0) }
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 9)]
+        ))
+        controller.editMatrixComment(.init(targets: [cell], intent: .upsert(body: "Cell note")))
+        controller.editMatrixComment(.init(targets: [row], intent: .upsert(body: "Row note")))
+        controller.editMatrixComment(.init(targets: [column], intent: .upsert(body: "Column note")))
+
+        controller.testingShowMatrixTargetSelection([cell])
+
+        XCTAssertEqual(
+            viewModel.matrixCommentCards.map(\.displayBody),
+            ["Cell note", "Row note", "Column note"]
+        )
+        XCTAssertEqual(
+            Set(controller.testingMatrixReviewCapability.commentsByTarget.keys),
+            [cell, row, column]
+        )
+    }
+
     func testReviewRequestIsRevalidatedAgainstCurrentRawEvidenceBeforeStorePublication() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("MatrixReviewRevalidation-\(UUID().uuidString)", isDirectory: true)

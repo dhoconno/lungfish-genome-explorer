@@ -492,6 +492,74 @@ public struct GenotypeMatrixCommentEditRequest: Equatable, Sendable {
     }
 }
 
+public enum GenotypeMatrixCommentScope: String, CaseIterable, Equatable, Identifiable, Sendable {
+    case cell
+    case alleleRow
+    case sampleColumn
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .cell:
+            return "Cell"
+        case .alleleRow:
+            return "Allele Row"
+        case .sampleColumn:
+            return "Sample Column"
+        }
+    }
+
+}
+
+public struct GenotypeMatrixCommentCardState: Equatable, Sendable {
+    public typealias Target = GenotypeAnnotationSidecar.MatrixTarget
+    public typealias Comment = GenotypeAnnotationSidecar.MatrixComment
+
+    public let scope: GenotypeMatrixCommentScope
+    public let targets: [Target]
+    public let valueState: GenotypeMatrixValueState<String>
+    public let currentComment: Comment?
+
+    public var targetCount: Int { targets.count }
+
+    public var displayBody: String {
+        guard case let .uniform(body) = valueState else { return "" }
+        return body
+    }
+
+    public var currentValueSummary: String {
+        switch valueState {
+        case .none:
+            return "No comment"
+        case .uniform:
+            return targetCount == 1 ? "Current comment" : "\(targetCount) comments"
+        case .mixed:
+            return "Multiple comments"
+        }
+    }
+
+    public var requiresExplicitReplace: Bool {
+        targetCount > 1 && valueState != .none
+    }
+
+    public var actionTitle: String {
+        if requiresExplicitReplace {
+            return "Replace Comments on \(targetCount) Targets"
+        }
+        switch valueState {
+        case .none:
+            return "Add Comment"
+        case .uniform, .mixed:
+            return "Save Changes"
+        }
+    }
+
+    public var hasAnyComment: Bool {
+        valueState != .none
+    }
+}
+
 public enum GenotypeMatrixAnnotationCommandError: Error, Equatable, LocalizedError {
     case explicitBulkCommentReplaceRequired
 

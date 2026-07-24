@@ -49,6 +49,7 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var matrixCommentText = ""
     public var matrixPaletteTarget: GenotypeMatrixPaletteTarget = .fill
     public var supportedCellMinimumReads = 1
+    public var isMatrixAppearanceExpanded = false
     public var mhcCandidateControlsAvailable = false
     public var mhcCandidateIntegrityWarnings: [String] = []
     public var mhcCandidatePersistenceWarning: String?
@@ -76,6 +77,10 @@ public final class GenotypeResultDisplaySectionViewModel {
 
     @ObservationIgnored
     private var isUpdatingFromSelection = false
+    private var matrixCommentDrafts: [GenotypeMatrixCommentScope: String] = [:]
+    @ObservationIgnored
+    private var loadedMatrixCommentStates:
+        [GenotypeMatrixCommentScope: GenotypeMatrixValueState<String>] = [:]
 
     public init() {}
 
@@ -114,6 +119,8 @@ public final class GenotypeResultDisplaySectionViewModel {
         mhcCandidatePersistenceWarning = nil
         isGenotypeOnlyResult = false
         matrixReviewCapability = Self.emptyMatrixReviewCapability
+        matrixCommentDrafts = [:]
+        loadedMatrixCommentStates = [:]
         updateSelection(nil)
     }
 
@@ -290,6 +297,10 @@ public final class GenotypeResultDisplaySectionViewModel {
         isUpdatingFromSelection = true
         defer { isUpdatingFromSelection = false }
 
+        if genotypeResultSelection?.matrixTargets != selection?.matrixTargets {
+            matrixCommentDrafts = [:]
+            loadedMatrixCommentStates = [:]
+        }
         genotypeResultSelection = selection
         genotypeHighlightColor = selection?.highlightStyle.fillColor.map(Self.swiftUIColor) ?? .blue
         genotypeBorderColor = selection?.highlightStyle.borderColor.map(Self.swiftUIColor) ?? .blue
@@ -300,7 +311,158 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     public func updateMatrixReviewCapability(_ capability: GenotypeMatrixReviewCapabilityState) {
+        let previousStates = loadedMatrixCommentStates
         matrixReviewCapability = capability
+        let cards = matrixCommentCards
+        var nextStates: [GenotypeMatrixCommentScope: GenotypeMatrixValueState<String>] = [:]
+        for card in cards {
+            let priorState = previousStates[card.scope]
+            let priorDefault = priorState.map(Self.defaultCommentDraft(for:))
+            if priorState == nil || matrixCommentDrafts[card.scope] == priorDefault {
+                matrixCommentDrafts[card.scope] = Self.defaultCommentDraft(for: card.valueState)
+            }
+            nextStates[card.scope] = card.valueState
+        }
+        loadedMatrixCommentStates = nextStates
+    }
+
+    public var matrixSelectionSummary: String {
+        let count = selectedMatrixTargets.count
+        switch matrixReviewCapability.selectionShape {
+        case .none:
+            return "No matrix targets selected"
+        case .cells:
+            return "\(count) genotype \(count == 1 ? "cell" : "cells") selected"
+        case .rows:
+            return "\(count) allele \(count == 1 ? "row" : "rows") selected"
+        case .columns:
+            return "\(count) sample \(count == 1 ? "column" : "columns") selected"
+        case .mixed:
+            return "\(count) mixed matrix targets selected"
+        }
+    }
+
+    public var matrixEvidenceSummary: String {
+        let support = matrixReviewCapability.support
+        guard support.selectedCount > 0 else {
+            return "Read support is unavailable for this selection."
+        }
+        if support.unknownCount > 0 {
+            return "Read support is unavailable for this selection."
+        }
+        if support.supportedCount == support.selectedCount {
+            return "All have read support."
+        }
+        if support.unsupportedCount == support.selectedCount {
+            return "No read support."
+        }
+        return "Selection contains cells with and without read support."
+    }
+
+    public var matrixCurrentReviewSummary: String {
+        switch matrixReviewCapability.reviewState {
+        case .none:
+            return "None"
+        case let .uniform(disposition):
+            switch disposition {
+            case .falsePositive:
+                return "False positive"
+            case .falseNegative:
+                return "False negative"
+            }
+        case .mixed:
+            return "Multiple review states"
+        }
+    }
+
+    public var matrixFalsePositiveAvailability: GenotypeMatrixCommandAvailability {
+        matrixReviewCapability.falsePositive
+    }
+
+    public var matrixFalseNegativeAvailability: GenotypeMatrixCommandAvailability {
+        matrixReviewCapability.falseNegative
+    }
+
+    public var matrixClearReviewAvailability: GenotypeMatrixCommandAvailability {
+        matrixReviewCapability.clearReview
+    }
+
+    public var matrixReviewDisabledReason: String? {
+        let reasons = [
+            matrixReviewCapability.falsePositive.disabledReason,
+            matrixReviewCapability.falseNegative.disabledReason,
+            matrixReviewCapability.clearReview.disabledReason,
+        ].compactMap { $0 }
+        return reasons.first
+    }
+
+    public func markMatrixFalsePositive() {
+        guard matrixReviewCapability.falsePositive.isEnabled else { return }
+        onMatrixReviewRequested?(.init(
+            targets: selectedMatrixTargets,
+            intent: .set(.falsePositive)
+        ))
+    }
+
+    public func markMatrixFalseNegative() {
+        guard matrixReviewCapability.falseNegative.isEnabled else { return }
+        onMatrixReviewRequested?(.init(
+            targets: selectedMatrixTargets,
+            intent: .set(.falseNegative)
+        ))
+    }
+
+    public func clearMatrixReview() {
+        guard matrixReviewCapability.clearReview.isEnabled else { return }
+        onMatrixReviewRequested?(.init(targets: selectedMatrixTargets, intent: .clear))
+    }
+
+    public var matrixCommentCards: [GenotypeMatrixCommentCardState] {
+        let targetsByScope = matrixCommentTargetsByScope
+        return GenotypeMatrixCommentScope.allCases.compactMap { scope in
+            guard let targets = targetsByScope[scope], !targets.isEmpty else { return nil }
+            let comments = targets.compactMap { matrixReviewCapability.commentsByTarget[$0] }
+            let valueState = Self.commentValueState(
+                targets.map { matrixReviewCapability.commentsByTarget[$0]?.body }
+            )
+            return GenotypeMatrixCommentCardState(
+                scope: scope,
+                targets: targets,
+                valueState: valueState,
+                currentComment: targets.count == 1 ? comments.first : nil
+            )
+        }
+    }
+
+    public func matrixCommentDraft(scope: GenotypeMatrixCommentScope) -> String {
+        matrixCommentDrafts[scope] ?? matrixCommentCards
+            .first(where: { $0.scope == scope })?
+            .displayBody ?? ""
+    }
+
+    public func setMatrixCommentDraft(_ body: String, scope: GenotypeMatrixCommentScope) {
+        matrixCommentDrafts[scope] = body
+    }
+
+    public func saveMatrixComment(scope: GenotypeMatrixCommentScope) {
+        guard matrixReviewCapability.upsertComment.isEnabled,
+              let card = matrixCommentCards.first(where: { $0.scope == scope }) else { return }
+        let body = matrixCommentDraft(scope: scope)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return }
+        let intent: GenotypeMatrixCommentEditRequest.Intent = card.requiresExplicitReplace
+            ? .replace(body: body)
+            : .upsert(body: body)
+        onMatrixCommentRequested?(.init(targets: card.targets, intent: intent))
+        matrixCommentDrafts[scope] = body
+    }
+
+    public func removeMatrixComment(scope: GenotypeMatrixCommentScope) {
+        guard matrixReviewCapability.upsertComment.isEnabled,
+              let card = matrixCommentCards.first(where: { $0.scope == scope }),
+              card.hasAnyComment else { return }
+        onMatrixCommentRequested?(.init(targets: card.targets, intent: .remove))
+        matrixCommentDrafts[scope] = ""
     }
 
     func setGenotypeHighlightChannel(_ channel: GenotypeResultHighlightChannel) {
@@ -448,6 +610,50 @@ public final class GenotypeResultDisplaySectionViewModel {
                 minimumReads: canUseSupportedCellThreshold ? max(0, supportedCellMinimumReads) : nil
             )
         )
+    }
+
+    private var matrixCommentTargetsByScope:
+        [GenotypeMatrixCommentScope: [GenotypeAnnotationSidecar.MatrixTarget]] {
+        var result: [GenotypeMatrixCommentScope: [GenotypeAnnotationSidecar.MatrixTarget]] = [:]
+        for target in selectedMatrixTargets {
+            switch target {
+            case let .cell(locus, genotype, sample, stableClusterID):
+                result[.cell, default: []].append(target)
+                result[.alleleRow, default: []].append(.row(
+                    locus: locus,
+                    genotype: genotype,
+                    stableClusterID: stableClusterID
+                ))
+                result[.sampleColumn, default: []].append(.column(sample: sample))
+            case .row:
+                result[.alleleRow, default: []].append(target)
+            case .column:
+                result[.sampleColumn, default: []].append(target)
+            }
+        }
+        return result.mapValues(Self.uniqueMatrixTargets)
+    }
+
+    private static func uniqueMatrixTargets(
+        _ targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        var seen: Set<GenotypeAnnotationSidecar.MatrixTarget> = []
+        return targets.filter { seen.insert($0).inserted }
+    }
+
+    private static func commentValueState(
+        _ values: [String?]
+    ) -> GenotypeMatrixValueState<String> {
+        guard let first = values.first else { return .none }
+        guard values.dropFirst().allSatisfy({ $0 == first }) else { return .mixed }
+        return first.map(GenotypeMatrixValueState.uniform) ?? .none
+    }
+
+    private static func defaultCommentDraft(
+        for state: GenotypeMatrixValueState<String>
+    ) -> String {
+        guard case let .uniform(body) = state else { return "" }
+        return body
     }
 
     func notifyStateChanged() {
