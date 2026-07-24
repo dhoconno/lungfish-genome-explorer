@@ -104,6 +104,48 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         XCTAssertTrue(item.cliCommand?.contains("fastq update-current-workbook") == true)
     }
 
+    func testAnnotationOnlyUpdatePassesExplicitCLIIntentWithEmptyCalls() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "annotation-only.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL.appendingPathComponent("artifacts/workbooks/updates", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let annotationURL = bundleURL.appendingPathComponent("annotations.json")
+        try Data("{}".utf8).write(to: annotationURL)
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "{}",
+            standardError: "[100%] Updated current.xlsx\n"
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: runner
+        )
+
+        try await service.run(
+            bundleURL: bundleURL,
+            calls: [],
+            annotationSidecarURL: annotationURL,
+            annotationOnly: true
+        )
+
+        let invocation = try XCTUnwrap(runner.invocations.first)
+        XCTAssertTrue(invocation.arguments.contains("--annotation-only"))
+        let callsURL = URL(
+            fileURLWithPath: try value(after: "--calls-json", in: invocation.arguments)
+        )
+        let decoded = try JSONDecoder().decode(
+            [GenotypeWorkbookHaplotypeCall].self,
+            from: Data(contentsOf: callsURL)
+        )
+        XCTAssertTrue(decoded.isEmpty)
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeCurrentWorkbookUpdateExecutionServiceTests-\(UUID().uuidString)", isDirectory: true)

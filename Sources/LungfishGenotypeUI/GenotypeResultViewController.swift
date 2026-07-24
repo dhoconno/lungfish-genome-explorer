@@ -122,7 +122,7 @@ public final class GenotypeResultViewController: NSViewController {
     public var onMatrixReviewCapabilityChanged: ((GenotypeMatrixReviewCapabilityState) -> Void)?
     public var onMatrixAnnotationCommandError: ((Error) -> Void)?
     public var onCandidatePersistenceWarningChanged: ((String?) -> Void)?
-    public var onCurrentWorkbookUpdateRequested: ((URL, [GenotypeWorkbookHaplotypeCall], [String]) -> Void)?
+    public var onCurrentWorkbookUpdateRequested: ((URL, [GenotypeWorkbookHaplotypeCall], [String], Bool) -> Void)?
     public var onAIHaplotypingRequested: ((URL, GenotypeAIHaplotypingUIRequest) -> Void)?
     /// Supplied by the host application so annotations capture the active identity at edit time.
     public var annotationAuthorProvider: () -> String = { NSUserName() }
@@ -258,6 +258,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var haplotypeSampleActionTags: [Int: String] = [:]
     private var nextHaplotypeSampleActionTag = 1
     private var currentWorkbookNeedsRefresh = false
+    private var currentWorkbookRequiresFullUpdate = false
     private var currentWorkbookUpdateStatus: String?
     private var currentWorkbookAnnotationAutoUpdateTask: GenotypeMatrixWorkbookUpdateCancellation?
     var matrixWorkbookUpdateScheduler: GenotypeMatrixWorkbookUpdateScheduling =
@@ -617,6 +618,7 @@ public final class GenotypeResultViewController: NSViewController {
         cachedHaplotypeDefinitionContext = nil
         comparisonMatrixConfigured = false
         currentWorkbookNeedsRefresh = false
+        currentWorkbookRequiresFullUpdate = false
         currentWorkbookUpdateStatus = nil
         currentCandidateRow = nil
         candidatePersistenceWarning = nil
@@ -1050,6 +1052,7 @@ public final class GenotypeResultViewController: NSViewController {
                 self.onDisplayStateChanged?(persistedState)
                 if expectedSettings.tints != published.settings.mhcCandidateDisplay.tints {
                     self.currentWorkbookNeedsRefresh = true
+                    self.currentWorkbookRequiresFullUpdate = true
                     self.currentWorkbookUpdateStatus = "current.xlsx does not include candidate tint changes."
                     self.rebuildArtifactLens()
                 }
@@ -3795,16 +3798,22 @@ public final class GenotypeResultViewController: NSViewController {
             [weak self] in
             guard let self else { return }
             self.currentWorkbookAnnotationAutoUpdateTask = nil
-            self.updateCurrentWorkbookFromOverrides()
+            self.performCurrentWorkbookUpdate(
+                annotationOnly: !self.currentWorkbookRequiresFullUpdate
+            )
         }
     }
 
     @objc private func updateCurrentWorkbookFromOverrides() {
+        performCurrentWorkbookUpdate(annotationOnly: false)
+    }
+
+    private func performCurrentWorkbookUpdate(annotationOnly: Bool) {
         guard let result else { return }
         currentWorkbookAnnotationAutoUpdateTask?.cancel()
         currentWorkbookAnnotationAutoUpdateTask = nil
-        let calls = currentWorkbookEffectiveHaplotypeCalls()
-        let includedLoci = currentWorkbookIncludedLoci()
+        let calls = annotationOnly ? [] : currentWorkbookEffectiveHaplotypeCalls()
+        let includedLoci = annotationOnly ? [] : currentWorkbookIncludedLoci()
         guard !calls.isEmpty
                 || currentWorkbookHasMatrixAnnotations
                 || currentWorkbookNeedsRefresh
@@ -3816,7 +3825,7 @@ public final class GenotypeResultViewController: NSViewController {
         if let onCurrentWorkbookUpdateRequested {
             currentWorkbookUpdateStatus = "Queued current.xlsx update in Operations Panel."
             rebuildArtifactLens()
-            onCurrentWorkbookUpdateRequested(result.bundleURL, calls, includedLoci)
+            onCurrentWorkbookUpdateRequested(result.bundleURL, calls, includedLoci, annotationOnly)
             return
         }
         currentWorkbookUpdateStatus = "Updating current.xlsx..."
@@ -3827,12 +3836,16 @@ public final class GenotypeResultViewController: NSViewController {
                 calls,
                 annotationSidecarURL: annotationURL,
                 into: result.bundleURL,
+                annotationOnly: annotationOnly,
                 provenanceContext: currentWorkbookRevisionProvenanceContext(
                     bundleURL: result.bundleURL,
                     includedLoci: includedLoci
                 )
             )
-            reloadCurrentWorkbookResult(from: result.bundleURL)
+            reloadCurrentWorkbookResult(
+                from: result.bundleURL,
+                annotationOnly: annotationOnly
+            )
         } catch {
             currentWorkbookNeedsRefresh = true
             currentWorkbookUpdateStatus =
@@ -3842,11 +3855,19 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
-    public func applyCurrentWorkbookUpdateCompleted(result updatedResult: ONTGenotypeResultBundleData) {
+    public func applyCurrentWorkbookUpdateCompleted(
+        result updatedResult: ONTGenotypeResultBundleData,
+        annotationOnly: Bool = false
+    ) {
         invalidateCurrentWorkbookResultReload()
         applyCurrentWorkbookUpdatedResult(updatedResult)
-        currentWorkbookNeedsRefresh = false
-        currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
+        if !annotationOnly {
+            currentWorkbookRequiresFullUpdate = false
+        }
+        currentWorkbookNeedsRefresh = currentWorkbookRequiresFullUpdate
+        currentWorkbookUpdateStatus = currentWorkbookRequiresFullUpdate
+            ? "Updated workbook annotations. Other current.xlsx changes still require an explicit update."
+            : "Updated current.xlsx. Previous workbook saved in revisions."
         rebuildArtifactLens()
         if let sidecar = annotationStore?.sidecar {
             onAnnotationSidecarChanged?(sidecar)
@@ -3867,7 +3888,10 @@ public final class GenotypeResultViewController: NSViewController {
         resultConfigurationGeneration &+= 1
     }
 
-    private func reloadCurrentWorkbookResult(from bundleURL: URL) {
+    private func reloadCurrentWorkbookResult(
+        from bundleURL: URL,
+        annotationOnly: Bool = false
+    ) {
         currentWorkbookResultReloadTask?.cancel()
         resultConfigurationGeneration &+= 1
         let expectedBundleURL = bundleURL.standardizedFileURL
@@ -3885,8 +3909,13 @@ public final class GenotypeResultViewController: NSViewController {
                 }
                 self.currentWorkbookResultReloadTask = nil
                 self.applyCurrentWorkbookUpdatedResult(updatedResult)
-                self.currentWorkbookNeedsRefresh = false
-                self.currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
+                if !annotationOnly {
+                    self.currentWorkbookRequiresFullUpdate = false
+                }
+                self.currentWorkbookNeedsRefresh = self.currentWorkbookRequiresFullUpdate
+                self.currentWorkbookUpdateStatus = self.currentWorkbookRequiresFullUpdate
+                    ? "Updated workbook annotations. Other current.xlsx changes still require an explicit update."
+                    : "Updated current.xlsx. Previous workbook saved in revisions."
                 self.rebuildArtifactLens()
                 if let sidecar = self.annotationStore?.sidecar {
                     self.onAnnotationSidecarChanged?(sidecar)
@@ -4266,6 +4295,7 @@ public final class GenotypeResultViewController: NSViewController {
             guard !bulk.isEmpty else { return }
             try store.addManualHaplotypeAssignments(bulk, author: author)
             currentWorkbookNeedsRefresh = true
+            currentWorkbookRequiresFullUpdate = true
             currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
@@ -4289,6 +4319,7 @@ public final class GenotypeResultViewController: NSViewController {
                 author: author
             )
             currentWorkbookNeedsRefresh = true
+            currentWorkbookRequiresFullUpdate = true
             currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
@@ -5255,6 +5286,7 @@ public final class GenotypeResultViewController: NSViewController {
                 )
             }
             currentWorkbookNeedsRefresh = true
+            currentWorkbookRequiresFullUpdate = true
             currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
             refreshAfterHaplotypeOverride()
         } catch {
@@ -5479,6 +5511,7 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         currentWorkbookNeedsRefresh = true
+        currentWorkbookRequiresFullUpdate = true
         currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
         refreshAfterHaplotypeOverride()
         // Re-present the sheet with fresh state so the analyst can keep working.
@@ -5497,6 +5530,7 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         currentWorkbookNeedsRefresh = true
+        currentWorkbookRequiresFullUpdate = true
         currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
         refreshAfterHaplotypeOverride()
         dismissSampleDetailSheet()

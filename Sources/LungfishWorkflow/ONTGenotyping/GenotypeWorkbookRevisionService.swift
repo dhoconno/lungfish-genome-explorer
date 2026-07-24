@@ -163,6 +163,7 @@ public struct GenotypeWorkbookRevisionService {
         let unnameableFASTAPath: String?
         let unnameableGenBankPath: String?
         let usesTwoSheetMHCContract: Bool
+        let preserveExistingWorkbookProjection: Bool
         let normalizedUnmatchedRows: [FullLengthONTMHCNormalizedUnmatchedRow]
         let knownAlleleDisplayNames: [String: String]
         let samples: [Sample]
@@ -178,6 +179,7 @@ public struct GenotypeWorkbookRevisionService {
             case unnameableFASTAPath = "unnameable_fasta_path"
             case unnameableGenBankPath = "unnameable_genbank_path"
             case usesTwoSheetMHCContract = "uses_two_sheet_mhc_contract"
+            case preserveExistingWorkbookProjection = "preserve_existing_workbook_projection"
             case normalizedUnmatchedRows = "normalized_unmatched_rows"
             case knownAlleleDisplayNames = "known_allele_display_names"
             case samples
@@ -288,6 +290,7 @@ public struct GenotypeWorkbookRevisionService {
         _ calls: [GenotypeWorkbookHaplotypeCall],
         annotationSidecarURL: URL?,
         into bundleURL: URL,
+        annotationOnly: Bool = false,
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws -> ONTGenotypeResultBundleManifest {
         let workflowStartedAt = dateProvider()
@@ -316,6 +319,23 @@ public struct GenotypeWorkbookRevisionService {
             sourceWorkbookURL = try ONTGenotypeResultBundle.primaryWorkbookURL(for: bundle)
         }
         try validateRegularBundleFile(sourceWorkbookURL, in: bundle, role: "workbook update source")
+        let annotationOnlyWorkbookRevision: ONTGenotypeWorkbookRevision?
+        if annotationOnly {
+            guard calls.isEmpty else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Annotation-only workbook updates cannot include haplotype calls."
+                )
+            }
+            guard let revision = latestCurrentWorkbookRevision(in: manifest),
+                  revision.path == manifest.currentWorkbookPath else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Annotation-only workbook updates require current.xlsx to match its manifest attestation."
+                )
+            }
+            annotationOnlyWorkbookRevision = revision
+        } else {
+            annotationOnlyWorkbookRevision = nil
+        }
         let candidateInputs = try candidateArtifactInputURLs(from: manifest, in: bundle)
         let annotationSidecarData: Data?
         let annotationSidecarWitness: SourceWorkbookWitness?
@@ -327,13 +347,19 @@ public struct GenotypeWorkbookRevisionService {
             annotationSidecarData = nil
             annotationSidecarWitness = nil
         }
+        if annotationOnly, annotationSidecarData == nil {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Annotation-only workbook updates require an annotation sidecar."
+            )
+        }
         let sidecar = try annotationSidecarData.map {
             try JSONDecoder().decode(GenotypeAnnotationSidecar.self, from: $0)
         }
         let configuration = try makeCandidateConfiguration(
             manifest: manifest,
             bundleURL: bundle,
-            sidecar: sidecar
+            sidecar: sidecar,
+            preserveExistingWorkbookProjection: annotationOnly
         )
         try validateOptionalUpdatesDirectory(in: bundle)
         try checkCancellation()
@@ -386,6 +412,14 @@ public struct GenotypeWorkbookRevisionService {
             from: sourceWorkbookURL,
             to: stagedSourceWorkbookURL
         )
+        if let annotationOnlyWorkbookRevision {
+            guard annotationOnlyWorkbookRevision.sizeBytes == sourceWorkbookWitness.sizeBytes,
+                  annotationOnlyWorkbookRevision.sha256 == sourceWorkbookWitness.sha256 else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Annotation-only workbook updates require current.xlsx to match its manifest attestation."
+                )
+            }
+        }
         let scriptArguments = [
             stagedSourceWorkbookURL.path,
             patchedURL.path,
@@ -513,6 +547,7 @@ public struct GenotypeWorkbookRevisionService {
             ],
             resolvedOptions: [
                 "annotationSidecar": annotationSidecarURL?.path ?? "none",
+                "annotationOnly": String(annotationOnly),
                 "candidateVisibilityFiltersApplied": "false",
                 "haplotypeCallCount": String(calls.count),
                 "mhcCandidateTints": configuration.tints.keys.sorted().map { key in
@@ -984,7 +1019,8 @@ public struct GenotypeWorkbookRevisionService {
     private func makeCandidateConfiguration(
         manifest: ONTGenotypeResultBundleManifest,
         bundleURL: URL,
-        sidecar: GenotypeAnnotationSidecar?
+        sidecar: GenotypeAnnotationSidecar?,
+        preserveExistingWorkbookProjection: Bool = false
     ) throws -> WorkbookCandidateUpdateConfiguration {
         let artifacts = manifest.mhcCandidateArtifacts
         var normalizedUnmatchedRows: [FullLengthONTMHCNormalizedUnmatchedRow] = []
@@ -1023,7 +1059,9 @@ public struct GenotypeWorkbookRevisionService {
                 )
                 try validateCandidateDocumentSchema(document.schemaVersion, label: "candidate")
                 try validateArtifact(document.sequenceFASTA, equals: artifacts.candidateFASTA, label: "candidate FASTA")
-                try validateCandidateLabels(document.candidates)
+                if !preserveExistingWorkbookProjection {
+                    try validateCandidateLabels(document.candidates)
+                }
             }
             if let unnameableJSON = artifacts.unnameableJSON {
                 let document = try decodeAndValidate(
@@ -1034,19 +1072,26 @@ public struct GenotypeWorkbookRevisionService {
                 try validateCandidateDocumentSchema(document.schemaVersion, label: "un-nameable")
                 try validateArtifact(document.sequenceFASTA, equals: artifacts.unnameableFASTA, label: "un-nameable FASTA")
             }
-            let candidates = try artifacts.candidateJSON.map {
-                try decodeAndValidate(
-                    ONTMHCCandidateAllelesDocument.self,
-                    reference: $0,
-                    in: bundleURL
-                )
-            }
-            let unnameable = try artifacts.unnameableJSON.map {
-                try decodeAndValidate(
-                    ONTMHCUnnameableClustersDocument.self,
-                    reference: $0,
-                    in: bundleURL
-                )
+            let candidates: ONTMHCCandidateAllelesDocument?
+            let unnameable: ONTMHCUnnameableClustersDocument?
+            if preserveExistingWorkbookProjection {
+                candidates = nil
+                unnameable = nil
+            } else {
+                candidates = try artifacts.candidateJSON.map {
+                    try decodeAndValidate(
+                        ONTMHCCandidateAllelesDocument.self,
+                        reference: $0,
+                        in: bundleURL
+                    )
+                }
+                unnameable = try artifacts.unnameableJSON.map {
+                    try decodeAndValidate(
+                        ONTMHCUnnameableClustersDocument.self,
+                        reference: $0,
+                        in: bundleURL
+                    )
+                }
             }
             if let schemaVersion = candidates?.schemaVersion ?? unnameable?.schemaVersion {
                 if let candidates, let unnameable,
@@ -1123,6 +1168,7 @@ public struct GenotypeWorkbookRevisionService {
             unnameableFASTAPath: artifacts?.unnameableFASTA.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
             unnameableGenBankPath: artifacts?.unnameableGenBank.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL).path },
             usesTwoSheetMHCContract: artifacts != nil,
+            preserveExistingWorkbookProjection: preserveExistingWorkbookProjection,
             normalizedUnmatchedRows: normalizedUnmatchedRows,
             knownAlleleDisplayNames: knownAlleleDisplayNames,
             samples: workbookSamples,
@@ -1615,6 +1661,9 @@ public struct GenotypeWorkbookRevisionService {
             "mhcCandidateTints": .dictionary(tintValues),
             "mhcCandidateVisibilityFiltersApplied": .boolean(false),
             "mhcTwoSheetWorkbookContract": .boolean(configuration.usesTwoSheetMHCContract),
+            "mhcPreservedExistingWorkbookProjection": .boolean(
+                configuration.preserveExistingWorkbookProjection
+            ),
             "mhcNormalizedUnmatchedRowCount": .integer(configuration.normalizedUnmatchedRows.count),
             "mhcKnownAlleleDisplayNameCount": .integer(configuration.knownAlleleDisplayNames.count),
             "mhcWorkbookSampleCount": .integer(configuration.samples.count),

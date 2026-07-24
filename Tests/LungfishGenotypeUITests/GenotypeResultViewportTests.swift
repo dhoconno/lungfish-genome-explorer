@@ -1237,7 +1237,13 @@ final class GenotypeResultViewportTests: XCTestCase {
         let controller = GenotypeResultViewController()
         controller.matrixWorkbookUpdateScheduler = scheduler
         var workbookUpdateCount = 0
-        controller.onCurrentWorkbookUpdateRequested = { _, _, _ in workbookUpdateCount += 1 }
+        var requestedCalls: [GenotypeWorkbookHaplotypeCall] = []
+        var requestedAnnotationOnly = false
+        controller.onCurrentWorkbookUpdateRequested = { _, calls, _, annotationOnly in
+            workbookUpdateCount += 1
+            requestedCalls = calls
+            requestedAnnotationOnly = annotationOnly
+        }
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1252,6 +1258,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(workbookUpdateCount, 0)
         scheduler.fireScheduledActions()
         XCTAssertEqual(workbookUpdateCount, 1)
+        XCTAssertTrue(requestedCalls.isEmpty)
+        XCTAssertTrue(requestedAnnotationOnly)
     }
 
     func testFailedSidecarPublicationSchedulesNoWorkbookUpdate() throws {
@@ -1459,7 +1467,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         let scheduler = MatrixWorkbookUpdateSchedulerSpy()
         let controller = GenotypeResultViewController()
         controller.matrixWorkbookUpdateScheduler = scheduler
-        controller.onCurrentWorkbookUpdateRequested = { _, _, _ in }
+        controller.onCurrentWorkbookUpdateRequested = { _, _, _, _ in }
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: []))
         controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "durable")))
@@ -1489,7 +1497,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         let controller = GenotypeResultViewController()
         controller.matrixWorkbookUpdateScheduler = scheduler
         var workbookUpdateCount = 0
-        controller.onCurrentWorkbookUpdateRequested = { _, _, _ in workbookUpdateCount += 1 }
+        controller.onCurrentWorkbookUpdateRequested = { _, _, _, _ in workbookUpdateCount += 1 }
         _ = controller.view
         let result = makeResult(bundleURL: bundleURL, samples: [], calls: [])
         controller.configure(result: result)
@@ -2992,6 +3000,12 @@ final class GenotypeResultViewportTests: XCTestCase {
             observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
         )
         let controller = GenotypeResultViewController()
+        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
+        controller.matrixWorkbookUpdateScheduler = scheduler
+        var requestedAnnotationOnly: Bool?
+        controller.onCurrentWorkbookUpdateRequested = { _, _, _, annotationOnly in
+            requestedAnnotationOnly = annotationOnly
+        }
         _ = controller.view
         controller.configure(result: result)
 
@@ -3005,6 +3019,22 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(controller.testingCurrentWorkbookNeedsRefresh)
         XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("candidate tint") == true)
         XCTAssertEqual(try Data(contentsOf: workbookURL), workbookBytes)
+
+        controller.editMatrixComment(.init(
+            targets: [.column(sample: "AnimalA")],
+            intent: .upsert(body: "retain pending tint")
+        ))
+        scheduler.fireScheduledActions()
+        XCTAssertEqual(requestedAnnotationOnly, false)
+
+        controller.applyCurrentWorkbookUpdateCompleted(
+            result: result,
+            annotationOnly: true
+        )
+        XCTAssertTrue(controller.testingCurrentWorkbookNeedsRefresh)
+        XCTAssertTrue(
+            controller.testingCurrentWorkbookUpdateStatus?.contains("still require") == true
+        )
 
         controller.applyCurrentWorkbookUpdateCompleted(result: result)
         XCTAssertFalse(controller.testingCurrentWorkbookNeedsRefresh)

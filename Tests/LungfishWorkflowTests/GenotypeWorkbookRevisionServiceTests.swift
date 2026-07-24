@@ -442,6 +442,283 @@ print(json.dumps({
         XCTAssertEqual(payload["has_audit"] as? Bool, true)
     }
 
+    func testAnnotationOnlyUpdatePreservesAttestedProjectionWithUnrelatedLegacyCandidateLabel() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "annotation-only-legacy-candidate"
+        )
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 2)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_160) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        var manifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let artifacts = try XCTUnwrap(manifest.mhcCandidateArtifacts)
+        let candidateJSONURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(artifacts.candidateJSON).path,
+            in: fixture.bundleURL
+        )
+        var candidateJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: candidateJSONURL)) as? [String: Any]
+        )
+        var candidates = try XCTUnwrap(candidateJSON["candidates"] as? [[String: Any]])
+        let legacyIndex = try XCTUnwrap(
+            candidates.firstIndex { $0["stable_cluster_id"] as? String == "cluster-4" }
+        )
+        candidates[legacyIndex]["classification"] = "novel"
+        candidates[legacyIndex]["provisional_name"] = "Mafa-B*002:01_0nt_nov"
+        candidates[legacyIndex]["closest_reference_class"] = "genomicDNA"
+        candidates[legacyIndex]["snp_count"] = 0
+        candidates[legacyIndex]["deleted_bases"] = 0
+        candidates[legacyIndex]["long_gap_bases"] = 0
+        candidateJSON["candidates"] = candidates
+        try JSONSerialization.data(
+            withJSONObject: candidateJSON,
+            options: [.prettyPrinted, .sortedKeys]
+        ).write(to: candidateJSONURL, options: .atomic)
+
+        _ = try runPython(["-c", #"""
+import re
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+for sheet_name in ("Unified Genotype Pivot", "Unmatched Alleles"):
+    ws = wb[sheet_name]
+    header_row = None
+    headers = {}
+    for row in range(1, ws.max_row + 1):
+        candidate_headers = {
+            re.sub(r"[^a-z0-9]+", "_", str(ws.cell(row, col).value).lower()).strip("_"): col
+            for col in range(1, ws.max_column + 1)
+            if ws.cell(row, col).value is not None
+        }
+        if "stable_cluster_id" in candidate_headers:
+            header_row = row
+            headers = candidate_headers
+            break
+    for row in range(header_row + 1, ws.max_row + 1):
+        if ws.cell(row, headers["stable_cluster_id"]).value != "cluster-4":
+            continue
+        name_header = (
+            "display_name"
+            if "display_name" in headers
+            else "provisional_allele_name"
+        )
+        classification_header = (
+            "classification"
+            if "classification" in headers
+            else "classification_or_reason"
+        )
+        ws.cell(row, headers[name_header]).value = "Mafa-B*002:01_0nt_nov"
+        ws.cell(row, headers[classification_header]).value = "novel"
+wb.save(path)
+"""#, currentURL.path])
+
+        let revisedArtifacts = ONTMHCCandidateArtifactManifest(
+            schemaVersion: artifacts.schemaVersion,
+            genotypingEvidence: artifacts.genotypingEvidence,
+            reciprocalEvidence: artifacts.reciprocalEvidence,
+            candidateJSON: try artifactReference(candidateJSONURL, relativeTo: fixture.bundleURL),
+            candidateFASTA: artifacts.candidateFASTA,
+            candidateGenBank: artifacts.candidateGenBank,
+            unnameableJSON: artifacts.unnameableJSON,
+            unnameableFASTA: artifacts.unnameableFASTA,
+            unnameableGenBank: artifacts.unnameableGenBank,
+            rawUnmatchedFASTA: artifacts.rawUnmatchedFASTA,
+            sourceIdentityMap: artifacts.sourceIdentityMap
+        )
+        let currentPath = try XCTUnwrap(manifest.currentWorkbookPath)
+        let currentSHA256 = try ProvenanceFileHasher.sha256(of: currentURL)
+        let currentSizeBytes = Int64(try ProvenanceFileHasher.fileSize(of: currentURL))
+        let revisedRevisions = manifest.workbookRevisions?.map { revision in
+            guard revision.path == currentPath else { return revision }
+            return ONTGenotypeWorkbookRevision(
+                id: revision.id,
+                role: revision.role,
+                path: revision.path,
+                label: revision.label,
+                sourceFilename: revision.sourceFilename,
+                createdAt: revision.createdAt,
+                user: revision.user,
+                predecessorID: revision.predecessorID,
+                predecessorPath: revision.predecessorPath,
+                sha256: currentSHA256,
+                sizeBytes: currentSizeBytes,
+                provenancePath: revision.provenancePath
+            )
+        }
+        manifest = ONTGenotypeResultBundleManifest(
+            schemaVersion: manifest.schemaVersion,
+            kind: manifest.kind,
+            outputName: manifest.outputName,
+            analysisName: manifest.analysisName,
+            primaryWorkbookPath: manifest.primaryWorkbookPath,
+            currentWorkbookPath: manifest.currentWorkbookPath,
+            workbookRevisions: revisedRevisions,
+            longSummaryCSVPath: manifest.longSummaryCSVPath,
+            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
+            statsJSONPath: manifest.statsJSONPath,
+            provenancePath: manifest.provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: manifest.deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: manifest.haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: manifest.haplotypeDefinitionSetID,
+            haplotypeAssayID: manifest.haplotypeAssayID,
+            presetID: manifest.presetID,
+            presetVersion: manifest.presetVersion,
+            createdAt: manifest.createdAt,
+            activeHaplotypeAnalysisRevisionID: manifest.activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions: manifest.haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: revisedArtifacts,
+            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
+            referenceRecordStore: manifest.referenceRecordStore
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: fixture.bundleURL)
+
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "Mafa-A1",
+                    genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+                    sample: "sample-a",
+                    stableClusterID: "cluster-1"
+                ),
+                disposition: .falsePositive,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:00:00Z"
+            )
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL,
+            annotationOnly: true
+        )
+
+        let output = try runPython(["-c", #"""
+import json
+import re
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+payload = {}
+for sheet_name in ("Unified Genotype Pivot", "Unmatched Alleles"):
+    ws = wb[sheet_name]
+    for row in range(1, ws.max_row + 1):
+        headers = {
+            re.sub(r"[^a-z0-9]+", "_", str(ws.cell(row, col).value).lower()).strip("_"): col
+            for col in range(1, ws.max_column + 1)
+            if ws.cell(row, col).value is not None
+        }
+        if "stable_cluster_id" not in headers:
+            continue
+        for data_row in range(row + 1, ws.max_row + 1):
+            stable_id = ws.cell(data_row, headers["stable_cluster_id"]).value
+            if stable_id == "cluster-1" and sheet_name == "Unified Genotype Pivot":
+                cell = ws.cell(data_row, headers["sample_a"])
+                payload["review_value"] = str(cell.value)
+                payload["review_italic"] = bool(cell.font.italic)
+            if stable_id == "cluster-4":
+                name_header = (
+                    "display_name"
+                    if "display_name" in headers
+                    else "provisional_allele_name"
+                )
+                payload[f"legacy_{sheet_name}"] = str(
+                    ws.cell(data_row, headers[name_header]).value
+                )
+        break
+payload["has_annotations"] = "Matrix Annotations" in wb.sheetnames
+payload["has_audit"] = "Audit Log" in wb.sheetnames
+payload["has_guide"] = "Interpretation Guide" in wb.sheetnames
+print(json.dumps(payload))
+"""#, currentURL.path])
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(payload["review_value"] as? String, "[7]")
+        XCTAssertEqual(payload["review_italic"] as? Bool, true)
+        XCTAssertEqual(
+            payload["legacy_Unified Genotype Pivot"] as? String,
+            "Mafa-B*002:01_0nt_nov"
+        )
+        XCTAssertEqual(
+            payload["legacy_Unmatched Alleles"] as? String,
+            "Mafa-B*002:01_0nt_nov"
+        )
+        XCTAssertEqual(payload["has_annotations"] as? Bool, true)
+        XCTAssertEqual(payload["has_audit"] as? Bool, true)
+        XCTAssertEqual(payload["has_guide"] as? Bool, false)
+
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
+                [
+                    .init(
+                        sample: "sample-a",
+                        locus: "MHC-A",
+                        haplotype1: "A-H1",
+                        haplotype2: "",
+                        status: "called",
+                        notes: ""
+                    ),
+                ],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                String(describing: error).contains(
+                    "Candidate cluster-4 has a prohibited or non-authoritative novel label."
+                )
+            )
+        }
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 7_161) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-stage-created" else { return }
+                    var tamperedWorkbook = try Data(contentsOf: currentURL)
+                    tamperedWorkbook.append(0)
+                    try tamperedWorkbook.write(to: currentURL, options: .atomic)
+                }
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL,
+                annotationOnly: true
+            )
+        ) { error in
+            XCTAssertTrue(
+                String(describing: error).contains(
+                    "current.xlsx to match its manifest attestation"
+                )
+            )
+        }
+    }
+
     func testTwoSheetRebuildPreservesUnrelatedNativeCommentAndFormatting() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()

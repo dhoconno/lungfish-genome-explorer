@@ -27,6 +27,9 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("included-locus"), help: "Haplotype locus included in the displayed call snapshot; repeat for multiple loci")
     var includedLocus: [String] = []
 
+    @Flag(name: .customLong("annotation-only"), help: "Apply annotations while preserving the manifest-attested scientific workbook projection")
+    var annotationOnly = false
+
     func run() async throws {
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL
         guard ONTGenotypeResultBundle.isBundleURL(bundleURL) else {
@@ -59,6 +62,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 calls,
                 annotationSidecarURL: annotationURL,
                 into: bundleURL,
+                annotationOnly: annotationOnly,
                 provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
                     toolName: "\(CLICommandIdentity.executableName) fastq update-current-workbook",
                     toolKind: "cli",
@@ -95,6 +99,9 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         ]
         if let annotationURL {
             arguments += ["--annotations", annotationURL.path]
+        }
+        if annotationOnly {
+            arguments.append("--annotation-only")
         }
         for locus in includedLocus {
             arguments += ["--included-locus", locus]

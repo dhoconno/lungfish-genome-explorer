@@ -26,6 +26,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         calls: [GenotypeWorkbookHaplotypeCall],
         includedLoci: [String] = [],
         annotationSidecarURL: URL?,
+        annotationOnly: Bool = false,
         routeContext: OperationRouteContext? = nil
     ) async throws -> URL {
         let bundle = bundleURL.standardizedFileURL
@@ -34,7 +35,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             bundleURL: bundle,
             callsURL: callsURL,
             includedLoci: includedLoci,
-            annotationSidecarURL: annotationSidecarURL
+            annotationSidecarURL: annotationSidecarURL,
+            annotationOnly: annotationOnly
         )
         let cliCommand = ViralReconWorkflowCommandPreview.build(
             executableName: CLICommandIdentity.executableName,
@@ -118,7 +120,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         bundleURL: URL,
         callsURL: URL,
         includedLoci: [String],
-        annotationSidecarURL: URL?
+        annotationSidecarURL: URL?,
+        annotationOnly: Bool
     ) -> [String] {
         var arguments = [
             "fastq",
@@ -133,6 +136,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         if let annotationSidecarURL,
            fileManager.fileExists(atPath: annotationSidecarURL.path) {
             arguments += ["--annotations", annotationSidecarURL.standardizedFileURL.path]
+        }
+        if annotationOnly {
+            arguments.append("--annotation-only")
         }
         return arguments
     }

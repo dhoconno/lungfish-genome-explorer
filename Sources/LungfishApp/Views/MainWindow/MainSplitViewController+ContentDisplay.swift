@@ -310,7 +310,7 @@ extension MainSplitViewController {
                     self?.inspectorController.genotypeResultDisplaySectionViewModel
                         .updateMHCCandidatePersistenceWarning(warning)
                 }
-                controller.onCurrentWorkbookUpdateRequested = { [weak self, weak controller] bundleURL, calls, includedLoci in
+                controller.onCurrentWorkbookUpdateRequested = { [weak self, weak controller] bundleURL, calls, includedLoci, annotationOnly in
                     guard let self else { return }
                     guard self.canWriteProjectOutputs(workflowName: "Update current.xlsx") else { return }
                     let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
@@ -326,10 +326,14 @@ extension MainSplitViewController {
                                 calls: calls,
                                 includedLoci: includedLoci,
                                 annotationSidecarURL: annotationURL,
+                                annotationOnly: annotationOnly,
                                 routeContext: routeContext
                             )
                             let updated = try await ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)
-                            controller?.applyCurrentWorkbookUpdateCompleted(result: updated)
+                            controller?.applyCurrentWorkbookUpdateCompleted(
+                                result: updated,
+                                annotationOnly: annotationOnly
+                            )
                             self.inspectorController.updateGenotypeResultDocument(updated)
                             self.sidebarController.requestReloadFromFilesystem()
                         } catch {

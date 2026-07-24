@@ -36,6 +36,9 @@ if configuration_path:
         candidate_configuration = json.load(handle)
 
 uses_two_sheet_mhc_contract = bool(candidate_configuration.get("uses_two_sheet_mhc_contract"))
+preserve_existing_workbook_projection = bool(
+    candidate_configuration.get("preserve_existing_workbook_projection")
+)
 normalized_unmatched_rows = candidate_configuration.get("normalized_unmatched_rows") or []
 known_allele_display_names = candidate_configuration.get("known_allele_display_names") or {}
 workbook_samples = candidate_configuration.get("samples") or []
@@ -2129,37 +2132,38 @@ patch_summary_sheet("Abbreviated Haplotypes")
 patch_summary_sheet("Custom Sort")
 patch_full_sheet()
 matrix_review_results = []
-if not uses_two_sheet_mhc_contract:
+if not uses_two_sheet_mhc_contract or preserve_existing_workbook_projection:
     matrix_review_results = validate_matrix_reviews()
     write_override_sheets(matrix_review_results)
     write_matrix_annotation_sheet(matrix_review_results)
     apply_matrix_annotations_to_workbook(matrix_review_results)
-if not uses_two_sheet_mhc_contract and (
+if not uses_two_sheet_mhc_contract and not preserve_existing_workbook_projection and (
     candidate_configuration.get("candidate_json_path") or candidate_configuration.get("unnameable_json_path")
 ):
     write_candidate_artifact_sheets()
     write_candidates_to_editable_view()
     enrich_legacy_unmatched_sheets()
-upsert_guide_row("Workbook update source", "Lungfish.app Review viewport")
-upsert_guide_row("Workbook update note", "current.xlsx reflects sidecar haplotype overrides at the time this workbook revision was created.")
-upsert_guide_row("Workbook updated haplotype calls", str(sum(len(calls) for calls in calls_by_sample_locus.values())))
-upsert_guide_row("Workbook update overrides", str(len(call_overrides)))
-upsert_guide_row("Workbook update matrix styles", str(len(matrix_styles)))
-upsert_guide_row("Workbook update matrix comments", str(len(matrix_comments)))
-upsert_guide_row("Workbook update matrix reviews", str(len(matrix_reviews)))
-upsert_guide_row("Workbook update valid matrix reviews", str(sum(
-    1 for result in matrix_review_results if result["status"] == "valid"
-)))
-upsert_guide_row("Workbook update invalid matrix reviews", str(sum(
-    1 for result in matrix_review_results if result["status"] == "invalid"
-)))
-upsert_guide_row("Workbook update audit entries", str(len(audit_entries)))
-upsert_guide_row("Workbook update audit source", "annotations.json")
-upsert_guide_row("Workbook update MHC candidates", str(len(candidate_records)))
-upsert_guide_row("Workbook update un-nameable clusters", str(len(unnameable_records)))
-upsert_guide_row("Workbook candidate tint encoding", candidate_configuration.get("ooxml_alpha_semantics", ""))
+if not preserve_existing_workbook_projection:
+    upsert_guide_row("Workbook update source", "Lungfish.app Review viewport")
+    upsert_guide_row("Workbook update note", "current.xlsx reflects sidecar haplotype overrides at the time this workbook revision was created.")
+    upsert_guide_row("Workbook updated haplotype calls", str(sum(len(calls) for calls in calls_by_sample_locus.values())))
+    upsert_guide_row("Workbook update overrides", str(len(call_overrides)))
+    upsert_guide_row("Workbook update matrix styles", str(len(matrix_styles)))
+    upsert_guide_row("Workbook update matrix comments", str(len(matrix_comments)))
+    upsert_guide_row("Workbook update matrix reviews", str(len(matrix_reviews)))
+    upsert_guide_row("Workbook update valid matrix reviews", str(sum(
+        1 for result in matrix_review_results if result["status"] == "valid"
+    )))
+    upsert_guide_row("Workbook update invalid matrix reviews", str(sum(
+        1 for result in matrix_review_results if result["status"] == "invalid"
+    )))
+    upsert_guide_row("Workbook update audit entries", str(len(audit_entries)))
+    upsert_guide_row("Workbook update audit source", "annotations.json")
+    upsert_guide_row("Workbook update MHC candidates", str(len(candidate_records)))
+    upsert_guide_row("Workbook update un-nameable clusters", str(len(unnameable_records)))
+    upsert_guide_row("Workbook candidate tint encoding", candidate_configuration.get("ooxml_alpha_semantics", ""))
 
-if uses_two_sheet_mhc_contract:
+if uses_two_sheet_mhc_contract and not preserve_existing_workbook_projection:
     write_two_sheet_mhc_contract()
     if resolved_matrix_styles or resolved_matrix_comments or matrix_reviews:
         matrix_review_results = validate_matrix_reviews()
@@ -2174,6 +2178,7 @@ print(json.dumps({
     "openpyxl_version": openpyxl.__version__,
     "candidate_count": len([row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "candidate"]),
     "unnameable_count": len([row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "un-nameable"]),
+    "preserved_existing_workbook_projection": preserve_existing_workbook_projection,
 }, sort_keys=True))
 """#
     }
