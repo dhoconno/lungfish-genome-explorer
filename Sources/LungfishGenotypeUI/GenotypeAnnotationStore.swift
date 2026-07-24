@@ -45,6 +45,7 @@ public final class GenotypeAnnotationStore {
     public private(set) var sidecar: GenotypeAnnotationSidecar
     public let bundleURL: URL
     public let author: String
+    public private(set) var matrixMutationRevision: UInt64 = 0
 
     @ObservationIgnored
     private var lastPersistedSidecar: GenotypeAnnotationSidecar
@@ -401,6 +402,20 @@ public final class GenotypeAnnotationStore {
         evidence: GenotypeMatrixEvidenceIndex,
         author: String
     ) async throws {
+        try setMatrixReviewSynchronously(
+            disposition,
+            targets: targets,
+            evidence: evidence,
+            author: author
+        )
+    }
+
+    func setMatrixReviewSynchronously(
+        _ disposition: GenotypeAnnotationSidecar.MatrixReviewDisposition,
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        evidence: GenotypeMatrixEvidenceIndex,
+        author: String
+    ) throws {
         let normalizedTargets = try normalizedMatrixTargets(targets)
         guard normalizedTargets.allSatisfy({
             if case .cell = $0 { return true }
@@ -496,6 +511,13 @@ public final class GenotypeAnnotationStore {
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
         author: String
     ) async throws {
+        try clearMatrixReviewSynchronously(targets: targets, author: author)
+    }
+
+    func clearMatrixReviewSynchronously(
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        author: String
+    ) throws {
         let normalizedTargets = try normalizedMatrixTargets(targets)
         guard normalizedTargets.allSatisfy({
             if case .cell = $0 { return true }
@@ -560,6 +582,14 @@ public final class GenotypeAnnotationStore {
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
         author: String
     ) async throws {
+        try upsertMatrixCommentSynchronously(body: body, targets: targets, author: author)
+    }
+
+    func upsertMatrixCommentSynchronously(
+        body: String,
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        author: String
+    ) throws {
         guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw GenotypeMatrixReviewMutationError.emptyCommentBody
         }
@@ -632,6 +662,13 @@ public final class GenotypeAnnotationStore {
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
         author: String
     ) async throws {
+        try removeMatrixCommentsSynchronously(targets: targets, author: author)
+    }
+
+    func removeMatrixCommentsSynchronously(
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        author: String
+    ) throws {
         let normalizedTargets = try normalizedMatrixTargets(targets)
         let editAuthor = author
         try transactMatrixMutation(action: "removeMatrixComment") { latest, timestamp in
@@ -1040,6 +1077,7 @@ public final class GenotypeAnnotationStore {
         guard !isReadOnly else {
             throw GenotypeMatrixReviewMutationError.readOnly
         }
+        let previousSidecar = sidecar
         let startedAt = Date()
         var latestForRollback = lastPersistedSidecar
         var publishedSidecar: GenotypeAnnotationSidecar?
@@ -1067,10 +1105,14 @@ public final class GenotypeAnnotationStore {
             if let publishedSidecar {
                 sidecar = publishedSidecar
                 lastPersistedSidecar = publishedSidecar
+                matrixMutationRevision &+= 1
             }
         } catch {
             sidecar = latestForRollback
             lastPersistedSidecar = latestForRollback
+            if sidecar != previousSidecar {
+                matrixMutationRevision &+= 1
+            }
             throw error
         }
     }

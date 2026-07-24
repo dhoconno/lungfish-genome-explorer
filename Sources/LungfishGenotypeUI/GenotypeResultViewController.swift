@@ -5,6 +5,56 @@ import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 
+@MainActor
+protocol GenotypeMatrixWorkbookUpdateCancellation: AnyObject {
+    func cancel()
+}
+
+@MainActor
+protocol GenotypeMatrixWorkbookUpdateScheduling: AnyObject {
+    func schedule(
+        _ action: @escaping @MainActor () -> Void
+    ) -> GenotypeMatrixWorkbookUpdateCancellation
+}
+
+@MainActor
+private final class DelayedGenotypeMatrixWorkbookUpdateScheduler:
+    GenotypeMatrixWorkbookUpdateScheduling
+{
+    private final class Cancellation: GenotypeMatrixWorkbookUpdateCancellation {
+        private var task: Task<Void, Never>?
+
+        init(delayNanoseconds: UInt64, action: @escaping @MainActor () -> Void) {
+            task = Task { @MainActor in
+                do {
+                    try await Task.sleep(nanoseconds: delayNanoseconds)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                action()
+            }
+        }
+
+        func cancel() {
+            task?.cancel()
+            task = nil
+        }
+    }
+
+    private let delayNanoseconds: UInt64
+
+    init(delayNanoseconds: UInt64 = 350_000_000) {
+        self.delayNanoseconds = delayNanoseconds
+    }
+
+    func schedule(
+        _ action: @escaping @MainActor () -> Void
+    ) -> GenotypeMatrixWorkbookUpdateCancellation {
+        Cancellation(delayNanoseconds: delayNanoseconds, action: action)
+    }
+}
+
 public enum GenotypeAIHaplotypingUIMode: String, CaseIterable, Sendable {
     case aiDiscovery
     case aiRefinement
@@ -69,6 +119,8 @@ public final class GenotypeResultViewController: NSViewController {
     public var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
     public var onAnnotationSidecarChanged: ((GenotypeAnnotationSidecar) -> Void)?
+    public var onMatrixReviewCapabilityChanged: ((GenotypeMatrixReviewCapabilityState) -> Void)?
+    public var onMatrixAnnotationCommandError: ((Error) -> Void)?
     public var onCandidatePersistenceWarningChanged: ((String?) -> Void)?
     public var onCurrentWorkbookUpdateRequested: ((URL, [GenotypeWorkbookHaplotypeCall], [String]) -> Void)?
     public var onAIHaplotypingRequested: ((URL, GenotypeAIHaplotypingUIRequest) -> Void)?
@@ -139,6 +191,23 @@ public final class GenotypeResultViewController: NSViewController {
     private var animalGenotypesBySample: [String: [GenotypeCallEvidenceView.AnimalGenotype]] = [:]
     private var allFilterableSampleNamesCache: [String] = []
     private var observedLociIndex: GenotypeObservedLociIndex?
+    private var matrixEvidenceIndex = GenotypeMatrixEvidenceIndex()
+    private var matrixReviewsByTarget: [
+        GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixReviewAnnotation
+    ] = [:]
+    private var matrixCommentsByTarget: [
+        GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixComment
+    ] = [:]
+    private var matrixReviewCapability = GenotypeMatrixReviewCapability.evaluate(
+        selection: [],
+        evidence: .init(),
+        reviews: [],
+        comments: [],
+        isWritable: false
+    )
+    private var matrixEvidenceIndexBuildCount = 0
+    private var matrixAnnotationIndexBuildCount = 0
+    private var indexedMatrixMutationRevision: UInt64?
     private var comparisonMatrixConfigured = false
     private var sampleDetailHostingController: NSHostingController<GenotypeSampleDetailSheet>?
     private var callEvidenceHost: NSHostingView<GenotypeCallEvidenceView>?
@@ -190,7 +259,9 @@ public final class GenotypeResultViewController: NSViewController {
     private var nextHaplotypeSampleActionTag = 1
     private var currentWorkbookNeedsRefresh = false
     private var currentWorkbookUpdateStatus: String?
-    private var currentWorkbookAnnotationAutoUpdateTask: Task<Void, Never>?
+    private var currentWorkbookAnnotationAutoUpdateTask: GenotypeMatrixWorkbookUpdateCancellation?
+    var matrixWorkbookUpdateScheduler: GenotypeMatrixWorkbookUpdateScheduling =
+        DelayedGenotypeMatrixWorkbookUpdateScheduler()
     private var currentWorkbookResultReloadTask: Task<Void, Never>?
     private var resultConfigurationGeneration: UInt64 = 0
     private var aiHaplotypingStatus: String?
@@ -447,6 +518,7 @@ public final class GenotypeResultViewController: NSViewController {
             metadataStore: sampleMetadataStore,
             sidecar: annotationStore?.sidecar
         )
+        comparisonMatrix.applyMatrixReviewCapability(matrixReviewCapability)
         comparisonMatrix.applyDisplayState(displayState)
         applyComparisonMatrixCohortFilter()
     }
@@ -532,6 +604,8 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func configure(result: ONTGenotypeResultBundleData) {
         invalidateCurrentWorkbookResultReload()
+        currentWorkbookAnnotationAutoUpdateTask?.cancel()
+        currentWorkbookAnnotationAutoUpdateTask = nil
         candidateSettingsPersistenceTask?.cancel()
         candidateSettingsPersistenceTask = nil
         pendingCandidateSettingsRequest = nil
@@ -611,6 +685,8 @@ public final class GenotypeResultViewController: NSViewController {
             bundleURL: result.bundleURL,
             author: annotationAuthorProvider()
         )
+        rebuildMatrixAnnotationIndexes()
+        publishMatrixReviewCapability(for: [])
         displayState.mhcCandidateDisplaySettings = validatedMHCCandidateDocument(from: result) == nil
             ? nil
             : (annotationStore?.sidecar.settings.mhcCandidateDisplay ?? .default)
@@ -632,6 +708,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func rebuildResultIndexes(for result: ONTGenotypeResultBundleData) {
+        rebuildMatrixEvidenceIndex(for: result)
         callsBySample = Dictionary(grouping: result.calls, by: \.sample)
         sharedCallsByKey = Dictionary(uniqueKeysWithValues: result.locusSummaries
             .flatMap(\.sharedCalls)
@@ -793,7 +870,74 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
+    private func rebuildMatrixEvidenceIndex(for result: ONTGenotypeResultBundleData) {
+        var readsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: Int] = [:]
+        readsByTarget.reserveCapacity(
+            result.calls.count + (result.mhcCandidates?.observations.count ?? 0)
+        )
+        for call in result.calls {
+            let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+                locus: call.locusGroup,
+                genotype: call.genotype,
+                sample: call.sample
+            )
+            readsByTarget[target] = max(readsByTarget[target] ?? 0, call.passedUniqueReads)
+        }
+        if let candidateDocument = result.mhcCandidates {
+            let candidatesByStableID = Dictionary(
+                candidateDocument.candidates.map { ($0.stableClusterID, $0) },
+                uniquingKeysWith: { _, latest in latest }
+            )
+            for observation in candidateDocument.observations {
+                guard let candidate = candidatesByStableID[observation.stableClusterID] else {
+                    continue
+                }
+                let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+                    locus: candidate.locus,
+                    genotype: candidate.provisionalName,
+                    sample: observation.sampleID,
+                    stableClusterID: candidate.stableClusterID
+                )
+                readsByTarget[target, default: 0] += observation.aggregatedSampleReadCount
+            }
+        }
+        matrixEvidenceIndex = GenotypeMatrixEvidenceIndex(readsByTarget)
+        matrixEvidenceIndexBuildCount += 1
+    }
+
+    private func rebuildMatrixAnnotationIndexes() {
+        guard let sidecar = annotationStore?.sidecar else {
+            matrixReviewsByTarget = [:]
+            matrixCommentsByTarget = [:]
+            matrixAnnotationIndexBuildCount += 1
+            indexedMatrixMutationRevision = nil
+            return
+        }
+        matrixReviewsByTarget = Dictionary(
+            sidecar.matrixReviews.map { ($0.target, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        matrixCommentsByTarget = sidecar.resolvedMatrixComments
+        matrixAnnotationIndexBuildCount += 1
+        indexedMatrixMutationRevision = annotationStore?.matrixMutationRevision
+    }
+
+    private func publishMatrixReviewCapability(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) {
+        matrixReviewCapability = GenotypeMatrixReviewCapability.evaluate(
+            selection: targets,
+            evidence: matrixEvidenceIndex,
+            reviews: targets.compactMap { matrixReviewsByTarget[$0] },
+            comments: targets.compactMap { matrixCommentsByTarget[$0] },
+            isWritable: !(annotationStore?.isReadOnly ?? true)
+        )
+        comparisonMatrix.applyMatrixReviewCapability(matrixReviewCapability)
+        onMatrixReviewCapabilityChanged?(matrixReviewCapability)
+    }
+
     public func notifySelectionStateIfAvailable() {
+        onMatrixReviewCapabilityChanged?(matrixReviewCapability)
         onSelectionStateChanged?(currentSelectionState)
     }
 
@@ -890,6 +1034,10 @@ public final class GenotypeResultViewController: NSViewController {
                 guard !Task.isCancelled,
                       generation == self.candidateSettingsPersistenceGeneration else { return }
                 self.annotationStore = try? GenotypeAnnotationStore(bundleURL: bundleURL, author: author)
+                self.rebuildMatrixAnnotationIndexes()
+                self.publishMatrixReviewCapability(
+                    for: self.currentSelectionState?.matrixTargets ?? []
+                )
                 self.candidatePersistenceWarning = nil
                 self.onCandidatePersistenceWarningChanged?(nil)
                 var persistedState = requestedState
@@ -917,6 +1065,10 @@ public final class GenotypeResultViewController: NSViewController {
                         ?? store.sidecar
                 }
                 self.annotationStore = try? GenotypeAnnotationStore(bundleURL: bundleURL, author: author)
+                self.rebuildMatrixAnnotationIndexes()
+                self.publishMatrixReviewCapability(
+                    for: self.currentSelectionState?.matrixTargets ?? []
+                )
                 var restoredState = self.displayState
                 restoredState.mhcCandidateDisplaySettings = latest.settings.mhcCandidateDisplay
                 self.applyDisplayStateImmediately(restoredState)
@@ -1047,19 +1199,89 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
-    public func addMatrixComment(_ request: GenotypeMatrixCommentRequest) {
+    public func applyMatrixReview(_ request: GenotypeMatrixReviewRequest) {
         guard let store = annotationStore else { return }
         let author = annotationAuthorProvider()
-        let body = request.body.trimmingCharacters(in: .whitespacesAndNewlines)
         let targets = uniqueMatrixTargets(request.targets)
-        guard !body.isEmpty, !targets.isEmpty else { return }
         do {
-            try store.addMatrixComments(targets.map { (target: $0, body: body) }, author: author)
+            switch request.intent {
+            case let .set(disposition):
+                try store.setMatrixReviewSynchronously(
+                    disposition,
+                    targets: targets,
+                    evidence: matrixEvidenceIndex,
+                    author: author
+                )
+            case .clear:
+                try store.clearMatrixReviewSynchronously(targets: targets, author: author)
+            }
+            finishMatrixAnnotationPublication(store: store, targets: targets)
+        } catch {
+            handleMatrixAnnotationCommandFailure(error, store: store, targets: targets)
+        }
+    }
+
+    public func editMatrixComment(_ request: GenotypeMatrixCommentEditRequest) {
+        guard let store = annotationStore else { return }
+        let author = annotationAuthorProvider()
+        let targets = uniqueMatrixTargets(request.targets)
+        do {
+            switch request.intent {
+            case let .upsert(body):
+                if targets.count > 1,
+                   targets.contains(where: { matrixCommentsByTarget[$0] != nil }) {
+                    throw GenotypeMatrixAnnotationCommandError.explicitBulkCommentReplaceRequired
+                }
+                try store.upsertMatrixCommentSynchronously(
+                    body: body.trimmingCharacters(in: .whitespacesAndNewlines),
+                    targets: targets,
+                    author: author
+                )
+            case .remove:
+                try store.removeMatrixCommentsSynchronously(targets: targets, author: author)
+            case let .replace(body):
+                try store.upsertMatrixCommentSynchronously(
+                    body: body.trimmingCharacters(in: .whitespacesAndNewlines),
+                    targets: targets,
+                    author: author
+                )
+            }
+            finishMatrixAnnotationPublication(store: store, targets: targets)
+        } catch {
+            handleMatrixAnnotationCommandFailure(error, store: store, targets: targets)
+        }
+    }
+
+    public func addMatrixComment(_ request: GenotypeMatrixCommentEditRequest) {
+        editMatrixComment(request)
+    }
+
+    private func finishMatrixAnnotationPublication(
+        store: GenotypeAnnotationStore,
+        targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) {
+        rebuildMatrixAnnotationIndexes()
+        comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: targets)
+        refreshCurrentSelectionDetails()
+        publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
+        onAnnotationSidecarChanged?(store.sidecar)
+        scheduleCurrentWorkbookUpdateForMatrixAnnotation()
+    }
+
+    private func handleMatrixAnnotationCommandFailure(
+        _ error: Error,
+        store: GenotypeAnnotationStore,
+        targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) {
+        if indexedMatrixMutationRevision != store.matrixMutationRevision {
+            rebuildMatrixAnnotationIndexes()
             comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: targets)
             refreshCurrentSelectionDetails()
-            onAnnotationSidecarChanged?(store.sidecar)
-            scheduleCurrentWorkbookUpdateForMatrixAnnotation()
-        } catch {
+            publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
+        }
+        if let onMatrixAnnotationCommandError {
+            onMatrixAnnotationCommandError(error)
+        } else {
             presentSheetAlert(error: error)
         }
     }
@@ -3113,14 +3335,13 @@ public final class GenotypeResultViewController: NSViewController {
         sample: String?,
         matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]
     ) -> [(String, String)] {
-        guard let sidecar = annotationStore?.sidecar else { return [] }
-        var targets = Set(matrixTargets)
+        var targets = matrixTargets
         for target in matrixTargets {
             switch target {
             case let .row(locus, genotype, stableClusterID),
                  let .cell(locus, genotype, _, stableClusterID):
                 if let stableClusterID {
-                    targets.insert(.row(
+                    targets.append(.row(
                         locus: locus,
                         genotype: genotype,
                         stableClusterID: stableClusterID
@@ -3134,24 +3355,20 @@ public final class GenotypeResultViewController: NSViewController {
             locus: sharedCall.locus,
             genotype: sharedCall.genotype
         )
-        targets.insert(rowTarget)
+        targets.append(rowTarget)
         if let sample {
             let columnTarget = GenotypeAnnotationSidecar.MatrixTarget.column(sample: sample)
-            targets.insert(columnTarget)
+            targets.append(columnTarget)
         }
-        return sidecar.matrixComments.compactMap { comment in
-            guard targets.contains(comment.target) else { return nil }
-            return (matrixCommentLabel(for: comment.target), comment.body)
-        }
+        return matrixCommentDetailRows(for: targets)
     }
 
     private func matrixCommentDetailRows(
         for targets: [GenotypeAnnotationSidecar.MatrixTarget]
     ) -> [(String, String)] {
-        guard let sidecar = annotationStore?.sidecar else { return [] }
-        return sidecar.matrixComments.compactMap { comment in
-            guard targets.contains(comment.target) else { return nil }
-            return (matrixCommentLabel(for: comment.target), comment.body)
+        uniqueMatrixTargets(targets).compactMap { target in
+            guard let comment = matrixCommentsByTarget[target] else { return nil }
+            return (matrixCommentLabel(for: target), comment.body)
         }
     }
 
@@ -3168,6 +3385,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func publishSelectionState(_ state: GenotypeResultSelectionState?) {
         currentSelectionState = state
+        publishMatrixReviewCapability(for: state?.matrixTargets ?? [])
         onSelectionStateChanged?(state)
     }
 
@@ -3402,6 +3620,8 @@ public final class GenotypeResultViewController: NSViewController {
             bundleURL: updatedResult.bundleURL,
             author: annotationAuthorProvider()
         )
+        rebuildMatrixAnnotationIndexes()
+        publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
         displayState.summaryViewMode = initialSummaryViewMode(for: updatedResult)
         rebuildActiveHaplotypeAnalysisIndexes()
         aiHaplotypingStatus = "AI haplotype revision created. Calls require manual review."
@@ -3465,13 +3685,16 @@ public final class GenotypeResultViewController: NSViewController {
         return sidecar.callOverrides.count
             + sidecar.manualHaplotypeAssignments.count
             + sidecar.matrixStyles.count
+            + sidecar.matrixReviews.count
             + sidecar.matrixComments.count
             + candidateProjection
     }
 
     private var currentWorkbookHasMatrixAnnotations: Bool {
         guard let sidecar = annotationStore?.sidecar else { return false }
-        return !sidecar.matrixStyles.isEmpty || !sidecar.matrixComments.isEmpty
+        return !sidecar.matrixStyles.isEmpty
+            || !sidecar.matrixReviews.isEmpty
+            || !sidecar.matrixComments.isEmpty
     }
 
     private var currentWorkbookRelevantChangeLabel: String {
@@ -3483,13 +3706,17 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func scheduleCurrentWorkbookUpdateForMatrixAnnotation() {
-        guard currentWorkbookHasMatrixAnnotations,
-              !(annotationStore?.isReadOnly ?? true) else { return }
+        guard result != nil, !(annotationStore?.isReadOnly ?? true) else { return }
         currentWorkbookNeedsRefresh = true
         currentWorkbookUpdateStatus = "current.xlsx does not include workbook annotation changes."
         rebuildArtifactLens()
         currentWorkbookAnnotationAutoUpdateTask?.cancel()
-        currentWorkbookAnnotationAutoUpdateTask = nil
+        currentWorkbookAnnotationAutoUpdateTask = matrixWorkbookUpdateScheduler.schedule {
+            [weak self] in
+            guard let self else { return }
+            self.currentWorkbookAnnotationAutoUpdateTask = nil
+            self.updateCurrentWorkbookFromOverrides()
+        }
     }
 
     @objc private func updateCurrentWorkbookFromOverrides() {
@@ -3500,6 +3727,7 @@ public final class GenotypeResultViewController: NSViewController {
         let includedLoci = currentWorkbookIncludedLoci()
         guard !calls.isEmpty
                 || currentWorkbookHasMatrixAnnotations
+                || currentWorkbookNeedsRefresh
                 || result.manifest.mhcCandidateArtifacts != nil else {
             currentWorkbookUpdateStatus = "No displayed haplotype calls are available for current.xlsx."
             rebuildArtifactLens()
@@ -3526,7 +3754,9 @@ public final class GenotypeResultViewController: NSViewController {
             )
             reloadCurrentWorkbookResult(from: result.bundleURL)
         } catch {
-            currentWorkbookUpdateStatus = error.localizedDescription
+            currentWorkbookNeedsRefresh = true
+            currentWorkbookUpdateStatus =
+                "Annotations were saved, but current.xlsx update failed. Use Update current.xlsx to retry. \(error.localizedDescription)"
             rebuildArtifactLens()
             presentSheetAlert(error: error)
         }
@@ -3545,7 +3775,9 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func applyCurrentWorkbookUpdateFailed(_ error: Error) {
         invalidateCurrentWorkbookResultReload()
-        currentWorkbookUpdateStatus = "current.xlsx update failed — see Operations Panel."
+        currentWorkbookNeedsRefresh = true
+        currentWorkbookUpdateStatus =
+            "Annotations were saved, but current.xlsx update failed. Use Update current.xlsx to retry."
         rebuildArtifactLens()
     }
 
@@ -3599,6 +3831,7 @@ public final class GenotypeResultViewController: NSViewController {
         let matrixWasConfigured = comparisonMatrixConfigured
         result = updatedResult
         rebuildResultIndexes(for: updatedResult)
+        publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
         rebuildActiveHaplotypeAnalysisIndexes()
         guard matrixWasConfigured else { return }
         comparisonMatrix.applyAnnotationSidecar(annotationStore?.sidecar, reload: false)
@@ -5455,7 +5688,9 @@ public final class GenotypeResultViewController: NSViewController {
     ) -> GenotypeViewportExportSnapshot {
         guard let store = annotationStore else { return base }
         let sidecar = store.sidecar
-        let hasMatrixAnnotations = !sidecar.matrixStyles.isEmpty || !sidecar.matrixComments.isEmpty
+        let hasMatrixAnnotations = !sidecar.matrixStyles.isEmpty
+            || !sidecar.matrixReviews.isEmpty
+            || !sidecar.matrixComments.isEmpty
         guard !sidecar.callOverrides.isEmpty || !sidecar.auditLog.isEmpty || hasMatrixAnnotations else { return base }
         let overrides = sidecar.callOverrides.map { o in
             GenotypeAnnotationOverrideEntry(
@@ -6648,6 +6883,22 @@ extension GenotypeResultViewController {
 
     var testingCurrentSelectionMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
         currentSelectionState?.matrixTargets ?? []
+    }
+
+    var testingMatrixReviewCapability: GenotypeMatrixReviewCapabilityState {
+        matrixReviewCapability
+    }
+
+    var testingComparisonMatrixReviewCapability: GenotypeMatrixReviewCapabilityState {
+        comparisonMatrix.matrixReviewCapability
+    }
+
+    var testingMatrixEvidenceIndexBuildCount: Int {
+        matrixEvidenceIndexBuildCount
+    }
+
+    var testingMatrixAnnotationIndexBuildCount: Int {
+        matrixAnnotationIndexBuildCount
     }
 
     var testingCurrentSelectionDetailRows: [(String, String)] {

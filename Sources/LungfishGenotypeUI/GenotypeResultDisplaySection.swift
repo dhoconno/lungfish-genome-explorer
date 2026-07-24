@@ -52,11 +52,23 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var mhcCandidateControlsAvailable = false
     public var mhcCandidateIntegrityWarnings: [String] = []
     public var mhcCandidatePersistenceWarning: String?
+    public private(set) var matrixReviewCapability = GenotypeMatrixReviewCapability.evaluate(
+        selection: [],
+        evidence: .init(),
+        reviews: [],
+        comments: [],
+        isWritable: false
+    )
 
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
     public var onGenotypeHighlightRequested: ((GenotypeResultHighlightRequest) -> Void)?
     public var onMatrixStyleRequested: ((GenotypeMatrixStyleRequest) -> Void)?
-    public var onMatrixCommentRequested: ((GenotypeMatrixCommentRequest) -> Void)?
+    public var onMatrixReviewRequested: ((GenotypeMatrixReviewRequest) -> Void)?
+    public var onMatrixCommentRequested: ((GenotypeMatrixCommentEditRequest) -> Void)?
+    public var onMatrixCommentEditRequested: ((GenotypeMatrixCommentEditRequest) -> Void)? {
+        get { onMatrixCommentRequested }
+        set { onMatrixCommentRequested = newValue }
+    }
     public var onSupportSelectionPreviewChanged: ((Int) -> Void)?
     public var onShowOnlySelectedMatrixRowsRequested: (() -> Void)?
     public var onShowOnlySelectedMatrixColumnsRequested: (() -> Void)?
@@ -101,6 +113,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         mhcCandidateIntegrityWarnings = []
         mhcCandidatePersistenceWarning = nil
         isGenotypeOnlyResult = false
+        matrixReviewCapability = Self.emptyMatrixReviewCapability
         updateSelection(nil)
     }
 
@@ -286,6 +299,10 @@ public final class GenotypeResultDisplaySectionViewModel {
             : .fill
     }
 
+    public func updateMatrixReviewCapability(_ capability: GenotypeMatrixReviewCapabilityState) {
+        matrixReviewCapability = capability
+    }
+
     func setGenotypeHighlightChannel(_ channel: GenotypeResultHighlightChannel) {
         genotypeHighlightChannel = channel
     }
@@ -386,7 +403,10 @@ public final class GenotypeResultDisplaySectionViewModel {
     func addMatrixComment() {
         let body = matrixCommentText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, hasMatrixSelection else { return }
-        onMatrixCommentRequested?(GenotypeMatrixCommentRequest(targets: selectedMatrixTargets, body: body))
+        onMatrixCommentRequested?(GenotypeMatrixCommentEditRequest(
+            targets: selectedMatrixTargets,
+            intent: .upsert(body: body)
+        ))
         matrixCommentText = ""
     }
 
@@ -432,6 +452,16 @@ public final class GenotypeResultDisplaySectionViewModel {
 
     func notifyStateChanged() {
         onDisplayStateChanged?(displayState)
+    }
+
+    private static var emptyMatrixReviewCapability: GenotypeMatrixReviewCapabilityState {
+        GenotypeMatrixReviewCapability.evaluate(
+            selection: [],
+            evidence: .init(),
+            reviews: [],
+            comments: [],
+            isWritable: false
+        )
     }
 
     private static func integrityWarningText(_ warning: ONTGenotypeIntegrityWarning) -> String {

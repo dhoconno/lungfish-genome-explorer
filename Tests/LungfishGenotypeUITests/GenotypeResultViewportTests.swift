@@ -8,7 +8,359 @@ import LungfishKit
 import LungfishWorkflow
 
 @MainActor
+private final class MatrixWorkbookUpdateSchedulerSpy: GenotypeMatrixWorkbookUpdateScheduling {
+    private final class Token: GenotypeMatrixWorkbookUpdateCancellation {
+        var isCancelled = false
+
+        func cancel() {
+            isCancelled = true
+        }
+    }
+
+    private var entries: [(token: Token, action: @MainActor () -> Void)] = []
+
+    var scheduledCount: Int {
+        entries.count
+    }
+
+    func schedule(_ action: @escaping @MainActor () -> Void) -> GenotypeMatrixWorkbookUpdateCancellation {
+        let token = Token()
+        entries.append((token, action))
+        return token
+    }
+
+    func fireScheduledActions() {
+        let pending = entries
+        entries.removeAll()
+        for entry in pending where !entry.token.isCancelled {
+            entry.action()
+        }
+    }
+}
+
+@MainActor
 final class GenotypeResultViewportTests: XCTestCase {
+    func testMatrixReviewCapabilityUsesRawEvidenceIndependentOfFiltersAndDisplayThresholds() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixRawEvidenceFilters-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_SUPPORTED"
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: genotype,
+            sample: "AnimalA"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 9)]
+        ))
+        controller.testingShowMatrixTargetSelection([target])
+        let unfiltered = controller.testingMatrixReviewCapability
+        let evidenceBuildCount = controller.testingMatrixEvidenceIndexBuildCount
+
+        var state = controller.testingDisplayState
+        state.hideLowSupport = true
+        state.minimumSupportPercent = 100
+        state.matrixMinimumReads = 100
+        state.matrixMinimumPercent = 100
+        state.matrixRowFilterText = "does-not-match"
+        state.matrixSampleFilterText = "hidden-sample"
+        controller.testingApplyDisplayState(state)
+
+        XCTAssertEqual(unfiltered.falsePositive, .enabled)
+        XCTAssertEqual(controller.testingMatrixReviewCapability.falsePositive, .enabled)
+        XCTAssertEqual(controller.testingMatrixEvidenceIndexBuildCount, evidenceBuildCount)
+    }
+
+    func testMatrixReviewCapabilityTreatsAbsentExactRecordAsFalseNegativeEligible() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixAbsentEvidence-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_EXPECTED"
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: genotype,
+            sample: "AnimalB"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 9)]
+        ))
+
+        controller.testingShowMatrixTargetSelection([target])
+
+        XCTAssertEqual(controller.testingMatrixReviewCapability.falseNegative, .enabled)
+        XCTAssertEqual(controller.testingMatrixReviewCapability.support.unsupportedCount, 1)
+    }
+
+    func testMatrixReviewCapabilityUsesFullStableCandidateIdentityAndRejectsMixedSelection() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixCandidateEvidenceIdentity-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let supported = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Collision_nov",
+            sample: "AnimalA",
+            stableClusterID: "cluster-supported"
+        )
+        let absent = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Collision_nov",
+            sample: "AnimalA",
+            stableClusterID: "cluster-absent"
+        )
+        let result = makeCandidateResult(
+            bundleURL: bundleURL,
+            calls: [],
+            candidates: [
+                makeCandidate(id: "cluster-supported", name: "Collision_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
+                makeCandidate(id: "cluster-absent", name: "Collision_nov", classification: .novel, support: .singleton, samples: []),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "cluster-supported", sample: "AnimalA", reads: 5),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        controller.testingShowMatrixTargetSelection([supported])
+        XCTAssertEqual(controller.testingMatrixReviewCapability.falsePositive, .enabled)
+        controller.testingShowMatrixTargetSelection([absent])
+        XCTAssertEqual(controller.testingMatrixReviewCapability.falseNegative, .enabled)
+        controller.testingShowMatrixTargetSelection([supported, absent])
+
+        XCTAssertFalse(controller.testingMatrixReviewCapability.falsePositive.isEnabled)
+        XCTAssertFalse(controller.testingMatrixReviewCapability.falseNegative.isEnabled)
+        XCTAssertEqual(controller.testingMatrixReviewCapability.support.supportedCount, 1)
+        XCTAssertEqual(controller.testingMatrixReviewCapability.support.unsupportedCount, 1)
+    }
+
+    func testInspectorAndMatrixConsumeSameCapabilitySnapshotWithoutRebuildingIndexesOnSelection() {
+        let genotype = "01_Mafa_A1_SUPPORTED"
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: genotype,
+            sample: "AnimalA"
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        let controller = GenotypeResultViewController()
+        controller.onMatrixReviewCapabilityChanged = { viewModel.updateMatrixReviewCapability($0) }
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 9)]
+        ))
+        let evidenceBuildCount = controller.testingMatrixEvidenceIndexBuildCount
+        let annotationBuildCount = controller.testingMatrixAnnotationIndexBuildCount
+
+        controller.testingShowMatrixTargetSelection([target])
+
+        XCTAssertEqual(viewModel.matrixReviewCapability, controller.testingMatrixReviewCapability)
+        XCTAssertEqual(
+            controller.testingComparisonMatrixReviewCapability,
+            controller.testingMatrixReviewCapability
+        )
+        XCTAssertEqual(controller.testingMatrixEvidenceIndexBuildCount, evidenceBuildCount)
+        XCTAssertEqual(controller.testingMatrixAnnotationIndexBuildCount, annotationBuildCount)
+    }
+
+    func testReviewRequestIsRevalidatedAgainstCurrentRawEvidenceBeforeStorePublication() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixReviewRevalidation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_SUPPORTED"
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: genotype,
+            sample: "AnimalA"
+        )
+        let request = GenotypeMatrixReviewRequest(
+            targets: [target],
+            intent: .set(.falsePositive)
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 9)]
+        ))
+        controller.testingShowMatrixTargetSelection([target])
+        XCTAssertEqual(controller.testingMatrixReviewCapability.falsePositive, .enabled)
+
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: []
+        ))
+        let annotationBuildCount = controller.testingMatrixAnnotationIndexBuildCount
+        var surfacedError: Error?
+        controller.onMatrixAnnotationCommandError = { surfacedError = $0 }
+        controller.applyMatrixReview(request)
+
+        XCTAssertEqual(
+            surfacedError as? GenotypeMatrixReviewMutationError,
+            .ineligibleEvidence
+        )
+        XCTAssertTrue(
+            try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+                .matrixReviews.isEmpty
+        )
+        XCTAssertEqual(controller.testingMatrixAnnotationIndexBuildCount, annotationBuildCount)
+    }
+
+    func testSemanticCommentRequestsUpsertReplaceAndRemoveExactTargets() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixCommentIntents-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let first = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
+        let second = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalB")
+        let visibleCall = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_VISIBLE",
+            reads: 5
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 5,
+                passedUniqueReads: 5,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [visibleCall]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "AnimalB",
+                passedAlignments: 0,
+                passedUniqueReads: 0,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: []
+            ),
+        ], calls: [visibleCall]))
+        controller.testingResetMatrixReloadCounters()
+
+        controller.editMatrixComment(.init(targets: [first], intent: .upsert(body: "first")))
+        controller.editMatrixComment(.init(targets: [first], intent: .upsert(body: "edited")))
+        controller.editMatrixComment(.init(
+            targets: [first, second],
+            intent: .replace(body: "bulk replacement")
+        ))
+        var sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+        XCTAssertEqual(sidecar.matrixComments.count, 2)
+        XCTAssertEqual(Set(sidecar.matrixComments.map(\.body)), ["bulk replacement"])
+
+        controller.editMatrixComment(.init(targets: [first], intent: .remove))
+        sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+        XCTAssertEqual(sidecar.matrixComments.map(\.target), [second])
+        XCTAssertEqual(controller.testingMatrixFullReloadCount, 0)
+        XCTAssertGreaterThan(controller.testingMatrixPartialReloadCount, 0)
+    }
+
+    func testSuccessfulMatrixAnnotationBurstCoalescesOneDelayedWorkbookUpdate() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixWorkbookCoalesce-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_SUPPORTED"
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: genotype,
+            sample: "AnimalA"
+        )
+        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
+        let controller = GenotypeResultViewController()
+        controller.matrixWorkbookUpdateScheduler = scheduler
+        var workbookUpdateCount = 0
+        controller.onCurrentWorkbookUpdateRequested = { _, _, _ in workbookUpdateCount += 1 }
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 9)]
+        ))
+
+        controller.applyMatrixReview(.init(targets: [target], intent: .set(.falsePositive)))
+        controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "reviewed")))
+
+        XCTAssertEqual(scheduler.scheduledCount, 2)
+        XCTAssertEqual(workbookUpdateCount, 0)
+        scheduler.fireScheduledActions()
+        XCTAssertEqual(workbookUpdateCount, 1)
+    }
+
+    func testFailedSidecarPublicationSchedulesNoWorkbookUpdate() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixWorkbookPublicationFailure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
+        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
+        let controller = GenotypeResultViewController()
+        controller.matrixWorkbookUpdateScheduler = scheduler
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: []))
+        let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
+        try concurrent.addMatrixComment(target: target, body: "concurrent")
+        var surfacedError: Error?
+        controller.onMatrixAnnotationCommandError = { surfacedError = $0 }
+
+        controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "stale")))
+
+        XCTAssertNotNil(surfacedError)
+        XCTAssertEqual(scheduler.scheduledCount, 0)
+    }
+
+    func testWorkbookUpdateFailurePreservesPublishedSidecarAndExposesRetryWarning() throws {
+        struct WorkbookFailure: Error {}
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixWorkbookRetry-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
+        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
+        let controller = GenotypeResultViewController()
+        controller.matrixWorkbookUpdateScheduler = scheduler
+        controller.onCurrentWorkbookUpdateRequested = { _, _, _ in }
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: []))
+        controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "durable")))
+        scheduler.fireScheduledActions()
+        let published = try Data(contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+
+        controller.applyCurrentWorkbookUpdateFailed(WorkbookFailure())
+
+        XCTAssertEqual(
+            try Data(contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)),
+            published
+        )
+        XCTAssertTrue(controller.testingCurrentWorkbookNeedsRefresh)
+        XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("retry") == true)
+    }
+
     func testMatrixEditsCaptureCurrentAuthorProviderAfterSingleConfigure() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeEditAuthorProvider-\(UUID().uuidString)", isDirectory: true)
@@ -47,7 +399,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(persisted.matrixComments.first?.author, "Second analyst")
         XCTAssertEqual(commentProvenance.options.resolvedDefaults["author"], .string("Second analyst"))
         XCTAssertEqual(
-            persisted.auditLog.filter { $0.action == "setMatrixStyle" || $0.action == "addMatrixComment" }.map(\.author),
+            persisted.auditLog.filter { $0.action == "setMatrixStyle" || $0.action == "upsertMatrixComment" }.map(\.author),
             ["First analyst", "Second analyst"]
         )
     }
@@ -7348,7 +7700,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             field: .fillColor(AnnotationColor(red: 0.2, green: 0.6, blue: 0.3, alpha: 1.0))
         ))
         XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, targets)
-        controller.addMatrixComment(GenotypeMatrixCommentRequest(
+        controller.addMatrixComment(GenotypeMatrixCommentEditRequest(
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "Supported cell remains selected."
         ))
@@ -8686,7 +9038,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             .cell(locus: "MHC-A", genotype: first, sample: "AnimalA"),
             .cell(locus: "MHC-A", genotype: second, sample: "AnimalA"),
         ]))
-        controller.addMatrixComment(GenotypeMatrixCommentRequest(
+        controller.addMatrixComment(GenotypeMatrixCommentEditRequest(
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "Review both calls."
         ))
@@ -8781,7 +9133,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         ], calls: [call]))
         controller.testingSelectMatrixCell(genotype: genotype, sample: "AnimalB")
 
-        controller.addMatrixComment(GenotypeMatrixCommentRequest(
+        controller.addMatrixComment(GenotypeMatrixCommentEditRequest(
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "Expected but missing."
         ))

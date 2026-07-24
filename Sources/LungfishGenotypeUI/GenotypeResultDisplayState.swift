@@ -278,18 +278,74 @@ public struct GenotypeMatrixStyleRequest: Equatable {
     }
 }
 
-public struct GenotypeMatrixCommentRequest: Equatable {
-    public let targets: [GenotypeAnnotationSidecar.MatrixTarget]
-    public let body: String
+public struct GenotypeMatrixReviewRequest: Equatable, Sendable {
+    public enum Intent: Equatable, Sendable {
+        case set(GenotypeAnnotationSidecar.MatrixReviewDisposition)
+        case clear
+    }
 
+    public let targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    public let intent: Intent
+
+    public init(
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        intent: Intent
+    ) {
+        self.targets = targets
+        self.intent = intent
+    }
+}
+
+public struct GenotypeMatrixCommentEditRequest: Equatable, Sendable {
+    public enum Intent: Equatable, Sendable {
+        case upsert(body: String)
+        case remove
+        case replace(body: String)
+    }
+
+    public let targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    public let intent: Intent
+
+    public init(
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        intent: Intent
+    ) {
+        self.targets = targets
+        self.intent = intent
+    }
+
+    /// Compatibility initializer for pre-semantic call sites. It now means an
+    /// exact target-keyed upsert, never an append.
     public init(
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
         body: String
     ) {
-        self.targets = targets
-        self.body = body
+        self.init(targets: targets, intent: .upsert(body: body))
+    }
+
+    public var body: String {
+        switch intent {
+        case let .upsert(body), let .replace(body):
+            return body
+        case .remove:
+            return ""
+        }
     }
 }
+
+public enum GenotypeMatrixAnnotationCommandError: Error, Equatable, LocalizedError {
+    case explicitBulkCommentReplaceRequired
+
+    public var errorDescription: String? {
+        switch self {
+        case .explicitBulkCommentReplaceRequired:
+            return "Replacing existing comments on multiple targets requires explicit replace intent."
+        }
+    }
+}
+
+@available(*, deprecated, renamed: "GenotypeMatrixCommentEditRequest")
+public typealias GenotypeMatrixCommentRequest = GenotypeMatrixCommentEditRequest
 
 public struct GenotypeResultHighlightTarget: Equatable, Hashable {
     public let genotype: String

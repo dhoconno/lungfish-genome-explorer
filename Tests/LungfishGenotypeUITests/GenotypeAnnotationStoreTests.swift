@@ -30,6 +30,39 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         }
     }
 
+    func testSynchronousControllerReviewBridgeRevalidatesEvidenceBeforePublication() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*001:01",
+            sample: "Animal-1"
+        )
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let before = try Data(contentsOf: annotationURL)
+
+        XCTAssertThrowsError(
+            try store.setMatrixReviewSynchronously(
+                .falsePositive,
+                targets: [target],
+                evidence: .init([target: 0]),
+                author: "reviewer"
+            )
+        ) { error in
+            XCTAssertEqual(error as? GenotypeMatrixReviewMutationError, .ineligibleEvidence)
+        }
+        XCTAssertEqual(try Data(contentsOf: annotationURL), before)
+
+        try store.setMatrixReviewSynchronously(
+            .falsePositive,
+            targets: [target],
+            evidence: .init([target: 7]),
+            author: "reviewer"
+        )
+        XCTAssertEqual(store.sidecar.matrixReviews.map(\.target), [target])
+    }
+
     private func makeBundleURL() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")

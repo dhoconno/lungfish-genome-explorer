@@ -113,6 +113,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     var onMatrixTargetsSelected: (([GenotypeAnnotationSidecar.MatrixTarget]) -> Void)?
     var onSelectionCleared: (() -> Void)?
     var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
+    private(set) var matrixReviewCapability = GenotypeMatrixReviewCapability.evaluate(
+        selection: [],
+        evidence: .init(),
+        reviews: [],
+        comments: [],
+        isWritable: false
+    )
 
     private let filterField = NSSearchField()
     private let locusPopup = NSPopUpButton()
@@ -182,9 +189,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var sidecarCellStyles: [CellKey: GenotypeAnnotationSidecar.MatrixStyle] = [:]
     private var sidecarRowStyles: [RowKey: GenotypeAnnotationSidecar.MatrixStyle] = [:]
     private var sidecarColumnStyles: [String: GenotypeAnnotationSidecar.MatrixStyle] = [:]
-    private var sidecarCellComments: [CellKey: [String]] = [:]
-    private var sidecarRowComments: [RowKey: [String]] = [:]
-    private var sidecarColumnComments: [String: [String]] = [:]
+    private var sidecarCellComments: [CellKey: String] = [:]
+    private var sidecarRowComments: [RowKey: String] = [:]
+    private var sidecarColumnComments: [String: String] = [:]
+    private var sidecarCellReviews: [
+        CellKey: GenotypeAnnotationSidecar.MatrixReviewAnnotation
+    ] = [:]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -271,6 +281,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         sidecarCellComments = [:]
         sidecarRowComments = [:]
         sidecarColumnComments = [:]
+        sidecarCellReviews = [:]
         for annotation in sidecar?.matrixStyles ?? [] {
             switch annotation.target {
             case let .row(locus, genotype, stableClusterID):
@@ -281,15 +292,27 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 sidecarCellStyles[CellKey(locus: locus, genotype: genotype, sample: sample, stableClusterID: stableClusterID)] = annotation.style
             }
         }
-        for comment in sidecar?.matrixComments ?? [] {
+        let resolvedComments = sidecar?.resolvedMatrixComments ?? [:]
+        for comment in resolvedComments.values {
             switch comment.target {
             case let .row(locus, genotype, stableClusterID):
-                sidecarRowComments[RowKey(locus: locus, genotype: genotype, stableClusterID: stableClusterID), default: []].append(comment.body)
+                sidecarRowComments[RowKey(locus: locus, genotype: genotype, stableClusterID: stableClusterID)] = comment.body
             case let .column(sample):
-                sidecarColumnComments[sample, default: []].append(comment.body)
+                sidecarColumnComments[sample] = comment.body
             case let .cell(locus, genotype, sample, stableClusterID):
-                sidecarCellComments[CellKey(locus: locus, genotype: genotype, sample: sample, stableClusterID: stableClusterID), default: []].append(comment.body)
+                sidecarCellComments[CellKey(locus: locus, genotype: genotype, sample: sample, stableClusterID: stableClusterID)] = comment.body
             }
+        }
+        for review in sidecar?.matrixReviews ?? [] {
+            guard case let .cell(locus, genotype, sample, stableClusterID) = review.target else {
+                continue
+            }
+            sidecarCellReviews[CellKey(
+                locus: locus,
+                genotype: genotype,
+                sample: sample,
+                stableClusterID: stableClusterID
+            )] = review
         }
         if reload, candidateDisplaySettings != previousCandidateDisplaySettings {
             rebuildRowsFromResult()
@@ -306,6 +329,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         if reload {
             applyFilterAndSort()
         }
+    }
+
+    func applyMatrixReviewCapability(_ capability: GenotypeMatrixReviewCapabilityState) {
+        matrixReviewCapability = capability
     }
 
     func setFilterText(_ text: String) {
@@ -1714,25 +1741,28 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             lines.append(base)
         }
         appendComments(commentsForRow(row), title: "Row comments", to: &lines)
-        appendComments(sidecarColumnComments[sample] ?? [], title: "Column comments", to: &lines)
+        appendComments(sidecarColumnComments[sample].map { [$0] } ?? [], title: "Column comments", to: &lines)
         appendComments(commentsForCell(row, sample: sample), title: "Cell comments", to: &lines)
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
     private func commentsForRow(_ row: GenotypeCandidateMatrixRow) -> [String] {
-        let legacy = sidecarRowComments[RowKey(locus: row.locus, genotype: row.genotype)] ?? []
+        let legacy = sidecarRowComments[RowKey(locus: row.locus, genotype: row.genotype)]
+            .map { [$0] } ?? []
         guard let stableClusterID = row.stableClusterID else { return legacy }
         return legacy + (sidecarRowComments[
             RowKey(locus: row.locus, genotype: row.genotype, stableClusterID: stableClusterID)
-        ] ?? [])
+        ].map { [$0] } ?? [])
     }
 
     private func commentsForCell(_ row: GenotypeCandidateMatrixRow, sample: String) -> [String] {
-        let legacy = sidecarCellComments[CellKey(locus: row.locus, genotype: row.genotype, sample: sample)] ?? []
+        let legacy = sidecarCellComments[
+            CellKey(locus: row.locus, genotype: row.genotype, sample: sample)
+        ].map { [$0] } ?? []
         guard let stableClusterID = row.stableClusterID else { return legacy }
         return legacy + (sidecarCellComments[
             CellKey(locus: row.locus, genotype: row.genotype, sample: sample, stableClusterID: stableClusterID)
-        ] ?? [])
+        ].map { [$0] } ?? [])
     }
 
     private func appendComments(_ comments: [String], title: String, to lines: inout [String]) {
