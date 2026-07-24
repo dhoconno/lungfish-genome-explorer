@@ -253,6 +253,152 @@ struct GenotypeMatrixRenderedStyle: Equatable {
     }
 }
 
+enum GenotypeMatrixSemanticTextColorRole: Equatable {
+    case primary
+    case secondary
+}
+
+struct GenotypeMatrixSemanticTextPresentation: Equatable {
+    let value: String
+    let colorRole: GenotypeMatrixSemanticTextColorRole
+    let isItalic: Bool
+}
+
+struct GenotypeMatrixScopedCommentCounts: Equatable {
+    let alleleRow: Int
+    let sampleColumn: Int
+    let cell: Int
+
+    var total: Int {
+        alleleRow + sampleColumn + cell
+    }
+}
+
+struct GenotypeMatrixCellChromeState: Equatable {
+    let decorativeBorderWidth: CGFloat?
+    let semanticInnerFrameWidth: CGFloat?
+    let selectionCornerBracketWidth: CGFloat?
+    let selectionCornerBracketLength: CGFloat
+    let commentFoldSize: CGFloat?
+}
+
+struct GenotypeMatrixCellSemanticState: Equatable {
+    let text: GenotypeMatrixSemanticTextPresentation
+    let evidenceReads: Int?
+    let review: GenotypeAnnotationSidecar.MatrixReviewDisposition?
+    let chrome: GenotypeMatrixCellChromeState
+    let commentCounts: GenotypeMatrixScopedCommentCounts
+    let hasNativeCellCommentMarker: Bool
+    let isSelected: Bool
+    let accessibilityLabel: String
+}
+
+enum GenotypeMatrixContextCommand: Int, CaseIterable, Equatable {
+    case markFalsePositive
+    case markFalseNegative
+    case clearReview
+    case editComment
+    case removeComments
+    case selectSupportedCells
+}
+
+enum GenotypeMatrixContextMenuAccessEvent: Equatable {
+    case cachedSelection
+    case cachedCapability
+    case fileSystem
+}
+
+struct GenotypeMatrixContextMenuItemState: Equatable {
+    let title: String
+    let command: GenotypeMatrixContextCommand
+    let availability: GenotypeMatrixCommandAvailability
+    let keyEquivalent: String
+    let keyModifierRawValue: UInt
+}
+
+struct GenotypeMatrixContextMenuState: Equatable {
+    let selectionTargets: [GenotypeAnnotationSidecar.MatrixTarget]
+    let items: [GenotypeMatrixContextMenuItemState]
+    let inspectedTargetCount: Int
+}
+
+struct GenotypeMatrixContextMenuBuilder {
+    static func make(
+        selectionTargets: [GenotypeAnnotationSidecar.MatrixTarget],
+        capability: GenotypeMatrixReviewCapabilityState,
+        keyModifierRawValue: UInt
+    ) -> GenotypeMatrixContextMenuState {
+        var items = [
+            GenotypeMatrixContextMenuItemState(
+                title: "Mark False Positive",
+                command: .markFalsePositive,
+                availability: capability.falsePositive,
+                keyEquivalent: "p",
+                keyModifierRawValue: keyModifierRawValue
+            ),
+            GenotypeMatrixContextMenuItemState(
+                title: "Mark False Negative",
+                command: .markFalseNegative,
+                availability: capability.falseNegative,
+                keyEquivalent: "n",
+                keyModifierRawValue: keyModifierRawValue
+            ),
+            GenotypeMatrixContextMenuItemState(
+                title: "Clear Review",
+                command: .clearReview,
+                availability: capability.clearReview,
+                keyEquivalent: "r",
+                keyModifierRawValue: keyModifierRawValue
+            ),
+            GenotypeMatrixContextMenuItemState(
+                title: commentMenuTitle(
+                    capability: capability,
+                    targetCount: selectionTargets.count
+                ),
+                command: .editComment,
+                availability: capability.upsertComment,
+                keyEquivalent: "m",
+                keyModifierRawValue: keyModifierRawValue
+            ),
+            GenotypeMatrixContextMenuItemState(
+                title: selectionTargets.count == 1 ? "Remove Comment" : "Remove Comments",
+                command: .removeComments,
+                availability: capability.removeComments,
+                keyEquivalent: "",
+                keyModifierRawValue: 0
+            ),
+        ]
+        if capability.selectionShape == .rows || capability.selectionShape == .columns {
+            items.append(GenotypeMatrixContextMenuItemState(
+                title: "Select Supported Cells (≥ 1 read)",
+                command: .selectSupportedCells,
+                availability: .enabled,
+                keyEquivalent: "",
+                keyModifierRawValue: 0
+            ))
+        }
+        return GenotypeMatrixContextMenuState(
+            selectionTargets: selectionTargets,
+            items: items,
+            inspectedTargetCount: selectionTargets.count
+        )
+    }
+
+    private static func commentMenuTitle(
+        capability: GenotypeMatrixReviewCapabilityState,
+        targetCount: Int
+    ) -> String {
+        switch capability.commentState {
+        case .none:
+            return "Add Comment…"
+        case .uniform:
+            return targetCount == 1 ? "Edit Comment…" : "Replace Comments…"
+        case .mixed:
+            return "Replace Comments…"
+        }
+    }
+}
+
 public enum GenotypeMatrixStyleField: Equatable {
     case fillColor(AnnotationColor?)
     case textColor(AnnotationColor?)

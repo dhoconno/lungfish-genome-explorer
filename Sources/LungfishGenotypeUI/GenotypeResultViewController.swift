@@ -1733,6 +1733,12 @@ public final class GenotypeResultViewController: NSViewController {
         comparisonMatrix.onMatrixTargetsSelected = { [weak self] targets in
             self?.showMatrixTargetSelection(targets)
         }
+        comparisonMatrix.onMatrixReviewRequested = { [weak self] request in
+            self?.applyMatrixReview(request)
+        }
+        comparisonMatrix.onMatrixCommentEditRequested = { [weak self] request in
+            self?.editMatrixComment(request)
+        }
         comparisonMatrix.onSelectionCleared = { [weak self] in
             self?.showEmptySelection()
         }
@@ -6954,6 +6960,35 @@ extension GenotypeResultViewController {
 
     var testingComparisonMatrixReviewCapability: GenotypeMatrixReviewCapabilityState {
         comparisonMatrix.matrixReviewCapability
+    }
+
+    func testingBuildMatrixContextMenu(
+        for target: GenotypeAnnotationSidecar.MatrixTarget
+    ) -> GenotypeMatrixContextMenuState? {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingBuildContextMenu(for: target)
+    }
+
+    func testingSetMatrixContextMenuAccessObserver(
+        _ observer: ((GenotypeMatrixContextMenuAccessEvent) -> Void)?
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSetContextMenuAccessObserver(observer)
+    }
+
+    func testingPerformMatrixContextCommand(_ command: GenotypeMatrixContextCommand) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPerformContextCommand(command)
+    }
+
+    func testingPerformMatrixKeyboardCommand(_ command: GenotypeMatrixContextCommand) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPerformKeyboardCommand(command)
+    }
+
+    func testingSetMatrixCommentBodyProvider(_ provider: @escaping (String?) -> String?) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.matrixCommentBodyProvider = provider
     }
 
     var testingMatrixEvidenceIndexBuildCount: Int {
