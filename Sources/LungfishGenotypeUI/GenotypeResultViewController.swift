@@ -169,6 +169,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var alleleSequenceDetailMountCount = 0
     private var candidateAlleleDetailWidthConstraint: NSLayoutConstraint?
     private var alleleSequenceDetailWidthConstraint: NSLayoutConstraint?
+    private var alleleSequenceDetailHeightConstraint: NSLayoutConstraint?
     private var candidateSequenceRecordsByStableClusterID: [
         String: GenotypeAlleleSequenceRecord
     ] = [:]
@@ -555,6 +556,8 @@ public final class GenotypeResultViewController: NSViewController {
         candidateAlleleDetailWidthConstraint = nil
         alleleSequenceDetailWidthConstraint?.isActive = false
         alleleSequenceDetailWidthConstraint = nil
+        alleleSequenceDetailHeightConstraint?.isActive = false
+        alleleSequenceDetailHeightConstraint = nil
         if isFullLengthMHCGenotypeViewport {
             knownSequenceRecordsByRowID = [:]
             for sharedCall in result.locusSummaries.flatMap(\.sharedCalls) {
@@ -2561,6 +2564,8 @@ public final class GenotypeResultViewController: NSViewController {
         currentSelectedSample = nil
         alleleSequenceDetailWidthConstraint?.isActive = false
         alleleSequenceDetailWidthConstraint = nil
+        alleleSequenceDetailHeightConstraint?.isActive = false
+        alleleSequenceDetailHeightConstraint = nil
         removeArrangedSubviews(from: detailStack)
         renderedAlleleSequenceRecordIdentities = []
         alleleSequenceDetailView.clear()
@@ -2611,6 +2616,8 @@ public final class GenotypeResultViewController: NSViewController {
             candidateAlleleDetailWidthConstraint = nil
             alleleSequenceDetailWidthConstraint?.isActive = false
             alleleSequenceDetailWidthConstraint = nil
+            alleleSequenceDetailHeightConstraint?.isActive = false
+            alleleSequenceDetailHeightConstraint = nil
             removeArrangedSubviews(from: detailStack)
             alleleSequenceDetailView.clear()
             renderedAlleleSequenceRecordIdentities = []
@@ -2638,7 +2645,14 @@ public final class GenotypeResultViewController: NSViewController {
             alleleSequenceDetailWidthConstraint = alleleSequenceDetailView.widthAnchor.constraint(
                 equalTo: detailStack.widthAnchor
             )
-            alleleSequenceDetailWidthConstraint?.isActive = true
+            alleleSequenceDetailHeightConstraint = alleleSequenceDetailView.heightAnchor.constraint(
+                greaterThanOrEqualTo: detailScrollView.contentView.heightAnchor,
+                constant: -16
+            )
+            NSLayoutConstraint.activate([
+                alleleSequenceDetailWidthConstraint,
+                alleleSequenceDetailHeightConstraint,
+            ].compactMap { $0 })
             alleleSequenceDetailMountCount += 1
         }
         renderedAlleleSequenceRecordIdentities = records.map(\.identity)
@@ -6166,6 +6180,12 @@ public final class GenotypeResultViewController: NSViewController {
             if stack === detailStack, view === candidateAlleleDetailView {
                 candidateAlleleDetailWidthConstraint?.isActive = false
                 candidateAlleleDetailWidthConstraint = nil
+            }
+            if stack === detailStack, view === alleleSequenceDetailView {
+                alleleSequenceDetailWidthConstraint?.isActive = false
+                alleleSequenceDetailWidthConstraint = nil
+                alleleSequenceDetailHeightConstraint?.isActive = false
+                alleleSequenceDetailHeightConstraint = nil
             }
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()

@@ -1105,6 +1105,9 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.view.layoutSubtreeIfNeeded()
 
         let detail = try XCTUnwrap(onlyAlleleSequenceDetail(in: controller.view))
+        let detailScrollView = try XCTUnwrap(
+            firstAncestor(of: detail, ofType: NSScrollView.self)
+        )
         XCTAssertGreaterThan(controller.testingDetailPaneWidth, 1_000)
         XCTAssertEqual(
             detail.bounds.width,
@@ -1112,12 +1115,43 @@ final class GenotypeResultViewportTests: XCTestCase {
             accuracy: 2,
             "The sequence detail must fill the available detail pane."
         )
+        XCTAssertEqual(
+            detail.bounds.height,
+            detailScrollView.contentSize.height - 16,
+            accuracy: 2,
+            "The sequence detail must grow to fill the visible pane height."
+        )
         XCTAssertNotNil(descendants(of: detail).first {
             $0.accessibilityIdentifier() == "mhc-sequence-format"
         })
         XCTAssertNotNil(descendants(of: detail).first {
             $0.accessibilityIdentifier() == "mhc-sequence-text"
         })
+
+        let splitView = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: NSSplitView.self)
+        )
+        splitView.setPosition(splitView.bounds.height - 320, ofDividerAt: 0)
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+        let compactDetailHeight = detail.bounds.height
+        XCTAssertEqual(
+            compactDetailHeight,
+            detailScrollView.contentSize.height - 16,
+            accuracy: 2
+        )
+
+        splitView.setPosition(splitView.bounds.height - 700, ofDividerAt: 0)
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThan(detail.bounds.height, compactDetailHeight)
+        XCTAssertEqual(
+            detail.bounds.height,
+            detailScrollView.contentSize.height - 16,
+            accuracy: 2,
+            "Dragging the divider must resize the sequence detail with the pane."
+        )
     }
 
     func testRepeatedCandidateRowSelectionsReuseOneSequenceDetail() throws {
@@ -9108,6 +9142,20 @@ final class GenotypeResultViewportTests: XCTestCase {
 
     private func descendants(of root: NSView) -> [NSView] {
         root.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    private func firstAncestor<View: NSView>(
+        of view: NSView,
+        ofType type: View.Type
+    ) -> View? {
+        var current = view.superview
+        while let ancestor = current {
+            if let match = ancestor as? View {
+                return match
+            }
+            current = ancestor.superview
+        }
+        return nil
     }
 
     private func activeConstraints(in root: NSView) -> [NSLayoutConstraint] {
