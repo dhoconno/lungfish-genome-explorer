@@ -195,9 +195,21 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         let key = Self.bundleKey(for: request.bundleURL)
         var state = states[key] ?? BundleState()
         let oldPhase = state.phase
-        if state.publishedFingerprint == request.fingerprint
-            || (state.recordedFingerprintWasLoaded
-                && state.recordedFingerprint == request.fingerprint) {
+        if state.operation != nil {
+            let changedGeneration = registerLatest(request, in: &state)
+            if changedGeneration {
+                state.phase = .dirtyWhileUpdating
+            }
+            states[key] = state
+            notifyPhaseIfChanged(
+                from: oldPhase,
+                to: state.phase,
+                bundleURL: request.bundleURL
+            )
+            scheduleIdle(for: key, bundleURL: request.bundleURL)
+            return
+        }
+        if authoritativeCurrentFingerprint(in: state) == request.fingerprint {
             state.latestRequest = request
             state.idleCancellation?.cancel()
             state.idleCancellation = nil
@@ -250,7 +262,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             return try await operation.value
         }
 
-        let recorded = await recordedFingerprint(for: key, bundleURL: request.bundleURL)
+        _ = await recordedFingerprint(for: key, bundleURL: request.bundleURL)
         var state = states[key] ?? BundleState()
         if let operation = state.operation {
             let oldPhase = state.phase
@@ -270,11 +282,8 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             )
             return try await operation.value
         }
-        if state.publishedFingerprint == request.fingerprint
-            || recorded == request.fingerprint {
+        if authoritativeCurrentFingerprint(in: state) == request.fingerprint {
             state.latestRequest = request
-            state.recordedFingerprintWasLoaded = true
-            state.recordedFingerprint = recorded
             states[key] = state
             setPhase(.current, for: key, bundleURL: request.bundleURL)
             let workbookURL = await currentWorkbookResolver(request.bundleURL)
@@ -361,6 +370,8 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                     return workbookURL
                 }
                 completedState.publishedFingerprint = request.fingerprint
+                completedState.recordedFingerprintWasLoaded = true
+                completedState.recordedFingerprint = request.fingerprint
                 if completedState.generation != generation {
                     let phaseBeforeFollowUp = completedState.phase
                     completedState.phase = .updating
@@ -511,6 +522,18 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             }
         }
         return rank(rhs) > rank(lhs) ? rhs : lhs
+    }
+
+    private func authoritativeCurrentFingerprint(
+        in state: BundleState
+    ) -> GenotypeCurrentWorkbookInputFingerprint? {
+        if let publishedFingerprint = state.publishedFingerprint {
+            return publishedFingerprint
+        }
+        guard state.recordedFingerprintWasLoaded else {
+            return nil
+        }
+        return state.recordedFingerprint
     }
 
     private static func userFacingMessage(for error: Error) -> String {

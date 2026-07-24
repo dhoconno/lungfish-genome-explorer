@@ -172,6 +172,75 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.phase(for: bundle), .current)
     }
 
+    func testRecordedFingerprintMarkedDirtyDuringNewerPublicationRunsSerializedFollowUp() async throws {
+        let bundle = bundleURL("recorded-follow-up")
+        let recorded = try makeFingerprint("a")
+        let publishing = try makeFingerprint("b")
+        let runner = ControlledRunner()
+        var opened: [URL] = []
+        let coordinator = makeCoordinator(
+            recorded: recorded,
+            runner: runner,
+            opened: { opened.append($0) }
+        )
+        let publishingRequest = makeRequest(
+            bundle: bundle,
+            fingerprint: publishing
+        )
+        let recordedRequest = makeRequest(bundle: bundle, fingerprint: recorded)
+
+        let waiter = Task {
+            try await coordinator.synchronize(
+                publishingRequest,
+                intent: .updateAndView
+            )
+        }
+        await waitUntil { runner.invocations.count == 1 }
+        coordinator.markDirty(recordedRequest)
+
+        XCTAssertEqual(coordinator.phase(for: bundle), .dirtyWhileUpdating)
+        runner.succeedInvocation(at: 0)
+        await waitUntil { runner.invocations.count == 2 }
+        guard runner.invocations.count == 2 else {
+            _ = try await waiter.value
+            return
+        }
+
+        XCTAssertEqual(runner.invocations[1].request.fingerprint, recorded)
+        XCTAssertEqual(runner.maximumConcurrency, 1)
+        XCTAssertTrue(opened.isEmpty)
+
+        runner.succeedInvocation(at: 1)
+        _ = try await waiter.value
+
+        XCTAssertEqual(opened.count, 1)
+        XCTAssertEqual(coordinator.phase(for: bundle), .current)
+    }
+
+    func testPublishedFingerprintSupersedesOlderRecordedFingerprint() async throws {
+        let bundle = bundleURL("published-authority")
+        let recorded = try makeFingerprint("c")
+        let published = try makeFingerprint("d")
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        let coordinator = makeCoordinator(recorded: recorded, runner: runner)
+
+        _ = try await coordinator.synchronize(
+            makeRequest(bundle: bundle, fingerprint: published),
+            intent: .automaticIdle
+        )
+        _ = try await coordinator.synchronize(
+            makeRequest(bundle: bundle, fingerprint: recorded),
+            intent: .automaticIdle
+        )
+
+        XCTAssertEqual(
+            runner.invocations.map(\.request.fingerprint),
+            [published, recorded]
+        )
+        XCTAssertEqual(coordinator.phase(for: bundle), .current)
+    }
+
     func testDifferentBundlesUpdateIndependently() async throws {
         let firstBundle = bundleURL("bundle-one")
         let secondBundle = bundleURL("bundle-two")
