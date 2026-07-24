@@ -4,6 +4,88 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
+    func testProcessExitWaiterReturnsAlreadyExitedStatusWithoutTerminationNotification() async throws {
+        let terminationRequested = LockedFlag()
+        let waiter = ONTGenotypingProcessExitWaiter(pollInterval: 0.001)
+
+        let status = try await waiter.wait(
+            tool: "fake minimap2",
+            deadline: ONTGenotypingProcessDeadline(timeout: 1),
+            observation: ONTGenotypingProcessExitObservation(),
+            isRunning: { false },
+            terminationStatus: { 23 },
+            requestTermination: { terminationRequested.set() }
+        )
+
+        XCTAssertEqual(status, 23)
+        XCTAssertFalse(terminationRequested.value)
+    }
+
+    func testProcessExitWaiterRecoversLostMergeAndIndexTerminationNotifications() async throws {
+        let waiter = ONTGenotypingProcessExitWaiter(pollInterval: 0.001)
+
+        for (tool, expectedStatus) in [("samtools merge", Int32(17)), ("samtools index", Int32(19))] {
+            let status = try await waiter.wait(
+                tool: tool,
+                deadline: ONTGenotypingProcessDeadline(timeout: 1),
+                observation: ONTGenotypingProcessExitObservation(),
+                isRunning: { false },
+                terminationStatus: { expectedStatus },
+                requestTermination: {}
+            )
+
+            XCTAssertEqual(status, expectedStatus, tool)
+        }
+    }
+
+    func testProcessExitWaiterBoundsMissingExitAndRequestsTermination() async throws {
+        let terminationRequested = LockedFlag()
+        let waiter = ONTGenotypingProcessExitWaiter(pollInterval: 0.001)
+
+        do {
+            _ = try await waiter.wait(
+                tool: "fake minimap2",
+                deadline: ONTGenotypingProcessDeadline(timeout: 0.01),
+                observation: ONTGenotypingProcessExitObservation(),
+                isRunning: { true },
+                terminationStatus: { 0 },
+                requestTermination: { terminationRequested.set() }
+            )
+            XCTFail("Expected a bounded process wait timeout")
+        } catch let error as ONTGenotypingProcessWaitError {
+            XCTAssertEqual(error, .timedOut(tool: "fake minimap2", seconds: 0.01))
+        }
+
+        XCTAssertTrue(terminationRequested.value)
+    }
+
+    func testProcessExitWaiterCancellationRequestsTermination() async {
+        let terminationRequested = LockedFlag()
+        let waiter = ONTGenotypingProcessExitWaiter(pollInterval: 0.001)
+        let task = Task {
+            try await waiter.wait(
+                tool: "fake minimap2",
+                deadline: ONTGenotypingProcessDeadline(timeout: 60),
+                observation: ONTGenotypingProcessExitObservation(),
+                isRunning: { true },
+                terminationStatus: { 0 },
+                requestTermination: { terminationRequested.set() }
+            )
+        }
+
+        await Task.yield()
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            XCTAssertTrue(terminationRequested.value)
+        } catch {
+            XCTFail("Expected CancellationError, received \(error)")
+        }
+    }
+
     func testRequestDefaultsAnalysisNameToOutputBasenameAndAvoidsDuplicateWorkbookSuffix() {
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURL: URL(fileURLWithPath: "/data/barcode08.lungfishfastq"),
@@ -717,6 +799,172 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
 
         let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
         XCTAssertEqual(canonicalEnvelope.steps.filter { $0.toolName == "minimap2" }.count, 3)
+    }
+
+    func testCancellationTerminatesMappingWhileStreamedInputIsBlocked() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let outputDirectory = root.appendingPathComponent("blocked-stream.lungfishgenotype", isDirectory: true)
+        let noReadMarker = root.appendingPathComponent("minimap2-not-reading.marker")
+        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "blocked",
+            sequence: String(repeating: "A", count: 512_000)
+        )
+
+        setenv("LUNGFISH_FAKE_MINIMAP2_NO_READ_MARKER", noReadMarker.path, 1)
+        defer { unsetenv("LUNGFISH_FAKE_MINIMAP2_NO_READ_MARKER") }
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "blocked-stream",
+            analysisName: "BlockedStream",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .ontSampleBundles,
+            readType: .ont
+        )
+        let task = Task {
+            try await ONTBarcodeDemuxGenotypingPipeline(
+                condaManager: CondaManager(
+                    rootPrefix: condaRoot,
+                    bundledMicromambaProvider: { bundledMicromamba },
+                    bundledMicromambaVersionProvider: { "test-micromamba" }
+                )
+            ).run(request)
+        }
+
+        do {
+            try await waitForFile(at: noReadMarker, timeout: 5)
+        } catch {
+            task.cancel()
+            _ = try? await task.value
+            throw error
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let cancellationStartedAt = Date()
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            XCTAssertLessThan(Date().timeIntervalSince(cancellationStartedAt), 2)
+        }
+    }
+
+    func testStreamWriteFailureDoesNotMaskMinimap2StatusAndStderr() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let outputDirectory = root.appendingPathComponent("failed-stream.lungfishgenotype", isDirectory: true)
+        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "failed",
+            sequence: String(repeating: "A", count: 512_000)
+        )
+
+        setenv("LUNGFISH_FAKE_MINIMAP2_FAIL_BEFORE_READ", "1", 1)
+        defer { unsetenv("LUNGFISH_FAKE_MINIMAP2_FAIL_BEFORE_READ") }
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "failed-stream",
+            analysisName: "FailedStream",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .ontSampleBundles,
+            readType: .ont
+        )
+
+        do {
+            _ = try await ONTBarcodeDemuxGenotypingPipeline(
+                condaManager: CondaManager(
+                    rootPrefix: condaRoot,
+                    bundledMicromambaProvider: { bundledMicromamba },
+                    bundledMicromambaVersionProvider: { "test-micromamba" }
+                )
+            ).run(request)
+            XCTFail("Expected minimap2 failure")
+        } catch let error as ONTBarcodeDemuxGenotypingError {
+            guard case .processFailed(let tool, let status, let stderr) = error else {
+                return XCTFail("Expected processFailed, received \(error)")
+            }
+            XCTAssertEqual(tool, "minimap2")
+            XCTAssertEqual(status, 37)
+            XCTAssertTrue(stderr.contains("intentional minimap2 failure"), stderr)
+        }
+    }
+
+    func testFailingSortTerminatesOutputProducingMinimap2() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let outputDirectory = root.appendingPathComponent("failed-sort.lungfishgenotype", isDirectory: true)
+        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "failed-sort",
+            sequence: String(repeating: "A", count: 512_000)
+        )
+
+        setenv("LUNGFISH_FAKE_MINIMAP2_PRODUCE_FOREVER", "1", 1)
+        setenv("LUNGFISH_FAKE_SAMTOOLS_FAIL_SORT", "1", 1)
+        defer {
+            unsetenv("LUNGFISH_FAKE_MINIMAP2_PRODUCE_FOREVER")
+            unsetenv("LUNGFISH_FAKE_SAMTOOLS_FAIL_SORT")
+        }
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "failed-sort",
+            analysisName: "FailedSort",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .ontSampleBundles,
+            readType: .ont
+        )
+        let startedAt = Date()
+
+        do {
+            _ = try await ONTBarcodeDemuxGenotypingPipeline(
+                condaManager: CondaManager(
+                    rootPrefix: condaRoot,
+                    bundledMicromambaProvider: { bundledMicromamba },
+                    bundledMicromambaVersionProvider: { "test-micromamba" }
+                )
+            ).run(request)
+            XCTFail("Expected samtools sort failure")
+        } catch let error as ONTBarcodeDemuxGenotypingError {
+            guard case .processFailed(let tool, let status, let stderr) = error else {
+                return XCTFail("Expected processFailed, received \(error)")
+            }
+            XCTAssertEqual(tool, "samtools sort")
+            XCTAssertEqual(status, 29)
+            XCTAssertTrue(stderr.contains("intentional samtools sort failure"), stderr)
+            XCTAssertLessThan(Date().timeIntervalSince(startedAt), 3)
+        }
     }
 
     func testONTSampleBundleCohortUsesONTPresetAndCountWeightedSampleManifest() async throws {
@@ -2276,6 +2524,20 @@ print(json.dumps(payload))
         return (bundleURL, fastqURL)
     }
 
+    private func waitForFile(at url: URL, timeout: TimeInterval) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !FileManager.default.fileExists(atPath: url.path) {
+            guard Date() < deadline else {
+                throw NSError(
+                    domain: "ONTBarcodeDemuxGenotypingPipelineTests",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(url.path)"]
+                )
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
     private func makeCountedFASTQBundle(
         root: URL,
         name: String,
@@ -2524,6 +2786,18 @@ print(json.dumps(payload))
               echo "fake minimap2 refuses multiple short-read query files: $query_count" >&2
               exit 42
             fi
+            if [ -n "${LUNGFISH_FAKE_MINIMAP2_FAIL_BEFORE_READ:-}" ]; then
+              echo "intentional minimap2 failure" >&2
+              exit 37
+            fi
+            if [ -n "${LUNGFISH_FAKE_MINIMAP2_PRODUCE_FOREVER:-}" ]; then
+              exec yes '@HD	VN:1.6'
+            fi
+            if [ -n "${LUNGFISH_FAKE_MINIMAP2_NO_READ_MARKER:-}" ]; then
+              printf '%s\n' "$$" > "$LUNGFISH_FAKE_MINIMAP2_NO_READ_MARKER"
+              sleep 10
+              exit 0
+            fi
             if [ "$uses_stdin" -eq 1 ]; then
               cat >/dev/null
             fi
@@ -2541,6 +2815,10 @@ print(json.dumps(payload))
             command="$1"
             shift
             if [ "$command" = "sort" ]; then
+              if [ -n "${LUNGFISH_FAKE_SAMTOOLS_FAIL_SORT:-}" ]; then
+                echo "intentional samtools sort failure" >&2
+                exit 29
+              fi
               output=""
               while [ "$#" -gt 0 ]; do
                 case "$1" in
@@ -2698,5 +2976,22 @@ print(json.dumps(payload))
 private extension Array {
     subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+private final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func set() {
+        lock.lock()
+        storage = true
+        lock.unlock()
     }
 }

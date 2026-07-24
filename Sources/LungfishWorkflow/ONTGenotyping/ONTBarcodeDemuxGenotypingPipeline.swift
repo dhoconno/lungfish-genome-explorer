@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import LungfishCore
 import LungfishIO
 
@@ -508,6 +509,7 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
     case duplicateIlluminaSampleID(String)
     case duplicateIlluminaStagedFile(String)
     case ambiguousGenotypingMode
+    case processTimedOut(tool: String, seconds: TimeInterval, stderr: String)
     case processFailed(tool: String, status: Int32, stderr: String)
     case filterFailed(status: Int32, stderr: String)
     case invalidFilterOutput(String)
@@ -544,6 +546,9 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
             return "Two Illumina input bundles resolved to the same staged FASTQ filename \(filename); rename the inputs so their sanitized names are distinct."
         case .ambiguousGenotypingMode:
             return "Could not infer genotyping mode. Choose ONT barcode demux or Illumina sample bundles explicitly."
+        case .processTimedOut(let tool, let seconds, let stderr):
+            let detail = stderr.isEmpty ? "" : ": \(stderr)"
+            return "\(tool) timed out after \(Int(seconds)) seconds\(detail)"
         case .processFailed(let tool, let status, let stderr):
             return "\(tool) failed with status \(status): \(stderr)"
         case .filterFailed(let status, let stderr):
@@ -566,9 +571,132 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
     }
 }
 
+enum ONTGenotypingProcessWaitError: Error, Equatable, Sendable {
+    case timedOut(tool: String, seconds: TimeInterval)
+    case exitedNonzero(tool: String, status: Int32)
+}
+
+final class ONTGenotypingProcessExitObservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedStatus: Int32?
+
+    var status: Int32? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedStatus
+    }
+
+    func record(status: Int32) {
+        lock.lock()
+        if storedStatus == nil {
+            storedStatus = status
+        }
+        lock.unlock()
+    }
+}
+
+struct ONTGenotypingProcessExitWaiter: Sendable {
+    let pollInterval: TimeInterval
+
+    init(pollInterval: TimeInterval = 0.025) {
+        self.pollInterval = max(0.001, pollInterval)
+    }
+
+    func wait(
+        tool: String,
+        deadline: ONTGenotypingProcessDeadline,
+        observation: ONTGenotypingProcessExitObservation,
+        isRunning: @escaping @Sendable () -> Bool,
+        terminationStatus: @escaping @Sendable () -> Int32,
+        requestTermination: @escaping @Sendable () -> Void
+    ) async throws -> Int32 {
+        let pollNanoseconds = Self.nanoseconds(for: pollInterval)
+
+        return try await withTaskCancellationHandler {
+            do {
+                while true {
+                    try Task.checkCancellation()
+
+                    if let status = observation.status {
+                        return status
+                    }
+                    if !isRunning() {
+                        return terminationStatus()
+                    }
+                    if deadline.hasExpired {
+                        requestTermination()
+                        throw ONTGenotypingProcessWaitError.timedOut(
+                            tool: tool,
+                            seconds: deadline.timeout
+                        )
+                    }
+
+                    try await Task.sleep(nanoseconds: pollNanoseconds)
+                }
+            } catch is CancellationError {
+                requestTermination()
+                throw CancellationError()
+            }
+        } onCancel: {
+            requestTermination()
+        }
+    }
+
+    fileprivate static func nanoseconds(for interval: TimeInterval) -> UInt64 {
+        guard interval.isFinite else { return UInt64.max }
+        let clamped = max(0, interval)
+        let nanoseconds = clamped * 1_000_000_000
+        guard nanoseconds < Double(UInt64.max) else { return UInt64.max }
+        return UInt64(nanoseconds)
+    }
+}
+
+struct ONTGenotypingProcessDeadline: Sendable {
+    let timeout: TimeInterval
+    private let deadlineNanoseconds: UInt64
+
+    init(timeout: TimeInterval, now: UInt64 = DispatchTime.now().uptimeNanoseconds) {
+        self.timeout = timeout
+        let duration = ONTGenotypingProcessExitWaiter.nanoseconds(for: timeout)
+        let deadline = now.addingReportingOverflow(duration)
+        self.deadlineNanoseconds = deadline.overflow ? UInt64.max : deadline.partialValue
+    }
+
+    var hasExpired: Bool {
+        DispatchTime.now().uptimeNanoseconds >= deadlineNanoseconds
+    }
+}
+
+private final class ONTGenotypingMappingProcessGroup: @unchecked Sendable {
+    private let lock = NSLock()
+    private let processes: [Process]
+    private var terminationRequested = false
+
+    init(processes: [Process]) {
+        self.processes = processes
+    }
+
+    func requestTermination() {
+        let processesToTerminate: [Process]
+        lock.lock()
+        if terminationRequested {
+            processesToTerminate = []
+        } else {
+            terminationRequested = true
+            processesToTerminate = processes
+        }
+        lock.unlock()
+
+        for process in processesToTerminate where process.isRunning {
+            ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: 0)
+        }
+    }
+}
+
 public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private let condaManager: CondaManager
     private let referenceImporter: ReferenceBundleImportService
+    private static let mappingProcessTimeout: TimeInterval = 86_400
 
     public init(
         condaManager: CondaManager = .shared,
@@ -1390,6 +1518,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         samples: [IlluminaSampleInput],
         to handle: FileHandle
     ) async throws -> Int {
+        guard fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
         let reader = FASTQReader(validateSequence: false)
         var buffer = Data()
         let flushThreshold = 262_144
@@ -1726,7 +1857,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
         let indexStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-index.stderr.log")
         let indexArguments = ["index", request.mappingBAMURL.path]
-        let indexStderr = try runSamtoolsIndex(
+        let indexStderr = try await runSamtoolsIndex(
             samtoolsURL: samtoolsURL,
             arguments: indexArguments,
             stderrURL: indexStderrURL
@@ -1803,7 +1934,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         if resolvedMode == .illuminaPaired, preparation.samples.count > 1 {
             let mergeStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-merge.stderr.log")
             let arguments = ["merge", "-f", request.mappingBAMURL.path] + invocations.map(\.outputBAMURL.path)
-            mergeStderr = try runSamtoolsMerge(
+            mergeStderr = try await runSamtoolsMerge(
                 samtoolsURL: samtoolsURL,
                 arguments: arguments,
                 stderrURL: mergeStderrURL
@@ -1818,7 +1949,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
         let indexStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-index.stderr.log")
         let indexArguments = ["index", request.mappingBAMURL.path]
-        let indexStderr = try runSamtoolsIndex(
+        let indexStderr = try await runSamtoolsIndex(
             samtoolsURL: samtoolsURL,
             arguments: indexArguments,
             stderrURL: indexStderrURL
@@ -1882,62 +2013,179 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         if let stdinPipe {
             minimap2.standardInput = stdinPipe
         }
-        minimap2.standardError = try fileHandleForWriting(to: minimap2StderrURL)
+        let minimap2StderrHandle = try fileHandleForWriting(to: minimap2StderrURL)
+        minimap2.standardError = minimap2StderrHandle
 
         let sort = Process()
         sort.executableURL = samtoolsURL
         sort.arguments = sortArguments
         sort.standardInput = stdoutPipe
-        sort.standardError = try fileHandleForWriting(to: sortStderrURL)
+        let sortStderrHandle = try fileHandleForWriting(to: sortStderrURL)
+        sort.standardError = sortStderrHandle
 
+        let minimap2Exit = ONTGenotypingProcessExitObservation()
+        let sortExit = ONTGenotypingProcessExitObservation()
+        minimap2.terminationHandler = { terminatedProcess in
+            minimap2Exit.record(status: terminatedProcess.terminationStatus)
+        }
+        sort.terminationHandler = { terminatedProcess in
+            sortExit.record(status: terminatedProcess.terminationStatus)
+        }
+        let processes = ONTGenotypingMappingProcessGroup(processes: [minimap2, sort])
+        let requestTermination: @Sendable () -> Void = {
+            processes.requestTermination()
+        }
+        let processWaiter = ONTGenotypingProcessExitWaiter()
+        let processDeadline = ONTGenotypingProcessDeadline(timeout: Self.mappingProcessTimeout)
+
+        defer {
+            minimap2.terminationHandler = nil
+            sort.terminationHandler = nil
+            try? minimap2StderrHandle.close()
+            try? sortStderrHandle.close()
+        }
+
+        try Task.checkCancellation()
         try sort.run()
         do {
             try minimap2.run()
         } catch {
             stdoutPipe.fileHandleForWriting.closeFile()
-            sort.terminate()
-            sort.waitUntilExit()
+            stdoutPipe.fileHandleForReading.closeFile()
+            requestTermination()
             throw error
         }
         stdoutPipe.fileHandleForWriting.closeFile()
-        if let streamedSampleInputs, let stdinPipe {
+        stdoutPipe.fileHandleForReading.closeFile()
+        async let streamedInputCount: Int? = {
+            guard let streamedSampleInputs, let stdinPipe else { return nil }
             do {
-                _ = try await Self.writeSamplePrefixedFASTQStream(
+                let count = try await Self.writeSamplePrefixedFASTQStream(
                     samples: streamedSampleInputs,
                     to: stdinPipe.fileHandleForWriting
                 )
                 try stdinPipe.fileHandleForWriting.close()
+                return count
             } catch {
                 try? stdinPipe.fileHandleForWriting.close()
-                minimap2.terminate()
-                sort.terminate()
-                minimap2.waitUntilExit()
-                sort.waitUntilExit()
-                try? (minimap2.standardError as? FileHandle)?.close()
-                try? (sort.standardError as? FileHandle)?.close()
                 throw error
             }
+        }()
+
+        let processStatuses: [String: Int32]
+        let streamedInputError: Error?
+        do {
+            processStatuses = try await withThrowingTaskGroup(
+                of: (tool: String, status: Int32).self
+            ) { group in
+                group.addTask {
+                    let status = try await processWaiter.wait(
+                        tool: "minimap2",
+                        deadline: processDeadline,
+                        observation: minimap2Exit,
+                        isRunning: { minimap2.isRunning },
+                        terminationStatus: { minimap2.terminationStatus },
+                        requestTermination: requestTermination
+                    )
+                    return ("minimap2", status)
+                }
+                group.addTask {
+                    let status = try await processWaiter.wait(
+                        tool: "samtools sort",
+                        deadline: processDeadline,
+                        observation: sortExit,
+                        isRunning: { sort.isRunning },
+                        terminationStatus: { sort.terminationStatus },
+                        requestTermination: requestTermination
+                    )
+                    return ("samtools sort", status)
+                }
+
+                var statuses: [String: Int32] = [:]
+                var firstFailure: (tool: String, status: Int32)?
+                while let exit = try await group.next() {
+                    statuses[exit.tool] = exit.status
+                    if exit.status != 0 {
+                        if firstFailure == nil {
+                            firstFailure = exit
+                        }
+                        requestTermination()
+                    }
+                }
+                if var failure = firstFailure {
+                    let minimap2TerminationSignals = Set<Int32>([SIGPIPE, SIGTERM, SIGKILL])
+                    if failure.tool == "minimap2",
+                       minimap2TerminationSignals.contains(failure.status),
+                       let sortStatus = statuses["samtools sort"],
+                       sortStatus != 0,
+                       !minimap2TerminationSignals.contains(sortStatus) {
+                        failure = ("samtools sort", sortStatus)
+                    }
+                    throw ONTGenotypingProcessWaitError.exitedNonzero(
+                        tool: failure.tool,
+                        status: failure.status
+                    )
+                }
+                return statuses
+            }
+            do {
+                _ = try await streamedInputCount
+                streamedInputError = nil
+            } catch {
+                streamedInputError = error
+            }
+        } catch let waitError as ONTGenotypingProcessWaitError {
+            requestTermination()
+            _ = try? await streamedInputCount
+            try? minimap2StderrHandle.close()
+            try? sortStderrHandle.close()
+            let tool: String
+            let publicError: ONTBarcodeDemuxGenotypingError
+            switch waitError {
+            case .timedOut(let timedOutTool, let timedOutSeconds):
+                tool = timedOutTool
+                let stderrURL = tool == "minimap2" ? minimap2StderrURL : sortStderrURL
+                let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
+                publicError = .processTimedOut(
+                    tool: tool,
+                    seconds: timedOutSeconds,
+                    stderr: stderr
+                )
+            case .exitedNonzero(let failedTool, let status):
+                tool = failedTool
+                let stderrURL = tool == "minimap2" ? minimap2StderrURL : sortStderrURL
+                let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
+                publicError = .processFailed(tool: tool, status: status, stderr: stderr)
+            }
+            throw publicError
+        } catch {
+            requestTermination()
+            _ = try? await streamedInputCount
+            throw error
         }
-        minimap2.waitUntilExit()
-        try? (minimap2.standardError as? FileHandle)?.close()
-        sort.waitUntilExit()
-        try? (sort.standardError as? FileHandle)?.close()
+        try? minimap2StderrHandle.close()
+        try? sortStderrHandle.close()
 
         let minimap2Stderr = (try? String(contentsOf: minimap2StderrURL, encoding: .utf8)) ?? ""
         let sortStderr = (try? String(contentsOf: sortStderrURL, encoding: .utf8)) ?? ""
-        guard minimap2.terminationStatus == 0 else {
+        let minimap2Status = processStatuses["minimap2"] ?? minimap2.terminationStatus
+        let sortStatus = processStatuses["samtools sort"] ?? sort.terminationStatus
+        guard minimap2Status == 0 else {
             throw ONTBarcodeDemuxGenotypingError.processFailed(
                 tool: "minimap2",
-                status: minimap2.terminationStatus,
+                status: minimap2Status,
                 stderr: minimap2Stderr
             )
         }
-        guard sort.terminationStatus == 0 else {
+        guard sortStatus == 0 else {
             throw ONTBarcodeDemuxGenotypingError.processFailed(
                 tool: "samtools sort",
-                status: sort.terminationStatus,
+                status: sortStatus,
                 stderr: sortStderr
             )
+        }
+        if let streamedInputError {
+            throw streamedInputError
         }
 
         return MappingInvocationResult(
@@ -1955,42 +2203,99 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         samtoolsURL: URL,
         arguments: [String],
         stderrURL: URL
-    ) throws -> String {
-        let merge = Process()
-        merge.executableURL = samtoolsURL
-        merge.arguments = arguments
-        merge.standardError = try fileHandleForWriting(to: stderrURL)
-        try merge.run()
-        merge.waitUntilExit()
-        try? (merge.standardError as? FileHandle)?.close()
-        let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
-        guard merge.terminationStatus == 0 else {
-            throw ONTBarcodeDemuxGenotypingError.processFailed(
-                tool: "samtools merge",
-                status: merge.terminationStatus,
-                stderr: stderr
-            )
-        }
-        return stderr
+    ) async throws -> String {
+        try await runSamtoolsProcess(
+            tool: "samtools merge",
+            samtoolsURL: samtoolsURL,
+            arguments: arguments,
+            stderrURL: stderrURL
+        )
     }
 
     private func runSamtoolsIndex(
         samtoolsURL: URL,
         arguments: [String],
         stderrURL: URL
-    ) throws -> String {
-        let index = Process()
-        index.executableURL = samtoolsURL
-        index.arguments = arguments
-        index.standardError = try fileHandleForWriting(to: stderrURL)
-        try index.run()
-        index.waitUntilExit()
-        try? (index.standardError as? FileHandle)?.close()
+    ) async throws -> String {
+        try await runSamtoolsProcess(
+            tool: "samtools index",
+            samtoolsURL: samtoolsURL,
+            arguments: arguments,
+            stderrURL: stderrURL
+        )
+    }
+
+    private func runSamtoolsProcess(
+        tool: String,
+        samtoolsURL: URL,
+        arguments: [String],
+        stderrURL: URL
+    ) async throws -> String {
+        let process = Process()
+        process.executableURL = samtoolsURL
+        process.arguments = arguments
+        let stderrHandle = try fileHandleForWriting(to: stderrURL)
+        process.standardError = stderrHandle
+
+        let exit = ONTGenotypingProcessExitObservation()
+        process.terminationHandler = { terminatedProcess in
+            exit.record(status: terminatedProcess.terminationStatus)
+        }
+        let processes = ONTGenotypingMappingProcessGroup(processes: [process])
+        let requestTermination: @Sendable () -> Void = {
+            processes.requestTermination()
+        }
+
+        defer {
+            process.terminationHandler = nil
+            try? stderrHandle.close()
+        }
+
+        try Task.checkCancellation()
+        try process.run()
+
+        let status: Int32
+        do {
+            status = try await ONTGenotypingProcessExitWaiter().wait(
+                tool: tool,
+                deadline: ONTGenotypingProcessDeadline(timeout: Self.mappingProcessTimeout),
+                observation: exit,
+                isRunning: { process.isRunning },
+                terminationStatus: { process.terminationStatus },
+                requestTermination: requestTermination
+            )
+        } catch let waitError as ONTGenotypingProcessWaitError {
+            requestTermination()
+            try? stderrHandle.close()
+            let seconds: TimeInterval
+            switch waitError {
+            case .timedOut(_, let timedOutSeconds):
+                seconds = timedOutSeconds
+            case .exitedNonzero(_, let status):
+                let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
+                throw ONTBarcodeDemuxGenotypingError.processFailed(
+                    tool: tool,
+                    status: status,
+                    stderr: stderr
+                )
+            }
+            let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
+            throw ONTBarcodeDemuxGenotypingError.processTimedOut(
+                tool: tool,
+                seconds: seconds,
+                stderr: stderr
+            )
+        } catch {
+            requestTermination()
+            throw error
+        }
+
+        try? stderrHandle.close()
         let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
-        guard index.terminationStatus == 0 else {
+        guard status == 0 else {
             throw ONTBarcodeDemuxGenotypingError.processFailed(
-                tool: "samtools index",
-                status: index.terminationStatus,
+                tool: tool,
+                status: status,
                 stderr: stderr
             )
         }
