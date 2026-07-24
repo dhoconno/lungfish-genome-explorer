@@ -85,6 +85,34 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
         XCTAssertNotEqual(first, swapped)
     }
 
+    func testMakeCanonicalizesArtifactsByPathBeforeRole() throws {
+        let artifacts = ONTMHCCandidateArtifactManifest(
+            schemaVersion: 4,
+            genotypingEvidence: nil,
+            reciprocalEvidence: nil,
+            candidateJSON: artifact(path: "a.json", checksum: "a", size: 10),
+            candidateFASTA: artifact(path: "z.fasta", checksum: "b", size: 20),
+            candidateGenBank: nil,
+            unnameableJSON: nil,
+            unnameableFASTA: nil,
+            unnameableGenBank: nil,
+            rawUnmatchedFASTA: nil,
+            sourceIdentityMap: nil
+        )
+
+        let fingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: [],
+            annotationSidecar: nil,
+            candidateArtifacts: artifacts
+        )
+
+        XCTAssertEqual(
+            fingerprint.sha256,
+            "acbb3314eab176852c4e354dbcf836470e94722b8d7aee5b493394e322b90d71"
+        )
+    }
+
     func testMakeChangesWhenAnySemanticInputChanges() throws {
         let baseCall = call(
             sample: "Animal-1",

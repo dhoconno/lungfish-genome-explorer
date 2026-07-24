@@ -165,11 +165,11 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
                 sizeBytes: $0.reference.sizeBytes
             )
         }.sorted {
-            if $0.role != $1.role {
-                return $0.role < $1.role
-            }
             if $0.path != $1.path {
                 return $0.path < $1.path
+            }
+            if $0.role != $1.role {
+                return $0.role < $1.role
             }
             if $0.sha256 != $1.sha256 {
                 return $0.sha256 < $1.sha256
