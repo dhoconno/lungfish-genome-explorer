@@ -107,6 +107,32 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertTrue(help.contains("--sync-intent"))
     }
 
+    func testAnnotationOnlyUsesDisplayedCallsOnlyForSemanticFingerprint() throws {
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            "/tmp/barcode11-mhc.lungfishgenotype",
+            "--calls-json", "/tmp/calls.json",
+            "--included-locus", "MHC-A",
+            "--annotation-only",
+        ])
+        let displayedCalls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "sample-a",
+                locus: "MHC-A",
+                haplotype1: "A-H1",
+                haplotype2: "A-H2",
+                status: "called",
+                notes: ""
+            ),
+        ]
+
+        let inputs = command.workbookCallInputs(displayedCalls: displayedCalls)
+
+        XCTAssertTrue(inputs.mutationCalls.isEmpty)
+        XCTAssertEqual(inputs.fingerprintCalls, displayedCalls)
+        XCTAssertEqual(inputs.mutationIncludedLoci, [])
+        XCTAssertEqual(inputs.fingerprintIncludedLoci, ["MHC-A"])
+    }
+
     func testONTFluidigmSamplesCommandParsesRequiredInputs() throws {
         let command = try FastqONTFluidigmSamplesSubcommand.parse([
             "/tmp/barcode11.lungfishfastq",

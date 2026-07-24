@@ -3127,6 +3127,150 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), bundleBefore)
     }
 
+    func testAnnotationOnlyUpdateAttestsFullSemanticCallsAndRetainsTheirProvenance() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "annotation-only-semantic-attestation"
+        )
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 2)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_175) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let scientificBefore = try inspectTwoSheetCandidateWorkbook(currentURL)
+        XCTAssertNotNil(scientificBefore["candidateIDs"])
+        let displayedCalls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "sample-a",
+                locus: "MHC-A",
+                haplotype1: "A-H1",
+                haplotype2: "A-H2",
+                status: "called",
+                notes: "displayed effective call"
+            ),
+        ]
+        let displayedLoci = ["MHC-A"]
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.lastEditor = "annotation-only-reviewer"
+        try sidecar.encoded().write(to: annotationURL)
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let expectedFingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: displayedCalls,
+            includedLoci: displayedLoci,
+            annotationSidecar: sidecar,
+            candidateArtifacts: manifest.mhcCandidateArtifacts
+        )
+        let emptyCallsFingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: displayedLoci,
+            annotationSidecar: sidecar,
+            candidateArtifacts: manifest.mhcCandidateArtifacts
+        )
+        XCTAssertNotEqual(expectedFingerprint, emptyCallsFingerprint)
+
+        let updated = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL,
+            annotationOnly: true,
+            fingerprintCalls: displayedCalls,
+            fingerprintIncludedLoci: displayedLoci,
+            provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
+                toolName: "lungfish-cli fastq update-current-workbook",
+                toolKind: "cli",
+                argv: [
+                    "lungfish-cli", "fastq", "update-current-workbook",
+                    fixture.bundleURL.path,
+                    "--calls-json", "/displayed/calls.json",
+                    "--included-locus", "MHC-A",
+                    "--annotation-only",
+                ],
+                inputFingerprint: expectedFingerprint,
+                syncIntent: .automaticIdle
+            )
+        )
+
+        let scientificAfter = try inspectTwoSheetCandidateWorkbook(currentURL)
+        for key in [
+            "candidateIDs",
+            "candidateSequence",
+            "unmatchedIDs",
+            "sampleADPBHaplotype1",
+            "sampleBDQAHaplotype1",
+        ] {
+            XCTAssertEqual(scientificAfter[key], scientificBefore[key], key)
+        }
+        XCTAssertEqual(
+            try GenotypeCurrentWorkbookInputFingerprint.recorded(
+                in: updated,
+                bundleURL: fixture.bundleURL
+            ),
+            expectedFingerprint
+        )
+        XCTAssertNotEqual(
+            try GenotypeCurrentWorkbookInputFingerprint.recorded(
+                in: updated,
+                bundleURL: fixture.bundleURL
+            ),
+            emptyCallsFingerprint
+        )
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["currentWorkbookInputFingerprint"],
+            .string(expectedFingerprint.sha256)
+        )
+        let semanticCallsInput = try XCTUnwrap(
+            envelope.files.first { $0.path.hasSuffix("fingerprint-haplotype-calls.json") }
+        )
+        let semanticCallsURL = URL(fileURLWithPath: semanticCallsInput.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: semanticCallsURL.path))
+        XCTAssertEqual(
+            semanticCallsInput.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: semanticCallsURL)
+        )
+        XCTAssertEqual(
+            semanticCallsInput.fileSize,
+            UInt64(try ProvenanceFileHasher.fileSize(of: semanticCallsURL))
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                [GenotypeWorkbookHaplotypeCall].self,
+                from: Data(contentsOf: semanticCallsURL)
+            ),
+            displayedCalls
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first { $0.toolName.contains("python openpyxl") }
+        )
+        XCTAssertFalse(
+            pythonStep.inputs.contains { $0.path.hasSuffix("fingerprint-haplotype-calls.json") }
+        )
+        XCTAssertFalse(
+            pythonStep.argv.contains { $0.hasSuffix("fingerprint-haplotype-calls.json") }
+        )
+    }
+
     func testApplyHaplotypeOverridesLegacyProvenanceOmitsWorkbookAttestationOptions() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()

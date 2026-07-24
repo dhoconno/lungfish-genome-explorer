@@ -9,6 +9,13 @@ struct FastqUpdateCurrentWorkbookAttestation {
     let syncIntent: GenotypeCurrentWorkbookSyncIntent?
 }
 
+struct FastqUpdateCurrentWorkbookCallInputs {
+    let mutationCalls: [GenotypeWorkbookHaplotypeCall]
+    let mutationIncludedLoci: [String]
+    let fingerprintCalls: [GenotypeWorkbookHaplotypeCall]?
+    let fingerprintIncludedLoci: [String]?
+}
+
 struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-current-workbook",
@@ -70,6 +77,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             [GenotypeWorkbookHaplotypeCall].self,
             from: Data(contentsOf: callsURL)
         )
+        let callInputs = workbookCallInputs(displayedCalls: calls)
         let arguments = cliArguments(
             bundleURL: bundleURL,
             callsURL: callsURL,
@@ -78,11 +86,13 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         FileHandle.standardError.write(Data("[ 55%] Applying haplotype edits to current.xlsx.\n".utf8))
         _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: pythonURL)
             .applyHaplotypeOverrides(
-                calls,
+                callInputs.mutationCalls,
                 annotationSidecarURL: annotationURL,
                 into: bundleURL,
                 annotationOnly: annotationOnly,
-                includedLoci: includedLocus,
+                includedLoci: callInputs.mutationIncludedLoci,
+                fingerprintCalls: callInputs.fingerprintCalls,
+                fingerprintIncludedLoci: callInputs.fingerprintIncludedLoci,
                 provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
                     toolName: "\(CLICommandIdentity.executableName) fastq update-current-workbook",
                     toolKind: "cli",
@@ -102,6 +112,25 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         FileHandle.standardOutput.write(try encoder.encode(payload))
         FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    func workbookCallInputs(
+        displayedCalls: [GenotypeWorkbookHaplotypeCall]
+    ) -> FastqUpdateCurrentWorkbookCallInputs {
+        if annotationOnly {
+            return FastqUpdateCurrentWorkbookCallInputs(
+                mutationCalls: [],
+                mutationIncludedLoci: [],
+                fingerprintCalls: displayedCalls,
+                fingerprintIncludedLoci: includedLocus
+            )
+        }
+        return FastqUpdateCurrentWorkbookCallInputs(
+            mutationCalls: displayedCalls,
+            mutationIncludedLoci: includedLocus,
+            fingerprintCalls: nil,
+            fingerprintIncludedLoci: nil
+        )
     }
 
     func validatedAttestation() throws -> FastqUpdateCurrentWorkbookAttestation {

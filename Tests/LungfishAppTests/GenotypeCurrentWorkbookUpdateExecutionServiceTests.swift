@@ -122,7 +122,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         XCTAssertTrue(item.cliCommand?.contains("fastq update-current-workbook") == true)
     }
 
-    func testAnnotationOnlyUpdatePassesExplicitCLIIntentWithEmptyCalls() async throws {
+    func testAnnotationOnlyUpdatePassesExplicitCLIIntentWithDisplayedCallsSnapshot() async throws {
         let temp = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let bundleURL = temp.appendingPathComponent(
@@ -144,10 +144,20 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             operationCenter: OperationCenter(),
             processRunner: runner
         )
+        let displayedCalls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "sample-a",
+                locus: "MHC-A",
+                haplotype1: "A-H1",
+                haplotype2: "A-H2",
+                status: "called",
+                notes: "displayed snapshot"
+            ),
+        ]
 
         try await service.run(
             bundleURL: bundleURL,
-            calls: [],
+            calls: displayedCalls,
             annotationSidecarURL: annotationURL,
             annotationOnly: true
         )
@@ -164,7 +174,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             [GenotypeWorkbookHaplotypeCall].self,
             from: Data(contentsOf: callsURL)
         )
-        XCTAssertTrue(decoded.isEmpty)
+        XCTAssertEqual(decoded, displayedCalls)
     }
 
     private func temporaryDirectory() throws -> URL {

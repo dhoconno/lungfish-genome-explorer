@@ -304,6 +304,8 @@ public struct GenotypeWorkbookRevisionService {
         into bundleURL: URL,
         annotationOnly: Bool = false,
         includedLoci: [String] = [],
+        fingerprintCalls: [GenotypeWorkbookHaplotypeCall]? = nil,
+        fingerprintIncludedLoci: [String]? = nil,
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws -> ONTGenotypeResultBundleManifest {
         let workflowStartedAt = dateProvider()
@@ -368,10 +370,12 @@ public struct GenotypeWorkbookRevisionService {
         let sidecar = try annotationSidecarData.map {
             try JSONDecoder().decode(GenotypeAnnotationSidecar.self, from: $0)
         }
+        let semanticFingerprintCalls = fingerprintCalls ?? calls
+        let semanticFingerprintIncludedLoci = fingerprintIncludedLoci ?? includedLoci
         if let suppliedFingerprint = provenanceContext?.inputFingerprint {
             let verifiedFingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
-                calls: calls,
-                includedLoci: includedLoci,
+                calls: semanticFingerprintCalls,
+                includedLoci: semanticFingerprintIncludedLoci,
                 annotationSidecar: sidecar,
                 candidateArtifacts: manifest.mhcCandidateArtifacts
             )
@@ -403,9 +407,11 @@ public struct GenotypeWorkbookRevisionService {
 
         let updateID = "\(timestampSlug())-update-current-workbook-\(UUID().uuidString.prefix(8))"
         let callsName = "haplotype-calls.json"
+        let fingerprintCallsName = "fingerprint-haplotype-calls.json"
         let configName = "candidate-config.json"
         let runtimeName = "openpyxl-runtime.json"
         let stagedCallsURL = stageDirectory.appendingPathComponent(callsName)
+        let stagedFingerprintCallsURL = stageDirectory.appendingPathComponent(fingerprintCallsName)
         let stagedConfigurationURL = stageDirectory.appendingPathComponent(configName)
         let stagedRuntimeRecordURL = stageDirectory.appendingPathComponent(runtimeName)
         let stagedSourceWorkbookURL = stageDirectory.appendingPathComponent("source-workbook.xlsx")
@@ -428,7 +434,14 @@ public struct GenotypeWorkbookRevisionService {
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try writeStagedFile(try JSONEncoder().encode(calls), to: stagedCallsURL)
+        try writeStagedFile(try encoder.encode(calls), to: stagedCallsURL)
+        let retainFingerprintCalls = semanticFingerprintCalls != calls
+        if retainFingerprintCalls {
+            try writeStagedFile(
+                try encoder.encode(semanticFingerprintCalls),
+                to: stagedFingerprintCallsURL
+            )
+        }
         try writeStagedFile(try encoder.encode(configuration), to: stagedConfigurationURL)
         try writeStagedFile(Data(workbookOverrideScript.utf8), to: scriptURL)
         if let annotationSidecarData {
@@ -469,6 +482,7 @@ public struct GenotypeWorkbookRevisionService {
             .appendingPathComponent(updateID, isDirectory: true)
         try fileManager.createDirectory(at: cloneUpdatesURL, withIntermediateDirectories: true)
         let cloneCallsURL = cloneUpdatesURL.appendingPathComponent(callsName)
+        let cloneFingerprintCallsURL = cloneUpdatesURL.appendingPathComponent(fingerprintCallsName)
         let cloneConfigurationURL = cloneUpdatesURL.appendingPathComponent(configName)
         let cloneRuntimeURL = cloneUpdatesURL.appendingPathComponent(runtimeName)
         let cloneScriptURL = cloneUpdatesURL.appendingPathComponent("apply-current-workbook-overrides.py")
@@ -476,6 +490,12 @@ public struct GenotypeWorkbookRevisionService {
         let clonePatchedWorkbookURL = cloneUpdatesURL.appendingPathComponent("generated-current-workbook.xlsx")
         let cloneAnnotationURL = cloneUpdatesURL.appendingPathComponent("annotations.json")
         try fileManager.copyItem(at: stagedCallsURL, to: cloneCallsURL)
+        if retainFingerprintCalls {
+            try fileManager.copyItem(
+                at: stagedFingerprintCallsURL,
+                to: cloneFingerprintCallsURL
+            )
+        }
         try fileManager.copyItem(at: stagedConfigurationURL, to: cloneConfigurationURL)
         try fileManager.copyItem(at: stagedRuntimeRecordURL, to: cloneRuntimeURL)
         try fileManager.copyItem(at: scriptURL, to: cloneScriptURL)
@@ -486,6 +506,9 @@ public struct GenotypeWorkbookRevisionService {
             ONTGenotypeResultBundle.resolvedURL(for: relativePath(from: bundle, to: input), in: cloneBundleURL)
         }
         var additionalInputs = [cloneCallsURL, cloneConfigurationURL, cloneRuntimeURL, cloneScriptURL] + cloneCandidateInputs
+        if retainFingerprintCalls {
+            additionalInputs.append(cloneFingerprintCallsURL)
+        }
         var pythonInputURLs = [cloneScriptURL, cloneCallsURL, cloneConfigurationURL] + cloneCandidateInputs
         var durableAnnotationPath = ""
         if hasAnnotationSidecar {
