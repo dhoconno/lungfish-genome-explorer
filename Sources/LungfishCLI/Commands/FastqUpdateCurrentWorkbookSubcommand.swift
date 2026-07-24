@@ -12,8 +12,7 @@ struct FastqUpdateCurrentWorkbookAttestation {
 struct FastqUpdateCurrentWorkbookCallInputs {
     let mutationCalls: [GenotypeWorkbookHaplotypeCall]
     let mutationIncludedLoci: [String]
-    let fingerprintCalls: [GenotypeWorkbookHaplotypeCall]?
-    let fingerprintIncludedLoci: [String]?
+    let fingerprintInputs: GenotypeWorkbookFingerprintInputs?
 }
 
 struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
@@ -91,8 +90,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 into: bundleURL,
                 annotationOnly: annotationOnly,
                 includedLoci: callInputs.mutationIncludedLoci,
-                fingerprintCalls: callInputs.fingerprintCalls,
-                fingerprintIncludedLoci: callInputs.fingerprintIncludedLoci,
+                fingerprintInputs: callInputs.fingerprintInputs,
                 provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
                     toolName: "\(CLICommandIdentity.executableName) fastq update-current-workbook",
                     toolKind: "cli",
@@ -121,15 +119,16 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             return FastqUpdateCurrentWorkbookCallInputs(
                 mutationCalls: [],
                 mutationIncludedLoci: [],
-                fingerprintCalls: displayedCalls,
-                fingerprintIncludedLoci: includedLocus
+                fingerprintInputs: GenotypeWorkbookFingerprintInputs(
+                    calls: displayedCalls,
+                    includedLoci: includedLocus
+                )
             )
         }
         return FastqUpdateCurrentWorkbookCallInputs(
             mutationCalls: displayedCalls,
             mutationIncludedLoci: includedLocus,
-            fingerprintCalls: nil,
-            fingerprintIncludedLoci: nil
+            fingerprintInputs: nil
         )
     }
 

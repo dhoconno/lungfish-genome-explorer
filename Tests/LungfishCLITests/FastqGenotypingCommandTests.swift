@@ -128,9 +128,9 @@ final class FastqGenotypingCommandTests: XCTestCase {
         let inputs = command.workbookCallInputs(displayedCalls: displayedCalls)
 
         XCTAssertTrue(inputs.mutationCalls.isEmpty)
-        XCTAssertEqual(inputs.fingerprintCalls, displayedCalls)
         XCTAssertEqual(inputs.mutationIncludedLoci, [])
-        XCTAssertEqual(inputs.fingerprintIncludedLoci, ["MHC-A"])
+        XCTAssertEqual(inputs.fingerprintInputs?.calls, displayedCalls)
+        XCTAssertEqual(inputs.fingerprintInputs?.includedLoci, ["MHC-A"])
     }
 
     func testONTFluidigmSamplesCommandParsesRequiredInputs() throws {

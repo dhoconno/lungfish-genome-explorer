@@ -75,6 +75,19 @@ public enum GenotypeCurrentWorkbookSyncIntent: String, Codable, CaseIterable, Eq
     case updateAndView = "update-and-view"
 }
 
+public struct GenotypeWorkbookFingerprintInputs: Equatable, Sendable {
+    public let calls: [GenotypeWorkbookHaplotypeCall]
+    public let includedLoci: [String]
+
+    public init(
+        calls: [GenotypeWorkbookHaplotypeCall],
+        includedLoci: [String]
+    ) {
+        self.calls = calls
+        self.includedLoci = includedLoci
+    }
+}
+
 public struct GenotypeWorkbookRevisionProvenanceContext: Equatable, Sendable {
     public let toolName: String
     public let toolKind: String
@@ -304,10 +317,21 @@ public struct GenotypeWorkbookRevisionService {
         into bundleURL: URL,
         annotationOnly: Bool = false,
         includedLoci: [String] = [],
-        fingerprintCalls: [GenotypeWorkbookHaplotypeCall]? = nil,
-        fingerprintIncludedLoci: [String]? = nil,
+        fingerprintInputs: GenotypeWorkbookFingerprintInputs? = nil,
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws -> ONTGenotypeResultBundleManifest {
+        if fingerprintInputs != nil, !annotationOnly {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Semantic fingerprint input overrides are only valid for annotation-only workbook updates."
+            )
+        }
+        if annotationOnly,
+           provenanceContext?.inputFingerprint != nil,
+           fingerprintInputs == nil {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Attested annotation-only workbook update requires complete semantic fingerprint inputs."
+            )
+        }
         let workflowStartedAt = dateProvider()
         let bundle = bundleURL.standardizedFileURL
         try checkCancellation()
@@ -370,8 +394,8 @@ public struct GenotypeWorkbookRevisionService {
         let sidecar = try annotationSidecarData.map {
             try JSONDecoder().decode(GenotypeAnnotationSidecar.self, from: $0)
         }
-        let semanticFingerprintCalls = fingerprintCalls ?? calls
-        let semanticFingerprintIncludedLoci = fingerprintIncludedLoci ?? includedLoci
+        let semanticFingerprintCalls = fingerprintInputs?.calls ?? calls
+        let semanticFingerprintIncludedLoci = fingerprintInputs?.includedLoci ?? includedLoci
         if let suppliedFingerprint = provenanceContext?.inputFingerprint {
             let verifiedFingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
                 calls: semanticFingerprintCalls,

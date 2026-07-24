@@ -3127,6 +3127,82 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), bundleBefore)
     }
 
+    func testFullUpdateRejectsSemanticFingerprintOverrideWithoutBundleMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "full-update-semantic-override"
+        )
+        let bundleBefore = try bundleSnapshot(fixture.bundleURL)
+        let divergentCalls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "sample-a",
+                locus: "MHC-B",
+                haplotype1: "B-H1",
+                haplotype2: "B-H2",
+                status: "called",
+                notes: ""
+            ),
+        ]
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService().applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL,
+                fingerprintInputs: GenotypeWorkbookFingerprintInputs(
+                    calls: divergentCalls,
+                    includedLoci: ["MHC-B"]
+                )
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("only valid for annotation-only"),
+                "Unexpected error: \(error)"
+            )
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), bundleBefore)
+    }
+
+    func testAttestedAnnotationOnlyRejectsMissingSemanticInputsWithoutBundleMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "annotation-only-missing-semantic-inputs"
+        )
+        let bundleBefore = try bundleSnapshot(fixture.bundleURL)
+        let fingerprint = try GenotypeCurrentWorkbookInputFingerprint(
+            schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
+            sha256: String(repeating: "e", count: 64)
+        )
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService().applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL,
+                annotationOnly: true,
+                provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
+                    toolName: "test",
+                    toolKind: "test",
+                    argv: ["test"],
+                    inputFingerprint: fingerprint,
+                    syncIntent: .automaticIdle
+                )
+            )
+        ) { error in
+            XCTAssertTrue(
+                String(describing: error).lowercased().contains(
+                    "requires complete semantic fingerprint inputs"
+                ),
+                "Unexpected error: \(error)"
+            )
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), bundleBefore)
+    }
+
     func testAnnotationOnlyUpdateAttestsFullSemanticCallsAndRetainsTheirProvenance() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -3187,8 +3263,10 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL,
             annotationOnly: true,
-            fingerprintCalls: displayedCalls,
-            fingerprintIncludedLoci: displayedLoci,
+            fingerprintInputs: GenotypeWorkbookFingerprintInputs(
+                calls: displayedCalls,
+                includedLoci: displayedLoci
+            ),
             provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
                 toolName: "lungfish-cli fastq update-current-workbook",
                 toolKind: "cli",
