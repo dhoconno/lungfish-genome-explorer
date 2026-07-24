@@ -2389,6 +2389,9 @@ public final class GenotypeResultViewController: NSViewController {
                 .cell(locus: sharedCall.locus, genotype: sharedCall.genotype, sample: sample),
             ]
             if isFullLengthMHCGenotypeViewport {
+                currentSharedCall = nil
+                currentCandidateRow = nil
+                currentSelectedSample = nil
                 showAlleleSequenceRows(for: [])
                 publishSelectionState(matrixTargetSelectionState(for: targets))
             } else {

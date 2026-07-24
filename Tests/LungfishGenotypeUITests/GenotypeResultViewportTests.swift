@@ -1263,8 +1263,14 @@ final class GenotypeResultViewportTests: XCTestCase {
     }
 
     func testUnsupportedKnownCellRefreshDoesNotResurrectPreviousCandidateDetail() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("UnsupportedKnownCellRefresh-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let knownID = "01_Mafa_A1_Known"
         let result = makeCandidateResult(
+            bundleURL: bundleURL,
             calls: [makeCall(sample: "AnimalA", genotype: knownID, reads: 12)],
             candidates: [
                 makeCandidate(id: "candidate-a", name: "Candidate_nov", classification: .novel, support: .shared, samples: ["AnimalA", "AnimalB"]),
@@ -1299,14 +1305,20 @@ final class GenotypeResultViewportTests: XCTestCase {
             $0 == ("Sample", "AnimalB")
         })
 
-        controller.applyHighlight(GenotypeResultHighlightRequest(
-            target: .init(genotype: knownID, locus: "MHC-A", sample: "AnimalB"),
-            scope: .selectedCell,
-            color: AnnotationColor(red: 0.7, green: 0.2, blue: 0.4, alpha: 1)
+        controller.addMatrixComment(.init(
+            targets: controller.testingCurrentSelectionMatrixTargets,
+            body: "Unsupported cell note"
         ))
 
         XCTAssertTrue(candidateAlleleDetails(in: controller.view).isEmpty)
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+        XCTAssertEqual(controller.testingAlleleSequenceText, "")
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("Selection Type", "Cell")
+        })
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("Cell Comment", "Unsupported cell note")
+        })
         XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, [
             .cell(locus: "MHC-A", genotype: knownID, sample: "AnimalB"),
         ])
