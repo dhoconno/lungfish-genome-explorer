@@ -16,6 +16,29 @@ private enum GenotypeAnnotationStorePersistenceError: Error, LocalizedError {
     }
 }
 
+public enum GenotypeMatrixReviewMutationError: Error, Equatable, LocalizedError {
+    case readOnly
+    case emptyTargets
+    case invalidReviewTargets
+    case ineligibleEvidence
+    case emptyCommentBody
+
+    public var errorDescription: String? {
+        switch self {
+        case .readOnly:
+            return "This bundle is read-only."
+        case .emptyTargets:
+            return "Select one or more matrix targets."
+        case .invalidReviewTargets:
+            return "Review classifications are available only for genotype cells."
+        case .ineligibleEvidence:
+            return "Every selected cell must satisfy the requested review classification's evidence rule."
+        case .emptyCommentBody:
+            return "A matrix comment cannot be empty."
+        }
+    }
+}
+
 @Observable
 @MainActor
 public final class GenotypeAnnotationStore {
@@ -337,6 +360,218 @@ public final class GenotypeAnnotationStore {
         try persist(action: edits.count == 1 ? "addMatrixComment" : "addMatrixComments", editContext: matrixCommentEditContext(edits: edits))
     }
 
+    public func setMatrixReview(
+        _ disposition: GenotypeAnnotationSidecar.MatrixReviewDisposition,
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        evidence: GenotypeMatrixEvidenceIndex,
+        author: String
+    ) async throws {
+        let normalizedTargets = try normalizedMatrixTargets(targets)
+        guard normalizedTargets.allSatisfy({
+            if case .cell = $0 { return true }
+            return false
+        }) else {
+            throw GenotypeMatrixReviewMutationError.invalidReviewTargets
+        }
+        let editAuthor = author
+        try transactMatrixMutation(action: "setMatrixReview", author: editAuthor) { latest, timestamp in
+            let supportedCount = normalizedTargets.reduce(0) {
+                $0 + (evidence.isSupported($1) ? 1 : 0)
+            }
+            let unsupportedCount = normalizedTargets.count - supportedCount
+            switch disposition {
+            case .falsePositive:
+                guard supportedCount == normalizedTargets.count else {
+                    throw GenotypeMatrixReviewMutationError.ineligibleEvidence
+                }
+            case .falseNegative:
+                guard unsupportedCount == normalizedTargets.count else {
+                    throw GenotypeMatrixReviewMutationError.ineligibleEvidence
+                }
+            }
+
+            let existing = Dictionary(
+                latest.matrixReviews.map { ($0.target, $0.disposition) },
+                uniquingKeysWith: { _, newest in newest }
+            )
+            let beforeValues = normalizedTargets.map { existing[$0]?.rawValue }
+            for target in normalizedTargets {
+                latest.matrixReviews.removeAll { $0.target == target }
+                latest.matrixReviews.append(.init(
+                    target: target,
+                    disposition: disposition,
+                    author: editAuthor,
+                    timestamp: timestamp
+                ))
+                latest.append(audit: .init(
+                    action: "setMatrixReview",
+                    sample: target.auditSample,
+                    locus: target.locus,
+                    slot: nil,
+                    before: existing[target]?.rawValue,
+                    after: disposition.rawValue,
+                    color: nil,
+                    reason: "matrix-review",
+                    rationale: target.stableAuditDescription,
+                    author: editAuthor,
+                    timestamp: timestamp
+                ))
+            }
+            return matrixSemanticEditContext(
+                targets: normalizedTargets,
+                beforeValues: beforeValues,
+                afterValues: Array(repeating: disposition.rawValue, count: normalizedTargets.count),
+                author: editAuthor,
+                extra: [
+                    "disposition": .string(disposition.rawValue),
+                    "eligibilityRule": .string(
+                        disposition == .falsePositive
+                            ? "passedUniqueReads > 0"
+                            : "passedUniqueReads <= 0 or absent"
+                    ),
+                    "supportedCount": .integer(supportedCount),
+                    "unsupportedCount": .integer(unsupportedCount),
+                ]
+            )
+        }
+    }
+
+    public func clearMatrixReview(
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        author: String
+    ) async throws {
+        let normalizedTargets = try normalizedMatrixTargets(targets)
+        guard normalizedTargets.allSatisfy({
+            if case .cell = $0 { return true }
+            return false
+        }) else {
+            throw GenotypeMatrixReviewMutationError.invalidReviewTargets
+        }
+        let editAuthor = author
+        try transactMatrixMutation(action: "clearMatrixReview", author: editAuthor) { latest, timestamp in
+            let existing = Dictionary(
+                latest.matrixReviews.map { ($0.target, $0.disposition) },
+                uniquingKeysWith: { _, newest in newest }
+            )
+            let beforeValues = normalizedTargets.map { existing[$0]?.rawValue }
+            for target in normalizedTargets {
+                latest.matrixReviews.removeAll { $0.target == target }
+                latest.append(audit: .init(
+                    action: "clearMatrixReview",
+                    sample: target.auditSample,
+                    locus: target.locus,
+                    slot: nil,
+                    before: existing[target]?.rawValue,
+                    after: nil,
+                    color: nil,
+                    reason: "matrix-review",
+                    rationale: target.stableAuditDescription,
+                    author: editAuthor,
+                    timestamp: timestamp
+                ))
+            }
+            return matrixSemanticEditContext(
+                targets: normalizedTargets,
+                beforeValues: beforeValues,
+                afterValues: Array(repeating: nil, count: normalizedTargets.count),
+                author: editAuthor
+            )
+        }
+    }
+
+    public func upsertMatrixComment(
+        body: String,
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        author: String
+    ) async throws {
+        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw GenotypeMatrixReviewMutationError.emptyCommentBody
+        }
+        let normalizedTargets = try normalizedMatrixTargets(targets)
+        let editAuthor = author
+        try transactMatrixMutation(action: "upsertMatrixComment", author: editAuthor) { latest, timestamp in
+            let currentComments = latest.resolvedMatrixComments
+            let beforeValues = normalizedTargets.map { currentComments[$0]?.body }
+            for target in normalizedTargets {
+                canonicalizeLegacyMatrixComments(
+                    in: &latest,
+                    target: target,
+                    current: currentComments[target],
+                    author: editAuthor,
+                    timestamp: timestamp
+                )
+                latest.matrixComments.removeAll { $0.target == target }
+                latest.matrixComments.append(.init(
+                    target: target,
+                    body: body,
+                    author: editAuthor,
+                    timestamp: timestamp
+                ))
+                latest.append(audit: .init(
+                    action: "upsertMatrixComment",
+                    sample: target.auditSample,
+                    locus: target.locus,
+                    slot: nil,
+                    before: currentComments[target]?.body,
+                    after: body,
+                    color: nil,
+                    reason: "matrix-comment",
+                    rationale: target.stableAuditDescription,
+                    author: editAuthor,
+                    timestamp: timestamp
+                ))
+            }
+            return matrixSemanticEditContext(
+                targets: normalizedTargets,
+                beforeValues: beforeValues,
+                afterValues: Array(repeating: body, count: normalizedTargets.count),
+                author: editAuthor,
+                extra: ["commentBody": .string(body)]
+            )
+        }
+    }
+
+    public func removeMatrixComments(
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        author: String
+    ) async throws {
+        let normalizedTargets = try normalizedMatrixTargets(targets)
+        let editAuthor = author
+        try transactMatrixMutation(action: "removeMatrixComment", author: editAuthor) { latest, timestamp in
+            let currentComments = latest.resolvedMatrixComments
+            let beforeValues = normalizedTargets.map { currentComments[$0]?.body }
+            for target in normalizedTargets {
+                canonicalizeLegacyMatrixComments(
+                    in: &latest,
+                    target: target,
+                    current: currentComments[target],
+                    author: editAuthor,
+                    timestamp: timestamp
+                )
+                latest.matrixComments.removeAll { $0.target == target }
+                latest.append(audit: .init(
+                    action: "removeMatrixComment",
+                    sample: target.auditSample,
+                    locus: target.locus,
+                    slot: nil,
+                    before: currentComments[target]?.body,
+                    after: nil,
+                    color: nil,
+                    reason: "matrix-comment",
+                    rationale: target.stableAuditDescription,
+                    author: editAuthor,
+                    timestamp: timestamp
+                ))
+            }
+            return matrixSemanticEditContext(
+                targets: normalizedTargets,
+                beforeValues: beforeValues,
+                afterValues: Array(repeating: nil, count: normalizedTargets.count),
+                author: editAuthor
+            )
+        }
+    }
+
     func addSampleNote(sample: String, body: String) throws {
         let timestamp = now()
         sidecar.sampleNotes.append(.init(
@@ -626,8 +861,106 @@ public final class GenotypeAnnotationStore {
         ))
     }
 
+    private func normalizedMatrixTargets(
+        _ targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) throws -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        var seen: Set<GenotypeAnnotationSidecar.MatrixTarget> = []
+        let normalized = targets.filter { seen.insert($0).inserted }
+        guard !normalized.isEmpty else {
+            throw GenotypeMatrixReviewMutationError.emptyTargets
+        }
+        return normalized
+    }
+
+    private func transactMatrixMutation(
+        action: String,
+        author: String,
+        mutate: (
+            inout GenotypeAnnotationSidecar,
+            String
+        ) throws -> ProvenanceEditContext
+    ) throws {
+        guard !isReadOnly else {
+            throw GenotypeMatrixReviewMutationError.readOnly
+        }
+        let startedAt = Date()
+        var latestForRollback = lastPersistedSidecar
+        var publishedSidecar: GenotypeAnnotationSidecar?
+        let coordinator = annotationPublicationCoordinator()
+        do {
+            _ = try coordinator.transact { snapshot in
+                var latest = try decodedLatestSidecar(from: snapshot.annotationData)
+                latestForRollback = latest
+                guard latest == lastPersistedSidecar else {
+                    throw GenotypeAnnotationStorePersistenceError.staleRevision
+                }
+                let timestamp = now()
+                let editContext = try mutate(&latest, timestamp)
+                let payload = try annotationPublicationPayload(
+                    sidecar: latest,
+                    action: action,
+                    editContext: editContext,
+                    snapshot: snapshot,
+                    startedAt: startedAt,
+                    endedAt: Date()
+                )
+                publishedSidecar = latest
+                return payload
+            }
+            if let publishedSidecar {
+                sidecar = publishedSidecar
+                lastPersistedSidecar = publishedSidecar
+            }
+        } catch {
+            sidecar = latestForRollback
+            lastPersistedSidecar = latestForRollback
+            throw error
+        }
+    }
+
+    private func canonicalizeLegacyMatrixComments(
+        in sidecar: inout GenotypeAnnotationSidecar,
+        target: GenotypeAnnotationSidecar.MatrixTarget,
+        current: GenotypeAnnotationSidecar.MatrixComment?,
+        author: String,
+        timestamp: String
+    ) {
+        let indexedComments = sidecar.matrixComments.enumerated().filter { $0.element.target == target }
+        guard indexedComments.count > 1, let current else { return }
+        let currentIndex = indexedComments.last(where: { $0.element == current })?.offset
+        for (index, superseded) in indexedComments where index != currentIndex {
+            let alreadyRepresented = sidecar.auditLog.contains { audit in
+                audit.rationale == target.stableAuditDescription
+                    && (audit.before == superseded.body || audit.after == superseded.body)
+            }
+            guard !alreadyRepresented else { continue }
+            sidecar.append(audit: .init(
+                action: "canonicalizeLegacyMatrixComments",
+                sample: target.auditSample,
+                locus: target.locus,
+                slot: nil,
+                before: superseded.body,
+                after: current.body,
+                color: nil,
+                reason: "legacy-matrix-comment",
+                rationale: target.stableAuditDescription,
+                author: author,
+                timestamp: timestamp
+            ))
+        }
+    }
+
     private struct ProvenanceEditContext {
         var explicitOptions: [String: ParameterValue]
+        var resolvedAuthor: String?
+
+        init(
+            explicitOptions: [String: ParameterValue],
+            resolvedAuthor: String? = nil
+        ) {
+            self.explicitOptions = explicitOptions
+            self.resolvedAuthor = resolvedAuthor
+        }
     }
 
     private func persist(action: String, editContext: ProvenanceEditContext? = nil) throws {
@@ -750,6 +1083,21 @@ public final class GenotypeAnnotationStore {
         }
         let inputs = [priorInput].compactMap { $0 }
         let wallTime = max(0, endedAt.timeIntervalSince(startedAt))
+        let resolvedAuthor = editContext?.resolvedAuthor ?? author
+        var resolvedDefaults: [String: ParameterValue] = [
+            "author": .string(resolvedAuthor),
+            "auditEntryCount": .integer(sidecar.auditLog.count),
+            "callOverrideCount": .integer(sidecar.callOverrides.count),
+            "matrixStyleCount": .integer(sidecar.matrixStyles.count),
+            "matrixCommentCount": .integer(sidecar.matrixComments.count),
+            "matrixReviewCount": .integer(sidecar.matrixReviews.count),
+            "manualHaplotypeAssignmentCount": .integer(sidecar.manualHaplotypeAssignments.count),
+            "smartCohortCount": .integer(sidecar.smartCohorts.count),
+        ]
+        if action == "setMatrixReview" {
+            resolvedDefaults["absentEvidence"] = .string("unsupported")
+            resolvedDefaults["supportThreshold"] = .string("passedUniqueReads > 0")
+        }
         let step = ProvenanceStep(
             toolName: "Lungfish Genome Explorer",
             toolVersion: WorkflowRun.currentAppVersion,
@@ -779,15 +1127,7 @@ public final class GenotypeAnnotationStore {
                     "format": .string("json"),
                     "sidecarFilename": .string(GenotypeAnnotationSidecar.filename),
                 ],
-                resolvedDefaults: [
-                    "author": .string(author),
-                    "auditEntryCount": .integer(sidecar.auditLog.count),
-                    "callOverrideCount": .integer(sidecar.callOverrides.count),
-                    "matrixStyleCount": .integer(sidecar.matrixStyles.count),
-                    "matrixCommentCount": .integer(sidecar.matrixComments.count),
-                    "manualHaplotypeAssignmentCount": .integer(sidecar.manualHaplotypeAssignments.count),
-                    "smartCohortCount": .integer(sidecar.smartCohorts.count),
-                ]
+                resolvedDefaults: resolvedDefaults
             ),
             runtimeIdentity: ProvenanceRuntimeIdentity(user: WorkflowRun.currentUser),
             files: inputs + [output],
@@ -820,6 +1160,27 @@ public final class GenotypeAnnotationStore {
                 "targets": .array(edits.map { matrixTargetParameterValue($0.target) }),
                 "commentBodies": .array(edits.map { .string($0.body) }),
             ]
+        )
+    }
+
+    private func matrixSemanticEditContext(
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        beforeValues: [String?],
+        afterValues: [String?],
+        author: String,
+        extra: [String: ParameterValue] = [:]
+    ) -> ProvenanceEditContext {
+        var explicit: [String: ParameterValue] = [
+            "targetCount": .integer(targets.count),
+            "targets": .array(targets.map(matrixTargetParameterValue)),
+            "before": .array(beforeValues.map { $0.map(ParameterValue.string) ?? .null }),
+            "after": .array(afterValues.map { $0.map(ParameterValue.string) ?? .null }),
+            "resolvedAuthor": .string(author),
+        ]
+        explicit.merge(extra) { _, value in value }
+        return ProvenanceEditContext(
+            explicitOptions: explicit,
+            resolvedAuthor: author
         )
     }
 
