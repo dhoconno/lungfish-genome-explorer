@@ -1,5 +1,6 @@
 import AppKit
 import LungfishIO
+import LungfishKit
 
 /// Compact, record-backed overview of one known MHC reference allele.
 ///
@@ -262,7 +263,7 @@ private final class NucleotideStripView: NSView {
         case "A": return .systemGreen
         case "C": return .systemBlue
         case "G": return .systemOrange
-        case "T", "U": return .systemRed
+        case "T", "U": return .lungfishDanger
         default: return .systemGray
         }
     }
