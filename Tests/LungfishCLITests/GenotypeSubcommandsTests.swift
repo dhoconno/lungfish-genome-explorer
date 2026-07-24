@@ -1130,6 +1130,213 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputProvenanceURL.path))
     }
 
+    func testReplayMatrixAnnotationRejectsUnsignedSignatureArtifactOutputCollision() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixAnnotationUnsignedCollision-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let sourceProvenanceURL = root.appendingPathComponent("source.lungfish-provenance.json")
+        try writeReplayProvenanceFixture(to: sourceProvenanceURL)
+        let sourceData = try Data(contentsOf: sourceProvenanceURL)
+        let outputProvenanceURL = root.appendingPathComponent("replay")
+        let outputURL = root.appendingPathComponent("replay.signature.json")
+        XCTAssertEqual(
+            outputURL.standardizedFileURL,
+            ProvenanceSigningConfiguration.signatureURL(for: outputProvenanceURL)
+                .standardizedFileURL
+        )
+        let scientificOutputSentinel = Data("existing scientific output".utf8)
+        try scientificOutputSentinel.write(to: outputURL)
+
+        var command = GenotypeReplayMatrixAnnotationSubcommand()
+        command.provenance = sourceProvenanceURL.path
+        command.output = outputURL.path
+        command.outputProvenance = outputProvenanceURL.path
+        command.force = true
+        let thrownError: Error?
+        do {
+            try await command.run()
+            thrownError = nil
+        } catch {
+            thrownError = error
+        }
+
+        guard case .pathCollision? = thrownError as? GenotypeReplayMatrixAnnotationError else {
+            return XCTFail("Expected derived output-provenance signature collision, got \(String(describing: thrownError))")
+        }
+        XCTAssertEqual(try? Data(contentsOf: outputURL), scientificOutputSentinel)
+        XCTAssertEqual(try Data(contentsOf: sourceProvenanceURL), sourceData)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputProvenanceURL.path))
+    }
+
+    func testReplayMatrixAnnotationRejectsOutputCollisionWithSignedSourceArtifact() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMatrixAnnotationSignedCollision-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let sourceProvenanceURL = root.appendingPathComponent("source.lungfish-provenance.json")
+        try writeReplayProvenanceFixture(
+            to: sourceProvenanceURL,
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "replay-source-collision-key")
+        )
+        let protectedArtifacts = ProvenancePublicationArtifacts.sidecarArtifacts(
+            for: sourceProvenanceURL
+        )
+        let protectedBytes = try Dictionary(uniqueKeysWithValues: protectedArtifacts.map {
+            ($0.standardizedFileURL.path, try Data(contentsOf: $0))
+        })
+        let outputURL = ProvenanceSigningConfiguration.signatureURL(for: sourceProvenanceURL)
+        let outputProvenanceURL = root.appendingPathComponent("replay-output.provenance.json")
+
+        var command = GenotypeReplayMatrixAnnotationSubcommand()
+        command.provenance = sourceProvenanceURL.path
+        command.output = outputURL.path
+        command.outputProvenance = outputProvenanceURL.path
+        command.force = true
+        let thrownError: Error?
+        do {
+            try await command.run()
+            thrownError = nil
+        } catch {
+            thrownError = error
+        }
+
+        guard case .pathCollision? = thrownError as? GenotypeReplayMatrixAnnotationError else {
+            return XCTFail("Expected signed source-provenance artifact collision, got \(String(describing: thrownError))")
+        }
+        for artifactURL in protectedArtifacts {
+            XCTAssertEqual(
+                try Data(contentsOf: artifactURL),
+                protectedBytes[artifactURL.standardizedFileURL.path]
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputProvenanceURL.path))
+    }
+
+    func testReplayMatrixAnnotationChecksEveryWritableProvenanceArtifactWithoutForce() async throws {
+        for artifactKind in ["signature", "public-key"] {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "GenotypeMatrixAnnotationArtifactAvailability-\(artifactKind)-\(UUID().uuidString)",
+                    isDirectory: true
+                )
+            defer { try? FileManager.default.removeItem(at: root) }
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+            let sourceProvenanceURL = root.appendingPathComponent("source.lungfish-provenance.json")
+            try writeReplayProvenanceFixture(to: sourceProvenanceURL)
+            let sourceData = try Data(contentsOf: sourceProvenanceURL)
+            let outputURL = root.appendingPathComponent("reconstructed.json")
+            let outputProvenanceURL = root.appendingPathComponent("replay.provenance.json")
+            let artifactURL = artifactKind == "signature"
+                ? ProvenanceSigningConfiguration.signatureURL(for: outputProvenanceURL)
+                : ProvenanceSigningConfiguration.publicKeyURL(for: outputProvenanceURL)
+            let artifactSentinel = Data("existing \(artifactKind) artifact".utf8)
+            try artifactSentinel.write(to: artifactURL)
+
+            let parsed = try GenotypeReplayMatrixAnnotationSubcommand.parse([
+                "--provenance", sourceProvenanceURL.path,
+                "--output", outputURL.path,
+                "--output-provenance", outputProvenanceURL.path,
+            ])
+            let thrownError: Error?
+            do {
+                try await parsed.run()
+                thrownError = nil
+            } catch {
+                thrownError = error
+            }
+
+            XCTAssertEqual(
+                thrownError as? GenotypeReplayMatrixAnnotationError,
+                .outputExists(artifactURL.path)
+            )
+            XCTAssertEqual(try? Data(contentsOf: artifactURL), artifactSentinel)
+            XCTAssertEqual(try Data(contentsOf: sourceProvenanceURL), sourceData)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: outputProvenanceURL.path))
+        }
+    }
+
+    private func writeReplayProvenanceFixture(
+        to provenanceURL: URL,
+        signingProvider: (any ProvenanceSigningProvider)? = nil
+    ) throws {
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*001:01",
+            sample: "Animal-1",
+            stableClusterID: "candidate-17"
+        )
+        let timestamp = "2026-07-24T12:00:00Z"
+        let prior = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T11:00:00Z")
+        let audit = GenotypeAnnotationSidecar.AuditEntry(
+            action: "clearMatrixReview",
+            sample: target.auditSample,
+            locus: target.locus,
+            slot: nil,
+            before: nil,
+            after: nil,
+            color: nil,
+            reason: "matrix-review",
+            rationale: target.stableAuditDescription,
+            author: "Resolved Reviewer",
+            timestamp: timestamp
+        )
+        let replayPayload = GenotypeMatrixAnnotationReplayPayload(
+            action: .clearMatrixReview,
+            author: "Resolved Reviewer",
+            timestamp: timestamp,
+            targetMutations: [
+                .init(
+                    target: target,
+                    beforeComments: nil,
+                    resolvedCurrentComment: nil,
+                    afterComments: nil,
+                    beforeReviews: [],
+                    afterReviews: [],
+                    canonicalizationAudits: [],
+                    actionAudit: audit
+                ),
+            ]
+        )
+        let priorData = try prior.encoded()
+        let replayData = try replayPayload.encoded()
+        let priorChecksum = SHA256.hash(data: priorData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let replayChecksum = SHA256.hash(data: replayData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let envelope = ProvenanceEnvelope(
+            workflowName: "Genotype annotation sidecar edit",
+            toolName: "Lungfish Genome Explorer",
+            toolVersion: WorkflowRun.currentAppVersion,
+            options: ProvenanceOptions(explicit: [
+                "replayFormat": .string(GenotypeMatrixAnnotationReplayPayload.format),
+                "replayPriorSidecarBase64": .string(priorData.base64EncodedString()),
+                "replayPayloadBase64": .string(replayData.base64EncodedString()),
+                "replayPayloadSHA256": .string(replayChecksum),
+            ]),
+            files: [
+                ProvenanceFileDescriptor(
+                    path: provenanceURL.path + "#/options/explicit/replayPriorSidecarBase64",
+                    checksumSHA256: priorChecksum,
+                    fileSize: UInt64(priorData.count),
+                    format: .json,
+                    role: .input
+                ),
+            ],
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: signingProvider).write(
+            envelope,
+            toSidecar: provenanceURL
+        )
+    }
+
     // MARK: - export-pivot-xlsx
 
     func testExportPivotXlsxParsesBundleAndOutput() throws {

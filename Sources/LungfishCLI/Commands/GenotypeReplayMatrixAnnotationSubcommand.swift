@@ -222,12 +222,16 @@ struct GenotypeReplayMatrixAnnotationSubcommand: AsyncParsableCommand {
             .map { URL(fileURLWithPath: $0).standardizedFileURL }
             ?? GenotypeMatrixAnnotationReplayPayload.replayOutputProvenanceURL(for: outputURL)
                 .standardizedFileURL
-        for (first, second) in [
-            (provenanceURL, outputURL),
-            (provenanceURL, outputProvenanceURL),
-            (outputURL, outputProvenanceURL),
-        ] where first == second {
-            throw GenotypeReplayMatrixAnnotationError.pathCollision(first.path, second.path)
+        let protectedSourceArtifacts = ProvenancePublicationArtifacts
+            .sidecarArtifacts(for: provenanceURL)
+        let writableArtifacts = [outputURL]
+            + ProvenancePublicationArtifacts.sidecarArtifacts(for: outputProvenanceURL)
+        var seenPaths = Set<String>()
+        for url in protectedSourceArtifacts + writableArtifacts {
+            let path = url.standardizedFileURL.path
+            guard seenPaths.insert(path).inserted else {
+                throw GenotypeReplayMatrixAnnotationError.pathCollision(path, path)
+            }
         }
     }
 
@@ -236,7 +240,9 @@ struct GenotypeReplayMatrixAnnotationSubcommand: AsyncParsableCommand {
         _ outputProvenanceURL: URL
     ) throws {
         guard !force else { return }
-        for url in [outputURL, outputProvenanceURL]
+        let writableArtifacts = [outputURL]
+            + ProvenancePublicationArtifacts.sidecarArtifacts(for: outputProvenanceURL)
+        for url in writableArtifacts
         where FileManager.default.fileExists(atPath: url.path) {
             throw GenotypeReplayMatrixAnnotationError.outputExists(url.path)
         }
