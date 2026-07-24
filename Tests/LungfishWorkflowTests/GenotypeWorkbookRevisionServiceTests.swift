@@ -3000,9 +3000,22 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "attested-update")
-        let fingerprint = try GenotypeCurrentWorkbookInputFingerprint(
-            schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
-            sha256: String(repeating: "c", count: 64)
+        try installCandidateArtifacts(in: fixture.bundleURL)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.lastEditor = "attestation-reviewer"
+        try sidecar.encoded().write(to: annotationURL)
+        let calls: [GenotypeWorkbookHaplotypeCall] = []
+        let includedLoci = ["MHC-A"]
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let fingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: calls,
+            includedLoci: includedLoci,
+            annotationSidecar: sidecar,
+            candidateArtifacts: manifest.mhcCandidateArtifacts
         )
 
         let updated = try GenotypeWorkbookRevisionService(
@@ -3010,9 +3023,10 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             userProvider: { "tester" },
             pythonExecutableURL: testPythonExecutableURL
         ).applyHaplotypeOverrides(
-            [],
-            annotationSidecarURL: nil,
+            calls,
+            annotationSidecarURL: annotationURL,
             into: fixture.bundleURL,
+            includedLoci: includedLoci,
             provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
                 toolName: "lungfish-cli fastq update-current-workbook",
                 toolKind: "cli",
@@ -3052,6 +3066,65 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertEqual(envelope.argv.filter { $0 == "--input-fingerprint-schema" }.count, 1)
         XCTAssertEqual(envelope.argv.filter { $0 == "--sync-intent" }.count, 1)
         XCTAssertEqual(envelope.durableReplayArgv, envelope.argv)
+    }
+
+    func testApplyHaplotypeOverridesRejectsMismatchedInputFingerprintWithoutBundleMutation() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "mismatched-attestation")
+        try installCandidateArtifacts(in: fixture.bundleURL)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.lastEditor = "immutable-reviewer"
+        try sidecar.encoded().write(to: annotationURL)
+        let calls: [GenotypeWorkbookHaplotypeCall] = []
+        let includedLoci = ["MHC-A"]
+        let manifestBefore = try Data(
+            contentsOf: ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let currentBefore = try Data(contentsOf: currentURL)
+        let bundleBefore = try bundleSnapshot(fixture.bundleURL)
+        let mismatchedFingerprint = try GenotypeCurrentWorkbookInputFingerprint(
+            schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
+            sha256: String(repeating: "d", count: 64)
+        )
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 5_150) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                calls,
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL,
+                includedLoci: includedLoci,
+                provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
+                    toolName: "lungfish-cli fastq update-current-workbook",
+                    toolKind: "cli",
+                    argv: ["lungfish-cli", "fastq", "update-current-workbook"],
+                    inputFingerprint: mismatchedFingerprint,
+                    syncIntent: .automaticIdle
+                )
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("input fingerprint"),
+                "Unexpected error: \(error)"
+            )
+        }
+
+        XCTAssertEqual(
+            try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)),
+            manifestBefore
+        )
+        XCTAssertEqual(try Data(contentsOf: currentURL), currentBefore)
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), bundleBefore)
     }
 
     func testApplyHaplotypeOverridesLegacyProvenanceOmitsWorkbookAttestationOptions() throws {

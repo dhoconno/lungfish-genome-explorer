@@ -44,6 +44,10 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("sync-intent"), help: "Synchronization intent: automatic-idle, bundle-switch, or update-and-view")
     var syncIntent: String?
 
+    mutating func validate() throws {
+        _ = try validatedAttestation()
+    }
+
     func run() async throws {
         let attestation = try validatedAttestation()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL
@@ -78,6 +82,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 annotationSidecarURL: annotationURL,
                 into: bundleURL,
                 annotationOnly: annotationOnly,
+                includedLoci: includedLocus,
                 provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
                     toolName: "\(CLICommandIdentity.executableName) fastq update-current-workbook",
                     toolKind: "cli",
@@ -144,7 +149,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         return FileManager.default.fileExists(atPath: defaultURL.path) ? defaultURL : nil
     }
 
-    private func cliArguments(bundleURL: URL, callsURL: URL, annotationURL: URL?) -> [String] {
+    func cliArguments(bundleURL: URL, callsURL: URL, annotationURL: URL?) -> [String] {
         var arguments = [
             "update-current-workbook",
             bundleURL.path,

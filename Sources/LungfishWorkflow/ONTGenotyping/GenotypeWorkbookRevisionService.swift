@@ -303,6 +303,7 @@ public struct GenotypeWorkbookRevisionService {
         annotationSidecarURL: URL?,
         into bundleURL: URL,
         annotationOnly: Bool = false,
+        includedLoci: [String] = [],
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws -> ONTGenotypeResultBundleManifest {
         let workflowStartedAt = dateProvider()
@@ -366,6 +367,19 @@ public struct GenotypeWorkbookRevisionService {
         }
         let sidecar = try annotationSidecarData.map {
             try JSONDecoder().decode(GenotypeAnnotationSidecar.self, from: $0)
+        }
+        if let suppliedFingerprint = provenanceContext?.inputFingerprint {
+            let verifiedFingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
+                calls: calls,
+                includedLoci: includedLoci,
+                annotationSidecar: sidecar,
+                candidateArtifacts: manifest.mhcCandidateArtifacts
+            )
+            guard suppliedFingerprint == verifiedFingerprint else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Current workbook input fingerprint does not match the immutable inputs used for publication."
+                )
+            }
         }
         let configuration = try makeCandidateConfiguration(
             manifest: manifest,

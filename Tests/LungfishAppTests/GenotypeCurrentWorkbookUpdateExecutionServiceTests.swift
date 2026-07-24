@@ -154,6 +154,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
 
         let invocation = try XCTUnwrap(runner.invocations.first)
         XCTAssertTrue(invocation.arguments.contains("--annotation-only"))
+        XCTAssertFalse(invocation.arguments.contains("--input-fingerprint"))
+        XCTAssertFalse(invocation.arguments.contains("--input-fingerprint-schema"))
+        XCTAssertFalse(invocation.arguments.contains("--sync-intent"))
         let callsURL = URL(
             fileURLWithPath: try value(after: "--calls-json", in: invocation.arguments)
         )
