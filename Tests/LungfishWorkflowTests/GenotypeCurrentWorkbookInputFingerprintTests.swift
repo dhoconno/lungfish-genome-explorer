@@ -1,9 +1,111 @@
+import Darwin
 import Foundation
 import XCTest
 import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
+    func testMakeUsesLastCallForDuplicateCanonicalSampleLocusKey() throws {
+        let first = call(
+            sample: "Animal",
+            locus: "MHC-DQA",
+            haplotype1: "DQA*01",
+            haplotype2: "DQA*02"
+        )
+        let winner = call(
+            sample: "Animal",
+            locus: "MHC-DQ",
+            haplotype1: "DQA*03",
+            haplotype2: "DQA*04"
+        )
+
+        let duplicates = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [first, winner],
+            includedLoci: ["MHC-DQ"],
+            annotationSidecar: nil,
+            candidateArtifacts: nil
+        )
+        let retainedWinner = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [winner],
+            includedLoci: ["MHC-DQ"],
+            annotationSidecar: nil,
+            candidateArtifacts: nil
+        )
+
+        XCTAssertEqual(duplicates, retainedWinner)
+    }
+
+    func testMakeChangesWhenConflictingDuplicateCallOrderChanges() throws {
+        let first = call(
+            sample: "Animal",
+            locus: "MHC-DQA",
+            haplotype1: "DQA*01",
+            haplotype2: "DQA*02"
+        )
+        let second = call(
+            sample: "Animal",
+            locus: "MHC-DQ",
+            haplotype1: "DQA*03",
+            haplotype2: "DQA*04"
+        )
+
+        let forward = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [first, second],
+            includedLoci: ["MHC-DQ"],
+            annotationSidecar: nil,
+            candidateArtifacts: nil
+        )
+        let reversed = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [second, first],
+            includedLoci: ["MHC-DQ"],
+            annotationSidecar: nil,
+            candidateArtifacts: nil
+        )
+
+        XCTAssertNotEqual(forward, reversed)
+    }
+
+    func testMakeCollapsesIdenticalDuplicateCalls() throws {
+        let duplicate = call(
+            sample: "Animal",
+            locus: "MHC-A",
+            haplotype1: "A*01",
+            haplotype2: "A*02"
+        )
+
+        XCTAssertEqual(
+            try GenotypeCurrentWorkbookInputFingerprint.make(
+                calls: [duplicate, duplicate],
+                includedLoci: ["MHC-A"],
+                annotationSidecar: nil,
+                candidateArtifacts: nil
+            ),
+            try GenotypeCurrentWorkbookInputFingerprint.make(
+                calls: [duplicate],
+                includedLoci: ["MHC-A"],
+                annotationSidecar: nil,
+                candidateArtifacts: nil
+            )
+        )
+    }
+
+    func testMakeCanonicalizesIncludedLocusAliasesAndWhitespace() throws {
+        let first = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: [" MHC-DQA ", "MHC-A"],
+            annotationSidecar: nil,
+            candidateArtifacts: nil
+        )
+        let canonical = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: ["MHC-A", "MHC-DQ"],
+            annotationSidecar: nil,
+            candidateArtifacts: nil
+        )
+
+        XCTAssertEqual(first, canonical)
+    }
+
     func testMakeIsDeterministicAcrossCallAndLocusOrdering() throws {
         let calls = [
             call(sample: "Beta", locus: " MHC-DQA ", haplotype1: "DQA*02", haplotype2: "DQA*03"),
@@ -270,6 +372,106 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
         ))
     }
 
+    func testRecordedRejectsDirectoryProvenance() throws {
+        let bundleURL = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL.appendingPathComponent("provenance-directory"),
+            withIntermediateDirectories: false
+        )
+
+        XCTAssertNil(try GenotypeCurrentWorkbookInputFingerprint.recorded(
+            in: manifest(
+                currentWorkbookPath: "current.xlsx",
+                revisions: [
+                    revision(
+                        id: "directory",
+                        path: "current.xlsx",
+                        provenancePath: "provenance-directory"
+                    ),
+                ]
+            ),
+            bundleURL: bundleURL
+        ))
+    }
+
+    func testRecordedRejectsFIFOWithoutBlocking() throws {
+        let bundleURL = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let fifoURL = bundleURL.appendingPathComponent("provenance.fifo")
+        XCTAssertEqual(Darwin.mkfifo(fifoURL.path, S_IRUSR | S_IWUSR), 0)
+        let valid = try fingerprint(haplotype: "A*01")
+        let bytes = try provenanceData(valid)
+        let writer = Darwin.open(fifoURL.path, O_RDWR | O_NONBLOCK | O_CLOEXEC)
+        XCTAssertGreaterThanOrEqual(writer, 0)
+        XCTAssertEqual(
+            bytes.withUnsafeBytes {
+                Darwin.write(writer, $0.baseAddress, $0.count)
+            },
+            bytes.count
+        )
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(200)) {
+            Darwin.close(writer)
+        }
+        let started = Date()
+
+        let recorded = try GenotypeCurrentWorkbookInputFingerprint.recorded(
+            in: manifest(
+                currentWorkbookPath: "current.xlsx",
+                revisions: [
+                    revision(id: "fifo", path: "current.xlsx", provenancePath: "provenance.fifo"),
+                ]
+            ),
+            bundleURL: bundleURL
+        )
+
+        XCTAssertNil(recorded)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.15)
+    }
+
+    func testRecordedRejectsFinalSymlinkProvenance() throws {
+        let bundleURL = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let valid = try fingerprint(haplotype: "A*01")
+        try writeProvenance(valid, to: "valid.json", in: bundleURL)
+        try FileManager.default.createSymbolicLink(
+            at: bundleURL.appendingPathComponent("linked.json"),
+            withDestinationURL: bundleURL.appendingPathComponent("valid.json")
+        )
+
+        XCTAssertNil(try GenotypeCurrentWorkbookInputFingerprint.recorded(
+            in: manifest(
+                currentWorkbookPath: "current.xlsx",
+                revisions: [
+                    revision(id: "symlink", path: "current.xlsx", provenancePath: "linked.json"),
+                ]
+            ),
+            bundleURL: bundleURL
+        ))
+    }
+
+    func testRecordedRejectsProvenanceLargerThanSixteenMiB() throws {
+        let bundleURL = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let valid = try fingerprint(haplotype: "A*01")
+        var oversized = try provenanceData(valid)
+        oversized.append(Data(
+            repeating: 0x20,
+            count: (16 * 1024 * 1024 + 1) - oversized.count
+        ))
+        try oversized.write(to: bundleURL.appendingPathComponent("oversized.json"))
+
+        XCTAssertNil(try GenotypeCurrentWorkbookInputFingerprint.recorded(
+            in: manifest(
+                currentWorkbookPath: "current.xlsx",
+                revisions: [
+                    revision(id: "oversized", path: "current.xlsx", provenancePath: "oversized.json"),
+                ]
+            ),
+            bundleURL: bundleURL
+        ))
+    }
+
     private func call(
         sample: String,
         locus: String,
@@ -343,6 +545,18 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        try provenanceData(
+            fingerprint,
+            schemaVersion: schemaVersion,
+            digest: digest
+        ).write(to: url)
+    }
+
+    private func provenanceData(
+        _ fingerprint: GenotypeCurrentWorkbookInputFingerprint,
+        schemaVersion: Int = GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
+        digest: String? = nil
+    ) throws -> Data {
         let envelope = ProvenanceEnvelope(
             workflowName: "test",
             toolName: "test",
@@ -351,7 +565,7 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
                 "currentWorkbookInputFingerprintSchemaVersion": .integer(schemaVersion),
             ])
         )
-        try ProvenanceJSON.encoder.encode(envelope).write(to: url)
+        return try ProvenanceJSON.encoder.encode(envelope)
     }
 
     private func revision(

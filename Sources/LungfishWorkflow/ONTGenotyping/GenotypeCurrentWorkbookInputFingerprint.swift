@@ -1,9 +1,11 @@
 import CryptoKit
+import Darwin
 import Foundation
 import LungfishIO
 
 public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Sendable {
     public static let schemaVersion = 1
+    private static let maximumProvenanceBytes = 16 * 1024 * 1024
 
     public let schemaVersion: Int
     public let sha256: String
@@ -27,6 +29,11 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         var sortFields: [String] {
             [sample, locus, haplotype1, haplotype2, status, notes]
         }
+    }
+
+    private struct CanonicalCallKey: Hashable {
+        let sample: String
+        let locus: String
     }
 
     private struct CanonicalCandidateArtifacts: Encodable {
@@ -82,22 +89,34 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         annotationSidecar: GenotypeAnnotationSidecar?,
         candidateArtifacts: ONTMHCCandidateArtifactManifest?
     ) throws -> Self {
-        let canonicalCalls = calls.map {
-            CanonicalCall(
-                sample: $0.sample,
-                locus: GenotypeWorkbookHaplotypeCall.canonicalCurrentWorkbookLocus($0.locus),
-                haplotype1: $0.haplotype1,
-                haplotype2: $0.haplotype2,
-                status: $0.status,
-                notes: $0.notes
+        var callsByKey: [CanonicalCallKey: CanonicalCall] = [:]
+        for call in calls {
+            let sample = clean(call.sample)
+            let locus = GenotypeWorkbookHaplotypeCall.canonicalCurrentWorkbookLocus(call.locus)
+            guard !sample.isEmpty,
+                  !locus.isEmpty,
+                  GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus(locus) else {
+                continue
+            }
+            callsByKey[CanonicalCallKey(sample: sample, locus: locus)] = CanonicalCall(
+                sample: sample,
+                locus: locus,
+                haplotype1: clean(call.haplotype1),
+                haplotype2: clean(call.haplotype2),
+                status: clean(call.status),
+                notes: clean(call.notes)
             )
-        }.sorted {
+        }
+        let canonicalCalls = callsByKey.values.sorted {
             $0.sortFields.lexicographicallyPrecedes($1.sortFields)
+        }
+        let canonicalIncludedLoci = includedLoci.map {
+            GenotypeWorkbookHaplotypeCall.canonicalCurrentWorkbookLocus($0)
         }
         let input = CanonicalInput(
             schemaVersion: schemaVersion,
             calls: canonicalCalls,
-            includedLoci: Array(Set(includedLoci)).sorted(),
+            includedLoci: Array(Set(canonicalIncludedLoci)).sorted(),
             annotationSidecar: annotationSidecar,
             candidateArtifacts: candidateArtifacts.map(canonicalCandidateArtifacts)
         )
@@ -117,7 +136,7 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
               }),
               let provenancePath = revision.provenancePath,
               let provenanceURL = safeURL(for: provenancePath, in: bundleURL),
-              let data = try? Data(contentsOf: provenanceURL),
+              let data = boundedRegularFileData(at: provenanceURL),
               let envelope = try? ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data),
               let digest = envelope.options.explicit["currentWorkbookInputFingerprint"]?.stringValue,
               let recordedSchemaVersion = envelope.options.explicit[
@@ -199,14 +218,54 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         let root = bundleURL.standardizedFileURL.resolvingSymlinksInPath()
         let candidate = components.reduce(root) {
             $0.appendingPathComponent($1)
-        }.standardizedFileURL.resolvingSymlinksInPath()
+        }.standardizedFileURL
+        let resolvedCandidate = candidate.resolvingSymlinksInPath()
         let rootComponents = root.pathComponents
-        let candidateComponents = candidate.pathComponents
+        let candidateComponents = resolvedCandidate.pathComponents
         guard candidateComponents.count > rootComponents.count,
               candidateComponents.prefix(rootComponents.count).elementsEqual(rootComponents) else {
             return nil
         }
         return candidate
+    }
+
+    private static func boundedRegularFileData(at url: URL) -> Data? {
+        let descriptor = Darwin.open(
+            url.path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+
+        var information = stat()
+        guard Darwin.fstat(descriptor, &information) == 0,
+              information.st_mode & S_IFMT == S_IFREG,
+              information.st_size >= 0,
+              information.st_size <= maximumProvenanceBytes else {
+            return nil
+        }
+
+        var data = Data()
+        data.reserveCapacity(Int(information.st_size))
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            if count == 0 {
+                return data
+            }
+            if count < 0 {
+                if errno == EINTR { continue }
+                return nil
+            }
+            guard data.count <= maximumProvenanceBytes - count else {
+                return nil
+            }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+    }
+
+    private static func clean(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func isValidSHA256(_ value: String) -> Bool {
