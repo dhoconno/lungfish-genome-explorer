@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import CryptoKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
@@ -236,9 +237,9 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
         XCTAssertEqual(envelope.options.explicit["action"], .string("addMatrixComment"))
-        XCTAssertEqual(Array(envelope.argv.prefix(3)), ["lungfish-cli", "genotype", "apply-annotations"])
-        XCTAssertTrue(envelope.argv.contains("--bundle"))
-        XCTAssertTrue(envelope.argv.contains("--patch"))
+        XCTAssertEqual(envelope.argv, [])
+        XCTAssertEqual(envelope.reproducibleCommand, "")
+        XCTAssertNil(envelope.options.explicit["patch"])
         XCTAssertEqual(envelope.options.explicit["targetCount"], .integer(1))
         XCTAssertEqual(envelope.options.explicit["targets"], .array([
             .dictionary([
@@ -757,13 +758,9 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
         XCTAssertEqual(envelope.workflowName, "Genotype annotation sidecar edit")
         XCTAssertEqual(envelope.toolName, "Lungfish Genome Explorer")
-        XCTAssertEqual(envelope.argv, [
-            "lungfish-cli",
-            "genotype",
-            "apply-annotations",
-            "--bundle", dir.path,
-            "--patch", annotationURL.path,
-        ])
+        XCTAssertEqual(envelope.argv, [])
+        XCTAssertEqual(envelope.reproducibleCommand, "")
+        XCTAssertNil(envelope.options.explicit["patch"])
         XCTAssertEqual(envelope.options.explicit["bundle"]?.fileValue?.path, dir.path)
         XCTAssertEqual(envelope.options.explicit["annotationSidecar"]?.fileValue?.path, annotationURL.path)
         XCTAssertEqual(envelope.options.explicit["action"], .string("saveSmartCohort"))
@@ -861,7 +858,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["author"], .string("reviewer"))
         XCTAssertEqual(envelope.options.resolvedDefaults["absentEvidence"], .string("unsupported"))
         let provenanceInput = try XCTUnwrap(envelope.files.first { $0.role == .input })
-        XCTAssertEqual(provenanceInput.path, annotationURL.path)
+        XCTAssertNotEqual(provenanceInput.path, annotationURL.path)
+        XCTAssertEqual(provenanceInput.originPath, annotationURL.path)
         XCTAssertNotNil(provenanceInput.checksumSHA256)
         XCTAssertNotNil(provenanceInput.fileSize)
         XCTAssertEqual(envelope.outputs.first?.path, annotationURL.path)
@@ -1007,6 +1005,70 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(audit.map(\.rationale), Array(repeating: target.stableAuditDescription, count: 3))
     }
 
+    func testMatrixReviewProvenanceReplaysImmutablePriorInputToFinalSidecar() async throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "construction")
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*001:01",
+            sample: "Animal-1",
+            stableClusterID: "candidate-17"
+        )
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let priorData = try Data(contentsOf: annotationURL)
+
+        try await store.setMatrixReview(
+            .falsePositive,
+            targets: [target],
+            evidence: .init([target: 9]),
+            author: "Resolved Reviewer"
+        )
+
+        let finalData = try Data(contentsOf: annotationURL)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(envelope.argv, [])
+        XCTAssertEqual(envelope.reproducibleCommand, "")
+        XCTAssertNil(envelope.options.explicit["patch"])
+
+        let priorBase64 = try XCTUnwrap(
+            envelope.options.explicit["replayPriorSidecarBase64"]?.stringValue
+        )
+        let recordedPriorData = try XCTUnwrap(Data(base64Encoded: priorBase64))
+        XCTAssertEqual(recordedPriorData, priorData)
+        let priorInput = try XCTUnwrap(envelope.files.first { $0.role == .input })
+        XCTAssertNotEqual(priorInput.path, annotationURL.path)
+        XCTAssertEqual(priorInput.fileSize, UInt64(priorData.count))
+        XCTAssertEqual(
+            priorInput.checksumSHA256,
+            SHA256.hash(data: priorData).map { String(format: "%02x", $0) }.joined()
+        )
+
+        let replayBase64 = try XCTUnwrap(
+            envelope.options.explicit["replayPayloadBase64"]?.stringValue
+        )
+        let replayData = try XCTUnwrap(Data(base64Encoded: replayBase64))
+        XCTAssertEqual(
+            envelope.options.explicit["replayPayloadSHA256"],
+            .string(SHA256.hash(data: replayData).map { String(format: "%02x", $0) }.joined())
+        )
+        let replay = try GenotypeMatrixAnnotationReplayPayload.decode(replayData)
+        XCTAssertEqual(replay.action, .setMatrixReview)
+        XCTAssertEqual(replay.author, "Resolved Reviewer")
+        XCTAssertEqual(replay.targetMutations.map(\.target), [target])
+        XCTAssertEqual(
+            replay.targetMutations.first?.afterReviews?.map(\.disposition),
+            [.falsePositive]
+        )
+
+        let replayed = try replay.applying(
+            to: GenotypeAnnotationSidecar.decode(recordedPriorData)
+        )
+        XCTAssertEqual(replayed, store.sidecar)
+        XCTAssertEqual(try replayed.encoded(), finalData)
+    }
+
     func testCommentAddEditRemoveUsesOneCurrentValuePerTarget() async throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -1072,6 +1134,108 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(store.sidecar.auditLog.last?.action, "upsertMatrixComment")
         XCTAssertEqual(store.sidecar.auditLog.last?.before, "current legacy")
         XCTAssertEqual(store.sidecar.auditLog.last?.after, "new current")
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        ))
+        let targetMutations = try XCTUnwrap(
+            envelope.options.explicit["targetMutations"]?.arrayValue
+        )
+        let mutation = try XCTUnwrap(targetMutations.first?.dictionaryValue)
+        XCTAssertEqual(mutation["legacyValues"], .array([
+            .string("superseded without audit"),
+            .string("current legacy"),
+        ]))
+        XCTAssertEqual(
+            mutation["resolvedCurrent"]?.dictionaryValue?["body"],
+            .string("current legacy")
+        )
+        let canonicalizationActions = try XCTUnwrap(
+            mutation["canonicalizationActions"]?.arrayValue
+        )
+        XCTAssertEqual(canonicalizationActions.count, 1)
+        XCTAssertEqual(
+            canonicalizationActions.first?.dictionaryValue?["action"],
+            .string("canonicalizeLegacyMatrixComments")
+        )
+        XCTAssertEqual(
+            canonicalizationActions.first?.dictionaryValue?["before"],
+            .string("superseded without audit")
+        )
+        XCTAssertEqual(
+            canonicalizationActions.first?.dictionaryValue?["after"],
+            .string("current legacy")
+        )
+        XCTAssertEqual(mutation["finalValue"], .string("new current"))
+
+        let priorBase64 = try XCTUnwrap(
+            envelope.options.explicit["replayPriorSidecarBase64"]?.stringValue
+        )
+        let replayBase64 = try XCTUnwrap(
+            envelope.options.explicit["replayPayloadBase64"]?.stringValue
+        )
+        let replay = try GenotypeMatrixAnnotationReplayPayload.decode(
+            try XCTUnwrap(Data(base64Encoded: replayBase64))
+        )
+        XCTAssertEqual(replay.action, .upsertMatrixComment)
+        XCTAssertEqual(replay.author, "editor")
+        XCTAssertEqual(
+            replay.targetMutations.first?.resolvedCurrentComment?.body,
+            "current legacy"
+        )
+        XCTAssertEqual(
+            replay.targetMutations.first?.canonicalizationAudits.map(\.before),
+            ["superseded without audit"]
+        )
+        let replayed = try replay.applying(to: GenotypeAnnotationSidecar.decode(
+            try XCTUnwrap(Data(base64Encoded: priorBase64))
+        ))
+        XCTAssertEqual(replayed, store.sidecar)
+    }
+
+    func testReviewStyleAuditTextCollisionDoesNotSuppressLegacyCanonicalizationAudit() async throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        let target = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*001:01"
+        )
+        var legacy = seeded.sidecar
+        legacy.matrixComments = [
+            .init(target: target, body: "same text", author: "legacy", timestamp: "2025-01-01T00:00:00Z"),
+            .init(target: target, body: "current legacy", author: "legacy", timestamp: "2025-02-01T00:00:00Z"),
+        ]
+        legacy.append(audit: .init(
+            action: "setMatrixStyle",
+            sample: target.auditSample,
+            locus: target.locus,
+            slot: nil,
+            before: "same text",
+            after: "current legacy",
+            color: "#112233",
+            reason: "matrix-style",
+            rationale: target.stableAuditDescription,
+            author: "stylist",
+            timestamp: "2025-02-02T00:00:00Z"
+        ))
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        try legacy.encoded().write(to: annotationURL, options: .atomic)
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "construction")
+
+        try await store.upsertMatrixComment(
+            body: "new current",
+            targets: [target],
+            author: "editor"
+        )
+
+        let canonicalization = store.sidecar.auditLog.filter {
+            $0.action == "canonicalizeLegacyMatrixComments"
+                && $0.rationale == target.stableAuditDescription
+        }
+        XCTAssertEqual(canonicalization.count, 1)
+        XCTAssertEqual(canonicalization.first?.before, "same text")
+        XCTAssertEqual(canonicalization.first?.after, "current legacy")
     }
 
     func testReadOnlyAndStaleRevisionPublishNothing() async throws {

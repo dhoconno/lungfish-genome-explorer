@@ -374,7 +374,7 @@ public final class GenotypeAnnotationStore {
             throw GenotypeMatrixReviewMutationError.invalidReviewTargets
         }
         let editAuthor = author
-        try transactMatrixMutation(action: "setMatrixReview", author: editAuthor) { latest, timestamp in
+        try transactMatrixMutation(action: "setMatrixReview") { latest, timestamp in
             let supportedCount = normalizedTargets.reduce(0) {
                 $0 + (evidence.isSupported($1) ? 1 : 0)
             }
@@ -395,15 +395,18 @@ public final class GenotypeAnnotationStore {
                 uniquingKeysWith: { _, newest in newest }
             )
             let beforeValues = normalizedTargets.map { existing[$0]?.rawValue }
+            var targetMutations: [GenotypeMatrixAnnotationReplayPayload.TargetMutation] = []
             for target in normalizedTargets {
+                let beforeReviews = latest.matrixReviews.filter { $0.target == target }
                 latest.matrixReviews.removeAll { $0.target == target }
-                latest.matrixReviews.append(.init(
+                let annotation = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
                     target: target,
                     disposition: disposition,
                     author: editAuthor,
                     timestamp: timestamp
-                ))
-                latest.append(audit: .init(
+                )
+                latest.matrixReviews.append(annotation)
+                let audit = GenotypeAnnotationSidecar.AuditEntry(
                     action: "setMatrixReview",
                     sample: target.auditSample,
                     locus: target.locus,
@@ -415,13 +418,31 @@ public final class GenotypeAnnotationStore {
                     rationale: target.stableAuditDescription,
                     author: editAuthor,
                     timestamp: timestamp
+                )
+                latest.append(audit: audit)
+                targetMutations.append(.init(
+                    target: target,
+                    beforeComments: nil,
+                    resolvedCurrentComment: nil,
+                    afterComments: nil,
+                    beforeReviews: beforeReviews,
+                    afterReviews: [annotation],
+                    canonicalizationAudits: [],
+                    actionAudit: audit
                 ))
             }
+            let replayPayload = GenotypeMatrixAnnotationReplayPayload(
+                action: .setMatrixReview,
+                author: editAuthor,
+                timestamp: timestamp,
+                targetMutations: targetMutations
+            )
             return matrixSemanticEditContext(
                 targets: normalizedTargets,
                 beforeValues: beforeValues,
                 afterValues: Array(repeating: disposition.rawValue, count: normalizedTargets.count),
                 author: editAuthor,
+                replayPayload: replayPayload,
                 extra: [
                     "disposition": .string(disposition.rawValue),
                     "eligibilityRule": .string(
@@ -448,15 +469,17 @@ public final class GenotypeAnnotationStore {
             throw GenotypeMatrixReviewMutationError.invalidReviewTargets
         }
         let editAuthor = author
-        try transactMatrixMutation(action: "clearMatrixReview", author: editAuthor) { latest, timestamp in
+        try transactMatrixMutation(action: "clearMatrixReview") { latest, timestamp in
             let existing = Dictionary(
                 latest.matrixReviews.map { ($0.target, $0.disposition) },
                 uniquingKeysWith: { _, newest in newest }
             )
             let beforeValues = normalizedTargets.map { existing[$0]?.rawValue }
+            var targetMutations: [GenotypeMatrixAnnotationReplayPayload.TargetMutation] = []
             for target in normalizedTargets {
+                let beforeReviews = latest.matrixReviews.filter { $0.target == target }
                 latest.matrixReviews.removeAll { $0.target == target }
-                latest.append(audit: .init(
+                let audit = GenotypeAnnotationSidecar.AuditEntry(
                     action: "clearMatrixReview",
                     sample: target.auditSample,
                     locus: target.locus,
@@ -468,13 +491,31 @@ public final class GenotypeAnnotationStore {
                     rationale: target.stableAuditDescription,
                     author: editAuthor,
                     timestamp: timestamp
+                )
+                latest.append(audit: audit)
+                targetMutations.append(.init(
+                    target: target,
+                    beforeComments: nil,
+                    resolvedCurrentComment: nil,
+                    afterComments: nil,
+                    beforeReviews: beforeReviews,
+                    afterReviews: [],
+                    canonicalizationAudits: [],
+                    actionAudit: audit
                 ))
             }
+            let replayPayload = GenotypeMatrixAnnotationReplayPayload(
+                action: .clearMatrixReview,
+                author: editAuthor,
+                timestamp: timestamp,
+                targetMutations: targetMutations
+            )
             return matrixSemanticEditContext(
                 targets: normalizedTargets,
                 beforeValues: beforeValues,
                 afterValues: Array(repeating: nil, count: normalizedTargets.count),
-                author: editAuthor
+                author: editAuthor,
+                replayPayload: replayPayload
             )
         }
     }
@@ -489,11 +530,13 @@ public final class GenotypeAnnotationStore {
         }
         let normalizedTargets = try normalizedMatrixTargets(targets)
         let editAuthor = author
-        try transactMatrixMutation(action: "upsertMatrixComment", author: editAuthor) { latest, timestamp in
+        try transactMatrixMutation(action: "upsertMatrixComment") { latest, timestamp in
             let currentComments = latest.resolvedMatrixComments
             let beforeValues = normalizedTargets.map { currentComments[$0]?.body }
+            var targetMutations: [GenotypeMatrixAnnotationReplayPayload.TargetMutation] = []
             for target in normalizedTargets {
-                canonicalizeLegacyMatrixComments(
+                let beforeComments = latest.matrixComments.filter { $0.target == target }
+                let canonicalizationAudits = canonicalizeLegacyMatrixComments(
                     in: &latest,
                     target: target,
                     current: currentComments[target],
@@ -501,13 +544,14 @@ public final class GenotypeAnnotationStore {
                     timestamp: timestamp
                 )
                 latest.matrixComments.removeAll { $0.target == target }
-                latest.matrixComments.append(.init(
+                let comment = GenotypeAnnotationSidecar.MatrixComment(
                     target: target,
                     body: body,
                     author: editAuthor,
                     timestamp: timestamp
-                ))
-                latest.append(audit: .init(
+                )
+                latest.matrixComments.append(comment)
+                let audit = GenotypeAnnotationSidecar.AuditEntry(
                     action: "upsertMatrixComment",
                     sample: target.auditSample,
                     locus: target.locus,
@@ -519,13 +563,31 @@ public final class GenotypeAnnotationStore {
                     rationale: target.stableAuditDescription,
                     author: editAuthor,
                     timestamp: timestamp
+                )
+                latest.append(audit: audit)
+                targetMutations.append(.init(
+                    target: target,
+                    beforeComments: beforeComments,
+                    resolvedCurrentComment: currentComments[target],
+                    afterComments: [comment],
+                    beforeReviews: nil,
+                    afterReviews: nil,
+                    canonicalizationAudits: canonicalizationAudits,
+                    actionAudit: audit
                 ))
             }
+            let replayPayload = GenotypeMatrixAnnotationReplayPayload(
+                action: .upsertMatrixComment,
+                author: editAuthor,
+                timestamp: timestamp,
+                targetMutations: targetMutations
+            )
             return matrixSemanticEditContext(
                 targets: normalizedTargets,
                 beforeValues: beforeValues,
                 afterValues: Array(repeating: body, count: normalizedTargets.count),
                 author: editAuthor,
+                replayPayload: replayPayload,
                 extra: ["commentBody": .string(body)]
             )
         }
@@ -537,11 +599,13 @@ public final class GenotypeAnnotationStore {
     ) async throws {
         let normalizedTargets = try normalizedMatrixTargets(targets)
         let editAuthor = author
-        try transactMatrixMutation(action: "removeMatrixComment", author: editAuthor) { latest, timestamp in
+        try transactMatrixMutation(action: "removeMatrixComment") { latest, timestamp in
             let currentComments = latest.resolvedMatrixComments
             let beforeValues = normalizedTargets.map { currentComments[$0]?.body }
+            var targetMutations: [GenotypeMatrixAnnotationReplayPayload.TargetMutation] = []
             for target in normalizedTargets {
-                canonicalizeLegacyMatrixComments(
+                let beforeComments = latest.matrixComments.filter { $0.target == target }
+                let canonicalizationAudits = canonicalizeLegacyMatrixComments(
                     in: &latest,
                     target: target,
                     current: currentComments[target],
@@ -549,7 +613,7 @@ public final class GenotypeAnnotationStore {
                     timestamp: timestamp
                 )
                 latest.matrixComments.removeAll { $0.target == target }
-                latest.append(audit: .init(
+                let audit = GenotypeAnnotationSidecar.AuditEntry(
                     action: "removeMatrixComment",
                     sample: target.auditSample,
                     locus: target.locus,
@@ -561,13 +625,31 @@ public final class GenotypeAnnotationStore {
                     rationale: target.stableAuditDescription,
                     author: editAuthor,
                     timestamp: timestamp
+                )
+                latest.append(audit: audit)
+                targetMutations.append(.init(
+                    target: target,
+                    beforeComments: beforeComments,
+                    resolvedCurrentComment: currentComments[target],
+                    afterComments: [],
+                    beforeReviews: nil,
+                    afterReviews: nil,
+                    canonicalizationAudits: canonicalizationAudits,
+                    actionAudit: audit
                 ))
             }
+            let replayPayload = GenotypeMatrixAnnotationReplayPayload(
+                action: .removeMatrixComment,
+                author: editAuthor,
+                timestamp: timestamp,
+                targetMutations: targetMutations
+            )
             return matrixSemanticEditContext(
                 targets: normalizedTargets,
                 beforeValues: beforeValues,
                 afterValues: Array(repeating: nil, count: normalizedTargets.count),
-                author: editAuthor
+                author: editAuthor,
+                replayPayload: replayPayload
             )
         }
     }
@@ -874,7 +956,6 @@ public final class GenotypeAnnotationStore {
 
     private func transactMatrixMutation(
         action: String,
-        author: String,
         mutate: (
             inout GenotypeAnnotationSidecar,
             String
@@ -924,17 +1005,19 @@ public final class GenotypeAnnotationStore {
         current: GenotypeAnnotationSidecar.MatrixComment?,
         author: String,
         timestamp: String
-    ) {
+    ) -> [GenotypeAnnotationSidecar.AuditEntry] {
         let indexedComments = sidecar.matrixComments.enumerated().filter { $0.element.target == target }
-        guard indexedComments.count > 1, let current else { return }
+        guard indexedComments.count > 1, let current else { return [] }
         let currentIndex = indexedComments.last(where: { $0.element == current })?.offset
+        var appended: [GenotypeAnnotationSidecar.AuditEntry] = []
         for (index, superseded) in indexedComments where index != currentIndex {
             let alreadyRepresented = sidecar.auditLog.contains { audit in
-                audit.rationale == target.stableAuditDescription
+                isMatrixCommentHistory(audit)
+                    && audit.rationale == target.stableAuditDescription
                     && (audit.before == superseded.body || audit.after == superseded.body)
             }
             guard !alreadyRepresented else { continue }
-            sidecar.append(audit: .init(
+            let audit = GenotypeAnnotationSidecar.AuditEntry(
                 action: "canonicalizeLegacyMatrixComments",
                 sample: target.auditSample,
                 locus: target.locus,
@@ -946,20 +1029,44 @@ public final class GenotypeAnnotationStore {
                 rationale: target.stableAuditDescription,
                 author: author,
                 timestamp: timestamp
-            ))
+            )
+            sidecar.append(audit: audit)
+            appended.append(audit)
         }
+        return appended
+    }
+
+    private func isMatrixCommentHistory(
+        _ audit: GenotypeAnnotationSidecar.AuditEntry
+    ) -> Bool {
+        let recognizedAction: Bool
+        switch audit.action {
+        case "addMatrixComment",
+             "addMatrixComments",
+             "upsertMatrixComment",
+             "removeMatrixComment",
+             "canonicalizeLegacyMatrixComments":
+            recognizedAction = true
+        default:
+            recognizedAction = false
+        }
+        return recognizedAction
+            && (audit.reason == "matrix-comment" || audit.reason == "legacy-matrix-comment")
     }
 
     private struct ProvenanceEditContext {
         var explicitOptions: [String: ParameterValue]
         var resolvedAuthor: String?
+        var replayPayload: GenotypeMatrixAnnotationReplayPayload?
 
         init(
             explicitOptions: [String: ParameterValue],
-            resolvedAuthor: String? = nil
+            resolvedAuthor: String? = nil,
+            replayPayload: GenotypeMatrixAnnotationReplayPayload? = nil
         ) {
             self.explicitOptions = explicitOptions
             self.resolvedAuthor = resolvedAuthor
+            self.replayPayload = replayPayload
         }
     }
 
@@ -1021,15 +1128,12 @@ public final class GenotypeAnnotationStore {
     ) throws -> GenotypeAnnotationPublicationPayload {
         let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
         let annotationData = try sidecar.encoded()
-        let priorInput = snapshot.annotationData.map {
-            provenanceDescriptor(data: $0, url: annotationURL, role: .input)
-        }
         let output = provenanceDescriptor(data: annotationData, url: annotationURL, role: .output)
-        let envelope = makeAnnotationProvenance(
+        let envelope = try makeAnnotationProvenance(
             sidecar: sidecar,
             action: action,
             annotationURL: annotationURL,
-            priorInput: priorInput,
+            priorData: snapshot.annotationData,
             output: output,
             editContext: editContext,
             startedAt: startedAt,
@@ -1059,29 +1163,42 @@ public final class GenotypeAnnotationStore {
         sidecar: GenotypeAnnotationSidecar,
         action: String,
         annotationURL: URL,
-        priorInput: ProvenanceFileDescriptor?,
+        priorData: Data?,
         output: ProvenanceFileDescriptor,
         editContext: ProvenanceEditContext?,
         startedAt: Date,
         endedAt: Date
-    ) -> ProvenanceEnvelope {
-        let argv = [
-            CLICommandIdentity.executableName,
-            "genotype",
-            "apply-annotations",
-            "--bundle", bundleURL.path,
-            "--patch", annotationURL.path,
-        ]
+    ) throws -> ProvenanceEnvelope {
+        let argv: [String] = []
         var explicitOptions: [String: ParameterValue] = [
             "bundle": .file(bundleURL),
             "annotationSidecar": .file(annotationURL),
-            "patch": .file(annotationURL),
             "action": .string(action),
+            "executionMode": .string("gui-edit"),
         ]
         if let editContext {
             explicitOptions.merge(editContext.explicitOptions) { _, payload in payload }
         }
-        let inputs = [priorInput].compactMap { $0 }
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        var inputs: [ProvenanceFileDescriptor] = []
+        if let priorData {
+            let checksum = sha256Hex(priorData)
+            explicitOptions["replayPriorSidecarBase64"] = .string(priorData.base64EncodedString())
+            inputs.append(ProvenanceFileDescriptor(
+                path: provenanceURL.path + "#/options/explicit/replayPriorSidecarBase64",
+                checksumSHA256: checksum,
+                fileSize: UInt64(priorData.count),
+                format: .json,
+                role: .input,
+                originPath: annotationURL.path
+            ))
+        }
+        if let replayPayload = editContext?.replayPayload {
+            let replayData = try replayPayload.encoded()
+            explicitOptions["replayFormat"] = .string(GenotypeMatrixAnnotationReplayPayload.format)
+            explicitOptions["replayPayloadBase64"] = .string(replayData.base64EncodedString())
+            explicitOptions["replayPayloadSHA256"] = .string(sha256Hex(replayData))
+        }
         let wallTime = max(0, endedAt.timeIntervalSince(startedAt))
         let resolvedAuthor = editContext?.resolvedAuthor ?? author
         var resolvedDefaults: [String: ParameterValue] = [
@@ -1102,6 +1219,7 @@ public final class GenotypeAnnotationStore {
             toolName: "Lungfish Genome Explorer",
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
+            reproducibleCommand: "",
             inputs: inputs,
             outputs: [output],
             exitStatus: 0,
@@ -1121,6 +1239,7 @@ public final class GenotypeAnnotationStore {
                 kind: "gui"
             ),
             argv: argv,
+            reproducibleCommand: "",
             options: ProvenanceOptions(
                 explicit: explicitOptions,
                 defaults: [
@@ -1168,6 +1287,7 @@ public final class GenotypeAnnotationStore {
         beforeValues: [String?],
         afterValues: [String?],
         author: String,
+        replayPayload: GenotypeMatrixAnnotationReplayPayload,
         extra: [String: ParameterValue] = [:]
     ) -> ProvenanceEditContext {
         var explicit: [String: ParameterValue] = [
@@ -1176,12 +1296,101 @@ public final class GenotypeAnnotationStore {
             "before": .array(beforeValues.map { $0.map(ParameterValue.string) ?? .null }),
             "after": .array(afterValues.map { $0.map(ParameterValue.string) ?? .null }),
             "resolvedAuthor": .string(author),
+            "targetMutations": .array(
+                replayPayload.targetMutations.map(matrixTargetMutationParameterValue)
+            ),
         ]
         explicit.merge(extra) { _, value in value }
         return ProvenanceEditContext(
             explicitOptions: explicit,
-            resolvedAuthor: author
+            resolvedAuthor: author,
+            replayPayload: replayPayload
         )
+    }
+
+    private func matrixTargetMutationParameterValue(
+        _ mutation: GenotypeMatrixAnnotationReplayPayload.TargetMutation
+    ) -> ParameterValue {
+        let finalValue: ParameterValue = {
+            if let review = mutation.afterReviews?.last {
+                return .string(review.disposition.rawValue)
+            }
+            if let comment = mutation.afterComments?.last {
+                return .string(comment.body)
+            }
+            return .null
+        }()
+        return .dictionary([
+            "target": matrixTargetParameterValue(mutation.target),
+            "before": .dictionary([
+                "comments": mutation.beforeComments.map {
+                    .array($0.map(matrixCommentParameterValue))
+                } ?? .null,
+                "reviews": mutation.beforeReviews.map {
+                    .array($0.map(matrixReviewParameterValue))
+                } ?? .null,
+            ]),
+            "legacyValues": mutation.beforeComments.map {
+                .array($0.map { .string($0.body) })
+            } ?? .null,
+            "resolvedCurrent": mutation.resolvedCurrentComment.map(
+                matrixCommentParameterValue
+            ) ?? .null,
+            "canonicalizationActions": .array(
+                mutation.canonicalizationAudits.map(matrixAuditParameterValue)
+            ),
+            "after": .dictionary([
+                "comments": mutation.afterComments.map {
+                    .array($0.map(matrixCommentParameterValue))
+                } ?? .null,
+                "reviews": mutation.afterReviews.map {
+                    .array($0.map(matrixReviewParameterValue))
+                } ?? .null,
+            ]),
+            "finalValue": finalValue,
+        ])
+    }
+
+    private func matrixCommentParameterValue(
+        _ comment: GenotypeAnnotationSidecar.MatrixComment
+    ) -> ParameterValue {
+        .dictionary([
+            "target": matrixTargetParameterValue(comment.target),
+            "body": .string(comment.body),
+            "author": .string(comment.author),
+            "timestamp": .string(comment.timestamp),
+        ])
+    }
+
+    private func matrixReviewParameterValue(
+        _ review: GenotypeAnnotationSidecar.MatrixReviewAnnotation
+    ) -> ParameterValue {
+        .dictionary([
+            "target": matrixTargetParameterValue(review.target),
+            "disposition": .string(review.disposition.rawValue),
+            "author": .string(review.author),
+            "timestamp": .string(review.timestamp),
+        ])
+    }
+
+    private func matrixAuditParameterValue(
+        _ audit: GenotypeAnnotationSidecar.AuditEntry
+    ) -> ParameterValue {
+        .dictionary([
+            "action": .string(audit.action),
+            "sample": .string(audit.sample),
+            "locus": audit.locus.map(ParameterValue.string) ?? .null,
+            "before": audit.before.map(ParameterValue.string) ?? .null,
+            "after": audit.after.map(ParameterValue.string) ?? .null,
+            "reason": audit.reason.map(ParameterValue.string) ?? .null,
+            "rationale": audit.rationale.map(ParameterValue.string) ?? .null,
+            "author": .string(audit.author),
+            "timestamp": .string(audit.timestamp),
+        ])
+    }
+
+    private func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func mhcCandidateDisplayEditContext(
