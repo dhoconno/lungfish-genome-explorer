@@ -676,8 +676,12 @@ print(json.dumps({
 
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         let before = try ProvenanceFileHasher.sha256(of: currentURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 7_000),
+            increment: -1
+        )
         let updated = try GenotypeWorkbookRevisionService(
-            dateProvider: { Date(timeIntervalSince1970: 7_000) },
+            dateProvider: clock.now,
             userProvider: { "tester" },
             pythonExecutableURL: testPythonExecutableURL
         ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
@@ -729,7 +733,25 @@ print(json.dumps({
         XCTAssertEqual(envelope.steps.last?.toolName, "lungfish-internal atomic workbook bundle exchange")
         XCTAssertEqual(envelope.output?.path, fixture.bundleURL.path)
         XCTAssertTrue(envelope.outputs.allSatisfy { $0.path.hasPrefix(fixture.bundleURL.path) })
-        XCTAssertGreaterThanOrEqual(envelope.wallTimeSeconds ?? -1, pythonStep.wallTimeSeconds ?? 0)
+        let workflowWallTime = try XCTUnwrap(envelope.wallTimeSeconds)
+        XCTAssertGreaterThanOrEqual(workflowWallTime, 0)
+        XCTAssertLessThan(workflowWallTime, 30, "Injected and live clocks must never be mixed")
+        let timedSteps = envelope.steps.filter {
+            $0.startedAt != nil && $0.completedAt != nil && $0.wallTimeSeconds != nil
+        }
+        for step in timedSteps {
+            let startedAt = try XCTUnwrap(step.startedAt)
+            let completedAt = try XCTUnwrap(step.completedAt)
+            let wallTime = try XCTUnwrap(step.wallTimeSeconds)
+            XCTAssertGreaterThanOrEqual(wallTime, 0)
+            XCTAssertEqual(
+                wallTime,
+                completedAt.timeIntervalSince(startedAt),
+                accuracy: 0.000_001
+            )
+        }
+        let timedStepTotal = timedSteps.compactMap(\.wallTimeSeconds).reduce(0, +)
+        XCTAssertGreaterThanOrEqual(workflowWallTime, timedStepTotal)
 
     }
 
@@ -2141,9 +2163,11 @@ wb.save(path)
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeMCMWorkbookBundle(in: root, outputName: "rollback-failure-recovery")
         let beforeManifest = fixture.manifest
+        let rollbackTimestamp = Date(timeIntervalSince1970: 6_500)
 
         XCTAssertThrowsError(
             try GenotypeWorkbookRevisionService(
+                dateProvider: { rollbackTimestamp },
                 pythonExecutableURL: testPythonExecutableURL,
                 publicationFailureInjector: { checkpoint in
                     if checkpoint == "post-exchange" {
@@ -2161,6 +2185,10 @@ wb.save(path)
             ".\(fixture.bundleURL.lastPathComponent).workbook-update-failure.json"
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: receiptURL.path))
+        let receiptProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: ProvenanceRecorder.fileSidecarURL(for: receiptURL)
+        ))
+        XCTAssertEqual(receiptProvenance.createdAt, rollbackTimestamp)
         let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL)
         let marker = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL)) as? [String: Any]
@@ -2927,51 +2955,77 @@ wb.save(path)
         XCTAssertEqual(inspection["hasManagedReviewStateSheet"], "false")
     }
 
-    func testMixedAwareAndNaiveReviewTimestampsResolveDeterministically() throws {
+    func testDuplicateExactReviewTargetsFailClosedInEitherOrder() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "mixed-timezones")
-        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
-        try installSemanticReviewMatrix(in: currentURL)
-        let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A",
             genotype: "Mamu-I*collision",
             sample: "Sample-FP",
             stableClusterID: "cluster-a"
         )
-        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
-        sidecar.matrixReviews = [
-            .init(
-                target: target,
-                disposition: .falseNegative,
-                author: "naive-import",
-                timestamp: "2026-07-24T10:00:00"
-            ),
-            .init(
-                target: target,
-                disposition: .falsePositive,
-                author: "aware-import",
-                timestamp: "2026-07-24T10:01:00Z"
-            ),
-        ]
-        try sidecar.encoded().write(to: annotationURL)
+        for (index, dispositions) in [
+            [
+                GenotypeAnnotationSidecar.MatrixReviewDisposition.falseNegative,
+                .falsePositive,
+            ],
+            [
+                GenotypeAnnotationSidecar.MatrixReviewDisposition.falsePositive,
+                .falseNegative,
+            ],
+        ].enumerated() {
+            let fixture = try makeGenericMatrixWorkbookBundle(
+                in: root,
+                outputName: "duplicate-review-order-\(index)"
+            )
+            let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+            try installSemanticReviewMatrix(in: currentURL)
+            let original = try inspectSemanticReviewWorkbook(currentURL)
+            let annotationURL = fixture.bundleURL.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            )
+            var sidecar = GenotypeAnnotationSidecar.empty(
+                generatedAt: "2026-07-24T00:00:00Z"
+            )
+            sidecar.matrixReviews = dispositions.enumerated().map { offset, disposition in
+                .init(
+                    target: target,
+                    disposition: disposition,
+                    author: "import-\(offset)",
+                    timestamp: offset == 0
+                        ? "2026-07-24T10:00:00"
+                        : "2026-07-24T10:01:00Z"
+                )
+            }
+            try sidecar.encoded().write(to: annotationURL)
 
-        _ = try GenotypeWorkbookRevisionService(
-            dateProvider: { Date(timeIntervalSince1970: 8_035) },
-            userProvider: { "tester" },
-            pythonExecutableURL: testPythonExecutableURL
-        ).applyHaplotypeOverrides(
-            [],
-            annotationSidecarURL: annotationURL,
-            into: fixture.bundleURL
-        )
+            _ = try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_035) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
 
-        let inspection = try inspectSemanticReviewWorkbook(currentURL)
-        XCTAssertEqual(inspection["falsePositiveValue"], "[42]")
-        XCTAssertEqual(inspection["falsePositiveItalic"], "true")
-        XCTAssertTrue(inspection["validReviewRow"]?.contains("|falsePositive|valid|") == true)
+            let inspection = try inspectSemanticReviewWorkbook(currentURL)
+            XCTAssertEqual(inspection["falsePositiveValue"], "42")
+            XCTAssertEqual(inspection["falsePositiveItalic"], "false")
+            XCTAssertEqual(inspection["falsePositiveColor"], original["falsePositiveColor"])
+            XCTAssertEqual(
+                inspection["falsePositiveBorders"],
+                original["falsePositiveBorders"]
+            )
+            XCTAssertEqual(inspection["conflictingReviewRows"], "2")
+            XCTAssertEqual(inspection["conflictingAuditRows"], "2")
+            XCTAssertTrue(
+                inspection["conflictingReviewReasons"]?.contains(
+                    "Conflicting duplicate review records target the same projection cell."
+                ) == true
+            )
+        }
     }
 
     func testReviewBecomingInvalidRestoresPriorManagedPresentation() throws {
@@ -3912,12 +3966,18 @@ invalid_review = next((
 invalid_audit = next(("|".join(row) for row in audits if "cluster-c" in row and "invalid" in row), "")
 comment_identity = next(("|".join(row) for row in annotations if row and row[0] == "comment" and "cluster-a" in row), "")
 resolved_cell_comments = sum(1 for row in annotations if row and row[0] == "comment" and "cluster-a" in row and "Sample-FP" in row)
+def has_duplicate_review_conflict(row):
+    return any(
+        "Conflicting duplicate review records" in value
+        for value in row
+    )
 
 payload = {
     "falsePositiveValue": text(ws["D7"].value),
     "falsePositiveItalic": str(bool(ws["D7"].font.italic)).lower(),
     "falsePositiveBold": str(bool(ws["D7"].font.bold)).lower(),
     "falsePositiveColor": color_suffix(ws["D7"].font.color),
+    "falsePositiveBorders": borders(ws["D7"]),
     "explicitZeroValue": text(ws["E7"].value),
     "explicitZeroType": text(ws["E7"].data_type),
     "explicitZeroBorders": borders(ws["E7"]),
@@ -3936,6 +3996,21 @@ payload = {
     "invalidAuditRow": invalid_audit,
     "commentIdentityRow": comment_identity,
     "resolvedCellCommentRows": str(resolved_cell_comments),
+    "conflictingReviewRows": str(sum(
+        1 for row in annotations
+        if "cluster-a" in row and "invalid" in row
+        and has_duplicate_review_conflict(row)
+    )),
+    "conflictingAuditRows": str(sum(
+        1 for row in audits
+        if "cluster-a" in row and "invalid" in row
+        and has_duplicate_review_conflict(row)
+    )),
+    "conflictingReviewReasons": "||".join(
+        "|".join(row) for row in annotations
+        if "cluster-a" in row and "invalid" in row
+        and has_duplicate_review_conflict(row)
+    ),
     "hasMatrixAnnotationsSheet": str("Matrix Annotations" in wb.sheetnames).lower(),
     "hasManagedReviewStateSheet": str("_LGE Matrix Review State" in wb.sheetnames).lower(),
 }
@@ -4917,4 +4992,22 @@ private final class SendableFlagBox: @unchecked Sendable {
 
     var value: UInt32? { lock.withLock { stored } }
     func set(_ value: UInt32) { lock.withLock { stored = value } }
+}
+
+private final class IncrementingDateProvider: @unchecked Sendable {
+    private let lock = NSLock()
+    private var nextDate: Date
+    private let increment: TimeInterval
+
+    init(start: Date, increment: TimeInterval) {
+        self.nextDate = start
+        self.increment = increment
+    }
+
+    func now() -> Date {
+        lock.withLock {
+            defer { nextDate = nextDate.addingTimeInterval(increment) }
+            return nextDate
+        }
+    }
 }

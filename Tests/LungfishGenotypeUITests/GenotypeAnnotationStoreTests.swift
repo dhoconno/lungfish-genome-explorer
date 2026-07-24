@@ -63,6 +63,98 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(store.sidecar.matrixReviews.map(\.target), [target])
     }
 
+    func testSemanticMatrixMutationPromotesPersistedSchemaVersionOneSidecar() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        var schemaVersionOne = seeded.sidecar
+        schemaVersionOne.schemaVersion = 1
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        try schemaVersionOne.encoded().write(to: annotationURL, options: .atomic)
+
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "reviewer")
+        XCTAssertEqual(store.sidecar.schemaVersion, 1)
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*001:01",
+            sample: "Animal-1",
+            stableClusterID: "cluster-1"
+        )
+
+        try store.setMatrixReviewSynchronously(
+            .falsePositive,
+            targets: [target],
+            evidence: .init([target: 8]),
+            author: "reviewer"
+        )
+
+        XCTAssertEqual(
+            store.sidecar.schemaVersion,
+            GenotypeAnnotationSidecar.currentSchemaVersion
+        )
+        XCTAssertEqual(
+            try GenotypeAnnotationSidecar.decode(Data(contentsOf: annotationURL)).schemaVersion,
+            GenotypeAnnotationSidecar.currentSchemaVersion
+        )
+    }
+
+    func testSemanticMatrixReplayPromotesRealSchemaVersionOneInput() throws {
+        var prior = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-24T00:00:00Z"
+        )
+        prior.schemaVersion = 1
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*001:01",
+            sample: "Animal-1",
+            stableClusterID: "cluster-1"
+        )
+        let review = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
+            target: target,
+            disposition: .falsePositive,
+            author: "reviewer",
+            timestamp: "2026-07-24T00:01:00Z"
+        )
+        let audit = GenotypeAnnotationSidecar.AuditEntry(
+            action: "setMatrixReview",
+            sample: target.auditSample,
+            locus: target.locus,
+            slot: nil,
+            before: nil,
+            after: GenotypeAnnotationSidecar.MatrixReviewDisposition.falsePositive.rawValue,
+            color: nil,
+            reason: "matrix-review",
+            rationale: target.stableAuditDescription,
+            author: "reviewer",
+            timestamp: "2026-07-24T00:01:00Z"
+        )
+        let replay = GenotypeMatrixAnnotationReplayPayload(
+            action: .setMatrixReview,
+            author: "reviewer",
+            timestamp: "2026-07-24T00:01:00Z",
+            targetMutations: [
+                .init(
+                    target: target,
+                    beforeComments: nil,
+                    resolvedCurrentComment: nil,
+                    afterComments: nil,
+                    beforeReviews: [],
+                    afterReviews: [review],
+                    canonicalizationAudits: [],
+                    actionAudit: audit
+                )
+            ]
+        )
+
+        let replayed = try replay.applying(to: prior)
+
+        XCTAssertEqual(
+            replayed.schemaVersion,
+            GenotypeAnnotationSidecar.currentSchemaVersion
+        )
+        XCTAssertEqual(replayed.matrixReviews, [review])
+    }
+
     private func makeBundleURL() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
@@ -913,6 +1005,95 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(
             envelope.outputs.first?.fileSize,
             try ProvenanceFileHasher.fileSize(of: annotationURL)
+        )
+    }
+
+    func testBulkSemanticMutationsExamineExistingCollectionsInBoundedPasses() async throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        let targets = (0..<240).map { index in
+            GenotypeAnnotationSidecar.MatrixTarget.cell(
+                locus: "MHC-A1",
+                genotype: "Allele-\(index)",
+                sample: "Animal-\(index)",
+                stableClusterID: "cluster-\(index)"
+            )
+        }
+        let selected = Array(targets.prefix(120))
+        var legacy = seeded.sidecar
+        legacy.matrixReviews = targets.map {
+            .init(
+                target: $0,
+                disposition: .falsePositive,
+                author: "legacy",
+                timestamp: "2025-01-01T00:00:00Z"
+            )
+        }
+        legacy.matrixComments = targets.flatMap { target in
+            [
+                .init(
+                    target: target,
+                    body: "older \(target.auditSample)",
+                    author: "legacy",
+                    timestamp: "2025-01-01T00:00:00Z"
+                ),
+                .init(
+                    target: target,
+                    body: "newer \(target.auditSample)",
+                    author: "legacy",
+                    timestamp: "2025-02-01T00:00:00Z"
+                ),
+            ]
+        }
+        let annotationURL = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        try legacy.encoded().write(to: annotationURL, options: .atomic)
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "reviewer")
+
+        try await store.setMatrixReview(
+            .falsePositive,
+            targets: selected + selected,
+            evidence: .init(Dictionary(uniqueKeysWithValues: selected.map { ($0, 7) })),
+            author: "reviewer"
+        )
+
+        XCTAssertEqual(store.lastMatrixBulkMutationDiagnostics.reviewRecordsExamined, 240)
+        XCTAssertEqual(store.sidecar.matrixReviews.count, 240)
+        XCTAssertEqual(Array(store.sidecar.matrixReviews.suffix(120)).map(\.target), selected)
+
+        let commentsBefore = store.sidecar.matrixComments.count
+        let auditsBefore = store.sidecar.auditLog.count
+        try await store.upsertMatrixComment(
+            body: "reviewed",
+            targets: selected + selected,
+            author: "reviewer"
+        )
+
+        let diagnostics = store.lastMatrixBulkMutationDiagnostics
+        XCTAssertLessThanOrEqual(diagnostics.commentRecordsExamined, commentsBefore * 2)
+        XCTAssertEqual(diagnostics.auditRecordsExamined, auditsBefore)
+        XCTAssertEqual(store.sidecar.matrixComments.count, 360)
+        XCTAssertEqual(Array(store.sidecar.matrixComments.suffix(120)).map(\.target), selected)
+
+        try await store.clearMatrixReview(targets: selected + selected, author: "reviewer")
+
+        XCTAssertEqual(store.lastMatrixBulkMutationDiagnostics.reviewRecordsExamined, 240)
+        XCTAssertEqual(store.sidecar.matrixReviews.map(\.target), Array(targets.dropFirst(120)))
+
+        let commentsBeforeRemove = store.sidecar.matrixComments.count
+        let auditsBeforeRemove = store.sidecar.auditLog.count
+        try await store.removeMatrixComments(targets: selected + selected, author: "reviewer")
+
+        let removeDiagnostics = store.lastMatrixBulkMutationDiagnostics
+        XCTAssertLessThanOrEqual(
+            removeDiagnostics.commentRecordsExamined,
+            commentsBeforeRemove * 2
+        )
+        XCTAssertEqual(removeDiagnostics.auditRecordsExamined, auditsBeforeRemove)
+        XCTAssertEqual(store.sidecar.matrixComments.count, 240)
+        XCTAssertEqual(
+            store.sidecar.matrixComments.map(\.target),
+            targets.dropFirst(120).flatMap { [$0, $0] }
         )
     }
 

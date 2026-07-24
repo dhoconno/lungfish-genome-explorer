@@ -83,6 +83,44 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(matrix.testingVisibleRows.first?.support(for: "AnimalA")?.passedUniqueReads, 42)
     }
 
+    func testStableCandidateRowDoesNotInheritLegacyStableIDLessReview() {
+        let genotype = "Collision_nov"
+        let result = makeCandidateResult(
+            calls: [],
+            candidates: [
+                makeCandidate(
+                    id: "cluster-a",
+                    name: genotype,
+                    classification: .novel,
+                    support: .singleton,
+                    samples: ["AnimalA"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(cluster: "cluster-a", sample: "AnimalA", reads: 7),
+            ]
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A1",
+                    genotype: genotype,
+                    sample: "AnimalA",
+                    stableClusterID: nil
+                ),
+                disposition: .falsePositive,
+                author: "legacy",
+                timestamp: "2026-07-24T00:00:01Z"
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+
+        matrix.configure(result: result, sidecar: sidecar)
+
+        XCTAssertEqual(matrix.testingCellValue(genotype: genotype, sample: "AnimalA"), "7")
+    }
+
     func testMatrixFalseNegativeKeepsExplicitZeroAndUsesEmDashOnlyForAbsentSupport() {
         let genotype = "01_Mafa_A1_FALSE_NEGATIVE"
         let zero = makeCall(sample: "AnimalA", genotype: genotype, reads: 0)

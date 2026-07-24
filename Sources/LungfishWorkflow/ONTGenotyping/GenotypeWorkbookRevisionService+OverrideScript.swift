@@ -895,6 +895,10 @@ def review_display_value(value, number):
 
 
 def validate_matrix_reviews():
+    review_count_by_target = {}
+    for entry in matrix_reviews:
+        key = matrix_target_key(entry.get("target") or {})
+        review_count_by_target[key] = review_count_by_target.get(key, 0) + 1
     current_ids = {id(entry) for entry in resolve_current_annotations(matrix_reviews)}
     sample_names = known_matrix_samples()
     worksheets = [
@@ -908,6 +912,12 @@ def validate_matrix_reviews():
         target = entry.get("target") or {}
         kind, _locus, genotype, sample, _stable_id = matrix_target_parts(target)
         result = {"entry": entry, "status": "invalid", "reason": "", "destinations": []}
+        if review_count_by_target.get(matrix_target_key(target), 0) > 1:
+            result["reason"] = (
+                "Conflicting duplicate review records target the same projection cell."
+            )
+            results.append(result)
+            continue
         if id(entry) not in current_ids:
             result["reason"] = "Superseded by the current review for this exact target."
             results.append(result)

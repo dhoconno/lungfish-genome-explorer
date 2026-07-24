@@ -625,7 +625,7 @@ public struct GenotypeWorkbookRevisionService {
         }
         removeStageOnExit = false
 
-        let publicationStartedAt = Date()
+        let publicationStartedAt = dateProvider()
         try ONTGenotypeWorkbookUpdateRecovery.validatePreparedDirectoryIdentitiesAssumingLock(
             workbookTransaction,
             for: bundle
@@ -651,7 +651,10 @@ public struct GenotypeWorkbookRevisionService {
             )
         }
         try syncDirectory(bundle.deletingLastPathComponent())
-        let publicationCompletedAt = Date()
+        let publicationCompletedAt = nondecreasingCompletion(
+            dateProvider(),
+            after: publicationStartedAt
+        )
         do {
             try publicationFailureInjector?("after-exchange-hard-stop")
         } catch {
@@ -938,7 +941,7 @@ public struct GenotypeWorkbookRevisionService {
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
-        let startedAt = Date()
+        let startedAt = dateProvider()
         try process.run()
         var cancelled = false
         while process.isRunning {
@@ -950,8 +953,8 @@ public struct GenotypeWorkbookRevisionService {
             Darwin.usleep(50_000)
         }
         process.waitUntilExit()
-        let completedAt = Date()
-        let wallTime = completedAt.timeIntervalSince(startedAt)
+        let completedAt = nondecreasingCompletion(dateProvider(), after: startedAt)
+        let wallTime = nonnegativeDuration(from: startedAt, to: completedAt)
         let out = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let err = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         if cancelled { throw CancellationError() }
@@ -1530,7 +1533,7 @@ public struct GenotypeWorkbookRevisionService {
         additionalProvenanceSteps: [ProvenanceStep] = [],
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
     ) throws {
-        let completedAt = dateProvider()
+        let completedAt = nondecreasingCompletion(dateProvider(), after: startedAt)
         let inputURLs = ([sourceWorkbookURL, previousCurrentURL, importedSourceURL].compactMap { $0 } + additionalInputURLs)
         let outputURLs = [snapshotURL, newCurrentURL, manifestURL].compactMap { $0 }
         let inputs = try inputURLs.map { try ProvenanceFileDescriptor.file(url: $0, role: .input) }
@@ -1585,10 +1588,10 @@ public struct GenotypeWorkbookRevisionService {
                     inputs: inputs,
                     outputs: outputs,
                     exitStatus: 0,
-                    wallTimeSeconds: completedAt.timeIntervalSince(startedAt)
+                    wallTimeSeconds: nonnegativeDuration(from: startedAt, to: completedAt)
                 )
             ],
-            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            wallTimeSeconds: nonnegativeDuration(from: startedAt, to: completedAt),
             exitStatus: 0
         )
         try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
@@ -1700,10 +1703,11 @@ public struct GenotypeWorkbookRevisionService {
         let priorPath = fileManager.fileExists(atPath: priorBundleURL.path) ? priorBundleURL.path : nil
         let failedPath = fileManager.fileExists(atPath: liveBundleURL.path) ? liveBundleURL.path : nil
         let receiptURL = workbookRollbackFailureReceiptURL(for: liveBundleURL)
+        let receiptCreatedAt = dateProvider()
         let receipt = WorkbookRollbackFailureReceipt(
             schemaVersion: 1,
             workflow: "update-current-workbook rollback recovery",
-            createdAt: Date(),
+            createdAt: receiptCreatedAt,
             argv: [
                 "lungfish-internal", "recover-workbook-update",
                 "--bundle", liveBundleURL.path,
@@ -1721,6 +1725,7 @@ public struct GenotypeWorkbookRevisionService {
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: receiptURL)
         let failureText = "\(originalError.localizedDescription); rollback: \(receipt.rollbackError)"
         let envelope = ProvenanceEnvelope(
+            createdAt: receiptCreatedAt,
             workflowName: "Genotype Workbook Rollback Recovery",
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: "Lungfish.app",
@@ -2642,6 +2647,10 @@ public struct GenotypeWorkbookRevisionService {
         case .journaledThreeRename:
             ("lungfish-internal ExFAT journaled three-rename workbook rotation v2", "exfat-journaled-three-rename-v2")
         }
+        let normalizedPublicationCompletedAt = nondecreasingCompletion(
+            publicationCompletedAt,
+            after: publicationStartedAt
+        )
         let publicationStep = ProvenanceStep(
             toolName: mechanismFields.toolName,
             toolVersion: WorkflowRun.currentAppVersion,
@@ -2651,11 +2660,17 @@ public struct GenotypeWorkbookRevisionService {
             ],
             outputs: outputs,
             exitStatus: 0,
-            wallTimeSeconds: publicationCompletedAt.timeIntervalSince(publicationStartedAt),
+            wallTimeSeconds: nonnegativeDuration(
+                from: publicationStartedAt,
+                to: normalizedPublicationCompletedAt
+            ),
             startedAt: publicationStartedAt,
-            completedAt: publicationCompletedAt
+            completedAt: normalizedPublicationCompletedAt
         )
-        let completedAt = Date()
+        let completedAt = nondecreasingCompletion(
+            dateProvider(),
+            after: max(workflowStartedAt, normalizedPublicationCompletedAt)
+        )
         let updated = ProvenanceEnvelope(
             schemaVersion: envelope.schemaVersion,
             id: envelope.id,
@@ -2675,13 +2690,21 @@ public struct GenotypeWorkbookRevisionService {
             output: envelope.output,
             outputs: envelope.outputs,
             steps: envelope.steps + [publicationStep],
-            wallTimeSeconds: completedAt.timeIntervalSince(workflowStartedAt),
+            wallTimeSeconds: nonnegativeDuration(from: workflowStartedAt, to: completedAt),
             exitStatus: envelope.exitStatus,
             stderr: envelope.stderr,
             signatures: envelope.signatures,
             legacyWorkflowRun: envelope.legacyRun
         )
         try ProvenanceWriter(signingProvider: nil).write(updated, toSidecar: provenanceURL)
+    }
+
+    private func nondecreasingCompletion(_ candidate: Date, after startedAt: Date) -> Date {
+        max(candidate, startedAt)
+    }
+
+    private func nonnegativeDuration(from startedAt: Date, to completedAt: Date) -> TimeInterval {
+        max(0, completedAt.timeIntervalSince(startedAt))
     }
 
     private func syncFile(_ url: URL) throws {

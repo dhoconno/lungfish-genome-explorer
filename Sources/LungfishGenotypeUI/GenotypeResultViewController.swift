@@ -1414,12 +1414,8 @@ public final class GenotypeResultViewController: NSViewController {
     private func uniqueMatrixTargets(
         _ targets: [GenotypeAnnotationSidecar.MatrixTarget]
     ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
-        var unique: [GenotypeAnnotationSidecar.MatrixTarget] = []
-        unique.reserveCapacity(targets.count)
-        for target in targets where !unique.contains(target) {
-            unique.append(target)
-        }
-        return unique
+        var seen: Set<GenotypeAnnotationSidecar.MatrixTarget> = []
+        return targets.filter { seen.insert($0).inserted }
     }
 
     private func matrixStyleTargetsToClear(
