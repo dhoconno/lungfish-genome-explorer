@@ -292,6 +292,22 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         XCTAssertTrue(track.parsingIssue?.contains("10000-operation display limit") == true)
     }
 
+    func testConstraintSnapshotTreatsEquivalentConstraintReplacementAsStable() {
+        let container = NSView()
+        let child = NSView()
+        container.addSubview(child)
+        let first = child.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12)
+        let replacement = child.leadingAnchor.constraint(
+            equalTo: container.leadingAnchor,
+            constant: 12
+        )
+
+        XCTAssertEqual(
+            constraintSnapshot([replacement]),
+            constraintSnapshot([first])
+        )
+    }
+
     func testOneHundredReconfigurationsAndModeSwitchesKeepHierarchyAndConstraintsBounded() throws {
         let view = makeView()
         let candidate = makeCandidate()
@@ -312,7 +328,7 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         view.layoutSubtreeIfNeeded()
         let descendantCount = descendants(of: view).count
         let activeConstraintCount = activeConstraints(in: view).count
-        let activeConstraintIDs = Set(activeConstraints(in: view).map(ObjectIdentifier.init))
+        let activeConstraintSnapshot = constraintSnapshot(activeConstraints(in: view))
 
         for index in 0..<100 {
             try modeButton(index.isMultiple(of: 2) ? "candidateModeGenBank" : "candidateModeFASTA", in: view)
@@ -330,7 +346,10 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
 
         XCTAssertEqual(descendants(of: view).count, descendantCount)
         XCTAssertEqual(activeConstraints(in: view).count, activeConstraintCount)
-        XCTAssertEqual(Set(activeConstraints(in: view).map(ObjectIdentifier.init)), activeConstraintIDs)
+        XCTAssertEqual(
+            constraintSnapshot(activeConstraints(in: view)),
+            activeConstraintSnapshot
+        )
         XCTAssertEqual(view.currentMode, .overview)
         XCTAssertEqual(view.differenceTrackConfigurationCount, 1)
         XCTAssertEqual(view.fastaFormattingCount, 1)
@@ -534,7 +553,8 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         assertCandidateFactsAndCommentsAreVisible(in: view)
 
         let descendantCount = descendants(of: view).count
-        let activeConstraintIDs = Set(activeConstraints(in: view).map(ObjectIdentifier.init))
+        let activeConstraintCount = activeConstraints(in: view).count
+        let activeConstraintSnapshot = constraintSnapshot(activeConstraints(in: view))
         for _ in 0..<100 {
             view.configure(
                 candidate: candidate,
@@ -547,7 +567,11 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
             )
         }
         XCTAssertEqual(descendants(of: view).count, descendantCount)
-        XCTAssertEqual(Set(activeConstraints(in: view).map(ObjectIdentifier.init)), activeConstraintIDs)
+        XCTAssertEqual(activeConstraints(in: view).count, activeConstraintCount)
+        XCTAssertEqual(
+            constraintSnapshot(activeConstraints(in: view)),
+            activeConstraintSnapshot
+        )
 
         let visible = visibleText(in: view)
         XCTAssertFalse(visible.contains("unmatched-to-reference.bam"))
@@ -668,6 +692,37 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
 
     private func activeConstraints(in root: NSView) -> [NSLayoutConstraint] {
         ([root] + descendants(of: root)).flatMap(\.constraints).filter(\.isActive)
+    }
+
+    private struct ConstraintSignature: Hashable {
+        let firstItem: ObjectIdentifier?
+        let firstAttribute: Int
+        let relation: Int
+        let secondItem: ObjectIdentifier?
+        let secondAttribute: Int
+        let multiplier: CGFloat
+        let constant: CGFloat
+        let priority: Float
+        let identifier: String?
+    }
+
+    private func constraintSnapshot(
+        _ constraints: [NSLayoutConstraint]
+    ) -> [ConstraintSignature: Int] {
+        Dictionary(constraints.map { constraint in
+            let signature = ConstraintSignature(
+                firstItem: constraint.firstItem.map { ObjectIdentifier($0 as AnyObject) },
+                firstAttribute: constraint.firstAttribute.rawValue,
+                relation: constraint.relation.rawValue,
+                secondItem: constraint.secondItem.map { ObjectIdentifier($0 as AnyObject) },
+                secondAttribute: constraint.secondAttribute.rawValue,
+                multiplier: constraint.multiplier,
+                constant: constraint.constant,
+                priority: constraint.priority.rawValue,
+                identifier: constraint.identifier
+            )
+            return (signature, 1)
+        }, uniquingKeysWith: +)
     }
 
     private func text(_ identifier: String, in root: NSView) -> String? {
