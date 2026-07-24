@@ -915,6 +915,51 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["unsupportedCount"], .integer(2))
     }
 
+    func testResolvedAnalystIdentityIsCapturedByEachFutureMatrixEdit() async throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let settings = AppSettings.shared
+        let originalOverride = settings.analystIdentityOverride
+        defer { settings.analystIdentityOverride = originalOverride }
+
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "construction-author")
+        let firstTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*001:01",
+            sample: "Animal-1",
+            stableClusterID: "cluster-1"
+        )
+        let secondTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*001:02",
+            sample: "Animal-2",
+            stableClusterID: "cluster-2"
+        )
+
+        settings.analystIdentityOverride = "  First analyst  "
+        try await store.upsertMatrixComment(
+            body: "first note",
+            targets: [firstTarget],
+            author: settings.resolvedAnalystIdentity(fallback: "fallback analyst")
+        )
+
+        settings.analystIdentityOverride = "Second analyst"
+        try await store.upsertMatrixComment(
+            body: "second note",
+            targets: [secondTarget],
+            author: settings.resolvedAnalystIdentity(fallback: "fallback analyst")
+        )
+
+        XCTAssertEqual(
+            Dictionary(uniqueKeysWithValues: store.sidecar.matrixComments.map { ($0.target, $0.author) }),
+            [firstTarget: "First analyst", secondTarget: "Second analyst"]
+        )
+        XCTAssertEqual(
+            store.sidecar.auditLog.filter { $0.action == "upsertMatrixComment" }.map(\.author),
+            ["First analyst", "Second analyst"]
+        )
+    }
+
     func testMixedEvidenceRejectsEntireMutation() async throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }

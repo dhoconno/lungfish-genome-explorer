@@ -24,6 +24,7 @@ import LungfishKit
 /// Uses fixed-width text controls at the top of the panel for tab switching.
 public struct InspectorView: View {
     @Bindable var viewModel: InspectorViewModel
+    @State private var settings = AppSettings.shared
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -126,7 +127,13 @@ public struct InspectorView: View {
             }
 
         case .annotations:
-            GenotypeMatrixAnnotationSection(viewModel: viewModel.genotypeResultDisplaySectionViewModel)
+            VStack(alignment: .leading, spacing: 12) {
+                GenotypeAnnotationIdentitySection(
+                    analystIdentity: settings.resolvedAnalystIdentity(),
+                    openSettings: { SettingsNavigationState.shared.open(.general) }
+                )
+                GenotypeMatrixAnnotationSection(viewModel: viewModel.genotypeResultDisplaySectionViewModel)
+            }
 
         case .view:
             InspectorReadStyleSection(viewModel: viewModel)
@@ -152,6 +159,24 @@ public struct InspectorView: View {
 
         case .ai:
             EmptyView()
+        }
+    }
+}
+
+private struct GenotypeAnnotationIdentitySection: View {
+    let analystIdentity: String
+    let openSettings: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Saving as: \(analystIdentity)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(InspectorAccessibilityID.analystIdentityLabel)
+            Spacer(minLength: 0)
+            Button("Settings", action: openSettings)
+                .controlSize(.small)
+                .accessibilityIdentifier(InspectorAccessibilityID.analystIdentitySettingsButton)
         }
     }
 }

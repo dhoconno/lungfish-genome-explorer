@@ -86,6 +86,17 @@ public final class AppSettings {
     /// Optional public key path used by verification workflows and audit handoff.
     public var provenanceSigningPublicKeyPath: String = ""
 
+    /// Optional display name recorded as the author of future analyst edits.
+    public var analystIdentityOverride: String = ""
+
+    /// Returns the trimmed analyst identity override, or the supplied operating-system fallback.
+    public func resolvedAnalystIdentity(
+        fallback: @autoclosure () -> String = NSUserName()
+    ) -> String {
+        let override = analystIdentityOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+        return override.isEmpty ? fallback() : override
+    }
+
     // MARK: - Appearance
 
     /// Nucleotide base color configuration (persisted as hex strings).
@@ -303,6 +314,7 @@ public final class AppSettings {
         var tempFileRetentionHours: Int
         var provenanceSigningProvider: String
         var provenanceSigningPublicKeyPath: String
+        var analystIdentityOverride: String
         // Appearance
         var sequenceAppearance: SequenceAppearance
         var annotationTypeColorHexes: [String: String]
@@ -339,6 +351,7 @@ public final class AppSettings {
             tempFileRetentionHours: Int,
             provenanceSigningProvider: String,
             provenanceSigningPublicKeyPath: String,
+            analystIdentityOverride: String,
             sequenceAppearance: SequenceAppearance,
             annotationTypeColorHexes: [String: String],
             variantColorThemeName: String,
@@ -370,6 +383,7 @@ public final class AppSettings {
             self.tempFileRetentionHours = tempFileRetentionHours
             self.provenanceSigningProvider = provenanceSigningProvider
             self.provenanceSigningPublicKeyPath = provenanceSigningPublicKeyPath
+            self.analystIdentityOverride = analystIdentityOverride
             self.sequenceAppearance = sequenceAppearance
             self.annotationTypeColorHexes = annotationTypeColorHexes
             self.variantColorThemeName = variantColorThemeName
@@ -405,6 +419,7 @@ public final class AppSettings {
             tempFileRetentionHours = try container.decodeIfPresent(Int.self, forKey: .tempFileRetentionHours) ?? 24
             provenanceSigningProvider = try container.decodeIfPresent(String.self, forKey: .provenanceSigningProvider) ?? "off"
             provenanceSigningPublicKeyPath = try container.decodeIfPresent(String.self, forKey: .provenanceSigningPublicKeyPath) ?? ""
+            analystIdentityOverride = try container.decodeIfPresent(String.self, forKey: .analystIdentityOverride) ?? ""
             // Appearance
             sequenceAppearance = try container.decodeIfPresent(SequenceAppearance.self, forKey: .sequenceAppearance) ?? .default
             annotationTypeColorHexes = try container.decodeIfPresent([String: String].self, forKey: .annotationTypeColorHexes) ?? [
@@ -502,6 +517,7 @@ public final class AppSettings {
             tempFileRetentionHours: Self.clamp(tempFileRetentionHours, to: Self.tempRetentionHoursBounds),
             provenanceSigningProvider: Self.normalizedProvenanceSigningProvider(provenanceSigningProvider),
             provenanceSigningPublicKeyPath: provenanceSigningPublicKeyPath.trimmingCharacters(in: .whitespacesAndNewlines),
+            analystIdentityOverride: analystIdentityOverride.trimmingCharacters(in: .whitespacesAndNewlines),
             sequenceAppearance: sequenceAppearance,
             annotationTypeColorHexes: annotationTypeColorHexes,
             variantColorThemeName: Self.normalizedVariantThemeName(variantColorThemeName),
@@ -536,6 +552,7 @@ public final class AppSettings {
         tempFileRetentionHours = Self.clamp(snapshot.tempFileRetentionHours, to: Self.tempRetentionHoursBounds)
         provenanceSigningProvider = Self.normalizedProvenanceSigningProvider(snapshot.provenanceSigningProvider)
         provenanceSigningPublicKeyPath = snapshot.provenanceSigningPublicKeyPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        analystIdentityOverride = snapshot.analystIdentityOverride.trimmingCharacters(in: .whitespacesAndNewlines)
         sequenceAppearance = snapshot.sequenceAppearance
         annotationTypeColorHexes = snapshot.annotationTypeColorHexes
         variantColorThemeName = Self.normalizedVariantThemeName(snapshot.variantColorThemeName)
@@ -567,7 +584,9 @@ public final class AppSettings {
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
-            let data = try encoder.encode(makeSnapshot())
+            let snapshot = makeSnapshot()
+            analystIdentityOverride = snapshot.analystIdentityOverride
+            let data = try encoder.encode(snapshot)
             UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
             settingsLogger.info("Settings saved")
         } catch {
@@ -621,6 +640,7 @@ public final class AppSettings {
             tempFileRetentionHours = fresh.tempFileRetentionHours
             provenanceSigningProvider = fresh.provenanceSigningProvider
             provenanceSigningPublicKeyPath = fresh.provenanceSigningPublicKeyPath
+            analystIdentityOverride = fresh.analystIdentityOverride
         case .appearance:
             sequenceAppearance = fresh.sequenceAppearance
             annotationTypeColorHexes = fresh.annotationTypeColorHexes

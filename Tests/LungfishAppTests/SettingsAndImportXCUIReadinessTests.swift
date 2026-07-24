@@ -16,6 +16,9 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertEqual(SettingsAccessibilityID.aiOpenAIKeyField, "settings-ai-openai-key-field")
         XCTAssertEqual(SettingsAccessibilityID.aiClearKeysButton, "settings-ai-clear-keys-button")
         XCTAssertEqual(SettingsAccessibilityID.experimentalFeaturesToggle, "settings-advanced-experimental-features-toggle")
+        XCTAssertEqual(SettingsAccessibilityID.analystIdentityField, "settings-general-analyst-identity-field")
+        XCTAssertEqual(InspectorAccessibilityID.analystIdentityLabel, "genotype-annotation-analyst-identity-label")
+        XCTAssertEqual(InspectorAccessibilityID.analystIdentitySettingsButton, "genotype-annotation-analyst-identity-settings-button")
     }
 
     func testImportCenterAccessibilityIdentifierCatalogIsStable() {
@@ -127,6 +130,35 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("SettingsAccessibilityID.panel(.advanced)"))
         XCTAssertTrue(advancedSource.contains("SettingsAccessibilityID.experimentalFeaturesToggle"))
         XCTAssertTrue(advancedSource.contains("settings.experimentalFeaturesEnabled"))
+    }
+
+    func testAnalystIdentitySettingsAndInspectorUseStableIdentifiersAndResolvedAuthors() throws {
+        let root = repositoryRoot()
+        let generalSettingsSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Settings/GeneralSettingsTab.swift"),
+            encoding: .utf8
+        )
+        let inspectorSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorView.swift"),
+            encoding: .utf8
+        )
+        let inspectorControllerSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift"),
+            encoding: .utf8
+        )
+        let genotypeControllerSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultViewController.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(generalSettingsSource.contains("SettingsAccessibilityID.analystIdentityField"))
+        XCTAssertTrue(generalSettingsSource.contains("settings.analystIdentityOverride"))
+        XCTAssertTrue(inspectorSource.contains("InspectorAccessibilityID.analystIdentityLabel"))
+        XCTAssertTrue(inspectorSource.contains("InspectorAccessibilityID.analystIdentitySettingsButton"))
+        XCTAssertTrue(inspectorControllerSource.contains("resolvedAnalystIdentity()"))
+        XCTAssertTrue(genotypeControllerSource.contains("annotationAuthorProvider"))
+        XCTAssertFalse(genotypeControllerSource.contains("NSUserName()"))
+        XCTAssertFalse(inspectorControllerSource.contains("NSUserName()"))
     }
 
     func testImportCenterSourceAppliesStableXCUIIdentifiers() throws {

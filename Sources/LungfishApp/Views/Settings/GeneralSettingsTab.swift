@@ -45,6 +45,16 @@ struct GeneralSettingsTab: View {
                 )
             }
 
+            Section("Analyst Identity") {
+                TextField("Analyst identity:", text: $settings.analystIdentityOverride)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier(SettingsAccessibilityID.analystIdentityField)
+
+                Text("Leave blank to use your macOS account name for future edits.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("VCF Import") {
                 Picker("Import profile:", selection: $settings.vcfImportProfile) {
                     Text("Auto").tag("auto")
@@ -141,6 +151,7 @@ struct GeneralSettingsTab: View {
         .onChange(of: settings.defaultZoomWindow) { _, _ in settings.save() }
         .onChange(of: settings.tooltipDelay) { _, _ in settings.save() }
         .onChange(of: settings.maxUndoLevels) { _, _ in settings.save() }
+        .onChange(of: settings.analystIdentityOverride) { _, _ in settings.save() }
         .onChange(of: settings.vcfImportProfile) { _, _ in settings.save() }
         .onChange(of: settings.tempFileRetentionHours) { _, _ in settings.save() }
         .onChange(of: settings.provenanceSigningProvider) { _, _ in settings.save() }

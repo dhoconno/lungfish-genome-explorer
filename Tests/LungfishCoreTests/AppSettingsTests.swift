@@ -66,7 +66,20 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.horizontalScrollDirection, .traditional)
         XCTAssertEqual(settings.provenanceSigningProvider, "off")
         XCTAssertEqual(settings.provenanceSigningPublicKeyPath, "")
+        XCTAssertEqual(settings.analystIdentityOverride, "")
+        XCTAssertEqual(settings.resolvedAnalystIdentity(fallback: "fallback analyst"), "fallback analyst")
         XCTAssertEqual(settings.experimentalFeaturesEnabled, AppSettings.defaultExperimentalFeaturesEnabled)
+    }
+
+    @MainActor
+    func testAnalystIdentityOverrideUsesTrimmedValueOrFallback() {
+        let settings = AppSettings.shared
+
+        settings.analystIdentityOverride = "   "
+        XCTAssertEqual(settings.resolvedAnalystIdentity(fallback: "fallback analyst"), "fallback analyst")
+
+        settings.analystIdentityOverride = "  Dr. Ada Lovelace  "
+        XCTAssertEqual(settings.resolvedAnalystIdentity(fallback: "fallback analyst"), "Dr. Ada Lovelace")
     }
 
     @MainActor
@@ -104,6 +117,7 @@ final class AppSettingsTests: XCTestCase {
         settings.openAIHostedDeployment = " gpt-5-mini "
         settings.provenanceSigningProvider = "local"
         settings.provenanceSigningPublicKeyPath = "/tmp/lungfish-provenance.pub"
+        settings.analystIdentityOverride = "  Dr. Ada Lovelace  "
         settings.experimentalFeaturesEnabled = false
         settings.save()
 
@@ -125,6 +139,8 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.openAIHostedDeployment, "gpt-5-mini")
         XCTAssertEqual(settings.provenanceSigningProvider, "local")
         XCTAssertEqual(settings.provenanceSigningPublicKeyPath, "/tmp/lungfish-provenance.pub")
+        XCTAssertEqual(settings.analystIdentityOverride, "Dr. Ada Lovelace")
+        XCTAssertEqual(settings.resolvedAnalystIdentity(fallback: "fallback analyst"), "Dr. Ada Lovelace")
         XCTAssertFalse(settings.experimentalFeaturesEnabled)
     }
 
@@ -190,12 +206,15 @@ final class AppSettingsTests: XCTestCase {
         settings.maxAnnotationRows = 200
         settings.defaultZoomWindow = 99_999
         settings.aiSearchEnabled = true
+        settings.analystIdentityOverride = "Dr. Ada Lovelace"
         settings.save()
 
         settings.resetToDefaults()
         XCTAssertEqual(settings.maxAnnotationRows, 50)
         XCTAssertEqual(settings.defaultZoomWindow, 10_000)
         XCTAssertFalse(settings.aiSearchEnabled)
+        XCTAssertEqual(settings.analystIdentityOverride, "")
+        XCTAssertEqual(settings.resolvedAnalystIdentity(fallback: "fallback analyst"), "fallback analyst")
     }
 
     @MainActor
@@ -223,6 +242,7 @@ final class AppSettingsTests: XCTestCase {
         settings.openAIHostedEndpointEnabled = true // aiServices
         settings.openAIHostedEndpoint = "https://oc-aiservices.openai.azure.com"
         settings.openAIHostedDeployment = "gpt-5-mini"
+        settings.analystIdentityOverride = "Dr. Ada Lovelace"
         settings.experimentalFeaturesEnabled = !AppSettings.defaultExperimentalFeaturesEnabled // advanced
 
         // Reset only the general section
@@ -231,6 +251,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.maxAnnotationRows, 200, "Rendering section should be unchanged")
         XCTAssertEqual(settings.annotationTypeColorHexes["gene"], "#FF0000", "Appearance section should be unchanged")
         XCTAssertTrue(settings.openAIHostedEndpointEnabled, "AI Services section should be unchanged")
+        XCTAssertEqual(settings.analystIdentityOverride, "", "General section should clear analyst identity")
         XCTAssertEqual(settings.experimentalFeaturesEnabled, !AppSettings.defaultExperimentalFeaturesEnabled, "Advanced section should be unchanged")
 
         // Reset rendering section
@@ -304,6 +325,8 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.vcfImportProfile, "auto")
         XCTAssertEqual(settings.variantColorThemeName, VariantColorTheme.modern.name)
         XCTAssertEqual(settings.horizontalScrollDirection, .traditional)
+        XCTAssertEqual(settings.analystIdentityOverride, "")
+        XCTAssertEqual(settings.resolvedAnalystIdentity(fallback: "fallback analyst"), "fallback analyst")
     }
 
     @MainActor

@@ -34,6 +34,7 @@ extension ViewerViewController {
         contentMode = .genotype
 
         let controller = GenotypeResultViewController()
+        controller.annotationAuthorProvider = { AppSettings.shared.resolvedAnalystIdentity() }
         controller.windowStateScope = windowStateScope
         addChild(controller)
 

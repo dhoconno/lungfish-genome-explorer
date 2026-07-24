@@ -32,6 +32,7 @@ enum SettingsAccessibilityID {
     static let aiRestoreDefaultsButton = "settings-ai-restore-defaults-button"
     static let aiErrorMessage = "settings-ai-error-message"
     static let experimentalFeaturesToggle = "settings-advanced-experimental-features-toggle"
+    static let analystIdentityField = "settings-general-analyst-identity-field"
 
     static func tab(_ tab: SettingsNavigationTab) -> String {
         switch tab {
@@ -66,6 +67,11 @@ enum SettingsAccessibilityID {
             "settings-panel-advanced"
         }
     }
+}
+
+enum InspectorAccessibilityID {
+    static let analystIdentityLabel = "genotype-annotation-analyst-identity-label"
+    static let analystIdentitySettingsButton = "genotype-annotation-analyst-identity-settings-button"
 }
 
 enum WorkflowBuilderAccessibilityID {

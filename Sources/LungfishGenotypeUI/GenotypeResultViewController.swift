@@ -72,6 +72,8 @@ public final class GenotypeResultViewController: NSViewController {
     public var onCandidatePersistenceWarningChanged: ((String?) -> Void)?
     public var onCurrentWorkbookUpdateRequested: ((URL, [GenotypeWorkbookHaplotypeCall], [String]) -> Void)?
     public var onAIHaplotypingRequested: ((URL, GenotypeAIHaplotypingUIRequest) -> Void)?
+    /// Supplied by the host application so annotations capture the active identity at edit time.
+    public var annotationAuthorProvider: () -> String = { "Unknown analyst" }
     public var windowStateScope: WindowStateScope?
     var genotypeResultLoader: GenotypeResultLoader = { bundleURL in
         try await ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)
@@ -604,7 +606,7 @@ public final class GenotypeResultViewController: NSViewController {
         haplotypeDefinitionStore = HaplotypeDefinitionStore(projectRoot: projectRoot)
         annotationStore = try? GenotypeAnnotationStore(
             bundleURL: result.bundleURL,
-            author: NSUserName()
+            author: annotationAuthorProvider()
         )
         displayState.mhcCandidateDisplaySettings = validatedMHCCandidateDocument(from: result) == nil
             ? nil
@@ -3392,7 +3394,7 @@ public final class GenotypeResultViewController: NSViewController {
         rebuildResultIndexes(for: updatedResult)
         annotationStore = try? GenotypeAnnotationStore(
             bundleURL: updatedResult.bundleURL,
-            author: NSUserName()
+            author: annotationAuthorProvider()
         )
         displayState.summaryViewMode = initialSummaryViewMode(for: updatedResult)
         rebuildActiveHaplotypeAnalysisIndexes()

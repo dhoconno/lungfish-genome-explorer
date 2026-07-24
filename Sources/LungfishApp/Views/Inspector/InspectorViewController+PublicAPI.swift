@@ -328,7 +328,10 @@ extension InspectorViewController {
         // Loading via the store triggers default-cohort seeding the first
         // time a bundle is opened so the inspector lists Needs review et al.
         let sidecar: GenotypeAnnotationSidecar = {
-            if let store = try? GenotypeAnnotationStore(bundleURL: result.bundleURL, author: NSUserName()) {
+            if let store = try? GenotypeAnnotationStore(
+                bundleURL: result.bundleURL,
+                author: resolvedAnalystIdentity()
+            ) {
                 return store.sidecar
             }
             return GenotypeAnnotationSidecar.empty(generatedAt: "")
@@ -454,6 +457,10 @@ extension InspectorViewController {
             totalRows: totalRows,
             hiddenCells: hiddenCells
         )
+    }
+
+    private func resolvedAnalystIdentity() -> String {
+        AppSettings.shared.resolvedAnalystIdentity()
     }
 
     func updateGenotypeResultDisplayState(_ state: GenotypeResultDisplayState) {
