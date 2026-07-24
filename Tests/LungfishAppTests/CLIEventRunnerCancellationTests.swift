@@ -22,13 +22,13 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
         }
 
         try await waitUntilFileExists(fakeCLI.startedMarker)
-        let elapsed = await elapsedSeconds {
+        let elapsed = elapsedSeconds {
             runner.cancel()
         }
         await ignoreRunResult(runTask)
         await clearOperation(operationID)
 
-        XCTAssertLessThan(elapsed, 0.75, "Cancellation should not wait for the CLI sleep to finish")
+        XCTAssertLessThan(elapsed, 0.1, "Cancellation requests should return without walking the process tree inline")
     }
 
     func testTreeInferenceRunnerCancelReturnsBeforeSleepingCLIExits() async throws {
@@ -40,13 +40,13 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
         }
 
         try await waitUntilFileExists(fakeCLI.startedMarker)
-        let elapsed = await elapsedSeconds {
+        let elapsed = elapsedSeconds {
             runner.cancel()
         }
         await ignoreRunResult(runTask)
         await clearOperation(operationID)
 
-        XCTAssertLessThan(elapsed, 0.75, "Cancellation should not wait for the CLI sleep to finish")
+        XCTAssertLessThan(elapsed, 0.1, "Cancellation requests should return without walking the process tree inline")
     }
 
     func testTreeTransformRunnerCancelReturnsBeforeSleepingCLIExits() async throws {
@@ -58,13 +58,13 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
         }
 
         try await waitUntilFileExists(fakeCLI.startedMarker)
-        let elapsed = await elapsedSeconds {
+        let elapsed = elapsedSeconds {
             runner.cancel()
         }
         await ignoreRunResult(runTask)
         await clearOperation(operationID)
 
-        XCTAssertLessThan(elapsed, 0.75, "Cancellation should not wait for the CLI sleep to finish")
+        XCTAssertLessThan(elapsed, 0.1, "Cancellation requests should return without walking the process tree inline")
     }
 
     private func makeSleepingCLI(directoryPrefix: String) throws -> (executable: URL, startedMarker: URL) {
@@ -101,10 +101,13 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
         XCTFail("Timed out waiting for \(url.path)")
     }
 
-    private func elapsedSeconds(_ operation: () async -> Void) async -> TimeInterval {
-        let start = Date()
-        await operation()
-        return Date().timeIntervalSince(start)
+    private func elapsedSeconds(_ operation: () -> Void) -> TimeInterval {
+        let clock = ContinuousClock()
+        let start = clock.now
+        operation()
+        let components = start.duration(to: clock.now).components
+        return TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
     }
 
     private func startOperation(type: OperationType) async -> UUID {

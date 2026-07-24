@@ -265,7 +265,7 @@ actor CLITreeInferenceRunner {
     }
 
     nonisolated func cancel() {
-        cancellationHandle.terminateProcessTree(gracePeriod: 0)
+        cancellationHandle.requestProcessTreeTermination(gracePeriod: 0)
     }
 
     @MainActor
