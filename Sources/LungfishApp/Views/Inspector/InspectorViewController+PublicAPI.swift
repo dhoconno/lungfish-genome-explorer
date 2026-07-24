@@ -190,6 +190,14 @@ extension InspectorViewController {
                 loci: loci.isEmpty ? "No loci" : loci
             )
         }
+        let warningRows = manifest.warnings.map { warning in
+            let context = [
+                warning.recordIdentifier.map { "Record: \($0)" },
+                warning.featureType.map { "Feature: \($0)" },
+                warning.sourceLocation.map { "Location: \($0)" },
+            ].compactMap { $0 }.joined(separator: " • ")
+            return MHCReferenceBundleWarningRow(message: warning.message, context: context)
+        }
 
         var artifactRows: [MHCReferenceBundleArtifactRow] = [
             MHCReferenceBundleArtifactRow(label: "Bundle Folder", fileURL: bundleURL),
@@ -198,6 +206,27 @@ extension InspectorViewController {
             artifactRows.append(
                 MHCReferenceBundleArtifactRow(label: "Reference FASTA", fileURL: referenceURL)
             )
+        }
+        if let referenceBundleURL = MHCAmpliconReferenceBundle.referenceBundleURL(in: bundleURL) {
+            artifactRows.append(
+                MHCReferenceBundleArtifactRow(label: "Annotated Reference Bundle", fileURL: referenceBundleURL)
+            )
+            if let embeddedManifest = try? BundleManifest.load(from: referenceBundleURL) {
+                for annotation in embeddedManifest.annotations {
+                    guard let databasePath = annotation.databasePath,
+                          let databaseURL = try? BundleManifest.validatedBundleMemberURL(
+                            for: databasePath,
+                            in: referenceBundleURL,
+                            field: "annotations[\(annotation.id)].databasePath"
+                          ) else { continue }
+                    artifactRows.append(
+                        MHCReferenceBundleArtifactRow(
+                            label: "Annotation Database — \(annotation.name)",
+                            fileURL: databaseURL
+                        )
+                    )
+                }
+            }
         }
         for url in MHCAmpliconReferenceBundle.haplotypeDefinitionURLs(in: bundleURL) {
             artifactRows.append(
@@ -225,6 +254,7 @@ extension InspectorViewController {
             defaultDefinitionID: manifest.defaultHaplotypeDefinitionID,
             createdAt: manifest.createdAt,
             definitionRows: definitionRows,
+            warningRows: warningRows,
             artifactRows: artifactRows,
             bundleURL: bundleURL,
             provenancePath: manifest.provenancePath
@@ -324,6 +354,10 @@ extension InspectorViewController {
             }
             return rows
         }()
+        let candidateGenBankURLs = result.mhcCandidateGenBankArtifactURLs
+        let alignmentArtifactURLs = result.manifest.kind == "full-length-ont-mhc-genotype"
+            ? result.mhcAlignmentArtifactURLs
+            : .empty
         var state = GenotypeResultDocumentState(
             title: result.manifest.analysisName,
             subtitle: "\(result.manifest.kind) • \(result.manifest.outputName)",
@@ -340,6 +374,30 @@ extension InspectorViewController {
                 result.artifacts.deduplicatedUnmatchedClustersFASTAURL.map {
                     GenotypeResultArtifactRow(label: "Deduplicated Unmatched FASTA", fileURL: $0)
                 },
+                candidateGenBankURLs.candidateFASTA.map {
+                    GenotypeResultArtifactRow(label: "Candidate Alleles FASTA", fileURL: $0)
+                },
+                candidateGenBankURLs.unnameableFASTA.map {
+                    GenotypeResultArtifactRow(label: "Un-nameable Clusters FASTA", fileURL: $0)
+                },
+                candidateGenBankURLs.candidateAlleles.map {
+                    GenotypeResultArtifactRow(label: "Candidate Alleles GenBank", fileURL: $0)
+                },
+                candidateGenBankURLs.unnameableClusters.map {
+                    GenotypeResultArtifactRow(label: "Un-nameable Clusters GenBank", fileURL: $0)
+                },
+                alignmentArtifactURLs.genotypingBAM.map {
+                    GenotypeResultArtifactRow(label: "Genotyping Evidence BAM", fileURL: $0)
+                },
+                alignmentArtifactURLs.genotypingBAI.map {
+                    GenotypeResultArtifactRow(label: "Genotyping Evidence BAI", fileURL: $0)
+                },
+                alignmentArtifactURLs.reciprocalBAM.map {
+                    GenotypeResultArtifactRow(label: "Reciprocal Evidence BAM", fileURL: $0)
+                },
+                alignmentArtifactURLs.reciprocalBAI.map {
+                    GenotypeResultArtifactRow(label: "Reciprocal Evidence BAI", fileURL: $0)
+                },
                 GenotypeResultArtifactRow(label: "Provenance", fileURL: result.artifacts.provenanceURL),
                 GenotypeResultArtifactRow(
                     label: "Annotations & Audit",
@@ -354,7 +412,12 @@ extension InspectorViewController {
         )
         // Mirror the current display-state knobs into the document state so
         // Inspector controls render with the right values when the section appears.
-        let currentDisplay = viewModel.genotypeResultDisplaySectionViewModel.displayState
+        var currentDisplay = viewModel.genotypeResultDisplaySectionViewModel.displayState
+        if result.manifest.kind == "full-length-ont-mhc-genotype", result.mhcCandidates != nil {
+            currentDisplay.mhcCandidateDisplaySettings = sidecar.settings.mhcCandidateDisplay
+        } else {
+            currentDisplay.mhcCandidateDisplaySettings = nil
+        }
         let availableLoci = genotypeHaplotypeLoci(result)
         let defaultIncludedLoci = genotypeDefaultIncludedHaplotypeLoci(
             availableLoci,
@@ -369,11 +432,14 @@ extension InspectorViewController {
         state.defaultIncludedHaplotypeLoci = defaultIncludedLoci
         state.includedHaplotypeLoci = selectedIncludedLoci
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
+        let isGenotypeOnlyResult = result.haplotypeAnalysis == nil && !result.calls.isEmpty
         viewModel.genotypeResultDisplaySectionViewModel.update(
             isAvailable: true,
             state: currentDisplay,
-            hasHaplotypingResult: result.haplotypeAnalysis != nil
+            hasHaplotypingResult: result.haplotypeAnalysis != nil,
+            isGenotypeOnlyResult: isGenotypeOnlyResult
         )
+        viewModel.genotypeResultDisplaySectionViewModel.updateMHCCandidatePresentation(from: result)
         updateProvenanceTarget(
             url: result.bundleURL,
             sidebarType: .genotypeResultBundle,
@@ -481,8 +547,7 @@ extension InspectorViewController {
             guard result.bundleURL.standardizedFileURL == state.bundleURL?.standardizedFileURL else { return nil }
             return result
         }
-        let result = cachedResult ?? state.bundleURL.flatMap { try? ONTGenotypeResultBundle.loadResult(from: $0) }
-        if let result {
+        if let result = cachedResult {
             loadedGenotypeResult = result
             let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
                 result: result,
@@ -498,6 +563,11 @@ extension InspectorViewController {
             nextState.qcRows = genotypeQCRows(subjects: subjects)
             nextState.haplotypeDefinitionRows = genotypeHaplotypeDefinitionRows(result, sidecar: sidecar)
             nextState.currentWorkbookUpdate = genotypeCurrentWorkbookUpdateState(result: result, sidecar: sidecar)
+            var displayState = viewModel.genotypeResultDisplaySectionViewModel.displayState
+            if viewModel.genotypeResultDisplaySectionViewModel.mhcCandidateControlsAvailable {
+                displayState.mhcCandidateDisplaySettings = sidecar.settings.mhcCandidateDisplay
+            }
+            viewModel.genotypeResultDisplaySectionViewModel.updateDisplayState(displayState)
         }
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(
             nextState

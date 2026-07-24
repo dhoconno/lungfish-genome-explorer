@@ -257,6 +257,136 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertTrue(rows.contains {
             $0.label == "Deduplicated Unmatched FASTA" && $0.fileURL == unmatchedFASTAURL.standardizedFileURL
         })
+        XCTAssertFalse(rows.contains { $0.label == "Candidate Alleles GenBank" })
+        XCTAssertFalse(rows.contains { $0.label == "Un-nameable Clusters GenBank" })
+        XCTAssertFalse(rows.contains { $0.label == "Genotyping Evidence BAM" })
+        XCTAssertFalse(rows.contains { $0.label == "Genotyping Evidence BAI" })
+        XCTAssertFalse(rows.contains { $0.label == "Reciprocal Evidence BAM" })
+        XCTAssertFalse(rows.contains { $0.label == "Reciprocal Evidence BAI" })
+    }
+
+    func testInspectorDocumentListsValidatedCandidateFASTAAndGenBankArtifactsWhenDeclared() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeCandidateGenBankArtifactRows-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
+        let candidateFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.fasta")
+        let unnameableFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.fasta")
+        let candidateURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.gb")
+        let unnameableURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.gb")
+        let candidateGenBankArtifactURLs = ONTMHCCandidateGenBankArtifactURLs(
+            candidateAlleles: candidateURL,
+            unnameableClusters: unnameableURL,
+            candidateFASTA: candidateFASTAURL,
+            unnameableFASTA: unnameableFASTAURL
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+
+        inspector.updateGenotypeResultDocument(makeResult(
+            bundleURL: bundleURL,
+            calls: [],
+            mhcCandidateGenBankArtifactURLs: candidateGenBankArtifactURLs
+        ))
+
+        let rows = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument?.artifactRows)
+        XCTAssertTrue(rows.contains {
+            $0.label == "Candidate Alleles FASTA" && $0.fileURL == candidateFASTAURL.standardizedFileURL
+        })
+        XCTAssertTrue(rows.contains {
+            $0.label == "Un-nameable Clusters FASTA" && $0.fileURL == unnameableFASTAURL.standardizedFileURL
+        })
+        XCTAssertTrue(rows.contains {
+            $0.label == "Candidate Alleles GenBank" && $0.fileURL == candidateURL.standardizedFileURL
+        })
+        XCTAssertTrue(rows.contains {
+            $0.label == "Un-nameable Clusters GenBank" && $0.fileURL == unnameableURL.standardizedFileURL
+        })
+    }
+
+    func testInspectorDocumentListsValidatedMHCAlignmentArtifactsWhenDeclared() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeMHCAlignmentArtifactRows-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
+        let genotypingBAMURL = bundleURL.appendingPathComponent("artifacts/alignments/genotyping.bam")
+        let genotypingBAIURL = bundleURL.appendingPathComponent("artifacts/alignments/genotyping.bam.bai")
+        let reciprocalBAMURL = bundleURL.appendingPathComponent("artifacts/alignments/reciprocal.bam")
+        let reciprocalBAIURL = bundleURL.appendingPathComponent("artifacts/alignments/reciprocal.bam.bai")
+        let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
+            genotypingBAM: genotypingBAMURL,
+            genotypingBAI: genotypingBAIURL,
+            reciprocalBAM: reciprocalBAMURL,
+            reciprocalBAI: reciprocalBAIURL
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+
+        inspector.updateGenotypeResultDocument(makeResult(
+            bundleURL: bundleURL,
+            calls: [],
+            kind: "full-length-ont-mhc-genotype",
+            mhcAlignmentArtifactURLs: alignmentArtifactURLs
+        ))
+
+        let rows = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument?.artifactRows)
+        let alignmentLabels = Set([
+            "Genotyping Evidence BAM",
+            "Genotyping Evidence BAI",
+            "Reciprocal Evidence BAM",
+            "Reciprocal Evidence BAI",
+        ])
+        XCTAssertEqual(
+            rows.filter { alignmentLabels.contains($0.label) },
+            [
+                GenotypeResultArtifactRow(
+                    label: "Genotyping Evidence BAM",
+                    fileURL: genotypingBAMURL.standardizedFileURL
+                ),
+                GenotypeResultArtifactRow(
+                    label: "Genotyping Evidence BAI",
+                    fileURL: genotypingBAIURL.standardizedFileURL
+                ),
+                GenotypeResultArtifactRow(
+                    label: "Reciprocal Evidence BAM",
+                    fileURL: reciprocalBAMURL.standardizedFileURL
+                ),
+                GenotypeResultArtifactRow(
+                    label: "Reciprocal Evidence BAI",
+                    fileURL: reciprocalBAIURL.standardizedFileURL
+                ),
+            ]
+        )
+    }
+
+    func testInspectorDocumentOmitsInjectedMHCAlignmentArtifactsForNonFullLengthResult() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeNonMHCAlignmentArtifactRows-\(UUID().uuidString)", isDirectory: true)
+        let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
+            genotypingBAM: bundleURL.appendingPathComponent("genotyping.bam"),
+            genotypingBAI: bundleURL.appendingPathComponent("genotyping.bam.bai"),
+            reciprocalBAM: bundleURL.appendingPathComponent("reciprocal.bam"),
+            reciprocalBAI: bundleURL.appendingPathComponent("reciprocal.bam.bai")
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+
+        inspector.updateGenotypeResultDocument(makeResult(
+            bundleURL: bundleURL,
+            calls: [],
+            kind: "ont-barcode-genotype",
+            mhcAlignmentArtifactURLs: alignmentArtifactURLs
+        ))
+
+        let rows = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument?.artifactRows)
+        for label in [
+            "Genotyping Evidence BAM",
+            "Genotyping Evidence BAI",
+            "Reciprocal Evidence BAM",
+            "Reciprocal Evidence BAI",
+        ] {
+            XCTAssertFalse(rows.contains { $0.label == label })
+        }
     }
 
     func testInspectorDocumentExposesCurrentWorkbookUpdateWhenManualHaplotypesChanged() throws {
@@ -390,11 +520,15 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
 
     private func makeResult(
         bundleURL: URL,
-        calls: [ONTGenotypeCall]
+        calls: [ONTGenotypeCall],
+        kind: String = "ont-barcode-genotype",
+        mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty,
+        mhcAlignmentArtifactURLs: ONTMHCAlignmentArtifactURLs = .empty
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
             manifest: ONTGenotypeResultBundleManifest(
+                kind: kind,
                 outputName: "barcode05-mhc",
                 analysisName: "barcode05-mhc",
                 primaryWorkbookPath: "barcode05-mhc.xlsx",
@@ -421,7 +555,15 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
                     sampleUniqueRetainedPercent: nil,
                     calls: calls
                 )
-            ]
+            ],
+            haplotypeAnalysis: nil,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            mhcCandidateSequencesByStableClusterID: [:],
+            mhcCandidateGenBankArtifactURLs: mhcCandidateGenBankArtifactURLs,
+            mhcAlignmentArtifactURLs: mhcAlignmentArtifactURLs,
+            integrityWarnings: [],
+            referenceMetadata: nil
         )
     }
 }

@@ -3,6 +3,11 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 
+@inline(__always)
+func isSupportedMHCCandidateDocumentSchemaVersion(_ schemaVersion: Int) -> Bool {
+    (1 ... 4).contains(schemaVersion)
+}
+
 public enum GenotypeMatrixPaletteTarget: String, CaseIterable, Identifiable {
     case fill
     case text
@@ -28,6 +33,8 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var totalRowCount = 0
     public var hiddenCellCount = 0
     public var hasHaplotypingResult = false
+    public var isGenotypeOnlyResult = false
+    public var showsViewportAndLayoutControls: Bool { !isGenotypeOnlyResult }
     public var isExpanded = true
     public var genotypeResultSelection: GenotypeResultSelectionState?
     public var genotypeHighlightColor: Color = .blue
@@ -42,6 +49,9 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var matrixCommentText = ""
     public var matrixPaletteTarget: GenotypeMatrixPaletteTarget = .fill
     public var supportedCellMinimumReads = 1
+    public var mhcCandidateControlsAvailable = false
+    public var mhcCandidateIntegrityWarnings: [String] = []
+    public var mhcCandidatePersistenceWarning: String?
 
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
     public var onGenotypeHighlightRequested: ((GenotypeResultHighlightRequest) -> Void)?
@@ -60,11 +70,13 @@ public final class GenotypeResultDisplaySectionViewModel {
     public func update(
         isAvailable: Bool,
         state: GenotypeResultDisplayState = GenotypeResultDisplayState(),
-        hasHaplotypingResult: Bool = false
+        hasHaplotypingResult: Bool = false,
+        isGenotypeOnlyResult: Bool = false
     ) {
         self.isAvailable = isAvailable
-        self.displayState = state
         self.hasHaplotypingResult = hasHaplotypingResult
+        self.isGenotypeOnlyResult = isGenotypeOnlyResult
+        setNormalizedDisplayState(state)
         updateSelection(nil)
     }
 
@@ -75,7 +87,7 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     public func updateDisplayState(_ state: GenotypeResultDisplayState) {
-        displayState = state
+        setNormalizedDisplayState(state)
     }
 
     public func clear() {
@@ -85,23 +97,99 @@ public final class GenotypeResultDisplaySectionViewModel {
         totalRowCount = 0
         hiddenCellCount = 0
         hasHaplotypingResult = false
+        mhcCandidateControlsAvailable = false
+        mhcCandidateIntegrityWarnings = []
+        mhcCandidatePersistenceWarning = nil
+        isGenotypeOnlyResult = false
         updateSelection(nil)
+    }
+
+    public var mhcCandidateDisplaySettings: ONTMHCCandidateDisplaySettings {
+        displayState.mhcCandidateDisplaySettings ?? .default
+    }
+
+    public func updateMHCCandidatePresentation(from result: ONTGenotypeResultBundleData) {
+        let isFullLengthMHCResult = result.manifest.kind == "full-length-ont-mhc-genotype"
+        let declaration = result.manifest.mhcCandidateArtifacts
+        mhcCandidateControlsAvailable = isFullLengthMHCResult
+            && declaration.map { (1 ... 2).contains($0.schemaVersion) } == true
+            && declaration?.candidateJSON != nil
+            && declaration?.candidateFASTA != nil
+            && result.mhcCandidates.map { isSupportedMHCCandidateDocumentSchemaVersion($0.schemaVersion) } == true
+        mhcCandidateIntegrityWarnings = isFullLengthMHCResult
+            ? result.integrityWarnings.map(Self.integrityWarningText)
+            : []
+        if !mhcCandidateControlsAvailable {
+            displayState.mhcCandidateDisplaySettings = nil
+        }
+        if !isFullLengthMHCResult {
+            mhcCandidatePersistenceWarning = nil
+        }
+    }
+
+    public func setMHCCandidateVisibility(
+        showKnown: Bool? = nil,
+        showSharedCandidates: Bool? = nil,
+        showSingletonCandidates: Bool? = nil
+    ) {
+        guard mhcCandidateControlsAvailable else { return }
+        var settings = mhcCandidateDisplaySettings
+        if let showKnown { settings.showKnown = showKnown }
+        if let showSharedCandidates { settings.showSharedCandidates = showSharedCandidates }
+        if let showSingletonCandidates { settings.showSingletonCandidates = showSingletonCandidates }
+        displayState.mhcCandidateDisplaySettings = settings
+        notifyStateChanged()
+    }
+
+    public func setMHCCandidateTint(
+        _ color: AnnotationColor,
+        category: ONTMHCCandidateTintCategory
+    ) {
+        guard mhcCandidateControlsAvailable else { return }
+        var settings = mhcCandidateDisplaySettings
+        settings.tints[category] = color
+        displayState.mhcCandidateDisplaySettings = settings
+        notifyStateChanged()
+    }
+
+    public func resetMHCCandidateTint(_ category: ONTMHCCandidateTintCategory) {
+        guard let color = ONTMHCCandidateDisplaySettings.defaultTints[category] else { return }
+        setMHCCandidateTint(color, category: category)
+    }
+
+    public func resetAllMHCCandidateTints() {
+        guard mhcCandidateControlsAvailable else { return }
+        var settings = mhcCandidateDisplaySettings
+        settings.tints = ONTMHCCandidateDisplaySettings.defaultTints
+        displayState.mhcCandidateDisplaySettings = settings
+        notifyStateChanged()
+    }
+
+    public func updateMHCCandidatePersistenceWarning(_ warning: String?) {
+        mhcCandidatePersistenceWarning = warning
     }
 
     func setLayout(_ layout: GenotypeResultPanelLayout) {
         displayState.layout = layout
+        setNormalizedDisplayState(displayState)
         notifyStateChanged()
     }
 
     func setViewportLens(_ lens: GenotypeResultViewportLens) {
         displayState.viewportLens = lens
+        setNormalizedDisplayState(displayState)
         notifyStateChanged()
     }
 
     public func setSummaryViewMode(_ mode: GenotypeSummaryViewMode) {
         displayState.viewportLens = .summary
         displayState.summaryViewMode = mode
+        setNormalizedDisplayState(displayState)
         notifyStateChanged()
+    }
+
+    private func setNormalizedDisplayState(_ state: GenotypeResultDisplayState) {
+        displayState = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
     }
 
     func toggleHaplotypeGenotypeSummaryView() {
@@ -342,8 +430,13 @@ public final class GenotypeResultDisplaySectionViewModel {
         )
     }
 
-    private func notifyStateChanged() {
+    func notifyStateChanged() {
         onDisplayStateChanged?(displayState)
+    }
+
+    private static func integrityWarningText(_ warning: ONTGenotypeIntegrityWarning) -> String {
+        let location = warning.path.map { " (\($0))" } ?? ""
+        return "\(warning.code.rawValue): \(warning.detail)\(location)"
     }
 
     private static func swiftUIColor(from annotationColor: AnnotationColor) -> Color {
@@ -396,12 +489,19 @@ public struct GenotypeResultDisplaySection: View {
             DisclosureGroup(isExpanded: $viewModel.isExpanded) {
                 VStack(alignment: .leading, spacing: 10) {
                     summary
+                    if viewModel.mhcCandidateControlsAvailable
+                        || !viewModel.mhcCandidateIntegrityWarnings.isEmpty
+                        || viewModel.mhcCandidatePersistenceWarning != nil {
+                        GenotypeCandidateEvidenceSection(viewModel: viewModel)
+                    }
                     if viewModel.hasHaplotypingResult {
                         haplotypeGenotypeToggle
                     }
                     Divider()
-                    viewControls
-                    layoutControls
+                    if viewModel.showsViewportAndLayoutControls {
+                        viewControls
+                        layoutControls
+                    }
                     thresholdGuidance
                     matrixFilterControls
                     colorControls

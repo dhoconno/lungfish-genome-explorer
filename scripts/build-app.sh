@@ -12,7 +12,7 @@ DEBUG_BUNDLE_ID="com.lungfish.browser.debug"
 BUNDLE_NAME="Lungfish"
 DEBUG_BUNDLE_NAME="Lungfish Debug"
 BUNDLE_DISPLAY_NAME="Lungfish Genome Explorer"
-DEBUG_BUNDLE_DISPLAY_NAME="Lungfish Genome Explorer Debug"
+DEBUG_BUNDLE_DISPLAY_NAME="Lungfish Debug"
 # VERSION is sourced from Lungfish.xcodeproj's MARKETING_VERSION below (after
 # PROJECT_ROOT is resolved) so the debug bundle and the notarized build share a
 # single version source of truth.
@@ -176,9 +176,15 @@ mkdir -p "$FRAMEWORKS_DIR"
 cp "$BUILD_DIR/Lungfish" "$MACOS_DIR/"
 
 CLI_SOURCE="$BUILD_DIR/lungfish-cli"
-if [ -f "$CLI_SOURCE" ]; then
-    echo -e "${GREEN}Copying bundled CLI...${NC}"
-    /usr/bin/install -m 755 "$CLI_SOURCE" "$MACOS_DIR/lungfish-cli"
+if [ ! -x "$CLI_SOURCE" ]; then
+    echo -e "${RED}Error: bundled CLI executable not found at $CLI_SOURCE${NC}" >&2
+    exit 1
+fi
+echo -e "${GREEN}Copying bundled CLI...${NC}"
+/usr/bin/install -m 755 "$CLI_SOURCE" "$MACOS_DIR/lungfish-cli"
+if [ ! -x "$MACOS_DIR/lungfish-cli" ]; then
+    echo -e "${RED}Error: bundled CLI executable not found at $MACOS_DIR/lungfish-cli${NC}" >&2
+    exit 1
 fi
 
 echo -e "${GREEN}Copying SwiftPM resource bundles...${NC}"

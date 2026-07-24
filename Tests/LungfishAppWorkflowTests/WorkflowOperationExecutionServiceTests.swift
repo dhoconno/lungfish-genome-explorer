@@ -262,7 +262,10 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(try testValue(after: "--savont-quality-value-cutoff", in: invocation.arguments), "90")
         XCTAssertEqual(try testValue(after: "--savont-min-cluster-size", in: invocation.arguments), "3")
         XCTAssertEqual(try testValue(after: "--threads", in: invocation.arguments), "8")
-        XCTAssertEqual(invocation.workingDirectory, outputURL.standardizedFileURL)
+        XCTAssertEqual(
+            invocation.workingDirectory,
+            outputURL.deletingLastPathComponent().standardizedFileURL
+        )
         XCTAssertTrue(outputs.contains(request.workbookURL.standardizedFileURL))
         XCTAssertTrue(outputs.contains(request.currentWorkbookURL.standardizedFileURL))
         XCTAssertTrue(outputs.contains(request.reportCSVURL.standardizedFileURL))
@@ -276,6 +279,45 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(item.state, .completed)
         XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq full-length-ont-mhc-genotype") == true)
         XCTAssertEqual(resultRefresher.invocations, [request.outputDirectory.standardizedFileURL])
+    }
+
+    func testFullLengthONTMHCGenotypingLeavesBundlePathAbsentForAtomicCLIPublication() async throws {
+        let temp = try temporaryDirectory()
+        let readsURL = temp.appendingPathComponent("NB13.lungfishfastq", isDirectory: true)
+        let referenceURL = temp.appendingPathComponent("Mamu-class-I.lungfishmhcref", isDirectory: true)
+        let outputURL = temp.appendingPathComponent(
+            "Analyses/nb13-full-length.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: [readsURL],
+            referenceSourceURL: referenceURL,
+            outputDirectory: outputURL,
+            outputName: "nb13-full-length"
+        )
+        let runner = StubWorkflowOperationCLIProcessRunner()
+        let service = WorkflowOperationExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: runner,
+            viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
+            bamImporter: StubWorkflowOperationBAMImporter(),
+            resultRefresher: StubWorkflowOperationResultRefresher()
+        )
+
+        _ = try await service.run(.fullLengthONTMHCGenotyping(request))
+
+        let invocation = try XCTUnwrap(runner.invocations.first)
+        XCTAssertEqual(runner.fullLengthOutputDirectoryExistedAtInvocation, [false])
+        XCTAssertEqual(
+            invocation.workingDirectory,
+            outputURL.deletingLastPathComponent().standardizedFileURL
+        )
     }
 
     func testFullLengthONTMHCGenotypingDoesNotPassPBAAClusterSourceModeToCLI() throws {
@@ -867,6 +909,7 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
 
     private(set) var invocations: [Invocation] = []
     private(set) var didReceiveOutputHandler = false
+    private(set) var fullLengthOutputDirectoryExistedAtInvocation: [Bool] = []
     private let exitCode: Int32
     private let stdout: String?
     private let stderr: String
@@ -1002,6 +1045,9 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
         if arguments.prefix(2) == ["fastq", "full-length-ont-mhc-genotype"] {
             let outputDirectory = URL(fileURLWithPath: try value(after: "--output-dir", in: arguments))
                 .standardizedFileURL
+            fullLengthOutputDirectoryExistedAtInvocation.append(
+                FileManager.default.fileExists(atPath: outputDirectory.path)
+            )
             let outputName = try value(after: "--output-name", in: arguments)
             let workbookURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-genotypes.xlsx")
             let currentWorkbookURL = outputDirectory

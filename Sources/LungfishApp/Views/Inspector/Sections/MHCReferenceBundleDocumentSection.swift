@@ -18,6 +18,11 @@ struct MHCReferenceBundleArtifactRow: Equatable {
     let fileURL: URL?
 }
 
+struct MHCReferenceBundleWarningRow: Equatable {
+    let message: String
+    let context: String
+}
+
 /// View-model state describing an MHC amplicon reference bundle (`.lungfishmhcref`).
 ///
 /// This metadata-only document has no viewport; selecting the bundle in the sidebar
@@ -31,6 +36,7 @@ struct MHCReferenceBundleDocumentState: Equatable {
     let defaultDefinitionID: String?
     let createdAt: String
     let definitionRows: [MHCReferenceBundleDefinitionRow]
+    let warningRows: [MHCReferenceBundleWarningRow]
     let artifactRows: [MHCReferenceBundleArtifactRow]
     let bundleURL: URL?
     let provenancePath: String?
@@ -64,6 +70,7 @@ struct MHCReferenceBundleDocumentState: Equatable {
             lhs.defaultDefinitionID == rhs.defaultDefinitionID &&
             lhs.createdAt == rhs.createdAt &&
             lhs.definitionRows == rhs.definitionRows &&
+            lhs.warningRows == rhs.warningRows &&
             lhs.artifactRows == rhs.artifactRows &&
             lhs.bundleURL == rhs.bundleURL &&
             lhs.provenancePath == rhs.provenancePath
@@ -77,6 +84,7 @@ struct MHCReferenceBundleDocumentSection: View {
 
     @State private var isSummaryExpanded = true
     @State private var isDefinitionsExpanded = true
+    @State private var isWarningsExpanded = true
     @State private var isArtifactsExpanded = true
 
     var body: some View {
@@ -91,10 +99,35 @@ struct MHCReferenceBundleDocumentSection: View {
 
             definitionsSection
 
-            Divider()
+            if !state.warningRows.isEmpty {
+                Divider()
+                warningsSection
+            }
 
+            Divider()
             artifactSection
         }
+    }
+
+    private var warningsSection: some View {
+        DisclosureGroup("Import Warnings", isExpanded: $isWarningsExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(state.warningRows.enumerated()), id: \.offset) { _, row in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(row.message, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        if !row.context.isEmpty {
+                            Text(row.context)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+            .padding(.top, 4)
+        }
+        .font(.caption.weight(.semibold))
     }
 
     @ViewBuilder

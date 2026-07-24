@@ -102,7 +102,8 @@ public final class FileSystemWatcher {
             UInt32(
                 kFSEventStreamCreateFlagFileEvents |
                 kFSEventStreamCreateFlagUseCFTypes |
-                kFSEventStreamCreateFlagNoDefer
+                kFSEventStreamCreateFlagNoDefer |
+                kFSEventStreamCreateFlagWatchRoot
             )
         ) else {
             logger.error("startWatching: FSEventStreamCreate returned nil — watcher will be inactive")
@@ -143,7 +144,7 @@ public final class FileSystemWatcher {
         let ext = url.pathExtension.lowercased()
 
         // Universal search database and WAL/SHM files
-        if name.hasPrefix(".universal-search.db") {
+        if isUniversalSearchInternalPath(url) {
             return true
         }
 
@@ -167,6 +168,14 @@ public final class FileSystemWatcher {
         }
 
         return false
+    }
+
+    /// Returns true for files written by the universal-search index itself.
+    /// These must never be fed back into the index as source changes.
+    public nonisolated static func isUniversalSearchInternalPath(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        let logicalName = name.hasPrefix("._") ? String(name.dropFirst(2)) : name
+        return logicalName.hasPrefix(".universal-search.db")
     }
 
     // MARK: - FSEvents Callback
@@ -216,14 +225,20 @@ public final class FileSystemWatcher {
                     return
                 }
 
-                guard !allURLs.isEmpty else { return }
+                let watchedRoot = watcher.watchedDirectory?.standardizedFileURL
+                let sourceURLs = allURLs.filter {
+                    let canonical = $0.standardizedFileURL
+                    return canonical != watchedRoot
+                        && !FileSystemWatcher.isUniversalSearchInternalPath(canonical)
+                }
+                guard !sourceURLs.isEmpty else { return }
 
-                let nonSidecar = allURLs.filter { !FileSystemWatcher.isSidecarPath($0) }
+                let nonSidecar = sourceURLs.filter { !FileSystemWatcher.isSidecarPath($0) }
 
                 // Always deliver — the sidebar consumer decides what to do:
                 // - nonSidecar non-empty → incremental sidebar update + search index
                 // - nonSidecar empty (sidecar-only) → search index update only
-                watcher.onChange(ChangedPaths(nonSidecar: nonSidecar, all: allURLs))
+                watcher.onChange(ChangedPaths(nonSidecar: nonSidecar, all: sourceURLs))
             }
         }
     }

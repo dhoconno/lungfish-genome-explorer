@@ -24,6 +24,7 @@ public struct MHCAmpliconReferenceBundleDefinitionInput: Equatable, Sendable {
 
 public struct MHCAmpliconReferenceBundleBuildConfiguration: Equatable, Sendable {
     public let referenceFASTA: URL
+    public var referenceSource: URL { referenceFASTA }
     public let haplotypeDefinitionURLs: [URL]
     public let haplotypeDefinitionInputs: [MHCAmpliconReferenceBundleDefinitionInput]
     public let outputURL: URL
@@ -65,6 +66,7 @@ public struct MHCAmpliconReferenceBundleBuildConfiguration: Equatable, Sendable 
 public struct MHCAmpliconReferenceBundleBuildResult: Equatable, Sendable {
     public let bundleURL: URL
     public let provenanceURL: URL
+    public let warnings: [MHCReferenceBundleWarning]
 }
 
 public enum MHCAmpliconReferenceBundleBuildError: Error, LocalizedError, Equatable {
@@ -124,10 +126,51 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
         do {
             try fileManager.createDirectory(at: stagingBundleURL, withIntermediateDirectories: true)
 
-            progressHandler?(0.24, "Copying MHC reference FASTA.")
-            let referenceRelativePath = referenceCopyName(for: config.referenceFASTA)
-            let referenceURL = stagingBundleURL.appendingPathComponent(referenceRelativePath)
-            try fileManager.copyItem(at: config.referenceFASTA, to: referenceURL)
+            progressHandler?(0.16, "Copying MHC reference FASTA.")
+            let bundleDisplayName = config.name?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+                ?? publishedBundleURL.deletingPathExtension().lastPathComponent
+            let preparationDirectory = stagingBundleURL.appendingPathComponent(
+                ".reference-preparation",
+                isDirectory: true
+            )
+            let preparedReference = try await ReferenceSourcePreparer().prepare(
+                sourceURL: config.referenceSource,
+                bundleName: bundleDisplayName,
+                tempDirectory: preparationDirectory
+            )
+            let warnings = preparedReference.warnings.map(MHCReferenceBundleWarning.init)
+
+            progressHandler?(0.26, "Building embedded annotated reference.")
+            let referenceDirectory = stagingBundleURL.appendingPathComponent("reference", isDirectory: true)
+            try fileManager.createDirectory(at: referenceDirectory, withIntermediateDirectories: true)
+            let embeddedBundleName = safeFileName(bundleDisplayName)
+            let embeddedReferenceURL = try await NativeBundleBuilder().build(
+                configuration: BuildConfiguration(
+                    name: embeddedBundleName,
+                    identifier: "org.lungfish.mhc-reference.\(UUID().uuidString.lowercased())",
+                    fastaURL: preparedReference.fastaURL,
+                    annotationFiles: preparedReference.annotationInputs,
+                    outputDirectory: referenceDirectory,
+                    source: preparedReference.sourceInfo,
+                    compressFASTA: true,
+                    provenanceWorkflowName: nil,
+                    provenanceCommand: nil,
+                    provenanceInputFiles: nil,
+                    warnings: preparedReference.warnings.map(\.bundleWarning),
+                    referenceRecordStoreURL: preparedReference.recordStoreURL
+                ),
+                progressHandler: { _, progress, message in
+                    progressHandler?(0.26 + progress * 0.24, message)
+                }
+            )
+            try removeNestedReferenceProvenance(from: embeddedReferenceURL)
+            try fileManager.removeItem(at: preparationDirectory)
+            let embeddedManifest = try BundleManifest.load(from: embeddedReferenceURL)
+            guard let embeddedGenome = embeddedManifest.genome else {
+                throw MHCAmpliconReferenceBundleBuildError.missingInput(config.referenceSource.path)
+            }
+            let embeddedRelativePath = relativePath(for: embeddedReferenceURL, in: stagingBundleURL)
+            let referenceRelativePath = "\(embeddedRelativePath)/\(embeddedGenome.path)"
 
             progressHandler?(0.42, "Copying haplotype definitions.")
             let haplotypeDirectory = stagingBundleURL.appendingPathComponent("haplotypes", isDirectory: true)
@@ -147,9 +190,9 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             progressHandler?(0.58, "Copying MHC reference source files.")
             var sourceFiles: [MHCAmpliconReferenceBundleSourceFile] = [
                 MHCAmpliconReferenceBundleSourceFile(
-                    path: referenceRelativePath,
-                    role: "reference_fasta",
-                    originalPath: config.referenceFASTA.path
+                    path: embeddedRelativePath,
+                    role: "reference_bundle",
+                    originalPath: config.referenceSource.path
                 ),
             ]
             for embedded in embeddedDefinitions {
@@ -173,17 +216,19 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             let defaultDefinitionID = config.defaultHaplotypeDefinitionID?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
                 ?? definitionInputs.first?.definition.id
             let manifest = MHCAmpliconReferenceBundleManifest(
-                name: config.name?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
-                    ?? publishedBundleURL.deletingPathExtension().lastPathComponent,
+                schemaVersion: 2,
+                name: bundleDisplayName,
                 referenceFastaPath: referenceRelativePath,
+                referenceBundlePath: embeddedRelativePath,
                 haplotypeDefinitionPaths: haplotypePaths,
                 defaultHaplotypeDefinitionID: defaultDefinitionID,
                 sourceFiles: sourceFiles,
                 metrics: MHCAmpliconReferenceBundleMetrics(
-                    referenceCount: try FASTAReader(url: referenceURL).readHeadersSync().count,
+                    referenceCount: preparedReference.sequenceNames.count,
                     haplotypeDefinitionCount: definitionInputs.count
                 ),
                 provenancePath: ProvenanceWriter.provenanceFilename,
+                warnings: warnings,
                 createdAt: formatter.string(from: Date())
             )
             try MHCAmpliconReferenceBundle.writeManifest(manifest, to: stagingBundleURL)
@@ -192,6 +237,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             _ = try writeProvenance(
                 config: config,
                 definitionInputs: definitionInputs,
+                warnings: warnings,
                 bundleURL: stagingBundleURL,
                 publishedBundleURL: publishedBundleURL,
                 startedAt: startedAt,
@@ -208,7 +254,8 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
                 bundleURL: publishedBundleURL.standardizedFileURL,
                 provenanceURL: publishedBundleURL
                     .appendingPathComponent(ProvenanceWriter.provenanceFilename)
-                    .standardizedFileURL
+                    .standardizedFileURL,
+                warnings: warnings
             )
         } catch {
             try removeStagingBundleAfterFailure(stagingBundleURL, originalError: error)
@@ -232,10 +279,13 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
         guard !config.haplotypeDefinitionURLs.isEmpty || !config.haplotypeDefinitionInputs.isEmpty else {
             throw MHCAmpliconReferenceBundleBuildError.missingHaplotypeDefinition
         }
-        for input in [config.referenceFASTA] + config.haplotypeDefinitionURLs + config.sourceFiles + config.sourceDirectories {
+        for input in [config.referenceSource] + config.haplotypeDefinitionURLs + config.sourceFiles + config.sourceDirectories {
             guard FileManager.default.fileExists(atPath: input.path) else {
                 throw MHCAmpliconReferenceBundleBuildError.missingInput(input.path)
             }
+        }
+        guard ReferenceBundleImportService.isStandaloneReferenceSource(config.referenceSource) else {
+            throw MHCAmpliconReferenceBundleBuildError.missingInput(config.referenceSource.path)
         }
         for input in config.haplotypeDefinitionInputs {
             if let sourceURL = input.sourceURL,
@@ -266,15 +316,6 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             throw MHCAmpliconReferenceBundleBuildError.invalidDefaultHaplotypeDefinition(defaultID)
         }
         return resolvedInputs
-    }
-
-    private func referenceCopyName(for url: URL) -> String {
-        let lower = url.lastPathComponent.lowercased()
-        if lower.hasSuffix(".fa.gz") { return "reference.fa.gz" }
-        if lower.hasSuffix(".fasta.gz") { return "reference.fasta.gz" }
-        if lower.hasSuffix(".fna.gz") { return "reference.fna.gz" }
-        let ext = url.pathExtension.isEmpty ? "fa" : url.pathExtension
-        return "reference.\(ext)"
     }
 
     private func copyBuildSource(
@@ -319,6 +360,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
     private func writeProvenance(
         config: MHCAmpliconReferenceBundleBuildConfiguration,
         definitionInputs: [ResolvedDefinitionInput],
+        warnings: [MHCReferenceBundleWarning],
         bundleURL: URL,
         publishedBundleURL: URL,
         startedAt: Date,
@@ -326,11 +368,14 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
     ) throws -> URL {
         let argv = config.argv.isEmpty ? replayArgv(for: config) : config.argv
         var explicit: [String: ParameterValue] = [
-            "referenceFASTA": .file(config.referenceFASTA),
+            "referenceSource": .file(config.referenceSource),
             "haplotypeDefinitionSources": .array(definitionInputs.map(definitionSourceParameter(_:))),
             "output": .file(publishedBundleURL),
             "forceOverwrite": .boolean(config.forceOverwrite),
         ]
+        if !warnings.isEmpty {
+            explicit["warnings"] = .array(warnings.map(warningParameter))
+        }
         if let name = config.name {
             explicit["name"] = .string(name)
         }
@@ -344,7 +389,11 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             explicit["sourceDirectories"] = .array(config.sourceDirectories.map { .file($0) })
         }
         var inputs = [
-            try ProvenanceFileDescriptor.file(url: config.referenceFASTA, format: .fasta, role: .reference),
+            try ProvenanceFileDescriptor.file(
+                url: config.referenceSource,
+                format: fileFormat(for: config.referenceSource),
+                role: .reference
+            ),
         ]
         for url in definitionInputs.compactMap(\.sourceURL) {
             inputs.append(try ProvenanceFileDescriptor.file(url: url, format: .json, role: .reference))
@@ -369,6 +418,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             outputs: outputs,
             exitStatus: 0,
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: warnings.isEmpty ? nil : warnings.map(warningDiagnostic).joined(separator: "\n"),
             startedAt: startedAt,
             completedAt: completedAt
         )
@@ -396,7 +446,8 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             outputs: outputs,
             steps: [step],
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
-            exitStatus: 0
+            exitStatus: 0,
+            stderr: warnings.isEmpty ? nil : warnings.map(warningDiagnostic).joined(separator: "\n")
         )
         return try ProvenanceWriter(signingProvider: nil).write(
             envelope,
@@ -421,6 +472,41 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             fields["scope"] = .string(sourceScope)
         }
         return .dictionary(fields)
+    }
+
+    private func warningParameter(_ warning: MHCReferenceBundleWarning) -> ParameterValue {
+        var fields: [String: ParameterValue] = [
+            "category": .string(warning.category),
+            "message": .string(warning.message),
+        ]
+        if let value = warning.code { fields["code"] = .string(value) }
+        if let value = warning.recordIdentifier { fields["recordIdentifier"] = .string(value) }
+        if let value = warning.featureType { fields["featureType"] = .string(value) }
+        if let value = warning.recordFieldKey { fields["recordFieldKey"] = .string(value) }
+        if let value = warning.sourceLocation { fields["sourceLocation"] = .string(value) }
+        if let value = warning.lineNumber { fields["lineNumber"] = .integer(value) }
+        return .dictionary(fields)
+    }
+
+    private func warningDiagnostic(_ warning: MHCReferenceBundleWarning) -> String {
+        var context: [String] = []
+        if let value = warning.recordIdentifier { context.append("record \(value)") }
+        if let value = warning.recordFieldKey { context.append("field \(value)") }
+        if let value = warning.featureType { context.append("feature \(value)") }
+        if let value = warning.sourceLocation { context.append("location \(value)") }
+        if let value = warning.lineNumber { context.append("line \(value)") }
+        let suffix = context.isEmpty ? "" : " [\(context.joined(separator: ", "))]"
+        return "\(warning.category)/\(warning.code ?? "recoverable_import_warning"): \(warning.message)\(suffix)"
+    }
+
+    private func removeNestedReferenceProvenance(from bundleURL: URL) throws {
+        let fileManager = FileManager.default
+        for url in [
+            bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename),
+            bundleURL.appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true),
+        ] where fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
     }
 
     private func bundleOutputDescriptors(
@@ -591,9 +677,11 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
     }
 
     private func fileFormat(for url: URL) -> FileFormat {
-        switch url.pathExtension.lowercased() {
+        switch ReferenceBundleImportService.normalizedExtension(for: url) {
         case "json": return .json
-        case "fa", "fasta", "fna", "gz": return .fasta
+        case "fa", "fasta", "fna", "fsa", "fas", "faa", "ffn", "frn": return .fasta
+        case "gb", "gbk", "genbank", "gbff", "embl": return .genBank
+        case "db", "sqlite": return .sqlite
         case "tsv", "txt", "log": return .text
         default: return .unknown
         }
@@ -669,5 +757,20 @@ private extension String {
     var nonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private extension MHCReferenceBundleWarning {
+    init(_ warning: ReferenceImportWarning) {
+        self.init(
+            category: warning.category,
+            code: warning.code,
+            message: warning.message,
+            recordIdentifier: warning.recordIdentifier,
+            featureType: warning.featureType,
+            recordFieldKey: warning.recordFieldKey,
+            sourceLocation: warning.sourceLocation,
+            lineNumber: warning.lineNumber
+        )
     }
 }

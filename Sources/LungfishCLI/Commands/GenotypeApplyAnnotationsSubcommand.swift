@@ -319,12 +319,12 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
 
     static func matrixTargetKey(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
         switch target {
-        case let .row(locus, genotype):
-            return ["row", locus, genotype].joined(separator: "|")
+        case let .row(locus, genotype, stableClusterID):
+            return (["row", locus, genotype] + (stableClusterID.map { [$0] } ?? [])).joined(separator: "|")
         case let .column(sample):
             return ["column", sample].joined(separator: "|")
-        case let .cell(locus, genotype, sample):
-            return ["cell", locus, genotype, sample].joined(separator: "|")
+        case let .cell(locus, genotype, sample, stableClusterID):
+            return (["cell", locus, genotype, sample] + (stableClusterID.map { [$0] } ?? [])).joined(separator: "|")
         }
     }
 

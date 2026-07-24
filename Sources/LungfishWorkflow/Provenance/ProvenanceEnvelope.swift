@@ -834,6 +834,8 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     public let argv: [String]
     public let durableReplayArgv: [String]?
     public let reproducibleCommand: String
+    public let resolvedOptions: [String: ParameterValue]
+    public let runtimeIdentity: ProvenanceRuntimeIdentity?
     public let inputs: [ProvenanceFileDescriptor]
     public let outputs: [ProvenanceFileDescriptor]
     public let exitStatus: Int?
@@ -853,6 +855,8 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         case command
         case durableReplayArgv
         case reproducibleCommand
+        case resolvedOptions
+        case runtimeIdentity
         case inputs
         case outputs
         case exitStatus
@@ -876,6 +880,8 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         argv: [String] = [],
         durableReplayArgv: [String]? = nil,
         reproducibleCommand: String? = nil,
+        resolvedOptions: [String: ParameterValue] = [:],
+        runtimeIdentity: ProvenanceRuntimeIdentity? = nil,
         inputs: [ProvenanceFileDescriptor] = [],
         outputs: [ProvenanceFileDescriptor] = [],
         exitStatus: Int? = nil,
@@ -893,6 +899,8 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         self.argv = argv
         self.durableReplayArgv = durableReplayArgv
         self.reproducibleCommand = reproducibleCommand ?? argv.map(shellEscape).joined(separator: " ")
+        self.resolvedOptions = resolvedOptions
+        self.runtimeIdentity = runtimeIdentity
         self.inputs = inputs
         self.outputs = outputs
         self.exitStatus = exitStatus
@@ -916,6 +924,8 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         durableReplayArgv = try container.decodeIfPresent([String].self, forKey: .durableReplayArgv)
         reproducibleCommand = try container.decodeIfPresent(String.self, forKey: .reproducibleCommand)
             ?? argv.map(shellEscape).joined(separator: " ")
+        resolvedOptions = try container.decodeIfPresent([String: ParameterValue].self, forKey: .resolvedOptions) ?? [:]
+        runtimeIdentity = try container.decodeIfPresent(ProvenanceRuntimeIdentity.self, forKey: .runtimeIdentity)
         inputs = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .inputs) ?? []
         outputs = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .outputs) ?? []
         exitStatus = try container.decodeIfPresent(Int.self, forKey: .exitStatus)
@@ -941,6 +951,8 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         try container.encode(argv, forKey: .command)
         try container.encodeIfPresent(durableReplayArgv, forKey: .durableReplayArgv)
         try container.encode(reproducibleCommand, forKey: .reproducibleCommand)
+        try container.encode(resolvedOptions, forKey: .resolvedOptions)
+        try container.encodeIfPresent(runtimeIdentity, forKey: .runtimeIdentity)
         try container.encode(inputs, forKey: .inputs)
         try container.encode(outputs, forKey: .outputs)
         try container.encodeIfPresent(exitStatus, forKey: .exitStatus)

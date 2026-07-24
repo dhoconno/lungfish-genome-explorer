@@ -136,6 +136,22 @@ public final class MetadataColumnController {
         reloadVisibleMetadataColumns()
     }
 
+    /// Re-registers standard columns that were replaced after installation.
+    ///
+    /// Dynamic table subclasses should call this after rebuilding their non-metadata
+    /// columns so late columns receive flexible sizing and appear in the header chooser.
+    public func refreshAfterStandardColumnsChanged() {
+        guard let tableView else { return }
+        configureFlexibleTable(tableView)
+        captureAndRelaxExistingColumns(on: tableView)
+        if store != nil {
+            // Reinsert metadata columns after the rebuilt standard columns.
+            refreshColumns()
+        } else {
+            rebuildHeaderMenu()
+        }
+    }
+
     // MARK: - Column Management
 
     /// Refreshes the dynamic columns on the table view based on current visibility state.

@@ -18,6 +18,37 @@ final class GenBankReaderTests: XCTestCase {
         return testFile
     }
 
+    func testRecoveringAnnotationsKeepsSequenceAndValidFeatures() throws {
+        let testFile = try writeTemporaryGenBank(
+            """
+            LOCUS       RECOVER1                12 bp    DNA     linear   UNK 01-JAN-2024
+            DEFINITION  Recover annotations independently from sequence.
+            ACCESSION   RECOVER1
+            VERSION     RECOVER1.1
+            FEATURES             Location/Qualifiers
+                 gene            1..6
+                                 /gene="valid_gene"
+                 CDS             bad..location
+                                 /product="invalid feature"
+            ORIGIN
+                    1 atgcatgcatgc
+            //
+            """
+        )
+
+        let result = try GenBankReader(url: testFile).readAllRecoveringAnnotationsSync()
+
+        XCTAssertEqual(result.records.count, 1)
+        XCTAssertEqual(result.records[0].sequence.asString(), "ATGCATGCATGC")
+        XCTAssertEqual(result.records[0].annotations.map(\.type), [.gene])
+        XCTAssertEqual(result.records[0].annotations.first?.name, "valid_gene")
+        XCTAssertEqual(result.warnings.count, 1)
+        XCTAssertEqual(result.warnings[0].recordIdentifier, "RECOVER1")
+        XCTAssertEqual(result.warnings[0].featureType, "CDS")
+        XCTAssertEqual(result.warnings[0].sourceLocation, "bad..location")
+        XCTAssertTrue(result.warnings[0].message.contains("Invalid GenBank location"))
+    }
+
     func testStreamingImplementationDoesNotReadAheadOrMaterializeWholeFile() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -151,7 +151,9 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
                 : (parsedHaplotypeDefinitionScope ?? .project),
             haplotypeDefinitionSetID: effectiveHaplotypeDefinition
         )
+        let suppressProgress = globalOptions.quiet
         let result = try await FullLengthONTMHCGenotypingPipeline().run(request) { fraction, message in
+            guard !suppressProgress else { return }
             let percent = Int((fraction * 100.0).rounded())
             FileHandle.standardError.write(Data("[\(percent)%] \(message)\n".utf8))
         }
@@ -164,18 +166,51 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             primaryWorkbookPath: result.primaryWorkbookURL.path,
             haplotypeAnalysisPath: result.haplotypeAnalysisURL?.path,
             unmatchedClustersFASTAPath: result.unmatchedClustersFASTAURL.path,
+            deduplicatedUnmatchedClustersFASTAPath: result.deduplicatedUnmatchedClustersFASTAURL.path,
             cdnaClustersFASTAPath: result.cdnaClustersFASTAURL.path,
             provenancePath: result.provenanceURL.path,
-            referenceFASTAPath: result.referenceFASTAURL.path
+            manifestPath: ONTGenotypeResultBundle.manifestURL(in: result.outputDirectory).path,
+            referenceFASTAPath: result.referenceFASTAURL.path,
+            genotypingEvidenceBAMPath: result.genotypingEvidenceBAMURL?.path,
+            genotypingEvidenceBAIPath: result.genotypingEvidenceBAIURL?.path,
+            reciprocalEvidenceBAMPath: result.reciprocalEvidenceBAMURL?.path,
+            reciprocalEvidenceBAIPath: result.reciprocalEvidenceBAIURL?.path,
+            candidateAllelesJSONPath: result.candidateAllelesJSONURL?.path,
+            candidateAllelesFASTAPath: result.candidateAllelesFASTAURL?.path,
+            candidateAllelesGenBankPath: result.candidateAllelesGenBankURL?.path,
+            unnameableClustersJSONPath: result.unnameableClustersJSONURL?.path,
+            unnameableClustersFASTAPath: result.unnameableClustersFASTAURL?.path,
+            unnameableClustersGenBankPath: result.unnameableClustersGenBankURL?.path,
+            referenceCatalogJSONPath: result.outputDirectory
+                .appendingPathComponent("artifacts/reference/mhc-reference-catalog.json").path,
+            workbookProjectionInputJSONPath: result.outputDirectory
+                .appendingPathComponent("artifacts/projections/mhc-workbook-projection-input.json").path,
+            cleanupWarnings: result.cleanupWarnings
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        FileHandle.standardOutput.write(try encoder.encode(payload))
-        FileHandle.standardOutput.write(Data("\n".utf8))
+        if let output = try outputData(for: payload) {
+            FileHandle.standardOutput.write(output)
+        }
+    }
+
+    func outputData(for payload: FastqFullLengthONTMHCGenotypingPayload) throws -> Data? {
+        guard !globalOptions.quiet else { return nil }
+
+        switch globalOptions.outputFormat {
+        case .json:
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            var output = try encoder.encode(payload)
+            output.append(contentsOf: "\n".utf8)
+            return output
+        case .tsv:
+            return Data(try payload.tsvOutput().utf8)
+        case .text:
+            return Data(payload.textOutput.utf8)
+        }
     }
 }
 
-private struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
+struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let outputDirectory: String
     let reportCSVPath: String
     let sampleSummaryCSVPath: String
@@ -184,7 +219,103 @@ private struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let primaryWorkbookPath: String
     let haplotypeAnalysisPath: String?
     let unmatchedClustersFASTAPath: String
+    let deduplicatedUnmatchedClustersFASTAPath: String
     let cdnaClustersFASTAPath: String
     let provenancePath: String
+    let manifestPath: String
     let referenceFASTAPath: String
+    let genotypingEvidenceBAMPath: String?
+    let genotypingEvidenceBAIPath: String?
+    let reciprocalEvidenceBAMPath: String?
+    let reciprocalEvidenceBAIPath: String?
+    let candidateAllelesJSONPath: String?
+    let candidateAllelesFASTAPath: String?
+    let candidateAllelesGenBankPath: String?
+    let unnameableClustersJSONPath: String?
+    let unnameableClustersFASTAPath: String?
+    let unnameableClustersGenBankPath: String?
+    let referenceCatalogJSONPath: String
+    let workbookProjectionInputJSONPath: String
+    let cleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning]
+
+    private static let tsvHeader = [
+        "outputDirectory", "reportCSVPath", "sampleSummaryCSVPath", "statsJSONPath",
+        "workbookPath", "primaryWorkbookPath", "haplotypeAnalysisPath",
+        "unmatchedClustersFASTAPath", "deduplicatedUnmatchedClustersFASTAPath",
+        "cdnaClustersFASTAPath", "provenancePath", "manifestPath", "referenceFASTAPath",
+        "genotypingEvidenceBAMPath", "genotypingEvidenceBAIPath", "reciprocalEvidenceBAMPath",
+        "reciprocalEvidenceBAIPath", "candidateAllelesJSONPath", "candidateAllelesFASTAPath",
+        "candidateAllelesGenBankPath", "unnameableClustersJSONPath", "unnameableClustersFASTAPath",
+        "unnameableClustersGenBankPath", "referenceCatalogJSONPath",
+        "workbookProjectionInputJSONPath", "cleanupWarnings",
+    ]
+
+    var textOutput: String {
+        let values: [(String, String?)] = [
+            ("Bundle", outputDirectory),
+            ("Genotype report", reportCSVPath),
+            ("Sample summary", sampleSummaryCSVPath),
+            ("Statistics", statsJSONPath),
+            ("Current workbook", workbookPath),
+            ("Initial workbook", primaryWorkbookPath),
+            ("Haplotype analysis", haplotypeAnalysisPath),
+            ("Unmatched clusters", unmatchedClustersFASTAPath),
+            ("Canonical deduplicated unmatched clusters", deduplicatedUnmatchedClustersFASTAPath),
+            ("cDNA clusters", cdnaClustersFASTAPath),
+            ("Provenance", provenancePath),
+            ("Manifest", manifestPath),
+            ("Reference FASTA", referenceFASTAPath),
+            ("Genotyping evidence BAM", genotypingEvidenceBAMPath),
+            ("Genotyping evidence BAI", genotypingEvidenceBAIPath),
+            ("Reciprocal evidence BAM", reciprocalEvidenceBAMPath),
+            ("Reciprocal evidence BAI", reciprocalEvidenceBAIPath),
+            ("Candidate alleles JSON", candidateAllelesJSONPath),
+            ("Candidate alleles FASTA", candidateAllelesFASTAPath),
+            ("Candidate alleles GenBank", candidateAllelesGenBankPath),
+            ("Un-nameable clusters JSON", unnameableClustersJSONPath),
+            ("Un-nameable clusters FASTA", unnameableClustersFASTAPath),
+            ("Un-nameable clusters GenBank", unnameableClustersGenBankPath),
+            ("MHC reference catalog JSON", referenceCatalogJSONPath),
+            ("Workbook projection input JSON", workbookProjectionInputJSONPath),
+        ]
+        var lines = values.compactMap { label, path in
+            path.map { "\(label): \($0)" }
+        }
+        lines.append(contentsOf: cleanupWarnings.map {
+            "Cleanup warning (\($0.kind.rawValue)): \($0.path): \($0.error)"
+        })
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    func tsvOutput() throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let cleanupWarningsJSON = String(decoding: try encoder.encode(cleanupWarnings), as: UTF8.self)
+        let values = [
+            outputDirectory, reportCSVPath, sampleSummaryCSVPath, statsJSONPath,
+            workbookPath, primaryWorkbookPath, haplotypeAnalysisPath ?? "",
+            unmatchedClustersFASTAPath, deduplicatedUnmatchedClustersFASTAPath,
+            cdnaClustersFASTAPath, provenancePath, manifestPath, referenceFASTAPath,
+            genotypingEvidenceBAMPath ?? "", genotypingEvidenceBAIPath ?? "",
+            reciprocalEvidenceBAMPath ?? "", reciprocalEvidenceBAIPath ?? "",
+            candidateAllelesJSONPath ?? "", candidateAllelesFASTAPath ?? "",
+            candidateAllelesGenBankPath ?? "", unnameableClustersJSONPath ?? "",
+            unnameableClustersFASTAPath ?? "", unnameableClustersGenBankPath ?? "",
+            referenceCatalogJSONPath, workbookProjectionInputJSONPath, cleanupWarningsJSON,
+        ]
+        precondition(values.count == Self.tsvHeader.count)
+        return Self.tsvHeader.joined(separator: "\t")
+            + "\n"
+            + values.map(Self.tsvEscape).joined(separator: "\t")
+            + "\n"
+    }
+
+    private static func tsvEscape(_ value: String) -> String {
+        let needsQuoting = value.contains("\t")
+            || value.contains("\"")
+            || value.contains("\n")
+            || value.contains("\r")
+        guard needsQuoting else { return value }
+        return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
+    }
 }

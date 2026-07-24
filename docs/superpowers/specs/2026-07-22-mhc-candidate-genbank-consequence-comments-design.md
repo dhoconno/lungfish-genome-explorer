@@ -1,0 +1,116 @@
+# MHC Candidate GenBank Consequence Comments Design
+
+## Scope
+
+This change applies only to the forward full-length ONT MHC `Candidate Alleles GenBank` artifact and the current two-sheet workbook's sequence columns. It does not change candidate classification, provisional naming, scientific JSON/SQLite schemas, viewport behavior, BAM artifacts, or any vestigial workbook/genotyping workflow.
+
+The renderer will use the already selected closest reference visualization, candidate sequence, reciprocal alignment start/orientation/CIGAR, and lifted reference features. It will not reread a BAM.
+
+Candidate GenBank records are reference-library-oriented artifacts. Their stored sequence must exclude terminal 5-prime and 3-prime UTR/flanking sequence while preserving the genomic span between the outer lifted CDS boundaries, including introns. Candidate FASTA remains the full unmatched cluster sequence so cluster identity is not lost. Un-nameable GenBank records remain full cluster records.
+
+## Candidate sequence trimming and identity
+
+When a lifted CDS exists, the candidate GenBank `ORIGIN` is cropped to the outer span of that CDS in stored-candidate orientation. All annotations are clipped and rebased to the cropped sequence; the source feature covers the complete cropped record. This removes terminal UTR/flanking bases while retaining introns and all coding intervals. Translation and consequence comments are computed from the same CDS, and candidate coordinates in those comments refer to the cropped GenBank `ORIGIN`.
+
+The record preserves two independently verifiable identities:
+
+- the stable cluster ID and existing `sequence_sha256` continue to identify the full candidate FASTA/cluster sequence; and
+- explicit trim start/end, original length, and a GenBank-sequence SHA-256 identify and verify the cropped `ORIGIN` as an exact substring of that full cluster.
+
+If no lifted CDS exists, trimming is unavailable. The record remains present and explicitly states that it is not reference-ready because CDS/UTR boundaries could not be resolved. Partial lifted CDS records are cropped to their observed lifted CDS span but retain `incomplete/unresolved` translation status and an explicit partial/reference-readiness warning; trimming must never upgrade their biological completeness.
+
+The current two-sheet workbook validator accepts both the new verifiable cropped candidate GenBank contract and older exact FASTA/GenBank records. It continues requiring exact FASTA/GenBank equality for un-nameable records.
+
+The current `Unmatched Alleles` sheet exposes both identities explicitly. `Full-Length FASTA Sequence` contains the original cluster FASTA sequence. `UTR-Trimmed FASTA Sequence` contains the verified candidate GenBank `ORIGIN`; for older exact FASTA/GenBank candidate records both columns contain the same sequence. Un-nameable rows retain the full sequence and leave the trimmed column blank. Explicit `Update current.xlsx` uses the same two columns and values.
+
+## Required comments
+
+Every candidate with a selected annotated closest reference will contain these stable summary `COMMENT` fields:
+
+1. `Lungfish exon 2/3 nonsynonymous changes:`
+2. `Lungfish CDS nonsynonymous changes:`
+3. `Lungfish CDS synonymous changes:`
+4. `Lungfish intronic changes:`
+
+The summaries refer to deterministic detail identifiers (`CDS-NS-1`, `CDS-SYN-1`, `INTRON-1`, and `INTRON-FILL-1`). Detail comments enumerate the reference-oriented nucleotide change, 1-based reference and stored-candidate coordinates, exon/intron number when available, 1-based CDS nucleotide/codon/amino-acid position where applicable, and predicted product effect.
+
+Each summary must distinguish:
+
+- `none detected in complete annotated region`;
+- `none detected in aligned portion (partial coverage)`; and
+- `unavailable` or `unresolved`, with a reason.
+
+## Change derivation
+
+The existing CIGAR projection becomes the single source of aligned change events. It will retain:
+
+- substitutions, using `X` and also direct base comparison for `M`;
+- query insertions;
+- reference deletions; and
+- skipped/unassessed `N` regions.
+
+Alleles are reported in closest-reference orientation. Reverse-query alignments compare the reverse complement of the candidate to the reference while mapping positions back to the stored GenBank `ORIGIN`. All reported coordinates are 1-based and the record includes a coordinate-convention comment. Candidate coordinates refer to the cropped GenBank `ORIGIN`; the record also reports the crop offset in the original full cluster.
+
+## Coding consequences
+
+The primary annotated CDS is interpreted in transcript order using feature strand, `codon_start`, and `transl_table`. Candidate translation currently supports table 1 only; any other or invalid table omits the candidate translation and forces incomplete/unresolved, non-reference-ready status. Unsupported or ambiguous CDS semantics are unresolved rather than silently treated as standard.
+
+Substitutions in the same codon are grouped and applied together before translating the alternate codon. A codon is synonymous only when the complete observed alternate codon translates to the same amino acid. Otherwise the detail reports missense, stop-gained, or stop-lost impact. Ambiguous codons/translations receive a `CDS-UNRESOLVED-*` detail and are not counted as synonymous or nonsynonymous.
+
+Ordinary coding insertions/deletions are protein-altering. Net length divisible by three is reported as frame-preserving; other net lengths are frame-disrupting. Touching deletion/insertion replacement operations are grouped by their reference spans/boundaries before computing the net length; non-touching indels remain separate. Complex adjacent events are described conservatively using the recomputed whole-candidate translation status, length, and internal-stop information rather than overclaiming a precise HGVS consequence.
+
+Exon number qualifiers take precedence. If absent, exon numbers are inferred in 5-prime-to-3-prime transcript order. The exon 2/3 summary is a subset of the all-CDS nonsynonymous details and names only nonsynonymous or unresolved detail identifiers whose reference positions/exon scope intersects exon 2 or 3. Unresolved evidence confined to another exon does not contaminate this summary.
+
+## Intronic consequences and cDNA extensions
+
+For genomic references, explicit intron features take precedence. Otherwise introns are inferred only from gaps between transcript-ordered exons within the annotated gene. Intronic substitutions and indels are enumerated with position and intron number. Their direct CDS translation effect is reported as none, while splice/regulatory impact is explicitly not assessed.
+
+For cDNA references, an internal query insertion at least `minimumIntronGapBases` that is used as an inferred intron fill is `INTRON-FILL`, not part of the lifted CDS and not a coding insertion. Its reference boundary, stored candidate range, and length are reported, along with the statement that the closest cDNA contains no homologous intron sequence and splice impact is not assessed. Matches, mismatches, and observed deletions count as assessed source-CDS positions when inferring cDNA exons/introns; skipped or uncovered positions do not. Ordinary short CDS indels remain coding changes. A cDNA intron fill adjacent to an ordinary deletion reports both events independently. For genomic closest references, long internal insertions remain part of the lifted CDS, candidate translation, and coding consequences.
+
+Non-CDS exonic/UTR changes are not mislabeled as intronic. Unplaceable aligned changes are reported as unresolved/unclassified rather than omitted. Intronic changes outside the cropped candidate GenBank `ORIGIN` are reference-only and explicitly say `outside cropped GenBank ORIGIN`; they never emit zero or negative candidate coordinates.
+
+## Partial and missing annotation
+
+Missing 5-prime CDS coverage, partial GenBank locations, unknown strand, skipped CIGAR regions, unsupported translation tables, or ambiguous CDS groups prevent definitive `none`, synonymous, or nonsynonymous conclusions for the affected region. Every reference CDS position must be assessed before a candidate is full-length/reference-ready: matches, mismatches, and observed deletions are assessed; skipped or uncovered positions are not. Placeable partial-CDS substitutions still report the rebased stored-candidate coordinate and exon number when known while leaving protein effect unresolved.
+
+Candidates without a selected annotated reference receive all four stable summaries as unavailable. Un-nameable GenBank records retain the prior boundary-coverage translation/status policy and feature shape, including not gaining newly lifted reference intron features or candidate consequence/readiness qualifiers; the stricter all-CDS-position readiness policy is candidate-only.
+
+## Provenance
+
+The candidate and un-nameable GenBank render provenance records:
+
+- change source: selected closest-reference sequence, one-based start, CIGAR, and candidate sequence; no BAM reread;
+- one-based reference/candidate/CDS/exon/intron/amino-acid coordinate convention with outside-crop changes reference-only;
+- grouped same-codon substitution, exon-scoped unresolved-summary, touching replacement-indel, and strand/codon-start/translation-table rules;
+- ordinary coding-indel frame rule;
+- reference-class-aware long-insertion lifting, cDNA intron-fill exclusion from lifted CDS/coding changes, and deletion-aware complete-assessment inference;
+- table-1-only candidate translation with unsupported tables omitted and unresolved;
+- unresolved-never-coerced ambiguity/unassessed-CDS policy; and
+- candidate UTR trimming to the outer lifted-CDS span, including the original/full and cropped sequence identities.
+
+Existing input/output descriptors, checksums, sizes, argv, runtime identity, exit status, and timing remain required.
+
+## Acceptance criteria
+
+- Forward genomic fixtures enumerate exon-2/3 missense, other CDS missense, synonymous CDS, and intronic changes correctly.
+- Multiple substitutions in one codon are classified from their combined alternate codon.
+- Reverse alignment and reverse-strand CDS coordinates/alleles/translations are correct.
+- Frame-preserving and frame-disrupting coding indels are distinguished.
+- Touching multi-base deletion/insertion replacements are grouped by reference span while non-touching indels remain separate.
+- cDNA intron fills do not become coding indels, including when adjacent to an ordinary deletion.
+- A deletion adjacent to a cDNA intron fill still permits inferred exon/intron features, while the deletion remains a coding consequence.
+- Long genomic coding insertions remain in the lifted CDS and recomputed translation.
+- Partial/ambiguous records never emit false definitive `none` or false synonymous/nonsynonymous claims.
+- Skipped or uncovered CDS positions force incomplete/unresolved and non-reference-ready status, while observed deletions remain assessed changes.
+- Annotated un-nameable records retain their prior feature shape without lifted reference introns.
+- Annotated un-nameable records also retain prior boundary-coverage translation/status semantics when an internal reference region is skipped.
+- Exon-1-only unresolved evidence is excluded from a fully assessed exon-2/3 summary.
+- Placeable partial-CDS substitution details include candidate coordinate and known exon scope.
+- Unsupported translation tables never produce a standard translation or reference-ready candidate.
+- Intronic substitutions/insertions outside the candidate crop use explicit reference-only coordinates.
+- GenBank output is deterministic and round-trips through the reader/writer.
+- Published candidate artifacts and provenance contain the new comments/rules.
+- Candidate GenBank `ORIGIN` begins and ends at the outer lifted CDS span, preserves intervening introns, rebases features/comments, and verifies as the declared substring of the full candidate FASTA.
+- The initial and explicitly updated current two-sheet workbooks retain the full candidate FASTA sequence and the verified UTR-trimmed candidate GenBank sequence in separate named columns; un-nameable trimmed cells are blank.
+- Partial/unresolved candidates remain explicitly non-reference-ready; records without a lifted CDS state that UTR trimming is unavailable.
+- No BAM reread, schema change, legacy workflow change, or unrelated UI change is introduced.

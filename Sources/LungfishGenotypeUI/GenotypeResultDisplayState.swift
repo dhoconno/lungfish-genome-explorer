@@ -127,6 +127,10 @@ public struct GenotypeResultDisplayState: Equatable {
     public var matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus
     public var matrixRowFilterText: String = ""
     public var matrixSampleFilterText: String = ""
+    /// Optional live override for the bundle-scoped candidate viewport settings.
+    /// `nil` preserves the settings loaded from this result bundle's annotation
+    /// sidecar. Full-length MHC controls use this while an edit is being applied.
+    public var mhcCandidateDisplaySettings: ONTMHCCandidateDisplaySettings? = nil
 
     /// The historical "calls below this are unreliable" cohort flag (default
     /// `5_000`). It LABELS samples in the Cohort Summary panel; it does not
@@ -150,6 +154,7 @@ public struct GenotypeResultDisplayState: Equatable {
         matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
         matrixRowFilterText: String = "",
         matrixSampleFilterText: String = "",
+        mhcCandidateDisplaySettings: ONTMHCCandidateDisplaySettings? = nil,
         cohortFlagThreshold: Int = 5_000
     ) {
         self.viewportLens = viewportLens
@@ -168,11 +173,21 @@ public struct GenotypeResultDisplayState: Equatable {
         self.matrixPercentDenominator = matrixPercentDenominator
         self.matrixRowFilterText = matrixRowFilterText
         self.matrixSampleFilterText = matrixSampleFilterText
+        self.mhcCandidateDisplaySettings = mhcCandidateDisplaySettings
         self.cohortFlagThreshold = cohortFlagThreshold
     }
 
     public var activeMinimumSupportPercent: Double {
         hideLowSupport ? minimumSupportPercent : 0
+    }
+
+    public func normalized(forGenotypeOnlyResult isGenotypeOnlyResult: Bool) -> Self {
+        guard isGenotypeOnlyResult else { return self }
+        var normalized = self
+        normalized.viewportLens = .summary
+        normalized.summaryViewMode = .matrix
+        normalized.layout = .listTop
+        return normalized
     }
 
     /// The effective row-visibility threshold. `0` means no row filtering.
@@ -208,6 +223,7 @@ extension GenotypeResultDisplayState {
             || matrixMinimumReads != previous.matrixMinimumReads
             || matrixMinimumPercent != previous.matrixMinimumPercent
             || matrixPercentDenominator != previous.matrixPercentDenominator
+            || mhcCandidateDisplaySettings != previous.mhcCandidateDisplaySettings
     }
 
     func requiresMatrixFilterPass(comparedTo previous: GenotypeResultDisplayState) -> Bool {
@@ -279,11 +295,18 @@ public struct GenotypeResultHighlightTarget: Equatable, Hashable {
     public let genotype: String
     public let locus: String
     public let sample: String?
+    public let stableClusterID: String?
 
-    public init(genotype: String, locus: String, sample: String? = nil) {
+    public init(
+        genotype: String,
+        locus: String,
+        sample: String? = nil,
+        stableClusterID: String? = nil
+    ) {
         self.genotype = genotype
         self.locus = locus
         self.sample = sample
+        self.stableClusterID = stableClusterID
     }
 
     public var displayScope: String {

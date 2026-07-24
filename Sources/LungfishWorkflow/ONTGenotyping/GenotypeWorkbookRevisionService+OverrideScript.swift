@@ -6,6 +6,8 @@ extension GenotypeWorkbookRevisionService {
 import json
 import re
 import sys
+import platform
+import openpyxl
 from copy import copy
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
@@ -15,6 +17,7 @@ input_path = sys.argv[1]
 output_path = sys.argv[2]
 calls_path = sys.argv[3]
 sidecar_path = sys.argv[4] if len(sys.argv) > 4 else ""
+configuration_path = sys.argv[5] if len(sys.argv) > 5 else ""
 
 with open(calls_path) as handle:
     call_rows = json.load(handle)
@@ -26,6 +29,42 @@ if sidecar_path:
             sidecar = json.load(handle)
     except FileNotFoundError:
         sidecar = {}
+
+candidate_configuration = {}
+if configuration_path:
+    with open(configuration_path) as handle:
+        candidate_configuration = json.load(handle)
+
+uses_two_sheet_mhc_contract = bool(candidate_configuration.get("uses_two_sheet_mhc_contract"))
+normalized_unmatched_rows = candidate_configuration.get("normalized_unmatched_rows") or []
+known_allele_display_names = candidate_configuration.get("known_allele_display_names") or {}
+workbook_samples = candidate_configuration.get("samples") or []
+workbook_known_calls = candidate_configuration.get("known_calls") or []
+
+
+def load_json_path(key, collection):
+    path = candidate_configuration.get(key)
+    if not path:
+        return {"schema_version": 1, collection: [], "observations": []}
+    with open(path) as handle:
+        document = json.load(handle)
+    if int(document.get("schema_version", 0)) not in (1, 2, 3, 4):
+        raise ValueError(f"Unsupported candidate workbook JSON schema in {path}")
+    if not isinstance(document.get(collection), list) or not isinstance(document.get("observations"), list):
+        raise ValueError(f"Malformed candidate workbook JSON in {path}")
+    return document
+
+
+candidate_document = ({"schema_version": 2, "candidates": [], "observations": []}
+    if uses_two_sheet_mhc_contract else load_json_path("candidate_json_path", "candidates"))
+unnameable_document = ({"schema_version": 2, "clusters": [], "observations": []}
+    if uses_two_sheet_mhc_contract else load_json_path("unnameable_json_path", "clusters"))
+candidate_records = sorted(candidate_document.get("candidates", []), key=lambda item: str(item.get("stable_cluster_id") or ""))
+unnameable_records = sorted(unnameable_document.get("clusters", []), key=lambda item: str(item.get("stable_cluster_id") or ""))
+candidate_observations = candidate_document.get("observations", [])
+unnameable_observations = unnameable_document.get("observations", [])
+candidate_schema_version = int(candidate_document.get("schema_version", 1))
+unnameable_schema_version = int(unnameable_document.get("schema_version", 1))
 
 wb = load_workbook(input_path)
 
@@ -53,6 +92,96 @@ def clean(value):
     if value is None:
         return ""
     return str(value).strip()
+
+
+def natural_sort_key(value):
+    # Keep this ASCII token contract in lockstep with MHCAlleleDisplayOrder.
+    text = "" if value is None else str(value)
+    tokens = []
+    start = 0
+    while start < len(text):
+        is_digits = "0" <= text[start] <= "9"
+        end = start + 1
+        while end < len(text) and ("0" <= text[end] <= "9") == is_digits:
+            end += 1
+        chunk = text[start:end]
+        if is_digits:
+            normalized = chunk.lstrip("0")
+            tokens.append((0, len(normalized), normalized))
+        else:
+            lowered = "".join(
+                chr(ord(character) + 32) if "A" <= character <= "Z" else character
+                for character in chunk
+            )
+            tokens.append((1, lowered))
+        start = end
+    return tuple(tokens)
+
+
+def numbered_locus(locus, prefix, allows_letter_suffix):
+    if not locus.startswith(prefix):
+        return False
+    remainder = locus[len(prefix):]
+    digit_count = 0
+    while digit_count < len(remainder) and "0" <= remainder[digit_count] <= "9":
+        digit_count += 1
+    if digit_count == 0:
+        return False
+    suffix = remainder[digit_count:]
+    return not suffix or (allows_letter_suffix and all(
+        "A" <= character <= "Z" or "a" <= character <= "z"
+        for character in suffix
+    ))
+
+
+def locus_group_rank(locus):
+    if numbered_locus(locus, "A", False):
+        return 0
+    if locus == "B":
+        return 1
+    if numbered_locus(locus, "B", True):
+        return 2
+    return {
+        "I": 3,
+        "F": 4,
+        "G": 5,
+        "AG": 6,
+        "J": 7,
+        "K": 8,
+    }.get(locus, 9)
+
+
+def allele_display_parts(value):
+    complete_name = "" if value is None else str(value)
+    if not complete_name.strip():
+        return 10, "", "", "", ""
+
+    star = complete_name.find("*")
+    separator = complete_name.rfind("-", 0, star) if star >= 0 else -1
+    if star < 0 or separator < 0:
+        return 9, complete_name, "", "", complete_name
+
+    species_prefix = complete_name[:separator]
+    locus = complete_name[separator + 1:star]
+    allele = complete_name[star + 1:]
+    if not species_prefix or not locus or not allele:
+        return 9, complete_name, "", "", complete_name
+    return locus_group_rank(locus), locus, allele, species_prefix, complete_name
+
+
+def allele_display_sort_key(display_name, stable_id):
+    group, locus, allele, species, complete_name = allele_display_parts(display_name)
+    exact_stable_id = "" if stable_id is None else str(stable_id)
+    return (
+        group,
+        natural_sort_key(locus),
+        natural_sort_key(allele),
+        natural_sort_key(species),
+        natural_sort_key(complete_name),
+        natural_sort_key(exact_stable_id),
+        complete_name,
+        exact_stable_id,
+    )
 
 
 def family(value):
@@ -645,12 +774,753 @@ def apply_matrix_annotations_to_workbook():
         set_lge_comments(pending_comments)
 
 
+# Candidate display visibility is deliberately ignored here: workbooks are durable
+# scientific exports and retain every singleton/shared _nov/_ext row.  Only the
+# current four RGBA tints are display settings consumed by this explicit update.
+def candidate_tint_category(record):
+    classification = clean(record.get("classification"))
+    support = clean(record.get("support_class"))
+    mapping = {
+        ("novel", "shared"): "sharedNovel",
+        ("novel", "singleton"): "singletonNovel",
+        ("extension", "shared"): "sharedExtension",
+        ("extension", "singleton"): "singletonExtension",
+    }
+    category = mapping.get((classification, support))
+    if not category:
+        raise ValueError(f"Unsupported candidate classification/support: {classification}/{support}")
+    return category
+
+
+def byte_from_unit(value):
+    number = float(value)
+    if number < 0 or number > 1:
+        raise ValueError(f"RGBA component outside [0, 1]: {number}")
+    return max(0, min(255, int(number * 255.0 + 0.5)))
+
+
+def candidate_argb(record):
+    category = candidate_tint_category(record)
+    tint = (candidate_configuration.get("tints") or {}).get(category)
+    if not tint:
+        raise ValueError(f"Missing candidate tint: {category}")
+    # OOXML/openpyxl stores colors as ARGB. The leading byte is alpha:
+    # 00 is transparent and FF is opaque; the UI RGBA values are rounded to bytes.
+    return "".join(f"{byte_from_unit(tint[key]):02X}" for key in ("alpha", "red", "green", "blue"))
+
+
+def observations_by_id():
+    grouped = {}
+    for observation in candidate_observations + unnameable_observations:
+        stable_id = clean(observation.get("stable_cluster_id"))
+        grouped.setdefault(stable_id, []).append(observation)
+    return grouped
+
+
+OBSERVATIONS_BY_ID = observations_by_id()
+
+
+def sample_read_counts(stable_id):
+    counts = {}
+    for observation in OBSERVATIONS_BY_ID.get(stable_id, []):
+        sample = clean(observation.get("sample_id"))
+        if sample:
+            counts[sample] = counts.get(sample, 0) + int(observation.get("aggregated_sample_read_count") or 0)
+    return counts
+
+
+def candidate_samples():
+    return sorted({
+        clean(observation.get("sample_id"))
+        for observation in candidate_observations + unnameable_observations
+        if clean(observation.get("sample_id"))
+    })
+
+
+def evidence_values(locator):
+    locator = locator or {}
+    return [
+        clean(locator.get("bam_path")),
+        clean(locator.get("query_name")),
+        clean(locator.get("reference_name")),
+        clean(locator.get("read_group_id")),
+        locator.get("reference_start"),
+        clean(locator.get("cigar")),
+    ]
+
+
+CANDIDATE_HEADERS = [
+    "Stable Cluster ID", "Provisional Name", "Locus", "Classification", "Support Class",
+    "Independent Sample Count", "Occurrence Count", "Total Cluster Reads", "Supporting Sample IDs",
+    "FASTA Record ID", "Sequence SHA-256", "BAM Path", "Query Name", "Reference Name",
+    "Read Group ID", "Reference Start", "CIGAR", "Closest Reference Name", "Closest Reference Class",
+    "SNP Count", "Inserted Bases", "Deleted Bases", "Long Gap Bases", "Comparable Bases",
+    "Shorter Coverage", "Identity", "Mapping Quality", "Alignment Score",
+]
+
+COMPACT_RECIPROCAL_HEADERS = [
+    "Reciprocal BAM Path", "Reciprocal Query Name", "Reciprocal Alignment Count", "Reciprocal Target Count",
+    "Reciprocal Target Alignment Counts", "Exact Match Target Names", "Closest Match Target Names",
+]
+
+SELECTED_EVIDENCE_HEADERS = [
+    "Selected Evidence BAM Path", "Selected Evidence Query Name", "Selected Evidence Reference Name",
+    "Selected Evidence Read Group ID", "Selected Evidence Reference Start", "Selected Evidence CIGAR",
+]
+
+
+def named_counts_text(values):
+    values = values or {}
+    return ";".join(f"{name}={values[name]}" for name in sorted(values))
+
+
+def reciprocal_values(record):
+    summary = record.get("reciprocal_hit_summary") or {}
+    counts = summary.get("target_alignment_counts") or {}
+    return [
+        clean(summary.get("bam_path")),
+        clean(summary.get("query_name")),
+        summary.get("alignment_count"),
+        len(counts),
+        named_counts_text(counts),
+        ";".join(sorted(summary.get("exact_match_target_names") or [])),
+        ";".join(sorted(summary.get("closest_match_target_names") or [])),
+    ]
+
+
+def candidate_row(record, samples):
+    stable_id = clean(record.get("stable_cluster_id"))
+    reads = sample_read_counts(stable_id)
+    prefix = [
+        stable_id,
+        clean(record.get("provisional_name")),
+        clean(record.get("locus")),
+        clean(record.get("classification")),
+        clean(record.get("support_class")),
+        record.get("independent_sample_count"),
+        record.get("occurrence_count"),
+        record.get("total_cluster_reads"),
+        ";".join(record.get("supporting_sample_ids") or []),
+        clean(record.get("fasta_record_id")),
+        clean(record.get("sequence_sha256")),
+    ]
+    if candidate_schema_version >= 2:
+        prefix += reciprocal_values(record) + evidence_values(record.get("selected_evidence"))
+    else:
+        prefix += evidence_values(record.get("selected_evidence"))
+    return prefix + [
+        clean(record.get("closest_reference_name")),
+        clean(record.get("closest_reference_class")),
+        record.get("snp_count"),
+        record.get("inserted_bases"),
+        record.get("deleted_bases"),
+        record.get("long_gap_bases"),
+        record.get("comparable_bases"),
+        record.get("shorter_coverage"),
+        record.get("identity"),
+        record.get("mapping_quality"),
+        record.get("alignment_score"),
+    ] + [reads.get(sample) for sample in samples]
+
+
+def failed_metrics_text(record):
+    metrics = record.get("failed_metrics") or {}
+    return ";".join(f"{key}={metrics[key]}" for key in sorted(metrics))
+
+
+def unnameable_rows(record, samples):
+    stable_id = clean(record.get("stable_cluster_id"))
+    reads = sample_read_counts(stable_id)
+    prefix = [
+        stable_id,
+        clean(record.get("reason")),
+        clean(record.get("support_class")),
+        record.get("independent_sample_count"),
+        record.get("occurrence_count"),
+        record.get("total_cluster_reads"),
+        ";".join(record.get("supporting_sample_ids") or []),
+        clean(record.get("fasta_record_id")),
+        clean(record.get("sequence_sha256")),
+        failed_metrics_text(record),
+    ]
+    if unnameable_schema_version >= 2:
+        return [
+            prefix + reciprocal_values(record) + evidence_values(record.get("selected_evidence"))
+            + [reads.get(sample) for sample in samples]
+        ]
+    evidence = sorted(record.get("evidence") or [], key=lambda item: (
+        clean(item.get("bam_path")), clean(item.get("query_name")), clean(item.get("reference_name")),
+        clean(item.get("read_group_id")), int(item.get("reference_start") or 0), clean(item.get("cigar")),
+    ))
+    evidence = evidence or [None]
+    rows = []
+    for index, locator in enumerate(evidence, start=1):
+        rows.append(prefix + [
+            index if locator else None,
+            len(record.get("evidence") or []),
+        ] + evidence_values(locator) + [reads.get(sample) for sample in samples])
+    return rows
+
+
+def write_candidate_artifact_sheets():
+    samples = candidate_samples()
+    candidate_ws = replace_sheet("Candidate Alleles")
+    candidate_headers = list(CANDIDATE_HEADERS)
+    if candidate_schema_version >= 2:
+        candidate_headers = candidate_headers[:11] + COMPACT_RECIPROCAL_HEADERS + SELECTED_EVIDENCE_HEADERS + candidate_headers[17:]
+    candidate_ws.append(candidate_headers + [f"Sample Reads: {sample}" for sample in samples])
+    for record in candidate_records:
+        candidate_ws.append(candidate_row(record, samples))
+        # This is the only tinted cell on this machine-readable sheet.
+        candidate_ws.cell(candidate_ws.max_row, 2).fill = PatternFill(
+            fill_type="solid", fgColor=candidate_argb(record)
+        )
+    style_table_header(candidate_ws)
+    style_table_body(candidate_ws)
+    autosize_columns(candidate_ws)
+    candidate_ws.freeze_panes = "A2"
+
+    unnameable_ws = replace_sheet("Un-nameable Clusters")
+    unnameable_headers = [
+        "Stable Cluster ID", "Reason", "Support Class", "Independent Sample Count", "Occurrence Count",
+        "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256", "Failed Metrics",
+    ]
+    if unnameable_schema_version >= 2:
+        unnameable_headers += COMPACT_RECIPROCAL_HEADERS + SELECTED_EVIDENCE_HEADERS
+    else:
+        unnameable_headers += [
+            "Evidence Ordinal", "Evidence Count", "Evidence BAM Path", "Evidence Query Name", "Evidence Reference Name",
+            "Evidence Read Group ID", "Evidence Reference Start", "Evidence CIGAR",
+        ]
+    unnameable_ws.append(unnameable_headers + [f"Sample Reads: {sample}" for sample in samples])
+    for record in unnameable_records:
+        for row in unnameable_rows(record, samples):
+            unnameable_ws.append(row)
+    style_table_header(unnameable_ws)
+    style_table_body(unnameable_ws)
+    autosize_columns(unnameable_ws)
+    unnameable_ws.freeze_panes = "A2"
+
+
+def write_candidates_to_editable_view():
+    managed_begin = "LGE MHC Candidate Alleles [BEGIN]"
+    managed_end = "LGE MHC Candidate Alleles [END]"
+    legacy_begin = "LGE MHC Candidate Alleles"
+    managed_headers = ["Provisional Name", "Stable Cluster ID", "Locus", "Classification", "Support Class"]
+
+    def generated_candidate_row(ws, row, managed_width):
+        name = clean(ws.cell(row, 1).value)
+        stable_id = clean(ws.cell(row, 2).value)
+        locus = clean(ws.cell(row, 3).value)
+        classification = clean(ws.cell(row, 4).value)
+        support = clean(ws.cell(row, 5).value)
+        valid_name = (classification == "novel" and re.search(r"_[1-9][0-9]*nt_nov$", name)) or (
+            classification == "extension" and name.endswith("_ext")
+        )
+        cells = [ws.cell(row, col) for col in range(1, ws.max_column + 1)]
+        if any(cell.data_type == "f" or cell.comment is not None or cell.hyperlink is not None for cell in cells):
+            return False
+        if any(cell.has_style for cell in cells[1:]):
+            return False
+        if any(clean(cell.value) for cell in cells[managed_width:]):
+            return False
+        for cell in cells[5:managed_width]:
+            value = cell.value
+            if value in (None, ""):
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                return False
+        return bool(stable_id and locus and valid_name and support in {"shared", "singleton"})
+
+    def remove_prior_managed_block(ws):
+        begin_rows = [row for row in range(1, ws.max_row + 1) if clean(ws.cell(row, 1).value) == managed_begin]
+        end_rows = [row for row in range(1, ws.max_row + 1) if clean(ws.cell(row, 1).value) == managed_end]
+        legacy_rows = [row for row in range(1, ws.max_row + 1) if clean(ws.cell(row, 1).value) == legacy_begin]
+        if len(begin_rows) > 1 or len(end_rows) > 1 or len(legacy_rows) > 1:
+            raise ValueError("Ambiguous LGE candidate block markers; workbook was not modified")
+        if end_rows and not begin_rows:
+            raise ValueError("LGE candidate end marker has no matching begin marker; workbook was not modified")
+        if begin_rows and end_rows:
+            begin_row = begin_rows[0]
+            end_row = end_rows[0]
+            if end_row <= begin_row:
+                raise ValueError("LGE candidate block markers are out of order; workbook was not modified")
+            ws.delete_rows(begin_row, end_row - begin_row + 1)
+            return
+        if begin_rows and legacy_rows:
+            raise ValueError("Ambiguous current and legacy LGE candidate block markers; workbook was not modified")
+        begin_row = begin_rows[0] if begin_rows else (legacy_rows[0] if legacy_rows else None)
+        if begin_row is None:
+            return
+
+        # Migrate a start-only block conservatively. Consume only the exact
+        # generated header and contiguous rows that match our generated schema;
+        # stop before any analyst-authored row, formula, or styled content.
+        delete_through = begin_row
+        header_row = begin_row + 1
+        if header_row > ws.max_row or [clean(ws.cell(header_row, col).value) for col in range(1, 6)] != managed_headers:
+            raise ValueError("Start-only LGE candidate block does not have the generated header; workbook was not modified")
+        managed_width = max(
+            5,
+            max((col for col in range(1, ws.max_column + 1) if clean(ws.cell(header_row, col).value)), default=5),
+        )
+        delete_through = header_row
+        row = header_row + 1
+        while row <= ws.max_row and generated_candidate_row(ws, row, managed_width):
+            delete_through = row
+            row += 1
+        ws.delete_rows(begin_row, delete_through - begin_row + 1)
+
+    samples = candidate_samples()
+    if "Full Sequencing Results 1" in wb.sheetnames:
+        ws = wb["Full Sequencing Results 1"]
+        remove_prior_managed_block(ws)
+        if not candidate_records:
+            return
+        ws.append([])
+        ws.append([managed_begin])
+        ws.append(managed_headers + samples)
+        for record in candidate_records:
+            reads = sample_read_counts(clean(record.get("stable_cluster_id")))
+            ws.append([
+                clean(record.get("provisional_name")), clean(record.get("stable_cluster_id")),
+                clean(record.get("locus")), clean(record.get("classification")), clean(record.get("support_class")),
+            ] + [reads.get(sample) for sample in samples])
+            # The provisional-name cell alone receives the category tint.
+            ws.cell(ws.max_row, 1).fill = PatternFill(fill_type="solid", fgColor=candidate_argb(record))
+        ws.append([managed_end])
+        return
+
+    if "Unified Genotype Pivot" in wb.sheetnames:
+        ws = wb["Unified Genotype Pivot"]
+    else:
+        ws = wb.create_sheet("Unified Genotype Pivot")
+        ws.append([
+            "call_type", "call_id", "display_name", "stable_cluster_id", "locus", "classification",
+            "support_class", "closest_reference", "match_class", "occurrence_count", "sample_count",
+            "total_cluster_reads",
+        ] + samples)
+    headers = [clean(cell.value) for cell in ws[1]]
+    columns = {header: index + 1 for index, header in enumerate(headers) if header}
+    call_type_col = columns.get("call_type", 1)
+    stable_id_col = columns.get("stable_cluster_id")
+    classification_col = columns.get("classification")
+    for row in range(ws.max_row, 1, -1):
+        call_type = clean(ws.cell(row, call_type_col).value)
+        stable_id = clean(ws.cell(row, stable_id_col).value) if stable_id_col else ""
+        classification = clean(ws.cell(row, classification_col).value) if classification_col else ""
+        if call_type in {"candidate-novel", "candidate-extension"} and stable_id and call_type == f"candidate-{classification}":
+            ws.delete_rows(row, 1)
+    def pivot_value(record, reads, header):
+        values = {
+            "call_type": f"candidate-{clean(record.get('classification'))}",
+            "call_id": clean(record.get("stable_cluster_id")),
+            "display_name": clean(record.get("provisional_name")),
+            "stable_cluster_id": clean(record.get("stable_cluster_id")),
+            "locus": clean(record.get("locus")),
+            "classification": clean(record.get("classification")),
+            "support_class": clean(record.get("support_class")),
+            "closest_reference": clean(record.get("closest_reference_name")),
+            "match_class": clean(record.get("classification")),
+            "occurrence_count": record.get("occurrence_count"),
+            "sample_count": record.get("independent_sample_count"),
+            "total_cluster_reads": record.get("total_cluster_reads"),
+        }
+        if header in values:
+            return values[header]
+        sample = header[len("Sample Reads: "):] if header.startswith("Sample Reads: ") else header
+        return reads.get(sample) if sample in samples else None
+
+    for record in candidate_records:
+        reads = sample_read_counts(clean(record.get("stable_cluster_id")))
+        ws.append([pivot_value(record, reads, header) for header in headers])
+        # Only the header-named provisional/display-name cell receives the category tint.
+        display_col = columns.get("display_name", 3)
+        ws.cell(ws.max_row, display_col).fill = PatternFill(fill_type="solid", fgColor=candidate_argb(record))
+
+
+def enrich_legacy_unmatched_sheets():
+    candidates = {clean(record.get("stable_cluster_id")): record for record in candidate_records}
+    unnameable = {clean(record.get("stable_cluster_id")): record for record in unnameable_records}
+    metadata_headers = [
+        "provisional_name", "candidate_locus", "candidate_classification", "candidate_support_class",
+        "candidate_snp_count", "candidate_inserted_bases", "candidate_deleted_bases",
+        "candidate_long_gap_bases", "candidate_closest_reference", "un_nameable_reason",
+    ]
+    for name in ["Unmatched Clusters", "Unmatched Shared Pivot", "MHC-like Unmatched Clusters", "MHC-like Unmatched Pivot"]:
+        if name not in wb.sheetnames:
+            continue
+        ws = wb[name]
+        headers = [clean(cell.value) for cell in ws[1]]
+        for header in metadata_headers:
+            if header not in headers:
+                ws.cell(1, ws.max_column + 1).value = header
+                headers.append(header)
+        for row in range(2, ws.max_row + 1):
+            stable_id = clean(ws.cell(row, 1).value)
+            candidate = candidates.get(stable_id)
+            unresolved = unnameable.get(stable_id)
+            if not candidate and not unresolved:
+                # Normalize only legacy display labels; raw stable identifiers stay untouched.
+                for field in ["closest_match_id", "closest_reference", "closest_reference_name"]:
+                    if field in headers:
+                        column = headers.index(field) + 1
+                        value = clean(ws.cell(row, column).value).replace("_extension", "_ext")
+                        value = re.sub(r"_0SNP", "", value)
+                        value = re.sub(r"_([1-9][0-9]*)SNP", lambda match: f"_{match.group(1)}nt_nov", value)
+                        ws.cell(row, column).value = value
+                continue
+            values = {
+                "provisional_name": clean(candidate.get("provisional_name")) if candidate else "",
+                "candidate_locus": clean(candidate.get("locus")) if candidate else "",
+                "candidate_classification": clean(candidate.get("classification")) if candidate else "un-nameable",
+                "candidate_support_class": clean((candidate or unresolved).get("support_class")),
+                "candidate_snp_count": candidate.get("snp_count") if candidate else "",
+                "candidate_inserted_bases": candidate.get("inserted_bases") if candidate else "",
+                "candidate_deleted_bases": candidate.get("deleted_bases") if candidate else "",
+                "candidate_long_gap_bases": candidate.get("long_gap_bases") if candidate else "",
+                "candidate_closest_reference": clean(candidate.get("closest_reference_name")) if candidate else "",
+                "un_nameable_reason": clean(unresolved.get("reason")) if unresolved else "",
+            }
+            for header, value in values.items():
+                ws.cell(row, headers.index(header) + 1).value = value
+            if candidate:
+                authoritative = {
+                    "match_source": "reciprocal-minimap2",
+                    "closest_match_id": clean(candidate.get("provisional_name")),
+                    "closest_reference": clean(candidate.get("closest_reference_name")),
+                    "closest_reference_name": clean(candidate.get("closest_reference_name")),
+                    "match_class": clean(candidate.get("classification")),
+                    "nucleotides_different": candidate.get("snp_count"),
+                    "snp_differences": candidate.get("snp_count"),
+                    "indel_bases": int(candidate.get("inserted_bases") or 0) + int(candidate.get("deleted_bases") or 0),
+                    "aligned_bases": candidate.get("comparable_bases"),
+                    "score": candidate.get("alignment_score"),
+                    "percent_identity": f"{float(candidate.get('identity') or 0) * 100:.12g}",
+                    "query_coverage": f"{float(candidate.get('shorter_coverage') or 0) * 100:.12g}",
+                    "inserted_bases": candidate.get("inserted_bases"),
+                    "deleted_bases": candidate.get("deleted_bases"),
+                    "long_gap_bases": candidate.get("long_gap_bases"),
+                    "evalue": "",
+                    "bitscore": "",
+                }
+                for header, value in authoritative.items():
+                    if header in headers:
+                        ws.cell(row, headers.index(header) + 1).value = value
+            else:
+                authoritative = {
+                    "match_source": "reciprocal-unnameable",
+                    "match_class": "un-nameable",
+                    "closest_match_id": "",
+                    "closest_reference": "",
+                    "closest_reference_name": "",
+                    "nucleotides_different": "",
+                    "snp_differences": "",
+                    "indel_bases": "",
+                    "inserted_bases": "",
+                    "deleted_bases": "",
+                    "long_gap_bases": "",
+                    "aligned_bases": "",
+                    "score": "",
+                    "percent_identity": "",
+                    "query_coverage": "",
+                    "evalue": "",
+                    "bitscore": "",
+                }
+                for header, value in authoritative.items():
+                    if header in headers:
+                        ws.cell(row, headers.index(header) + 1).value = value
+
+
+def find_unified_table(ws):
+    matches = []
+    for row in range(1, ws.max_row + 1):
+        for col in range(1, ws.max_column + 1):
+            if clean(ws.cell(row, col).value) == "call_type":
+                matches.append((row, col))
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one call_type header in Unified Genotype Pivot; found {len(matches)}")
+    row, _ = matches[0]
+    headers = {
+        clean(ws.cell(row, col).value): col
+        for col in range(1, ws.max_column + 1)
+        if clean(ws.cell(row, col).value)
+    }
+    required = {
+        "call_type", "call_id", "display_name", "stable_cluster_id", "locus", "classification",
+        "support_class", "closest_reference", "match_class", "occurrence_count", "sample_count",
+        "total_cluster_reads",
+    }
+    missing = sorted(required.difference(headers))
+    if missing:
+        raise ValueError(f"Unified Genotype Pivot is missing required headers: {', '.join(missing)}")
+    return row, headers
+
+
+def normalized_candidate_argb(row):
+    classification = clean(row.get("classification_or_reason"))
+    support = clean(row.get("support_class"))
+    category = ("shared" if support == "shared" else "singleton") + (
+        "Extension" if classification == "extension" else "Novel"
+    )
+    tint = (candidate_configuration.get("tints") or {}).get(category)
+    if not tint:
+        raise ValueError(f"Missing candidate tint: {category}")
+    return "".join(f"{byte_from_unit(tint[key]):02X}" for key in ("alpha", "red", "green", "blue"))
+
+
+def refresh_unified_computed_header(ws):
+    mapped_row = row_for(ws, "Mapped Read Count")
+    if mapped_row is None:
+        return
+    values = []
+    for col in range(13, ws.max_column + 1):
+        value = ws.cell(mapped_row, col).value
+        if value in (None, ""):
+            continue
+        try:
+            values.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    total = sum(values)
+    average = total / len(values) if values else None
+    ws.cell(mapped_row, 2).value = int(total) if total.is_integer() else total
+    ws.cell(mapped_row, 3).value = (
+        int(average) if average is not None and average.is_integer() else average
+    )
+
+
+def preserve_or_fill_unified_analyst_cells(ws):
+    sample_columns = {
+        clean(ws.cell(1, col).value): col
+        for col in range(13, ws.max_column + 1)
+        if clean(ws.cell(1, col).value)
+    }
+    for sample, calls in calls_by_sample_locus.items():
+        col = sample_columns.get(sample)
+        if col is None:
+            continue
+        for locus, call in calls.items():
+            for index, key in ((1, "haplotype1"), (2, "haplotype2")):
+                row = row_for(ws, f"{locus} Haplotype {index}")
+                value = clean(call.get(key))
+                if row is not None and value and not clean(ws.cell(row, col).value):
+                    set_cell(ws.cell(row, col), value)
+        comment_row = row_for(ws, "Comments")
+        generated_comment = comments(sample)
+        if comment_row is not None and generated_comment and not clean(ws.cell(comment_row, col).value):
+            ws.cell(comment_row, col).value = generated_comment
+
+
+def write_two_sheet_mhc_contract():
+    if "Unified Genotype Pivot" not in wb.sheetnames:
+        raise ValueError("Unified Genotype Pivot is required for an explicit full-length MHC workbook update")
+    source_unified = wb["Unified Genotype Pivot"]
+    find_unified_table(source_unified)
+    sample_names = [clean(item.get("sample")) for item in workbook_samples if clean(item.get("sample"))]
+    seen_sample_names = set(sample_names)
+    for row in normalized_unmatched_rows:
+        for sample in sorted((row.get("reads_by_sample") or {}).keys()):
+            if sample not in seen_sample_names:
+                sample_names.append(sample)
+                seen_sample_names.add(sample)
+    for call in workbook_known_calls:
+        for sample in sorted((call.get("reads_by_sample") or {}).keys()):
+            if sample not in seen_sample_names:
+                sample_names.append(sample)
+                seen_sample_names.add(sample)
+
+    analyst_labels = [
+        f"{locus} Haplotype {index}"
+        for locus in ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
+        for index in (1, 2)
+    ] + ["Comments"]
+    source_sample_columns = {
+        clean(source_unified.cell(1, col).value): col
+        for col in range(1, source_unified.max_column + 1)
+        if clean(source_unified.cell(1, col).value) in seen_sample_names
+    }
+    preserved_analyst_values = {}
+    for label in analyst_labels:
+        source_row = row_for(source_unified, label)
+        if source_row is None:
+            continue
+        for sample, col in source_sample_columns.items():
+            value = source_unified.cell(source_row, col).value
+            if clean(value):
+                preserved_analyst_values[(label, sample)] = value
+
+    source_index = wb.index(source_unified)
+    del wb["Unified Genotype Pivot"]
+    unified = wb.create_sheet("Unified Genotype Pivot", source_index)
+
+    metadata_blanks = [""] * 9
+    unified.append(["Client ID", "", ""] + metadata_blanks + sample_names)
+    unified.append(["GS ID", "Total", "Average"] + metadata_blanks + sample_names)
+    mapped_values = [item.get("mapped_read_count") for item in workbook_samples]
+    mapped_numbers = [value for value in mapped_values if isinstance(value, (int, float))]
+    mapped_total = sum(mapped_numbers) if mapped_numbers else None
+    mapped_average = mapped_total / len(mapped_numbers) if mapped_numbers else None
+    unified.append([
+        "Mapped Read Count", mapped_total, mapped_average,
+    ] + metadata_blanks + mapped_values)
+    total_by_sample = {clean(item.get("sample")): item.get("total_read_count") for item in workbook_samples}
+    retained_by_sample = {clean(item.get("sample")): item.get("retained_percent") for item in workbook_samples}
+    unified.append(["total_read_count", "", ""] + metadata_blanks + [total_by_sample.get(sample) for sample in sample_names])
+    unified.append([
+        "percent_reads_unmapped", "", "",
+    ] + metadata_blanks + [
+        max(0.0, min(100.0, 100.0 - float(retained_by_sample[sample])))
+        if retained_by_sample.get(sample) is not None else None
+        for sample in sample_names
+    ])
+
+    def generated_haplotype(sample, locus, index):
+        call = call_for(sample, locus)
+        key = "haplotype1" if index == 1 else "haplotype2"
+        return clean(call.get(key))
+
+    for locus in ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]:
+        for index in (1, 2):
+            label = f"{locus} Haplotype {index}"
+            values = []
+            for sample in sample_names:
+                preserved = preserved_analyst_values.get((label, sample))
+                values.append(preserved if clean(preserved) else generated_haplotype(sample, locus, index))
+            unified.append([label, "", ""] + metadata_blanks + values)
+    comment_values = []
+    for sample in sample_names:
+        preserved = preserved_analyst_values.get(("Comments", sample))
+        comment_values.append(preserved if clean(preserved) else comments(sample))
+    unified.append(["Comments", "Subtotal", "# Obs."] + metadata_blanks + comment_values)
+    unified.append([])
+    table_headers = [
+        "call_type", "call_id", "display_name", "stable_cluster_id", "locus", "classification",
+        "support_class", "closest_reference", "match_class", "occurrence_count", "sample_count",
+        "total_cluster_reads",
+    ] + sample_names
+    unified.append(table_headers)
+    header_row = unified.max_row
+    headers = {header: index + 1 for index, header in enumerate(table_headers)}
+
+    unified_data_rows = []
+    for known in workbook_known_calls:
+        call_id = clean(known.get("call_id"))
+        reads = known.get("reads_by_sample") or {}
+        display_name = clean(known_allele_display_names.get(call_id)) or call_id
+        positive_counts = [int(value) for value in reads.values() if int(value) > 0]
+        unified_data_rows.append((
+            allele_display_sort_key(display_name, call_id),
+            [
+                "known-allele", call_id, display_name, "", "", "known", "", display_name, "exact",
+                len(positive_counts), len(positive_counts), sum(positive_counts),
+            ] + [reads.get(sample) if int(reads.get(sample) or 0) > 0 else None for sample in sample_names],
+            None,
+        ))
+
+    candidate_rows = [
+        row for row in normalized_unmatched_rows
+        if clean(row.get("record_category")) == "candidate"
+    ]
+    for record in candidate_rows:
+        values = {
+            "call_type": f"candidate-{clean(record.get('classification_or_reason'))}",
+            "call_id": clean(record.get("stable_cluster_id")),
+            "display_name": clean(record.get("provisional_allele_name")),
+            "stable_cluster_id": clean(record.get("stable_cluster_id")),
+            "locus": clean(record.get("locus")),
+            "classification": clean(record.get("classification_or_reason")),
+            "support_class": clean(record.get("support_class")),
+            "closest_reference": clean(record.get("closest_reference_allele")) or clean(record.get("closest_reference_raw_id")),
+            "match_class": clean(record.get("classification_or_reason")),
+            "occurrence_count": record.get("occurrence_count"),
+            "sample_count": record.get("independent_sample_count"),
+            "total_cluster_reads": record.get("total_cluster_reads"),
+        }
+        reads = record.get("reads_by_sample") or {}
+        for sample in sample_names:
+            values[sample] = reads.get(sample)
+        unified_data_rows.append((
+            allele_display_sort_key(values["display_name"], values["stable_cluster_id"]),
+            [values.get(header) for header in table_headers],
+            normalized_candidate_argb(record),
+        ))
+
+    for _sort_key, row, tint in sorted(unified_data_rows, key=lambda item: item[0]):
+        unified.append(row)
+        if tint:
+            unified.cell(unified.max_row, headers["display_name"]).fill = PatternFill(
+                fill_type="solid", fgColor=tint
+            )
+
+    unified.freeze_panes = unified.cell(header_row + 1, 1).coordinate
+
+    sample_order = sorted({
+        sample
+        for row in normalized_unmatched_rows
+        for sample in (row.get("reads_by_sample") or {}).keys()
+    })
+    unmatched = replace_sheet("Unmatched Alleles")
+    unmatched_headers = [
+        "Record Category", "Stable Cluster ID", "Provisional Allele Name", "Locus",
+        "Classification or Reason", "Closest Reference Allele", "Closest Reference Raw ID", "Extension Of",
+        "SNP Count", "Inserted Bases", "Deleted Bases", "Long Gap Bases", "Comparable Bases",
+        "Failed Metrics", "Support Class", "Independent Sample Count", "Occurrence Count",
+        "Total Cluster Reads", "Supporting Sample IDs", "FASTA Record ID", "Sequence SHA-256",
+        "Nucleotide Sequence", "Putative Amino Acid Translation", "Translation Status",
+        "Internal Evidence Reference",
+    ] + [f"Sample Reads: {sample}" for sample in sample_order]
+    unmatched.append(unmatched_headers)
+    for record in sorted(
+        normalized_unmatched_rows,
+        key=lambda row: allele_display_sort_key(
+            clean(row.get("provisional_allele_name")),
+            clean(row.get("stable_cluster_id")),
+        ),
+    ):
+        failed_metrics = record.get("failed_metrics") or {}
+        row = [
+            clean(record.get("record_category")), clean(record.get("stable_cluster_id")),
+            clean(record.get("provisional_allele_name")), clean(record.get("locus")),
+            clean(record.get("classification_or_reason")), clean(record.get("closest_reference_allele")),
+            clean(record.get("closest_reference_raw_id")), ";".join(record.get("extension_of") or []),
+            record.get("snp_count"),
+            record.get("inserted_bases"), record.get("deleted_bases"), record.get("long_gap_bases"),
+            record.get("comparable_bases"), ";".join(f"{key}={failed_metrics[key]}" for key in sorted(failed_metrics)),
+            clean(record.get("support_class")), record.get("independent_sample_count"),
+            record.get("occurrence_count"), record.get("total_cluster_reads"),
+            ";".join(record.get("supporting_sample_ids") or []), clean(record.get("fasta_record_id")),
+            clean(record.get("sequence_sha256")), clean(record.get("nucleotide_sequence")),
+            clean(record.get("putative_amino_acid_translation")), clean(record.get("translation_status")),
+            clean(record.get("internal_evidence_reference")),
+        ] + [(record.get("reads_by_sample") or {}).get(sample) for sample in sample_order]
+        unmatched.append(row)
+        if clean(record.get("record_category")) == "candidate":
+            unmatched.cell(unmatched.max_row, 3).fill = PatternFill(
+                fill_type="solid", fgColor=normalized_candidate_argb(record)
+            )
+    style_table_header(unmatched)
+    style_table_body(unmatched)
+    autosize_columns(unmatched)
+    unmatched.freeze_panes = "A2"
+
+    for worksheet in list(wb.worksheets):
+        if worksheet.title not in {"Unified Genotype Pivot", "Unmatched Alleles"}:
+            del wb[worksheet.title]
+
+
 patch_summary_sheet("Abbreviated Haplotypes")
 patch_summary_sheet("Custom Sort")
 patch_full_sheet()
 write_override_sheets()
 write_matrix_annotation_sheet()
 apply_matrix_annotations_to_workbook()
+if not uses_two_sheet_mhc_contract and (
+    candidate_configuration.get("candidate_json_path") or candidate_configuration.get("unnameable_json_path")
+):
+    write_candidate_artifact_sheets()
+    write_candidates_to_editable_view()
+    enrich_legacy_unmatched_sheets()
 upsert_guide_row("Workbook update source", "Lungfish.app Review viewport")
 upsert_guide_row("Workbook update note", "current.xlsx reflects sidecar haplotype overrides at the time this workbook revision was created.")
 upsert_guide_row("Workbook updated haplotype calls", str(sum(len(calls) for calls in calls_by_sample_locus.values())))
@@ -659,8 +1529,21 @@ upsert_guide_row("Workbook update matrix styles", str(len(matrix_styles)))
 upsert_guide_row("Workbook update matrix comments", str(len(matrix_comments)))
 upsert_guide_row("Workbook update audit entries", str(len(audit_entries)))
 upsert_guide_row("Workbook update audit source", "annotations.json")
+upsert_guide_row("Workbook update MHC candidates", str(len(candidate_records)))
+upsert_guide_row("Workbook update un-nameable clusters", str(len(unnameable_records)))
+upsert_guide_row("Workbook candidate tint encoding", candidate_configuration.get("ooxml_alpha_semantics", ""))
+
+if uses_two_sheet_mhc_contract:
+    write_two_sheet_mhc_contract()
 
 wb.save(output_path)
+print(json.dumps({
+    "python_version": platform.python_version(),
+    "python_executable": sys.executable,
+    "openpyxl_version": openpyxl.__version__,
+    "candidate_count": len([row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "candidate"]),
+    "unnameable_count": len([row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "un-nameable"]),
+}, sort_keys=True))
 """#
     }
 

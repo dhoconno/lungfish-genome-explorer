@@ -17,6 +17,7 @@ public struct UniversalSearchIndexProvenanceRequest: Sendable {
     public let defaults: [String: ParameterValue]
     public let resolvedDefaults: [String: ParameterValue]
     public let buildStats: ProjectUniversalSearchBuildStats?
+    public let captureProjectInputSnapshot: Bool
     public let startedAt: Date
     public let completedAt: Date
 
@@ -32,6 +33,7 @@ public struct UniversalSearchIndexProvenanceRequest: Sendable {
         defaults: [String: ParameterValue] = [:],
         resolvedDefaults: [String: ParameterValue] = [:],
         buildStats: ProjectUniversalSearchBuildStats? = nil,
+        captureProjectInputSnapshot: Bool = true,
         startedAt: Date,
         completedAt: Date
     ) {
@@ -46,6 +48,7 @@ public struct UniversalSearchIndexProvenanceRequest: Sendable {
         self.defaults = defaults
         self.resolvedDefaults = resolvedDefaults
         self.buildStats = buildStats
+        self.captureProjectInputSnapshot = captureProjectInputSnapshot
         self.startedAt = startedAt
         self.completedAt = completedAt
     }
@@ -54,15 +57,21 @@ public struct UniversalSearchIndexProvenanceRequest: Sendable {
 public enum UniversalSearchIndexProvenanceWriter {
     @discardableResult
     public static func write(_ request: UniversalSearchIndexProvenanceRequest) throws -> URL {
-        let projectURL = request.projectURL.standardizedFileURL
         let databaseURL = request.databaseURL.standardizedFileURL
-        let projectInput = ProvenanceFileDescriptor(
-            fileRecord: ProvenanceRecorder.fileOrDirectoryRecord(
-                url: projectURL,
-                format: .unknown,
-                role: .input
-            )
-        )
+        let inputs: [ProvenanceFileDescriptor]
+        if request.captureProjectInputSnapshot {
+            inputs = [
+                ProvenanceFileDescriptor(
+                    fileRecord: ProvenanceRecorder.fileOrDirectoryRecord(
+                        url: request.projectURL.standardizedFileURL,
+                        format: .unknown,
+                        role: .input
+                    )
+                )
+            ]
+        } else {
+            inputs = []
+        }
         let outputs = try sqliteOutputDescriptors(for: databaseURL)
         let primaryOutput = try ProvenanceFileDescriptor.file(
             url: databaseURL,
@@ -79,7 +88,7 @@ public enum UniversalSearchIndexProvenanceWriter {
             toolVersion: WorkflowRun.currentAppVersion,
             argv: request.argv,
             durableReplayArgv: request.argv,
-            inputs: [projectInput],
+            inputs: inputs,
             outputs: outputs,
             exitStatus: 0,
             wallTimeSeconds: request.completedAt.timeIntervalSince(request.startedAt),
@@ -101,7 +110,7 @@ public enum UniversalSearchIndexProvenanceWriter {
             durableReplayArgv: request.argv,
             options: options,
             runtimeIdentity: ProvenanceRuntimeIdentity(),
-            files: [projectInput] + outputs,
+            files: inputs + outputs,
             output: primaryOutput,
             outputs: outputs,
             steps: [step],
@@ -145,6 +154,7 @@ public enum UniversalSearchIndexProvenanceWriter {
             resolved[key] = value
         }
         resolved["operation"] = .string(request.operation)
+        resolved["projectPath"] = .string(request.projectURL.standardizedFileURL.path)
         if let buildStats = request.buildStats {
             resolved["indexedEntities"] = .integer(buildStats.indexedEntities)
             resolved["indexedAttributes"] = .integer(buildStats.indexedAttributes)

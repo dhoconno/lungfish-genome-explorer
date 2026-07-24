@@ -171,7 +171,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
-    func testGenotypeResultWithoutHaplotypingDisplaysPrimaryWorkbookPreview() throws {
+    func testGenotypeResultWithoutHaplotypingDisplaysPrimaryWorkbookPreview() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeNoHapPreview-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -185,7 +185,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let controller = MainSplitViewController()
         _ = controller.view
 
-        controller.testingDisplayGenotypeResultBundle(bundleURL)
+        await controller.testingDisplayGenotypeResultBundleAndWait(bundleURL)
 
         XCTAssertEqual(
             controller.viewerController.testQuickLookURL?.standardizedFileURL,
@@ -194,7 +194,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertNil(controller.viewerController.genotypeResultViewController)
     }
 
-    func testGenotypeWorkbookPreviewRemovesPreviousNativeGenotypeViewport() throws {
+    func testGenotypeWorkbookPreviewRemovesPreviousNativeGenotypeViewport() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeNoHapPreviewAfterNative-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -209,7 +209,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         _ = controller.viewerController.displayGenotypeResult(makeNativeHaplotypedResult())
         XCTAssertNotNil(controller.viewerController.genotypeResultViewController)
 
-        controller.testingDisplayGenotypeResultBundle(bundleURL)
+        await controller.testingDisplayGenotypeResultBundleAndWait(bundleURL)
 
         XCTAssertNil(controller.viewerController.genotypeResultViewController)
         XCTAssertEqual(
@@ -218,7 +218,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
-    func testGenotypeResultWithoutHaplotypeAnalysisDisplaysNativeRawMatrix() throws {
+    func testGenotypeResultWithoutHaplotypeAnalysisDisplaysNativeRawMatrix() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeNoHapCallsPreview-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -256,7 +256,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let controller = MainSplitViewController()
         _ = controller.view
 
-        controller.testingDisplayGenotypeResultBundle(bundleURL)
+        await controller.testingDisplayGenotypeResultBundleAndWait(bundleURL)
 
         XCTAssertNil(controller.viewerController.testQuickLookURL)
         let resultController = try XCTUnwrap(controller.viewerController.genotypeResultViewController)
@@ -293,6 +293,31 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertFalse(source.contains("String(describing: error)"))
         XCTAssertTrue(source.contains("AIHaplotypingRunFailure"))
         XCTAssertTrue(source.contains("sanitizedErrorCategory"))
+    }
+
+    func testMainActorGenotypeBundleConsumersDoNotUseSynchronousResultLoader() throws {
+        let serviceSource = try loadSource(
+            at: "Sources/LungfishApp/Services/GenotypeAIHaplotypingExecutionService.swift"
+        )
+        XCTAssertTrue(serviceSource.contains("try await ONTGenotypeResultBundle.loadResultAsync(from: bundle)"))
+        XCTAssertFalse(serviceSource.contains("ONTGenotypeResultBundle.loadResult(from: bundle)"))
+
+        let inspectorSource = try loadSource(
+            at: "Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift"
+        )
+        let sidecarUpdate = try XCTUnwrap(
+            inspectorSource.range(of: "func updateGenotypeAnnotationSidecar")
+        )
+        let sidecarUpdateTail = String(inspectorSource[sidecarUpdate.lowerBound...])
+        let nextMethod = try XCTUnwrap(sidecarUpdateTail.range(of: "private func genotypeSummaryRows"))
+        let sidecarUpdateBody = String(sidecarUpdateTail[..<nextMethod.lowerBound])
+        XCTAssertFalse(sidecarUpdateBody.contains("ONTGenotypeResultBundle.loadResult"))
+
+        let viewportSource = try loadSource(
+            at: "Sources/LungfishGenotypeUI/GenotypeResultViewController.swift"
+        )
+        XCTAssertTrue(viewportSource.contains("ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)"))
+        XCTAssertFalse(viewportSource.contains("ONTGenotypeResultBundle.loadResult(from:"))
     }
 
     func testExternalOpenReferenceBundleWiresInspectorCallbacksAndProvenanceTarget() throws {

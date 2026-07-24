@@ -9,6 +9,10 @@ public struct FullLengthONTMHCClusterGenotypeRow: Codable, Equatable, Sendable {
     public let alleleLength: Int
     public let alignedBases: Int
     public let score: Int
+    public let referenceSequenceID: String?
+    public let mappingQuality: Int?
+    public let cigar: String?
+    public let evidence: ONTMHCEvidenceLocator?
 
     public init(
         sample: String,
@@ -17,7 +21,11 @@ public struct FullLengthONTMHCClusterGenotypeRow: Codable, Equatable, Sendable {
         allele: String,
         alleleLength: Int,
         alignedBases: Int,
-        score: Int
+        score: Int,
+        referenceSequenceID: String? = nil,
+        mappingQuality: Int? = nil,
+        cigar: String? = nil,
+        evidence: ONTMHCEvidenceLocator? = nil
     ) {
         self.sample = sample
         self.cluster = cluster
@@ -26,6 +34,10 @@ public struct FullLengthONTMHCClusterGenotypeRow: Codable, Equatable, Sendable {
         self.alleleLength = alleleLength
         self.alignedBases = alignedBases
         self.score = score
+        self.referenceSequenceID = referenceSequenceID
+        self.mappingQuality = mappingQuality
+        self.cigar = cigar
+        self.evidence = evidence
     }
 }
 
@@ -100,17 +112,20 @@ public struct FullLengthONTMHCClusterGenotypingSummary: Codable, Equatable, Send
     public let unmatchedClusters: [FullLengthONTMHCClusterFASTARecord]
     public let cdnaMatchedClusters: [FullLengthONTMHCClusterFASTARecord]
     public let closestMatches: [FullLengthONTMHCClosestMatch]
+    public let cdnaStructuralInterpretations: [FullLengthONTMHCCDNAStructuralInterpretation]
 
     public init(
         rows: [FullLengthONTMHCClusterGenotypeRow],
         unmatchedClusters: [FullLengthONTMHCClusterFASTARecord],
         cdnaMatchedClusters: [FullLengthONTMHCClusterFASTARecord],
-        closestMatches: [FullLengthONTMHCClosestMatch] = []
+        closestMatches: [FullLengthONTMHCClosestMatch] = [],
+        cdnaStructuralInterpretations: [FullLengthONTMHCCDNAStructuralInterpretation] = []
     ) {
         self.rows = rows
         self.unmatchedClusters = unmatchedClusters
         self.cdnaMatchedClusters = cdnaMatchedClusters
         self.closestMatches = closestMatches
+        self.cdnaStructuralInterpretations = cdnaStructuralInterpretations
     }
 }
 
@@ -125,10 +140,11 @@ public struct FullLengthONTMHCReportRow: Codable, Equatable, Sendable {
     public let overallInputReads: Int
     public let overallUniqueRetainedReads: Int
     public let overallUniqueRetainedPercent: Double?
+
 }
 
 public enum FullLengthONTMHCClusterGenotyper {
-    private struct Hit {
+    struct Hit {
         let allele: String
         let snps: Int
         let matchedBases: Int
@@ -137,6 +153,234 @@ public enum FullLengthONTMHCClusterGenotyper {
         let targetStart: Int
         let targetEnd: Int
         let isReverse: Bool
+    }
+
+    struct StreamingAccumulator {
+        let sampleID: String
+        let clusterRecords: [FullLengthONTMHCClusterFASTARecord]
+        let clusterLengths: [String: Int]
+        let referenceLengths: [String: Int]
+        let referenceMoleculeClasses: [String: MHCReferenceMoleculeClass]
+        let minUnmatchedReads: Int
+
+        private var bestKnownScoreByCluster: [String: Int] = [:]
+        private var bestKnownHitsByCluster: [String: [String: Hit]] = [:]
+        private var closestHitByCluster: [String: Hit] = [:]
+        private var cdnaInterpretationsByCluster: [String: [String: FullLengthONTMHCCDNAStructuralInterpretation]] = [:]
+
+        init(
+            sampleID: String,
+            clusterRecords: [FullLengthONTMHCClusterFASTARecord],
+            referenceLengths: [String: Int],
+            referenceMoleculeClasses: [String: MHCReferenceMoleculeClass],
+            minUnmatchedReads: Int
+        ) {
+            self.sampleID = sampleID
+            self.clusterRecords = clusterRecords
+            self.clusterLengths = Dictionary(
+                uniqueKeysWithValues: clusterRecords.map { ($0.name, $0.sequence.count) }
+            )
+            self.referenceLengths = referenceLengths
+            self.referenceMoleculeClasses = referenceMoleculeClasses
+            self.minUnmatchedReads = minUnmatchedReads
+        }
+
+        mutating func consume(
+            allele: String,
+            cluster: String,
+            flag: Int,
+            position: Int,
+            metrics: FullLengthONTMHCSAMMetrics
+        ) throws {
+            guard let alleleLength = referenceLengths[allele], alleleLength > 0 else {
+                throw StreamingAccumulatorError.unknownOrEmptyAllele(allele)
+            }
+            guard let clusterLength = clusterLengths[cluster], clusterLength > 0 else {
+                throw StreamingAccumulatorError.unknownOrEmptyCluster(cluster)
+            }
+            guard let moleculeClass = referenceMoleculeClasses[allele] else {
+                throw StreamingAccumulatorError.unknownMoleculeClass(allele)
+            }
+            let score = try alignmentScore(for: metrics)
+            let targetOffset = try FullLengthONTMHCSAMMetrics.subtracting(
+                metrics.referenceSpan,
+                1,
+                metric: .targetEnd,
+                operation: .subtract
+            )
+            let targetEnd = try FullLengthONTMHCSAMMetrics.adding(
+                position,
+                targetOffset,
+                metric: .targetEnd,
+                operation: .add
+            )
+            let hit = Hit(
+                allele: allele,
+                snps: metrics.snps,
+                matchedBases: metrics.matches,
+                indelBases: metrics.nonIntronIndelBases,
+                score: score,
+                targetStart: position,
+                targetEnd: targetEnd,
+                isReverse: flag & 16 != 0
+            )
+
+            if let current = closestHitByCluster[cluster] {
+                if isBetterClosestHit(hit, than: current) {
+                    closestHitByCluster[cluster] = hit
+                }
+            } else {
+                closestHitByCluster[cluster] = hit
+            }
+
+            let isKnownGenotype: Bool
+            switch moleculeClass {
+            case .genomicDNA:
+                isKnownGenotype = hit.snps == 0
+            case .cDNA:
+                let interpretation = try FullLengthONTMHCCDNAStructuralClassifier.classifyCohort(
+                    referenceSequenceID: allele,
+                    clusterID: cluster,
+                    cDNAReferenceLength: alleleLength,
+                    clusterLength: clusterLength,
+                    targetStart: position,
+                    isReverse: hit.isReverse,
+                    metrics: metrics
+                )
+                if interpretation.relationship != .ineligible {
+                    retainBestCDNAInterpretation(interpretation, for: cluster)
+                }
+                isKnownGenotype = interpretation.relationship == .known
+            }
+            guard isKnownGenotype else { return }
+
+            if let currentBestScore = bestKnownScoreByCluster[cluster] {
+                if score > currentBestScore {
+                    bestKnownScoreByCluster[cluster] = score
+                    bestKnownHitsByCluster[cluster] = [allele: hit]
+                } else if score == currentBestScore,
+                          bestKnownHitsByCluster[cluster]?[allele] == nil {
+                    bestKnownHitsByCluster[cluster, default: [:]][allele] = hit
+                }
+            } else {
+                bestKnownScoreByCluster[cluster] = score
+                bestKnownHitsByCluster[cluster] = [allele: hit]
+            }
+        }
+
+        func summary() -> FullLengthONTMHCClusterGenotypingSummary {
+            let clusterRecordByName = Dictionary(
+                uniqueKeysWithValues: clusterRecords.map { ($0.name, $0) }
+            )
+            let matchedClusters = Set(bestKnownHitsByCluster.keys)
+            var cdnaClusters = Set<String>()
+            var rows: [FullLengthONTMHCClusterGenotypeRow] = []
+
+            for cluster in bestKnownHitsByCluster.keys.sorted(by: localizedStandardLessThan) {
+                guard let hitsByAllele = bestKnownHitsByCluster[cluster] else { continue }
+                for hit in hitsByAllele.values {
+                    guard let alleleLength = referenceLengths[hit.allele], alleleLength > 0 else {
+                        continue
+                    }
+                    if referenceMoleculeClasses[hit.allele] == .cDNA {
+                        cdnaClusters.insert(cluster)
+                    }
+                    rows.append(FullLengthONTMHCClusterGenotypeRow(
+                        sample: sampleID,
+                        cluster: cluster,
+                        clusterReads: parseReadCount(cluster),
+                        allele: hit.allele,
+                        alleleLength: alleleLength,
+                        alignedBases: hit.matchedBases,
+                        score: hit.score
+                    ))
+                }
+            }
+
+            let unmatched = clusterRecords.filter {
+                !matchedClusters.contains($0.name) && $0.readCount >= minUnmatchedReads
+            }
+            let closestMatches = unmatched.compactMap { record in
+                closestHitByCluster[record.name].map {
+                    closestMatch(sampleID: sampleID, cluster: record, hit: $0)
+                }
+            }
+            let cdna = cdnaClusters.sorted(by: localizedStandardLessThan)
+                .compactMap { clusterRecordByName[$0] }
+
+            return FullLengthONTMHCClusterGenotypingSummary(
+                rows: rows.sorted {
+                    if $0.sample != $1.sample {
+                        return $0.sample.localizedStandardCompare($1.sample) == .orderedAscending
+                    }
+                    if $0.cluster != $1.cluster {
+                        return $0.cluster.localizedStandardCompare($1.cluster) == .orderedAscending
+                    }
+                    return $0.allele.localizedStandardCompare($1.allele) == .orderedAscending
+                },
+                unmatchedClusters: unmatched,
+                cdnaMatchedClusters: cdna,
+                closestMatches: closestMatches.sorted {
+                    if $0.sample != $1.sample {
+                        return $0.sample.localizedStandardCompare($1.sample) == .orderedAscending
+                    }
+                    if $0.closestMatchID != $1.closestMatchID {
+                        return $0.closestMatchID.localizedStandardCompare($1.closestMatchID) == .orderedAscending
+                    }
+                    return $0.cluster.localizedStandardCompare($1.cluster) == .orderedAscending
+                },
+                cdnaStructuralInterpretations: cdnaInterpretationsByCluster
+                    .values
+                    .flatMap(\.values)
+                    .sorted {
+                        if $0.clusterID != $1.clusterID {
+                            return $0.clusterID.localizedStandardCompare($1.clusterID) == .orderedAscending
+                        }
+                        return $0.referenceSequenceID.localizedStandardCompare($1.referenceSequenceID) == .orderedAscending
+                    }
+            )
+        }
+
+        private mutating func retainBestCDNAInterpretation(
+            _ interpretation: FullLengthONTMHCCDNAStructuralInterpretation,
+            for cluster: String
+        ) {
+            let referenceID = interpretation.referenceSequenceID
+            guard let current = cdnaInterpretationsByCluster[cluster]?[referenceID] else {
+                cdnaInterpretationsByCluster[cluster, default: [:]][referenceID] = interpretation
+                return
+            }
+            if interpretation.alignmentScore > current.alignmentScore
+                || (interpretation.alignmentScore == current.alignmentScore
+                    && interpretation.cDNAReferenceCoverage > current.cDNAReferenceCoverage)
+                || (interpretation.alignmentScore == current.alignmentScore
+                    && interpretation.cDNAReferenceCoverage == current.cDNAReferenceCoverage
+                    && interpretation.clusterCoverage > current.clusterCoverage)
+                || (interpretation.alignmentScore == current.alignmentScore
+                    && interpretation.cDNAReferenceCoverage == current.cDNAReferenceCoverage
+                    && interpretation.clusterCoverage == current.clusterCoverage
+                    && interpretation.relationship == .extension
+                    && current.relationship != .extension) {
+                cdnaInterpretationsByCluster[cluster, default: [:]][referenceID] = interpretation
+            }
+        }
+    }
+
+    enum StreamingAccumulatorError: Error, LocalizedError {
+        case unknownOrEmptyAllele(String)
+        case unknownOrEmptyCluster(String)
+        case unknownMoleculeClass(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unknownOrEmptyAllele(let allele):
+                return "Cannot genotype unknown or empty allele '\(allele)'."
+            case .unknownOrEmptyCluster(let cluster):
+                return "Cannot genotype unknown or empty cluster '\(cluster)'."
+            case .unknownMoleculeClass(let allele):
+                return "Cannot genotype allele '\(allele)' without a resolved molecule class."
+            }
+        }
     }
 
     public static func genotypeSummary(
@@ -165,17 +409,39 @@ public enum FullLengthONTMHCClusterGenotyper {
             let cluster = fields[2]
             let cigar = fields[5]
             guard cluster != "*", flag & 4 == 0, cigar != "*", position > 0 else { continue }
-            let parsed = parseCIGAR(cigar)
-            guard parsed.targetSpan > 0 else { continue }
-            let score = parsed.matchedBases - 10 * parsed.indelBases - 100 * parsed.snps
+            let nm: Int?
+            if let nmField = fields.dropFirst(11).first(where: { $0.hasPrefix("NM:i:") }) {
+                let rawNM = String(nmField.dropFirst(5))
+                guard let parsedNM = Int(rawNM) else {
+                    throw FullLengthONTMHCSAMMetricsError.invalidNM(rawNM)
+                }
+                nm = parsedNM
+            } else {
+                nm = nil
+            }
+            let metrics = try FullLengthONTMHCSAMMetrics(cigar: cigar, nm: nm)
+            guard metrics.referenceSpan > 0 else { continue }
+            let score = try alignmentScore(for: metrics)
+            let targetOffset = try FullLengthONTMHCSAMMetrics.subtracting(
+                metrics.referenceSpan,
+                1,
+                metric: .targetEnd,
+                operation: .subtract
+            )
+            let targetEnd = try FullLengthONTMHCSAMMetrics.adding(
+                position,
+                targetOffset,
+                metric: .targetEnd,
+                operation: .add
+            )
             clusterHits[cluster, default: []].append(Hit(
                 allele: allele,
-                snps: parsed.snps,
-                matchedBases: parsed.matchedBases,
-                indelBases: parsed.indelBases,
+                snps: metrics.snps,
+                matchedBases: metrics.matches,
+                indelBases: metrics.nonIntronIndelBases,
                 score: score,
                 targetStart: position,
-                targetEnd: position + parsed.targetSpan - 1,
+                targetEnd: targetEnd,
                 isReverse: flag & 16 != 0
             ))
         }
@@ -186,9 +452,13 @@ public enum FullLengthONTMHCClusterGenotyper {
         var seen = Set<String>()
         for cluster in clusterHits.keys.sorted(by: localizedStandardLessThan) {
             guard let hits = clusterHits[cluster] else { continue }
-            let exactHits = hits.filter { $0.snps == 0 && $0.indelBases == 0 }
-            guard let bestScore = exactHits.map(\.score).max() else { continue }
-            for hit in exactHits where hit.score == bestScore {
+            let knownGenotypeHits = hits.filter { hit in
+                guard hit.snps == 0 else { return false }
+                guard hit.indelBases > 0 else { return true }
+                return (referenceLengths[hit.allele] ?? 0) >= cdnaThreshold
+            }
+            guard let bestScore = knownGenotypeHits.map(\.score).max() else { continue }
+            for hit in knownGenotypeHits where hit.score == bestScore {
                 let key = "\(cluster)\u{0}\(hit.allele)"
                 guard seen.insert(key).inserted else { continue }
                 matchedClusters.insert(cluster)
@@ -247,6 +517,14 @@ public enum FullLengthONTMHCClusterGenotyper {
             if lhs.score != rhs.score { return lhs.score > rhs.score }
             return lhs.allele.localizedStandardCompare(rhs.allele) == .orderedAscending
         }.first
+    }
+
+    private static func isBetterClosestHit(_ candidate: Hit, than current: Hit) -> Bool {
+        if candidate.snps != current.snps { return candidate.snps < current.snps }
+        if candidate.indelBases != current.indelBases { return candidate.indelBases < current.indelBases }
+        if candidate.matchedBases != current.matchedBases { return candidate.matchedBases > current.matchedBases }
+        if candidate.score != current.score { return candidate.score > current.score }
+        return candidate.allele.localizedStandardCompare(current.allele) == .orderedAscending
     }
 
     private static func closestMatch(
@@ -314,41 +592,31 @@ public enum FullLengthONTMHCClusterGenotyper {
         return Int(digits) ?? 0
     }
 
-    static func parseCIGAR(_ cigar: String) -> (snps: Int, matchedBases: Int, indelBases: Int, targetSpan: Int) {
-        var snps = 0
-        var matched = 0
-        var indels = 0
-        var targetSpan = 0
-        var number = ""
-        for character in cigar {
-            if character.isNumber {
-                number.append(character)
-                continue
-            }
-            guard let count = Int(number) else {
-                number = ""
-                continue
-            }
-            switch character {
-            case "X":
-                snps += count
-                targetSpan += count
-            case "=", "M":
-                matched += count
-                targetSpan += count
-            case "I", "D":
-                indels += count
-                if character == "D" {
-                    targetSpan += count
-                }
-            case "N":
-                targetSpan += count
-            default:
-                break
-            }
-            number = ""
-        }
-        return (snps, matched, indels, targetSpan)
+    private static func alignmentScore(for metrics: FullLengthONTMHCSAMMetrics) throws -> Int {
+        let indelPenalty = try FullLengthONTMHCSAMMetrics.multiplying(
+            metrics.nonIntronIndelBases,
+            10,
+            metric: .alignmentScore,
+            operation: .multiply(10)
+        )
+        let snpPenalty = try FullLengthONTMHCSAMMetrics.multiplying(
+            metrics.snps,
+            100,
+            metric: .alignmentScore,
+            operation: .multiply(100)
+        )
+        let scoreAfterIndels = try FullLengthONTMHCSAMMetrics.subtracting(
+            metrics.matches,
+            indelPenalty,
+            metric: .alignmentScore,
+            operation: .subtract
+        )
+        return try FullLengthONTMHCSAMMetrics.subtracting(
+            scoreAfterIndels,
+            snpPenalty,
+            metric: .alignmentScore,
+            operation: .subtract
+        )
     }
 
     private static func localizedStandardLessThan(_ lhs: String, _ rhs: String) -> Bool {
@@ -357,12 +625,19 @@ public enum FullLengthONTMHCClusterGenotyper {
 }
 
 public enum FullLengthONTMHCClusterReportBuilder {
+    private struct CallKey: Hashable {
+        let sample: String
+        let referenceSequenceID: String
+    }
+
     public static func reportRows(
         genotypeRows: [FullLengthONTMHCClusterGenotypeRow],
         sampleReadCounts: [String: Int]
     ) -> [FullLengthONTMHCReportRow] {
-        let sampleAssignedReads = Dictionary(grouping: genotypeRows, by: \.sample).mapValues {
-            $0.reduce(0) { $0 + $1.clusterReads }
+        let sampleAssignedReads = Dictionary(grouping: genotypeRows, by: \.sample).mapValues { rows in
+            Dictionary(grouping: rows, by: \.cluster).values.reduce(0) { total, clusterRows in
+                total + (clusterRows.map(\.clusterReads).max() ?? 0)
+            }
         }
         let overallInputReads = sampleReadCounts.values.reduce(0, +)
         let overallRetainedReads = sampleAssignedReads.values.reduce(0, +)
@@ -370,17 +645,21 @@ public enum FullLengthONTMHCClusterReportBuilder {
             ? Double(overallRetainedReads) / Double(overallInputReads) * 100.0
             : nil
 
-        var readsBySampleAndAllele: [String: Int] = [:]
-        for row in genotypeRows {
-            readsBySampleAndAllele["\(row.sample)\u{0}\(row.allele)", default: 0] += row.clusterReads
+        let rowsByCall = Dictionary(grouping: genotypeRows) { row in
+            CallKey(
+                sample: row.sample,
+                referenceSequenceID: row.referenceSequenceID ?? row.allele
+            )
+        }
+        let readsByCall = rowsByCall.mapValues { rows in
+            Dictionary(grouping: rows, by: \.cluster).values.reduce(0) { total, clusterRows in
+                total + (clusterRows.map(\.clusterReads).max() ?? 0)
+            }
         }
 
-        return readsBySampleAndAllele.keys.sorted().compactMap { key in
-            let parts = key.split(separator: "\u{0}", omittingEmptySubsequences: false).map(String.init)
-            guard parts.count == 2 else { return nil }
-            let sample = parts[0]
-            let allele = parts[1]
-            let readCount = readsBySampleAndAllele[key] ?? 0
+        return readsByCall.keys.sorted(by: callKeyLess).map { key in
+            let sample = key.sample
+            let readCount = readsByCall[key] ?? 0
             let sampleTotal = sampleReadCounts[sample]
             let sampleRetained = sampleAssignedReads[sample] ?? 0
             let samplePercent = sampleTotal.flatMap { total -> Double? in
@@ -388,7 +667,7 @@ public enum FullLengthONTMHCClusterReportBuilder {
             }
             return FullLengthONTMHCReportRow(
                 sample: sample,
-                genotype: allele,
+                genotype: key.referenceSequenceID,
                 passedAlignments: readCount,
                 passedUniqueReads: readCount,
                 sampleTotalReads: sampleTotal,
@@ -399,5 +678,12 @@ public enum FullLengthONTMHCClusterReportBuilder {
                 overallUniqueRetainedPercent: overallRetainedPercent
             )
         }
+    }
+
+    private static func callKeyLess(_ lhs: CallKey, _ rhs: CallKey) -> Bool {
+        if lhs.sample != rhs.sample {
+            return lhs.sample.localizedStandardCompare(rhs.sample) == .orderedAscending
+        }
+        return lhs.referenceSequenceID.localizedStandardCompare(rhs.referenceSequenceID) == .orderedAscending
     }
 }

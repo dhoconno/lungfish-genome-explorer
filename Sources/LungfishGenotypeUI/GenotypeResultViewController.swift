@@ -25,19 +25,58 @@ public struct GenotypeAIHaplotypingUIRequest: Equatable, Sendable {
     }
 }
 
+struct GenotypeCandidateSelectionCallbackCounts: Equatable {
+    let known: Int
+    let candidate: Int
+}
+
+struct GenotypeKnownSelectionDiagnostics: Equatable {
+    fileprivate(set) var indexedCellSupportLookupCount = 0
+    fileprivate(set) var supportFractionLabelEntryCount = 0
+    fileprivate(set) var sameLocusCoOccurrenceEntryCount = 0
+    fileprivate(set) var anchorSummaryEntryCount = 0
+    fileprivate(set) var anchorSummariesEntryCount = 0
+    fileprivate(set) var supportingSampleTableEntryCount = 0
+    fileprivate(set) var coOccurrenceTableEntryCount = 0
+
+    var aggregateEvidenceHelperEntryCount: Int {
+        supportFractionLabelEntryCount
+            + sameLocusCoOccurrenceEntryCount
+            + anchorSummaryEntryCount
+            + anchorSummariesEntryCount
+            + supportingSampleTableEntryCount
+            + coOccurrenceTableEntryCount
+    }
+}
+
 @MainActor
 public final class GenotypeResultViewController: NSViewController {
     typealias Lens = GenotypeResultViewportLens
+    typealias GenotypeResultLoader = @Sendable (URL) async throws -> ONTGenotypeResultBundleData
+
+    private struct SharedCallKey: Hashable {
+        let locus: String
+        let genotype: String
+    }
+
+    private struct CellEvidenceKey: Hashable {
+        let locus: String
+        let genotype: String
+        let sample: String
+    }
 
     public var onSelectionStateChanged: ((GenotypeResultSelectionState?) -> Void)?
     public var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
     public var onAnnotationSidecarChanged: ((GenotypeAnnotationSidecar) -> Void)?
+    public var onCandidatePersistenceWarningChanged: ((String?) -> Void)?
     public var onCurrentWorkbookUpdateRequested: ((URL, [GenotypeWorkbookHaplotypeCall], [String]) -> Void)?
     public var onAIHaplotypingRequested: ((URL, GenotypeAIHaplotypingUIRequest) -> Void)?
     public var windowStateScope: WindowStateScope?
+    var genotypeResultLoader: GenotypeResultLoader = { bundleURL in
+        try await ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)
+    }
 
-    private let summaryStrip = NSStackView()
     private let lensControl = NSSegmentedControl(
         labels: Lens.allCases.map(\.displayName),
         trackingMode: .selectOne,
@@ -45,6 +84,7 @@ public final class GenotypeResultViewController: NSViewController {
         action: nil
     )
     private let contentHost = NSView()
+    private var contentHostTopConstraint: NSLayoutConstraint!
 
     private let splitView = TrackedDividerSplitView()
     private let sampleContainer = NSView()
@@ -57,6 +97,9 @@ public final class GenotypeResultViewController: NSViewController {
     private let detailScrollView = NSScrollView()
     private let detailDocumentView = FlippedDocumentView()
     private let detailStack = NSStackView()
+    private let knownAlleleDetailView = GenotypeKnownAlleleDetailView()
+    private let candidateAlleleDetailView = GenotypeCandidateAlleleDetailView()
+    private let alleleSequenceDetailView = GenotypeAlleleSequenceDetailView()
 
     private let haplotypeScrollView = NSScrollView()
     private let haplotypeStack = NSStackView()
@@ -80,6 +123,11 @@ public final class GenotypeResultViewController: NSViewController {
     private var quickFilterSearchText: String = ""
     private var quickFilterState = GenotypeQuickFilterBarView.FilterState()
     private var callsBySample: [String: [ONTGenotypeCall]] = [:]
+    private var sharedCallsByKey: [SharedCallKey: ONTGenotypeSharedCall] = [:]
+    private var sampleSupportByCellKey: [CellEvidenceKey: ONTGenotypeSampleSupport] = [:]
+    private var candidatePresentationsByStableClusterID: [
+        String: GenotypeCandidateEvidenceProjection.IndexedPresentation
+    ] = [:]
     private var callIndexBySample: [String: CallIndex] = [:]
     private var sampleResultsByName: [String: ONTGenotypeSampleResult] = [:]
     private var diagnosticDisplayGenotypeByIdentifier: [String: String] = [:]
@@ -105,6 +153,31 @@ public final class GenotypeResultViewController: NSViewController {
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
+    private var currentCandidateRow: GenotypeCandidateMatrixRow?
+    private var candidatePersistenceWarning: String?
+    private var candidateSettingsPersistenceTask: Task<Void, Never>?
+    private var candidateSettingsPersistenceGeneration: UInt64 = 0
+    private var pendingCandidateSettingsRequest: (
+        settings: ONTMHCCandidateDisplaySettings,
+        state: GenotypeResultDisplayState
+    )?
+    private var knownSelectionCallbackCount = 0
+    private var candidateSelectionCallbackCount = 0
+    private var knownSelectionDiagnostics = GenotypeKnownSelectionDiagnostics()
+    private var knownAlleleDetailMountCount = 0
+    private var candidateAlleleDetailMountCount = 0
+    private var alleleSequenceDetailMountCount = 0
+    private var candidateAlleleDetailWidthConstraint: NSLayoutConstraint?
+    private var alleleSequenceDetailWidthConstraint: NSLayoutConstraint?
+    private var candidateSequenceRecordsByStableClusterID: [
+        String: GenotypeAlleleSequenceRecord
+    ] = [:]
+    private var knownSequenceRecordsByRowID: [
+        GenotypeCandidateMatrixRowID: GenotypeAlleleSequenceRecord
+    ] = [:]
+    private var renderedAlleleSequenceRecordIdentities: [String] = []
+    private var knownAlleleSequenceRecordBuildCount = 0
+    private var legacyNonRowDetailBuildCount = 0
     private var currentSelectedSample: String?
     private var currentSelectedLocus: String?
     private var currentSelectionState: GenotypeResultSelectionState?
@@ -115,9 +188,21 @@ public final class GenotypeResultViewController: NSViewController {
     private var currentWorkbookNeedsRefresh = false
     private var currentWorkbookUpdateStatus: String?
     private var currentWorkbookAnnotationAutoUpdateTask: Task<Void, Never>?
+    private var currentWorkbookResultReloadTask: Task<Void, Never>?
+    private var resultConfigurationGeneration: UInt64 = 0
     private var aiHaplotypingStatus: String?
     private var outlineRowsBySample: [String: GenotypeOutlineView.Row] = [:]
     private var outlineRowOrder: [String] = []
+
+    private var isGenotypeOnlyResult: Bool {
+        guard let result else { return false }
+        return result.haplotypeAnalysis == nil && !result.calls.isEmpty
+    }
+
+    private var isFullLengthMHCGenotypeViewport: Bool {
+        result?.haplotypeAnalysis == nil
+            && result?.manifest.kind == "full-length-ont-mhc-genotype"
+    }
 
     public override func loadView() {
         let root = NSView()
@@ -128,7 +213,6 @@ public final class GenotypeResultViewController: NSViewController {
         root.setAccessibilityIdentifier("genotype-result-view")
         view = root
 
-        configureSummaryStrip()
         configureLensControl()
         configureContentHost()
         configureSplitView()
@@ -441,12 +525,64 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func configure(result: ONTGenotypeResultBundleData) {
+        invalidateCurrentWorkbookResultReload()
+        candidateSettingsPersistenceTask?.cancel()
+        candidateSettingsPersistenceTask = nil
+        pendingCandidateSettingsRequest = nil
+        candidateSettingsPersistenceGeneration &+= 1
         self.result = result
+        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        applyViewportHeaderVisibility()
         liveHaplotypeAnalysis = nil
         cachedHaplotypeDefinitionContext = nil
         comparisonMatrixConfigured = false
         currentWorkbookNeedsRefresh = false
         currentWorkbookUpdateStatus = nil
+        currentCandidateRow = nil
+        candidatePersistenceWarning = nil
+        onCandidatePersistenceWarningChanged?(nil)
+        knownSelectionCallbackCount = 0
+        candidateSelectionCallbackCount = 0
+        knownSelectionDiagnostics = GenotypeKnownSelectionDiagnostics()
+        knownAlleleDetailMountCount = 0
+        candidateAlleleDetailMountCount = 0
+        alleleSequenceDetailMountCount = 0
+        knownAlleleSequenceRecordBuildCount = 0
+        legacyNonRowDetailBuildCount = 0
+        alleleSequenceDetailView.resetForNewResult()
+        renderedAlleleSequenceRecordIdentities = []
+        candidateAlleleDetailWidthConstraint?.isActive = false
+        candidateAlleleDetailWidthConstraint = nil
+        alleleSequenceDetailWidthConstraint?.isActive = false
+        alleleSequenceDetailWidthConstraint = nil
+        if isFullLengthMHCGenotypeViewport {
+            knownSequenceRecordsByRowID = [:]
+            for sharedCall in result.locusSummaries.flatMap(\.sharedCalls) {
+                let rowID = GenotypeCandidateMatrixRowID.known(
+                    locus: sharedCall.locus,
+                    genotype: sharedCall.genotype
+                )
+                guard knownSequenceRecordsByRowID[rowID] == nil else { continue }
+                if let source = result.mhcReferenceVisualizations?
+                    .recordsByKnownCallGenotype[sharedCall.genotype] {
+                    knownSequenceRecordsByRowID[rowID] = .known(source)
+                    knownAlleleSequenceRecordBuildCount += 1
+                } else {
+                    knownSequenceRecordsByRowID[rowID] = .unavailable(
+                        identity: sharedCall.genotype,
+                        displayName: alleleDisplayLabel(for: sharedCall.genotype)
+                    )
+                }
+            }
+            candidateSequenceRecordsByStableClusterID = GenotypeAlleleSequenceRecord
+                .candidateCatalogRetainingValidRecords(
+                    candidates: result.mhcCandidates?.candidates ?? [],
+                    genBankURL: result.mhcCandidateGenBankArtifactURLs.candidateAlleles
+                )
+        } else {
+            knownSequenceRecordsByRowID = [:]
+            candidateSequenceRecordsByStableClusterID = [:]
+        }
         let knownSampleIDs = Set(
             result.samples.map(\.sample)
                 + result.calls.map(\.sample)
@@ -467,24 +603,58 @@ public final class GenotypeResultViewController: NSViewController {
             bundleURL: result.bundleURL,
             author: NSUserName()
         )
+        displayState.mhcCandidateDisplaySettings = validatedMHCCandidateDocument(from: result) == nil
+            ? nil
+            : (annotationStore?.sidecar.settings.mhcCandidateDisplay ?? .default)
         displayState.summaryViewMode = initialSummaryViewMode(for: result)
+        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
         if shouldEagerlyRecomputeHaplotypeAnalysis(for: result) {
             recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
         } else {
             liveHaplotypeAnalysis = nil
         }
         rebuildActiveHaplotypeAnalysisIndexes()
-        rebuildSummary()
         rebuildOutline()
         rebuildHaplotypeMatrix()
         rebuildCohortSummary()
+        if isGenotypeOnlyResult || isFullLengthMHCGenotypeViewport {
+            showEmptySelection()
+        }
         showLens(.summary)
     }
 
     private func rebuildResultIndexes(for result: ONTGenotypeResultBundleData) {
         callsBySample = Dictionary(grouping: result.calls, by: \.sample)
+        sharedCallsByKey = Dictionary(uniqueKeysWithValues: result.locusSummaries
+            .flatMap(\.sharedCalls)
+            .map { (SharedCallKey(locus: $0.locus, genotype: $0.genotype), $0) })
+        sampleSupportByCellKey = [:]
+        sampleSupportByCellKey.reserveCapacity(result.calls.count)
+        for call in result.calls {
+            let key = CellEvidenceKey(
+                locus: call.locusGroup,
+                genotype: call.genotype,
+                sample: call.sample
+            )
+            guard sampleSupportByCellKey[key] == nil else { continue }
+            sampleSupportByCellKey[key] = ONTGenotypeSampleSupport(
+                sample: call.sample,
+                passedAlignments: call.passedAlignments,
+                passedUniqueReads: call.passedUniqueReads,
+                sampleUniqueRetainedReads: call.sampleUniqueRetainedReads
+            )
+        }
         callIndexBySample = callsBySample.mapValues { callIndex(for: $0) }
         sampleResultsByName = Dictionary(uniqueKeysWithValues: result.samples.map { ($0.sample, $0) })
+        if let document = validatedMHCCandidateDocument(from: result),
+           let artifacts = result.manifest.mhcCandidateArtifacts {
+            candidatePresentationsByStableClusterID = GenotypeCandidateEvidenceProjection.indexedPresentations(
+                document: document,
+                artifacts: artifacts
+            )
+        } else {
+            candidatePresentationsByStableClusterID = [:]
+        }
         observedLociIndex = GenotypeObservedLociIndex.build(from: result)
         allFilterableSampleNamesCache = []
         var bestByIdentifier: [String: ONTGenotypeCall] = [:]
@@ -505,6 +675,21 @@ public final class GenotypeResultViewController: NSViewController {
             }
         }
         diagnosticDisplayGenotypeByIdentifier = bestByIdentifier.mapValues(\.genotype)
+    }
+
+    private func validatedMHCCandidateDocument(
+        from result: ONTGenotypeResultBundleData
+    ) -> ONTMHCCandidateAllelesDocument? {
+        guard result.manifest.kind == "full-length-ont-mhc-genotype",
+              let artifacts = result.manifest.mhcCandidateArtifacts,
+              (1 ... 2).contains(artifacts.schemaVersion),
+              artifacts.candidateJSON != nil,
+              artifacts.candidateFASTA != nil,
+              let document = result.mhcCandidates,
+              isSupportedMHCCandidateDocumentSchemaVersion(document.schemaVersion) else {
+            return nil
+        }
+        return document
     }
 
     private func rebuildActiveHaplotypeAnalysisIndexes() {
@@ -609,6 +794,23 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyDisplayState(_ state: GenotypeResultDisplayState) {
+        if state.mhcCandidateDisplaySettings != displayState.mhcCandidateDisplaySettings,
+           let result,
+           validatedMHCCandidateDocument(from: result) != nil,
+           let requestedSettings = state.mhcCandidateDisplaySettings {
+            persistCandidateDisplaySettings(requestedSettings, requestedState: state)
+            return
+        }
+        applyDisplayStateImmediately(state)
+    }
+
+    private func applyDisplayStateImmediately(_ state: GenotypeResultDisplayState) {
+        let state = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        let previousDisplayState = displayState
+        let hasMatrixBackedSelection = currentSelectionState?.matrixTargets.isEmpty == false
+        let matrixWillRefreshActiveSelection = comparisonMatrixConfigured
+            && hasMatrixBackedSelection
+            && state.requiresMatrixFilterPass(comparedTo: previousDisplayState)
         let previousViewMode = displayState.summaryViewMode
         let previousAncillary = displayState.showsAncillaryLoci
         let previousIncludedLoci = displayState.includedLoci
@@ -641,11 +843,103 @@ public final class GenotypeResultViewController: NSViewController {
             rebuildCohortSummary()
         }
         applyLayoutPreference()
-        if let currentSharedCall {
-            showSharedCall(
-                currentSharedCall,
+        if !matrixWillRefreshActiveSelection,
+           currentSelectionState?.matrixTargets.isEmpty == false {
+            refreshCurrentSelectionDetails()
+        }
+    }
+
+    private func persistCandidateDisplaySettings(
+        _ requestedSettings: ONTMHCCandidateDisplaySettings,
+        requestedState: GenotypeResultDisplayState
+    ) {
+        guard let store = annotationStore, !store.isReadOnly else {
+            candidatePersistenceWarning = "Candidate display settings could not be saved because this bundle is read-only."
+            onCandidatePersistenceWarningChanged?(candidatePersistenceWarning)
+            onDisplayStateChanged?(displayState)
+            refreshCandidateSelectionDetails()
+            return
+        }
+        if candidateSettingsPersistenceTask != nil {
+            pendingCandidateSettingsRequest = (requestedSettings, requestedState)
+            return
+        }
+        candidateSettingsPersistenceGeneration &+= 1
+        let generation = candidateSettingsPersistenceGeneration
+        let expectedSettings = store.sidecar.settings.mhcCandidateDisplay
+        let bundleURL = store.bundleURL
+        let author = store.author
+        candidateSettingsPersistenceTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled,
+                  generation == self.candidateSettingsPersistenceGeneration else { return }
+            do {
+                let published = try await GenotypeCandidateDisplayPersistence.persist(
+                    display: requestedSettings,
+                    expectedDisplay: expectedSettings,
+                    bundleURL: bundleURL,
+                    author: author
+                )
+                guard !Task.isCancelled,
+                      generation == self.candidateSettingsPersistenceGeneration else { return }
+                self.annotationStore = try? GenotypeAnnotationStore(bundleURL: bundleURL, author: author)
+                self.candidatePersistenceWarning = nil
+                self.onCandidatePersistenceWarningChanged?(nil)
+                var persistedState = requestedState
+                persistedState.mhcCandidateDisplaySettings = published.settings.mhcCandidateDisplay
+                self.applyDisplayStateImmediately(persistedState)
+                self.comparisonMatrix.applyAnnotationSidecar(published, reload: false)
+                self.onAnnotationSidecarChanged?(published)
+                self.onDisplayStateChanged?(persistedState)
+                if expectedSettings.tints != published.settings.mhcCandidateDisplay.tints {
+                    self.currentWorkbookNeedsRefresh = true
+                    self.currentWorkbookUpdateStatus = "current.xlsx does not include candidate tint changes."
+                    self.rebuildArtifactLens()
+                }
+                self.finishCandidateSettingsPersistence(processPending: true)
+            } catch {
+                guard !Task.isCancelled,
+                      generation == self.candidateSettingsPersistenceGeneration else { return }
+                self.candidatePersistenceWarning = error.localizedDescription
+                self.onCandidatePersistenceWarningChanged?(self.candidatePersistenceWarning)
+                let latest: GenotypeAnnotationSidecar
+                if let conflict = error as? GenotypeCandidateDisplayPersistenceError {
+                    latest = conflict.latestSidecar
+                } else {
+                    latest = (try? GenotypeAnnotationStore(bundleURL: bundleURL, author: author).sidecar)
+                        ?? store.sidecar
+                }
+                self.annotationStore = try? GenotypeAnnotationStore(bundleURL: bundleURL, author: author)
+                var restoredState = self.displayState
+                restoredState.mhcCandidateDisplaySettings = latest.settings.mhcCandidateDisplay
+                self.applyDisplayStateImmediately(restoredState)
+                self.comparisonMatrix.applyAnnotationSidecar(latest, reload: false)
+                self.onAnnotationSidecarChanged?(latest)
+                self.onDisplayStateChanged?(restoredState)
+                self.refreshCandidateSelectionDetails()
+                self.finishCandidateSettingsPersistence(processPending: false)
+            }
+        }
+    }
+
+    private func finishCandidateSettingsPersistence(processPending: Bool) {
+        candidateSettingsPersistenceTask = nil
+        guard processPending, let pendingCandidateSettingsRequest else {
+            self.pendingCandidateSettingsRequest = nil
+            return
+        }
+        self.pendingCandidateSettingsRequest = nil
+        persistCandidateDisplaySettings(
+            pendingCandidateSettingsRequest.settings,
+            requestedState: pendingCandidateSettingsRequest.state
+        )
+    }
+
+    private func refreshCandidateSelectionDetails() {
+        if let currentCandidateRow {
+            showCandidateRow(
+                currentCandidateRow,
                 sample: currentSelectedSample,
-                matrixTargets: currentSelectionState?.matrixTargets
+                matrixTargets: currentSelectionState?.matrixTargets ?? []
             )
         }
     }
@@ -672,12 +966,8 @@ public final class GenotypeResultViewController: NSViewController {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.applyHighlight(request)
         registerUndo(for: request, previousColor: previousColor)
-        if let currentSharedCall {
-            showSharedCall(
-                currentSharedCall,
-                sample: currentSelectedSample,
-                matrixTargets: currentSelectionState?.matrixTargets
-            )
+        if currentSelectionState?.matrixTargets.isEmpty == false {
+            refreshCurrentSelectionDetails()
         }
     }
 
@@ -766,6 +1056,9 @@ public final class GenotypeResultViewController: NSViewController {
     public func selectSupportedMatrixCellsInCurrentRow(minimumReads: Int) {
         ensureComparisonMatrixConfigured()
         let targets = comparisonMatrix.selectSupportedCellsInSelectedRow(minimumReads: minimumReads)
+        if isFullLengthMHCGenotypeViewport {
+            showAlleleSequenceRows(for: [])
+        }
         if targets.isEmpty {
             publishSelectionState(nil)
         } else if let currentSharedCall {
@@ -836,24 +1129,52 @@ public final class GenotypeResultViewController: NSViewController {
         selectedBy selectedTarget: GenotypeAnnotationSidecar.MatrixTarget
     ) -> Bool {
         switch selectedTarget {
-        case let .row(selectedLocus, selectedGenotype):
+        case let .row(selectedLocus, selectedGenotype, selectedStableClusterID):
             switch styleTarget {
-            case let .row(locus, genotype), let .cell(locus, genotype, _):
-                return locus == selectedLocus && genotype == selectedGenotype
+            case let .row(locus, genotype, stableClusterID),
+                 let .cell(locus, genotype, _, stableClusterID):
+                return matrixRowIdentityMatches(
+                    locus: locus,
+                    genotype: genotype,
+                    stableClusterID: stableClusterID,
+                    selectedLocus: selectedLocus,
+                    selectedGenotype: selectedGenotype,
+                    selectedStableClusterID: selectedStableClusterID
+                )
             case .column:
                 return false
             }
         case let .column(selectedSample):
             switch styleTarget {
-            case let .column(sample), let .cell(_, _, sample):
+            case let .column(sample), let .cell(_, _, sample, _):
                 return sample == selectedSample
             case .row:
                 return false
             }
-        case let .cell(selectedLocus, selectedGenotype, selectedSample):
-            guard case let .cell(locus, genotype, sample) = styleTarget else { return false }
-            return locus == selectedLocus && genotype == selectedGenotype && sample == selectedSample
+        case let .cell(selectedLocus, selectedGenotype, selectedSample, selectedStableClusterID):
+            guard case let .cell(locus, genotype, sample, stableClusterID) = styleTarget else { return false }
+            return sample == selectedSample && matrixRowIdentityMatches(
+                locus: locus,
+                genotype: genotype,
+                stableClusterID: stableClusterID,
+                selectedLocus: selectedLocus,
+                selectedGenotype: selectedGenotype,
+                selectedStableClusterID: selectedStableClusterID
+            )
         }
+    }
+
+    private func matrixRowIdentityMatches(
+        locus: String,
+        genotype: String,
+        stableClusterID: String?,
+        selectedLocus: String,
+        selectedGenotype: String,
+        selectedStableClusterID: String?
+    ) -> Bool {
+        guard locus == selectedLocus, genotype == selectedGenotype else { return false }
+        guard let selectedStableClusterID else { return true }
+        return stableClusterID == selectedStableClusterID
     }
 
     private func matrixStyle(
@@ -927,21 +1248,17 @@ public final class GenotypeResultViewController: NSViewController {
                 sample: currentSelectedSample,
                 matrixTargets: currentSelectionState?.matrixTargets
             )
+        } else if let currentCandidateRow {
+            showCandidateRow(
+                currentCandidateRow,
+                sample: currentSelectedSample,
+                matrixTargets: currentSelectionState?.matrixTargets ?? []
+            )
         } else if let targets = currentSelectionState?.matrixTargets, !targets.isEmpty {
             showMatrixTargetSelection(targets)
         } else {
             publishSelectionState(nil)
         }
-    }
-
-    private func configureSummaryStrip() {
-        summaryStrip.translatesAutoresizingMaskIntoConstraints = false
-        summaryStrip.orientation = .horizontal
-        summaryStrip.alignment = .centerY
-        summaryStrip.spacing = 10
-        summaryStrip.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        summaryStrip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        summaryStrip.setContentHuggingPriority(.defaultLow, for: .horizontal)
     }
 
     private func configureLensControl() {
@@ -1077,29 +1394,45 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func layout() {
-        view.addSubview(summaryStrip)
         view.addSubview(lensControl)
         view.addSubview(contentHost)
 
+        contentHostTopConstraint = contentHost.topAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.topAnchor,
+            constant: isGenotypeOnlyResult ? 0 : 48
+        )
+        lensControl.isHidden = isGenotypeOnlyResult
+
         NSLayoutConstraint.activate([
-            summaryStrip.topAnchor.constraint(equalTo: view.topAnchor),
-            summaryStrip.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            summaryStrip.trailingAnchor.constraint(lessThanOrEqualTo: lensControl.leadingAnchor, constant: -12),
-            summaryStrip.heightAnchor.constraint(equalToConstant: 48),
-
             lensControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            lensControl.centerYAnchor.constraint(equalTo: summaryStrip.centerYAnchor),
+            lensControl.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
 
-            contentHost.topAnchor.constraint(equalTo: summaryStrip.bottomAnchor),
+            contentHostTopConstraint,
             contentHost.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             contentHost.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             contentHost.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
 
+    private func applyViewportHeaderVisibility() {
+        guard isViewLoaded else { return }
+        lensControl.isHidden = isGenotypeOnlyResult
+        contentHostTopConstraint.constant = isGenotypeOnlyResult ? 0 : 48
+    }
+
     private func wireCallbacks() {
         comparisonMatrix.onSharedCallSelected = { [weak self] sharedCall, sample, matrixTargets in
-            self?.showSharedCall(sharedCall, sample: sample, matrixTargets: matrixTargets)
+            guard let self else { return }
+            self.knownSelectionCallbackCount += 1
+            if matrixTargets.count > 1 {
+                self.showMatrixTargetSelection(matrixTargets)
+            } else {
+                self.showSharedCall(sharedCall, sample: sample, matrixTargets: matrixTargets)
+            }
+        }
+        comparisonMatrix.onCandidateRowSelected = { [weak self] row, sample, matrixTargets in
+            self?.candidateSelectionCallbackCount += 1
+            self?.showCandidateRow(row, sample: sample, matrixTargets: matrixTargets)
         }
         comparisonMatrix.onMatrixTargetsSelected = { [weak self] targets in
             self?.showMatrixTargetSelection(targets)
@@ -1121,6 +1454,8 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func showLens(_ lens: Lens, autoActivateReviewCohort: Bool = true) {
+        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        let lens: Lens = isGenotypeOnlyResult ? .summary : lens
         selectedLens = lens
         displayState.viewportLens = lens
         lensControl.selectedSegment = segmentIndex(for: lens)
@@ -1150,6 +1485,7 @@ public final class GenotypeResultViewController: NSViewController {
         if callEvidenceHost == nil {
             installCallEvidenceHost()
         }
+        callEvidenceHost?.isHidden = false
         // The Review lens is meant to walk the Needs Review queue, not
         // show every sample. Use the same built-in smart cohort shown in
         // the inspector so low-support and analyst-flagged samples are
@@ -1903,13 +2239,22 @@ public final class GenotypeResultViewController: NSViewController {
     private func applySummaryViewModeVisibility() {
         let isMatrixMode = displayState.summaryViewMode == .matrix
         let usesDefinitionMatrix = isMatrixMode && summaryMatrixUsesHaplotypeDefinitions()
-        let showsRawMatrix = isMatrixMode && !usesDefinitionMatrix && !displayState.showsAncillaryLoci
+        let showsRawMatrix = isMatrixMode
+            && !usesDefinitionMatrix
+            && (isGenotypeOnlyResult || !displayState.showsAncillaryLoci)
         outlineView.isHidden = showsRawMatrix
         haplotypeMatrixView.isHidden = true
         comparisonMatrix.isHidden = !showsRawMatrix
         cohortSummaryPanel.isHidden = false
         detailScrollView.isHidden = true
         detailContainer.isHidden = false
+
+        if isGenotypeOnlyResult && showsRawMatrix {
+            cohortSummaryPanel.isHidden = true
+            detailScrollView.isHidden = false
+            detailContainer.isHidden = false
+            callEvidenceHost?.isHidden = true
+        }
 
         if showsRawMatrix {
             ensureComparisonMatrixConfigured()
@@ -2034,135 +2379,590 @@ public final class GenotypeResultViewController: NSViewController {
         )
     }
 
-    private func rebuildSummary() {
-        removeArrangedSubviews(from: summaryStrip)
-        guard let result else { return }
-        let qcCounts = result.qcStatusCounts
-        [
-            ("Samples", "\(result.sampleCount)"),
-            ("Calls", "\(result.callCount)"),
-            ("Genotypes", "\(result.locusSummaries.reduce(0) { $0 + $1.callCount })"),
-            ("Loci", "\(result.locusSummaries.count)"),
-            ("OK", "\(qcCounts[.ok, default: 0])"),
-            ("Review", "\(qcCounts[.review, default: 0])"),
-        ].forEach { label, value in
-            summaryStrip.addArrangedSubview(summaryPill(label: label, value: value))
-        }
-        if let context = haplotypeDefinitionContext(for: result) {
-            summaryStrip.addArrangedSubview(summaryPill(label: "Definition", value: context.definition.displayName))
-            summaryStrip.addArrangedSubview(summaryPill(label: "Source", value: context.source.displayName))
-        }
-    }
-
-    private func summaryPill(label: String, value: String) -> NSView {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 1
-        stack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        let valueLabel = NSTextField(labelWithString: value)
-        valueLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        valueLabel.lineBreakMode = .byTruncatingTail
-        valueLabel.usesSingleLineMode = true
-
-        let keyLabel = NSTextField(labelWithString: label)
-        keyLabel.font = .systemFont(ofSize: 10)
-        keyLabel.textColor = .secondaryLabelColor
-        keyLabel.lineBreakMode = .byTruncatingTail
-        keyLabel.usesSingleLineMode = true
-
-        stack.addArrangedSubview(valueLabel)
-        stack.addArrangedSubview(keyLabel)
-        return stack
-    }
-
     private func showSharedCall(
         _ sharedCall: ONTGenotypeSharedCall,
         sample: String? = nil,
         matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
     ) {
-        currentSharedCall = sharedCall
-        currentSelectedSample = sample
-        removeArrangedSubviews(from: detailStack)
-
-        detailStack.addArrangedSubview(sectionTitle("Selected Genotype"))
-        detailStack.addArrangedSubview(wrappingText(sharedCall.genotype, weight: .medium, maximumLines: 3))
-        detailStack.addArrangedSubview(caption(sharedCallMeaning(for: sharedCall)))
-        detailStack.addArrangedSubview(sectionTitle("Support Summary"))
-        detailStack.addArrangedSubview(detailRows([
-            ("Locus", sharedCall.locus),
-            ("Samples", "\(sharedCall.sampleCount)"),
-            ("Unique Reads", integer(sharedCall.totalUniqueReads)),
-            ("Alignments", integer(sharedCall.totalAlignments)),
-            ("Top Sample", sharedCall.topSupport.map { "\($0.sample) - \(integer($0.passedUniqueReads)) unique" } ?? "Unavailable"),
-            ("Support Metric", supportMetricLabel),
-        ]))
-
-        if let sample,
-           let support = sharedCall.support(for: sample) {
-            detailStack.addArrangedSubview(sectionTitle("Selected Cell"))
-            detailStack.addArrangedSubview(detailRows([
-                ("Sample", sample),
-                ("Unique Reads", integer(support.passedUniqueReads)),
-                ("Alignments", integer(support.passedAlignments)),
-                ("Support", supportFractionLabel(genotype: sharedCall.genotype, sample: sample)),
-            ]))
-        }
-
-        if let aliases = sharedCall.aliasDisplay {
-            detailStack.addArrangedSubview(sectionTitle("Ambiguous Alleles"))
-            detailStack.addArrangedSubview(wrappingText(aliases, maximumLines: 5))
-        }
-
-        if let anchorSummary = anchorSummary(for: sharedCall) {
-            detailStack.addArrangedSubview(sectionTitle("Anchor Evidence"))
-            detailStack.addArrangedSubview(detailRows([
-                ("Anchor", anchorSummary.label),
-                ("Source", anchorSummary.source.displayName),
-                ("Loci", anchorSummary.loci.joined(separator: ", ")),
-                ("Samples", "\(anchorSummary.sampleCount)"),
-                ("Unique Reads", integer(anchorSummary.totalUniqueReads)),
-            ]))
-            detailStack.addArrangedSubview(caption(anchorSummary.caveat))
-        }
-
-        let coOccurrences = sameLocusCoOccurrences(for: sharedCall)
-        if !coOccurrences.isEmpty {
-            detailStack.addArrangedSubview(sectionTitle("Same-Locus Co-occurrence"))
-            detailStack.addArrangedSubview(caption("These values show sample-level co-observation within \(sharedCall.locus). They are not phase, haplotype, zygosity, copy-number, or absence calls."))
-            detailStack.addArrangedSubview(coOccurrenceTable(Array(coOccurrences.prefix(8))))
-        }
-
-        detailStack.addArrangedSubview(sectionTitle("Supporting Samples"))
-        if sharedCall.sampleSupport.isEmpty {
-            detailStack.addArrangedSubview(caption("No assigned samples support this genotype."))
-        } else {
-            detailStack.addArrangedSubview(sampleSupportTable(Array(sharedCall.sampleSupport.prefix(24))))
-            if sharedCall.sampleSupport.count > 24 {
-                detailStack.addArrangedSubview(caption("\(sharedCall.sampleSupport.count - 24) additional samples are visible in the matrix."))
+        if let sample, !hasSelectedCellSupport(for: sharedCall, sample: sample) {
+            let targets = matrixTargets ?? [
+                .cell(locus: sharedCall.locus, genotype: sharedCall.genotype, sample: sample),
+            ]
+            if isFullLengthMHCGenotypeViewport {
+                currentSharedCall = nil
+                currentCandidateRow = nil
+                currentSelectedSample = nil
+                showAlleleSequenceRows(for: [])
+                publishSelectionState(matrixTargetSelectionState(for: targets))
+            } else {
+                showCellSelection(targets)
             }
+            return
+        }
+        currentSharedCall = sharedCall
+        currentCandidateRow = nil
+        currentSelectedSample = sample
+        let displayLabel = alleleDisplayLabel(for: sharedCall.genotype)
+        let referenceRows = genBankFieldRows(for: sharedCall.genotype)
+        let resolvedMatrixTargets = matrixTargets ?? [
+            sample.map {
+                GenotypeAnnotationSidecar.MatrixTarget.cell(
+                    locus: sharedCall.locus,
+                    genotype: sharedCall.genotype,
+                    sample: $0
+                )
+            } ?? .row(locus: sharedCall.locus, genotype: sharedCall.genotype),
+        ]
+        let commentTargets = applicableCommentTargets(for: resolvedMatrixTargets)
+        let commentRows = matrixCommentDetailRows(for: commentTargets)
+        if isFullLengthMHCGenotypeViewport {
+            showAlleleSequenceRows(for: resolvedMatrixTargets)
+            publishSelectionState(selectionState(
+                for: sharedCall,
+                sample: sample,
+                matrixTargets: resolvedMatrixTargets,
+                providedCommentRows: commentRows
+            ))
+            return
+        }
+        if let record = result?.mhcReferenceVisualizations?.recordsByKnownCallGenotype[sharedCall.genotype] {
+            knownAlleleDetailView.configure(
+                record: record,
+                observedSample: sample,
+                comments: commentRows
+            )
+        } else {
+            knownAlleleDetailView.configureFallback(
+                alleleName: displayLabel,
+                rawReferenceID: sharedCall.genotype,
+                fields: referenceRows,
+                observedSample: sample,
+                comments: commentRows
+            )
+        }
+        if detailStack.arrangedSubviews.count != 1
+            || detailStack.arrangedSubviews.first !== knownAlleleDetailView {
+            removeArrangedSubviews(from: detailStack)
+            detailStack.addArrangedSubview(knownAlleleDetailView)
+            knownAlleleDetailMountCount += 1
         }
 
-        publishSelectionState(selectionState(for: sharedCall, sample: sample, matrixTargets: matrixTargets))
+        publishSelectionState(selectionState(
+            for: sharedCall,
+            sample: sample,
+            matrixTargets: resolvedMatrixTargets,
+            providedCommentRows: commentRows
+        ))
+    }
+
+    private func hasSelectedCellSupport(
+        for sharedCall: ONTGenotypeSharedCall,
+        sample: String
+    ) -> Bool {
+        knownSelectionDiagnostics.indexedCellSupportLookupCount += 1
+        return sampleSupportByCellKey[CellEvidenceKey(
+            locus: sharedCall.locus,
+            genotype: sharedCall.genotype,
+            sample: sample
+        )] != nil
+    }
+
+    private func showCandidateRow(
+        _ row: GenotypeCandidateMatrixRow,
+        sample: String?,
+        matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) {
+        guard let result,
+              validatedMHCCandidateDocument(from: result) != nil,
+              let candidate = row.candidate,
+              let stableClusterID = row.stableClusterID,
+              let presentation = candidatePresentationsByStableClusterID[stableClusterID] else {
+            showEmptySelection()
+            return
+        }
+        currentSharedCall = nil
+        currentCandidateRow = row
+        currentSelectedSample = sample
+        let commentRows = matrixCommentDetailRows(
+            for: row.sharedCall,
+            sample: sample,
+            matrixTargets: matrixTargets
+        )
+        let rows = presentation.detailRows(selectedSample: sample) + commentRows
+        if isFullLengthMHCGenotypeViewport {
+            showAlleleSequenceRows(for: matrixTargets)
+            let target = GenotypeResultHighlightTarget(
+                genotype: row.genotype,
+                locus: row.locus,
+                sample: sample,
+                stableClusterID: row.stableClusterID
+            )
+            publishSelectionState(GenotypeResultSelectionState(
+                title: row.alleleName,
+                subtitle: "\(row.locus) candidate - \(row.stableClusterID ?? "Unavailable")",
+                detailRows: rows,
+                highlightTarget: target,
+                highlightStyle: comparisonMatrix.highlightStyle(for: target),
+                matrixTargets: matrixTargets
+            ))
+            return
+        }
+        let warning = [
+            candidatePersistenceWarning,
+            GenotypeCandidateEvidenceProjection.warningText(result.integrityWarnings),
+        ]
+            .compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: "\n")
+        candidateAlleleDetailView.configure(
+            candidate: candidate,
+            closestReference: result.mhcReferenceVisualizations?
+                .recordsByCandidateStableClusterID[stableClusterID],
+            candidateSequence: result.mhcCandidateSequencesByStableClusterID[stableClusterID],
+            selectedSampleID: sample,
+            selectedSampleReadCount: sample.flatMap {
+                presentation.selectedSampleReadCounts[$0]
+            },
+            comments: commentRows,
+            warning: warning.isEmpty ? nil : warning
+        )
+        if detailStack.arrangedSubviews.count != 1
+            || detailStack.arrangedSubviews.first !== candidateAlleleDetailView {
+            removeArrangedSubviews(from: detailStack)
+            detailStack.addArrangedSubview(candidateAlleleDetailView)
+            candidateAlleleDetailWidthConstraint = candidateAlleleDetailView.widthAnchor.constraint(
+                equalTo: detailStack.widthAnchor
+            )
+            candidateAlleleDetailWidthConstraint?.isActive = true
+            candidateAlleleDetailMountCount += 1
+        }
+
+        let target = GenotypeResultHighlightTarget(
+            genotype: row.genotype,
+            locus: row.locus,
+            sample: sample,
+            stableClusterID: row.stableClusterID
+        )
+        publishSelectionState(GenotypeResultSelectionState(
+            title: row.alleleName,
+            subtitle: "\(row.locus) candidate - \(row.stableClusterID ?? "Unavailable")",
+            detailRows: rows,
+            highlightTarget: target,
+            highlightStyle: comparisonMatrix.highlightStyle(for: target),
+            matrixTargets: matrixTargets
+        ))
     }
 
     private func showEmptySelection() {
         currentSharedCall = nil
+        currentCandidateRow = nil
         currentSelectedSample = nil
+        alleleSequenceDetailWidthConstraint?.isActive = false
+        alleleSequenceDetailWidthConstraint = nil
         removeArrangedSubviews(from: detailStack)
-        detailStack.addArrangedSubview(caption("Select a genotype row to review shared support."))
+        renderedAlleleSequenceRecordIdentities = []
+        alleleSequenceDetailView.clear()
+        if !isFullLengthMHCGenotypeViewport {
+            detailStack.addArrangedSubview(caption("Select a sample column or allele row to view details."))
+        }
         publishSelectionState(nil)
     }
 
     private func showMatrixTargetSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
         currentSharedCall = nil
+        currentCandidateRow = nil
         currentSelectedSample = nil
         let uniqueTargets = uniqueMatrixTargets(targets)
+        guard !uniqueTargets.isEmpty else {
+            showEmptySelection()
+            return
+        }
+        if isFullLengthMHCGenotypeViewport {
+            let rowTargets = comparisonMatrix.orderedVisibleRowTargets(from: uniqueTargets)
+            if !rowTargets.isEmpty {
+                showAlleleSequenceRows(for: rowTargets)
+                publishSelectionState(matrixTargetSelectionState(for: uniqueTargets))
+                return
+            }
+            showAlleleSequenceRows(for: [])
+            publishSelectionState(matrixTargetSelectionState(for: uniqueTargets))
+            return
+        }
+        switch matrixSelectionKind(for: uniqueTargets) {
+        case .rows:
+            showAlleleRowSelection(uniqueTargets)
+        case .columns:
+            showSampleColumnSelection(uniqueTargets)
+        case .cells:
+            showCellSelection(uniqueTargets)
+        case .mixed:
+            showGenericMatrixTargetSelection(uniqueTargets)
+        }
+    }
+
+    private func showAlleleSequenceRows(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) {
+        let rowTargets = comparisonMatrix.orderedVisibleRowTargets(from: targets)
+        guard !rowTargets.isEmpty else {
+            candidateAlleleDetailWidthConstraint?.isActive = false
+            candidateAlleleDetailWidthConstraint = nil
+            alleleSequenceDetailWidthConstraint?.isActive = false
+            alleleSequenceDetailWidthConstraint = nil
+            removeArrangedSubviews(from: detailStack)
+            alleleSequenceDetailView.clear()
+            renderedAlleleSequenceRecordIdentities = []
+            return
+        }
+        let records = rowTargets.compactMap { target -> GenotypeAlleleSequenceRecord? in
+            guard case let .row(locus, genotype, stableClusterID) = target else {
+                return nil
+            }
+            if let stableClusterID {
+                return candidateSequenceRecordsByStableClusterID[stableClusterID]
+                    ?? .unavailable(identity: stableClusterID, displayName: genotype)
+            }
+            return knownSequenceRecordsByRowID[
+                .known(locus: locus, genotype: genotype)
+            ]
+                ?? .unavailable(identity: genotype, displayName: alleleDisplayLabel(for: genotype))
+        }
+        candidateAlleleDetailWidthConstraint?.isActive = false
+        candidateAlleleDetailWidthConstraint = nil
+        if detailStack.arrangedSubviews.count != 1
+            || detailStack.arrangedSubviews.first !== alleleSequenceDetailView {
+            removeArrangedSubviews(from: detailStack)
+            detailStack.addArrangedSubview(alleleSequenceDetailView)
+            alleleSequenceDetailWidthConstraint = alleleSequenceDetailView.widthAnchor.constraint(
+                equalTo: detailStack.widthAnchor
+            )
+            alleleSequenceDetailWidthConstraint?.isActive = true
+            alleleSequenceDetailMountCount += 1
+        }
+        renderedAlleleSequenceRecordIdentities = records.map(\.identity)
+        alleleSequenceDetailView.show(records: records)
+    }
+
+    private func showGenericMatrixTargetSelection(_ uniqueTargets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        legacyNonRowDetailBuildCount += 1
         removeArrangedSubviews(from: detailStack)
         detailStack.addArrangedSubview(sectionTitle("Matrix Annotation Targets"))
-        detailStack.addArrangedSubview(detailRows(matrixTargetDetailRows(for: uniqueTargets)))
+        let rows = matrixTargetDetailRows(for: uniqueTargets) + matrixCommentDetailRows(for: uniqueTargets)
+        detailStack.addArrangedSubview(detailRows(rows))
         publishSelectionState(matrixTargetSelectionState(for: uniqueTargets))
+    }
+
+    private enum MatrixSelectionKind {
+        case rows
+        case columns
+        case cells
+        case mixed
+    }
+
+    private func matrixSelectionKind(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> MatrixSelectionKind {
+        var hasRows = false
+        var hasColumns = false
+        var hasCells = false
+        for target in targets {
+            switch target {
+            case .row: hasRows = true
+            case .column: hasColumns = true
+            case .cell: hasCells = true
+            }
+        }
+        let count = [hasRows, hasColumns, hasCells].filter { $0 }.count
+        guard count == 1 else { return .mixed }
+        if hasRows { return .rows }
+        if hasColumns { return .columns }
+        return .cells
+    }
+
+    private func showAlleleRowSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        let calls = sharedCalls(for: targets)
+        if calls.count == 1, let call = calls.first {
+            showSharedCall(call, matrixTargets: targets)
+            return
+        }
+        removeArrangedSubviews(from: detailStack)
+        detailStack.addArrangedSubview(sectionTitle("Selected Alleles: \(targets.count)"))
+        var stateRows: [(String, String)] = [("Selection Type", "Rows"), ("Selected Alleles", "\(targets.count)")]
+        var renderedEntries: [String] = []
+        renderedEntries.reserveCapacity(calls.count)
+        for (index, call) in calls.enumerated() {
+            let label = alleleDisplayLabel(for: call.genotype)
+            var rows: [(String, String)] = []
+            if label != call.genotype {
+                rows.append(("Reference Sequence", call.genotype))
+            }
+            rows += [
+                ("Locus", call.locus),
+                ("Samples", "\(call.sampleCount)"),
+                ("Unique Reads", integer(call.totalUniqueReads)),
+                ("Alignments", integer(call.totalAlignments)),
+            ]
+            rows += genBankFieldRows(for: call.genotype)
+            renderedEntries.append(compactSelectionEntry(label: label, rows: rows))
+            stateRows.append(("Allele \(index + 1)", label))
+            stateRows += rows
+        }
+        if !renderedEntries.isEmpty {
+            detailStack.addArrangedSubview(wrappingText(renderedEntries.joined(separator: "\n\n")))
+        }
+        let comments = matrixCommentDetailRows(for: targets)
+        appendCommentsToDetail(comments)
+        stateRows += comments
+        publishSelectionState(GenotypeResultSelectionState(
+            title: "Selected Alleles: \(targets.count)",
+            subtitle: "Matrix rows",
+            detailRows: stateRows,
+            highlightTarget: nil,
+            matrixTargets: targets
+        ))
+    }
+
+    private func showSampleColumnSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        legacyNonRowDetailBuildCount += 1
+        let samples = targets.compactMap { target -> String? in
+            guard case let .column(sample) = target else { return nil }
+            return sample
+        }.sorted {
+            let order = $0.localizedStandardCompare($1)
+            return order == .orderedSame ? $0 < $1 : order == .orderedAscending
+        }
+        removeArrangedSubviews(from: detailStack)
+        detailStack.addArrangedSubview(sectionTitle(samples.count == 1 ? "Selected Sample" : "Selected Samples"))
+        var stateRows: [(String, String)] = [
+            ("Selection Type", samples.count == 1 ? "Column" : "Columns"),
+        ]
+        for (index, sample) in samples.enumerated() {
+            detailStack.addArrangedSubview(wrappingText(sample, weight: .medium))
+            let summary = sampleResultsByName[sample]
+            var rows: [(String, String)] = [("Sample", sample)]
+            if let summary {
+                rows += [
+                    ("Retained Unique Reads", integer(summary.passedUniqueReads)),
+                    ("Alignments", integer(summary.passedAlignments)),
+                    ("QC", summary.qcStatus.displayName),
+                ]
+            }
+            detailStack.addArrangedSubview(detailRows(rows))
+            stateRows.append((samples.count == 1 ? "Selected Sample" : "Sample \(index + 1)", sample))
+            stateRows += rows
+
+            guard samples.count == 1 else { continue }
+
+            let supported = comparisonMatrix.visibleSampleAlleleDetails(sample: sample)
+                .sorted { lhs, rhs in
+                    let locusOrder = lhs.sharedCall.locus.localizedStandardCompare(rhs.sharedCall.locus)
+                    if locusOrder != .orderedSame {
+                        return locusOrder == .orderedAscending
+                    }
+                    if lhs.sharedCall.locus != rhs.sharedCall.locus {
+                        return lhs.sharedCall.locus < rhs.sharedCall.locus
+                    }
+                    if lhs.support.passedUniqueReads != rhs.support.passedUniqueReads {
+                        return lhs.support.passedUniqueReads > rhs.support.passedUniqueReads
+                    }
+                    let labelOrder = alleleDisplayLabel(for: lhs.sharedCall.genotype).localizedStandardCompare(
+                        alleleDisplayLabel(for: rhs.sharedCall.genotype)
+                    )
+                    if labelOrder != .orderedSame { return labelOrder == .orderedAscending }
+                    return lhs.sharedCall.genotype < rhs.sharedCall.genotype
+                }
+            if !supported.isEmpty {
+                detailStack.addArrangedSubview(sectionTitle("Supported Alleles"))
+            }
+            var renderedEntries: [String] = []
+            renderedEntries.reserveCapacity(supported.count)
+            for (alleleIndex, item) in supported.enumerated() {
+                let label = alleleDisplayLabel(for: item.sharedCall.genotype)
+                let supportLabel = item.fraction.map(percent) ?? "Unavailable"
+                let alleleRows = [
+                    ("Locus", item.sharedCall.locus),
+                    ("Unique Reads", integer(item.support.passedUniqueReads)),
+                    ("Alignments", integer(item.support.passedAlignments)),
+                    ("Support", supportLabel),
+                ]
+                renderedEntries.append(
+                    "\(label)\nLocus: \(item.sharedCall.locus)  •  Unique Reads: \(integer(item.support.passedUniqueReads))  •  Alignments: \(integer(item.support.passedAlignments))  •  Support: \(supportLabel)"
+                )
+                stateRows.append(("Allele \(alleleIndex + 1)", label))
+                stateRows += alleleRows
+            }
+            if !renderedEntries.isEmpty {
+                detailStack.addArrangedSubview(wrappingText(renderedEntries.joined(separator: "\n\n")))
+            }
+        }
+        let comments = matrixCommentDetailRows(for: targets)
+        appendCommentsToDetail(comments)
+        stateRows += comments
+        publishSelectionState(GenotypeResultSelectionState(
+            title: samples.count == 1 ? (samples.first ?? "Selected Sample") : "Selected Samples: \(samples.count)",
+            subtitle: samples.count == 1 ? "Sample column" : "Sample columns",
+            detailRows: stateRows,
+            highlightTarget: nil,
+            matrixTargets: targets
+        ))
+    }
+
+    private func showCellSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        legacyNonRowDetailBuildCount += 1
+        currentSharedCall = nil
+        currentCandidateRow = nil
+        currentSelectedSample = nil
+        let cells = targets.compactMap { target -> (target: GenotypeAnnotationSidecar.MatrixTarget, locus: String, genotype: String, sample: String, stableClusterID: String?)? in
+            guard case let .cell(locus, genotype, sample, stableClusterID) = target else { return nil }
+            return (target, locus, genotype, sample, stableClusterID)
+        }.sorted { lhs, rhs in
+            let lhsLabel = alleleDisplayLabel(for: lhs.genotype)
+            let rhsLabel = alleleDisplayLabel(for: rhs.genotype)
+            let labelOrder = lhsLabel.localizedStandardCompare(rhsLabel)
+            if labelOrder != .orderedSame {
+                return labelOrder == .orderedAscending
+            }
+            let locusOrder = lhs.locus.localizedStandardCompare(rhs.locus)
+            if locusOrder != .orderedSame { return locusOrder == .orderedAscending }
+            if lhs.locus != rhs.locus { return lhs.locus < rhs.locus }
+            if lhs.genotype != rhs.genotype { return lhs.genotype < rhs.genotype }
+            let sampleOrder = lhs.sample.localizedStandardCompare(rhs.sample)
+            return sampleOrder == .orderedSame ? lhs.sample < rhs.sample : sampleOrder == .orderedAscending
+        }
+        removeArrangedSubviews(from: detailStack)
+        detailStack.addArrangedSubview(sectionTitle(cells.count == 1 ? "Selected Cell" : "Selected Cells: \(cells.count)"))
+        var stateRows: [(String, String)] = [
+            ("Selection Type", cells.count == 1 ? "Cell" : "Cells"),
+        ]
+        if cells.count == 1, let cell = cells.first {
+            stateRows.append(("Selected Sample", cell.sample))
+        }
+        var renderedEntries: [String] = []
+        renderedEntries.reserveCapacity(cells.count)
+        for (index, cell) in cells.enumerated() {
+            let label = alleleDisplayLabel(for: cell.genotype)
+            var rows: [(String, String)] = [("Sample", cell.sample), ("Allele", label)]
+            if label != cell.genotype {
+                rows.append(("Reference Sequence", cell.genotype))
+            }
+            rows.append(("Locus", cell.locus))
+            if let stableClusterID = cell.stableClusterID {
+                rows.append(("Cluster ID", stableClusterID))
+            }
+            if let support = sampleSupportByCellKey[
+                CellEvidenceKey(locus: cell.locus, genotype: cell.genotype, sample: cell.sample)
+            ] {
+                let fraction = comparisonMatrix.cachedSupportFraction(
+                    locus: cell.locus, genotype: cell.genotype, sample: cell.sample
+                )
+                rows += [
+                    ("Unique Reads", integer(support.passedUniqueReads)),
+                    ("Alignments", integer(support.passedAlignments)),
+                    ("Support", fraction.map(percent) ?? "Unavailable"),
+                ]
+                rows += genBankFieldRows(for: cell.genotype)
+            } else {
+                rows.append(("Evidence", "No supporting reads"))
+            }
+            if cells.count == 1 {
+                detailStack.addArrangedSubview(wrappingText(label, weight: .medium))
+                detailStack.addArrangedSubview(wrappingText(cell.sample))
+                detailStack.addArrangedSubview(detailRows(rows))
+            } else {
+                renderedEntries.append(compactSelectionEntry(label: label, rows: rows))
+            }
+            if cells.count > 1 {
+                stateRows.append(("Cell \(index + 1)", "\(label) — \(cell.sample)"))
+            }
+            stateRows += rows
+        }
+        if cells.count > 1, !renderedEntries.isEmpty {
+            detailStack.addArrangedSubview(wrappingText(renderedEntries.joined(separator: "\n\n")))
+        }
+        let commentTargets = applicableCommentTargets(for: targets)
+        let comments = matrixCommentDetailRows(for: commentTargets)
+        appendCommentsToDetail(comments)
+        stateRows += comments
+        publishSelectionState(GenotypeResultSelectionState(
+            title: cells.count == 1 ? (cells.first.map { "\(alleleDisplayLabel(for: $0.genotype)) — \($0.sample)" } ?? "Selected Cell") : "Selected Cells: \(cells.count)",
+            subtitle: "Matrix evidence",
+            detailRows: stateRows,
+            highlightTarget: nil,
+            matrixTargets: targets
+        ))
+    }
+
+    private func appendCommentsToDetail(_ rows: [(String, String)]) {
+        guard !rows.isEmpty else { return }
+        detailStack.addArrangedSubview(sectionTitle("Comments"))
+        detailStack.addArrangedSubview(detailRows(rows))
+    }
+
+    private func compactSelectionEntry(label: String, rows: [(String, String)]) -> String {
+        ([label] + rows.map { "\($0.0): \($0.1)" }).joined(separator: "\n")
+    }
+
+    private func sharedCalls(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [ONTGenotypeSharedCall] {
+        return targets.compactMap { target in
+            guard case let .row(locus, genotype, stableClusterID) = target,
+                  stableClusterID == nil else { return nil }
+            return sharedCallsByKey[SharedCallKey(locus: locus, genotype: genotype)]
+        }.sorted { lhs, rhs in
+            let locusOrder = lhs.locus.localizedStandardCompare(rhs.locus)
+            if locusOrder != .orderedSame {
+                return locusOrder == .orderedAscending
+            }
+            if lhs.locus != rhs.locus { return lhs.locus < rhs.locus }
+            let labelOrder = alleleDisplayLabel(for: lhs.genotype).localizedStandardCompare(
+                alleleDisplayLabel(for: rhs.genotype)
+            )
+            if labelOrder != .orderedSame { return labelOrder == .orderedAscending }
+            return lhs.genotype < rhs.genotype
+        }
+    }
+
+    private func referenceRecord(for genotype: String) -> [String: String]? {
+        result?.referenceMetadata?.recordsBySequenceName[genotype]
+    }
+
+    private func alleleDisplayLabel(for genotype: String) -> String {
+        guard let metadata = result?.referenceMetadata,
+              let key = metadata.alleleFieldKey,
+              let value = metadata.recordsBySequenceName[genotype]?[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return genotype
+        }
+        return value
+    }
+
+    private func genBankFieldRows(for genotype: String) -> [(String, String)] {
+        guard let metadata = result?.referenceMetadata,
+              let record = referenceRecord(for: genotype) else { return [] }
+        return metadata.fields.compactMap { field in
+            guard let value = record[field.key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else { return nil }
+            return (field.displayTitle, value)
+        }
+    }
+
+    private func applicableCommentTargets(
+        for targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        var expanded = targets
+        for target in targets {
+            guard case let .cell(locus, genotype, sample, stableClusterID) = target else { continue }
+            expanded.append(.row(
+                locus: locus,
+                genotype: genotype,
+                stableClusterID: stableClusterID
+            ))
+            expanded.append(.column(sample: sample))
+        }
+        return uniqueMatrixTargets(expanded)
     }
 
     private func matrixTargetSelectionState(
@@ -2182,12 +2982,12 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func matrixTargetTitle(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
         switch target {
-        case let .row(locus, genotype):
-            return "\(locus) \(genotype)"
+        case let .row(locus, genotype, stableClusterID):
+            return "\(locus) \(genotype)" + (stableClusterID.map { " [\($0)]" } ?? "")
         case let .column(sample):
             return sample
-        case let .cell(locus, genotype, sample):
-            return "\(sample) \(locus) \(genotype)"
+        case let .cell(locus, genotype, sample, stableClusterID):
+            return "\(sample) \(locus) \(genotype)" + (stableClusterID.map { " [\($0)]" } ?? "")
         }
     }
 
@@ -2196,12 +2996,14 @@ public final class GenotypeResultViewController: NSViewController {
     ) -> [(String, String)] {
         if targets.count == 1, let target = targets.first {
             switch target {
-            case let .row(locus, genotype):
+            case let .row(locus, genotype, stableClusterID):
                 return [("Selection Type", "Row"), ("Locus", locus), ("Genotype", genotype)]
+                    + (stableClusterID.map { [("Cluster ID", $0)] } ?? [])
             case let .column(sample):
                 return [("Selection Type", "Column"), ("Sample", sample)]
-            case let .cell(locus, genotype, sample):
+            case let .cell(locus, genotype, sample, stableClusterID):
                 return [("Selection Type", "Cell"), ("Sample", sample), ("Locus", locus), ("Genotype", genotype)]
+                    + (stableClusterID.map { [("Cluster ID", $0)] } ?? [])
             }
         }
         return [
@@ -2227,41 +3029,34 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func matrixTargetSummary(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
         switch target {
-        case let .row(locus, genotype):
-            return "\(locus) \(genotype)"
+        case let .row(locus, genotype, stableClusterID):
+            return "\(locus) \(genotype)" + (stableClusterID.map { " [\($0)]" } ?? "")
         case let .column(sample):
             return sample
-        case let .cell(locus, genotype, sample):
-            return "\(sample) \(locus) \(genotype)"
+        case let .cell(locus, genotype, sample, stableClusterID):
+            return "\(sample) \(locus) \(genotype)" + (stableClusterID.map { " [\($0)]" } ?? "")
         }
     }
 
     private func selectionState(
         for sharedCall: ONTGenotypeSharedCall,
         sample: String?,
-        matrixTargets providedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
+        matrixTargets providedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil,
+        providedCommentRows: [(String, String)]? = nil
     ) -> GenotypeResultSelectionState {
-        var rows: [(String, String)] = [
-            ("Meaning", sharedCallMeaning(for: sharedCall)),
-            ("Locus", sharedCall.locus),
-            ("Samples", "\(sharedCall.sampleCount)"),
-            ("Unique Reads", integer(sharedCall.totalUniqueReads)),
-            ("Alignments", integer(sharedCall.totalAlignments)),
-            ("Support Metric", supportMetricLabel),
-        ]
+        let displayLabel = alleleDisplayLabel(for: sharedCall.genotype)
+        var rows: [(String, String)] = [("Allele", displayLabel)]
         if let sample {
-            rows.append(("Selected Sample", sample))
-            if let support = sharedCall.support(for: sample) {
-                rows.append(("Selected Unique", integer(support.passedUniqueReads)))
-                rows.append(("Selected Support", supportFractionLabel(genotype: sharedCall.genotype, sample: sample)))
-            }
+            rows.append(("Sample", sample))
         }
-        if let topSupport = sharedCall.topSupport {
-            rows.append(("Top Sample", "\(topSupport.sample) - \(integer(topSupport.passedUniqueReads)) unique"))
+        if displayLabel != sharedCall.genotype {
+            rows.append(("Reference Sequence", sharedCall.genotype))
         }
+        rows.append(("Locus", sharedCall.locus))
         if let aliases = sharedCall.aliasDisplay {
             rows.append(("Aliases", aliases))
         }
+        rows += genBankFieldRows(for: sharedCall.genotype)
         let matrixTargets = providedMatrixTargets ?? [
             sample.map {
                 GenotypeAnnotationSidecar.MatrixTarget.cell(
@@ -2272,16 +3067,18 @@ public final class GenotypeResultViewController: NSViewController {
             } ?? .row(locus: sharedCall.locus, genotype: sharedCall.genotype),
         ]
         rows.insert(("Selection Type", matrixTargetTypeLabel(for: matrixTargets)), at: 0)
-        rows += matrixCommentDetailRows(for: sharedCall, sample: sample, matrixTargets: matrixTargets)
+        rows += providedCommentRows
+            ?? matrixCommentDetailRows(for: applicableCommentTargets(for: matrixTargets))
         let target = GenotypeResultHighlightTarget(
             genotype: sharedCall.genotype,
             locus: sharedCall.locus,
-            sample: sample
+            sample: sample,
+            stableClusterID: matrixTargets.first(where: { $0.stableClusterID != nil })?.stableClusterID
         )
         let style = comparisonMatrix.highlightStyle(for: target)
         return GenotypeResultSelectionState(
-            title: sharedCall.genotype,
-            subtitle: "\(sharedCall.locus) - \(sharedCall.sampleCount) samples",
+            title: displayLabel,
+            subtitle: "\(sharedCall.locus) known allele",
             detailRows: rows,
             highlightTarget: target,
             highlightStyle: style,
@@ -2295,19 +3092,30 @@ public final class GenotypeResultViewController: NSViewController {
         matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]
     ) -> [(String, String)] {
         guard let sidecar = annotationStore?.sidecar else { return [] }
-        var targets = matrixTargets
+        var targets = Set(matrixTargets)
+        for target in matrixTargets {
+            switch target {
+            case let .row(locus, genotype, stableClusterID),
+                 let .cell(locus, genotype, _, stableClusterID):
+                if let stableClusterID {
+                    targets.insert(.row(
+                        locus: locus,
+                        genotype: genotype,
+                        stableClusterID: stableClusterID
+                    ))
+                }
+            case .column:
+                break
+            }
+        }
         let rowTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
             locus: sharedCall.locus,
             genotype: sharedCall.genotype
         )
-        if !targets.contains(rowTarget) {
-            targets.append(rowTarget)
-        }
+        targets.insert(rowTarget)
         if let sample {
             let columnTarget = GenotypeAnnotationSidecar.MatrixTarget.column(sample: sample)
-            if !targets.contains(columnTarget) {
-                targets.append(columnTarget)
-            }
+            targets.insert(columnTarget)
         }
         return sidecar.matrixComments.compactMap { comment in
             guard targets.contains(comment.target) else { return nil }
@@ -2414,10 +3222,7 @@ public final class GenotypeResultViewController: NSViewController {
     private func rebuildAnchorLens() {
         removeArrangedSubviews(from: anchorStack)
         guard let result else { return }
-        let anchors = result.anchorSummaries(
-            minimumSupportPercent: displayState.activeMinimumSupportPercent,
-            denominator: displayState.supportDenominator
-        )
+        let anchors = anchorSummaries(in: result)
         anchorStack.addArrangedSubview(sectionTitle("Anchor-Oriented Review"))
         anchorStack.addArrangedSubview(caption("Anchor groups are derived from source labels and sample-level co-observation. They are not phased haplotype calls, zygosity calls, copy-number calls, absence calls, or inheritance assertions."))
         if anchors.isEmpty {
@@ -2458,6 +3263,34 @@ public final class GenotypeResultViewController: NSViewController {
         ]
         if let fastaURL = result.artifacts.deduplicatedUnmatchedClustersFASTAURL {
             artifactRows.append(artifactRow(label: "Deduplicated Unmatched FASTA", url: fastaURL))
+        }
+        let candidateGenBankURLs = result.mhcCandidateGenBankArtifactURLs
+        if let candidateURL = candidateGenBankURLs.candidateFASTA {
+            artifactRows.append(artifactRow(label: "Candidate Alleles FASTA", url: candidateURL))
+        }
+        if let unnameableURL = candidateGenBankURLs.unnameableFASTA {
+            artifactRows.append(artifactRow(label: "Un-nameable Clusters FASTA", url: unnameableURL))
+        }
+        if let candidateURL = candidateGenBankURLs.candidateAlleles {
+            artifactRows.append(artifactRow(label: "Candidate Alleles GenBank", url: candidateURL))
+        }
+        if let unnameableURL = candidateGenBankURLs.unnameableClusters {
+            artifactRows.append(artifactRow(label: "Un-nameable Clusters GenBank", url: unnameableURL))
+        }
+        let alignmentArtifactURLs = result.manifest.kind == "full-length-ont-mhc-genotype"
+            ? result.mhcAlignmentArtifactURLs
+            : .empty
+        if let genotypingBAMURL = alignmentArtifactURLs.genotypingBAM {
+            artifactRows.append(artifactRow(label: "Genotyping Evidence BAM", url: genotypingBAMURL))
+        }
+        if let genotypingBAIURL = alignmentArtifactURLs.genotypingBAI {
+            artifactRows.append(artifactRow(label: "Genotyping Evidence BAI", url: genotypingBAIURL))
+        }
+        if let reciprocalBAMURL = alignmentArtifactURLs.reciprocalBAM {
+            artifactRows.append(artifactRow(label: "Reciprocal Evidence BAM", url: reciprocalBAMURL))
+        }
+        if let reciprocalBAIURL = alignmentArtifactURLs.reciprocalBAI {
+            artifactRows.append(artifactRow(label: "Reciprocal Evidence BAI", url: reciprocalBAIURL))
         }
         if let haplotypeAnalysisURL = result.artifacts.haplotypeAnalysisURL {
             artifactRows.append(artifactRow(label: "Haplotype Analysis", url: haplotypeAnalysisURL))
@@ -2539,6 +3372,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func applyAIHaplotypingCompleted(result updatedResult: ONTGenotypeResultBundleData) {
         result = updatedResult
+        applyViewportHeaderVisibility()
         liveHaplotypeAnalysis = nil
         comparisonMatrixConfigured = false
         rebuildResultIndexes(for: updatedResult)
@@ -2549,7 +3383,6 @@ public final class GenotypeResultViewController: NSViewController {
         displayState.summaryViewMode = initialSummaryViewMode(for: updatedResult)
         rebuildActiveHaplotypeAnalysisIndexes()
         aiHaplotypingStatus = "AI haplotype revision created. Calls require manual review."
-        rebuildSummary()
         rebuildHaplotypeLens()
         rebuildOutline()
         rebuildHaplotypeMatrix()
@@ -2605,11 +3438,13 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private var currentWorkbookRelevantChangeCount: Int {
-        guard let sidecar = annotationStore?.sidecar else { return 0 }
+        let candidateProjection = result?.manifest.mhcCandidateArtifacts == nil ? 0 : 1
+        guard let sidecar = annotationStore?.sidecar else { return candidateProjection }
         return sidecar.callOverrides.count
             + sidecar.manualHaplotypeAssignments.count
             + sidecar.matrixStyles.count
             + sidecar.matrixComments.count
+            + candidateProjection
     }
 
     private var currentWorkbookHasMatrixAnnotations: Bool {
@@ -2629,18 +3464,10 @@ public final class GenotypeResultViewController: NSViewController {
         guard currentWorkbookHasMatrixAnnotations,
               !(annotationStore?.isReadOnly ?? true) else { return }
         currentWorkbookNeedsRefresh = true
-        currentWorkbookUpdateStatus = "Queued current.xlsx annotation update."
+        currentWorkbookUpdateStatus = "current.xlsx does not include workbook annotation changes."
         rebuildArtifactLens()
         currentWorkbookAnnotationAutoUpdateTask?.cancel()
-        currentWorkbookAnnotationAutoUpdateTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: 1_200_000_000)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            self?.updateCurrentWorkbookFromOverrides()
-        }
+        currentWorkbookAnnotationAutoUpdateTask = nil
     }
 
     @objc private func updateCurrentWorkbookFromOverrides() {
@@ -2649,7 +3476,9 @@ public final class GenotypeResultViewController: NSViewController {
         currentWorkbookAnnotationAutoUpdateTask = nil
         let calls = currentWorkbookEffectiveHaplotypeCalls()
         let includedLoci = currentWorkbookIncludedLoci()
-        guard !calls.isEmpty || currentWorkbookHasMatrixAnnotations else {
+        guard !calls.isEmpty
+                || currentWorkbookHasMatrixAnnotations
+                || result.manifest.mhcCandidateArtifacts != nil else {
             currentWorkbookUpdateStatus = "No displayed haplotype calls are available for current.xlsx."
             rebuildArtifactLens()
             return
@@ -2664,7 +3493,7 @@ public final class GenotypeResultViewController: NSViewController {
         rebuildArtifactLens()
         do {
             let annotationURL = annotationStore?.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
-            let updatedManifest = try GenotypeWorkbookRevisionService().applyHaplotypeOverrides(
+            _ = try GenotypeWorkbookRevisionService().applyHaplotypeOverrides(
                 calls,
                 annotationSidecarURL: annotationURL,
                 into: result.bundleURL,
@@ -2673,15 +3502,7 @@ public final class GenotypeResultViewController: NSViewController {
                     includedLoci: includedLoci
                 )
             )
-            if let updated = try? ONTGenotypeResultBundle.loadResult(from: result.bundleURL, manifest: updatedManifest) {
-                applyCurrentWorkbookUpdatedResult(updated)
-            }
-            currentWorkbookNeedsRefresh = false
-            currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
-            rebuildArtifactLens()
-            if let sidecar = annotationStore?.sidecar {
-                onAnnotationSidecarChanged?(sidecar)
-            }
+            reloadCurrentWorkbookResult(from: result.bundleURL)
         } catch {
             currentWorkbookUpdateStatus = error.localizedDescription
             rebuildArtifactLens()
@@ -2690,6 +3511,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyCurrentWorkbookUpdateCompleted(result updatedResult: ONTGenotypeResultBundleData) {
+        invalidateCurrentWorkbookResultReload()
         applyCurrentWorkbookUpdatedResult(updatedResult)
         currentWorkbookNeedsRefresh = false
         currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
@@ -2700,8 +3522,55 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyCurrentWorkbookUpdateFailed(_ error: Error) {
+        invalidateCurrentWorkbookResultReload()
         currentWorkbookUpdateStatus = "current.xlsx update failed — see Operations Panel."
         rebuildArtifactLens()
+    }
+
+    private func invalidateCurrentWorkbookResultReload() {
+        currentWorkbookResultReloadTask?.cancel()
+        currentWorkbookResultReloadTask = nil
+        resultConfigurationGeneration &+= 1
+    }
+
+    private func reloadCurrentWorkbookResult(from bundleURL: URL) {
+        currentWorkbookResultReloadTask?.cancel()
+        resultConfigurationGeneration &+= 1
+        let expectedBundleURL = bundleURL.standardizedFileURL
+        let expectedGeneration = resultConfigurationGeneration
+        let loader = genotypeResultLoader
+        currentWorkbookResultReloadTask = Task { @MainActor [weak self] in
+            do {
+                let updatedResult = try await loader(expectedBundleURL)
+                try Task.checkCancellation()
+                guard let self,
+                      self.resultConfigurationGeneration == expectedGeneration,
+                      self.result?.bundleURL.standardizedFileURL == expectedBundleURL,
+                      updatedResult.bundleURL.standardizedFileURL == expectedBundleURL else {
+                    return
+                }
+                self.currentWorkbookResultReloadTask = nil
+                self.applyCurrentWorkbookUpdatedResult(updatedResult)
+                self.currentWorkbookNeedsRefresh = false
+                self.currentWorkbookUpdateStatus = "Updated current.xlsx. Previous workbook saved in revisions."
+                self.rebuildArtifactLens()
+                if let sidecar = self.annotationStore?.sidecar {
+                    self.onAnnotationSidecarChanged?(sidecar)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard let self,
+                      self.resultConfigurationGeneration == expectedGeneration,
+                      self.result?.bundleURL.standardizedFileURL == expectedBundleURL else {
+                    return
+                }
+                self.currentWorkbookResultReloadTask = nil
+                self.currentWorkbookUpdateStatus = error.localizedDescription
+                self.rebuildArtifactLens()
+                self.presentSheetAlert(error: error)
+            }
+        }
     }
 
     private func applyCurrentWorkbookUpdatedResult(_ updatedResult: ONTGenotypeResultBundleData) {
@@ -2944,7 +3813,6 @@ public final class GenotypeResultViewController: NSViewController {
         } else {
             rebuildActiveHaplotypeAnalysisIndexes()
         }
-        rebuildSummary()
         rebuildHaplotypeLens()
         rebuildOutline()
         rebuildHaplotypeMatrix()
@@ -5006,6 +5874,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func sampleSupportTable(_ supports: [ONTGenotypeSampleSupport]) -> NSView {
+        knownSelectionDiagnostics.supportingSampleTableEntryCount += 1
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -5050,6 +5919,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func coOccurrenceTable(_ coOccurrences: [ONTGenotypeCoOccurrence]) -> NSView {
+        knownSelectionDiagnostics.coOccurrenceTableEntryCount += 1
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -5152,7 +6022,7 @@ public final class GenotypeResultViewController: NSViewController {
 
         let labelField = NSTextField(labelWithString: label)
         labelField.font = .systemFont(ofSize: 11, weight: .medium)
-        labelField.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        labelField.widthAnchor.constraint(equalToConstant: 176).isActive = true
         labelField.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let pathField = NSTextField(labelWithString: url.path)
@@ -5226,6 +6096,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func supportFractionLabel(genotype: String, sample: String) -> String {
+        knownSelectionDiagnostics.supportFractionLabelEntryCount += 1
         guard let result,
               let call = result.calls.first(where: { $0.sample == sample && $0.genotype == genotype }),
               let fraction = result.supportFraction(for: call, denominator: displayState.supportDenominator) else {
@@ -5235,7 +6106,8 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func sameLocusCoOccurrences(for sharedCall: ONTGenotypeSharedCall) -> [ONTGenotypeCoOccurrence] {
-        result?.sameLocusCoOccurrences(
+        knownSelectionDiagnostics.sameLocusCoOccurrenceEntryCount += 1
+        return result?.sameLocusCoOccurrences(
             for: sharedCall.genotype,
             minimumSupportPercent: displayState.activeMinimumSupportPercent,
             denominator: displayState.supportDenominator
@@ -5243,12 +6115,19 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func anchorSummary(for sharedCall: ONTGenotypeSharedCall) -> ONTGenotypeAnchorSummary? {
-        result?.anchorSummaries(
-            minimumSupportPercent: displayState.activeMinimumSupportPercent,
-            denominator: displayState.supportDenominator
-        ).first { anchor in
+        knownSelectionDiagnostics.anchorSummaryEntryCount += 1
+        guard let result else { return nil }
+        return anchorSummaries(in: result).first { anchor in
             anchor.sharedCalls.contains { $0.genotype == sharedCall.genotype && $0.locus == sharedCall.locus }
         }
+    }
+
+    private func anchorSummaries(in result: ONTGenotypeResultBundleData) -> [ONTGenotypeAnchorSummary] {
+        knownSelectionDiagnostics.anchorSummariesEntryCount += 1
+        return result.anchorSummaries(
+            minimumSupportPercent: displayState.activeMinimumSupportPercent,
+            denominator: displayState.supportDenominator
+        )
     }
 
     private func compactGenotypeLabel(_ genotype: String) -> String {
@@ -5284,6 +6163,10 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func removeArrangedSubviews(from stack: NSStackView) {
         stack.arrangedSubviews.forEach { view in
+            if stack === detailStack, view === candidateAlleleDetailView {
+                candidateAlleleDetailWidthConstraint?.isActive = false
+                candidateAlleleDetailWidthConstraint = nil
+            }
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
@@ -5415,6 +6298,76 @@ extension GenotypeResultViewController {
         displayState.summaryViewMode
     }
 
+    var testingPanelLayout: GenotypeResultPanelLayout {
+        displayState.layout
+    }
+
+    var testingLensControlIsHidden: Bool {
+        lensControl.isHidden
+    }
+
+    var testingContentHostTopInset: CGFloat {
+        contentHostTopConstraint.constant
+    }
+
+    var testingDetailScrollViewIsHidden: Bool {
+        detailScrollView.isHidden
+    }
+
+    var testingCohortSummaryIsHidden: Bool {
+        cohortSummaryPanel.isHidden
+    }
+
+    var testingDetailText: String {
+        textContent(in: detailStack).joined(separator: "\n")
+    }
+
+    var testingDetailArrangedSubviewCount: Int {
+        detailStack.arrangedSubviews.count
+    }
+
+    var testingAlleleSequenceText: String {
+        alleleSequenceDetailView.renderedText
+    }
+
+    var testingAlleleSequenceFormat: GenotypeAlleleSequenceDetailView.Format {
+        alleleSequenceDetailView.currentFormat
+    }
+
+    var testingAlleleSequenceRecordIdentities: [String] {
+        renderedAlleleSequenceRecordIdentities
+    }
+
+    var testingAlleleSequenceDetailMountCount: Int {
+        alleleSequenceDetailMountCount
+    }
+
+    var testingKnownAlleleSequenceRecordBuildCount: Int {
+        knownAlleleSequenceRecordBuildCount
+    }
+
+    var testingKnownAlleleSequenceCacheCount: Int {
+        knownSequenceRecordsByRowID.count
+    }
+
+    var testingLegacyNonRowDetailBuildCount: Int {
+        legacyNonRowDetailBuildCount
+    }
+
+    func testingSelectAlleleSequenceFormat(
+        _ format: GenotypeAlleleSequenceDetailView.Format
+    ) {
+        alleleSequenceDetailView.testingSelectFormat(format)
+    }
+
+    var testingKnownAlleleDetailMountCount: Int {
+        knownAlleleDetailMountCount
+    }
+
+    var testingCandidateAlleleDetailMountCount: Int {
+        candidateAlleleDetailMountCount
+    }
+
     var testingComparisonMatrixIsHidden: Bool {
         comparisonMatrix.isHidden
     }
@@ -5433,8 +6386,8 @@ extension GenotypeResultViewController {
         return textContent(in: haplotypeStack).joined(separator: "\n")
     }
 
-    var testingSummaryStripText: String {
-        textContent(in: summaryStrip).joined(separator: "\n")
+    var testingHasSummaryStatisticsStrip: Bool {
+        false
     }
 
     var testingSamplePaneWidth: CGFloat {
@@ -5452,6 +6405,10 @@ extension GenotypeResultViewController {
 
     func testingApplyDisplayState(_ state: GenotypeResultDisplayState) {
         applyDisplayState(state)
+    }
+
+    func testingSetUnappliedDisplayState(_ state: GenotypeResultDisplayState) {
+        displayState = state
     }
 
     func testingSaveHaplotypeDefinition(_ definition: GenotypeHaplotypeDefinitionSet) throws {
@@ -5550,6 +6507,58 @@ extension GenotypeResultViewController {
         comparisonMatrix.testingSelectCell(genotype: genotype, sample: sample)
     }
 
+    func testingSelectCandidateCell(stableClusterID: String, sample: String) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSelectCandidateCell(
+            rowID: .candidate(stableClusterID: stableClusterID),
+            sample: sample
+        )
+    }
+
+    func testingSelectCandidateRow(stableClusterID: String) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingClickCandidateRowChiclet(
+            rowID: .candidate(stableClusterID: stableClusterID)
+        )
+    }
+
+    var testingSelectedCandidateStableClusterID: String? {
+        currentCandidateRow?.stableClusterID
+    }
+
+    var testingCandidateSelectionCallbackCounts: GenotypeCandidateSelectionCallbackCounts {
+        .init(known: knownSelectionCallbackCount, candidate: candidateSelectionCallbackCount)
+    }
+
+    var testingKnownSelectionDiagnostics: GenotypeKnownSelectionDiagnostics {
+        knownSelectionDiagnostics
+    }
+
+    var testingCandidateIntegrityWarningText: String {
+        guard let result,
+              result.manifest.kind == "full-length-ont-mhc-genotype" else { return "" }
+        return GenotypeCandidateEvidenceProjection.warningText(result.integrityWarnings)
+    }
+
+    var testingVisibleMatrixGenotypes: [String] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingVisibleGenotypes
+    }
+
+    var testingDisplayState: GenotypeResultDisplayState {
+        displayState
+    }
+
+    var testingCandidatePersistenceWarning: String? {
+        candidatePersistenceWarning
+    }
+
+    func testingWaitForCandidateSettingsPersistence() async {
+        while candidateSettingsPersistenceTask != nil {
+            await Task.yield()
+        }
+    }
+
     func testingSelectMatrixRows(genotypes: [String], sample: String?) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingSelectRows(genotypes: genotypes, sample: sample)
@@ -5563,6 +6572,10 @@ extension GenotypeResultViewController {
     func testingSelectMatrixColumns(samples: [String]) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingSelectColumns(samples: samples)
+    }
+
+    func testingShowMatrixTargetSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+        showMatrixTargetSelection(targets)
     }
 
     func testingClickMatrixCell(
@@ -5743,6 +6756,46 @@ extension GenotypeResultViewController {
 
     func testingCurrentWorkbookHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
         currentWorkbookEffectiveHaplotypeCalls()
+    }
+
+    func testingReloadCurrentWorkbookResult() {
+        guard let bundleURL = result?.bundleURL else { return }
+        reloadCurrentWorkbookResult(from: bundleURL)
+    }
+
+    var testingCurrentWorkbookNeedsRefresh: Bool {
+        currentWorkbookNeedsRefresh
+    }
+
+    var testingCurrentWorkbookUpdateStatus: String? {
+        currentWorkbookUpdateStatus
+    }
+
+    var testingResultBundleURL: URL? {
+        result?.bundleURL.standardizedFileURL
+    }
+
+    var testingResultTotalInputReads: Int? {
+        result?.stats.totalInputReads
+    }
+
+    func testingArtifactLabelLayout(label: String) -> (renderedWidth: CGFloat, intrinsicWidth: CGFloat)? {
+        artifactStack.layoutSubtreeIfNeeded()
+        guard let field = testingTextField(in: artifactStack, text: label) else { return nil }
+        field.superview?.layoutSubtreeIfNeeded()
+        return (field.frame.width, field.intrinsicContentSize.width)
+    }
+
+    private func testingTextField(in view: NSView, text: String) -> NSTextField? {
+        if let field = view as? NSTextField, field.stringValue == text {
+            return field
+        }
+        for subview in view.subviews {
+            if let field = testingTextField(in: subview, text: text) {
+                return field
+            }
+        }
+        return nil
     }
 
     private func textContent(in view: NSView) -> [String] {

@@ -279,6 +279,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Generation counter for stale annotation filter refreshes.
     var annotationQueryGeneration: Int = 0
     var activeAnnotationQueryCancelToken: VariantQueryCancellationToken?
+    /// Independent lifecycle for record-scope count/type/column metadata.
+    var annotationScopeMetadataQueryGeneration: Int = 0
+    var activeAnnotationScopeMetadataQueryCancelToken: VariantQueryCancellationToken?
+
+    /// Optional record scope for annotation-table database queries. `nil` means all
+    /// records; an empty set deliberately means no records.
+    var allowedAnnotationChromosomes: Set<String>?
+    #if DEBUG
+    var debugAnnotationScopeMetadataQueryGate: AnnotationScopeMetadataQueryGate?
+    #endif
 
     /// Total annotation count in the database (annotation tab only).
     var totalAnnotationCount: Int = 0
@@ -4568,12 +4578,65 @@ final class VariantQueryCancellationToken: @unchecked Sendable {
     }
 }
 
+#if DEBUG
+final class AnnotationScopeMetadataQueryGate: @unchecked Sendable {
+    private let entered = DispatchSemaphore(value: 0)
+    private let release = DispatchSemaphore(value: 0)
+
+    func pause() {
+        entered.signal()
+        release.wait()
+    }
+
+    func waitUntilPaused(timeout: DispatchTime = .now() + 2) -> Bool {
+        entered.wait(timeout: timeout) == .success
+    }
+
+    func resume() {
+        release.signal()
+    }
+}
+#endif
+
 /// Snapshot of annotation database state needed for background annotation-table queries.
 /// Stores database URLs, not live handles, so each background query uses its own
 /// read-only SQLite connection instead of sharing the main actor's NOMUTEX handle.
 struct AnnotationQueryContext: @unchecked Sendable {
     let databases: [(trackId: String, databaseURL: URL)]
     let trackNames: [String: String]
+    let allowedChromosomes: Set<String>?
+
+    init(
+        databases: [(trackId: String, databaseURL: URL)],
+        trackNames: [String: String],
+        allowedChromosomes: Set<String>? = nil
+    ) {
+        self.databases = databases
+        self.trackNames = trackNames
+        self.allowedChromosomes = allowedChromosomes
+    }
+
+    func totalCount(shouldCancel: (() -> Bool)? = nil) -> Int {
+        guard allowedChromosomes?.isEmpty != true else { return 0 }
+        var count = 0
+        for handle in databases {
+            if shouldCancel?() == true { break }
+            guard let database = try? AnnotationDatabase(url: handle.databaseURL) else { continue }
+            count += database.totalCount(allowedChromosomes: allowedChromosomes)
+        }
+        return count
+    }
+
+    func allTypes(shouldCancel: (() -> Bool)? = nil) -> [String] {
+        guard allowedChromosomes?.isEmpty != true else { return [] }
+        var types = Set<String>()
+        for handle in databases {
+            if shouldCancel?() == true { break }
+            guard let database = try? AnnotationDatabase(url: handle.databaseURL) else { continue }
+            types.formUnion(database.allTypes(allowedChromosomes: allowedChromosomes))
+        }
+        return types.sorted()
+    }
 
     func queryAnnotationsOnly(
         nameFilter: String = "",
@@ -4609,6 +4672,7 @@ struct AnnotationQueryContext: @unchecked Sendable {
                 regionEnd: regionEnd,
                 strand: strand,
                 columnFilters: databaseColumnFilters,
+                allowedChromosomes: allowedChromosomes,
                 limit: remaining
             )
             if shouldCancel?() == true { break }

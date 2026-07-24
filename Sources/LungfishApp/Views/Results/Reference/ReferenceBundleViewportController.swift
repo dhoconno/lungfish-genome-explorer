@@ -9,140 +9,6 @@ import LungfishWorkflow
 import LungfishKit
 
 @MainActor
-final class ReferenceSequenceTableView: BatchTableView<BundleBrowserSequenceSummary> {
-    var onDisplayedRowsChanged: (() -> Void)?
-
-    override var columnSpecs: [BatchColumnSpec] {
-        [
-            .init(identifier: .init("sequence"), title: "Sequence", width: 220, minWidth: 140, defaultAscending: true),
-            .init(identifier: .init("length"), title: "Length", width: 100, minWidth: 80, defaultAscending: false),
-            .init(identifier: .init("role"), title: "Role", width: 100, minWidth: 80, defaultAscending: true),
-        ]
-    }
-
-    override var searchPlaceholder: String { "Filter sequences\u{2026}" }
-    override var searchAccessibilityIdentifier: String? { "reference-bundle-sequence-search" }
-    override var searchAccessibilityLabel: String? { "Filter reference sequences" }
-    override var tableAccessibilityIdentifier: String? { "reference-bundle-sequence-table" }
-    override var tableAccessibilityLabel: String? { "Reference sequence table" }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        finishSetup()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        finishSetup()
-    }
-
-    private func finishSetup() {
-        tableView.allowsMultipleSelection = false
-        tableView.sortDescriptors = [
-            NSSortDescriptor(key: "sequence", ascending: true),
-        ]
-    }
-
-    override func cellContent(
-        for column: NSUserInterfaceItemIdentifier,
-        row: BundleBrowserSequenceSummary
-    ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
-        switch column.rawValue {
-        case "sequence":
-            return (row.name, .left, .systemFont(ofSize: 12))
-        case "length":
-            return (row.length.formatted(), .right, numericFont)
-        case "role":
-            return (roleDescription(for: row), .left, .systemFont(ofSize: 12))
-        default:
-            return ("", .left, nil)
-        }
-    }
-
-    override func columnValue(for columnId: String, row: BundleBrowserSequenceSummary) -> String {
-        switch columnId {
-        case "sequence":
-            return row.name
-        case "length":
-            return "\(row.length)"
-        case "role":
-            return roleDescription(for: row)
-        default:
-            return super.columnValue(for: columnId, row: row)
-        }
-    }
-
-    override func rowMatchesFilter(_ row: BundleBrowserSequenceSummary, filterText: String) -> Bool {
-        let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return true }
-
-        let haystack = [
-            row.name,
-            row.displayDescription ?? "",
-            row.length.formatted(),
-            row.aliases.joined(separator: " "),
-            roleDescription(for: row),
-        ]
-
-        return haystack.contains { $0.localizedCaseInsensitiveContains(query) }
-    }
-
-    override func compareRows(
-        _ lhs: BundleBrowserSequenceSummary,
-        _ rhs: BundleBrowserSequenceSummary,
-        by key: String,
-        ascending: Bool
-    ) -> Bool {
-        let comparison: ComparisonResult
-        switch key {
-        case "sequence":
-            comparison = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-        case "length":
-            comparison = compare(lhs.length, rhs.length)
-        case "role":
-            comparison = roleDescription(for: lhs).localizedCaseInsensitiveCompare(roleDescription(for: rhs))
-        default:
-            comparison = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-        }
-
-        if comparison == .orderedSame {
-            let fallback = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-            if fallback == .orderedSame {
-                return false
-            }
-            return ascending ? fallback == .orderedAscending : fallback == .orderedDescending
-        }
-
-        return ascending ? comparison == .orderedAscending : comparison == .orderedDescending
-    }
-
-    override func didApplyDisplayedRows() {
-        onDisplayedRowsChanged?()
-    }
-
-    private var numericFont: NSFont {
-        .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-    }
-
-    private func roleDescription(for row: BundleBrowserSequenceSummary) -> String {
-        if row.isMitochondrial {
-            return "Mitochondrial"
-        }
-        return row.isPrimary ? "Primary" : "Alternate"
-    }
-
-    private func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
-        if lhs < rhs {
-            return .orderedAscending
-        }
-        if lhs > rhs {
-            return .orderedDescending
-        }
-        return .orderedSame
-    }
-}
-
-@MainActor
 public class ReferenceBundleViewportController: NSViewController {
     enum PresentationMode: Equatable {
         case listDetail
@@ -154,7 +20,9 @@ public class ReferenceBundleViewportController: NSViewController {
     private(set) var currentResult: MappingResult?
     private var currentResultDirectoryURL: URL?
     private var loadedViewerBundleURL: URL?
-    private var sequenceRows: [BundleBrowserSequenceSummary] = []
+    private var sequenceRows: [ReferenceBundleRecordRow] = []
+    private var usesRecordStoreTable = false
+    private var recordStoreWarning: String?
     private typealias AlignmentTrackSummaryBuilder = (URL, Int) async throws -> [MappingContigSummary]
     private var alignmentTrackSummaryBuilder: AlignmentTrackSummaryBuilder = { bamURL, totalReads in
         try await MappingSummaryBuilder.build(sortedBAMURL: bamURL, totalReads: totalReads)
@@ -218,7 +86,7 @@ public class ReferenceBundleViewportController: NSViewController {
     private let detailContentContainer = NSView()
     private var detailContentContainerConstraints: [NSLayoutConstraint] = []
     private let contigTableView = MappingContigTableView()
-    private let sequenceTableView = ReferenceSequenceTableView()
+    private let sequenceTableView = ReferenceBundleRecordTable()
 
     private let detailPlaceholderLabel: NSTextField = {
         let label = NSTextField(labelWithString: "Select a sequence to inspect.")
@@ -358,7 +226,7 @@ public class ReferenceBundleViewportController: NSViewController {
         view.addSubview(focusContainer)
 
         NSLayoutConstraint.activate([
-            summaryBar.topAnchor.constraint(equalTo: view.topAnchor),
+            summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
@@ -367,7 +235,7 @@ public class ReferenceBundleViewportController: NSViewController {
             splitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             splitView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            focusContainer.topAnchor.constraint(equalTo: view.topAnchor),
+            focusContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             focusContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             focusContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             focusContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -388,13 +256,13 @@ public class ReferenceBundleViewportController: NSViewController {
         }
 
         sequenceTableView.onRowSelected = { [weak self] row in
-            self?.displaySelectedSequence(row)
+            self?.displaySelectedSequence(row.summary)
         }
         sequenceTableView.onSelectionCleared = { [weak self] in
             self?.showDetailPlaceholder("Select a sequence to inspect.")
         }
         sequenceTableView.onDisplayedRowsChanged = { [weak self] in
-            self?.reconcileSequenceSelectionAfterDisplayedRowsChanged()
+            self?.publishAnnotationScopeAndReconcileSequenceSelection()
         }
         embeddedViewerController.onSequenceRegionSelectionChanged = { [weak self] state in
             self?.onSequenceSelectionStateChanged?(state)
@@ -435,6 +303,7 @@ public class ReferenceBundleViewportController: NSViewController {
         guard presentationMode != .focusedDetail else { return }
         presentationMode = .focusedDetail
         applyPresentationMode()
+        publishAnnotationScopeAndReconcileSequenceSelection()
     }
 
     private func returnToListDetailMode() {
@@ -442,6 +311,7 @@ public class ReferenceBundleViewportController: NSViewController {
         presentationMode = .listDetail
         applyPresentationMode()
         applyLayoutPreference()
+        publishAnnotationScopeAndReconcileSequenceSelection()
     }
 
     private func applyPresentationMode() {
@@ -512,6 +382,8 @@ public class ReferenceBundleViewportController: NSViewController {
     }
 
     private func updateSummaryBar() {
+        summaryLabel.textColor = .secondaryLabelColor
+        summaryLabel.toolTip = nil
         if let visibleAlignmentSummaryOverride {
             let pct = visibleAlignmentSummaryOverride.totalReads > 0
                 ? String(
@@ -525,7 +397,14 @@ public class ReferenceBundleViewportController: NSViewController {
         }
 
         guard let result = currentResult else {
-            summaryLabel.stringValue = currentInput?.documentTitle ?? "Reference Bundle"
+            let title = currentInput?.documentTitle ?? "Reference Bundle"
+            if let recordStoreWarning {
+                summaryLabel.stringValue = "\(title) — Warning: \(recordStoreWarning)"
+                summaryLabel.textColor = .systemOrange
+                summaryLabel.toolTip = recordStoreWarning
+            } else {
+                summaryLabel.stringValue = title
+            }
             return
         }
         let pct = result.totalReads > 0
@@ -544,6 +423,7 @@ public class ReferenceBundleViewportController: NSViewController {
         currentResultDirectoryURL = input.mappingResultDirectoryURL
         loadedViewerBundleURL = nil
         visibleAlignmentSummaryOverride = nil
+        recordStoreWarning = nil
         alignmentTrackSummaryRefreshID = UUID()
         presentationMode = .listDetail
         applyPresentationMode()
@@ -560,8 +440,9 @@ public class ReferenceBundleViewportController: NSViewController {
     }
 
     private func configureMappingRows(_ result: MappingResult?, preferredSelectionName: String?) {
+        usesRecordStoreTable = false
         sequenceRows = []
-        sequenceTableView.configure(rows: [])
+        sequenceTableView.configure(dynamicFields: [], rows: [])
         sequenceTableView.isHidden = true
         contigTableView.isHidden = false
 
@@ -576,13 +457,14 @@ public class ReferenceBundleViewportController: NSViewController {
     }
 
     private func configureDirectBundleRows(input: ReferenceBundleViewportInput, preferredSelectionName: String?) throws {
+        usesRecordStoreTable = false
         contigTableView.configure(rows: [])
         contigTableView.isHidden = true
         sequenceTableView.isHidden = false
 
         guard let bundleURL = input.renderedBundleURL else {
             sequenceRows = []
-            sequenceTableView.configure(rows: [])
+            sequenceTableView.configure(dynamicFields: [], rows: [])
             showDetailPlaceholder("Reference bundle viewer unavailable for this mapping result.")
             return
         }
@@ -594,9 +476,79 @@ public class ReferenceBundleViewportController: NSViewController {
             manifest = try BundleManifest.load(from: bundleURL)
         }
         let loadResult = try BundleBrowserLoader().load(bundleURL: bundleURL, manifest: manifest)
-        sequenceRows = loadResult.summary.sequences
-        sequenceTableView.configure(rows: sequenceRows)
+        let tableContent = loadRecordTableContent(
+            bundleURL: bundleURL,
+            manifest: manifest,
+            summaries: loadResult.summary.sequences
+        )
+        sequenceRows = tableContent.rows
+        usesRecordStoreTable = manifest.recordStore != nil
+        recordStoreWarning = tableContent.warning
+        updateSummaryBar()
+        sequenceTableView.configure(dynamicFields: tableContent.fields, rows: sequenceRows)
         refreshSequenceSelection(preferredSelectionName: preferredSelectionName)
+    }
+
+    private func loadRecordTableContent(
+        bundleURL: URL,
+        manifest: BundleManifest,
+        summaries: [BundleBrowserSequenceSummary]
+    ) -> (
+        fields: [GenBankRecordDatabase.FieldDefinition],
+        rows: [ReferenceBundleRecordRow],
+        warning: String?
+    ) {
+        let fallbackRows = summaries.map { ReferenceBundleRecordRow(summary: $0, values: [:]) }
+        guard manifest.recordStore != nil else {
+            return ([], fallbackRows, nil)
+        }
+
+        do {
+            let bundle = ReferenceBundle(url: bundleURL, manifest: manifest)
+            guard let database = try bundle.recordStoreDatabase() else {
+                return ([], fallbackRows, nil)
+            }
+            let fields = try database.fieldDefinitions()
+            let records = try database.records()
+
+            var summariesByName: [String: BundleBrowserSequenceSummary] = [:]
+            var duplicateSummaryNames: [String] = []
+            for summary in summaries {
+                if summariesByName.updateValue(summary, forKey: summary.name) != nil {
+                    duplicateSummaryNames.append(summary.name)
+                }
+            }
+            guard duplicateSummaryNames.isEmpty else {
+                return ([], fallbackRows, "GenBank metadata contains ambiguous sequence identities; showing manifest records.")
+            }
+
+            var seenRecordNames = Set<String>()
+            var mergedRows: [ReferenceBundleRecordRow] = []
+            mergedRows.reserveCapacity(records.count)
+            for record in records {
+                guard seenRecordNames.insert(record.sequenceName).inserted else {
+                    return ([], fallbackRows, "GenBank metadata contains ambiguous record identities; showing manifest records.")
+                }
+                guard let summary = summariesByName[record.sequenceName] else {
+                    return ([], fallbackRows, "GenBank metadata does not match the bundled sequences; showing manifest records.")
+                }
+                guard summary.length == Int64(record.sequenceLength) else {
+                    return ([], fallbackRows, "GenBank metadata does not match bundled sequence lengths; showing manifest records.")
+                }
+                mergedRows.append(ReferenceBundleRecordRow(summary: summary, values: record.values))
+            }
+
+            guard mergedRows.count == summaries.count else {
+                return ([], fallbackRows, "GenBank metadata does not cover every bundled sequence; showing manifest records.")
+            }
+            return (fields, mergedRows, nil)
+        } catch {
+            return (
+                [],
+                fallbackRows,
+                "Unable to read the declared GenBank metadata store; showing manifest records. \(error.localizedDescription)"
+            )
+        }
     }
 
     private func refreshSelection(preferredSelectionName: String? = nil) {
@@ -636,21 +588,32 @@ public class ReferenceBundleViewportController: NSViewController {
         selectSequence(at: 0)
     }
 
-    private func reconcileSequenceSelectionAfterDisplayedRowsChanged() {
+    private func publishAnnotationScopeAndReconcileSequenceSelection() {
         guard currentInput?.kind == .directBundle, !sequenceTableView.isHidden else { return }
 
         guard !sequenceTableView.displayedRows.isEmpty else {
+            embeddedViewerController.setAnnotationRecordScope([])
             sequenceTableView.tableView.deselectAll(nil)
             showDetailPlaceholder("No sequences are available for this reference bundle.")
             return
         }
 
-        if let selected = currentSelectedSequence() {
-            displaySelectedSequence(selected)
-            return
+        if currentSelectedSequence() == nil {
+            selectSequence(at: 0)
         }
 
-        selectSequence(at: 0)
+        let scope: Set<String>?
+        if presentationMode == .focusedDetail {
+            scope = currentSelectedSequence().map { [$0.summary.name] } ?? []
+        } else {
+            let hasActiveFilter = !sequenceTableView.currentFilterText
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !sequenceTableView.columnFilters.isEmpty
+            scope = usesRecordStoreTable || hasActiveFilter
+                ? Set(sequenceTableView.displayedRows.map(\.summary.name))
+                : nil
+        }
+        embeddedViewerController.setAnnotationRecordScope(scope)
     }
 
     private func loadViewerBundleIfNeeded(from bundleURL: URL, sequenceName: String) throws {
@@ -675,7 +638,7 @@ public class ReferenceBundleViewportController: NSViewController {
         let preferredSelectionName: String?
         switch input.kind {
         case .directBundle:
-            preferredSelectionName = currentSelectedSequence()?.name
+            preferredSelectionName = currentSelectedSequence()?.summary.name
         case .mappingResult:
             preferredSelectionName = currentSelectedContig()?.contigName
         }
@@ -933,7 +896,7 @@ public class ReferenceBundleViewportController: NSViewController {
         return contigTableView.displayedRows[selectedRow]
     }
 
-    private func currentSelectedSequence() -> BundleBrowserSequenceSummary? {
+    private func currentSelectedSequence() -> ReferenceBundleRecordRow? {
         let selectedRow = sequenceTableView.tableView.selectedRow
         guard selectedRow >= 0, selectedRow < sequenceTableView.displayedRows.count else { return nil }
         return sequenceTableView.displayedRows[selectedRow]
@@ -952,7 +915,7 @@ public class ReferenceBundleViewportController: NSViewController {
     }
 
     private func selectSequence(named name: String) -> Bool {
-        guard let row = sequenceTableView.displayedRows.firstIndex(where: { $0.name == name }) else { return false }
+        guard let row = sequenceTableView.displayedRows.firstIndex(where: { $0.summary.name == name }) else { return false }
         selectSequence(at: row)
         return true
     }
@@ -960,7 +923,7 @@ public class ReferenceBundleViewportController: NSViewController {
     private func selectSequence(at row: Int) {
         guard row >= 0, row < sequenceTableView.displayedRows.count else { return }
         sequenceTableView.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        displaySelectedSequence(sequenceTableView.displayedRows[row])
+        displaySelectedSequence(sequenceTableView.displayedRows[row].summary)
     }
 
     private func applyOriginalMappingRows(preferredSelectionName: String?) {
@@ -1322,8 +1285,8 @@ extension ReferenceBundleViewportController {
         applyLayoutPreference()
     }
 
-    var testDisplayedSequenceNames: [String] { sequenceTableView.displayedRows.map(\.name) }
-    var testSelectedSequenceName: String? { currentSelectedSequence()?.name }
+    var testDisplayedSequenceNames: [String] { sequenceTableView.displayedRows.map(\.summary.name) }
+    var testSelectedSequenceName: String? { currentSelectedSequence()?.summary.name }
     var testSelectedContigName: String? { currentSelectedContig()?.contigName }
     var testPresentationMode: PresentationMode { presentationMode }
     var testIsFocusedDetailMode: Bool { presentationMode == .focusedDetail }
@@ -1334,6 +1297,9 @@ extension ReferenceBundleViewportController {
     var testListContainer: NSView { listContainer }
     var testDetailContainer: NSView { detailContainer }
     var testSummaryText: String { summaryLabel.stringValue }
+    var testRecordTableColumnIdentifiers: [String] {
+        sequenceTableView.tableView.tableColumns.map(\.identifier.rawValue)
+    }
     var testContigTableView: MappingContigTableView { contigTableView }
     var testDetailPlaceholderMessage: String { detailPlaceholderLabel.stringValue }
     var testEmbeddedViewerPublishesGlobalViewportNotifications: Bool {
@@ -1351,6 +1317,7 @@ extension ReferenceBundleViewportController {
     var testCurrentSequenceAnnotationOperationContext: SequenceAnnotationDraftContext? {
         currentSequenceAnnotationOperationContext()
     }
+    var testAnnotationRecordScope: Set<String>? { embeddedViewerController.annotationRecordScope }
 
     func testSelectContig(named name: String) {
         _ = selectContig(named: name)

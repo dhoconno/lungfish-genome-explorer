@@ -4,6 +4,50 @@ import Testing
 
 @Suite("Canonical Provenance Envelope")
 struct ProvenanceEnvelopeTests {
+    @Test("provenance step round-trips resolved options and runtime identity")
+    func provenanceStepRoundTripsResolvedOptionsAndRuntimeIdentity() throws {
+        let runtimeIdentity = ProvenanceRuntimeIdentity.fixture(
+            executablePath: "/Applications/Lungfish.app/Contents/MacOS/Lungfish",
+            condaEnvironment: "mhc-tools"
+        )
+        let step = ProvenanceStep(
+            toolName: "lungfish-in-process:render-candidates",
+            toolVersion: "2026.07",
+            argv: ["lungfish-in-process", "render-candidates"],
+            resolvedOptions: [
+                "recordCount": .integer(7),
+                "canonicalOrder": .string("stable-cluster-id"),
+            ],
+            runtimeIdentity: runtimeIdentity,
+            exitStatus: 0
+        )
+
+        let data = try ProvenanceJSON.encoder.encode(step)
+        let decoded = try ProvenanceJSON.decoder.decode(ProvenanceStep.self, from: data)
+
+        #expect(decoded.resolvedOptions == step.resolvedOptions)
+        #expect(decoded.runtimeIdentity == runtimeIdentity)
+    }
+
+    @Test("legacy provenance step defaults missing resolved options and runtime identity")
+    func legacyProvenanceStepDefaultsMissingResolvedOptionsAndRuntimeIdentity() throws {
+        let data = Data("""
+        {
+          "toolName": "legacy-tool",
+          "toolVersion": "1.0",
+          "argv": ["legacy-tool", "run"],
+          "inputs": [],
+          "outputs": [],
+          "dependsOn": []
+        }
+        """.utf8)
+
+        let decoded = try ProvenanceJSON.decoder.decode(ProvenanceStep.self, from: data)
+
+        #expect(decoded.resolvedOptions.isEmpty)
+        #expect(decoded.runtimeIdentity == nil)
+    }
+
     @Test("canonical envelope encodes documented top-level fields and compatibility aliases")
     func canonicalEncodingIncludesDocumentedFields() throws {
         let envelope = ProvenanceEnvelope.fixture(

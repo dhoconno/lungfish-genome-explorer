@@ -37,13 +37,26 @@ final class AppDebugLaunchConfigurationTests: XCTestCase {
         XCTAssertTrue(script.contains("DEBUG_BUNDLE_ID=\"com.lungfish.browser.debug\""))
         XCTAssertTrue(script.contains("DEBUG_BUNDLE_NAME=\"Lungfish Debug\""))
         XCTAssertTrue(script.contains("BUNDLE_DISPLAY_NAME=\"Lungfish Genome Explorer\""))
-        XCTAssertTrue(script.contains("DEBUG_BUNDLE_DISPLAY_NAME=\"Lungfish Genome Explorer Debug\""))
+        XCTAssertTrue(script.contains("DEBUG_BUNDLE_DISPLAY_NAME=\"Lungfish Debug\""))
         // build-app.sh now copies the shared source Info.plist and substitutes the
         // identity fields via plutil (it no longer embeds an inline plist heredoc).
         XCTAssertTrue(script.contains("Lungfish-Info.plist"))
         XCTAssertTrue(script.contains("plutil -replace CFBundleIdentifier -string \"$BUNDLE_ID\""))
         XCTAssertTrue(script.contains("plutil -replace CFBundleName -string \"$BUNDLE_NAME\""))
         XCTAssertTrue(script.contains("plutil -replace CFBundleDisplayName -string \"$BUNDLE_DISPLAY_NAME\""))
+    }
+
+    func testBuildAppRequiresBundledCLIExecutable() throws {
+        let script = try String(
+            contentsOf: Self.packageRoot().appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(script.contains("install -m 755 \"$CLI_SOURCE\" \"$MACOS_DIR/lungfish-cli\""))
+        XCTAssertTrue(script.contains("if [ ! -x \"$CLI_SOURCE\" ]; then"))
+        XCTAssertTrue(script.contains("Error: bundled CLI executable not found at $CLI_SOURCE"))
+        XCTAssertTrue(script.contains("[ ! -x \"$MACOS_DIR/lungfish-cli\" ]"))
+        XCTAssertTrue(script.contains("Error: bundled CLI executable not found"))
     }
 
     func testDebugCaptureScriptUsesCurrentProductName() throws {

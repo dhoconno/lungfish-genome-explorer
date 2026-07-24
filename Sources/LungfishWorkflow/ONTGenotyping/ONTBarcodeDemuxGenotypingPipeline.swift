@@ -709,6 +709,10 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
             haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL
         )
+        let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
+            fromReferenceBundle: reference.sourceReferenceBundleURL ?? request.referenceSourceURL,
+            toResultBundle: request.outputDirectory
+        )
         let completedAt = Date()
         progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
         let provenanceURL = try writeProvenance(
@@ -732,6 +736,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             report: report,
             workbookCopy: workbookCopy,
             haplotypeAnalysis: haplotypeAnalysis,
+            referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
             startedAt: startedAt,
             completedAt: completedAt
         )
@@ -740,6 +745,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             resolvedMode: resolvedMode,
             provenanceURL: provenanceURL,
             workbookRevision: workbookCopy.revision,
+            referenceRecordStore: referenceRecordStoreSnapshot?.info,
             completedAt: completedAt
         )
         progressHandler?(0.97, "Removing regenerable alignment intermediates.")
@@ -2521,6 +2527,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         report: ReportStepResult,
         workbookCopy: WorkbookCopyResult,
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        referenceRecordStoreSnapshot: GenotypeReferenceRecordStoreSnapshot.PublishedSnapshot?,
         startedAt: Date,
         completedAt: Date
     ) throws -> URL {
@@ -2701,13 +2708,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "openpyxl": report.summary.openpyxlVersion,
             "condaRoot": condaManager.rootPrefix.path,
         ]
+        let recordStoreInputs = referenceRecordStoreSnapshot.map {
+            [fileDescriptorDictionary(url: $0.sourceURL, role: "reference-metadata")]
+        } ?? []
+        let recordStoreOutputs = referenceRecordStoreSnapshot.map {
+            [fileDescriptorDictionary(url: $0.destinationURL, role: "reference-metadata-snapshot")]
+        } ?? []
         let provenanceInputs: [[String: Any]] = inputs + mappingInputs + [
             fileDescriptorDictionary(url: reference.referenceFASTAURL, role: "reference"),
             fileDescriptorDictionary(url: demuxManifestURL, role: "input"),
             fileDescriptorDictionary(url: scriptURL, role: "input"),
             fileDescriptorDictionary(url: reportScriptURL, role: "input"),
         ] + (request.barcodeDefinitionsURL.map { [fileDescriptorDictionary(url: $0, role: "input")] } ?? [])
-            + comparisonInputs + stagedInputs + haplotypeDefinitionInputs + specialistPromptInputs
+            + comparisonInputs + stagedInputs + haplotypeDefinitionInputs + specialistPromptInputs + recordStoreInputs
         let transientAlignmentOutputs: [[String: Any]] = [
             fileDescriptorDictionary(url: request.mappingBAMURL, role: "intermediate"),
             fileDescriptorDictionary(url: request.mappingBAIURL, role: "intermediate-index"),
@@ -2724,7 +2737,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             fileDescriptorDictionary(url: request.workbookURL, role: "original-report"),
             fileDescriptorDictionary(url: request.currentWorkbookURL, role: "current-report"),
             fileDescriptorDictionary(url: request.reportProvenanceURL, role: "provenance"),
-        ] + currentWorkbookProvenanceOutputs + specialistPromptOutputs
+        ] + currentWorkbookProvenanceOutputs + specialistPromptOutputs + recordStoreOutputs
         let primaryOutput = fileDescriptorDictionary(url: request.outputDirectory, role: "output")
         let provenanceFiles = provenanceInputs + transientAlignmentOutputs + provenanceOutputs
         let statistics: [String: Any] = [
@@ -2766,6 +2779,18 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "stderr": mapping.samtoolsMergeStderr,
             ]]
         } ?? []
+        let recordStoreSteps: [[String: Any]] = referenceRecordStoreSnapshot.map { snapshot in
+            [[
+                "toolName": "lungfish genotype reference metadata snapshot",
+                "toolVersion": WorkflowRun.currentAppVersion,
+                "argv": ["copy", snapshot.sourceURL.path, snapshot.destinationURL.path],
+                "inputs": [fileDescriptorDictionary(url: snapshot.sourceURL, role: "reference-metadata")],
+                "outputs": [fileDescriptorDictionary(url: snapshot.destinationURL, role: "reference-metadata-snapshot")],
+                "exitStatus": 0,
+                "wallClockSeconds": snapshot.completedAt.timeIntervalSince(snapshot.startedAt),
+                "wallTimeSeconds": snapshot.completedAt.timeIntervalSince(snapshot.startedAt),
+            ]]
+        } ?? []
         let steps: [[String: Any]] = mappingProcessSteps + mergeStep + [
             [
                 "toolName": "samtools index",
@@ -2782,7 +2807,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "wallTimeSeconds": filter.wallClockSeconds,
                 "stderr": filter.stderr,
             ],
-        ] + haplotypeSteps + currentHaplotypeSteps + specialistPromptSteps + [
+        ] + haplotypeSteps + currentHaplotypeSteps + specialistPromptSteps + recordStoreSteps + [
             [
                 "toolName": "openpyxl ONT genotype workbook report",
                 "argv": [reportPythonURL.path] + report.arguments,
@@ -2874,6 +2899,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             report: report,
             workbookCopy: workbookCopy,
             haplotypeAnalysis: haplotypeAnalysis,
+            referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
             legacyProvenanceURL: provenanceURL,
             options: options,
             resolvedDefaults: resolvedDefaults,
@@ -2904,6 +2930,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         report: ReportStepResult,
         workbookCopy: WorkbookCopyResult,
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        referenceRecordStoreSnapshot: GenotypeReferenceRecordStoreSnapshot.PublishedSnapshot?,
         legacyProvenanceURL: URL,
         options: [String: Any],
         resolvedDefaults: [String: Any],
@@ -2930,6 +2957,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let specialistPromptOutput = try specialistPromptSnapshotIfPresent(for: request).map {
             try canonicalFileDescriptor(url: $0, role: .report)
         }
+        let recordStoreInput = try referenceRecordStoreSnapshot.map {
+            try canonicalFileDescriptor(url: $0.sourceURL, role: .reference)
+        }
         let canonicalInputs = deduplicated(
             fastqInputs
                 + mappingFastqInputs
@@ -2939,6 +2969,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 + stagedInputs
                 + (haplotypeDefinitionInput.map { [$0] } ?? [])
                 + (specialistPromptSource.map { [$0] } ?? [])
+                + (recordStoreInput.map { [$0] } ?? [])
         )
 
         let mappingBAM = try canonicalFileDescriptor(url: request.mappingBAMURL, role: .output)
@@ -2961,6 +2992,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             try canonicalFileDescriptor(url: $0, role: .log)
         }
         let legacyProvenance = try canonicalFileDescriptor(url: legacyProvenanceURL, role: .log)
+        let recordStoreOutput = try referenceRecordStoreSnapshot.map {
+            try canonicalFileDescriptor(url: $0.destinationURL, role: .output)
+        }
         let canonicalOutputs = deduplicated(
             [
                 genotypeCSV,
@@ -2972,6 +3006,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 + [workbook, currentWorkbook, reportProvenance, legacyProvenance]
                 + (currentWorkbookProvenance.map { [$0] } ?? [])
                 + (specialistPromptOutput.map { [$0] } ?? [])
+                + (recordStoreOutput.map { [$0] } ?? [])
         )
         let outputDirectory = ProvenanceFileDescriptor(
             path: request.outputDirectory.standardizedFileURL.path,
@@ -3088,6 +3123,23 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 )
             )
         }
+        if let snapshot = referenceRecordStoreSnapshot,
+           let recordStoreInput,
+           let recordStoreOutput {
+            canonicalSteps.append(
+                ProvenanceStep(
+                    toolName: "lungfish genotype reference metadata snapshot",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    argv: ["copy", snapshot.sourceURL.path, snapshot.destinationURL.path],
+                    inputs: [recordStoreInput],
+                    outputs: [recordStoreOutput],
+                    exitStatus: 0,
+                    wallTimeSeconds: snapshot.completedAt.timeIntervalSince(snapshot.startedAt),
+                    startedAt: snapshot.startedAt,
+                    completedAt: snapshot.completedAt
+                )
+            )
+        }
         canonicalSteps.append(
             ProvenanceStep(
                 toolName: "openpyxl ONT genotype workbook report",
@@ -3164,6 +3216,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         resolvedMode: AmpliconGenotypingMode,
         provenanceURL: URL,
         workbookRevision: ONTGenotypeWorkbookRevision,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?,
         completedAt: Date
     ) throws {
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
@@ -3184,7 +3237,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             haplotypeAssayID: resolvedHaplotypeDefinitionSet?.assayID,
             presetID: request.presetID,
             presetVersion: request.presetVersion,
-            createdAt: ISO8601DateFormatter().string(from: completedAt)
+            createdAt: ISO8601DateFormatter().string(from: completedAt),
+            referenceRecordStore: referenceRecordStore
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: request.outputDirectory)
 

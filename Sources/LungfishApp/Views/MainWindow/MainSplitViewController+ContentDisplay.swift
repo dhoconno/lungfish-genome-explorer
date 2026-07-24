@@ -266,134 +266,148 @@ extension MainSplitViewController {
         let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "genotypeResultBundle")
         let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
         guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+        let loader = genotypeResultLoader
 
-        do {
-            let result = try ONTGenotypeResultBundle.loadResult(from: url)
-            inspectorController.clearSelection()
-            inspectorController.updateGenotypeResultDocument(result)
-            if Self.shouldPreviewPrimaryWorkbook(for: result) {
-                mainSplitLogger.info(
-                    "displayGenotypeResultBundle: Previewing genotype workbook for '\(url.lastPathComponent, privacy: .public)' because no native genotype calls are present"
-                )
-                inspectorController.updateGenotypeResultSelection(nil)
-                viewerController.displayQuickLookPreview(url: result.artifacts.workbookURL)
-                return
-            }
-            let controller = viewerController.displayGenotypeResult(result)
-            controller.onSelectionStateChanged = { [weak self] selection in
-                self?.inspectorController.updateGenotypeResultSelection(selection)
-            }
-            controller.onDisplaySummaryChanged = { [weak self] visibleRows, totalRows, hiddenCells in
-                self?.inspectorController.updateGenotypeResultDisplaySummary(
-                    visibleRows: visibleRows,
-                    totalRows: totalRows,
-                    hiddenCells: hiddenCells
-                )
-            }
-            controller.onDisplayStateChanged = { [weak self] state in
-                self?.inspectorController.updateGenotypeResultDisplayState(state)
-            }
-            controller.onAnnotationSidecarChanged = { [weak self] sidecar in
-                self?.inspectorController.updateGenotypeAnnotationSidecar(sidecar)
-            }
-            controller.onCurrentWorkbookUpdateRequested = { [weak self, weak controller] bundleURL, calls, includedLoci in
-                guard let self else { return }
-                guard self.canWriteProjectOutputs(workflowName: "Update current.xlsx") else { return }
-                let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
-                let routeContext = OperationRouteContext(
-                    projectURL: self.sidebarController.currentProjectURL,
-                    windowStateScope: self.projectSession.windowStateScope
-                )
-                Task { @MainActor [weak self, weak controller] in
-                    guard let self else { return }
-                    do {
-                        try await GenotypeCurrentWorkbookUpdateExecutionService().run(
-                            bundleURL: bundleURL,
-                            calls: calls,
-                            includedLoci: includedLoci,
-                            annotationSidecarURL: annotationURL,
-                            routeContext: routeContext
-                        )
-                        let updated = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
-                        controller?.applyCurrentWorkbookUpdateCompleted(result: updated)
-                        self.inspectorController.updateGenotypeResultDocument(updated)
-                        self.sidebarController.requestReloadFromFilesystem()
-                    } catch {
-                        controller?.applyCurrentWorkbookUpdateFailed(error)
-                        (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
-                    }
-                }
-            }
-            controller.onAIHaplotypingRequested = { [weak self, weak controller] bundleURL, request in
-                guard let self else { return }
-                guard self.canWriteProjectOutputs(workflowName: request.mode.displayName) else { return }
-                let routeContext = OperationRouteContext(
-                    projectURL: self.sidebarController.currentProjectURL,
-                    windowStateScope: self.projectSession.windowStateScope
-                )
-                Task { @MainActor [weak self, weak controller] in
-                    guard let self else { return }
-                    do {
-                        try await GenotypeAIHaplotypingExecutionService().run(
-                            bundleURL: bundleURL,
-                            mode: Self.workflowMode(for: request.mode),
-                            routeContext: routeContext
-                        )
-                        let updated = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
-                        controller?.applyAIHaplotypingCompleted(result: updated)
-                        self.inspectorController.updateGenotypeResultDocument(updated)
-                        self.sidebarController.requestReloadFromFilesystem()
-                    } catch {
-                        controller?.applyAIHaplotypingFailed(error)
-                        (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
-                    }
-                }
-            }
-            inspectorController.onGenotypeResultDisplayStateChanged = { [weak controller] state in
-                controller?.applyDisplayState(state)
-            }
-            inspectorController.onGenotypeSampleMetadataImported = { [weak controller] store in
-                controller?.applySampleMetadataStore(store)
-            }
-            inspectorController.genotypeResultDisplaySectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
-                controller?.applyHighlight(request)
-            }
-            inspectorController.genotypeResultDisplaySectionViewModel.onMatrixStyleRequested = { [weak controller] request in
-                controller?.applyMatrixStyle(request)
-            }
-            inspectorController.genotypeResultDisplaySectionViewModel.onMatrixCommentRequested = { [weak controller] request in
-                controller?.addMatrixComment(request)
-            }
-            inspectorController.genotypeResultDisplaySectionViewModel.onSupportSelectionPreviewChanged = { [weak controller] minimumReads in
-                controller?.setMatrixSupportSelectionPreviewMinimumReads(minimumReads)
-            }
-            inspectorController.genotypeResultDisplaySectionViewModel.onShowOnlySelectedMatrixRowsRequested = { [weak controller] in
-                controller?.showOnlySelectedMatrixRows()
-            }
-            inspectorController.genotypeResultDisplaySectionViewModel.onShowOnlySelectedMatrixColumnsRequested = { [weak controller] in
-                controller?.showOnlySelectedMatrixColumns()
-            }
-            inspectorController.genotypeResultDisplaySectionViewModel.onClearMatrixSelectionFilterRequested = { [weak controller] in
-                controller?.clearMatrixSelectionFilter()
-            }
-            inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
-                controller?.applyHighlight(request)
-            }
-            controller.notifyDisplayStateIfAvailable()
-            controller.notifySelectionStateIfAvailable()
-        } catch {
-            mainSplitLogger.warning(
-                "displayGenotypeResultBundle: Falling back to workbook preview for '\(url.lastPathComponent, privacy: .public)' after native load failed: \(error.localizedDescription, privacy: .public)"
-            )
-            guard let workbookURL = Self.genotypeResultWorkbookURL(forBundle: url) else {
-                mainSplitLogger.warning("displayGenotypeResultBundle: Missing genotype workbook for '\(url.lastPathComponent, privacy: .public)'")
+        genotypeResultLoadTask?.cancel()
+        genotypeResultLoadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await loader(url)
+                try Task.checkCancellation()
+                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                 inspectorController.clearSelection()
-                viewerController.showNoSequenceSelected()
+                inspectorController.updateGenotypeResultDocument(result)
+                if Self.shouldPreviewPrimaryWorkbook(for: result) {
+                    mainSplitLogger.info(
+                        "displayGenotypeResultBundle: Previewing genotype workbook for '\(url.lastPathComponent, privacy: .public)' because no native genotype calls are present"
+                    )
+                    inspectorController.updateGenotypeResultSelection(nil)
+                    viewerController.displayQuickLookPreview(url: result.artifacts.workbookURL)
+                    return
+                }
+                let controller = viewerController.displayGenotypeResult(result)
+                controller.onSelectionStateChanged = { [weak self] selection in
+                    self?.inspectorController.updateGenotypeResultSelection(selection)
+                }
+                controller.onDisplaySummaryChanged = { [weak self] visibleRows, totalRows, hiddenCells in
+                    self?.inspectorController.updateGenotypeResultDisplaySummary(
+                        visibleRows: visibleRows,
+                        totalRows: totalRows,
+                        hiddenCells: hiddenCells
+                    )
+                }
+                controller.onDisplayStateChanged = { [weak self] state in
+                    self?.inspectorController.updateGenotypeResultDisplayState(state)
+                }
+                controller.onAnnotationSidecarChanged = { [weak self] sidecar in
+                    self?.inspectorController.updateGenotypeAnnotationSidecar(sidecar)
+                }
+                controller.onCandidatePersistenceWarningChanged = { [weak self] warning in
+                    self?.inspectorController.genotypeResultDisplaySectionViewModel
+                        .updateMHCCandidatePersistenceWarning(warning)
+                }
+                controller.onCurrentWorkbookUpdateRequested = { [weak self, weak controller] bundleURL, calls, includedLoci in
+                    guard let self else { return }
+                    guard self.canWriteProjectOutputs(workflowName: "Update current.xlsx") else { return }
+                    let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
+                    let routeContext = OperationRouteContext(
+                        projectURL: self.sidebarController.currentProjectURL,
+                        windowStateScope: self.projectSession.windowStateScope
+                    )
+                    Task { @MainActor [weak self, weak controller] in
+                        guard let self else { return }
+                        do {
+                            try await GenotypeCurrentWorkbookUpdateExecutionService().run(
+                                bundleURL: bundleURL,
+                                calls: calls,
+                                includedLoci: includedLoci,
+                                annotationSidecarURL: annotationURL,
+                                routeContext: routeContext
+                            )
+                            let updated = try await ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)
+                            controller?.applyCurrentWorkbookUpdateCompleted(result: updated)
+                            self.inspectorController.updateGenotypeResultDocument(updated)
+                            self.sidebarController.requestReloadFromFilesystem()
+                        } catch {
+                            controller?.applyCurrentWorkbookUpdateFailed(error)
+                            (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
+                        }
+                    }
+                }
+                controller.onAIHaplotypingRequested = { [weak self, weak controller] bundleURL, request in
+                    guard let self else { return }
+                    guard self.canWriteProjectOutputs(workflowName: request.mode.displayName) else { return }
+                    let routeContext = OperationRouteContext(
+                        projectURL: self.sidebarController.currentProjectURL,
+                        windowStateScope: self.projectSession.windowStateScope
+                    )
+                    Task { @MainActor [weak self, weak controller] in
+                        guard let self else { return }
+                        do {
+                            try await GenotypeAIHaplotypingExecutionService().run(
+                                bundleURL: bundleURL,
+                                mode: Self.workflowMode(for: request.mode),
+                                routeContext: routeContext
+                            )
+                            let updated = try await ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)
+                            controller?.applyAIHaplotypingCompleted(result: updated)
+                            self.inspectorController.updateGenotypeResultDocument(updated)
+                            self.sidebarController.requestReloadFromFilesystem()
+                        } catch {
+                            controller?.applyAIHaplotypingFailed(error)
+                            (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
+                        }
+                    }
+                }
+                inspectorController.onGenotypeResultDisplayStateChanged = { [weak controller] state in
+                    controller?.applyDisplayState(state)
+                }
+                inspectorController.onGenotypeSampleMetadataImported = { [weak controller] store in
+                    controller?.applySampleMetadataStore(store)
+                }
+                inspectorController.genotypeResultDisplaySectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
+                    controller?.applyHighlight(request)
+                }
+                inspectorController.genotypeResultDisplaySectionViewModel.onMatrixStyleRequested = { [weak controller] request in
+                    controller?.applyMatrixStyle(request)
+                }
+                inspectorController.genotypeResultDisplaySectionViewModel.onMatrixCommentRequested = { [weak controller] request in
+                    controller?.addMatrixComment(request)
+                }
+                inspectorController.genotypeResultDisplaySectionViewModel.onSupportSelectionPreviewChanged = { [weak controller] minimumReads in
+                    controller?.setMatrixSupportSelectionPreviewMinimumReads(minimumReads)
+                }
+                inspectorController.genotypeResultDisplaySectionViewModel.onShowOnlySelectedMatrixRowsRequested = { [weak controller] in
+                    controller?.showOnlySelectedMatrixRows()
+                }
+                inspectorController.genotypeResultDisplaySectionViewModel.onShowOnlySelectedMatrixColumnsRequested = { [weak controller] in
+                    controller?.showOnlySelectedMatrixColumns()
+                }
+                inspectorController.genotypeResultDisplaySectionViewModel.onClearMatrixSelectionFilterRequested = { [weak controller] in
+                    controller?.clearMatrixSelectionFilter()
+                }
+                inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
+                    controller?.applyHighlight(request)
+                }
+                controller.notifyDisplayStateIfAvailable()
+                controller.notifySelectionStateIfAvailable()
+            } catch is CancellationError {
                 return
-            }
+            } catch {
+                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                mainSplitLogger.warning(
+                    "displayGenotypeResultBundle: Falling back to workbook preview for '\(url.lastPathComponent, privacy: .public)' after native load failed: \(error.localizedDescription, privacy: .public)"
+                )
+                guard let workbookURL = Self.genotypeResultWorkbookURL(forBundle: url) else {
+                    mainSplitLogger.warning("displayGenotypeResultBundle: Missing genotype workbook for '\(url.lastPathComponent, privacy: .public)'")
+                    inspectorController.clearSelection()
+                    viewerController.showNoSequenceSelected()
+                    return
+                }
 
-            inspectorController.clearSelection()
-            viewerController.displayQuickLookPreview(url: workbookURL)
+                inspectorController.clearSelection()
+                viewerController.displayQuickLookPreview(url: workbookURL)
+            }
         }
     }
 

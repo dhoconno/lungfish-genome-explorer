@@ -390,6 +390,7 @@ extension WorkflowRun {
                 kind: "cli"
             ),
             argv: firstStep?.command ?? [],
+            durableReplayArgv: firstStep?.durableReplayArgv,
             reproducibleCommand: firstStep?.commandString,
             options: ProvenanceOptions(explicit: parameters),
             runtimeIdentity: ProvenanceRuntimeIdentity(

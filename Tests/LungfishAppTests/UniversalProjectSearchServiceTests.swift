@@ -97,8 +97,64 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
         XCTAssertEqual(envelope.output?.path, databaseURL.path)
         XCTAssertEqual(envelope.output?.format, .sqlite)
         XCTAssertNotNil(envelope.output?.checksumSHA256)
-        XCTAssertTrue(envelope.files.contains { $0.path == projectURL.path && $0.role == .input && $0.checksumSHA256 != nil })
+        XCTAssertFalse(
+            envelope.files.contains { $0.path == projectURL.path },
+            "Search-cache provenance must not recursively hash the entire project"
+        )
+        XCTAssertEqual(envelope.options.resolvedDefaults["projectPath"]?.stringValue, projectURL.path)
         XCTAssertEqual(envelope.options.explicit["operation"]?.stringValue, "rebuild")
+    }
+
+    func testScheduledUpdatesCoalesceChangedPathsIntoOneBoundedBatch() async throws {
+        let projectURL = try makeProject(named: "project-update-burst.lungfish")
+        let firstBundle = try makeFASTQBundle(
+            in: projectURL,
+            name: "FirstSample",
+            metadataRows: [("sample_name", "First Sample")]
+        )
+        let secondBundle = try makeFASTQBundle(
+            in: projectURL,
+            name: "SecondSample",
+            metadataRows: [("sample_name", "Second Sample")]
+        )
+
+        let service = UniversalProjectSearchService()
+        await service.scheduleUpdate(
+            projectURL: projectURL,
+            changedPaths: [firstBundle],
+            delaySeconds: 0.05
+        )
+        await service.scheduleUpdate(
+            projectURL: projectURL,
+            changedPaths: [secondBundle, firstBundle],
+            delaySeconds: 0.05
+        )
+
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(
+            for: projectURL.appendingPathComponent(".universal-search.db")
+        )
+        try await waitForFile(at: sidecarURL)
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.options.explicit["operation"]?.stringValue, "update")
+        XCTAssertEqual(envelope.options.explicit["changedPathCount"]?.integerValue, 2)
+        XCTAssertEqual(
+            Set(envelope.options.explicit["changedPaths"]?.arrayValue?.compactMap(\.stringValue) ?? []),
+            Set([firstBundle.standardizedFileURL.path, secondBundle.standardizedFileURL.path])
+        )
+
+        let firstResults = try await service.search(
+            projectURL: projectURL,
+            query: "sample:first",
+            ensureIndexed: false
+        )
+        let secondResults = try await service.search(
+            projectURL: projectURL,
+            query: "sample:second",
+            ensureIndexed: false
+        )
+        XCTAssertEqual(firstResults.count, 1)
+        XCTAssertEqual(secondResults.count, 1)
     }
 
     func testSearchLimitRestrictsReturnedRows() async throws {
@@ -135,6 +191,17 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
     private func writeManifest(_ payload: [String: Any], to url: URL) throws {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         try data.write(to: url)
+    }
+
+    private func waitForFile(at url: URL, timeout: TimeInterval = 2.0) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: url.path) {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("Timed out waiting for \(url.path)")
     }
 
     @discardableResult

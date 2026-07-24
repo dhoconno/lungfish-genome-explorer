@@ -77,11 +77,15 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     func beginDisplayRequest(
         identity: ContentSelectionIdentity
     ) -> AsyncRequestToken<ContentSelectionIdentity> {
+        genotypeResultLoadTask?.cancel()
+        genotypeResultLoadTask = nil
         activeContentSelectionIdentity = identity
         return displayRequestGate.begin(identity: identity)
     }
 
     func invalidateDisplayRequest() {
+        genotypeResultLoadTask?.cancel()
+        genotypeResultLoadTask = nil
         activeContentSelectionIdentity = nil
         displayRequestGate.invalidate()
     }

@@ -125,6 +125,26 @@ struct ProvenanceFileHasherTests {
 
         #expect(manifest.files.map(\.role) == [.reference])
     }
+
+    @Test("streaming SHA-256 checks cancellation between chunks")
+    func streamingSHA256ChecksCancellationBetweenChunks() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("cancel.bin")
+        try Data(repeating: 0xA5, count: 4 * 1_048_576).write(to: fileURL)
+        var checks = 0
+
+        do {
+            _ = try ProvenanceFileHasher.sha256(of: fileURL) {
+                checks += 1
+                if checks == 3 { throw CancellationError() }
+            }
+            Issue.record("Expected cancellation during streaming hash")
+        } catch is CancellationError {
+        }
+
+        #expect(checks == 3)
+    }
 }
 
 private func makeTemporaryDirectory() throws -> URL {

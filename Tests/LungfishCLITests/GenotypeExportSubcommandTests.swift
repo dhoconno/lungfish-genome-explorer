@@ -220,6 +220,7 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertTrue(viewSheetXML.contains("<t>MHC-A</t>"))
         XCTAssertTrue(viewSheetXML.contains("<t>MHC-B</t>"))
         let annotationSheetXML = try unzipEntry("xl/worksheets/sheet2.xml", from: out)
+        XCTAssertTrue(annotationSheetXML.contains("<t>Stable Cluster ID</t>"))
         XCTAssertTrue(annotationSheetXML.contains("<t>Is Bold</t>"))
         XCTAssertTrue(annotationSheetXML.contains("<t>Bold Override</t>"))
         XCTAssertTrue(annotationSheetXML.contains("<t>Is Italic</t>"))
@@ -227,7 +228,20 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertTrue(annotationSheetXML.contains("Visible cell comment."))
         XCTAssertTrue(annotationSheetXML.contains("Hidden annotation comment."))
         XCTAssertTrue(annotationSheetXML.contains("HiddenOnly"))
+        XCTAssertTrue(annotationSheetXML.contains("cluster-a"))
+        XCTAssertTrue(annotationSheetXML.contains("cluster-b"))
+        XCTAssertTrue(annotationSheetXML.contains("Cluster A collision comment."))
+        XCTAssertTrue(annotationSheetXML.contains("Cluster B collision comment."))
         XCTAssertTrue(annotationSheetXML.contains("#FFF2CC"))
+        let annotationRows = annotationSheetXML.components(separatedBy: "<row").dropFirst()
+        XCTAssertTrue(annotationRows.contains { $0.contains("cluster-a") && $0.contains("#111111") })
+        XCTAssertTrue(annotationRows.contains { $0.contains("cluster-b") && $0.contains("#222222") })
+        XCTAssertTrue(annotationRows.contains {
+            $0.contains("cluster-a") && $0.contains("Cluster A collision comment.")
+        })
+        XCTAssertTrue(annotationRows.contains {
+            $0.contains("cluster-b") && $0.contains("Cluster B collision comment.")
+        })
 
         let env = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: out.appendingPathExtension("lungfish-provenance.json")))
         let inputPaths = Set(env.steps.flatMap(\.inputs).map(\.path))
@@ -371,6 +385,26 @@ final class GenotypeExportSubcommandTests: XCTestCase {
                 author: "qa",
                 timestamp: "2026-06-30T10:01:00Z"
             ),
+            GenotypeAnnotationSidecar.MatrixStyleAnnotation(
+                target: .row(
+                    locus: "MHC-A",
+                    genotype: "Collision_nov",
+                    stableClusterID: "cluster-a"
+                ),
+                style: GenotypeAnnotationSidecar.MatrixStyle(fillColor: "#111111"),
+                author: "qa",
+                timestamp: "2026-06-30T10:01:01Z"
+            ),
+            GenotypeAnnotationSidecar.MatrixStyleAnnotation(
+                target: .row(
+                    locus: "MHC-A",
+                    genotype: "Collision_nov",
+                    stableClusterID: "cluster-b"
+                ),
+                style: GenotypeAnnotationSidecar.MatrixStyle(fillColor: "#222222"),
+                author: "qa",
+                timestamp: "2026-06-30T10:01:02Z"
+            ),
         ]
         sidecar.matrixComments = [
             GenotypeAnnotationSidecar.MatrixComment(
@@ -384,6 +418,28 @@ final class GenotypeExportSubcommandTests: XCTestCase {
                 body: "Hidden annotation comment.",
                 author: "qa",
                 timestamp: "2026-06-30T10:03:00Z"
+            ),
+            GenotypeAnnotationSidecar.MatrixComment(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Collision_nov",
+                    sample: "S1",
+                    stableClusterID: "cluster-a"
+                ),
+                body: "Cluster A collision comment.",
+                author: "qa",
+                timestamp: "2026-06-30T10:03:01Z"
+            ),
+            GenotypeAnnotationSidecar.MatrixComment(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Collision_nov",
+                    sample: "S1",
+                    stableClusterID: "cluster-b"
+                ),
+                body: "Cluster B collision comment.",
+                author: "qa",
+                timestamp: "2026-06-30T10:03:02Z"
             ),
         ]
         try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)

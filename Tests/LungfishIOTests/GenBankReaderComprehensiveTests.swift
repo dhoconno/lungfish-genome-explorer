@@ -295,6 +295,117 @@ final class GenBankReaderComprehensiveTests: XCTestCase {
 
     // MARK: - Additional Edge Case Tests
 
+    func testPreservesAllRecordHeadersReferencesAndSourceQualifiers() throws {
+        let testFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("record-fields-\(UUID().uuidString).gb")
+        let content = """
+        LOCUS       NHP00353                 90 bp    DNA     linear   PRI 15-JUN-2009
+        DEFINITION  Macaca fascicularis MHC class I allele, complete cds.
+        ACCESSION   AF161864
+        VERSION     AF161864.1
+        DBLINK      INSDC: AF161864
+                    INSDC: EU392139
+        KEYWORDS    MHC; class I; allele.
+        SOURCE      crab-eating macaque
+          ORGANISM  Macaca fascicularis
+                    Eukaryota; Metazoa; Chordata; Mammalia; Primates.
+        REFERENCE   1  (bases 1 to 90)
+          AUTHORS   Example,A.
+          TITLE     First publication
+          JOURNAL   Journal 1
+           PUBMED   10640754
+        REFERENCE   2  (bases 1 to 90)
+          AUTHORS   Example,B.
+          TITLE     Second publication
+          JOURNAL   Journal 2
+          PUBMED    19107381
+        COMMENT     ##Genome-Annotation-Data-START##
+                    IPD accession :: NHP00353
+                    Evidence :: reviewed
+                    ##Genome-Annotation-Data-END##
+        CUSTOM_HEADER retained value
+        FEATURES             Location/Qualifiers
+             source          1..90
+                             /organism="Macaca fascicularis"
+                             /db_xref="taxon:9541"
+             CDS             1..90
+                             /translation="MKTIIALSYIFCLVFADYKDDDDK
+                             EFGH"
+        ORIGIN
+                1 atgaaaacaa ttatagctct atcttatatt tttgtttgct gattataaaga tgatgatgat
+               61 aaggaatttg gtcattagaa aaaaaaaaaa
+        //
+        LOCUS       SECOND                   12 bp    DNA     linear   PRI 15-JUN-2009
+        DEFINITION  Second record proves record boundaries are preserved.
+        ACCESSION   SECOND
+        VERSION     SECOND.1
+        FEATURES             Location/Qualifiers
+             source          1..12
+                             /organism="synthetic construct"
+        ORIGIN
+                1 atgcatgcatgc
+        //
+        """
+
+        try content.write(to: testFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        let records = try GenBankReader(url: testFile).readAllSync()
+        XCTAssertEqual(records.count, 2)
+        let record = try XCTUnwrap(records.first)
+        XCTAssertEqual(record.values(forRecordField: "dblink"), ["INSDC: AF161864", "INSDC: EU392139"])
+        XCTAssertEqual(record.values(forRecordField: "LOCUS.NAME"), ["NHP00353"])
+        XCTAssertEqual(record.values(forRecordField: "LOCUS.LENGTH"), ["90"])
+        XCTAssertEqual(record.values(forRecordField: "LOCUS.DIVISION"), ["PRI"])
+        XCTAssertEqual(record.values(forRecordField: "LOCUS.DATE"), ["15-JUN-2009"])
+        XCTAssertEqual(record.values(forRecordField: "ORGANISM"), ["Macaca fascicularis"])
+        XCTAssertTrue(record.values(forRecordField: "TAXONOMY")[0].contains("Primates"))
+        XCTAssertEqual(record.values(forRecordField: "REFERENCE.1.PUBMED"), ["10640754"])
+        XCTAssertEqual(record.values(forRecordField: "REFERENCE.2.PUBMED"), ["19107381"])
+        XCTAssertEqual(record.values(forRecordField: "COMMENT.IPD accession"), ["NHP00353"])
+        XCTAssertEqual(record.values(forRecordField: "COMMENT.Evidence"), ["reviewed"])
+        XCTAssertFalse(record.values(forRecordField: "COMMENT").joined().contains("Genome-Annotation-Data"))
+        XCTAssertEqual(record.values(forRecordField: "CUSTOM_HEADER"), ["retained value"])
+        XCTAssertEqual(
+            record.annotations.first(where: { $0.type == .source })?.qualifier("organism"),
+            "Macaca fascicularis"
+        )
+        XCTAssertEqual(record.annotations.first(where: { $0.type == .cds })?.qualifier("translation"), "MKTIIALSYIFCLVFADYKDDDDKEFGH")
+    }
+
+    func testRecoveryOmitsMalformedRecordFieldAndPreservesOtherFields() throws {
+        let testFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("malformed-record-field-\(UUID().uuidString).gb")
+        let content = """
+        LOCUS       RECOVER                  12 bp    DNA     linear   PRI 15-JUN-2009
+        DEFINITION  Recovery fixture.
+        ACCESSION   RECOVER
+        DBLINK      INSDC: PRESERVED
+        KEYWORDS    recovery.
+        DBLINK      INSDC: OMITTED
+                   malformed continuation indentation
+        SOURCE      synthetic construct
+        FEATURES             Location/Qualifiers
+             source          1..12
+                             /organism="synthetic construct"
+        ORIGIN
+                1 atgcatgcatgc
+        //
+        """
+
+        try content.write(to: testFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        let result = try GenBankReader(url: testFile).readAllRecoveringAnnotationsSync()
+        let record = try XCTUnwrap(result.records.first)
+        XCTAssertEqual(record.sequence.asString(), "ATGCATGCATGC")
+        XCTAssertEqual(record.values(forRecordField: "DBLINK"), ["INSDC: PRESERVED"])
+        XCTAssertEqual(record.values(forRecordField: "KEYWORDS"), ["recovery."])
+        XCTAssertTrue(result.warnings.contains {
+            $0.recordIdentifier == "RECOVER" && $0.recordFieldKey == "DBLINK"
+        })
+    }
+
     /// Tests that feature type mapping handles unmapped types gracefully
     func testFeatureTypeMapping() async throws {
         let testFileURL = Bundle.module.url(forResource: "test_annotated", withExtension: "gb", subdirectory: "Resources")!

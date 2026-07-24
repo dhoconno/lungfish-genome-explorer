@@ -1,4 +1,85 @@
+import CryptoKit
+import Darwin
 import Foundation
+import LungfishCore
+
+public struct ONTGenotypeReferenceRecordStoreInfo: Codable, Equatable, Sendable {
+    public static let supportedFormat = "genbank"
+
+    public let databasePath: String
+    public let format: String
+    public let schemaVersion: Int
+    public let recordCount: Int
+    public let fieldCount: Int
+    public let sha256: String
+    public let sizeBytes: Int64
+
+    public init(
+        databasePath: String,
+        format: String = Self.supportedFormat,
+        schemaVersion: Int = GenBankRecordDatabase.schemaVersion,
+        recordCount: Int,
+        fieldCount: Int,
+        sha256: String,
+        sizeBytes: Int64
+    ) {
+        self.databasePath = databasePath
+        self.format = format
+        self.schemaVersion = schemaVersion
+        self.recordCount = recordCount
+        self.fieldCount = fieldCount
+        self.sha256 = sha256
+        self.sizeBytes = sizeBytes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case databasePath = "database_path"
+        case format
+        case schemaVersion = "schema_version"
+        case recordCount = "record_count"
+        case fieldCount = "field_count"
+        case sha256
+        case sizeBytes = "size_bytes"
+    }
+}
+
+public struct ONTGenotypeReferenceMetadata: Codable, Equatable, Sendable {
+    public let fields: [GenBankRecordDatabase.FieldDefinition]
+    public let recordsBySequenceName: [String: [String: String]]
+    public let alleleFieldKey: String?
+
+    public init(
+        fields: [GenBankRecordDatabase.FieldDefinition],
+        recordsBySequenceName: [String: [String: String]],
+        alleleFieldKey: String?
+    ) {
+        self.fields = fields
+        self.recordsBySequenceName = recordsBySequenceName
+        self.alleleFieldKey = alleleFieldKey
+    }
+}
+
+public enum ONTGenotypeReferenceRecordStoreError: Error, LocalizedError, Equatable, Sendable {
+    case unsupportedFormat(String)
+    case unsupportedSchemaVersion(Int)
+    case missingFile(String)
+    case sizeMismatch(expected: Int64, actual: Int64)
+    case checksumMismatch(expected: String, actual: String)
+    case recordCountMismatch(expected: Int, actual: Int)
+    case fieldCountMismatch(expected: Int, actual: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unsupportedFormat(let value): return "Unsupported genotype reference record-store format: \(value)"
+        case .unsupportedSchemaVersion(let value): return "Unsupported genotype reference record-store schema version: \(value)"
+        case .missingFile(let path): return "Missing genotype reference record store: \(path)"
+        case .sizeMismatch(let expected, let actual): return "Genotype reference record-store size mismatch (expected \(expected), found \(actual))"
+        case .checksumMismatch(let expected, let actual): return "Genotype reference record-store checksum mismatch (expected \(expected), found \(actual))"
+        case .recordCountMismatch(let expected, let actual): return "Genotype reference record count mismatch (expected \(expected), found \(actual))"
+        case .fieldCountMismatch(let expected, let actual): return "Genotype reference field count mismatch (expected \(expected), found \(actual))"
+        }
+    }
+}
 
 public enum ONTGenotypeWorkbookRevisionRole: String, Codable, CaseIterable, Equatable, Sendable {
     case initialCurrentCopy = "initial-current-copy"
@@ -149,6 +230,9 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let presetID: String?
     public let presetVersion: String?
     public let createdAt: String?
+    public let mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest?
+    public let mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts?
+    public let referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?
 
     public init(
         schemaVersion: Int = 1,
@@ -170,7 +254,10 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         presetVersion: String? = nil,
         createdAt: String? = nil,
         activeHaplotypeAnalysisRevisionID: String? = nil,
-        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts? = nil,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.kind = kind
@@ -192,6 +279,9 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         self.presetID = presetID
         self.presetVersion = presetVersion
         self.createdAt = createdAt
+        self.mhcCandidateArtifacts = mhcCandidateArtifacts
+        self.mhcReferenceVisualizations = mhcReferenceVisualizations
+        self.referenceRecordStore = referenceRecordStore
     }
 
     public init(
@@ -212,7 +302,11 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         haplotypeAssayID: String? = nil,
         presetID: String? = nil,
         presetVersion: String? = nil,
-        createdAt: String? = nil
+        createdAt: String? = nil,
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil
     ) {
         self.init(
             schemaVersion: schemaVersion,
@@ -233,131 +327,11 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             presetID: presetID,
             presetVersion: presetVersion,
             createdAt: createdAt,
-            activeHaplotypeAnalysisRevisionID: nil,
-            haplotypeAnalysisRevisions: nil
-        )
-    }
-
-    public init(
-        schemaVersion: Int = 1,
-        kind: String = "ont-barcode-genotype",
-        outputName: String,
-        analysisName: String,
-        primaryWorkbookPath: String,
-        longSummaryCSVPath: String,
-        sampleSummaryCSVPath: String,
-        statsJSONPath: String,
-        provenancePath: String,
-        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
-        haplotypeAnalysisPath: String? = nil,
-        haplotypeDefinitionSetID: String? = nil,
-        haplotypeAssayID: String? = nil,
-        presetID: String? = nil,
-        presetVersion: String? = nil,
-        createdAt: String? = nil,
-        activeHaplotypeAnalysisRevisionID: String? = nil,
-        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil
-    ) {
-        self.init(
-            schemaVersion: schemaVersion,
-            kind: kind,
-            outputName: outputName,
-            analysisName: analysisName,
-            primaryWorkbookPath: primaryWorkbookPath,
-            currentWorkbookPath: nil,
-            workbookRevisions: nil,
-            longSummaryCSVPath: longSummaryCSVPath,
-            sampleSummaryCSVPath: sampleSummaryCSVPath,
-            statsJSONPath: statsJSONPath,
-            provenancePath: provenancePath,
-            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
-            haplotypeAnalysisPath: haplotypeAnalysisPath,
-            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
-            haplotypeAssayID: haplotypeAssayID,
-            presetID: presetID,
-            presetVersion: presetVersion,
-            createdAt: createdAt,
             activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
-            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions
-        )
-    }
-
-    public init(
-        schemaVersion: Int = 1,
-        kind: String = "ont-barcode-genotype",
-        outputName: String,
-        analysisName: String,
-        primaryWorkbookPath: String,
-        longSummaryCSVPath: String,
-        sampleSummaryCSVPath: String,
-        statsJSONPath: String,
-        provenancePath: String,
-        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
-        haplotypeAnalysisPath: String? = nil,
-        haplotypeDefinitionSetID: String? = nil,
-        haplotypeAssayID: String? = nil,
-        presetID: String? = nil,
-        presetVersion: String? = nil,
-        createdAt: String? = nil
-    ) {
-        self.init(
-            schemaVersion: schemaVersion,
-            kind: kind,
-            outputName: outputName,
-            analysisName: analysisName,
-            primaryWorkbookPath: primaryWorkbookPath,
-            longSummaryCSVPath: longSummaryCSVPath,
-            sampleSummaryCSVPath: sampleSummaryCSVPath,
-            statsJSONPath: statsJSONPath,
-            provenancePath: provenancePath,
-            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
-            haplotypeAnalysisPath: haplotypeAnalysisPath,
-            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
-            haplotypeAssayID: haplotypeAssayID,
-            presetID: presetID,
-            presetVersion: presetVersion,
-            createdAt: createdAt,
-            activeHaplotypeAnalysisRevisionID: nil,
-            haplotypeAnalysisRevisions: nil
-        )
-    }
-
-    public init(
-        schemaVersion: Int = 1,
-        kind: String = "ont-barcode-genotype",
-        outputName: String,
-        analysisName: String,
-        primaryWorkbookPath: String,
-        longSummaryCSVPath: String,
-        sampleSummaryCSVPath: String,
-        statsJSONPath: String,
-        provenancePath: String,
-        haplotypeAnalysisPath: String? = nil,
-        haplotypeDefinitionSetID: String? = nil,
-        haplotypeAssayID: String? = nil,
-        presetID: String? = nil,
-        presetVersion: String? = nil,
-        createdAt: String? = nil
-    ) {
-        self.init(
-            schemaVersion: schemaVersion,
-            kind: kind,
-            outputName: outputName,
-            analysisName: analysisName,
-            primaryWorkbookPath: primaryWorkbookPath,
-            longSummaryCSVPath: longSummaryCSVPath,
-            sampleSummaryCSVPath: sampleSummaryCSVPath,
-            statsJSONPath: statsJSONPath,
-            provenancePath: provenancePath,
-            deduplicatedUnmatchedClustersFASTAPath: nil,
-            haplotypeAnalysisPath: haplotypeAnalysisPath,
-            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
-            haplotypeAssayID: haplotypeAssayID,
-            presetID: presetID,
-            presetVersion: presetVersion,
-            createdAt: createdAt,
-            activeHaplotypeAnalysisRevisionID: nil,
-            haplotypeAnalysisRevisions: nil
+            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: mhcCandidateArtifacts,
+            mhcReferenceVisualizations: nil,
+            referenceRecordStore: referenceRecordStore
         )
     }
 }
@@ -931,6 +905,89 @@ public struct ONTGenotypeResultArtifacts: Codable, Equatable, Sendable {
     }
 }
 
+public enum ONTGenotypeIntegrityWarningCode: String, Codable, Equatable, Sendable {
+    case candidateArtifactManifestSchemaUnsupported = "candidate-artifact-manifest-schema-unsupported"
+    case candidateArtifactIncompleteDeclaration = "candidate-artifact-incomplete-declaration"
+    case candidateArtifactPathInvalid = "candidate-artifact-path-invalid"
+    case candidateArtifactMissing = "candidate-artifact-missing"
+    case candidateArtifactNotRegularFile = "candidate-artifact-not-regular-file"
+    case candidateArtifactSizeMismatch = "candidate-artifact-size-mismatch"
+    case candidateArtifactChecksumMismatch = "candidate-artifact-checksum-mismatch"
+    case candidateArtifactTooLarge = "candidate-artifact-too-large"
+    case candidateArtifactMalformedJSON = "candidate-artifact-malformed-json"
+    case candidateArtifactSchemaUnsupported = "candidate-artifact-schema-unsupported"
+    case candidateArtifactDocumentReferenceMismatch = "candidate-artifact-document-reference-mismatch"
+    case candidateArtifactMalformedFASTA = "candidate-artifact-malformed-fasta"
+    case candidateArtifactMissingFASTARecord = "candidate-artifact-missing-fasta-record"
+    case candidateArtifactDuplicateFASTARecord = "candidate-artifact-duplicate-fasta-record"
+    case candidateArtifactExtraFASTARecord = "candidate-artifact-extra-fasta-record"
+    case candidateArtifactSequenceChecksumMismatch = "candidate-artifact-sequence-checksum-mismatch"
+}
+
+public struct ONTGenotypeIntegrityWarning: Codable, Equatable, Sendable {
+    public let code: ONTGenotypeIntegrityWarningCode
+    public let detail: String
+    public let path: String?
+
+    public init(code: ONTGenotypeIntegrityWarningCode, detail: String, path: String? = nil) {
+        self.code = code
+        self.detail = detail
+        self.path = path
+    }
+}
+
+public struct ONTMHCCandidateGenBankArtifactURLs: Codable, Equatable, Sendable {
+    public static let empty = ONTMHCCandidateGenBankArtifactURLs(
+        candidateAlleles: nil,
+        unnameableClusters: nil,
+        candidateFASTA: nil,
+        unnameableFASTA: nil
+    )
+
+    public let candidateAlleles: URL?
+    public let unnameableClusters: URL?
+    public let candidateFASTA: URL?
+    public let unnameableFASTA: URL?
+
+    public init(
+        candidateAlleles: URL?,
+        unnameableClusters: URL?,
+        candidateFASTA: URL? = nil,
+        unnameableFASTA: URL? = nil
+    ) {
+        self.candidateAlleles = candidateAlleles?.standardizedFileURL
+        self.unnameableClusters = unnameableClusters?.standardizedFileURL
+        self.candidateFASTA = candidateFASTA?.standardizedFileURL
+        self.unnameableFASTA = unnameableFASTA?.standardizedFileURL
+    }
+}
+
+public struct ONTMHCAlignmentArtifactURLs: Codable, Equatable, Sendable {
+    public static let empty = ONTMHCAlignmentArtifactURLs(
+        genotypingBAM: nil,
+        genotypingBAI: nil,
+        reciprocalBAM: nil,
+        reciprocalBAI: nil
+    )
+
+    public let genotypingBAM: URL?
+    public let genotypingBAI: URL?
+    public let reciprocalBAM: URL?
+    public let reciprocalBAI: URL?
+
+    public init(
+        genotypingBAM: URL?,
+        genotypingBAI: URL?,
+        reciprocalBAM: URL?,
+        reciprocalBAI: URL?
+    ) {
+        self.genotypingBAM = genotypingBAM?.standardizedFileURL
+        self.genotypingBAI = genotypingBAI?.standardizedFileURL
+        self.reciprocalBAM = reciprocalBAM?.standardizedFileURL
+        self.reciprocalBAI = reciprocalBAI?.standardizedFileURL
+    }
+}
+
 public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     private struct SupportKey: Hashable {
         let sample: String
@@ -949,6 +1006,14 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     public let calls: [ONTGenotypeCall]
     public let samples: [ONTGenotypeSampleResult]
     public let haplotypeAnalysis: GenotypeHaplotypeAnalysis?
+    public let mhcCandidates: ONTMHCCandidateAllelesDocument?
+    public let mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?
+    public let mhcCandidateSequencesByStableClusterID: [String: String]
+    public let mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs
+    public let mhcAlignmentArtifactURLs: ONTMHCAlignmentArtifactURLs
+    public let mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact?
+    public let integrityWarnings: [ONTGenotypeIntegrityWarning]
+    public let referenceMetadata: ONTGenotypeReferenceMetadata?
 
     public init(
         bundleURL: URL,
@@ -959,6 +1024,40 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         samples: [ONTGenotypeSampleResult],
         haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil
     ) {
+        self.init(
+            bundleURL: bundleURL,
+            manifest: manifest,
+            artifacts: artifacts,
+            stats: stats,
+            calls: calls,
+            samples: samples,
+            haplotypeAnalysis: haplotypeAnalysis,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            mhcCandidateSequencesByStableClusterID: [:],
+            mhcReferenceVisualizations: nil,
+            integrityWarnings: [],
+            referenceMetadata: nil
+        )
+    }
+
+    public init(
+        bundleURL: URL,
+        manifest: ONTGenotypeResultBundleManifest,
+        artifacts: ONTGenotypeResultArtifacts,
+        stats: ONTGenotypeRunStats,
+        calls: [ONTGenotypeCall],
+        samples: [ONTGenotypeSampleResult],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        mhcCandidates: ONTMHCCandidateAllelesDocument?,
+        mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?,
+        mhcCandidateSequencesByStableClusterID: [String: String],
+        mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty,
+        mhcAlignmentArtifactURLs: ONTMHCAlignmentArtifactURLs = .empty,
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil,
+        integrityWarnings: [ONTGenotypeIntegrityWarning],
+        referenceMetadata: ONTGenotypeReferenceMetadata?
+    ) {
         self.bundleURL = bundleURL.standardizedFileURL
         self.manifest = manifest
         self.artifacts = artifacts
@@ -966,6 +1065,163 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         self.calls = calls
         self.samples = samples
         self.haplotypeAnalysis = haplotypeAnalysis
+        self.mhcCandidates = mhcCandidates
+        self.mhcUnnameableClusters = mhcUnnameableClusters
+        self.mhcCandidateSequencesByStableClusterID = mhcCandidateSequencesByStableClusterID
+        self.mhcCandidateGenBankArtifactURLs = mhcCandidateGenBankArtifactURLs
+        self.mhcAlignmentArtifactURLs = mhcAlignmentArtifactURLs
+        self.mhcReferenceVisualizations = mhcReferenceVisualizations
+        self.integrityWarnings = integrityWarnings
+        self.referenceMetadata = referenceMetadata
+    }
+
+    public init(
+        bundleURL: URL,
+        manifest: ONTGenotypeResultBundleManifest,
+        artifacts: ONTGenotypeResultArtifacts,
+        stats: ONTGenotypeRunStats,
+        calls: [ONTGenotypeCall],
+        samples: [ONTGenotypeSampleResult],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        mhcCandidates: ONTMHCCandidateAllelesDocument?,
+        mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?,
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil,
+        integrityWarnings: [ONTGenotypeIntegrityWarning],
+        referenceMetadata: ONTGenotypeReferenceMetadata?
+    ) {
+        self.init(
+            bundleURL: bundleURL,
+            manifest: manifest,
+            artifacts: artifacts,
+            stats: stats,
+            calls: calls,
+            samples: samples,
+            haplotypeAnalysis: haplotypeAnalysis,
+            mhcCandidates: mhcCandidates,
+            mhcUnnameableClusters: mhcUnnameableClusters,
+            mhcCandidateSequencesByStableClusterID: [:],
+            mhcReferenceVisualizations: mhcReferenceVisualizations,
+            integrityWarnings: integrityWarnings,
+            referenceMetadata: referenceMetadata
+        )
+    }
+
+    public init(
+        bundleURL: URL,
+        manifest: ONTGenotypeResultBundleManifest,
+        artifacts: ONTGenotypeResultArtifacts,
+        stats: ONTGenotypeRunStats,
+        calls: [ONTGenotypeCall],
+        samples: [ONTGenotypeSampleResult],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        mhcCandidates: ONTMHCCandidateAllelesDocument?,
+        mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?,
+        integrityWarnings: [ONTGenotypeIntegrityWarning],
+        referenceMetadata: ONTGenotypeReferenceMetadata?
+    ) {
+        self.init(
+            bundleURL: bundleURL,
+            manifest: manifest,
+            artifacts: artifacts,
+            stats: stats,
+            calls: calls,
+            samples: samples,
+            haplotypeAnalysis: haplotypeAnalysis,
+            mhcCandidates: mhcCandidates,
+            mhcUnnameableClusters: mhcUnnameableClusters,
+            mhcCandidateSequencesByStableClusterID: [:],
+            mhcReferenceVisualizations: nil,
+            integrityWarnings: integrityWarnings,
+            referenceMetadata: referenceMetadata
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bundleURL
+        case manifest
+        case artifacts
+        case stats
+        case calls
+        case samples
+        case haplotypeAnalysis
+        case mhcCandidates
+        case mhcUnnameableClusters
+        case mhcCandidateSequencesByStableClusterID
+        case mhcCandidateGenBankArtifactURLs
+        case mhcAlignmentArtifactURLs
+        case mhcReferenceVisualizations
+        case integrityWarnings
+        case referenceMetadata
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            bundleURL: try container.decode(URL.self, forKey: .bundleURL),
+            manifest: try container.decode(ONTGenotypeResultBundleManifest.self, forKey: .manifest),
+            artifacts: try container.decode(ONTGenotypeResultArtifacts.self, forKey: .artifacts),
+            stats: try container.decode(ONTGenotypeRunStats.self, forKey: .stats),
+            calls: try container.decode([ONTGenotypeCall].self, forKey: .calls),
+            samples: try container.decode([ONTGenotypeSampleResult].self, forKey: .samples),
+            haplotypeAnalysis: try container.decodeIfPresent(GenotypeHaplotypeAnalysis.self, forKey: .haplotypeAnalysis),
+            mhcCandidates: try container.decodeIfPresent(ONTMHCCandidateAllelesDocument.self, forKey: .mhcCandidates),
+            mhcUnnameableClusters: try container.decodeIfPresent(
+                ONTMHCUnnameableClustersDocument.self,
+                forKey: .mhcUnnameableClusters
+            ),
+            mhcCandidateSequencesByStableClusterID: try container.decodeIfPresent(
+                [String: String].self,
+                forKey: .mhcCandidateSequencesByStableClusterID
+            ) ?? [:],
+            mhcCandidateGenBankArtifactURLs: try container.decodeIfPresent(
+                ONTMHCCandidateGenBankArtifactURLs.self,
+                forKey: .mhcCandidateGenBankArtifactURLs
+            ) ?? .empty,
+            mhcAlignmentArtifactURLs: try container.decodeIfPresent(
+                ONTMHCAlignmentArtifactURLs.self,
+                forKey: .mhcAlignmentArtifactURLs
+            ) ?? .empty,
+            mhcReferenceVisualizations: try container.decodeIfPresent(
+                ONTMHCReferenceVisualizationArtifact.self,
+                forKey: .mhcReferenceVisualizations
+            ),
+            integrityWarnings: try container.decodeIfPresent(
+                [ONTGenotypeIntegrityWarning].self,
+                forKey: .integrityWarnings
+            ) ?? [],
+            referenceMetadata: try container.decodeIfPresent(
+                ONTGenotypeReferenceMetadata.self,
+                forKey: .referenceMetadata
+            )
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(bundleURL, forKey: .bundleURL)
+        try container.encode(manifest, forKey: .manifest)
+        try container.encode(artifacts, forKey: .artifacts)
+        try container.encode(stats, forKey: .stats)
+        try container.encode(calls, forKey: .calls)
+        try container.encode(samples, forKey: .samples)
+        try container.encodeIfPresent(haplotypeAnalysis, forKey: .haplotypeAnalysis)
+        try container.encodeIfPresent(mhcCandidates, forKey: .mhcCandidates)
+        try container.encodeIfPresent(mhcUnnameableClusters, forKey: .mhcUnnameableClusters)
+        try container.encode(
+            mhcCandidateSequencesByStableClusterID,
+            forKey: .mhcCandidateSequencesByStableClusterID
+        )
+        try container.encode(
+            mhcCandidateGenBankArtifactURLs,
+            forKey: .mhcCandidateGenBankArtifactURLs
+        )
+        try container.encode(
+            mhcAlignmentArtifactURLs,
+            forKey: .mhcAlignmentArtifactURLs
+        )
+        try container.encodeIfPresent(mhcReferenceVisualizations, forKey: .mhcReferenceVisualizations)
+        try container.encode(integrityWarnings, forKey: .integrityWarnings)
+        try container.encodeIfPresent(referenceMetadata, forKey: .referenceMetadata)
     }
 
     public var sampleCount: Int {
@@ -1262,6 +1518,177 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
 public enum ONTGenotypeResultBundle {
     public static let directoryExtension = "lungfishgenotype"
 
+    private static let maximumCollectedCandidateArtifactBytes: Int64 = 256 * 1_024 * 1_024
+    private static let artifactReadChunkBytes = 64 * 1_024
+    private static let maximumStableReadAttempts = 3
+
+    private struct ManifestSnapshot: Equatable {
+        let data: Data
+        let device: dev_t
+        let inode: ino_t
+        let sizeBytes: Int64
+        let sha256: String
+
+        static func == (lhs: ManifestSnapshot, rhs: ManifestSnapshot) -> Bool {
+            lhs.device == rhs.device
+                && lhs.inode == rhs.inode
+                && lhs.sizeBytes == rhs.sizeBytes
+                && lhs.sha256 == rhs.sha256
+        }
+    }
+
+    private struct MHCCandidateProjection {
+        let candidates: ONTMHCCandidateAllelesDocument?
+        let unnameable: ONTMHCUnnameableClustersDocument?
+        let candidateSequencesByStableClusterID: [String: String]
+        let genBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs
+        let alignmentArtifactURLs: ONTMHCAlignmentArtifactURLs
+        let warnings: [ONTGenotypeIntegrityWarning]
+
+        static let absent = MHCCandidateProjection(
+            candidates: nil,
+            unnameable: nil,
+            candidateSequencesByStableClusterID: [:],
+            genBankArtifactURLs: .empty,
+            alignmentArtifactURLs: .empty,
+            warnings: []
+        )
+    }
+
+    private struct CandidateIntegrityFailure: Error, LocalizedError {
+        let warning: ONTGenotypeIntegrityWarning
+
+        var errorDescription: String? {
+            if let path = warning.path {
+                return "MHC artifact integrity failure for \(path): \(warning.detail)"
+            }
+            return "MHC artifact integrity failure: \(warning.detail)"
+        }
+    }
+
+    private struct ParsedFASTA {
+        let sequenceChecksums: [String: String]
+        let counts: [String: Int]
+        let sequencesByID: [String: String]
+    }
+
+    private struct StreamingFASTAParser {
+        private static let maximumLineBytes = 1_048_576
+        private let path: String
+        private let requiredIDs: Set<String>
+        private let retainRequiredSequences: Bool
+        private var pendingLine: [UInt8] = []
+        private var currentID: String?
+        private var currentIsRequired = false
+        private var currentHasher = SHA256()
+        private var currentBaseCount = 0
+        private var currentSequence: [UInt8] = []
+        private var counts: [String: Int] = [:]
+        private var checksums: [String: String] = [:]
+        private var sequences: [String: String] = [:]
+
+        init(path: String, requiredIDs: Set<String>, retainRequiredSequences: Bool = false) {
+            self.path = path
+            self.requiredIDs = requiredIDs
+            self.retainRequiredSequences = retainRequiredSequences
+        }
+
+        mutating func consume(_ data: Data) throws {
+            for byte in data {
+                if byte == 0x0a {
+                    try consumeLine(pendingLine)
+                    pendingLine.removeAll(keepingCapacity: true)
+                } else {
+                    guard pendingLine.count < Self.maximumLineBytes else {
+                        throw ONTGenotypeResultBundle.integrityFailure(
+                            .candidateArtifactMalformedFASTA,
+                            "Candidate FASTA contains a line longer than \(Self.maximumLineBytes) bytes.",
+                            path: path
+                        )
+                    }
+                    pendingLine.append(byte)
+                }
+            }
+        }
+
+        mutating func finish() throws -> ParsedFASTA {
+            if !pendingLine.isEmpty { try consumeLine(pendingLine) }
+            try finishRecord()
+            return ParsedFASTA(
+                sequenceChecksums: checksums,
+                counts: counts,
+                sequencesByID: sequences
+            )
+        }
+
+        private mutating func consumeLine(_ rawLine: [UInt8]) throws {
+            var line = rawLine
+            if line.last == 0x0d { line.removeLast() }
+            if line.first == 0x3e {
+                try finishRecord()
+                guard let header = String(bytes: line.dropFirst(), encoding: .utf8) else {
+                    throw malformed("Candidate FASTA header is not valid UTF-8.")
+                }
+                let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let id = trimmed.split(whereSeparator: \.isWhitespace).first, !id.isEmpty else {
+                    throw malformed("Candidate FASTA contains an empty record identifier.")
+                }
+                currentID = String(id)
+                currentIsRequired = requiredIDs.contains(String(id))
+                currentHasher = SHA256()
+                currentBaseCount = 0
+                currentSequence.removeAll(keepingCapacity: true)
+                return
+            }
+            var start = 0
+            var end = line.count
+            while start < end, line[start] == 0x20 || line[start] == 0x09 { start += 1 }
+            while end > start, line[end - 1] == 0x20 || line[end - 1] == 0x09 { end -= 1 }
+            guard start < end || currentID != nil else {
+                throw malformed("Candidate FASTA contains sequence data before its first header.")
+            }
+            guard start < end else { return }
+            guard currentID != nil else {
+                throw malformed("Candidate FASTA contains sequence data before its first header.")
+            }
+            var normalized: [UInt8] = []
+            normalized.reserveCapacity(end - start)
+            for byte in line[start..<end] {
+                guard byte >= 0x21, byte <= 0x7e else {
+                    throw malformed("Candidate FASTA sequence contains non-ASCII or embedded whitespace bytes.")
+                }
+                normalized.append((0x61...0x7a).contains(byte) ? byte - 0x20 : byte)
+            }
+            if currentIsRequired {
+                currentHasher.update(data: Data(normalized))
+                if retainRequiredSequences { currentSequence.append(contentsOf: normalized) }
+            }
+            currentBaseCount += normalized.count
+        }
+
+        private mutating func finishRecord() throws {
+            guard let id = currentID else { return }
+            guard currentBaseCount > 0 else {
+                throw malformed("FASTA record '\(id)' has no sequence.")
+            }
+            counts[id, default: 0] += 1
+            if currentIsRequired, checksums[id] == nil {
+                checksums[id] = currentHasher.finalize().map { String(format: "%02x", $0) }.joined()
+                if retainRequiredSequences {
+                    sequences[id] = String(decoding: currentSequence, as: UTF8.self)
+                }
+            }
+            currentID = nil
+            currentIsRequired = false
+            currentBaseCount = 0
+            currentSequence.removeAll(keepingCapacity: true)
+        }
+
+        private func malformed(_ detail: String) -> CandidateIntegrityFailure {
+            ONTGenotypeResultBundle.integrityFailure(.candidateArtifactMalformedFASTA, detail, path: path)
+        }
+    }
+
     public static func isBundleURL(_ url: URL) -> Bool {
         url.pathExtension.lowercased() == directoryExtension
     }
@@ -1299,14 +1726,193 @@ public enum ONTGenotypeResultBundle {
         )
     }
 
+    /// Synchronous loader retained for CLI and non-UI callers. This method may hash
+    /// large declared BAM artifacts; AppKit call sites should use `loadResultAsync`.
     public static func loadResult(from bundleURL: URL) throws -> ONTGenotypeResultBundleData {
-        let manifest = try loadManifest(from: bundleURL)
-        return try loadResult(from: bundleURL, manifest: manifest)
+        try loadStableResult(
+            from: bundleURL,
+            candidateArtifactByteBudget: maximumCollectedCandidateArtifactBytes,
+            requiredManifest: nil,
+            stableReadObserver: nil
+        )
     }
 
+    public static func loadResultAsync(from bundleURL: URL) async throws -> ONTGenotypeResultBundleData {
+        try Task.checkCancellation()
+        let worker = Task.detached(priority: Task.currentPriority) {
+            try Task.checkCancellation()
+            return try loadResult(from: bundleURL)
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    static func loadResult(
+        from bundleURL: URL,
+        candidateArtifactByteBudget: Int64,
+        stableReadObserver: ((Int) throws -> Void)? = nil
+    ) throws -> ONTGenotypeResultBundleData {
+        try loadStableResult(
+            from: bundleURL,
+            candidateArtifactByteBudget: candidateArtifactByteBudget,
+            requiredManifest: nil,
+            stableReadObserver: stableReadObserver
+        )
+    }
+
+    /// Loads result artifacts against an in-memory manifest before that manifest
+    /// is durably published. Workflow writers use this while deriving analyses
+    /// that must be completed before `genotype-result.json` is published last.
+    /// Readers of an already-published bundle should use `loadResult(from:)` or
+    /// `loadResultAsync(from:)` so transaction recovery and stable-read checks run.
     public static func loadResult(
         from bundleURL: URL,
         manifest: ONTGenotypeResultBundleManifest
+    ) throws -> ONTGenotypeResultBundleData {
+        try loadResult(
+            from: bundleURL,
+            manifest: manifest,
+            candidateArtifactByteBudget: maximumCollectedCandidateArtifactBytes,
+        )
+    }
+
+    private static func loadStableResult(
+        from bundleURL: URL,
+        candidateArtifactByteBudget: Int64,
+        requiredManifest: ONTGenotypeResultBundleManifest?,
+        stableReadObserver: ((Int) throws -> Void)?
+    ) throws -> ONTGenotypeResultBundleData {
+        let bundle = bundleURL.standardizedFileURL
+        for attempt in 0..<maximumStableReadAttempts {
+            try Task.checkCancellation()
+            if try transactionMarkerExistsNoFollow(for: bundle) {
+                try recoverUsingExistingPublicationLock(for: bundle)
+                continue
+            }
+
+            let before = try readManifestSnapshotNoFollow(from: bundle)
+            let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: before.data)
+            if let requiredManifest, manifest != requiredManifest {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.currentWorkbookIntegrity(
+                    "The caller-supplied manifest is stale relative to the durable bundle manifest."
+                )
+            }
+            let result = try loadResult(
+                from: bundle,
+                manifest: manifest,
+                candidateArtifactByteBudget: candidateArtifactByteBudget
+            )
+            try stableReadObserver?(attempt)
+            try Task.checkCancellation()
+
+            if try transactionMarkerExistsNoFollow(for: bundle) {
+                try recoverUsingExistingPublicationLock(for: bundle)
+                continue
+            }
+            let after = try readManifestSnapshotNoFollow(from: bundle)
+            if before == after { return result }
+        }
+        throw ONTGenotypeWorkbookUpdateRecoveryError.currentWorkbookIntegrity(
+            "The genotype result changed repeatedly while it was being loaded. Please retry after the writer finishes."
+        )
+    }
+
+    private static func recoverUsingExistingPublicationLock(for bundleURL: URL) throws {
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { publicationLock.release() }
+        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(for: bundleURL)
+    }
+
+    private static func transactionMarkerExistsNoFollow(for bundleURL: URL) throws -> Bool {
+        let markerCount = try ONTGenotypeWorkbookUpdateRecovery.transactionMarkerHintCount(
+            for: bundleURL
+        )
+        guard markerCount <= 1 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Multiple workbook transaction marker hints exist; no recovery action was taken."
+            )
+        }
+        let marker = ONTGenotypeWorkbookUpdateRecovery.markerURL(for: bundleURL)
+        var info = stat()
+        guard Darwin.lstat(marker.path, &info) == 0 else {
+            if errno == ENOENT {
+                let lock = ONTGenotypeBundlePublicationLock.lockURL(for: bundleURL)
+                var lockInfo = stat()
+                if Darwin.lstat(lock.path, &lockInfo) == 0 {
+                    guard lockInfo.st_mode & S_IFMT == S_IFREG else {
+                        throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeLock(lock.path)
+                    }
+                    return try ONTGenotypeWorkbookUpdateRecovery.recoveryAuthorityExists(
+                        for: bundleURL
+                    )
+                }
+                if errno == ENOENT { return false }
+                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(lock.path, errno)
+            }
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(marker.path, errno)
+        }
+        guard info.st_mode & S_IFMT == S_IFREG else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(marker.path)
+        }
+        return true
+    }
+
+    private static func readManifestSnapshotNoFollow(from bundleURL: URL) throws -> ManifestSnapshot {
+        let url = manifestURL(in: bundleURL)
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, errno)
+        }
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.currentWorkbookIntegrity(
+                "The durable bundle manifest is not a regular file: \(url.path)"
+            )
+        }
+        var data = Data()
+        data.reserveCapacity(Int(before.st_size))
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+        while true {
+            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            if count == 0 { break }
+            guard count > 0 else {
+                if errno == EINTR { continue }
+                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(url.path, errno)
+            }
+            data.append(buffer, count: count)
+        }
+        var after = stat()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              Int64(data.count) == Int64(after.st_size) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.currentWorkbookIntegrity(
+                "The durable bundle manifest changed while it was being read."
+            )
+        }
+        return ManifestSnapshot(
+            data: data,
+            device: after.st_dev,
+            inode: after.st_ino,
+            sizeBytes: Int64(after.st_size),
+            sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        )
+    }
+
+    private static func loadResult(
+        from bundleURL: URL,
+        manifest: ONTGenotypeResultBundleManifest,
+        candidateArtifactByteBudget: Int64
     ) throws -> ONTGenotypeResultBundleData {
         let artifacts = ONTGenotypeResultArtifacts(
             workbookURL: resolvedURL(
@@ -1329,6 +1935,24 @@ public enum ONTGenotypeResultBundle {
         let sampleRows = try loadCSVRows(from: artifacts.sampleSummaryCSVURL)
         let stats = try ONTGenotypeRunStats.load(from: artifacts.statsJSONURL)
         let haplotypeAnalysis = try loadHaplotypeAnalysisIfPresent(from: artifacts.haplotypeAnalysisURL)
+        let mhcProjection: MHCCandidateProjection
+        if manifest.kind == "full-length-ont-mhc-genotype" {
+            mhcProjection = try loadMHCCandidateProjection(
+                from: manifest.mhcCandidateArtifacts,
+                bundleURL: bundleURL,
+                parsedArtifactByteBudget: candidateArtifactByteBudget
+            )
+        } else {
+            mhcProjection = .absent
+        }
+        let mhcReferenceVisualizations = try loadMHCReferenceVisualizations(
+            from: manifest.mhcReferenceVisualizations,
+            bundleURL: bundleURL
+        )
+        let referenceMetadata = try loadReferenceMetadataIfPresent(
+            manifest.referenceRecordStore,
+            from: bundleURL
+        )
 
         let calls = callRows.compactMap(makeCall(row:)).filter { isAssignedSample($0.sample) }
         let callsBySample = Dictionary(grouping: calls, by: \.sample)
@@ -1357,8 +1981,1013 @@ public enum ONTGenotypeResultBundle {
             stats: stats,
             calls: calls,
             samples: samples,
-            haplotypeAnalysis: haplotypeAnalysis
+            haplotypeAnalysis: haplotypeAnalysis,
+            mhcCandidates: mhcProjection.candidates,
+            mhcUnnameableClusters: mhcProjection.unnameable,
+            mhcCandidateSequencesByStableClusterID: mhcProjection.candidateSequencesByStableClusterID,
+            mhcCandidateGenBankArtifactURLs: mhcProjection.genBankArtifactURLs,
+            mhcAlignmentArtifactURLs: mhcProjection.alignmentArtifactURLs,
+            mhcReferenceVisualizations: mhcReferenceVisualizations,
+            integrityWarnings: mhcProjection.warnings,
+            referenceMetadata: referenceMetadata
         )
+    }
+
+    private static func loadMHCReferenceVisualizations(
+        from artifacts: ONTMHCReferenceVisualizationArtifacts?,
+        bundleURL: URL
+    ) throws -> ONTMHCReferenceVisualizationArtifact? {
+        guard let artifacts else { return nil }
+        guard artifacts.schemaVersion == 1 else {
+            throw integrityFailure(
+                .candidateArtifactManifestSchemaUnsupported,
+                "MHC reference visualization artifact manifest schema \(artifacts.schemaVersion) is unsupported; expected schema 1."
+            )
+        }
+
+        let data = try validateArtifact(
+            artifacts.recordsJSON,
+            in: bundleURL,
+            collectData: true
+        ) ?? Data()
+        let artifact: ONTMHCReferenceVisualizationArtifact
+        do {
+            artifact = try JSONDecoder().decode(ONTMHCReferenceVisualizationArtifact.self, from: data)
+        } catch {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "MHC reference visualization JSON is malformed: \(error.localizedDescription)",
+                path: artifacts.recordsJSON.path
+            )
+        }
+        let validated = try artifact.validated()
+        guard artifacts.recordCount == validated.records.count else {
+            throw ONTMHCReferenceVisualizationError.descriptorRecordCountMismatch(
+                expected: artifacts.recordCount,
+                actual: validated.records.count
+            )
+        }
+        return validated
+    }
+
+    private static func loadReferenceMetadataIfPresent(
+        _ info: ONTGenotypeReferenceRecordStoreInfo?,
+        from bundleURL: URL
+    ) throws -> ONTGenotypeReferenceMetadata? {
+        guard let info else { return nil }
+        guard info.format == ONTGenotypeReferenceRecordStoreInfo.supportedFormat else {
+            throw ONTGenotypeReferenceRecordStoreError.unsupportedFormat(info.format)
+        }
+        guard info.schemaVersion == GenBankRecordDatabase.schemaVersion else {
+            throw ONTGenotypeReferenceRecordStoreError.unsupportedSchemaVersion(info.schemaVersion)
+        }
+        let databaseURL = try BundleManifest.validatedBundleMemberURL(
+            for: info.databasePath,
+            in: bundleURL,
+            field: "reference_record_store.database_path"
+        )
+        guard FileManager.default.fileExists(atPath: databaseURL.path) else {
+            throw ONTGenotypeReferenceRecordStoreError.missingFile(databaseURL.path)
+        }
+        let data = try Data(contentsOf: databaseURL, options: .mappedIfSafe)
+        let actualSize = Int64(data.count)
+        guard actualSize == info.sizeBytes else {
+            throw ONTGenotypeReferenceRecordStoreError.sizeMismatch(expected: info.sizeBytes, actual: actualSize)
+        }
+        let actualSHA256 = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        guard actualSHA256 == info.sha256.lowercased() else {
+            throw ONTGenotypeReferenceRecordStoreError.checksumMismatch(
+                expected: info.sha256,
+                actual: actualSHA256
+            )
+        }
+        let database = try GenBankRecordDatabase(url: databaseURL)
+        let actualRecordCount = try database.recordCount()
+        guard actualRecordCount == info.recordCount else {
+            throw ONTGenotypeReferenceRecordStoreError.recordCountMismatch(
+                expected: info.recordCount,
+                actual: actualRecordCount
+            )
+        }
+        let actualFieldCount = try database.fieldCount()
+        guard actualFieldCount == info.fieldCount else {
+            throw ONTGenotypeReferenceRecordStoreError.fieldCountMismatch(
+                expected: info.fieldCount,
+                actual: actualFieldCount
+            )
+        }
+        let fields = try database.fieldDefinitions()
+        let rows = try database.records()
+        return ONTGenotypeReferenceMetadata(
+            fields: fields,
+            recordsBySequenceName: Dictionary(uniqueKeysWithValues: rows.map { ($0.sequenceName, $0.values) }),
+            alleleFieldKey: fields.first(where: { $0.key == "feature.allele" })?.key
+        )
+    }
+
+    private static func loadMHCCandidateProjection(
+        from artifactManifest: ONTMHCCandidateArtifactManifest?,
+        bundleURL: URL,
+        parsedArtifactByteBudget: Int64
+    ) throws -> MHCCandidateProjection {
+        guard let artifactManifest else { return .absent }
+        do {
+            guard (1 ... 2).contains(artifactManifest.schemaVersion) else {
+                throw integrityFailure(
+                    .candidateArtifactManifestSchemaUnsupported,
+                    "MHC candidate artifact manifest schema \(artifactManifest.schemaVersion) is unsupported; expected schema 1 or 2."
+                )
+            }
+            try requirePairedDeclaration(
+                artifactManifest.candidateJSON,
+                artifactManifest.candidateFASTA,
+                label: "candidate JSON and FASTA"
+            )
+            try requirePairedDeclaration(
+                artifactManifest.unnameableJSON,
+                artifactManifest.unnameableFASTA,
+                label: "un-nameable JSON and FASTA"
+            )
+            if artifactManifest.candidateGenBank != nil,
+               artifactManifest.candidateJSON == nil || artifactManifest.candidateFASTA == nil {
+                throw integrityFailure(
+                    .candidateArtifactDocumentReferenceMismatch,
+                    "Candidate GenBank requires the corresponding candidate JSON and FASTA declarations."
+                )
+            }
+            if artifactManifest.unnameableGenBank != nil,
+               artifactManifest.unnameableJSON == nil || artifactManifest.unnameableFASTA == nil {
+                throw integrityFailure(
+                    .candidateArtifactDocumentReferenceMismatch,
+                    "Un-nameable GenBank requires the corresponding un-nameable JSON and FASTA declarations."
+                )
+            }
+            let parsedReferences = [
+                artifactManifest.candidateJSON,
+                artifactManifest.candidateFASTA,
+                artifactManifest.unnameableJSON,
+                artifactManifest.unnameableFASTA,
+            ].compactMap { $0 }
+            guard parsedArtifactByteBudget >= 0 else {
+                throw integrityFailure(
+                    .candidateArtifactTooLarge,
+                    "The aggregate candidate artifact byte budget must not be negative."
+                )
+            }
+            var aggregateBytes: Int64 = 0
+            for reference in parsedReferences {
+                let (next, overflow) = aggregateBytes.addingReportingOverflow(reference.sizeBytes)
+                guard reference.sizeBytes >= 0, !overflow, next <= parsedArtifactByteBudget else {
+                    throw integrityFailure(
+                        .candidateArtifactTooLarge,
+                        "Declared candidate JSON/FASTA artifacts exceed the aggregate parsed-artifact budget of \(parsedArtifactByteBudget) bytes.",
+                        path: reference.path
+                    )
+                }
+                aggregateBytes = next
+            }
+            for reference in declaredBAMReferences(artifactManifest) {
+                _ = try validateArtifact(reference, in: bundleURL, collectData: false)
+            }
+            let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
+                genotypingBAM: try artifactManifest.genotypingEvidence.map {
+                    try normalizedValidatedArtifactURL($0.bam, in: bundleURL)
+                },
+                genotypingBAI: try artifactManifest.genotypingEvidence.map {
+                    try normalizedValidatedArtifactURL($0.bai, in: bundleURL)
+                },
+                reciprocalBAM: try artifactManifest.reciprocalEvidence.map {
+                    try normalizedValidatedArtifactURL($0.bam, in: bundleURL)
+                },
+                reciprocalBAI: try artifactManifest.reciprocalEvidence.map {
+                    try normalizedValidatedArtifactURL($0.bai, in: bundleURL)
+                }
+            )
+            for reference in [
+                artifactManifest.candidateGenBank,
+                artifactManifest.unnameableGenBank,
+                artifactManifest.rawUnmatchedFASTA,
+                artifactManifest.sourceIdentityMap,
+            ].compactMap({ $0 }) {
+                _ = try validateArtifact(reference, in: bundleURL, collectData: false)
+            }
+
+            let declaredEvidence = declaredBAMReferences(artifactManifest)
+            var candidates: ONTMHCCandidateAllelesDocument?
+            var candidateSequencesByStableClusterID: [String: String] = [:]
+            if let jsonReference = artifactManifest.candidateJSON,
+               let fastaReference = artifactManifest.candidateFASTA {
+                let jsonData = try validateArtifact(jsonReference, in: bundleURL, collectData: true) ?? Data()
+                let document = try decodeCandidateDocument(jsonData, path: jsonReference.path)
+                try validateDocumentReferences(
+                    sequenceFASTA: document.sequenceFASTA,
+                    evidence: document.evidence,
+                    expectedSequenceFASTA: fastaReference,
+                    expectedEvidence: declaredEvidence,
+                    reciprocalEvidenceLocators: document.candidates.map(\.selectedEvidence),
+                    genotypingEvidenceLocators: document.observations.flatMap(\.evidence),
+                    genotypingBAMPath: artifactManifest.genotypingEvidence?.bam.path,
+                    reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
+                    documentPath: jsonReference.path
+                )
+                if document.schemaVersion >= 2 {
+                    try validateCompactCandidateDocument(
+                        document,
+                        genotypingBAMPath: artifactManifest.genotypingEvidence?.bam.path,
+                        reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
+                        documentPath: jsonReference.path
+                    )
+                }
+                var parser = StreamingFASTAParser(
+                    path: fastaReference.path,
+                    requiredIDs: Set(document.candidates.map(\.stableClusterID)),
+                    retainRequiredSequences: true
+                )
+                var parserFailure: Error?
+                _ = try validateArtifact(
+                    fastaReference,
+                    in: bundleURL,
+                    collectData: false,
+                    chunkHandler: { chunk in
+                        guard parserFailure == nil else { return }
+                        do { try parser.consume(chunk) } catch { parserFailure = error }
+                    }
+                )
+                if let parserFailure { throw parserFailure }
+                let parsedFASTA = try parser.finish()
+                try validateCandidateRecords(
+                    document.candidates,
+                    fasta: parsedFASTA,
+                    path: fastaReference.path
+                )
+                candidates = document
+                candidateSequencesByStableClusterID = parsedFASTA.sequencesByID
+            }
+            var unnameable: ONTMHCUnnameableClustersDocument?
+            if let jsonReference = artifactManifest.unnameableJSON,
+               let fastaReference = artifactManifest.unnameableFASTA {
+                let jsonData = try validateArtifact(jsonReference, in: bundleURL, collectData: true) ?? Data()
+                let document = try decodeUnnameableDocument(jsonData, path: jsonReference.path)
+                try validateDocumentReferences(
+                    sequenceFASTA: document.sequenceFASTA,
+                    evidence: document.evidence,
+                    expectedSequenceFASTA: fastaReference,
+                    expectedEvidence: declaredEvidence,
+                    reciprocalEvidenceLocators: document.schemaVersion == 1
+                        ? document.clusters.flatMap(\.evidence)
+                        : document.clusters.compactMap(\.selectedEvidence),
+                    genotypingEvidenceLocators: document.observations.flatMap(\.evidence),
+                    genotypingBAMPath: artifactManifest.genotypingEvidence?.bam.path,
+                    reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
+                    documentPath: jsonReference.path
+                )
+                if document.schemaVersion >= 2 {
+                    try validateCompactUnnameableDocument(
+                        document,
+                        genotypingBAMPath: artifactManifest.genotypingEvidence?.bam.path,
+                        reciprocalBAMPath: artifactManifest.reciprocalEvidence?.bam.path,
+                        documentPath: jsonReference.path
+                    )
+                }
+                if candidates == nil || candidates?.schemaVersion == document.schemaVersion {
+                    try validateGlobalRawSourceOwnership(
+                        candidates: candidates,
+                        unnameable: document,
+                        documentPath: jsonReference.path
+                    )
+                }
+                let exportableUnnameableIDs = Set(document.clusters.compactMap(\.fastaRecordID))
+                var parser = StreamingFASTAParser(
+                    path: fastaReference.path,
+                    requiredIDs: exportableUnnameableIDs
+                )
+                var parserFailure: Error?
+                _ = try validateArtifact(
+                    fastaReference,
+                    in: bundleURL,
+                    collectData: false,
+                    chunkHandler: { chunk in
+                        guard parserFailure == nil else { return }
+                        do { try parser.consume(chunk) } catch { parserFailure = error }
+                    }
+                )
+                if let parserFailure { throw parserFailure }
+                try validateUnnameableRecords(
+                    document.clusters,
+                    schemaVersion: document.schemaVersion,
+                    fasta: try parser.finish(),
+                    path: fastaReference.path
+                )
+                unnameable = document
+            }
+            if let candidates, let unnameable,
+               candidates.schemaVersion != unnameable.schemaVersion {
+                throw integrityFailure(
+                    .candidateArtifactSchemaUnsupported,
+                    "Candidate and un-nameable document schema versions must match; found \(candidates.schemaVersion) and \(unnameable.schemaVersion)."
+                )
+            }
+            let genBankArtifactURLs = ONTMHCCandidateGenBankArtifactURLs(
+                candidateAlleles: try artifactManifest.candidateGenBank.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                },
+                unnameableClusters: try artifactManifest.unnameableGenBank.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                },
+                candidateFASTA: try artifactManifest.candidateFASTA.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                },
+                unnameableFASTA: try artifactManifest.unnameableFASTA.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                }
+            )
+            return MHCCandidateProjection(
+                candidates: candidates,
+                unnameable: unnameable,
+                candidateSequencesByStableClusterID: candidateSequencesByStableClusterID,
+                genBankArtifactURLs: genBankArtifactURLs,
+                alignmentArtifactURLs: alignmentArtifactURLs,
+                warnings: []
+            )
+        } catch let failure as CandidateIntegrityFailure {
+            return MHCCandidateProjection(
+                candidates: nil,
+                unnameable: nil,
+                candidateSequencesByStableClusterID: [:],
+                genBankArtifactURLs: .empty,
+                alignmentArtifactURLs: .empty,
+                warnings: [failure.warning]
+            )
+        }
+    }
+
+    private static func normalizedValidatedArtifactURL(
+        _ reference: ONTMHCArtifactReference,
+        in bundleURL: URL
+    ) throws -> URL {
+        try safeRelativePathComponents(reference.path).reduce(bundleURL) { partialURL, component in
+            partialURL.appendingPathComponent(component)
+        }.standardizedFileURL
+    }
+
+    private static func requirePairedDeclaration(
+        _ json: ONTMHCArtifactReference?,
+        _ fasta: ONTMHCArtifactReference?,
+        label: String
+    ) throws {
+        guard (json == nil) == (fasta == nil) else {
+            throw integrityFailure(
+                .candidateArtifactIncompleteDeclaration,
+                "The optional MHC \(label) must either both be declared or both be absent.",
+                path: json?.path ?? fasta?.path
+            )
+        }
+    }
+
+    private static func declaredBAMReferences(
+        _ manifest: ONTMHCCandidateArtifactManifest
+    ) -> [ONTMHCArtifactReference] {
+        [
+            manifest.genotypingEvidence?.bam,
+            manifest.genotypingEvidence?.bai,
+            manifest.reciprocalEvidence?.bam,
+            manifest.reciprocalEvidence?.bai,
+        ].compactMap { $0 }
+    }
+
+    private static func validateArtifact(
+        _ reference: ONTMHCArtifactReference,
+        in bundleURL: URL,
+        collectData: Bool,
+        chunkHandler: ((Data) throws -> Void)? = nil
+    ) throws -> Data? {
+        let components = try safeRelativePathComponents(reference.path)
+        let rootFD = bundleURL.path.withCString {
+            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard rootFD >= 0 else {
+            throw integrityFailure(
+                .candidateArtifactPathInvalid,
+                "The genotype bundle root could not be opened without following symbolic links: \(errnoDetail()).",
+                path: reference.path
+            )
+        }
+        defer { Darwin.close(rootFD) }
+
+        var directoryFD = rootFD
+        var ownedDirectoryFDs: [Int32] = []
+        defer { ownedDirectoryFDs.reversed().forEach { Darwin.close($0) } }
+        for component in components.dropLast() {
+            let nextFD = component.withCString {
+                Darwin.openat(directoryFD, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+            }
+            guard nextFD >= 0 else {
+                let code: ONTGenotypeIntegrityWarningCode = errno == ENOENT
+                    ? .candidateArtifactMissing
+                    : .candidateArtifactPathInvalid
+                throw integrityFailure(
+                    code,
+                    "A path component could not be opened as a real directory without following links: \(errnoDetail()).",
+                    path: reference.path
+                )
+            }
+            ownedDirectoryFDs.append(nextFD)
+            directoryFD = nextFD
+        }
+
+        let finalFD = components.last!.withCString {
+            Darwin.openat(directoryFD, $0, O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard finalFD >= 0 else {
+            let code: ONTGenotypeIntegrityWarningCode = errno == ENOENT
+                ? .candidateArtifactMissing
+                : .candidateArtifactPathInvalid
+            throw integrityFailure(
+                code,
+                "The declared artifact could not be opened as a no-follow file: \(errnoDetail()).",
+                path: reference.path
+            )
+        }
+        defer { Darwin.close(finalFD) }
+
+        var status = stat()
+        guard Darwin.fstat(finalFD, &status) == 0 else {
+            throw integrityFailure(
+                .candidateArtifactPathInvalid,
+                "The declared artifact could not be inspected: \(errnoDetail()).",
+                path: reference.path
+            )
+        }
+        guard (status.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+            throw integrityFailure(
+                .candidateArtifactNotRegularFile,
+                "The declared MHC artifact is not a regular file.",
+                path: reference.path
+            )
+        }
+        let actualSize = Int64(status.st_size)
+        guard reference.sizeBytes >= 0, actualSize == reference.sizeBytes else {
+            throw integrityFailure(
+                .candidateArtifactSizeMismatch,
+                "Declared size \(reference.sizeBytes) bytes does not match the regular file size \(actualSize) bytes.",
+                path: reference.path
+            )
+        }
+        if (collectData || chunkHandler != nil), actualSize > maximumCollectedCandidateArtifactBytes {
+            throw integrityFailure(
+                .candidateArtifactTooLarge,
+                "The candidate JSON/FASTA is \(actualSize) bytes; the safe loading limit is \(maximumCollectedCandidateArtifactBytes) bytes.",
+                path: reference.path
+            )
+        }
+
+        var hasher = SHA256()
+        var collected = collectData ? Data() : nil
+        if collectData { collected?.reserveCapacity(Int(actualSize)) }
+        var bytesRead: Int64 = 0
+        var buffer = [UInt8](repeating: 0, count: artifactReadChunkBytes)
+        while true {
+            try Task.checkCancellation()
+            let count = buffer.withUnsafeMutableBytes { rawBuffer -> Int in
+                Darwin.read(finalFD, rawBuffer.baseAddress!, rawBuffer.count)
+            }
+            guard count >= 0 else {
+                if errno == EINTR { continue }
+                throw integrityFailure(
+                    .candidateArtifactPathInvalid,
+                    "The declared artifact could not be read: \(errnoDetail()).",
+                    path: reference.path
+                )
+            }
+            if count == 0 { break }
+            bytesRead += Int64(count)
+            guard bytesRead <= actualSize else {
+                throw integrityFailure(
+                    .candidateArtifactSizeMismatch,
+                    "The artifact grew while it was being validated.",
+                    path: reference.path
+                )
+            }
+            let chunk = Data(buffer.prefix(count))
+            hasher.update(data: chunk)
+            collected?.append(chunk)
+            try chunkHandler?(chunk)
+        }
+        guard bytesRead == actualSize else {
+            throw integrityFailure(
+                .candidateArtifactSizeMismatch,
+                "The artifact changed size while it was being validated (read \(bytesRead) of \(actualSize) bytes).",
+                path: reference.path
+            )
+        }
+        let checksum = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        guard checksum == reference.sha256.lowercased() else {
+            throw integrityFailure(
+                .candidateArtifactChecksumMismatch,
+                "Declared SHA-256 \(reference.sha256) does not match computed SHA-256 \(checksum).",
+                path: reference.path
+            )
+        }
+        return collected
+    }
+
+    private static func safeRelativePathComponents(_ path: String) throws -> [String] {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let components = trimmed.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard !trimmed.isEmpty,
+              !trimmed.hasPrefix("/"),
+              !trimmed.utf8.contains(0),
+              !components.isEmpty,
+              components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            throw integrityFailure(
+                .candidateArtifactPathInvalid,
+                "Candidate artifact paths must be non-empty relative paths contained below the bundle root.",
+                path: path
+            )
+        }
+        return components
+    }
+
+    private static func decodeCandidateDocument(
+        _ data: Data,
+        path: String
+    ) throws -> ONTMHCCandidateAllelesDocument {
+        try requireSupportedCandidateSchema(
+            data,
+            path: path,
+            recordCollectionKey: "candidates"
+        )
+        do {
+            return try JSONDecoder().decode(ONTMHCCandidateAllelesDocument.self, from: data)
+        } catch {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Candidate JSON does not conform to a supported schema: \(error.localizedDescription)",
+                path: path
+            )
+        }
+    }
+
+    private static func decodeUnnameableDocument(
+        _ data: Data,
+        path: String
+    ) throws -> ONTMHCUnnameableClustersDocument {
+        try requireSupportedCandidateSchema(
+            data,
+            path: path,
+            recordCollectionKey: "clusters"
+        )
+        do {
+            return try JSONDecoder().decode(ONTMHCUnnameableClustersDocument.self, from: data)
+        } catch {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Un-nameable cluster JSON does not conform to a supported schema: \(error.localizedDescription)",
+                path: path
+            )
+        }
+    }
+
+    private static func requireSupportedCandidateSchema(
+        _ data: Data,
+        path: String,
+        recordCollectionKey: String
+    ) throws {
+        let object: Any
+        do {
+            object = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Candidate artifact is not valid JSON: \(error.localizedDescription)",
+                path: path
+            )
+        }
+        guard let dictionary = object as? [String: Any], let schema = dictionary["schema_version"] as? Int else {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Candidate artifact must be a JSON object with integer schema_version 1, 2, 3, or 4.",
+                path: path
+            )
+        }
+        guard (1 ... 4).contains(schema) else {
+            throw integrityFailure(
+                .candidateArtifactSchemaUnsupported,
+                "Candidate artifact schema \(schema) is unsupported; expected schema 1, 2, 3, or 4.",
+                path: path
+            )
+        }
+        if recordCollectionKey == "clusters", schema < 4 {
+            guard let records = dictionary[recordCollectionKey] as? [[String: Any]],
+                  records.allSatisfy({
+                      $0["fasta_record_id"] is String && $0["sequence_sha256"] is String
+                  }) else {
+                throw integrityFailure(
+                    .candidateArtifactMalformedJSON,
+                    "Un-nameable candidate artifact schemas 1 through 3 require external FASTA identity and checksum fields.",
+                    path: path
+                )
+            }
+        }
+        guard schema >= 2 else { return }
+        guard let records = dictionary[recordCollectionKey] as? [[String: Any]],
+              records.allSatisfy({ $0["reciprocal_hit_summary"] != nil }),
+              let observations = dictionary["observations"] as? [[String: Any]],
+              observations.allSatisfy({
+                  $0["genotyping_hit_summaries"] != nil && $0["evidence"] == nil
+              }),
+              (recordCollectionKey != "clusters" || records.allSatisfy({ $0["evidence"] == nil })) else {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Candidate artifact schema \(schema) requires compact hit summaries and forbids legacy bulk evidence arrays.",
+                path: path
+            )
+        }
+        if schema >= 4 {
+            guard let observations = dictionary["observations"] as? [[String: Any]],
+                  observations.allSatisfy({ $0["source_sequence_cluster_id"] is String }),
+                  recordCollectionKey != "candidates" || records.allSatisfy({
+                      $0["source_sequence_cluster_ids"] is [String]
+                          && $0["representative_source_sequence_cluster_id"] is String
+                  }),
+                  recordCollectionKey != "clusters" || records.allSatisfy({
+                      ($0["fasta_record_id"] is String) == ($0["sequence_sha256"] is String)
+                  }) else {
+                throw integrityFailure(
+                    .candidateArtifactMalformedJSON,
+                    "Candidate artifact schema 4 requires explicit raw source-sequence bindings and paired external FASTA identity/checksum fields.",
+                    path: path
+                )
+            }
+        }
+        guard schema >= 3 else { return }
+        guard let observations = dictionary["observations"] as? [[String: Any]],
+              observations.allSatisfy({ observation in
+                  guard let summaries = observation["genotyping_hit_summaries"] as? [[String: Any]] else {
+                      return false
+                  }
+                  return summaries.allSatisfy { $0["cdna_extension_interpretations"] is [Any] }
+              }) else {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "Candidate artifact schema \(schema) requires compact cDNA extension interpretations on every genotyping hit summary.",
+                path: path
+            )
+        }
+        if recordCollectionKey == "candidates" {
+            let valid = records.allSatisfy { record in
+                guard let extensionOf = record["extension_of"] as? [String],
+                      let interpretations = record["extension_interpretations"] as? [[String: Any]],
+                      record["provisional_naming_ambiguous"] is Bool else {
+                    return false
+                }
+                let interpretationNames = interpretations.compactMap { $0["allele_name"] as? String }
+                let rawIDs = interpretations.compactMap { $0["raw_reference_id"] as? String }
+                guard interpretationNames.count == interpretations.count,
+                      rawIDs.count == interpretations.count,
+                      Set(rawIDs).count == rawIDs.count,
+                      Set(interpretationNames) == Set(extensionOf) else {
+                    return false
+                }
+                if record["classification"] as? String == "extension" {
+                    return !extensionOf.isEmpty && !interpretations.isEmpty
+                }
+                return extensionOf.isEmpty && interpretations.isEmpty
+            }
+            guard valid else {
+                throw integrityFailure(
+                    .candidateArtifactMalformedJSON,
+                    "Candidate artifact schema \(schema) requires consistent extension_of, extension_interpretations, and provisional_naming_ambiguous fields on every candidate.",
+                    path: path
+                )
+            }
+        }
+    }
+
+    private static func validateDocumentReferences(
+        sequenceFASTA: ONTMHCArtifactReference,
+        evidence: [ONTMHCArtifactReference],
+        expectedSequenceFASTA: ONTMHCArtifactReference,
+        expectedEvidence: [ONTMHCArtifactReference],
+        reciprocalEvidenceLocators: [ONTMHCEvidenceLocator],
+        genotypingEvidenceLocators: [ONTMHCEvidenceLocator],
+        genotypingBAMPath: String?,
+        reciprocalBAMPath: String?,
+        documentPath: String?
+    ) throws {
+        guard sequenceFASTA == expectedSequenceFASTA else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "The document sequence_fasta reference does not exactly match the manifest FASTA reference.",
+                path: documentPath
+            )
+        }
+        guard canonicalReferences(evidence) == canonicalReferences(expectedEvidence) else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "The document evidence references do not exactly match the BAM/BAI artifacts declared by the manifest.",
+                path: documentPath
+            )
+        }
+        guard reciprocalEvidenceLocators.allSatisfy({ $0.bamPath == reciprocalBAMPath }) else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "Candidate and un-nameable reciprocal evidence locators must name exactly the reciprocal BAM declared by the typed manifest role.",
+                path: documentPath
+            )
+        }
+        guard genotypingEvidenceLocators.allSatisfy({ $0.bamPath == genotypingBAMPath }) else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "Candidate and un-nameable observation evidence locators must name exactly the genotyping BAM declared by the typed manifest role.",
+                path: documentPath
+            )
+        }
+    }
+
+    private static func validateCompactCandidateDocument(
+        _ document: ONTMHCCandidateAllelesDocument,
+        genotypingBAMPath: String?,
+        reciprocalBAMPath: String?,
+        documentPath: String
+    ) throws {
+        try validateGlobalRawSourceOwnership(
+            candidates: document,
+            unnameable: nil,
+            documentPath: documentPath
+        )
+        for record in document.candidates {
+            let summary = record.reciprocalHitSummary
+            let expectedQueryName = document.schemaVersion >= 4
+                ? record.representativeSourceSequenceClusterID
+                : record.stableClusterID
+            guard summary.bamPath == reciprocalBAMPath,
+                  summary.queryName == expectedQueryName,
+                  record.selectedEvidence.bamPath == reciprocalBAMPath,
+                  record.selectedEvidence.queryName == expectedQueryName,
+                  document.schemaVersion < 4 || (
+                      !record.sourceSequenceClusterIDs.isEmpty
+                          && Set(record.sourceSequenceClusterIDs).count
+                              == record.sourceSequenceClusterIDs.count
+                          && record.sourceSequenceClusterIDs.contains(
+                              record.representativeSourceSequenceClusterID
+                          )
+                  ),
+                  summary.closestMatchTargetNames.contains(record.selectedEvidence.referenceName) else {
+                throw compactBindingFailure(
+                    "Candidate reciprocal summaries and selected evidence must belong to the record and typed reciprocal BAM, with the selected target in closest_match_target_names.",
+                    path: documentPath
+                )
+            }
+        }
+        try validateCompactObservations(
+            document.observations,
+            sourceSequenceIDsByStableID: Dictionary(
+                document.candidates.map {
+                    ($0.stableClusterID, Set($0.sourceSequenceClusterIDs))
+                },
+                uniquingKeysWith: { $0.union($1) }
+            ),
+            schemaVersion: document.schemaVersion,
+            genotypingBAMPath: genotypingBAMPath,
+            documentPath: documentPath
+        )
+    }
+
+    private static func validateCompactUnnameableDocument(
+        _ document: ONTMHCUnnameableClustersDocument,
+        genotypingBAMPath: String?,
+        reciprocalBAMPath: String?,
+        documentPath: String
+    ) throws {
+        for record in document.clusters {
+            let summary = record.reciprocalHitSummary
+            guard summary.bamPath == reciprocalBAMPath,
+                  summary.queryName == record.stableClusterID else {
+                throw compactBindingFailure(
+                    "Un-nameable reciprocal summaries must belong to the record and typed reciprocal BAM.",
+                    path: documentPath
+                )
+            }
+            if summary.alignmentCount == 0 {
+                guard record.selectedEvidence == nil,
+                      summary.closestMatchTargetNames.isEmpty else {
+                    throw compactBindingFailure(
+                        "An un-nameable record without reciprocal alignments must not contain selected evidence or closest targets.",
+                        path: documentPath
+                    )
+                }
+            } else {
+                guard let selected = record.selectedEvidence,
+                      selected.bamPath == reciprocalBAMPath,
+                      selected.queryName == record.stableClusterID,
+                      summary.closestMatchTargetNames.contains(selected.referenceName) else {
+                    throw compactBindingFailure(
+                        "An aligned un-nameable record must select a closest target from the typed reciprocal BAM.",
+                        path: documentPath
+                    )
+                }
+            }
+        }
+        try validateCompactObservations(
+            document.observations,
+            sourceSequenceIDsByStableID: Dictionary(
+                document.clusters.map { ($0.stableClusterID, Set([$0.stableClusterID])) },
+                uniquingKeysWith: { $0.union($1) }
+            ),
+            schemaVersion: document.schemaVersion,
+            genotypingBAMPath: genotypingBAMPath,
+            documentPath: documentPath
+        )
+    }
+
+    private static func validateGlobalRawSourceOwnership(
+        candidates: ONTMHCCandidateAllelesDocument?,
+        unnameable: ONTMHCUnnameableClustersDocument?,
+        documentPath: String
+    ) throws {
+        guard candidates?.schemaVersion == 4 || unnameable?.schemaVersion == 4 else { return }
+        var ownerByRawSourceID: [String: String] = [:]
+        for record in candidates?.candidates ?? [] {
+            let owner = "candidate:\(record.stableClusterID)"
+            for rawSourceID in record.sourceSequenceClusterIDs {
+                if let existingOwner = ownerByRawSourceID[rawSourceID],
+                   existingOwner != owner {
+                    throw compactBindingFailure(
+                        "Raw source sequence '\(rawSourceID)' is owned by multiple candidate records.",
+                        path: documentPath
+                    )
+                }
+                ownerByRawSourceID[rawSourceID] = owner
+            }
+        }
+        for record in unnameable?.clusters ?? [] {
+            let rawSourceID = record.stableClusterID
+            if ownerByRawSourceID[rawSourceID] != nil {
+                throw compactBindingFailure(
+                    "Raw source sequence '\(rawSourceID)' is owned by multiple candidate or un-nameable records.",
+                    path: documentPath
+                )
+            }
+            ownerByRawSourceID[rawSourceID] = "unnameable:\(record.stableClusterID)"
+        }
+    }
+
+    private static func validateCompactObservations(
+        _ observations: [ONTMHCCandidateObservation],
+        sourceSequenceIDsByStableID: [String: Set<String>],
+        schemaVersion: Int,
+        genotypingBAMPath: String?,
+        documentPath: String
+    ) throws {
+        for observation in observations {
+            let expectedTargets = Set(observation.sourceClusterIDs.map {
+                "\(observation.sampleID)|\($0)"
+            })
+            let targetNames = observation.genotypingHitSummaries.map(\.targetName)
+            guard let sourceSequenceIDs = sourceSequenceIDsByStableID[observation.stableClusterID],
+                  schemaVersion < 4
+                    || sourceSequenceIDs.contains(observation.sourceSequenceClusterID),
+                  Set(targetNames).count == targetNames.count,
+                  Set(targetNames).isSubset(of: expectedTargets),
+                  observation.genotypingHitSummaries.allSatisfy({
+                      $0.bamPath == genotypingBAMPath
+                  }) else {
+                throw compactBindingFailure(
+                    "Observation hit summaries must belong to a document record, a unique sample/source target, and the typed genotyping BAM.",
+                    path: documentPath
+                )
+            }
+        }
+    }
+
+    private static func compactBindingFailure(
+        _ detail: String,
+        path: String
+    ) -> CandidateIntegrityFailure {
+        integrityFailure(
+            .candidateArtifactDocumentReferenceMismatch,
+            detail,
+            path: path
+        )
+    }
+
+    private static func canonicalReferences(_ references: [ONTMHCArtifactReference]) -> [String] {
+        references.map { "\($0.path)\u{0}\($0.sha256.lowercased())\u{0}\($0.sizeBytes)" }.sorted()
+    }
+
+    private static func validateCandidateRecords(
+        _ records: [ONTMHCCandidateRecord],
+        fasta: ParsedFASTA,
+        path: String
+    ) throws {
+        try validateFASTARecords(
+            records.map { ($0.stableClusterID, $0.fastaRecordID, $0.sequenceSHA256) },
+            fasta: fasta,
+            path: path
+        )
+    }
+
+    private static func validateUnnameableRecords(
+        _ records: [ONTMHCUnnameableRecord],
+        schemaVersion: Int,
+        fasta: ParsedFASTA,
+        path: String
+    ) throws {
+        guard records.allSatisfy({
+            ($0.fastaRecordID == nil) == ($0.sequenceSHA256 == nil)
+        }) else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "Un-nameable records must provide both fasta_record_id and sequence_sha256 or neither.",
+                path: path
+            )
+        }
+        if schemaVersion < 4, records.contains(where: { $0.fastaRecordID == nil }) {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "Un-nameable document schemas 1 through 3 require external FASTA identity and checksum fields.",
+                path: path
+            )
+        }
+        try validateFASTARecords(
+            records.compactMap { record in
+                guard let fastaRecordID = record.fastaRecordID,
+                      let sequenceSHA256 = record.sequenceSHA256 else {
+                    return nil
+                }
+                return (record.stableClusterID, fastaRecordID, sequenceSHA256)
+            },
+            fasta: fasta,
+            path: path,
+            requiresMatchingStableID: schemaVersion < 4
+        )
+    }
+
+    private static func validateFASTARecords(
+        _ records: [(stableID: String, fastaID: String, checksum: String)],
+        fasta: ParsedFASTA,
+        path: String,
+        requiresMatchingStableID: Bool = true
+    ) throws {
+        guard records.allSatisfy({
+            !$0.stableID.isEmpty
+                && !$0.fastaID.isEmpty
+                && (!requiresMatchingStableID || $0.stableID == $0.fastaID)
+        }),
+              Set(records.map(\.stableID)).count == records.count,
+              Set(records.map(\.fastaID)).count == records.count else {
+            throw integrityFailure(
+                .candidateArtifactDocumentReferenceMismatch,
+                "Every exported document record must have unique, non-empty stable and FASTA identities, with matching identities where required by the schema.",
+                path: path
+            )
+        }
+        let expected = Set(records.map(\.fastaID))
+        if let missing = expected.sorted().first(where: { fasta.counts[$0] == nil }) {
+            throw integrityFailure(
+                .candidateArtifactMissingFASTARecord,
+                "FASTA is missing declared stable cluster '\(missing)'.",
+                path: path
+            )
+        }
+        if let duplicate = expected.sorted().first(where: { fasta.counts[$0] != 1 }) {
+            throw integrityFailure(
+                .candidateArtifactDuplicateFASTARecord,
+                "FASTA stable cluster '\(duplicate)' occurs \(fasta.counts[duplicate] ?? 0) times; expected exactly once.",
+                path: path
+            )
+        }
+        let extras = Set(fasta.counts.keys).subtracting(expected)
+        if let extra = extras.sorted().first {
+            throw integrityFailure(
+                .candidateArtifactExtraFASTARecord,
+                "FASTA contains undeclared record '\(extra)'.",
+                path: path
+            )
+        }
+        for record in records.sorted(by: { $0.stableID < $1.stableID }) {
+            guard let checksum = fasta.sequenceChecksums[record.fastaID] else { continue }
+            guard checksum == record.checksum.lowercased() else {
+                throw integrityFailure(
+                    .candidateArtifactSequenceChecksumMismatch,
+                    "FASTA sequence SHA-256 for '\(record.fastaID)' is \(checksum), not the document value \(record.checksum).",
+                    path: path
+                )
+            }
+        }
+    }
+
+    private static func integrityFailure(
+        _ code: ONTGenotypeIntegrityWarningCode,
+        _ detail: String,
+        path: String? = nil
+    ) -> CandidateIntegrityFailure {
+        CandidateIntegrityFailure(warning: ONTGenotypeIntegrityWarning(code: code, detail: detail, path: path))
+    }
+
+    private static func errnoDetail() -> String {
+        String(cString: Darwin.strerror(errno))
     }
 
     public static func resolvedURL(for path: String, in bundleURL: URL) -> URL {
@@ -1522,9 +3151,7 @@ public extension ONTGenotypeResultBundleData {
     }
 
     static func loadOrCreateAnnotationSidecar(forBundleAt bundleURL: URL) throws -> GenotypeAnnotationSidecar {
-        let url = annotationSidecarURL(forBundleAt: bundleURL)
-        if FileManager.default.fileExists(atPath: url.path) {
-            let data = try Data(contentsOf: url)
+        if let data = try readAnnotationSidecarDataIfPresent(forBundleAt: bundleURL) {
             return try GenotypeAnnotationSidecar.decode(data)
         }
         let formatter = ISO8601DateFormatter()
@@ -1537,19 +3164,187 @@ public extension ONTGenotypeResultBundleData {
     /// this for CLI inspection commands that must not touch a possibly
     /// read-only bundle directory.
     static func loadAnnotationSidecarIfPresent(forBundleAt bundleURL: URL) throws -> GenotypeAnnotationSidecar {
-        let url = annotationSidecarURL(forBundleAt: bundleURL)
-        if FileManager.default.fileExists(atPath: url.path) {
-            let data = try Data(contentsOf: url)
+        if let data = try readAnnotationSidecarDataIfPresent(forBundleAt: bundleURL) {
             return try GenotypeAnnotationSidecar.decode(data)
         }
         return GenotypeAnnotationSidecar.empty(generatedAt: "")
     }
 
+    private static func readAnnotationSidecarDataIfPresent(forBundleAt bundleURL: URL) throws -> Data? {
+        let directoryFD = bundleURL.path.withCString {
+            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard directoryFD >= 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "open bundle directory without following symbolic links",
+                path: bundleURL.path
+            )
+        }
+        defer { Darwin.close(directoryFD) }
+
+        let filename = GenotypeAnnotationSidecar.filename
+        let sidecarFD = filename.withCString {
+            Darwin.openat(directoryFD, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard sidecarFD >= 0 else {
+            if errno == ENOENT { return nil }
+            throw annotationSidecarPOSIXError(
+                operation: "open annotation sidecar without following symbolic links",
+                path: annotationSidecarURL(forBundleAt: bundleURL).path
+            )
+        }
+        defer { Darwin.close(sidecarFD) }
+
+        var status = stat()
+        guard Darwin.fstat(sidecarFD, &status) == 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "inspect annotation sidecar",
+                path: annotationSidecarURL(forBundleAt: bundleURL).path
+            )
+        }
+        guard (status.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+            throw annotationSidecarPOSIXError(
+                operation: "validate annotation sidecar as a regular file",
+                path: annotationSidecarURL(forBundleAt: bundleURL).path,
+                code: EINVAL
+            )
+        }
+
+        var data = Data()
+        if status.st_size > 0, status.st_size <= Int.max {
+            data.reserveCapacity(Int(status.st_size))
+        }
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { rawBuffer in
+                Darwin.read(sidecarFD, rawBuffer.baseAddress, rawBuffer.count)
+            }
+            if count == 0 { break }
+            if count < 0 {
+                if errno == EINTR { continue }
+                throw annotationSidecarPOSIXError(
+                    operation: "read annotation sidecar",
+                    path: annotationSidecarURL(forBundleAt: bundleURL).path
+                )
+            }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+        return data
+    }
+
     static func writeAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar, forBundleAt bundleURL: URL) throws {
-        let url = annotationSidecarURL(forBundleAt: bundleURL)
-        let directory = url.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try sidecar.encoded()
-        try data.write(to: url, options: .atomic)
+        let directoryFD = bundleURL.path.withCString {
+            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard directoryFD >= 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "open bundle directory without following symbolic links",
+                path: bundleURL.path
+            )
+        }
+        defer { Darwin.close(directoryFD) }
+
+        let filename = GenotypeAnnotationSidecar.filename
+        var existingStatus = stat()
+        let existingResult = filename.withCString {
+            Darwin.fstatat(directoryFD, $0, &existingStatus, AT_SYMLINK_NOFOLLOW)
+        }
+        if existingResult == 0 {
+            guard (existingStatus.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+                throw annotationSidecarPOSIXError(
+                    operation: "validate existing sidecar as a regular file",
+                    path: annotationSidecarURL(forBundleAt: bundleURL).path,
+                    code: ELOOP
+                )
+            }
+        } else if errno != ENOENT {
+            throw annotationSidecarPOSIXError(
+                operation: "inspect existing sidecar without following symbolic links",
+                path: annotationSidecarURL(forBundleAt: bundleURL).path
+            )
+        }
+
+        let temporaryName = ".\(filename).\(UUID().uuidString).tmp"
+        let temporaryFD = temporaryName.withCString {
+            Darwin.openat(
+                directoryFD,
+                $0,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                mode_t(0o644)
+            )
+        }
+        guard temporaryFD >= 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "create atomic sidecar staging file",
+                path: bundleURL.appendingPathComponent(temporaryName).path
+            )
+        }
+        var shouldRemoveTemporary = true
+        defer {
+            Darwin.close(temporaryFD)
+            if shouldRemoveTemporary {
+                temporaryName.withCString { _ = Darwin.unlinkat(directoryFD, $0, 0) }
+            }
+        }
+
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+            var offset = 0
+            while offset < rawBuffer.count {
+                let written = Darwin.write(
+                    temporaryFD,
+                    baseAddress.advanced(by: offset),
+                    rawBuffer.count - offset
+                )
+                if written < 0 {
+                    if errno == EINTR { continue }
+                    throw annotationSidecarPOSIXError(
+                        operation: "write atomic sidecar staging file",
+                        path: bundleURL.appendingPathComponent(temporaryName).path
+                    )
+                }
+                offset += written
+            }
+        }
+        guard Darwin.fsync(temporaryFD) == 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "synchronize atomic sidecar staging file",
+                path: bundleURL.appendingPathComponent(temporaryName).path
+            )
+        }
+        let renameResult = temporaryName.withCString { temporaryCString in
+            filename.withCString { filenameCString in
+                Darwin.renameat(directoryFD, temporaryCString, directoryFD, filenameCString)
+            }
+        }
+        guard renameResult == 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "atomically publish annotation sidecar",
+                path: annotationSidecarURL(forBundleAt: bundleURL).path
+            )
+        }
+        shouldRemoveTemporary = false
+        guard Darwin.fsync(directoryFD) == 0 else {
+            throw annotationSidecarPOSIXError(
+                operation: "synchronize annotation sidecar directory",
+                path: bundleURL.path
+            )
+        }
+    }
+
+    private static func annotationSidecarPOSIXError(
+        operation: String,
+        path: String,
+        code: Int32 = errno
+    ) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(code),
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Could not \(operation) at \(path): \(String(cString: Darwin.strerror(code)))",
+            ]
+        )
     }
 }

@@ -1,10 +1,39 @@
 import XCTest
 import LungfishCore
+import LungfishIO
 @testable import LungfishApp
 import LungfishKit
 
 @MainActor
 final class MainSplitSelectionCoordinatorTests: XCTestCase {
+    func testGenotypeDisplayLoadsAsynchronouslyAndCancelledSelectionCannotInstallStaleResult() async {
+        let controller = MainSplitViewController()
+        _ = controller.view
+        let staleURL = URL(fileURLWithPath: "/tmp/stale.lungfishgenotype")
+        let staleResult = makeGenotypeResult(bundleURL: staleURL)
+        controller.genotypeResultLoader = { _ in
+            try? await Task.sleep(for: .milliseconds(100))
+            return staleResult
+        }
+        controller.inspectorController.viewModel.selectedItem = "Current Selection"
+        var mainActorHeartbeat = false
+        DispatchQueue.main.async { mainActorHeartbeat = true }
+
+        controller.testingDisplayGenotypeResultBundle(staleURL)
+        _ = controller.testingBeginDisplayRequest(
+            identity: ContentSelectionIdentity(
+                url: URL(fileURLWithPath: "/tmp/newer.nvd"),
+                kind: "nvdResult"
+            )
+        )
+        await Task.yield()
+        XCTAssertTrue(mainActorHeartbeat, "Starting genotype validation must yield the main actor")
+        try? await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertEqual(controller.inspectorController.viewModel.selectedItem, "Current Selection")
+        XCTAssertNil(controller.viewerController.genotypeResultViewController)
+    }
+
     func testShowInspectorRequestIgnoresScopedNotificationFromDifferentWindow() {
         let controller = MainSplitViewController()
         _ = controller.view
@@ -85,6 +114,43 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         }
 
         XCTAssertEqual(controller.inspectorController.viewModel.selectedItem, "Fresh")
+    }
+
+    private func makeGenotypeResult(bundleURL: URL) -> ONTGenotypeResultBundleData {
+        let call = ONTGenotypeCall(
+            sample: "SampleA",
+            genotype: "known-allele",
+            passedAlignments: 8,
+            passedUniqueReads: 8,
+            sampleTotalReads: 8,
+            sampleUniqueRetainedReads: 8,
+            sampleUniqueRetainedPercent: 100,
+            overallInputReads: 8,
+            overallUniqueRetainedReads: 8,
+            overallUniqueRetainedPercent: 100
+        )
+        return ONTGenotypeResultBundleData(
+            bundleURL: bundleURL,
+            manifest: ONTGenotypeResultBundleManifest(
+                outputName: "stale",
+                analysisName: "stale",
+                primaryWorkbookPath: "stale.xlsx",
+                longSummaryCSVPath: "calls.csv",
+                sampleSummaryCSVPath: "samples.csv",
+                statsJSONPath: "stats.json",
+                provenancePath: "provenance.json"
+            ),
+            artifacts: ONTGenotypeResultArtifacts(
+                workbookURL: bundleURL.appendingPathComponent("stale.xlsx"),
+                longSummaryCSVURL: bundleURL.appendingPathComponent("calls.csv"),
+                sampleSummaryCSVURL: bundleURL.appendingPathComponent("samples.csv"),
+                statsJSONURL: bundleURL.appendingPathComponent("stats.json"),
+                provenanceURL: bundleURL.appendingPathComponent("provenance.json")
+            ),
+            stats: ONTGenotypeRunStats(),
+            calls: [call],
+            samples: []
+        )
     }
 
     func testContextMenuOpenRoutesThroughExplicitDisplayDelegate() throws {

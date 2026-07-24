@@ -55,6 +55,25 @@ struct FullLengthONTMHCScheduledSample: Sendable, Equatable {
     let sampleDirectory: URL
     let materializedFASTQURL: URL
     let readCount: Int
+    let materializationStep: ProvenanceStep?
+
+    init(
+        originalIndex: Int,
+        inputURL: URL,
+        sample: String,
+        sampleDirectory: URL,
+        materializedFASTQURL: URL,
+        readCount: Int,
+        materializationStep: ProvenanceStep? = nil
+    ) {
+        self.originalIndex = originalIndex
+        self.inputURL = inputURL
+        self.sample = sample
+        self.sampleDirectory = sampleDirectory
+        self.materializedFASTQURL = materializedFASTQURL
+        self.readCount = readCount
+        self.materializationStep = materializationStep
+    }
 }
 
 enum FullLengthONTMHCSampleScheduler {

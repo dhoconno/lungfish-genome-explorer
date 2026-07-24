@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishCLI
+import LungfishIO
 import LungfishWorkflow
 
 final class FastqGenotypingCommandTests: XCTestCase {
@@ -244,7 +245,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
 
     func testMHCReferenceBundleParsesOptions() throws {
         let command = try FastqMHCReferenceBundleSubcommand.parse([
-            "--reference-fasta", "/tmp/MCM_MHC.fa",
+            "--reference-fasta", "/tmp/MCM_MHC.gb",
             "--haplotype-definition", "/tmp/mcm.json",
             "--haplotype-definition", "/tmp/mamu.json",
             "--default-haplotype-definition", "mcm-mhc",
@@ -254,7 +255,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
             "--force",
         ])
 
-        XCTAssertEqual(command.referenceFASTA, "/tmp/MCM_MHC.fa")
+        XCTAssertEqual(command.referenceFASTA, "/tmp/MCM_MHC.gb")
         XCTAssertEqual(command.haplotypeDefinitions, ["/tmp/mcm.json", "/tmp/mamu.json"])
         XCTAssertEqual(command.defaultHaplotypeDefinition, "mcm-mhc")
         XCTAssertEqual(command.output, "/tmp/MCM-MHC.lungfishmhcref")
@@ -262,5 +263,20 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(command.sourceFiles, ["/tmp/build.log"])
         XCTAssertTrue(command.force)
         XCTAssertEqual(command.configurationForTesting().defaultHaplotypeDefinitionID, "mcm-mhc")
+    }
+
+    func testMHCReferenceBundleFormatsRecoverableAnnotationWarning() {
+        let warning = MHCReferenceBundleWarning(
+            category: "genbank.annotation.skipped",
+            message: "Invalid GenBank location: bad..location",
+            recordIdentifier: "MHCREF1",
+            featureType: "CDS",
+            sourceLocation: "bad..location"
+        )
+
+        XCTAssertEqual(
+            FastqMHCReferenceBundleSubcommand.warningLine(warning),
+            "warning: Invalid GenBank location: bad..location [record MHCREF1, feature CDS, location bad..location]\n"
+        )
     }
 }

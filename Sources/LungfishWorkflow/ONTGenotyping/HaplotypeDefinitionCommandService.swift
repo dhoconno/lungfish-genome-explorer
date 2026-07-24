@@ -318,14 +318,16 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             schemaVersion: manifest.schemaVersion,
             name: manifest.name,
             referenceFastaPath: manifest.referenceFastaPath,
+            referenceBundlePath: manifest.referenceBundlePath,
             haplotypeDefinitionPaths: updatedPaths,
             defaultHaplotypeDefinitionID: manifest.defaultHaplotypeDefinitionID ?? definition.id,
             sourceFiles: manifest.sourceFiles,
             metrics: MHCAmpliconReferenceBundleMetrics(
-                referenceCount: try FASTAReader(url: referenceURL).readHeadersSync().count,
+                referenceCount: manifest.metrics.referenceCount,
                 haplotypeDefinitionCount: updatedPaths.count
             ),
             provenancePath: ProvenanceWriter.provenanceFilename,
+            warnings: manifest.warnings,
             createdAt: manifest.createdAt
         )
         try MHCAmpliconReferenceBundle.writeManifest(updatedManifest, to: bundleURL)
@@ -376,6 +378,9 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             throw HaplotypeDefinitionCommandServiceError.missingInput(replacementFASTAURL.path)
         }
         let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: bundleURL)
+        guard manifest.schemaVersion < 2 else {
+            throw HaplotypeDefinitionCommandServiceError.annotatedReferenceReplacementRequiresReimport
+        }
         let manifestURL = MHCAmpliconReferenceBundle.manifestURL(in: bundleURL)
         guard let referenceURL = MHCAmpliconReferenceBundle.referenceFASTAURL(in: bundleURL) else {
             throw HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference(manifest.referenceFastaPath)
@@ -1044,6 +1049,7 @@ public enum HaplotypeDefinitionCommandServiceError: Error, LocalizedError, Equat
     case ambiguousDefinition(String)
     case missingMHCReferenceBundleReference(String)
     case missingDefinitionURL(String)
+    case annotatedReferenceReplacementRequiresReimport
     case validationFailed([String])
 
     public var errorDescription: String? {
@@ -1064,6 +1070,8 @@ public enum HaplotypeDefinitionCommandServiceError: Error, LocalizedError, Equat
             return "MHC reference bundle is missing its reference FASTA: \(path)"
         case .missingDefinitionURL(let id):
             return "Could not resolve stored haplotype definition URL for \(id)."
+        case .annotatedReferenceReplacementRequiresReimport:
+            return "Annotated MHC references cannot be replaced in place. Reimport the FASTA, GenBank, or EMBL source to rebuild its sequence indexes and annotations."
         case .validationFailed(let errors):
             return "Invalid haplotype definition:\n" + errors.map { "  - \($0)" }.joined(separator: "\n")
         }
