@@ -746,9 +746,15 @@ final class GenotypeSubcommandsTests: XCTestCase {
             stableClusterID: "cluster-b"
         )
         var existing = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T00:00:00Z")
+        let unrelatedReview = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
+            target: sameGenotypeDifferentTarget,
+            disposition: .falsePositive,
+            author: "carol",
+            timestamp: "2026-07-01T10:05:00Z"
+        )
         existing.matrixReviews = [
             .init(target: firstTarget, disposition: .falsePositive, author: "alice", timestamp: "2026-07-01T10:00:00Z"),
-            .init(target: sameGenotypeDifferentTarget, disposition: .falseNegative, author: "alice", timestamp: "2026-07-01T10:00:00Z"),
+            unrelatedReview,
         ]
         var patch = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T11:00:00Z")
         patch.matrixReviews = [
@@ -759,11 +765,59 @@ final class GenotypeSubcommandsTests: XCTestCase {
 
         XCTAssertEqual(result.sidecar.matrixReviews.count, 2)
         XCTAssertEqual(result.sidecar.matrixReviews.first { $0.target == firstTarget }?.disposition, .falseNegative)
-        XCTAssertEqual(
-            result.sidecar.matrixReviews.first { $0.target == sameGenotypeDifferentTarget }?.disposition,
-            .falseNegative
-        )
+        XCTAssertEqual(result.sidecar.matrixReviews.first { $0.target == sameGenotypeDifferentTarget }, unrelatedReview)
         XCTAssertEqual(result.appendedCounts.matrixReviews, 1)
+    }
+
+    func testApplyAnnotationsAdvancesV1SidecarSchemaForReviewPatch() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeApplyAnnotationsSchemaUpgrade-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+
+        let existingV1Data = Data("""
+        {
+          "schemaVersion": 1,
+          "generatedAt": "2026-07-01T00:00:00Z"
+        }
+        """.utf8)
+        try existingV1Data.write(to: annotationURL)
+        XCTAssertEqual(
+            try GenotypeAnnotationSidecar.decode(Data(contentsOf: annotationURL)).schemaVersion,
+            1
+        )
+
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A1",
+            genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+            sample: "AnimalA",
+            stableClusterID: "cluster-a"
+        )
+        var patch = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T11:00:00Z")
+        patch.matrixReviews = [
+            .init(target: target, disposition: .falseNegative, author: "bob", timestamp: "2026-07-01T11:00:00Z"),
+        ]
+        let patchURL = root.appendingPathComponent("patch.json")
+        try patch.encoded().write(to: patchURL)
+
+        let command = try GenotypeApplyAnnotationsSubcommand.parse([
+            "--bundle", bundleURL.path,
+            "--patch", patchURL.path,
+        ])
+        try await command.run()
+
+        let stored = try GenotypeAnnotationSidecar.decode(Data(contentsOf: annotationURL))
+        XCTAssertEqual(stored.schemaVersion, GenotypeAnnotationSidecar.currentSchemaVersion)
+        XCTAssertEqual(stored.matrixReviews, patch.matrixReviews)
+
+        var newerExisting = stored
+        newerExisting.schemaVersion = GenotypeAnnotationSidecar.currentSchemaVersion + 1
+        XCTAssertEqual(
+            GenotypeApplyAnnotationsSubcommand.merge(existing: newerExisting, patch: patch).sidecar.schemaVersion,
+            newerExisting.schemaVersion
+        )
     }
 
     func testApplyAnnotationsReplacesMatrixCommentsByExactTarget() {

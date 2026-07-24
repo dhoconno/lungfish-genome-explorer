@@ -167,6 +167,10 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         patch: GenotypeAnnotationSidecar
     ) -> MergeResult {
         var merged = existing
+        merged.schemaVersion = max(
+            merged.schemaVersion,
+            GenotypeAnnotationSidecar.currentSchemaVersion
+        )
         var appended = AnnotationCategoryCounts()
         var skipped = AnnotationCategoryCounts()
 
@@ -344,26 +348,6 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
 
     static func manualHaplotypeKey(_ entry: ManualHaplotypeAssignment) -> String {
         [entry.sample, entry.locus, entry.slot.rawValue, entry.label].joined(separator: "|")
-    }
-
-    static func matrixCommentKey(_ entry: GenotypeAnnotationSidecar.MatrixComment) -> String {
-        [
-            matrixTargetKey(entry.target),
-            entry.body,
-            entry.author,
-            entry.timestamp,
-        ].joined(separator: "|")
-    }
-
-    static func matrixTargetKey(_ target: GenotypeAnnotationSidecar.MatrixTarget) -> String {
-        switch target {
-        case let .row(locus, genotype, stableClusterID):
-            return (["row", locus, genotype] + (stableClusterID.map { [$0] } ?? [])).joined(separator: "|")
-        case let .column(sample):
-            return ["column", sample].joined(separator: "|")
-        case let .cell(locus, genotype, sample, stableClusterID):
-            return (["cell", locus, genotype, sample] + (stableClusterID.map { [$0] } ?? [])).joined(separator: "|")
-        }
     }
 
     static func auditEntryKey(_ entry: GenotypeAnnotationSidecar.AuditEntry) -> String {
