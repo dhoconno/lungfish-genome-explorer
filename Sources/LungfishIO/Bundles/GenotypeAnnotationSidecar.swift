@@ -265,6 +265,12 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
         )
     }
 
+    public mutating func promoteToCurrentSchema() {
+        if schemaVersion < Self.currentSchemaVersion {
+            schemaVersion = Self.currentSchemaVersion
+        }
+    }
+
     public func encoded() throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

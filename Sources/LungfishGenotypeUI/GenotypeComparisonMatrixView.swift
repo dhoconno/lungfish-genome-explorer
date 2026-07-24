@@ -1826,8 +1826,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             sample: sample,
             stableClusterID: row.stableClusterID
         )
-        return sidecarCellReviews[exactKey]?.disposition
-            ?? sidecarCellReviews[legacyKey]?.disposition
+        if row.stableClusterID != nil {
+            return sidecarCellReviews[exactKey]?.disposition
+        }
+        return sidecarCellReviews[legacyKey]?.disposition
     }
 
     private func metadataMatches(sample: String, filter: String) -> Bool {

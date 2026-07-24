@@ -768,7 +768,7 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
         let heldLock = try CrossProcessPublicationLockHolder(
             artifactsDirectoryURL: artifactsDirectoryURL
         )
-        defer { heldLock.release() }
+        defer { XCTAssertNoThrow(try heldLock.release()) }
 
         await XCTAssertThrowsErrorAsync {
             _ = try await fixture.build(
@@ -783,6 +783,26 @@ final class FullLengthONTMHCCohortAlignmentBuilderTests: XCTestCase {
             includingPropertiesForKeys: nil
         ).filter { $0.lastPathComponent.hasPrefix(".alignments-replacement-") }
         XCTAssertEqual(stagedDirectories, [])
+    }
+
+    func testPublicationLockHolderReleaseFailsWhenSentinelCannotBeCreated() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-lock-holder-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let holder = try CrossProcessPublicationLockHolder(artifactsDirectoryURL: rootURL)
+        let releaseURL = rootURL.appendingPathComponent(".child-lock-release", isDirectory: true)
+        try FileManager.default.createDirectory(at: releaseURL, withIntermediateDirectories: false)
+
+        let cleanupCompleted = expectation(description: "release sentinel cleanup")
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(250)) {
+            try? FileManager.default.removeItem(at: releaseURL)
+            _ = FileManager.default.createFile(atPath: releaseURL.path, contents: Data())
+            cleanupCompleted.fulfill()
+        }
+
+        XCTAssertThrowsError(try holder.release())
+        wait(for: [cleanupCompleted], timeout: 1)
     }
 
     func testCancellationTerminatesChildRetainsDiagnosticsAndNeverPublishes() async throws {
@@ -1552,8 +1572,14 @@ private struct FailingWorkDirectoryCleaner: FullLengthONTMHCWorkDirectoryCleanin
 }
 
 private final class CrossProcessPublicationLockHolder {
+    private enum ReleaseError: Error {
+        case couldNotCreateSentinel(URL)
+        case childDidNotExit(Int32)
+    }
+
     private let process: Process
     private let releaseURL: URL
+    private let processDidExit = DispatchSemaphore(value: 0)
     private var released = false
 
     init(artifactsDirectoryURL: URL) throws {
@@ -1569,6 +1595,9 @@ private final class CrossProcessPublicationLockHolder {
             readyURL.path,
             releaseURL.path,
         ]
+        process.terminationHandler = { [processDidExit] _ in
+            processDidExit.signal()
+        }
         try process.run()
         for _ in 0..<500 where !FileManager.default.fileExists(atPath: readyURL.path) {
             guard process.isRunning else { break }
@@ -1580,14 +1609,37 @@ private final class CrossProcessPublicationLockHolder {
         }
     }
 
-    func release() {
+    func release() throws {
         guard !released else { return }
         released = true
-        FileManager.default.createFile(atPath: releaseURL.path, contents: Data())
-        process.waitUntilExit()
+        guard FileManager.default.createFile(atPath: releaseURL.path, contents: Data()) else {
+            terminateChild()
+            throw ReleaseError.couldNotCreateSentinel(releaseURL)
+        }
+        guard waitForChildToExit(timeout: .now() + 1) else {
+            terminateChild()
+            throw ReleaseError.childDidNotExit(process.processIdentifier)
+        }
     }
 
-    deinit { release() }
+    private func terminateChild() {
+        guard process.isRunning else { return }
+        process.terminate()
+        guard !waitForChildToExit(timeout: .now() + 1), process.isRunning else { return }
+        kill(process.processIdentifier, SIGKILL)
+        _ = waitForChildToExit(timeout: .now() + 1)
+    }
+
+    private func waitForChildToExit(timeout: DispatchTime) -> Bool {
+        guard process.isRunning else { return true }
+        return processDidExit.wait(timeout: timeout) == .success || !process.isRunning
+    }
+
+    deinit {
+        if !released {
+            try? release()
+        }
+    }
 }
 
 private func recursiveFiles(at root: URL) throws -> [URL] {

@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// Unified genotype-bundle export.
 ///
@@ -313,6 +314,23 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         }) {
             additionalInputURLs.append(activeDefinitionURL)
         }
+        var explicitOptions: [String: ParameterValue] = [
+            "exportFormat": .string(format.rawValue),
+            "samples": .array(samples.map { .string($0) }),
+            "force": .boolean(force),
+        ]
+        if let lens {
+            explicitOptions["lens"] = .string(lens)
+        }
+        if let minReads {
+            explicitOptions["minReads"] = .integer(minReads)
+        }
+        if let filter {
+            explicitOptions["filter"] = .string(filter)
+        }
+        if let activeHaplotypeDefinition {
+            explicitOptions["activeHaplotypeDefinition"] = .string(activeHaplotypeDefinition)
+        }
 
         try await GenotypeExportProvenanceSupport.record(
             workflowName: "lungfish genotype export",
@@ -322,6 +340,18 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             outputURLs: [outputURL],
             outputDirectory: outputURL.deletingLastPathComponent(),
             optionPaths: optionPaths,
+            explicitOptions: explicitOptions,
+            defaults: [
+                "exportFormat": .string(ExportFormat.xlsx.rawValue),
+                "lens": .null,
+                "minReads": .null,
+                "filter": .null,
+                "samples": .array([]),
+                "activeHaplotypeDefinition": .null,
+                "viewProjection": .null,
+                "annotations": .string("bundle annotations.json when present"),
+                "force": .boolean(false),
+            ],
             additionalInputURLs: additionalInputURLs,
             startedAt: startedAt
         )

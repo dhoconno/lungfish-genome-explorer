@@ -10,16 +10,22 @@ enum GenotypeExportProvenanceSupport {
         outputURLs: [URL],
         outputDirectory: URL,
         optionPaths: [String: URL],
+        explicitOptions: [String: ParameterValue] = [:],
+        defaults: [String: ParameterValue] = [:],
+        resolvedOptions: [String: ParameterValue]? = nil,
         additionalInputURLs: [URL] = [],
         startedAt: Date
     ) async throws {
         guard !outputURLs.isEmpty else { return }
         var parameters = optionPaths.mapValues { ParameterValue.file($0) }
+        parameters.merge(explicitOptions) { _, explicit in explicit }
         parameters["outputCount"] = .integer(outputURLs.count)
 
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: workflowName,
             parameters: parameters,
+            defaults: defaults,
+            resolved: resolvedOptions,
             toolName: toolName,
             toolVersion: WorkflowRun.currentAppVersion,
             command: command,

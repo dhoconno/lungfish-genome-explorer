@@ -274,7 +274,37 @@ final class GenotypeExportSubcommandTests: XCTestCase {
             XCTAssertNotNil(descriptor.checksumSHA256)
             XCTAssertGreaterThan(descriptor.fileSize ?? 0, 0)
         }
-        XCTAssertTrue(env.argv.contains("--force"))
+        XCTAssertEqual(env.argv, [
+            CLICommandIdentity.executableName,
+            "genotype",
+            "export",
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", out.path,
+            "--sample", "S1",
+            "--sample", "S2",
+            "--view-projection", projectionURL.path,
+            "--annotations", sidecarURL.path,
+            "--force",
+        ])
+        XCTAssertEqual(env.options.explicit["bundle"], .file(fixture))
+        XCTAssertEqual(env.options.explicit["output"], .file(out))
+        XCTAssertEqual(env.options.explicit["viewProjection"], .file(projectionURL))
+        XCTAssertEqual(env.options.explicit["annotations"], .file(sidecarURL))
+        XCTAssertEqual(env.options.explicit["exportFormat"], .string("xlsx"))
+        XCTAssertEqual(env.options.explicit["samples"], .array([.string("S1"), .string("S2")]))
+        XCTAssertEqual(env.options.explicit["force"], .boolean(true))
+        XCTAssertEqual(env.options.defaults["exportFormat"], .string("xlsx"))
+        XCTAssertEqual(env.options.defaults["samples"], .array([]))
+        XCTAssertEqual(env.options.defaults["force"], .boolean(false))
+        XCTAssertEqual(env.options.resolvedDefaults["exportFormat"], .string("xlsx"))
+        XCTAssertEqual(
+            env.options.resolvedDefaults["samples"],
+            .array([.string("S1"), .string("S2")])
+        )
+        XCTAssertEqual(env.options.resolvedDefaults["force"], .boolean(true))
+        XCTAssertEqual(env.options.resolvedDefaults["annotations"], .file(sidecarURL))
+        XCTAssertEqual(env.options.resolvedDefaults["viewProjection"], .file(projectionURL))
     }
 
     func testFullMatrixExportEmbedsMatrixAnnotationsAndStableSidecarProvenance() async throws {
