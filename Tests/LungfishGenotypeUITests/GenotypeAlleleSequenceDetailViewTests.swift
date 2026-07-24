@@ -105,7 +105,7 @@ final class GenotypeAlleleSequenceDetailViewTests: XCTestCase {
         XCTAssertTrue(try formatControl(in: view).isHidden)
     }
 
-    func testTextIsSelectableNoneditableMonospacedAndScrollsBothDirections() throws {
+    func testTextIsSelectableNoneditableMonospacedAndTracksReaderWidth() throws {
         let view = GenotypeAlleleSequenceDetailView(frame: .zero)
         let text = try textView(in: view)
         let scroll = try XCTUnwrap(text.enclosingScrollView)
@@ -121,38 +121,34 @@ final class GenotypeAlleleSequenceDetailViewTests: XCTestCase {
         XCTAssertTrue(scroll.hasVerticalScroller)
         XCTAssertTrue(scroll.hasHorizontalScroller)
         XCTAssertTrue(text.isVerticallyResizable)
-        XCTAssertTrue(text.isHorizontallyResizable)
-        XCTAssertFalse(text.textContainer?.widthTracksTextView ?? true)
+        XCTAssertFalse(text.isHorizontallyResizable)
+        XCTAssertTrue(text.textContainer?.widthTracksTextView ?? false)
     }
 
-    func testLongUnbrokenSequenceMakesFullLineHorizontallyReachable() throws {
+    func testSequenceReaderTracksResizedPaneWidthAndHeight() throws {
         let view = GenotypeAlleleSequenceDetailView(
             frame: NSRect(x: 0, y: 0, width: 640, height: 360)
         )
-        let longLine = String(repeating: "ACGT", count: 5_000)
         let record = GenotypeAlleleSequenceRecord(
-            identity: "long",
-            displayName: "long",
-            genBankText: longLine + "\n",
-            fastaText: longLine + "\n",
-            emblText: longLine + "\n"
+            identity: "resized",
+            displayName: "resized",
+            genBankText: String(repeating: "/qualifier=\"example\" ", count: 120),
+            fastaText: ">resized\nACGT\n",
+            emblText: "ID   resized\n"
         )
 
         view.show(records: [record])
         view.layoutSubtreeIfNeeded()
         let text = try textView(in: view)
         let scroll = try XCTUnwrap(text.enclosingScrollView)
-        let container = try XCTUnwrap(text.textContainer)
-        text.layoutManager?.ensureLayout(for: container)
+        let compactScrollHeight = scroll.frame.height
+
+        view.frame.size = NSSize(width: 1_280, height: 720)
         view.layoutSubtreeIfNeeded()
 
-        let usedWidth = try XCTUnwrap(text.layoutManager).usedRect(for: container).width
-        XCTAssertGreaterThan(usedWidth, scroll.contentSize.width)
-        XCTAssertGreaterThan(text.frame.width, scroll.contentSize.width)
-        XCTAssertGreaterThan(
-            try XCTUnwrap(scroll.documentView).bounds.width - scroll.contentSize.width,
-            0
-        )
+        XCTAssertEqual(text.frame.width, scroll.contentSize.width, accuracy: 1)
+        XCTAssertGreaterThan(scroll.frame.height, compactScrollHeight)
+        XCTAssertEqual(scroll.frame.height - compactScrollHeight, 360, accuracy: 1)
     }
 
     func testRepeatedUpdatesReuseOneStableHierarchy() throws {

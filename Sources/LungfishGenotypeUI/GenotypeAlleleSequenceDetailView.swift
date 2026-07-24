@@ -98,13 +98,13 @@ final class GenotypeAlleleSequenceDetailView: NSView {
             height: CGFloat.greatestFiniteMagnitude
         )
         textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        textView.autoresizingMask = []
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
         textView.textContainer?.containerSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
-        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = false
         textView.setAccessibilityIdentifier("mhc-sequence-text")
         textView.setAccessibilityLabel("Allele sequence records")
@@ -152,6 +152,5 @@ final class GenotypeAlleleSequenceDetailView: NSView {
             }
         }
         textView.string = values.joined(separator: "\n")
-        textView.sizeToFit()
     }
 }
