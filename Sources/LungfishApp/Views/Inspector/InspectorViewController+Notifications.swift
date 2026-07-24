@@ -124,6 +124,7 @@ extension InspectorViewController {
         onGenotypeSampleMetadataImported = nil
         viewModel.genotypeResultDisplaySectionViewModel.onGenotypeHighlightRequested = nil
         viewModel.genotypeResultDisplaySectionViewModel.onMatrixStyleRequested = nil
+        viewModel.genotypeResultDisplaySectionViewModel.onMatrixReviewRequested = nil
         viewModel.genotypeResultDisplaySectionViewModel.onMatrixCommentRequested = nil
         viewModel.genotypeResultDisplaySectionViewModel.onSupportSelectionPreviewChanged = nil
         viewModel.genotypeResultDisplaySectionViewModel.onShowOnlySelectedMatrixRowsRequested = nil

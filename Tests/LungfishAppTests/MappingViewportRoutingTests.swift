@@ -272,6 +272,57 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
+    func testGenotypeMatrixReviewProductionBridgeSharesCapabilityAndRoutesSemanticCommands() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeReviewBridge-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = try makeGenotypeResultBundle(
+            root: root,
+            name: "review-bridge",
+            haplotypeAnalysisPath: nil
+        )
+        let splitController = MainSplitViewController()
+        _ = splitController.view
+
+        await splitController.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+
+        let resultController = try XCTUnwrap(
+            splitController.viewerController.genotypeResultViewController
+        )
+        let viewModel = splitController.inspectorController
+            .genotypeResultDisplaySectionViewModel
+        resultController.testingSelectMatrixCell(
+            genotype: "01_Mafa_A1_063g",
+            sample: "DW472"
+        )
+        let targets = resultController.testingCurrentSelectionMatrixTargets
+        XCTAssertEqual(targets.count, 1)
+        XCTAssertEqual(
+            viewModel.matrixReviewCapability,
+            resultController.testingMatrixReviewCapability
+        )
+        XCTAssertEqual(viewModel.matrixReviewCapability.falsePositive, .enabled)
+
+        try XCTUnwrap(viewModel.onMatrixReviewRequested)(
+            .init(targets: targets, intent: .set(.falsePositive))
+        )
+        try XCTUnwrap(viewModel.onMatrixCommentRequested)(
+            .init(targets: targets, intent: .upsert(body: "Production bridge"))
+        )
+
+        let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
+            forBundleAt: bundleURL
+        )
+        XCTAssertEqual(sidecar.matrixReviews.map(\.target), targets)
+        XCTAssertEqual(sidecar.resolvedMatrixComments[targets[0]]?.body, "Production bridge")
+
+        splitController.inspectorController.clearSelection()
+        XCTAssertNil(viewModel.onMatrixReviewRequested)
+        XCTAssertNil(viewModel.onMatrixCommentRequested)
+        splitController.viewerController.hideGenotypeResultView()
+        XCTAssertNil(resultController.onMatrixReviewCapabilityChanged)
+    }
+
     func testAIHaplotypingGUIUsesReplayableCLICommandPreviewAndSanitizedFailureDetail() throws {
         let source = try loadSource(at: "Sources/LungfishApp/Services/GenotypeAIHaplotypingExecutionService.swift")
 

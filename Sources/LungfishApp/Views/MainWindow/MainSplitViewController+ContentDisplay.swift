@@ -302,6 +302,10 @@ extension MainSplitViewController {
                 controller.onAnnotationSidecarChanged = { [weak self] sidecar in
                     self?.inspectorController.updateGenotypeAnnotationSidecar(sidecar)
                 }
+                controller.onMatrixReviewCapabilityChanged = { [weak self] capability in
+                    self?.inspectorController.genotypeResultDisplaySectionViewModel
+                        .updateMatrixReviewCapability(capability)
+                }
                 controller.onCandidatePersistenceWarningChanged = { [weak self] warning in
                     self?.inspectorController.genotypeResultDisplaySectionViewModel
                         .updateMHCCandidatePersistenceWarning(warning)
@@ -371,8 +375,11 @@ extension MainSplitViewController {
                 inspectorController.genotypeResultDisplaySectionViewModel.onMatrixStyleRequested = { [weak controller] request in
                     controller?.applyMatrixStyle(request)
                 }
+                inspectorController.genotypeResultDisplaySectionViewModel.onMatrixReviewRequested = { [weak controller] request in
+                    controller?.applyMatrixReview(request)
+                }
                 inspectorController.genotypeResultDisplaySectionViewModel.onMatrixCommentRequested = { [weak controller] request in
-                    controller?.addMatrixComment(request)
+                    controller?.editMatrixComment(request)
                 }
                 inspectorController.genotypeResultDisplaySectionViewModel.onSupportSelectionPreviewChanged = { [weak controller] minimumReads in
                     controller?.setMatrixSupportSelectionPreviewMinimumReads(minimumReads)

@@ -1203,6 +1203,7 @@ public final class GenotypeResultViewController: NSViewController {
         guard let store = annotationStore else { return }
         let author = annotationAuthorProvider()
         let targets = uniqueMatrixTargets(request.targets)
+        let sidecarBeforeAttempt = store.sidecar
         do {
             switch request.intent {
             case let .set(disposition):
@@ -1217,7 +1218,11 @@ public final class GenotypeResultViewController: NSViewController {
             }
             finishMatrixAnnotationPublication(store: store, targets: targets)
         } catch {
-            handleMatrixAnnotationCommandFailure(error, store: store, targets: targets)
+            handleMatrixAnnotationCommandFailure(
+                error,
+                store: store,
+                sidecarBeforeAttempt: sidecarBeforeAttempt
+            )
         }
     }
 
@@ -1225,6 +1230,7 @@ public final class GenotypeResultViewController: NSViewController {
         guard let store = annotationStore else { return }
         let author = annotationAuthorProvider()
         let targets = uniqueMatrixTargets(request.targets)
+        let sidecarBeforeAttempt = store.sidecar
         do {
             switch request.intent {
             case let .upsert(body):
@@ -1248,7 +1254,11 @@ public final class GenotypeResultViewController: NSViewController {
             }
             finishMatrixAnnotationPublication(store: store, targets: targets)
         } catch {
-            handleMatrixAnnotationCommandFailure(error, store: store, targets: targets)
+            handleMatrixAnnotationCommandFailure(
+                error,
+                store: store,
+                sidecarBeforeAttempt: sidecarBeforeAttempt
+            )
         }
     }
 
@@ -1271,19 +1281,72 @@ public final class GenotypeResultViewController: NSViewController {
     private func handleMatrixAnnotationCommandFailure(
         _ error: Error,
         store: GenotypeAnnotationStore,
-        targets: [GenotypeAnnotationSidecar.MatrixTarget]
+        sidecarBeforeAttempt: GenotypeAnnotationSidecar
     ) {
         if indexedMatrixMutationRevision != store.matrixMutationRevision {
+            let changedTargets = matrixAnnotationChangedTargets(
+                from: sidecarBeforeAttempt,
+                to: store.sidecar
+            )
             rebuildMatrixAnnotationIndexes()
-            comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: targets)
+            if !changedTargets.isEmpty {
+                comparisonMatrix.applyAnnotationSidecar(
+                    store.sidecar,
+                    reloading: changedTargets
+                )
+            }
             refreshCurrentSelectionDetails()
             publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
+            onAnnotationSidecarChanged?(store.sidecar)
         }
         if let onMatrixAnnotationCommandError {
             onMatrixAnnotationCommandError(error)
         } else {
             presentSheetAlert(error: error)
         }
+    }
+
+    private func matrixAnnotationChangedTargets(
+        from previous: GenotypeAnnotationSidecar,
+        to latest: GenotypeAnnotationSidecar
+    ) -> [GenotypeAnnotationSidecar.MatrixTarget] {
+        let previousStyles = Dictionary(
+            previous.matrixStyles.map { ($0.target, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let latestStyles = Dictionary(
+            latest.matrixStyles.map { ($0.target, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let previousReviews = Dictionary(
+            previous.matrixReviews.map { ($0.target, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let latestReviews = Dictionary(
+            latest.matrixReviews.map { ($0.target, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        var changedTargets = changedMatrixAnnotationTargets(
+            previous: previousStyles,
+            latest: latestStyles
+        )
+        changedTargets.formUnion(changedMatrixAnnotationTargets(
+            previous: previousReviews,
+            latest: latestReviews
+        ))
+        changedTargets.formUnion(changedMatrixAnnotationTargets(
+            previous: previous.resolvedMatrixComments,
+            latest: latest.resolvedMatrixComments
+        ))
+        return Array(changedTargets)
+    }
+
+    private func changedMatrixAnnotationTargets<Value: Equatable>(
+        previous: [GenotypeAnnotationSidecar.MatrixTarget: Value],
+        latest: [GenotypeAnnotationSidecar.MatrixTarget: Value]
+    ) -> Set<GenotypeAnnotationSidecar.MatrixTarget> {
+        let allTargets = Set(previous.keys).union(latest.keys)
+        return Set(allTargets.filter { previous[$0] != latest[$0] })
     }
 
     public func selectSupportedMatrixCellsInCurrentRow(minimumReads: Int) {
@@ -3673,7 +3736,7 @@ public final class GenotypeResultViewController: NSViewController {
         let button = NSButton(title: "Update current.xlsx", target: self, action: #selector(updateCurrentWorkbookFromOverrides))
         button.bezelStyle = .rounded
         button.controlSize = .small
-        button.isEnabled = changeCount > 0 && !isReadOnly
+        button.isEnabled = (changeCount > 0 || currentWorkbookNeedsRefresh) && !isReadOnly
         button.toolTip = "Apply Review viewport haplotype overrides and matrix annotations to artifacts/workbooks/current.xlsx."
         stack.addArrangedSubview(button)
         return stack
@@ -6966,6 +7029,16 @@ extension GenotypeResultViewController {
         return comparisonMatrix.testingPartialReloadCount
     }
 
+    var testingMatrixPartialReloadedCellCount: Int {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPartialReloadedCellCount
+    }
+
+    var testingLastMatrixReloadTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingReloadTargets
+    }
+
     var testingDetailContentTopInset: CGFloat {
         detailStack.frame.minY
     }
@@ -7058,6 +7131,17 @@ extension GenotypeResultViewController {
 
     var testingCurrentWorkbookUpdateStatus: String? {
         currentWorkbookUpdateStatus
+    }
+
+    var testingCurrentWorkbookUpdateButtonEnabled: Bool {
+        makeCurrentWorkbookUpdateHost().subviews
+            .compactMap { $0 as? NSButton }
+            .first { $0.title == "Update current.xlsx" }?
+            .isEnabled ?? false
+    }
+
+    func testingRequestCurrentWorkbookUpdate() {
+        updateCurrentWorkbookFromOverrides()
     }
 
     var testingResultBundleURL: URL? {

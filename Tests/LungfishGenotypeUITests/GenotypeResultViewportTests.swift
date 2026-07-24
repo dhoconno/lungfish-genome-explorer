@@ -332,6 +332,123 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(scheduler.scheduledCount, 0)
     }
 
+    func testStalePublicationReloadsAndPublishesExactConcurrentAnnotationUnionOnly() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixStaleExactUnion-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let first = "01_Mafa_A1_FIRST"
+        let second = "02_Mafa_A1_SECOND"
+        let attempted = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A", genotype: first, sample: "AnimalA"
+        )
+        let styled = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A", genotype: first, sample: "AnimalB"
+        )
+        let reviewed = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A", genotype: second, sample: "AnimalA"
+        )
+        let commented = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A", genotype: second, sample: "AnimalB"
+        )
+        let calls = [
+            makeCall(sample: "AnimalA", genotype: first, reads: 12),
+            makeCall(sample: "AnimalB", genotype: first, reads: 8),
+            makeCall(sample: "AnimalA", genotype: second, reads: 10),
+            makeCall(sample: "AnimalB", genotype: second, reads: 9),
+        ]
+        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
+        let controller = GenotypeResultViewController()
+        controller.matrixWorkbookUpdateScheduler = scheduler
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls
+        ))
+
+        let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
+        try concurrent.setMatrixStyle(
+            target: styled,
+            style: .init(fillColor: "#FFEEDD")
+        )
+        try concurrent.setMatrixReviewSynchronously(
+            .falsePositive,
+            targets: [reviewed],
+            evidence: GenotypeMatrixEvidenceIndex([reviewed: 10]),
+            author: "other"
+        )
+        try concurrent.upsertMatrixCommentSynchronously(
+            body: "concurrent",
+            targets: [commented],
+            author: "other"
+        )
+        var surfacedError: Error?
+        var rehydratedSidecar: GenotypeAnnotationSidecar?
+        controller.onMatrixAnnotationCommandError = { surfacedError = $0 }
+        controller.onAnnotationSidecarChanged = { rehydratedSidecar = $0 }
+        controller.testingResetMatrixReloadCounters()
+
+        controller.editMatrixComment(.init(
+            targets: [attempted],
+            intent: .upsert(body: "stale")
+        ))
+
+        XCTAssertTrue(
+            surfacedError?.localizedDescription.contains("changed in another process") == true
+        )
+        XCTAssertEqual(
+            Set(controller.testingLastMatrixReloadTargets),
+            Set([styled, reviewed, commented])
+        )
+        XCTAssertEqual(controller.testingMatrixPartialReloadCount, 2)
+        XCTAssertEqual(controller.testingMatrixPartialReloadedCellCount, 3)
+        XCTAssertEqual(rehydratedSidecar?.matrixStyles.map(\.target), [styled])
+        XCTAssertEqual(rehydratedSidecar?.matrixReviews.map(\.target), [reviewed])
+        XCTAssertEqual(rehydratedSidecar?.resolvedMatrixComments[commented]?.body, "concurrent")
+        XCTAssertEqual(scheduler.scheduledCount, 0)
+    }
+
+    func testSemanticPublicationReloadsMultipleIsolatedCellsWithoutCartesianExpansion() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixExactPartialReload-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let first = "01_Mafa_A1_FIRST"
+        let second = "02_Mafa_A1_SECOND"
+        let firstA = makeCall(sample: "AnimalA", genotype: first, reads: 12)
+        let secondB = makeCall(sample: "AnimalB", genotype: second, reads: 9)
+        let firstTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A", genotype: first, sample: "AnimalA"
+        )
+        let secondTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A", genotype: second, sample: "AnimalB"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [firstA, secondB]
+        ))
+        controller.testingResetMatrixReloadCounters()
+
+        controller.editMatrixComment(.init(
+            targets: [firstTarget, secondTarget],
+            intent: .replace(body: "exact")
+        ))
+
+        XCTAssertEqual(
+            Set(controller.testingLastMatrixReloadTargets),
+            Set([firstTarget, secondTarget])
+        )
+        XCTAssertEqual(controller.testingMatrixFullReloadCount, 0)
+        XCTAssertEqual(controller.testingMatrixPartialReloadCount, 2)
+        XCTAssertEqual(controller.testingMatrixPartialReloadedCellCount, 2)
+    }
+
     func testWorkbookUpdateFailurePreservesPublishedSidecarAndExposesRetryWarning() throws {
         struct WorkbookFailure: Error {}
 
@@ -359,6 +476,43 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
         XCTAssertTrue(controller.testingCurrentWorkbookNeedsRefresh)
         XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("retry") == true)
+    }
+
+    func testWorkbookFailureAfterRemovingFinalAnnotationLeavesEnabledRetryThatInvokesUpdate() throws {
+        struct WorkbookFailure: Error {}
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixWorkbookFinalRemovalRetry-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
+        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
+        let controller = GenotypeResultViewController()
+        controller.matrixWorkbookUpdateScheduler = scheduler
+        var workbookUpdateCount = 0
+        controller.onCurrentWorkbookUpdateRequested = { _, _, _ in workbookUpdateCount += 1 }
+        _ = controller.view
+        let result = makeResult(bundleURL: bundleURL, samples: [], calls: [])
+        controller.configure(result: result)
+
+        controller.editMatrixComment(.init(
+            targets: [target],
+            intent: .upsert(body: "temporary")
+        ))
+        scheduler.fireScheduledActions()
+        XCTAssertEqual(workbookUpdateCount, 1)
+        controller.applyCurrentWorkbookUpdateCompleted(result: result)
+
+        controller.editMatrixComment(.init(targets: [target], intent: .remove))
+        scheduler.fireScheduledActions()
+        XCTAssertEqual(workbookUpdateCount, 2)
+        controller.applyCurrentWorkbookUpdateFailed(WorkbookFailure())
+
+        XCTAssertTrue(controller.testingCurrentWorkbookNeedsRefresh)
+        XCTAssertTrue(controller.testingCurrentWorkbookUpdateButtonEnabled)
+        controller.testingRequestCurrentWorkbookUpdate()
+        XCTAssertEqual(workbookUpdateCount, 3)
     }
 
     func testMatrixEditsCaptureCurrentAuthorProviderAfterSingleConfigure() throws {

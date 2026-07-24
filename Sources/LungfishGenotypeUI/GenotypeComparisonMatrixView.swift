@@ -142,6 +142,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var metadataStore: SampleMetadataStore?
     private var allRows: [GenotypeCandidateMatrixRow] = []
     private var visibleRows: [GenotypeCandidateMatrixRow] = []
+    private var visibleRowIndexByKey: [RowKey: Int] = [:]
     private var sampleNames: [String] = []
     /// FULL filtered logical sample set. Read PERVASIVELY by export
     /// (`exportSnapshot`), annotation-target computation (`selectAllVisibleRowsAndColumns`,
@@ -150,6 +151,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     /// the display window.
     private var visibleSampleNames: [String] = []
     private var sampleColumnLookup: [NSUserInterfaceItemIdentifier: String] = [:]
+    private var visibleColumnIndexBySample: [String: Int] = [:]
     private var sampleReadTitleByName: [String: String] = [:]
     private var supportByRowAndSample: [GenotypeCandidateMatrixRowID: [String: ONTGenotypeSampleSupport]] = [:]
     private var selectedGenotype: String?
@@ -195,6 +197,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var sidecarCellReviews: [
         CellKey: GenotypeAnnotationSidecar.MatrixReviewAnnotation
     ] = [:]
+#if DEBUG
+    private var testingLastReloadTargets: [GenotypeAnnotationSidecar.MatrixTarget] = []
+#endif
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -746,6 +751,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             sampleColumnLookup[identifier] = sample
             addColumn(to: tableView, identifier: identifier, title: sample, width: 68, minWidth: 58, ascending: false)
         }
+        rebuildVisibleColumnIndex()
         updatePinnedWidth()
         pinnedTableView.headerView?.frame.size.height = 34
         tableView.headerView?.frame.size.height = 34
@@ -1189,6 +1195,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         if let descriptor = activeSortDescriptors.first, let key = descriptor.key {
             visibleRows.sort { compare($0, $1, key: key, ascending: descriptor.ascending) }
         }
+        rebuildVisibleRowIndex()
         reloadAllTables()
         reconcileSelectionAfterFilter()
         onDisplaySummaryChanged?(visibleRows.count, totalRowCount, hiddenCellCount)
@@ -2207,10 +2214,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func reloadMatrixTargets(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
+#if DEBUG
+        testingLastReloadTargets = targets
+#endif
         guard !targets.isEmpty else { return }
         var pinnedRowIndexes = IndexSet()
-        var sampleRowIndexes = IndexSet()
-        var sampleColumnIndexes = IndexSet()
+        var broadRowTargetIndexes = IndexSet()
+        var broadColumnTargetIndexes = IndexSet()
+        var exactSampleColumnsByRow: [Int: IndexSet] = [:]
         let pinnedAllColumns = IndexSet(integersIn: 0..<pinnedTableView.numberOfColumns)
         let sampleAllColumns = IndexSet(integersIn: 0..<tableView.numberOfColumns)
 
@@ -2219,19 +2230,16 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             case let .row(locus, genotype, stableClusterID):
                 if let rowIndex = visibleRowIndex(locus: locus, genotype: genotype, stableClusterID: stableClusterID) {
                     pinnedRowIndexes.insert(rowIndex)
-                    sampleRowIndexes.insert(rowIndex)
-                    sampleColumnIndexes.formUnion(sampleAllColumns)
+                    broadRowTargetIndexes.insert(rowIndex)
                 }
             case let .column(sample):
                 if let columnIndex = visibleColumnIndex(sample: sample), tableView.numberOfRows > 0 {
-                    sampleRowIndexes.formUnion(IndexSet(integersIn: 0..<tableView.numberOfRows))
-                    sampleColumnIndexes.insert(columnIndex)
+                    broadColumnTargetIndexes.insert(columnIndex)
                 }
             case let .cell(locus, genotype, sample, stableClusterID):
                 if let rowIndex = visibleRowIndex(locus: locus, genotype: genotype, stableClusterID: stableClusterID),
                    let columnIndex = visibleColumnIndex(sample: sample) {
-                    sampleRowIndexes.insert(rowIndex)
-                    sampleColumnIndexes.insert(columnIndex)
+                    exactSampleColumnsByRow[rowIndex, default: []].insert(columnIndex)
                 }
             }
         }
@@ -2239,9 +2247,56 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         if !pinnedRowIndexes.isEmpty, !pinnedAllColumns.isEmpty {
             pinnedTableView.reloadData(forRowIndexes: pinnedRowIndexes, columnIndexes: pinnedAllColumns)
         }
-        if !sampleRowIndexes.isEmpty, !sampleColumnIndexes.isEmpty {
-            tableView.reloadData(forRowIndexes: sampleRowIndexes, columnIndexes: sampleColumnIndexes)
+        if !broadRowTargetIndexes.isEmpty, !sampleAllColumns.isEmpty {
+            tableView.reloadData(
+                forRowIndexes: broadRowTargetIndexes,
+                columnIndexes: sampleAllColumns
+            )
         }
+        if tableView.numberOfRows > 0, !broadColumnTargetIndexes.isEmpty {
+            tableView.reloadData(
+                forRowIndexes: IndexSet(integersIn: 0..<tableView.numberOfRows),
+                columnIndexes: broadColumnTargetIndexes
+            )
+        }
+        for rowIndex in exactSampleColumnsByRow.keys.sorted() {
+            guard var columnIndexes = exactSampleColumnsByRow[rowIndex] else { continue }
+            if broadRowTargetIndexes.contains(rowIndex) {
+                continue
+            }
+            columnIndexes.subtract(broadColumnTargetIndexes)
+            guard !columnIndexes.isEmpty else { continue }
+            tableView.reloadData(
+                forRowIndexes: IndexSet(integer: rowIndex),
+                columnIndexes: columnIndexes
+            )
+        }
+    }
+
+    private func rebuildVisibleRowIndex() {
+        visibleRowIndexByKey = [:]
+        visibleRowIndexByKey.reserveCapacity(visibleRows.count * 2)
+        for (index, row) in visibleRows.enumerated() {
+            visibleRowIndexByKey[
+                RowKey(
+                    locus: row.locus,
+                    genotype: row.genotype,
+                    stableClusterID: row.stableClusterID
+                )
+            ] = index
+            let legacyKey = RowKey(locus: row.locus, genotype: row.genotype)
+            if visibleRowIndexByKey[legacyKey] == nil {
+                visibleRowIndexByKey[legacyKey] = index
+            }
+        }
+    }
+
+    private func rebuildVisibleColumnIndex() {
+        visibleColumnIndexBySample = Dictionary(
+            uniqueKeysWithValues: tableView.tableColumns.enumerated().compactMap { index, column in
+                sampleColumnLookup[column.identifier].map { ($0, index) }
+            }
+        )
     }
 
     private func visibleRowIndex(
@@ -2249,16 +2304,25 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         genotype: String,
         stableClusterID: String? = nil
     ) -> Int? {
-        if let stableClusterID {
-            return visibleRows.firstIndex {
-                $0.locus == locus && $0.genotype == genotype && $0.stableClusterID == stableClusterID
-            }
-        }
-        return visibleRows.firstIndex { $0.locus == locus && $0.genotype == genotype }
+        visibleRowIndexByKey[
+            RowKey(
+                locus: locus,
+                genotype: genotype,
+                stableClusterID: stableClusterID
+            )
+        ]
     }
 
     private func visibleColumnIndex(sample: String) -> Int? {
-        tableView.tableColumns.firstIndex { sampleColumnLookup[$0.identifier] == sample }
+        visibleColumnIndexBySample[sample]
+    }
+
+    func tableViewColumnDidMove(_ notification: Notification) {
+        guard let movedTableView = notification.object as? NSTableView,
+              movedTableView === tableView else {
+            return
+        }
+        rebuildVisibleColumnIndex()
     }
 
     func showOnlySelectedRows() {
@@ -2858,10 +2922,12 @@ private final class GenotypeMatrixTableView: NSTableView {
 #if DEBUG
     private(set) var testingFullReloadCount = 0
     private(set) var testingPartialReloadCount = 0
+    private(set) var testingPartialReloadedCellCount = 0
 
     func testingResetReloadCounters() {
         testingFullReloadCount = 0
         testingPartialReloadCount = 0
+        testingPartialReloadedCellCount = 0
     }
 #endif
 
@@ -2875,6 +2941,7 @@ private final class GenotypeMatrixTableView: NSTableView {
     override func reloadData(forRowIndexes rowIndexes: IndexSet, columnIndexes: IndexSet) {
 #if DEBUG
         testingPartialReloadCount += 1
+        testingPartialReloadedCellCount += rowIndexes.count * columnIndexes.count
 #endif
         super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
     }
@@ -3492,6 +3559,7 @@ extension GenotypeComparisonMatrixView {
 
     func testingResetReloadCounters() {
         tableView.testingResetReloadCounters()
+        testingLastReloadTargets = []
     }
 
     var testingFullReloadCount: Int {
@@ -3500,6 +3568,14 @@ extension GenotypeComparisonMatrixView {
 
     var testingPartialReloadCount: Int {
         tableView.testingPartialReloadCount
+    }
+
+    var testingPartialReloadedCellCount: Int {
+        tableView.testingPartialReloadedCellCount
+    }
+
+    var testingReloadTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
+        testingLastReloadTargets
     }
 
     func testingRenderVisibleCells(rowLimit: Int) {

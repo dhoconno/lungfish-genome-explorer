@@ -70,6 +70,7 @@ extension ViewerViewController {
 
     func hideGenotypeResultView() {
         guard let controller = genotypeResultViewController else { return }
+        controller.onMatrixReviewCapabilityChanged = nil
         controller.view.removeFromSuperview()
         controller.removeFromParent()
         genotypeResultViewController = nil
