@@ -27,6 +27,127 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(runner.invocations.count, 0)
         XCTAssertEqual(opened, [workbook.standardizedFileURL])
         XCTAssertEqual(coordinator.phase(for: bundle), .current)
+        XCTAssertFalse(coordinator.testingHasRetainedRequest(for: bundle))
+    }
+
+    func testCleanFingerprintWithInvalidWorkbookUpdatesBeforeOpening() async throws {
+        let bundle = bundleURL("clean-invalid-workbook")
+        let fingerprint = try makeFingerprint("a")
+        let publishedWorkbook = bundle.appendingPathComponent(
+            "artifacts/workbooks/current.xlsx"
+        )
+        let runner = ControlledRunner()
+        var opened: [URL] = []
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in fingerprint },
+            currentWorkbookResolver: { _ in nil },
+            updateRunner: { request, intent in
+                try await runner.run(request, intent: intent)
+            },
+            workbookOpener: { opened.append($0) },
+            idleScheduler: TestIdleScheduler().schedule
+        )
+        let request = makeRequest(bundle: bundle, fingerprint: fingerprint)
+
+        let waiter = Task {
+            try await coordinator.synchronize(request, intent: .updateAndView)
+        }
+        try await waitUntil { runner.invocations.count == 1 }
+
+        XCTAssertTrue(opened.isEmpty)
+        XCTAssertEqual(coordinator.phase(for: bundle), .updating)
+
+        runner.succeedInvocation(at: 0, with: publishedWorkbook)
+        _ = try await waiter.value
+
+        XCTAssertEqual(opened, [publishedWorkbook.standardizedFileURL])
+        XCTAssertEqual(runner.invocations.count, 1)
+    }
+
+    func testDefaultWorkbookValidationRejectsMissingDirectoryAndSymlink() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "GenotypeCurrentWorkbookSyncCoordinatorValidation-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: temp,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let missing = temp.appendingPathComponent("missing.xlsx")
+        let directory = temp.appendingPathComponent("directory.xlsx", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let regular = temp.appendingPathComponent("regular.xlsx")
+        try Data("workbook".utf8).write(to: regular)
+        let symlink = temp.appendingPathComponent("symlink.xlsx")
+        try FileManager.default.createSymbolicLink(
+            at: symlink,
+            withDestinationURL: regular
+        )
+
+        XCTAssertNil(
+            GenotypeCurrentWorkbookSyncCoordinator
+                .validatedCurrentWorkbookURL(at: missing)
+        )
+        XCTAssertNil(
+            GenotypeCurrentWorkbookSyncCoordinator
+                .validatedCurrentWorkbookURL(at: directory)
+        )
+        XCTAssertNil(
+            GenotypeCurrentWorkbookSyncCoordinator
+                .validatedCurrentWorkbookURL(at: symlink)
+        )
+        XCTAssertEqual(
+            GenotypeCurrentWorkbookSyncCoordinator
+                .validatedCurrentWorkbookURL(at: regular),
+            regular.standardizedFileURL
+        )
+    }
+
+    func testWorkbookResolutionCannotOverwriteNewerDirtyGeneration() async throws {
+        let bundle = bundleURL("resolver-race")
+        let recorded = try makeFingerprint("a")
+        let newer = try makeFingerprint("b")
+        let resolver = ControlledWorkbookResolver()
+        let runner = ControlledRunner()
+        var opened: [URL] = []
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in recorded },
+            currentWorkbookResolver: { bundle in
+                await resolver.resolve(bundle)
+            },
+            updateRunner: { request, intent in
+                try await runner.run(request, intent: intent)
+            },
+            workbookOpener: { opened.append($0) },
+            idleScheduler: TestIdleScheduler().schedule
+        )
+        let cleanRequest = makeRequest(bundle: bundle, fingerprint: recorded)
+        let newerRequest = makeRequest(bundle: bundle, fingerprint: newer)
+        let waiter = Task {
+            try await coordinator.synchronize(
+                cleanRequest,
+                intent: .updateAndView
+            )
+        }
+        try await waitUntil { resolver.callCount == 1 }
+
+        coordinator.markDirty(newerRequest)
+        resolver.finish(
+            with: bundle.appendingPathComponent("stale-current.xlsx")
+        )
+        try await waitUntil { runner.invocations.count == 1 }
+
+        XCTAssertEqual(runner.invocations.first?.request.fingerprint, newer)
+        XCTAssertTrue(opened.isEmpty)
+
+        runner.succeedInvocation(at: 0)
+        _ = try await waiter.value
+        XCTAssertEqual(opened.count, 1)
+        XCTAssertFalse(coordinator.testingHasRetainedRequest(for: bundle))
     }
 
     func testDirtyRequestRunsOnceRecordsIntentAndAutomaticNeverOpens() async throws {
@@ -51,6 +172,39 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.phase(for: bundle), .current)
     }
 
+    func testAnnotationOnlyRequestPreservesNonemptySemanticCallsForRunner() async throws {
+        let bundle = bundleURL("annotation-semantic-calls")
+        let fingerprint = try makeFingerprint("b")
+        let calls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "semantic-sample",
+                locus: "MHC-DP",
+                haplotype1: "DP1",
+                haplotype2: "DP2",
+                status: "reviewed",
+                notes: "must survive annotation-only coordination"
+            ),
+        ]
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        let coordinator = makeCoordinator(recorded: nil, runner: runner)
+        let request = GenotypeCurrentWorkbookSyncCoordinator.Request(
+            bundleURL: bundle,
+            calls: calls,
+            includedLoci: ["MHC-DP"],
+            annotationSidecarURL: bundle.appendingPathComponent("annotations.json"),
+            annotationOnly: true,
+            fingerprint: fingerprint,
+            routeContext: nil
+        )
+
+        _ = try await coordinator.synchronize(request, intent: .automaticIdle)
+
+        XCTAssertEqual(runner.invocations.first?.request.calls, calls)
+        XCTAssertEqual(runner.invocations.first?.request.includedLoci, ["MHC-DP"])
+        XCTAssertEqual(runner.invocations.first?.request.annotationOnly, true)
+    }
+
     func testJoiningAutomaticUpdateRunsOnceAndUpdateAndViewOpensExactlyOnce() async throws {
         let bundle = bundleURL("join")
         let fingerprint = try makeFingerprint("c")
@@ -65,7 +219,7 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         let request = makeRequest(bundle: bundle, fingerprint: fingerprint)
 
         let automatic = Task { try await coordinator.synchronize(request, intent: .automaticIdle) }
-        await waitUntil { runner.invocations.count == 1 }
+        try await waitUntil { runner.invocations.count == 1 }
         let explicit = Task { try await coordinator.synchronize(request, intent: .updateAndView) }
         await Task.yield()
 
@@ -101,9 +255,9 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         let second = Task {
             try await coordinator.synchronize(request, intent: .bundleSwitch)
         }
-        await waitUntil { loader.callCount == 1 }
+        try await waitUntil { loader.callCount == 1 }
         loader.finish(with: nil)
-        await waitUntil { runner.invocations.count >= 1 }
+        try await waitUntil { runner.invocations.count >= 1 }
         for _ in 0..<20 {
             await Task.yield()
         }
@@ -133,14 +287,16 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         let firstWaiter = Task {
             try await coordinator.synchronize(first, intent: .automaticIdle)
         }
-        await waitUntil { runner.invocations.count == 1 }
+        try await waitUntil { runner.invocations.count == 1 }
         let explicitWaiter = Task {
             try await coordinator.synchronize(middle, intent: .updateAndView)
         }
         let latestWaiter = Task {
             try await coordinator.synchronize(latest, intent: .bundleSwitch)
         }
-        await waitUntil { coordinator.phase(for: bundle) == .dirtyWhileUpdating }
+        try await waitUntil {
+            coordinator.phase(for: bundle) == .dirtyWhileUpdating
+        }
         var coalescedLatest = latest
         for character: Character in ["0", "1", "2", "3", "4", "5"] {
             coalescedLatest = makeRequest(
@@ -152,7 +308,7 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(runner.invocations.count, 1)
         runner.succeedInvocation(at: 0)
-        await waitUntil { runner.invocations.count == 2 }
+        try await waitUntil { runner.invocations.count == 2 }
 
         XCTAssertEqual(
             runner.invocations[1].request.fingerprint,
@@ -195,12 +351,12 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
                 intent: .updateAndView
             )
         }
-        await waitUntil { runner.invocations.count == 1 }
+        try await waitUntil { runner.invocations.count == 1 }
         coordinator.markDirty(recordedRequest)
 
         XCTAssertEqual(coordinator.phase(for: bundle), .dirtyWhileUpdating)
         runner.succeedInvocation(at: 0)
-        await waitUntil { runner.invocations.count == 2 }
+        try await waitUntil { runner.invocations.count == 2 }
         guard runner.invocations.count == 2 else {
             _ = try await waiter.value
             return
@@ -259,7 +415,7 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
                 intent: .automaticIdle
             )
         }
-        await waitUntil { runner.invocations.count == 2 }
+        try await waitUntil { runner.invocations.count == 2 }
 
         XCTAssertEqual(runner.activeCount, 2)
         runner.succeedInvocation(at: 0)
@@ -300,7 +456,7 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         await scheduler.tokens[0].fire()
         XCTAssertEqual(runner.invocations.count, 0)
         await scheduler.tokens[1].fire()
-        await waitUntil { runner.invocations.count == 1 }
+        try await waitUntil { runner.invocations.count == 1 }
 
         XCTAssertEqual(runner.invocations[0].request.fingerprint, latest.fingerprint)
         XCTAssertEqual(runner.invocations[0].intent, .automaticIdle)
@@ -323,6 +479,91 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(scheduler.tokens[0].cancelled)
         XCTAssertEqual(runner.invocations.map(\.intent), [.bundleSwitch])
+    }
+
+    func testRegisterCleanReloadHasNoTimerOrRunnerInvocation() async throws {
+        let bundle = bundleURL("register-clean")
+        let fingerprint = try makeFingerprint("6")
+        let scheduler = TestIdleScheduler()
+        let runner = ControlledRunner()
+        let coordinator = makeCoordinator(
+            recorded: fingerprint,
+            runner: runner,
+            scheduler: scheduler
+        )
+
+        await coordinator.register(
+            makeRequest(bundle: bundle, fingerprint: fingerprint)
+        )
+
+        XCTAssertEqual(coordinator.phase(for: bundle), .current)
+        XCTAssertTrue(scheduler.tokens.isEmpty)
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertFalse(coordinator.testingHasRetainedRequest(for: bundle))
+    }
+
+    func testRegisterDirtyReloadSchedulesOneIdleWithoutRunningImmediately() async throws {
+        let bundle = bundleURL("register-dirty")
+        let scheduler = TestIdleScheduler()
+        let runner = ControlledRunner()
+        let coordinator = makeCoordinator(
+            recorded: try makeFingerprint("6"),
+            runner: runner,
+            scheduler: scheduler
+        )
+
+        await coordinator.register(
+            makeRequest(bundle: bundle, fingerprint: try makeFingerprint("7"))
+        )
+
+        XCTAssertEqual(coordinator.phase(for: bundle), .dirty)
+        XCTAssertEqual(scheduler.tokens.filter { !$0.cancelled }.count, 1)
+        XCTAssertEqual(
+            scheduler.delays,
+            [GenotypeCurrentWorkbookSyncCoordinator.idleDelayNanoseconds]
+        )
+        XCTAssertTrue(runner.invocations.isEmpty)
+    }
+
+    func testStaleRegistrationLoaderCannotOverwriteNewerDirtyRequest() async throws {
+        let bundle = bundleURL("register-race")
+        let recorded = try makeFingerprint("8")
+        let newer = try makeFingerprint("9")
+        let loader = ControlledFingerprintLoader()
+        let scheduler = TestIdleScheduler()
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { bundle in
+                await loader.load(bundle)
+            },
+            currentWorkbookResolver: { bundle in
+                bundle.appendingPathComponent("artifacts/workbooks/current.xlsx")
+            },
+            updateRunner: { request, intent in
+                try await runner.run(request, intent: intent)
+            },
+            workbookOpener: { _ in },
+            idleScheduler: scheduler.schedule
+        )
+        let registration = Task {
+            await coordinator.register(
+                makeRequest(bundle: bundle, fingerprint: recorded)
+            )
+        }
+        try await waitUntil { loader.callCount == 1 }
+
+        coordinator.markDirty(
+            makeRequest(bundle: bundle, fingerprint: newer)
+        )
+        loader.finish(with: recorded)
+        await registration.value
+
+        XCTAssertEqual(coordinator.phase(for: bundle), .dirty)
+        XCTAssertEqual(scheduler.tokens.filter { !$0.cancelled }.count, 1)
+        await scheduler.tokens.last?.fire()
+        try await waitUntil { runner.invocations.count == 1 }
+        XCTAssertEqual(runner.invocations.first?.request.fingerprint, newer)
     }
 
     func testFailureDoesNotOpenOrSpinAndExplicitRetryPublishesFingerprintAsCurrent() async throws {
@@ -394,6 +635,40 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.phase(for: bundle), .current)
     }
 
+    func testTerminalCurrentAndFailedStatesReleaseRequestPayload() async throws {
+        let bundle = bundleURL("terminal-retention")
+        let first = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("a")
+        )
+        let second = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("b")
+        )
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        let coordinator = makeCoordinator(recorded: nil, runner: runner)
+
+        _ = try await coordinator.synchronize(first, intent: .automaticIdle)
+        XCTAssertFalse(coordinator.testingHasRetainedRequest(for: bundle))
+
+        coordinator.markDirty(first)
+        XCTAssertEqual(coordinator.phase(for: bundle), .current)
+        XCTAssertFalse(coordinator.testingHasRetainedRequest(for: bundle))
+
+        runner.automaticallySucceed = false
+        runner.failNext = TestError.expected
+        do {
+            _ = try await coordinator.synchronize(second, intent: .automaticIdle)
+            XCTFail("Expected failure")
+        } catch TestError.expected {}
+
+        guard case .failed = coordinator.phase(for: bundle) else {
+            return XCTFail("Expected failed terminal phase")
+        }
+        XCTAssertFalse(coordinator.testingHasRetainedRequest(for: bundle))
+    }
+
     func testObserverReceivesOnlyPhaseTransitionsAndDoesNotRetainOwner() async throws {
         let bundle = bundleURL("observer")
         let runner = ControlledRunner()
@@ -414,6 +689,52 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         owner = nil
         XCTAssertNil(weakOwner.value)
         withExtendedLifetime(observation) {}
+    }
+
+    func testObserverSnapshotAllowsSelfCancellationAdditionAndNestedTransition() async throws {
+        let bundle = bundleURL("observer-reentrant")
+        let currentFingerprint = try makeFingerprint("a")
+        let dirtyFingerprint = try makeFingerprint("b")
+        let runner = ControlledRunner()
+        let coordinator = makeCoordinator(
+            recorded: currentFingerprint,
+            runner: runner
+        )
+        let currentRequest = makeRequest(
+            bundle: bundle,
+            fingerprint: currentFingerprint
+        )
+        _ = try await coordinator.synchronize(
+            currentRequest,
+            intent: .automaticIdle
+        )
+        let firstOwner = ObserverOwner()
+        let addedOwner = ObserverOwner()
+        var firstObservation:
+            GenotypeCurrentWorkbookSyncCoordinator.Observation?
+        var addedObservation:
+            GenotypeCurrentWorkbookSyncCoordinator.Observation?
+        firstObservation = coordinator.observe(firstOwner) {
+            owner, _, phase in
+            owner.phases.append(phase)
+            guard phase == .dirty else {
+                return
+            }
+            firstObservation?.cancel()
+            addedObservation = coordinator.observe(addedOwner) {
+                addedOwner, _, addedPhase in
+                addedOwner.phases.append(addedPhase)
+            }
+            coordinator.markDirty(currentRequest)
+        }
+
+        coordinator.markDirty(
+            makeRequest(bundle: bundle, fingerprint: dirtyFingerprint)
+        )
+
+        XCTAssertEqual(firstOwner.phases, [.dirty])
+        XCTAssertEqual(addedOwner.phases, [.current])
+        withExtendedLifetime((firstObservation, addedObservation)) {}
     }
 
     private func makeCoordinator(
@@ -452,8 +773,7 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         ]
         return .init(
             bundleURL: bundle,
-            displayedCalls: displayed,
-            effectiveCalls: displayed,
+            calls: displayed,
             includedLoci: ["MHC-A"],
             annotationSidecarURL: bundle.appendingPathComponent("annotations.json"),
             annotationOnly: false,
@@ -476,17 +796,15 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
     }
 
     private func waitUntil(
-        _ predicate: @escaping @MainActor () -> Bool,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async {
+        _ predicate: @escaping @MainActor () -> Bool
+    ) async throws {
         for _ in 0..<1_000 {
             if predicate() {
                 return
             }
             await Task.yield()
         }
-        XCTFail("Condition did not become true", file: file, line: line)
+        throw TestError.timedOut
     }
 }
 
@@ -562,6 +880,24 @@ private final class ControlledFingerprintLoader {
 }
 
 @MainActor
+private final class ControlledWorkbookResolver {
+    private(set) var callCount = 0
+    private var continuation: CheckedContinuation<URL?, Never>?
+
+    func resolve(_ bundleURL: URL) async -> URL? {
+        callCount += 1
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func finish(with workbookURL: URL?) {
+        continuation?.resume(returning: workbookURL)
+        continuation = nil
+    }
+}
+
+@MainActor
 private final class TestIdleScheduler {
     private(set) var delays: [UInt64] = []
     private(set) var tokens: [Token] = []
@@ -609,4 +945,5 @@ private final class WeakReference<Value: AnyObject> {
 
 private enum TestError: Error {
     case expected
+    case timedOut
 }

@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import LungfishIO
 import LungfishKit
@@ -17,25 +18,16 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
 
     struct Request: Sendable {
         let bundleURL: URL
-        let displayedCalls: [GenotypeWorkbookHaplotypeCall]
-        let effectiveCalls: [GenotypeWorkbookHaplotypeCall]
+        let calls: [GenotypeWorkbookHaplotypeCall]
         let includedLoci: [String]
         let annotationSidecarURL: URL?
         let annotationOnly: Bool
         let fingerprint: GenotypeCurrentWorkbookInputFingerprint
         let routeContext: OperationRouteContext?
 
-        var fingerprintInputs: GenotypeWorkbookFingerprintInputs {
-            GenotypeWorkbookFingerprintInputs(
-                calls: displayedCalls,
-                includedLoci: includedLoci
-            )
-        }
-
         init(
             bundleURL: URL,
-            displayedCalls: [GenotypeWorkbookHaplotypeCall],
-            effectiveCalls: [GenotypeWorkbookHaplotypeCall],
+            calls: [GenotypeWorkbookHaplotypeCall],
             includedLoci: [String],
             annotationSidecarURL: URL?,
             annotationOnly: Bool,
@@ -43,8 +35,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             routeContext: OperationRouteContext?
         ) {
             self.bundleURL = bundleURL.standardizedFileURL
-            self.displayedCalls = displayedCalls
-            self.effectiveCalls = effectiveCalls
+            self.calls = calls
             self.includedLoci = includedLoci
             self.annotationSidecarURL = annotationSidecarURL?.standardizedFileURL
             self.annotationOnly = annotationOnly
@@ -60,7 +51,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
 
     typealias RecordedFingerprintLoader =
         @MainActor (URL) async -> GenotypeCurrentWorkbookInputFingerprint?
-    typealias CurrentWorkbookResolver = @MainActor (URL) async -> URL
+    typealias CurrentWorkbookResolver = @MainActor (URL) async -> URL?
     typealias UpdateRunner =
         @MainActor (Request, GenotypeCurrentWorkbookSyncIntent) async throws -> URL
     typealias WorkbookOpener = @MainActor (URL) -> Void
@@ -89,7 +80,6 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             coordinator?.observers.removeValue(forKey: id)
             coordinator = nil
         }
-
     }
 
     private struct BundleState {
@@ -138,22 +128,18 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         }
         self.currentWorkbookResolver = currentWorkbookResolver ?? { bundleURL in
             await Task.detached {
-                if let resolved = try? ONTGenotypeResultBundle.currentWorkbookURL(
+                guard let resolved = try? ONTGenotypeResultBundle.currentWorkbookURL(
                     for: bundleURL
-                ) {
-                    return resolved.standardizedFileURL
+                ) else {
+                    return nil
                 }
-                return bundleURL
-                    .appendingPathComponent("artifacts", isDirectory: true)
-                    .appendingPathComponent("workbooks", isDirectory: true)
-                    .appendingPathComponent("current.xlsx")
-                    .standardizedFileURL
+                return Self.validatedCurrentWorkbookURL(at: resolved)
             }.value
         }
         self.updateRunner = updateRunner ?? { request, intent in
             try await GenotypeCurrentWorkbookUpdateExecutionService().run(
                 bundleURL: request.bundleURL,
-                calls: request.effectiveCalls,
+                calls: request.calls,
                 includedLoci: request.includedLoci,
                 annotationSidecarURL: request.annotationSidecarURL,
                 annotationOnly: request.annotationOnly,
@@ -210,9 +196,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             return
         }
         if authoritativeCurrentFingerprint(in: state) == request.fingerprint {
-            state.latestRequest = request
-            state.idleCancellation?.cancel()
-            state.idleCancellation = nil
+            clearTerminalTransients(in: &state)
             states[key] = state
             setPhase(.current, for: key, bundleURL: request.bundleURL)
             return
@@ -228,6 +212,62 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         notifyPhaseIfChanged(
             from: oldPhase,
             to: state.phase,
+            bundleURL: request.bundleURL
+        )
+        scheduleIdle(for: key, bundleURL: request.bundleURL)
+    }
+
+    /// Registers the controller's latest semantic snapshot without immediately
+    /// running an update. A stale registration is ignored after actor reentrancy.
+    func register(_ request: Request) async {
+        let key = Self.bundleKey(for: request.bundleURL)
+        var state = states[key] ?? BundleState()
+        let oldPhase = state.phase
+        let changedGeneration = registerLatest(request, in: &state)
+        let registrationGeneration = state.generation
+        if state.operation != nil {
+            if changedGeneration {
+                state.phase = .dirtyWhileUpdating
+            }
+            states[key] = state
+            notifyPhaseIfChanged(
+                from: oldPhase,
+                to: state.phase,
+                bundleURL: request.bundleURL
+            )
+            return
+        }
+        states[key] = state
+
+        _ = await recordedFingerprint(for: key, bundleURL: request.bundleURL)
+        guard var registeredState = states[key],
+              registeredState.operation == nil,
+              registeredState.generation == registrationGeneration,
+              registeredState.latestRequest?.fingerprint == request.fingerprint
+        else {
+            return
+        }
+
+        if authoritativeCurrentFingerprint(in: registeredState)
+            == request.fingerprint {
+            let phaseBeforeDecision = registeredState.phase
+            clearTerminalTransients(in: &registeredState)
+            registeredState.phase = .current
+            states[key] = registeredState
+            notifyPhaseIfChanged(
+                from: phaseBeforeDecision,
+                to: .current,
+                bundleURL: request.bundleURL
+            )
+            return
+        }
+
+        let phaseBeforeDecision = registeredState.phase
+        registeredState.phase = .dirty
+        states[key] = registeredState
+        notifyPhaseIfChanged(
+            from: phaseBeforeDecision,
+            to: .dirty,
             bundleURL: request.bundleURL
         )
         scheduleIdle(for: key, bundleURL: request.bundleURL)
@@ -283,15 +323,32 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             return try await operation.value
         }
         if authoritativeCurrentFingerprint(in: state) == request.fingerprint {
-            state.latestRequest = request
-            states[key] = state
-            setPhase(.current, for: key, bundleURL: request.bundleURL)
+            let resolutionGeneration = state.generation
             let workbookURL = await currentWorkbookResolver(request.bundleURL)
-                .standardizedFileURL
-            if intent == .updateAndView {
-                workbookOpener(workbookURL)
+            var resolvedState = states[key] ?? state
+            if resolvedState.generation != resolutionGeneration,
+               let latestRequest = resolvedState.latestRequest {
+                return try await synchronize(latestRequest, intent: intent)
             }
-            return workbookURL
+            if let operation = resolvedState.operation {
+                if intent == .updateAndView {
+                    resolvedState.openAfterSuccess = true
+                    states[key] = resolvedState
+                }
+                return try await operation.value
+            }
+            state = resolvedState
+            if let workbookURL {
+                var currentState = resolvedState
+                clearTerminalTransients(in: &currentState)
+                states[key] = currentState
+                setPhase(.current, for: key, bundleURL: request.bundleURL)
+                let standardizedWorkbookURL = workbookURL.standardizedFileURL
+                if intent == .updateAndView {
+                    workbookOpener(standardizedWorkbookURL)
+                }
+                return standardizedWorkbookURL
+            }
         }
 
         let oldPhase = state.phase
@@ -388,8 +445,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
 
                 let shouldOpen = completedState.openAfterSuccess
                 let phaseBeforeCompletion = completedState.phase
-                completedState.openAfterSuccess = false
-                completedState.operation = nil
+                clearTerminalTransients(in: &completedState)
                 completedState.phase = .current
                 states[key] = completedState
                 notifyPhaseIfChanged(
@@ -406,10 +462,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                     throw error
                 }
                 let oldFailedPhase = failedState.phase
-                failedState.operation = nil
-                failedState.openAfterSuccess = false
-                failedState.idleCancellation?.cancel()
-                failedState.idleCancellation = nil
+                clearTerminalTransients(in: &failedState)
                 failedState.phase = .failed(Self.userFacingMessage(for: error))
                 states[key] = failedState
                 notifyPhaseIfChanged(
@@ -494,6 +547,15 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         notifyPhaseIfChanged(from: oldPhase, to: phase, bundleURL: bundleURL)
     }
 
+    private func clearTerminalTransients(in state: inout BundleState) {
+        state.latestRequest = nil
+        state.idleCancellation?.cancel()
+        state.idleCancellation = nil
+        state.idleGeneration &+= 1
+        state.operation = nil
+        state.openAfterSuccess = false
+    }
+
     private func notifyPhaseIfChanged(
         from oldPhase: Phase,
         to newPhase: Phase,
@@ -502,10 +564,14 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         guard oldPhase != newPhase else {
             return
         }
-        let expired = observers.compactMap { id, observer in
-            observer(bundleURL, newPhase) ? nil : id
+        let snapshot = Array(observers)
+        var expired: [UUID] = []
+        for (id, observer) in snapshot {
+            if !observer(bundleURL, newPhase) {
+                expired.append(id)
+            }
         }
-        for id in expired {
+        for id in expired where observers[id] != nil {
             observers.removeValue(forKey: id)
         }
     }
@@ -553,6 +619,20 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
 
     private static func bundleKey(for bundleURL: URL) -> String {
         bundleURL.standardizedFileURL.path
+    }
+
+    nonisolated static func validatedCurrentWorkbookURL(at url: URL) -> URL? {
+        let standardizedURL = url.standardizedFileURL
+        var information = stat()
+        guard Darwin.lstat(standardizedURL.path, &information) == 0,
+              information.st_mode & S_IFMT == S_IFREG else {
+            return nil
+        }
+        return standardizedURL
+    }
+
+    func testingHasRetainedRequest(for bundleURL: URL) -> Bool {
+        states[Self.bundleKey(for: bundleURL)]?.latestRequest != nil
     }
 }
 
