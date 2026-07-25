@@ -71,6 +71,14 @@ enum SettingsAccessibilityID {
 }
 
 enum InspectorAccessibilityID {
+    static let genotypeContentTextSizeDecrease =
+        "genotype-view-content-text-size-decrease"
+    static let genotypeContentTextSizeValue =
+        "genotype-view-content-text-size-value"
+    static let genotypeContentTextSizeIncrease =
+        "genotype-view-content-text-size-increase"
+    static let genotypeContentTextSizeDefault =
+        "genotype-view-content-text-size-default"
     static let analystIdentityLabel = "genotype-annotation-analyst-identity-label"
     static let analystIdentitySettingsButton = "genotype-annotation-analyst-identity-settings-button"
     static let reviewGroup = "genotype-annotation-review-group"

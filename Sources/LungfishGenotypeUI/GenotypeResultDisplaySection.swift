@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishKit
 
 @inline(__always)
 func isSupportedMHCCandidateDocumentSchemaVersion(_ schemaVersion: Int) -> Bool {
@@ -77,12 +78,68 @@ public final class GenotypeResultDisplaySectionViewModel {
 
     @ObservationIgnored
     private var isUpdatingFromSelection = false
+    @ObservationIgnored
+    private let contentTextSizeAnnouncementPoster: any AccessibilityAnnouncementPosting
     private var matrixCommentDrafts: [GenotypeMatrixCommentScope: String] = [:]
     @ObservationIgnored
     private var loadedMatrixCommentStates:
         [GenotypeMatrixCommentScope: GenotypeMatrixValueState<String>] = [:]
 
-    public init() {}
+    public init(
+        contentTextSizeAnnouncementPoster: any AccessibilityAnnouncementPosting =
+            AccessibilityAnnouncementPoster()
+    ) {
+        self.contentTextSizeAnnouncementPoster = contentTextSizeAnnouncementPoster
+    }
+
+    public var contentTextSizePreference: ContentTextSizePreference {
+        AppSettings.shared.contentTextSizePreference.normalized
+    }
+
+    public var contentTextSizeLabel: String {
+        switch contentTextSizePreference {
+        case .system:
+            return "System"
+        case .custom(let percentage):
+            return "\(percentage)%"
+        }
+    }
+
+    public var canIncreaseContentTextSize: Bool {
+        contentTextSizePreference.larger != contentTextSizePreference
+    }
+
+    public var canDecreaseContentTextSize: Bool {
+        contentTextSizePreference.smaller != contentTextSizePreference
+    }
+
+    public func increaseContentTextSize() {
+        applyContentTextSizePreference(contentTextSizePreference.larger)
+    }
+
+    public func decreaseContentTextSize() {
+        applyContentTextSizePreference(contentTextSizePreference.smaller)
+    }
+
+    public func restoreSystemContentTextSize() {
+        applyContentTextSizePreference(.system)
+    }
+
+    private func applyContentTextSizePreference(
+        _ requestedPreference: ContentTextSizePreference
+    ) {
+        let preference = requestedPreference.normalized
+        guard preference != contentTextSizePreference else { return }
+        AppSettings.shared.contentTextSizePreference = preference
+        AppSettings.shared.save()
+        let announcement = switch preference {
+        case .system:
+            "Content text size System"
+        case .custom(let percentage):
+            "Content text size \(percentage) percent"
+        }
+        contentTextSizeAnnouncementPoster.post(announcement, priority: .medium)
+    }
 
     public func update(
         isAvailable: Bool,
@@ -739,6 +796,7 @@ public struct GenotypeResultDisplaySection: View {
             DisclosureGroup(isExpanded: $viewModel.isExpanded) {
                 VStack(alignment: .leading, spacing: 10) {
                     summary
+                    contentTextSizeControls
                     if viewModel.mhcCandidateControlsAvailable
                         || !viewModel.mhcCandidateIntegrityWarnings.isEmpty
                         || viewModel.mhcCandidatePersistenceWarning != nil {
@@ -766,6 +824,44 @@ public struct GenotypeResultDisplaySection: View {
                 Label("Genotype Display", systemImage: "tablecells")
                     .font(.headline)
             }
+        }
+    }
+
+    private var contentTextSizeControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Content Text Size")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("A−") {
+                    viewModel.decreaseContentTextSize()
+                }
+                .disabled(!viewModel.canDecreaseContentTextSize)
+                .accessibilityLabel("Decrease content text size")
+                .accessibilityIdentifier("genotype-view-content-text-size-decrease")
+
+                Text(viewModel.contentTextSizeLabel)
+                    .frame(minWidth: 48)
+                    .accessibilityLabel("Content text size")
+                    .accessibilityValue(viewModel.contentTextSizeLabel)
+                    .accessibilityIdentifier("genotype-view-content-text-size-value")
+
+                Button("A+") {
+                    viewModel.increaseContentTextSize()
+                }
+                .disabled(!viewModel.canIncreaseContentTextSize)
+                .accessibilityLabel("Increase content text size")
+                .accessibilityIdentifier("genotype-view-content-text-size-increase")
+
+                Button("Default") {
+                    viewModel.restoreSystemContentTextSize()
+                }
+                .disabled(viewModel.contentTextSizePreference == .system)
+                .accessibilityLabel("Use system content text size")
+                .accessibilityIdentifier("genotype-view-content-text-size-default")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
         }
     }
 

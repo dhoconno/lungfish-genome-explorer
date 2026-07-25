@@ -4,10 +4,95 @@ import XCTest
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import SwiftUI
 
 @MainActor
 final class GenotypeResultDisplaySectionTests: XCTestCase {
+    func testContentTextSizeActionsUseGlobalPreferenceWithoutPublishingDisplayState() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+
+        let announcements = RecordingContentTextSizeAnnouncements()
+        let viewModel = GenotypeResultDisplaySectionViewModel(
+            contentTextSizeAnnouncementPoster: announcements
+        )
+        var displayStatePublicationCount = 0
+        viewModel.onDisplayStateChanged = { _ in displayStatePublicationCount += 1 }
+
+        XCTAssertEqual(viewModel.contentTextSizeLabel, "100%")
+        XCTAssertTrue(viewModel.canDecreaseContentTextSize)
+        XCTAssertTrue(viewModel.canIncreaseContentTextSize)
+
+        viewModel.increaseContentTextSize()
+
+        XCTAssertEqual(settings.contentTextSizePreference, .custom(125))
+        XCTAssertEqual(viewModel.contentTextSizeLabel, "125%")
+        XCTAssertEqual(announcements.messages, ["Content text size 125 percent"])
+        XCTAssertEqual(displayStatePublicationCount, 0)
+
+        viewModel.restoreSystemContentTextSize()
+
+        XCTAssertEqual(settings.contentTextSizePreference, .system)
+        XCTAssertEqual(viewModel.contentTextSizeLabel, "System")
+        XCTAssertEqual(
+            announcements.messages,
+            ["Content text size 125 percent", "Content text size System"]
+        )
+        XCTAssertEqual(displayStatePublicationCount, 0)
+    }
+
+    func testContentTextSizeActionsRespectSupportedBoundsAndDoNotAnnounceNoOp() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        let announcements = RecordingContentTextSizeAnnouncements()
+        let viewModel = GenotypeResultDisplaySectionViewModel(
+            contentTextSizeAnnouncementPoster: announcements
+        )
+
+        settings.contentTextSizePreference = .custom(90)
+        settings.save()
+        XCTAssertFalse(viewModel.canDecreaseContentTextSize)
+        viewModel.decreaseContentTextSize()
+        XCTAssertEqual(settings.contentTextSizePreference, .custom(90))
+        XCTAssertTrue(announcements.messages.isEmpty)
+
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+        XCTAssertFalse(viewModel.canIncreaseContentTextSize)
+        viewModel.increaseContentTextSize()
+        XCTAssertEqual(settings.contentTextSizePreference, .custom(200))
+        XCTAssertTrue(announcements.messages.isEmpty)
+    }
+
+    func testContentTextSizeInspectorUsesStableAccessibleControls() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Text(\"Content Text Size\")"))
+        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-decrease\""))
+        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-value\""))
+        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-increase\""))
+        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-default\""))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Decrease content text size\")"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Increase content text size\")"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Use system content text size\")"))
+    }
+
     func testDisplayViewModelEmitsLayoutAndThresholdChanges() {
         let viewModel = GenotypeResultDisplaySectionViewModel()
         var receivedStates: [GenotypeResultDisplayState] = []
@@ -1142,5 +1227,17 @@ private enum ColorBridge {
             blue: annotationColor.blue,
             opacity: annotationColor.alpha
         )
+    }
+}
+
+@MainActor
+private final class RecordingContentTextSizeAnnouncements: AccessibilityAnnouncementPosting {
+    private(set) var messages: [String] = []
+
+    func post(
+        _ message: String,
+        priority: ContentAccessibilityAnnouncementPriority
+    ) {
+        messages.append(message)
     }
 }
