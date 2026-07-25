@@ -14,33 +14,43 @@ public final class ContentTypographyModel {
 
     public private(set) var typography: ContentTypography
 
-    private let notificationCenter: NotificationCenter
+    private let notifications: any ContentTypographyNotificationObserving
     private let preferenceProvider: @MainActor () -> ContentTextSizePreference
     private let preferredFontProvider: any ContentPreferredFontProviding
-    private var notificationObserver: NSObjectProtocol?
+    private var notificationObservation: ContentTypographyNotificationObservation?
 
-    public init(
+    public convenience init(
         notificationCenter: NotificationCenter = .default,
         preferenceProvider: @escaping @MainActor () -> ContentTextSizePreference = {
             AppSettings.shared.contentTextSizePreference
         },
         preferredFontProvider: any ContentPreferredFontProviding = AppKitContentPreferredFontProvider()
     ) {
-        self.notificationCenter = notificationCenter
+        self.init(
+            notifications: NotificationCenterContentTypographyNotifications(
+                notificationCenter: notificationCenter
+            ),
+            preferenceProvider: preferenceProvider,
+            preferredFontProvider: preferredFontProvider
+        )
+    }
+
+    init(
+        notifications: any ContentTypographyNotificationObserving,
+        preferenceProvider: @escaping @MainActor () -> ContentTextSizePreference,
+        preferredFontProvider: any ContentPreferredFontProviding
+    ) {
+        self.notifications = notifications
         self.preferenceProvider = preferenceProvider
         self.preferredFontProvider = preferredFontProvider
         self.typography = ContentTypography(
             preference: preferenceProvider(),
             preferredFontProvider: preferredFontProvider
         )
-        notificationObserver = notificationCenter.addObserver(
-            forName: .contentTextSizeDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.refresh()
-            }
+        notificationObservation = notifications.observe(
+            .contentTextSizeDidChange
+        ) { [weak self] in
+            self?.refresh()
         }
     }
 
