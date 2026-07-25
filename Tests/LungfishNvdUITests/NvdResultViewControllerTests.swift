@@ -1,7 +1,10 @@
 import XCTest
+import AppKit
 @testable import LungfishNvdUI
 @testable import LungfishIO
 @testable import LungfishWorkflow
+import LungfishCore
+import LungfishKit
 
 @MainActor
 final class NvdResultViewControllerTests: XCTestCase {
@@ -188,6 +191,287 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertNotNil(sourceDirectory.fileSize)
     }
 
+    func testOutlineTypographyScalesReusedRolesAndLateMetadataWithoutReloading() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(100)
+
+        let fixture = try NvdMenuFixture(includeSecondaryHit: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let provider = MutableNvdPreferredFonts(bodyPointSize: 13)
+        let vc = NvdResultViewController()
+        vc.testingSetContentPreferredFontProvider(provider)
+        vc.view.frame = NSRect(x: 0, y: 0, width: 820, height: 420)
+        let window = NSWindow(
+            contentRect: vc.view.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = vc.view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+        vc.configure(database: fixture.database, manifest: fixture.manifest, bundleURL: fixture.bundleURL)
+        vc.testExpandFirstContig()
+        vc.view.layoutSubtreeIfNeeded()
+
+        let table = vc.testOutlineView
+        let contigColumn = try XCTUnwrap(table.tableColumns.firstIndex {
+            $0.identifier.rawValue == "contig"
+        })
+        let rankColumn = try XCTUnwrap(table.tableColumns.firstIndex {
+            $0.identifier.rawValue == "rank"
+        })
+        let contig = try XCTUnwrap(
+            (table.view(atColumn: contigColumn, row: 0, makeIfNecessary: true)
+                as? NSTableCellView)?.textField
+        )
+        let child = try XCTUnwrap(
+            (table.view(atColumn: contigColumn, row: 2, makeIfNecessary: true)
+                as? NSTableCellView)?.textField
+        )
+        let baselineContig = try XCTUnwrap(contig.font).pointSize
+        let baselineChild = try XCTUnwrap(child.font).pointSize
+        XCTAssertEqual(baselineContig, 11)
+        XCTAssertEqual(baselineChild, 10)
+        XCTAssertEqual(child.alphaValue, 0.7)
+        XCTAssertEqual(contig.toolTip, contig.stringValue)
+        XCTAssertEqual(child.accessibilityValue(), child.stringValue)
+
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        vc.view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(contig.font?.pointSize, baselineContig * 2)
+        XCTAssertEqual(child.font?.pointSize, baselineChild * 2)
+
+        vc.testSetGroupingMode(.byTaxon)
+        vc.testExpandFirstTaxon()
+        var taxon = try Self.outlineField(table, column: contigColumn, row: 0)
+        var rank = try Self.outlineField(table, column: rankColumn, row: 0)
+        XCTAssertEqual(taxon.font?.pointSize, 22)
+        XCTAssertTrue(try XCTUnwrap(taxon.font).fontDescriptor.symbolicTraits.contains(.bold))
+        XCTAssertEqual(rank.font?.pointSize, 22)
+
+        let store = try SampleMetadataStore(
+            csvData: Data("sample_id,collection_site\nsample1,Very long collection site\n".utf8),
+            knownSampleIds: ["sample1"]
+        )
+        vc.testShowMetadataColumn("collection_site", store: store)
+        vc.view.layoutSubtreeIfNeeded()
+        let metadataColumn = try XCTUnwrap(table.tableColumns.firstIndex {
+            $0.identifier.rawValue == "metadata_collection_site"
+        })
+        var metadata = try Self.outlineField(table, column: metadataColumn, row: 1)
+        let enlargedMetadata = try XCTUnwrap(metadata.font).pointSize
+        let enlargedSearch = try XCTUnwrap(vc.testSearchField.font).pointSize
+        vc.testSelectOutlineRow(1)
+        XCTAssertTrue(window.makeFirstResponder(vc.testSearchField))
+        let baselineFirstResponder = window.firstResponder.map(ObjectIdentifier.init)
+        let baselineRows = vc.testOutlineReloadCount
+        let baselineChildLoads = vc.testChildHitLoadCount
+        let baselineExpanded = vc.testExpandedOutlineItemIdentities
+        let baselineSelection = table.selectedRowIndexes
+        let baselineWidths = table.tableColumns.map(\.width)
+        table.sortDescriptors = [NSSortDescriptor(key: "contig", ascending: false)]
+        let baselineSort = table.sortDescriptors
+
+        XCTAssertEqual(taxon.font?.pointSize, 22)
+        XCTAssertEqual(metadata.font?.pointSize, enlargedMetadata)
+        XCTAssertEqual(vc.testSearchField.font?.pointSize, enlargedSearch)
+        XCTAssertGreaterThan(table.rowHeight, 22)
+        XCTAssertGreaterThan(try XCTUnwrap(table.headerView).frame.height, 24)
+
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        taxon = try Self.outlineField(table, column: contigColumn, row: 0)
+        rank = try Self.outlineField(table, column: rankColumn, row: 0)
+        metadata = try Self.outlineField(table, column: metadataColumn, row: 1)
+        XCTAssertEqual(taxon.font?.pointSize, 22)
+        XCTAssertEqual(vc.testOutlineReloadCount, baselineRows)
+        XCTAssertEqual(vc.testChildHitLoadCount, baselineChildLoads)
+        XCTAssertEqual(vc.testExpandedOutlineItemIdentities, baselineExpanded)
+        XCTAssertEqual(table.selectedRowIndexes, baselineSelection)
+        XCTAssertEqual(table.sortDescriptors, baselineSort)
+        XCTAssertEqual(table.tableColumns.map(\.width), baselineWidths)
+        XCTAssertEqual(window.firstResponder.map(ObjectIdentifier.init), baselineFirstResponder)
+
+        settings.contentTextSizePreference = .custom(100)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        taxon = try Self.outlineField(table, column: contigColumn, row: 0)
+        rank = try Self.outlineField(table, column: rankColumn, row: 0)
+        metadata = try Self.outlineField(table, column: metadataColumn, row: 1)
+        XCTAssertEqual(taxon.font?.pointSize, 11)
+        XCTAssertEqual(rank.font?.pointSize, 11)
+        XCTAssertEqual(metadata.font?.pointSize, enlargedMetadata / 2)
+        XCTAssertEqual(vc.testSearchField.font?.pointSize, enlargedSearch / 2)
+
+        settings.contentTextSizePreference = .system
+        provider.bodyPointSize = 26
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        taxon = try Self.outlineField(table, column: contigColumn, row: 0)
+        rank = try Self.outlineField(table, column: rankColumn, row: 0)
+        metadata = try Self.outlineField(table, column: metadataColumn, row: 1)
+        XCTAssertEqual(taxon.font?.pointSize, 22)
+        XCTAssertEqual(rank.font?.pointSize, 22)
+        XCTAssertEqual(metadata.font?.pointSize, enlargedMetadata)
+        provider.bodyPointSize = 13
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        taxon = try Self.outlineField(table, column: contigColumn, row: 0)
+        rank = try Self.outlineField(table, column: rankColumn, row: 0)
+        XCTAssertEqual(taxon.font?.pointSize, 11)
+        XCTAssertEqual(rank.font?.pointSize, 11)
+    }
+
+    func testDetailTypographyReflowsAtNarrowWidthWithoutRebuildingMiniBAM() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let fixture = try NvdMenuFixture()
+        addTeardownBlock { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let provider = MutableNvdPreferredFonts(bodyPointSize: 13)
+        let vc = NvdResultViewController()
+        vc.testingSetContentPreferredFontProvider(provider)
+        vc.testDisableMiniBAMLoading = true
+        vc.view.frame = NSRect(x: 0, y: 0, width: 520, height: 360)
+        let window = NSWindow(
+            contentRect: vc.view.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = vc.view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+        vc.configure(database: fixture.database, manifest: fixture.manifest, bundleURL: fixture.bundleURL)
+        vc.testSetDetailPaneWidth(240)
+        vc.testSelectOutlineRow(0)
+        vc.view.layoutSubtreeIfNeeded()
+
+        let baseline = vc.testDetailPrimaryPointSizes
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "contig_1"), 14)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "Sample: sample1"), 10)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "Identity"), 10)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "100.0%"), 12)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "Contig Alignment"), 11)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "Best hit:"), 10)
+        XCTAssertEqual(vc.testLoadingPointSize, 12)
+        let detailIdentity = ObjectIdentifier(vc.testDetailContentView)
+        let miniIdentity = vc.testMiniBAMControllerIdentity
+        let miniHeight = vc.testMiniBAMViewHeight
+        let rebuilds = vc.testDetailRebuildCount
+        let loads = vc.testMiniBAMLoadCount
+        vc.testDetailScrollView.contentView.scroll(to: NSPoint(x: 0, y: 18))
+        let origin = vc.testDetailScrollView.contentView.bounds.origin
+
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(zip(vc.testDetailPrimaryPointSizes, baseline).allSatisfy { $0 > $1 })
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "contig_1"), 28)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "Sample: sample1"), 20)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "Identity"), 18)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "100.0%"), 24)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "Contig Alignment"), 22)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "Best hit:"), 20)
+        XCTAssertEqual(vc.testLoadingPointSize, 24)
+        XCTAssertTrue(vc.testDetailPrimaryFieldsAreContained)
+        XCTAssertEqual(vc.testMetricStackOrientation, .vertical)
+        XCTAssertEqual(ObjectIdentifier(vc.testDetailContentView), detailIdentity)
+        XCTAssertEqual(vc.testMiniBAMControllerIdentity, miniIdentity)
+        XCTAssertEqual(vc.testMiniBAMViewHeight, miniHeight)
+        XCTAssertEqual(vc.testDetailRebuildCount, rebuilds)
+        XCTAssertEqual(vc.testMiniBAMLoadCount, loads)
+        XCTAssertEqual(vc.testDetailScrollView.contentView.bounds.origin, origin)
+        XCTAssertTrue(vc.testDetailFullTextAccessibility)
+
+        settings.contentTextSizePreference = .custom(100)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "contig_1"), 14)
+        settings.contentTextSizePreference = .system
+        provider.bodyPointSize = 26
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "contig_1"), 28)
+        provider.bodyPointSize = 13
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        XCTAssertEqual(vc.testDetailPrimaryPointSize(containing: "contig_1"), 14)
+        XCTAssertEqual(vc.testDetailRebuildCount, rebuilds)
+        XCTAssertEqual(vc.testMiniBAMLoadCount, loads)
+
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        vc.testingShowMultiSelectionPlaceholder(count: 3)
+        vc.view.layoutSubtreeIfNeeded()
+        XCTAssertTrue(vc.testPlaceholderFieldsAreContained)
+        XCTAssertTrue(vc.testPlaceholderPointSizes.allSatisfy { $0 >= 20 })
+    }
+
+    func testTypographyObservationDoesNotRetainController() {
+        weak var weakController: NvdResultViewController?
+        autoreleasepool {
+            let controller = NvdResultViewController()
+            _ = controller.view
+            weakController = controller
+        }
+        XCTAssertNil(weakController)
+    }
+
+    func testNoBAMDetailMessageUsesLiveContentTypography() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let vc = NvdResultViewController()
+        _ = vc.view
+        vc.configureWithCachedRows(
+            [Self.contigRow(sampleId: "sample-A", qseqid: "NODE_1")],
+            manifest: NvdManifest(
+                experiment: "exp-no-bam",
+                sampleCount: 1,
+                contigCount: 1,
+                hitCount: 1,
+                blastDbVersion: "db",
+                snakemakeRunId: "run",
+                sourceDirectoryPath: "/tmp",
+                samples: [],
+                cachedTopContigs: nil
+            ),
+            bundleURL: URL(fileURLWithPath: "/tmp/nvd-no-bam", isDirectory: true)
+        )
+        vc.testSelectOutlineRow(0)
+        XCTAssertEqual(
+            vc.testDetailPrimaryPointSize(containing: "No BAM data available"),
+            11
+        )
+        let rebuilds = vc.testDetailRebuildCount
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        XCTAssertEqual(
+            vc.testDetailPrimaryPointSize(containing: "No BAM data available"),
+            22
+        )
+        XCTAssertEqual(vc.testDetailRebuildCount, rebuilds)
+    }
+
     private static func contigRow(sampleId: String, qseqid: String) -> NvdContigRow {
         NvdContigRow(
             sampleId: sampleId,
@@ -204,6 +488,17 @@ final class NvdResultViewControllerTests: XCTestCase {
             readsPerBillion: 10_000
         )
     }
+
+    private static func outlineField(
+        _ table: NSOutlineView,
+        column: Int,
+        row: Int
+    ) throws -> NSTextField {
+        try XCTUnwrap(
+            (table.view(atColumn: column, row: row, makeIfNecessary: true)
+                as? NSTableCellView)?.textField
+        )
+    }
 }
 
 private struct NvdMenuFixture {
@@ -212,7 +507,7 @@ private struct NvdMenuFixture {
     let manifest: NvdManifest
     let database: NvdDatabase
 
-    init(duplicateContigs: Bool = false) throws {
+    init(duplicateContigs: Bool = false, includeSecondaryHit: Bool = false) throws {
         rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("nvd-menu-tests-\(UUID().uuidString)", isDirectory: true)
         bundleURL = rootURL.appendingPathComponent("fixture.nvd", isDirectory: true)
@@ -285,11 +580,40 @@ private struct NvdMenuFixture {
             hitRank: 1,
             readsPerBillion: 12_000_000
         )
+        let secondaryHit = NvdBlastHit(
+            experiment: "exp-1",
+            blastTask: "blastn",
+            sampleId: "sample1",
+            qseqid: "contig_1",
+            qlen: 8,
+            sseqid: "NC_000003.1",
+            stitle: "Secondary reference title",
+            taxRank: "species",
+            length: 7,
+            pident: 97,
+            evalue: 1e-10,
+            bitscore: 40,
+            sscinames: "Example virus",
+            staxids: "1234",
+            blastDbVersion: "db",
+            snakemakeRunId: "run-1",
+            mappedReads: 8,
+            totalReads: 1000,
+            statDbVersion: "stats-1",
+            adjustedTaxid: "1234",
+            adjustmentMethod: "dominant",
+            adjustedTaxidName: "Example virus",
+            adjustedTaxidRank: "species",
+            hitRank: 2,
+            readsPerBillion: 8_000_000
+        )
 
         let databaseURL = bundleURL.appendingPathComponent("nvd.sqlite")
         database = try NvdDatabase.create(
             at: databaseURL,
-            hits: duplicateContigs ? [hit, duplicateHit] : [hit],
+            hits: [hit]
+                + (duplicateContigs ? [duplicateHit] : [])
+                + (includeSecondaryHit ? [secondaryHit] : []),
             samples: [
                 NvdSampleMetadata(
                     sampleId: "sample1",
@@ -340,5 +664,31 @@ private struct NvdMenuFixture {
             ] : []),
             cachedTopContigs: nil
         )
+    }
+}
+
+@MainActor
+private final class MutableNvdPreferredFonts: ContentPreferredFontProviding {
+    var bodyPointSize: CGFloat
+
+    init(bodyPointSize: CGFloat) {
+        self.bodyPointSize = bodyPointSize
+    }
+
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        switch role {
+        case .caption:
+            return .systemFont(ofSize: bodyPointSize * 10 / 13)
+        case .monospaced:
+            return .monospacedSystemFont(ofSize: bodyPointSize, weight: .regular)
+        case .emphasizedBody, .tableHeader:
+            return .systemFont(ofSize: bodyPointSize, weight: .semibold)
+        case .body, .detail:
+            return .systemFont(ofSize: bodyPointSize)
+        }
+    }
+
+    func canonicalUnscaledPointSize(for role: ContentTypography.Role) -> CGFloat {
+        role == .caption ? 10 : 13
     }
 }

@@ -1,7 +1,7 @@
 # Result Viewport Content Typography Inventory
 
 This inventory records the completed Task 3b/3c audit of primary content in the
-Alignment, Assembly, Phylogenetic, 12S, EsViritu, and NAO-MGS result viewports.
+Alignment, Assembly, Phylogenetic, 12S, EsViritu, NAO-MGS, and NVD result viewports.
 Each adopted surface resolves from
 `ContentTypography` at creation and responds to
 `contentTextSizeDidChange` without scaling an already-scaled font.
@@ -32,6 +32,8 @@ Each adopted surface resolves from
 | `NaoMgsResultViewController.swift` | Taxonomy table standard and late metadata cells | Primary list content | Stable 11-point regular/medium monospaced baselines and semantic metadata fonts scale with adaptive rows/headers. Full values remain in tooltips and accessibility values. The horizontal scroller and no-autoresize policy preserve user widths; typography does not reload or re-transform rows. |
 | `NaoMgsChartViews.swift` | Overview title, explanation, section heading, and quick-stat cards | Primary overview content | Stable 9/11/13/14-point baselines resolve through `ContentTypographyModel`. Quick stats use an adaptive grid and multiline values, remaining contained as one column in a 240-point viewport at 200 percent. |
 | `NaoMgsResultViewController.swift` | Taxon title/subtitle, miniBAM list heading/note/empty state, accession strip, metrics, loading text, and selection placeholder | Primary detail content | Stable 9–14-point regular/bold/monospaced traits scale without rebuilding detail. Five metric pills and accession statistics stack and wrap at 150–200 percent or narrow widths. Detail scroll, MiniBAM controller identity/height, caches, and load state remain stable. |
+| `NvdResultViewController.swift` | Search, outline headers, contig/child/taxon rows, numeric fields, and late metadata cells | Primary list content | Stable 10/11-point regular/medium/semibold/monospaced traits are resolved for each assigned reuse role, so a cell reused between contig, rank-two child, and taxon rows never inherits the previous role. Rows and headers adapt while expansion, lazy child cache, selection, focus/editor, scroll, sort/order, and user widths remain stable without an outline reload. |
+| `NvdResultViewController.swift` | Overview, contig title/subtitle, six metric pills, no-BAM/alignment/accession text, loading text, and selection placeholder | Primary detail content | Stable 9–14-point traits scale from canonical metrics. Titles and values wrap; metric pills stack at 150–200 percent or narrow widths; the persistent placeholder remains bounded. Live updates preserve detail identity and scroll plus MiniBAM controller identity, height, lazy-load state, and cache state. |
 
 The two 12S result modes have distinct table/search accessibility identifiers
 and labels. Full scientific names, metadata strings, and base sequences remain
@@ -59,6 +61,11 @@ NAO-MGS summary/action/filter bars, native buttons other than the accession
 content link, menus, popovers, provenance hosting, BLAST drawer, and split-pane
 container chrome remain independently owned or native control chrome.
 
+NVD summary/action bars, sample and grouping controls, menus, popovers,
+provenance hosting, BLAST drawer, and split-pane container chrome remain
+independently owned or native control chrome. The outline search field is
+primary list content and is intentionally included.
+
 ## Scientific rendering exclusions
 
 - BAM pileup, coverage tracks, base-coordinate rulers, and other
@@ -83,6 +90,10 @@ container chrome remain independently owned or native control chrome.
   the complete taxon and localized read count as one accessibility element.
   Embedded MiniBAM renderers and BAM loading/cache state are excluded from
   content typography updates.
+- NVD MiniBAM drawing, BAM lookup/loading, hit queries, lazy child caches,
+  grouping, filtering, and detail reconstruction remain excluded. Typography
+  changes only resize ordinary surrounding text and never reload the outline
+  or rebuild the selected detail.
 
-No audited primary-content site in these six result families retains an
+No audited primary-content site in these seven result families retains an
 unscaled fixed AppKit font size after this adoption.
