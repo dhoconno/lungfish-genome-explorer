@@ -152,7 +152,18 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private var childHitsCache: [String: [NvdBlastHit]] = [:]
 
     /// Taxon groups for byTaxon grouping mode.
-    private var taxonGroups: [NvdTaxonGroup] = []
+    private var taxonGroups: [NvdTaxonGroup] = [] {
+        didSet {
+            taxonGroupLookup = Dictionary(
+                taxonGroups.map { ($0.adjustedTaxidName, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
+    }
+
+    /// Updated only when the by-taxon projection changes so each realized
+    /// typography cell resolves its group in O(1).
+    private var taxonGroupLookup: [String: NvdTaxonGroup] = [:]
 
     /// Contigs under each taxon group. Key: taxon name.
     private var taxonContigs: [String: [NvdBlastHit]] = [:]
@@ -256,6 +267,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private var detailRebuildCount = 0
     private var miniBAMLoadCount = 0
     private var typographyDisplayedContigScanCount = 0
+    private var typographyTaxonGroupScanCount = 0
     private var typographyRealizedCellResolutionCount = 0
     var testDisableMiniBAMLoading = false
 #endif
@@ -1379,9 +1391,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             field.font = resolvedContentFont(size: 11, weight: .semibold)
             field.alignment = .left
         case "mappedReads":
-            if let group = taxonGroups.first(where: {
-                $0.adjustedTaxidName == name
-            }) {
+            if let group = taxonGroupLookup[name] {
                 field.stringValue = nvdFormatCount(group.totalMappedReads)
                 field.font = resolvedContentFont(
                     size: 11, weight: .medium, digitsOnly: true
@@ -1391,9 +1401,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
                 field.stringValue = ""
             }
         case "rank":
-            if let group = taxonGroups.first(where: {
-                $0.adjustedTaxidName == name
-            }) {
+            if let group = taxonGroupLookup[name] {
                 field.stringValue = group.adjustedTaxidRank
                 field.font = resolvedContentFont(size: 11)
                 field.alignment = .left
@@ -2641,6 +2649,9 @@ extension NvdResultViewController {
     var testTypographyDisplayedContigScanCount: Int {
         typographyDisplayedContigScanCount
     }
+    var testTypographyTaxonGroupScanCount: Int {
+        typographyTaxonGroupScanCount
+    }
     var testTypographyRealizedCellResolutionCount: Int {
         typographyRealizedCellResolutionCount
     }
@@ -2737,6 +2748,7 @@ extension NvdResultViewController {
 
     func testResetTypographyDisplayedContigScanCount() {
         typographyDisplayedContigScanCount = 0
+        typographyTaxonGroupScanCount = 0
         typographyRealizedCellResolutionCount = 0
     }
 

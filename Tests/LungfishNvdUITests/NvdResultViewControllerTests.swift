@@ -510,6 +510,84 @@ final class NvdResultViewControllerTests: XCTestCase {
         )
     }
 
+    func testByTaxonTypographyIsBoundedAndPreservesOutlineState() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let fixture = try NvdMenuFixture(taxonCount: 80)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: fixture.rootURL)
+        }
+        let vc = NvdResultViewController()
+        vc.testDisableMiniBAMLoading = true
+        vc.view.frame = NSRect(x: 0, y: 0, width: 820, height: 420)
+        let window = NSWindow(
+            contentRect: vc.view.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = vc.view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+        vc.configure(
+            database: fixture.database,
+            manifest: fixture.manifest,
+            bundleURL: fixture.bundleURL
+        )
+        vc.testSetGroupingMode(.byTaxon)
+        vc.testExpandFirstTaxon()
+        vc.view.layoutSubtreeIfNeeded()
+
+        let table = vc.testOutlineView
+        let targetRow = min(40, table.numberOfRows - 1)
+        table.selectRowIndexes(IndexSet(integer: targetRow), byExtendingSelection: false)
+        table.sortDescriptors = [NSSortDescriptor(key: "mappedReads", ascending: false)]
+        let scrollView = try XCTUnwrap(table.enclosingScrollView)
+        scrollView.contentView.scroll(
+            to: NSPoint(x: 29, y: table.rect(ofRow: targetRow).minY + 2)
+        )
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        _ = try Self.outlineField(table, identifier: "mappedReads", row: targetRow)
+        _ = try Self.outlineField(table, identifier: "rank", row: targetRow)
+        let origin = scrollView.contentView.bounds.origin
+        let selection = table.selectedRowIndexes
+        let sort = table.sortDescriptors
+        let columnOrder = table.tableColumns.map(\.identifier)
+        let columnWidths = table.tableColumns.map(\.width)
+        let expanded = vc.testExpandedOutlineItemIdentities
+        let reloads = vc.testOutlineReloadCount
+        let childLoads = vc.testChildHitLoadCount
+        let realizedCellCapacity = table.rows(in: table.visibleRect).length
+            * table.tableColumns.filter { !$0.isHidden }.count
+        vc.testResetTypographyDisplayedContigScanCount()
+
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+
+        XCTAssertEqual(vc.testTypographyTaxonGroupScanCount, 0)
+        XCTAssertLessThanOrEqual(
+            vc.testTypographyRealizedCellResolutionCount,
+            realizedCellCapacity
+        )
+        XCTAssertEqual(scrollView.contentView.bounds.origin, origin)
+        XCTAssertEqual(table.selectedRowIndexes, selection)
+        XCTAssertEqual(table.sortDescriptors, sort)
+        XCTAssertEqual(table.tableColumns.map(\.identifier), columnOrder)
+        XCTAssertEqual(table.tableColumns.map(\.width), columnWidths)
+        XCTAssertEqual(vc.testExpandedOutlineItemIdentities, expanded)
+        XCTAssertEqual(vc.testOutlineReloadCount, reloads)
+        XCTAssertEqual(vc.testChildHitLoadCount, childLoads)
+    }
+
     func testTypographyObservationDoesNotRetainController() {
         weak var weakController: NvdResultViewController?
         autoreleasepool {
@@ -621,7 +699,11 @@ private struct NvdMenuFixture {
     let manifest: NvdManifest
     let database: NvdDatabase
 
-    init(duplicateContigs: Bool = false, includeSecondaryHit: Bool = false) throws {
+    init(
+        duplicateContigs: Bool = false,
+        includeSecondaryHit: Bool = false,
+        taxonCount: Int = 1
+    ) throws {
         rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("nvd-menu-tests-\(UUID().uuidString)", isDirectory: true)
         bundleURL = rootURL.appendingPathComponent("fixture.nvd", isDirectory: true)
@@ -721,13 +803,43 @@ private struct NvdMenuFixture {
             hitRank: 2,
             readsPerBillion: 8_000_000
         )
+        let additionalTaxonHits = (1..<taxonCount).map { index in
+            NvdBlastHit(
+                experiment: "exp-1",
+                blastTask: "blastn",
+                sampleId: "sample1",
+                qseqid: "taxon_contig_\(index)",
+                qlen: 100,
+                sseqid: "NC_TAXON_\(index)",
+                stitle: "Taxon reference \(index)",
+                taxRank: "species",
+                length: 90,
+                pident: 98,
+                evalue: 1e-8,
+                bitscore: 40,
+                sscinames: "Taxon \(index)",
+                staxids: "\(2000 + index)",
+                blastDbVersion: "db",
+                snakemakeRunId: "run-1",
+                mappedReads: 1_000 - index,
+                totalReads: 1000,
+                statDbVersion: "stats-1",
+                adjustedTaxid: "\(2000 + index)",
+                adjustmentMethod: "dominant",
+                adjustedTaxidName: String(format: "Taxon %03d", index),
+                adjustedTaxidRank: "species",
+                hitRank: 1,
+                readsPerBillion: Double(1_000 - index) * 1_000_000
+            )
+        }
 
         let databaseURL = bundleURL.appendingPathComponent("nvd.sqlite")
         database = try NvdDatabase.create(
             at: databaseURL,
             hits: [hit]
                 + (duplicateContigs ? [duplicateHit] : [])
-                + (includeSecondaryHit ? [secondaryHit] : []),
+                + (includeSecondaryHit ? [secondaryHit] : [])
+                + additionalTaxonHits,
             samples: [
                 NvdSampleMetadata(
                     sampleId: "sample1",
@@ -752,8 +864,8 @@ private struct NvdMenuFixture {
         manifest = NvdManifest(
             experiment: "exp-1",
             sampleCount: duplicateContigs ? 2 : 1,
-            contigCount: duplicateContigs ? 2 : 1,
-            hitCount: duplicateContigs ? 2 : 1,
+            contigCount: taxonCount + (duplicateContigs ? 1 : 0),
+            hitCount: taxonCount + (duplicateContigs ? 1 : 0),
             blastDbVersion: "db",
             snakemakeRunId: "run-1",
             sourceDirectoryPath: rootURL.path,
