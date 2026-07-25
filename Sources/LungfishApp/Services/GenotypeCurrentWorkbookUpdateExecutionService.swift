@@ -215,7 +215,6 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
                 .path
         )
         ownedDirectoryDescriptors.append(snapshotDescriptor)
-        try observer?(.snapshotDirectoryCreated)
 
         let callsName = "displayed-haplotype-calls.json"
         let annotationName = GenotypeAnnotationSidecar.filename
@@ -235,6 +234,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
                 _ = Darwin.fsync(parentDescriptor)
             }
         }
+        try observer?(.snapshotDirectoryCreated)
         try writeNewRegularFileNoFollow(
             callsData,
             named: callsName,
