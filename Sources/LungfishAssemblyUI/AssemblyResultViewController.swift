@@ -76,6 +76,8 @@ public final class AssemblyResultViewController: NSViewController {
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
     private var isBlastDrawerOpen = false
     private var contentTypographyObservation: AssemblyContentTypographyObservation?
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
 #if DEBUG
     private var typographyApplicationCount = 0
 #endif
@@ -178,11 +180,24 @@ public final class AssemblyResultViewController: NSViewController {
     }
 
     private func applyContentTypography() {
-        emptyStateLabel.font = ContentTypography.current().font(for: .emphasizedBody)
+        emptyStateLabel.font = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        ).font(for: .emphasizedBody)
         view.needsLayout = true
 #if DEBUG
         typographyApplicationCount += 1
 #endif
+    }
+
+    private func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        summaryStrip.setContentPreferredFontProvider(provider)
+        detailPane.setContentPreferredFontProvider(provider)
+        contigTableView.setContentPreferredFontProvider(provider)
+        guard isViewLoaded else { return }
+        applyContentTypography()
     }
 
     private func setupActionBar() {

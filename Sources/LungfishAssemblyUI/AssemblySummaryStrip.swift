@@ -40,6 +40,7 @@ final class AssemblyContentTypographyObservation {
 final class AssemblyQuickCopyTextField: NSTextField {
     var pasteboard: PasteboardWriting = DefaultPasteboard()
     var copiedValue: (() -> String)?
+    var explicitAccessibilityValue: String?
 
     convenience init(labelWithString string: String) {
         self.init(frame: .zero)
@@ -70,6 +71,10 @@ final class AssemblyQuickCopyTextField: NSTextField {
         guard let value = copiedValue?(), !value.isEmpty else { return }
         pasteboard.setString(value)
     }
+
+    override func accessibilityValue() -> String? {
+        explicitAccessibilityValue ?? super.accessibilityValue()
+    }
 }
 
 @MainActor
@@ -80,6 +85,10 @@ final class AssemblySummaryStrip: NSView {
     private var fieldColumns: [NSStackView] = []
     private var heightConstraint: NSLayoutConstraint?
     private var contentTypographyObservation: AssemblyContentTypographyObservation?
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private var currentRowGroups: [[Int]] = []
+    private var lastLayoutSignature: String?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -113,6 +122,11 @@ final class AssemblySummaryStrip: NSView {
 
     isolated deinit {
         contentTypographyObservation?.cancel()
+    }
+
+    override func layout() {
+        updateMeasuredLayout()
+        super.layout()
     }
 
     func configure(result: AssemblyResult, pasteboard: PasteboardWriting) {
@@ -153,53 +167,155 @@ final class AssemblySummaryStrip: NSView {
     }
 
     private func applyContentTypography() {
-        let typography = ContentTypography.current()
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
         for titleField in titleFields {
             titleField.font = typography.font(for: .caption)
         }
         for valueField in valueFields.values {
             valueField.font = typography.font(for: .body)
         }
-        rebuildRows(maximumColumnsPerRow: maximumColumnsPerRow(for: typography))
-
-        let titleHeight = typography.font(for: .caption).boundingRectForFont.height
-        let valueHeight = typography.font(for: .body).boundingRectForFont.height
-        let rowHeight = ceil(titleHeight + valueHeight + 2)
-        let rowCount = max(1, stackView.arrangedSubviews.count)
-        heightConstraint?.constant = max(
-            44,
-            ceil(CGFloat(rowCount) * rowHeight + CGFloat(rowCount - 1) * stackView.spacing + 12)
-        )
+        currentRowGroups.removeAll()
+        lastLayoutSignature = nil
+        updateMeasuredLayout()
         needsLayout = true
     }
 
-    private func maximumColumnsPerRow(for typography: ContentTypography) -> Int {
-        switch typography.preference.scaleFactor {
-        case 1.75...:
-            return 4
-        case 1.5..<1.75:
-            return 6
-        default:
-            return max(1, fieldColumns.count)
+    private func updateMeasuredLayout() {
+        guard !fieldColumns.isEmpty else {
+            updateHeight(44)
+            return
         }
+        let availableWidth = max(1, bounds.width - 24)
+        let signature = [
+            String(Int(availableWidth.rounded(.down))),
+            titleFields.map { "\($0.font?.pointSize ?? 0):\($0.stringValue)" }.joined(separator: "|"),
+            valueFields.values.map { "\($0.font?.pointSize ?? 0):\($0.stringValue)" }.sorted().joined(separator: "|"),
+        ].joined(separator: "#")
+        guard signature != lastLayoutSignature else { return }
+        lastLayoutSignature = signature
+        let groups = rowGroups(fitting: availableWidth)
+        if groups != currentRowGroups {
+            currentRowGroups = groups
+            rebuildRows(groups: groups)
+        }
+        let rowHeights = groups.map { measuredRowHeight(indices: $0, width: availableWidth) }
+        let total = rowHeights.reduce(0, +)
+            + CGFloat(max(0, rowHeights.count - 1)) * stackView.spacing
+            + 12
+        updateHeight(max(44, ceil(total)))
     }
 
-    private func rebuildRows(maximumColumnsPerRow: Int) {
+    private func rowGroups(fitting availableWidth: CGFloat) -> [[Int]] {
+        var groups: [[Int]] = []
+        var current: [Int] = []
+        var currentMinimum: CGFloat = 0
+        for index in fieldColumns.indices {
+            let minimum = minimumTwoLineWidth(for: index)
+            let candidateCount = current.count + 1
+            let candidateMinimum = max(currentMinimum, minimum)
+            let required = candidateMinimum * CGFloat(candidateCount)
+                + CGFloat(candidateCount - 1) * 12
+            if !current.isEmpty, required > availableWidth {
+                groups.append(current)
+                current = [index]
+                currentMinimum = minimum
+            } else {
+                current.append(index)
+                currentMinimum = candidateMinimum
+            }
+        }
+        if !current.isEmpty { groups.append(current) }
+        return groups
+    }
+
+    private func minimumTwoLineWidth(for index: Int) -> CGFloat {
+        guard index < titleFields.count,
+              let titleFont = titleFields[index].font,
+              let valueField = fieldColumns[index].arrangedSubviews.last as? NSTextField,
+              let valueFont = valueField.font else {
+            return 64
+        }
+        return max(
+            64,
+            max(
+                twoLineWidth(text: titleFields[index].stringValue, font: titleFont),
+            twoLineWidth(text: valueField.stringValue, font: valueFont)
+            )
+        )
+    }
+
+    private func twoLineWidth(text: String, font: NSFont) -> CGFloat {
+        let singleLine = ceil((text as NSString).size(withAttributes: [.font: font]).width + 2)
+        var low: CGFloat = 32
+        var high = max(low, singleLine)
+        let twoLines = ceil(font.boundingRectForFont.height * 2) + 1
+        for _ in 0..<10 {
+            let middle = (low + high) / 2
+            if measuredTextHeight(text, font: font, width: middle) <= twoLines {
+                high = middle
+            } else {
+                low = middle
+            }
+        }
+        return ceil(high)
+    }
+
+    private func measuredRowHeight(indices: [Int], width: CGFloat) -> CGFloat {
+        guard !indices.isEmpty else { return 0 }
+        let fieldWidth = max(
+            1,
+            (width - CGFloat(indices.count - 1) * 12) / CGFloat(indices.count)
+        )
+        return ceil(indices.map { index in
+            guard let titleFont = titleFields[index].font,
+                  let valueField = fieldColumns[index].arrangedSubviews.last as? NSTextField,
+                  let valueFont = valueField.font else { return CGFloat(0) }
+            return min(
+                measuredTextHeight(titleFields[index].stringValue, font: titleFont, width: fieldWidth),
+                ceil(titleFont.boundingRectForFont.height * 2)
+            ) + 2 + min(
+                measuredTextHeight(valueField.stringValue, font: valueFont, width: fieldWidth),
+                ceil(valueFont.boundingRectForFont.height * 2)
+            )
+        }.max() ?? 0)
+    }
+
+    private func measuredTextHeight(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
+        ceil((text as NSString).boundingRect(
+            with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        ).height)
+    }
+
+    private func updateHeight(_ height: CGFloat) {
+        guard abs((heightConstraint?.constant ?? 0) - height) > 0.5 else { return }
+        heightConstraint?.constant = height
+    }
+
+    private func rebuildRows(groups: [[Int]]) {
         for arrangedSubview in stackView.arrangedSubviews {
             stackView.removeArrangedSubview(arrangedSubview)
             arrangedSubview.removeFromSuperview()
         }
-        guard !fieldColumns.isEmpty else { return }
-
-        for start in stride(from: 0, to: fieldColumns.count, by: maximumColumnsPerRow) {
-            let end = min(start + maximumColumnsPerRow, fieldColumns.count)
-            let row = NSStackView(views: Array(fieldColumns[start..<end]))
+        for group in groups {
+            let row = NSStackView(views: group.map { fieldColumns[$0] })
             row.orientation = .horizontal
             row.alignment = .firstBaseline
             row.distribution = .fillEqually
             row.spacing = 12
             stackView.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
         }
+    }
+
+    func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        applyContentTypography()
     }
 
     private func summaryFields(for result: AssemblyResult) -> [(String, String, String)] {
@@ -260,6 +376,33 @@ final class AssemblySummaryStrip: NSView {
         !valueFields.isEmpty && valueFields.values.allSatisfy {
             $0.lineBreakMode == .byWordWrapping && $0.maximumNumberOfLines == 2
         }
+    }
+    var testRowsFillAvailableWidth: Bool {
+        stackView.arrangedSubviews.allSatisfy {
+            abs($0.frame.width - stackView.bounds.width) < 1
+        }
+    }
+    var testContentFramesAreContained: Bool {
+        fieldColumns.allSatisfy {
+            bounds.contains(convert($0.bounds, from: $0))
+        }
+    }
+    var testHasAmbiguousLayout: Bool {
+        hasAmbiguousLayout
+            || stackView.hasAmbiguousLayout
+            || stackView.arrangedSubviews.contains(where: \.hasAmbiguousLayout)
+    }
+    var testMeasuredContentHeight: CGFloat {
+        guard !currentRowGroups.isEmpty else { return 0 }
+        let width = max(1, bounds.width - 24)
+        return currentRowGroups.map { measuredRowHeight(indices: $0, width: width) }.reduce(0, +)
+            + CGFloat(max(0, currentRowGroups.count - 1)) * stackView.spacing
+            + 12
+    }
+    func testSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        setContentPreferredFontProvider(provider)
     }
 #endif
 }

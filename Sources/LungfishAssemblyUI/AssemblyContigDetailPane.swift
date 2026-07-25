@@ -21,6 +21,13 @@ final class AssemblyContigDetailPane: NSView {
     private let rootStack = NSStackView()
     private var sequenceMinimumHeightConstraint: NSLayoutConstraint?
     private var contentTypographyObservation: AssemblyContentTypographyObservation?
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private var metricFields: [AssemblyQuickCopyTextField] {
+        [lengthLabel, gcLabel, rankLabel, shareLabel]
+    }
+    private var currentMetricGroups: [[Int]] = []
+    private var lastMetricLayoutSignature: String?
 #if DEBUG
     private var typographyApplicationCount = 0
 #endif
@@ -57,9 +64,10 @@ final class AssemblyContigDetailPane: NSView {
 
         for field in [lengthLabel, gcLabel, rankLabel, shareLabel] {
             field.lineBreakMode = .byWordWrapping
-            field.maximumNumberOfLines = 0
+            field.maximumNumberOfLines = 2
         }
         metricsStack.orientation = .vertical
+        metricsStack.alignment = .leading
         metricsStack.spacing = 4
 
         rootStack.setViews(
@@ -80,6 +88,7 @@ final class AssemblyContigDetailPane: NSView {
         let sequenceMinimumHeightConstraint = sequenceScrollView.heightAnchor.constraint(
             greaterThanOrEqualToConstant: 180
         )
+        sequenceMinimumHeightConstraint.priority = .defaultHigh
         self.sequenceMinimumHeightConstraint = sequenceMinimumHeightConstraint
         NSLayoutConstraint.activate([
             rootStack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
@@ -103,8 +112,15 @@ final class AssemblyContigDetailPane: NSView {
         contentTypographyObservation?.cancel()
     }
 
+    override func layout() {
+        updateMetricLayout()
+        super.layout()
+    }
+
     private func applyContentTypography() {
-        let typography = ContentTypography.current()
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
         let selectedRange = sequenceView.selectedRange()
         let scrollOrigin = sequenceScrollView.contentView.bounds.origin
 
@@ -117,10 +133,12 @@ final class AssemblyContigDetailPane: NSView {
         let sequenceFont = typography.font(for: .monospaced)
         sequenceView.font = sequenceFont
         sequenceMinimumHeightConstraint?.constant = max(
-            180,
-            ceil(sequenceFont.boundingRectForFont.height * 8 + 24)
+            96,
+            min(180, ceil(sequenceFont.boundingRectForFont.height * 4 + 24))
         )
-        rebuildMetricRows(useTwoRows: typography.preference.scaleFactor >= 1.75)
+        currentMetricGroups.removeAll()
+        lastMetricLayoutSignature = nil
+        updateMetricLayout()
 
         sequenceView.setSelectedRange(selectedRange)
         sequenceScrollView.layoutSubtreeIfNeeded()
@@ -132,22 +150,97 @@ final class AssemblyContigDetailPane: NSView {
 #endif
     }
 
-    private func rebuildMetricRows(useTwoRows: Bool) {
+    private func updateMetricLayout() {
+        let availableWidth = max(1, bounds.width - 24)
+        let signature = [
+            String(Int(availableWidth.rounded(.down))),
+            metricFields.map { "\($0.font?.pointSize ?? 0):\($0.stringValue)" }.joined(separator: "|"),
+        ].joined(separator: "#")
+        guard signature != lastMetricLayoutSignature else { return }
+        lastMetricLayoutSignature = signature
+        var groups: [[Int]] = []
+        var current: [Int] = []
+        var currentMinimum: CGFloat = 0
+        for index in metricFields.indices {
+            let minimum = minimumTwoLineWidth(for: metricFields[index])
+            let count = current.count + 1
+            let candidateMinimum = max(currentMinimum, minimum)
+            let required = candidateMinimum * CGFloat(count) + CGFloat(count - 1) * 12
+            if !current.isEmpty, required > availableWidth {
+                groups.append(current)
+                current = [index]
+                currentMinimum = minimum
+            } else {
+                current.append(index)
+                currentMinimum = candidateMinimum
+            }
+        }
+        if !current.isEmpty { groups.append(current) }
+        guard groups != currentMetricGroups else { return }
+        currentMetricGroups = groups
+        rebuildMetricRows(groups: groups)
+    }
+
+    private func minimumTwoLineWidth(for field: NSTextField) -> CGFloat {
+        guard let font = field.font, !field.stringValue.isEmpty else { return 64 }
+        let singleLine = ceil((field.stringValue as NSString).size(withAttributes: [.font: font]).width + 2)
+        var low: CGFloat = 32
+        var high = max(low, singleLine)
+        let maximumHeight = ceil(font.boundingRectForFont.height * 2) + 1
+        for _ in 0..<10 {
+            let middle = (low + high) / 2
+            let height = ceil((field.stringValue as NSString).boundingRect(
+                with: NSSize(width: middle, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: font]
+            ).height)
+            if height <= maximumHeight {
+                high = middle
+            } else {
+                low = middle
+            }
+        }
+        return max(64, ceil(high))
+    }
+
+    private func rebuildMetricRows(groups: [[Int]]) {
         for row in metricsStack.arrangedSubviews {
             metricsStack.removeArrangedSubview(row)
             row.removeFromSuperview()
         }
-        let groups: [[AssemblyQuickCopyTextField]] = useTwoRows
-            ? [[lengthLabel, gcLabel], [rankLabel, shareLabel]]
-            : [[lengthLabel, gcLabel, rankLabel, shareLabel]]
-        for fields in groups {
-            let row = NSStackView(views: fields)
+        for group in groups {
+            let row = NSStackView(views: group.map { metricFields[$0] })
             row.orientation = .horizontal
             row.alignment = .firstBaseline
             row.distribution = .fillEqually
             row.spacing = 12
             metricsStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: metricsStack.widthAnchor).isActive = true
         }
+    }
+
+    private func setMetric(
+        _ field: AssemblyQuickCopyTextField,
+        text: String,
+        accessibilityLabel: String
+    ) {
+        field.stringValue = text
+        field.toolTip = text.isEmpty ? nil : text
+        field.setAccessibilityLabel(accessibilityLabel)
+        field.explicitAccessibilityValue = text.isEmpty ? "Not available" : text
+    }
+
+    private func contentDidChange() {
+        currentMetricGroups.removeAll()
+        lastMetricLayoutSignature = nil
+        needsLayout = true
+    }
+
+    func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        applyContentTypography()
     }
 
     func configureQuickCopy(pasteboard: PasteboardWriting) {
@@ -159,42 +252,46 @@ final class AssemblyContigDetailPane: NSView {
 
     func showEmptyState(contigCount: Int) {
         titleLabel.stringValue = "Select a contig"
-        lengthLabel.stringValue = ""
-        gcLabel.stringValue = ""
-        rankLabel.stringValue = ""
-        shareLabel.stringValue = ""
+        setMetric(lengthLabel, text: "", accessibilityLabel: "Contig length")
+        setMetric(gcLabel, text: "", accessibilityLabel: "Contig GC percent")
+        setMetric(rankLabel, text: "", accessibilityLabel: "Contig rank")
+        setMetric(shareLabel, text: "", accessibilityLabel: "Share of assembly")
         sequenceView.string = ""
         overviewSectionLabel.stringValue = contigCount == 1 ? "1 contig available" : "\(contigCount) contigs available"
+        contentDidChange()
     }
 
     func showSingleSelection(record: AssemblyContigRecord, fastaPreview: String) {
         overviewSectionLabel.stringValue = "Contig Preview"
         titleLabel.stringValue = record.header
-        lengthLabel.stringValue = "\(record.lengthBP) bp"
-        gcLabel.stringValue = String(format: "%.1f%%", record.gcPercent)
-        rankLabel.stringValue = "#\(record.rank)"
-        shareLabel.stringValue = String(format: "%.2f%% of assembly", record.shareOfAssemblyPercent)
+        setMetric(lengthLabel, text: "\(record.lengthBP) bp", accessibilityLabel: "Contig length")
+        setMetric(gcLabel, text: String(format: "%.1f%%", record.gcPercent), accessibilityLabel: "Contig GC percent")
+        setMetric(rankLabel, text: "#\(record.rank)", accessibilityLabel: "Contig rank")
+        setMetric(shareLabel, text: String(format: "%.2f%% of assembly", record.shareOfAssemblyPercent), accessibilityLabel: "Share of assembly")
         sequenceView.string = fastaPreview
+        contentDidChange()
     }
 
     func showMultiSelection(summary: AssemblyContigSelectionSummary, fastaPreview: String) {
         overviewSectionLabel.stringValue = "Selection Preview"
         titleLabel.stringValue = "\(summary.selectedContigCount) contigs selected"
-        lengthLabel.stringValue = "\(summary.totalSelectedBP) bp total"
-        gcLabel.stringValue = String(format: "%.1f%% weighted GC", summary.lengthWeightedGCPercent)
-        rankLabel.stringValue = "Longest: \(summary.longestContigBP) bp"
-        shareLabel.stringValue = "Shortest: \(summary.shortestContigBP) bp"
+        setMetric(lengthLabel, text: "\(summary.totalSelectedBP) bp total", accessibilityLabel: "Selected total length")
+        setMetric(gcLabel, text: String(format: "%.1f%% weighted GC", summary.lengthWeightedGCPercent), accessibilityLabel: "Selected weighted GC percent")
+        setMetric(rankLabel, text: "Longest: \(summary.longestContigBP) bp", accessibilityLabel: "Selected longest contig")
+        setMetric(shareLabel, text: "Shortest: \(summary.shortestContigBP) bp", accessibilityLabel: "Selected shortest contig")
         sequenceView.string = fastaPreview
+        contentDidChange()
     }
 
     func showUnavailableSelectionSummary(selectedContigCount: Int, fastaPreview: String) {
         overviewSectionLabel.stringValue = "Selection Preview"
         titleLabel.stringValue = "\(selectedContigCount) contigs selected"
-        lengthLabel.stringValue = ""
-        gcLabel.stringValue = ""
-        rankLabel.stringValue = ""
-        shareLabel.stringValue = ""
+        setMetric(lengthLabel, text: "", accessibilityLabel: "Selected total length")
+        setMetric(gcLabel, text: "", accessibilityLabel: "Selected weighted GC percent")
+        setMetric(rankLabel, text: "", accessibilityLabel: "Selected longest contig")
+        setMetric(shareLabel, text: "", accessibilityLabel: "Selected shortest contig")
         sequenceView.string = fastaPreview
+        contentDidChange()
     }
 
 #if DEBUG
@@ -227,6 +324,44 @@ final class AssemblyContigDetailPane: NSView {
     var testTypographyApplicationCount: Int { typographyApplicationCount }
     var testTitleMaximumNumberOfLines: Int { titleLabel.maximumNumberOfLines }
     var testTitleLineBreakMode: NSLineBreakMode { titleLabel.lineBreakMode }
+    var testMetricFramesAreContained: Bool {
+        metricFields.allSatisfy { bounds.contains(convert($0.bounds, from: $0)) }
+    }
+    var testSequenceMinimumPriority: NSLayoutConstraint.Priority {
+        sequenceMinimumHeightConstraint?.priority ?? .required
+    }
+    var testHasAmbiguousLayout: Bool {
+        hasAmbiguousLayout
+            || rootStack.hasAmbiguousLayout
+            || metricsStack.hasAmbiguousLayout
+            || metricsStack.arrangedSubviews.contains(where: \.hasAmbiguousLayout)
+    }
+    var testSequenceView: NSTextView { sequenceView }
+
+    struct MetricAccessibility: Equatable {
+        let label: String
+        let value: String
+    }
+
+    func testMetricAccessibility(identifier: String) -> MetricAccessibility {
+        let field: AssemblyQuickCopyTextField
+        switch identifier {
+        case "assembly-result-detail-length": field = lengthLabel
+        case "assembly-result-detail-gc": field = gcLabel
+        case "assembly-result-detail-rank": field = rankLabel
+        default: field = shareLabel
+        }
+        return MetricAccessibility(
+            label: field.accessibilityLabel() ?? "",
+            value: field.accessibilityValue() ?? ""
+        )
+    }
+
+    func testSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        setContentPreferredFontProvider(provider)
+    }
 
     func testSetSequenceSelection(_ range: NSRange) {
         sequenceView.setSelectedRange(range)

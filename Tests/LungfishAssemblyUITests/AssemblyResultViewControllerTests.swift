@@ -425,7 +425,10 @@ final class AssemblyResultViewControllerTests: XCTestCase {
                 vc.testSplitView.arrangedSubviews.map(ObjectIdentifier.init),
                 arrangedSubviews
             )
-            XCTAssertEqual(vc.testContigTableView.testTableView.tableColumns.map(\.width), widths)
+            XCTAssertTrue(
+                zip(vc.testContigTableView.testTableView.tableColumns.map(\.width), widths)
+                    .allSatisfy { $0 > $1 }
+            )
             XCTAssertEqual(vc.testTypographyApplicationCount, typographyApplyCount + 1)
 
             let readableHeaderTooltips = Dictionary(
@@ -575,6 +578,207 @@ final class AssemblyResultViewControllerTests: XCTestCase {
         }
     }
 
+    func testSummaryAndDetailUseResolvedSystemMetricsAndAvailableNarrowWidth() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .system
+            settings.save()
+            let provider = FixedAssemblyPreferredFontProvider(pointSize: 24)
+
+            let strip = AssemblySummaryStrip(
+                frame: NSRect(x: 0, y: 0, width: 420, height: 400)
+            )
+            strip.testSetContentPreferredFontProvider(provider)
+            strip.configure(result: try makeAssemblyResult(), pasteboard: RecordingPasteboard())
+            strip.frame.size.width = 420
+            strip.layoutSubtreeIfNeeded()
+
+            XCTAssertGreaterThan(strip.testRowCount, 1)
+            XCTAssertTrue(strip.testRowsFillAvailableWidth)
+            XCTAssertTrue(strip.testContentFramesAreContained)
+            XCTAssertFalse(strip.testHasAmbiguousLayout)
+            XCTAssertGreaterThanOrEqual(strip.testHeight, strip.testMeasuredContentHeight)
+
+            let pane = AssemblyContigDetailPane(
+                frame: NSRect(x: 0, y: 0, width: 360, height: 640)
+            )
+            pane.testSetContentPreferredFontProvider(provider)
+            pane.showMultiSelection(
+                summary: AssemblyContigSelectionSummary(
+                    selectedContigCount: 12,
+                    totalSelectedBP: 123_456_789,
+                    longestContigBP: 98_765_432,
+                    shortestContigBP: 1_234,
+                    lengthWeightedGCPercent: 51.25
+                ),
+                fastaPreview: ">selection\nAACCGGTT\n"
+            )
+            pane.layoutSubtreeIfNeeded()
+
+            XCTAssertGreaterThan(pane.testMetricsRowCount, 1)
+            XCTAssertTrue(pane.testMetricFramesAreContained)
+            XCTAssertLessThanOrEqual(pane.testSequenceMinimumHeight, 180)
+            XCTAssertLessThan(pane.testSequenceMinimumPriority, .required)
+            XCTAssertFalse(pane.testHasAmbiguousLayout)
+        }
+    }
+
+    func testAssemblyHeaderWidthsAdaptAndRecoverWithoutOverwritingUserWidth() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            let table = AssemblyContigTableView(
+                frame: NSRect(x: 0, y: 0, width: 900, height: 360)
+            )
+            let shareColumn = try XCTUnwrap(
+                table.testTableView.tableColumns.first {
+                    $0.identifier.rawValue == "share"
+                }
+            )
+            shareColumn.width = 137
+            let baselineMinimum = shareColumn.minWidth
+
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+
+            let enlargedWidth = shareColumn.width
+            let enlargedMinimum = shareColumn.minWidth
+            XCTAssertGreaterThan(enlargedWidth, 137)
+            XCTAssertGreaterThan(enlargedMinimum, baselineMinimum)
+            XCTAssertGreaterThanOrEqual(
+                enlargedWidth,
+                ceil(shareColumn.headerCell.cellSize.width + 20)
+            )
+
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+
+            XCTAssertEqual(shareColumn.width, 137, accuracy: 0.01)
+            XCTAssertEqual(shareColumn.minWidth, baselineMinimum, accuracy: 0.01)
+
+            let systemProvider = FixedAssemblyPreferredFontProvider(pointSize: 26)
+            settings.contentTextSizePreference = .system
+            settings.save()
+            table.setContentPreferredFontProvider(systemProvider)
+            XCTAssertGreaterThan(shareColumn.width, 137)
+            XCTAssertGreaterThanOrEqual(
+                shareColumn.width,
+                ceil(shareColumn.headerCell.cellSize.width + 20)
+            )
+        }
+    }
+
+    func testDetailMetricAccessibilityLabelsAndFullValuesFollowSelectionContext() {
+        let pane = AssemblyContigDetailPane(
+            frame: NSRect(x: 0, y: 0, width: 520, height: 640)
+        )
+
+        pane.showEmptyState(contigCount: 2)
+        XCTAssertEqual(
+            pane.testMetricAccessibility(identifier: "assembly-result-detail-length"),
+            .init(label: "Contig length", value: "Not available")
+        )
+
+        pane.showSingleSelection(
+            record: AssemblyContigRecord(
+                rank: 7,
+                name: "contig_7",
+                header: "contig_7 complete header",
+                lengthBP: 123_456,
+                gcPercent: 51.25,
+                shareOfAssemblyPercent: 12.5,
+                previewSequence: "AACCGGTT"
+            ),
+            fastaPreview: ">contig_7\nAACCGGTT\n"
+        )
+        XCTAssertEqual(
+            pane.testMetricAccessibility(identifier: "assembly-result-detail-length"),
+            .init(label: "Contig length", value: "123456 bp")
+        )
+        XCTAssertEqual(
+            pane.testMetricAccessibility(identifier: "assembly-result-detail-gc"),
+            .init(label: "Contig GC percent", value: "51.2%")
+        )
+        XCTAssertEqual(
+            pane.testMetricAccessibility(identifier: "assembly-result-detail-rank"),
+            .init(label: "Contig rank", value: "#7")
+        )
+        XCTAssertEqual(
+            pane.testMetricAccessibility(identifier: "assembly-result-detail-share"),
+            .init(label: "Share of assembly", value: "12.50% of assembly")
+        )
+
+        pane.showMultiSelection(
+            summary: AssemblyContigSelectionSummary(
+                selectedContigCount: 3,
+                totalSelectedBP: 222_222,
+                longestContigBP: 111_111,
+                shortestContigBP: 22_222,
+                lengthWeightedGCPercent: 49.75
+            ),
+            fastaPreview: ">selection\nAACCGGTT\n"
+        )
+        XCTAssertEqual(
+            pane.testMetricAccessibility(identifier: "assembly-result-detail-length"),
+            .init(label: "Selected total length", value: "222222 bp total")
+        )
+        XCTAssertEqual(
+            pane.testMetricAccessibility(identifier: "assembly-result-detail-gc"),
+            .init(label: "Selected weighted GC percent", value: "49.8% weighted GC")
+        )
+        XCTAssertEqual(
+            pane.testMetricAccessibility(identifier: "assembly-result-detail-rank"),
+            .init(label: "Selected longest contig", value: "Longest: 111111 bp")
+        )
+        XCTAssertEqual(
+            pane.testMetricAccessibility(identifier: "assembly-result-detail-share"),
+            .init(label: "Selected shortest contig", value: "Shortest: 22222 bp")
+        )
+    }
+
+    func testSequenceFirstResponderSurvivesTypographyRoundTripInSafeHostWindow() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            let pane = AssemblyContigDetailPane(
+                frame: NSRect(x: 0, y: 0, width: 520, height: 640)
+            )
+            pane.showSingleSelection(
+                record: AssemblyContigRecord(
+                    rank: 1,
+                    name: "contig",
+                    header: "contig",
+                    lengthBP: 8,
+                    gcPercent: 50,
+                    shareOfAssemblyPercent: 100
+                ),
+                fastaPreview: (0..<100).map { "\($0) AACCGGTT" }.joined(separator: "\n")
+            )
+
+            try withSafeAssemblyHostWindow(content: pane, size: pane.frame.size) { window in
+                pane.layoutSubtreeIfNeeded()
+                XCTAssertTrue(window.makeFirstResponder(pane.testSequenceView))
+                let responder = try XCTUnwrap(window.firstResponder)
+                pane.testSetSequenceSelection(NSRange(location: 12, length: 8))
+                pane.testSetSequenceScrollOrigin(NSPoint(x: 0, y: 100))
+
+                settings.contentTextSizePreference = .custom(200)
+                settings.save()
+                pane.layoutSubtreeIfNeeded()
+                XCTAssertEqual(ObjectIdentifier(try XCTUnwrap(window.firstResponder)), ObjectIdentifier(responder))
+                XCTAssertEqual(pane.testSequenceSelectedRange, NSRange(location: 12, length: 8))
+
+                settings.contentTextSizePreference = .custom(100)
+                settings.save()
+                pane.layoutSubtreeIfNeeded()
+                XCTAssertEqual(ObjectIdentifier(try XCTUnwrap(window.firstResponder)), ObjectIdentifier(responder))
+                XCTAssertEqual(pane.testSequenceSelectedRange, NSRange(location: 12, length: 8))
+            }
+        }
+    }
+
     func testAlignmentAndAssemblyFixedFontInventoryIsDurableAndExcludesScientificZoom() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -626,4 +830,45 @@ private func preservingContentTextSizePreference<T>(
         settings.save()
     }
     return try body()
+}
+
+@MainActor
+private struct FixedAssemblyPreferredFontProvider: ContentPreferredFontProviding {
+    let pointSize: CGFloat
+
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        switch role {
+        case .monospaced:
+            return .monospacedSystemFont(ofSize: pointSize, weight: .regular)
+        case .emphasizedBody, .tableHeader:
+            return .systemFont(ofSize: pointSize, weight: .semibold)
+        default:
+            return .systemFont(ofSize: pointSize)
+        }
+    }
+}
+
+@MainActor
+private func withSafeAssemblyHostWindow<T>(
+    content: NSView,
+    size: NSSize,
+    _ body: (NSWindow) throws -> T
+) rethrows -> T {
+    try autoreleasepool {
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = content
+        defer {
+            _ = window.makeFirstResponder(nil)
+            content.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+        return try body(window)
+    }
 }

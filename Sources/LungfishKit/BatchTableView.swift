@@ -388,6 +388,20 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         applyContentTypography()
     }
 
+    /// The resolved semantic typography currently used by this table.
+    ///
+    /// Exposed for subclasses that adapt non-font geometry, such as column
+    /// widths, to the same resolved system metrics.
+    public func resolvedContentTypography() -> ContentTypography {
+        ContentTypography.current(preferredFontProvider: preferredFontProvider)
+    }
+
+    /// Returns the unscaled canonical point size supplied by the active
+    /// preferred-font source.
+    public func canonicalContentPointSize(for role: ContentTypography.Role) -> CGFloat {
+        preferredFontProvider.canonicalUnscaledPointSize(for: role)
+    }
+
     private func addFixedColumns() {
         for spec in columnSpecs {
             let col = NSTableColumn(identifier: spec.identifier)

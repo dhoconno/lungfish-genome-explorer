@@ -97,6 +97,8 @@ public final class AlignmentResultViewController: NSViewController {
         return label
     }()
     private var contentTypographyObservation: AlignmentTypographyObservation?
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
 #if DEBUG
     private var typographyApplicationCount = 0
 #endif
@@ -114,7 +116,7 @@ public final class AlignmentResultViewController: NSViewController {
 
         summaryLabel.textColor = .secondaryLabelColor
         summaryLabel.lineBreakMode = .byWordWrapping
-        summaryLabel.maximumNumberOfLines = 2
+        summaryLabel.maximumNumberOfLines = 0
         summaryLabel.translatesAutoresizingMaskIntoConstraints = false
         summaryBar.addSubview(summaryLabel)
 
@@ -139,12 +141,19 @@ public final class AlignmentResultViewController: NSViewController {
             placeholderLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
             placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24),
             placeholderLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 680),
+            placeholderLabel.topAnchor.constraint(greaterThanOrEqualTo: summaryBar.bottomAnchor, constant: 12),
+            placeholderLabel.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -12),
         ])
 
         applyContentTypography()
         contentTypographyObservation = AlignmentTypographyObservation { [weak self] in
             self?.applyContentTypography()
         }
+    }
+
+    public override func viewDidLayout() {
+        super.viewDidLayout()
+        updateSummaryBarHeight()
     }
 
     isolated deinit {
@@ -154,19 +163,61 @@ public final class AlignmentResultViewController: NSViewController {
     // MARK: - Private helpers
 
     private func applyContentTypography() {
-        let typography = ContentTypography.current()
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
         let summaryFont = typography.font(for: .caption)
         summaryLabel.font = summaryFont
         placeholderLabel.font = typography.font(for: .detail)
-        let summaryLineCount: CGFloat = typography.preference.scaleFactor >= 1.75 ? 2 : 1
-        summaryBarHeightConstraint?.constant = max(
-            32,
-            ceil(summaryFont.boundingRectForFont.height * summaryLineCount + 12)
-        )
+        updateSummaryBarHeight()
         view.needsLayout = true
 #if DEBUG
         typographyApplicationCount += 1
 #endif
+    }
+
+    private func updateSummaryBarHeight() {
+        guard let summaryFont = summaryLabel.font else { return }
+        let availableWidth = max(
+            1,
+            (summaryBar.bounds.width > 0 ? summaryBar.bounds.width : view.bounds.width) - 24
+        )
+        let measuredHeight = measuredTextHeight(
+            summaryLabel.stringValue,
+            font: summaryFont,
+            width: availableWidth,
+            maximumLines: summaryLabel.maximumNumberOfLines
+        )
+        let requiredHeight = max(
+            32,
+            ceil(measuredHeight + 12)
+        )
+        if abs((summaryBarHeightConstraint?.constant ?? 0) - requiredHeight) > 0.5 {
+            summaryBarHeightConstraint?.constant = requiredHeight
+        }
+    }
+
+    private func measuredTextHeight(
+        _ text: String,
+        font: NSFont,
+        width: CGFloat,
+        maximumLines: Int
+    ) -> CGFloat {
+        let measured = (text as NSString).boundingRect(
+            with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        ).height
+        guard maximumLines > 0 else { return ceil(measured) }
+        return ceil(min(measured, font.boundingRectForFont.height * CGFloat(maximumLines)))
+    }
+
+    private func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        guard isViewLoaded else { return }
+        applyContentTypography()
     }
 
     /// Updates the summary bar label to reflect the current result.
@@ -178,6 +229,7 @@ public final class AlignmentResultViewController: NSViewController {
         let pct = total > 0 ? String(format: "%.1f%%", Double(mapped) / Double(total) * 100) : "—"
 
         summaryLabel.stringValue = "Alignment Results — \(mapped.formatted()) / \(total.formatted()) reads mapped (\(pct))"
+        updateSummaryBarHeight()
     }
 
     /// Updates the placeholder to show the BAM file name once a result is set.
@@ -191,6 +243,7 @@ public final class AlignmentResultViewController: NSViewController {
         BAM: \(name)
         Alignment summary only. Open the BAM track for pileup and coverage inspection.
         """
+        view.needsLayout = true
     }
 }
 
@@ -240,5 +293,29 @@ extension AlignmentResultViewController {
     var testPlaceholderMaximumNumberOfLines: Int { placeholderLabel.maximumNumberOfLines }
     var testPlaceholderLineBreakMode: NSLineBreakMode { placeholderLabel.lineBreakMode }
     var testTypographyApplicationCount: Int { typographyApplicationCount }
+    var testSummaryBarBounds: NSRect { summaryBar.bounds }
+    var testSummaryLabelFrame: NSRect { summaryLabel.frame }
+    var testPlaceholderFrame: NSRect { placeholderLabel.frame }
+    var testSummaryMeasuredTextHeight: CGFloat {
+        guard let font = summaryLabel.font else { return 0 }
+        return measuredTextHeight(
+            summaryLabel.stringValue,
+            font: font,
+            width: max(1, summaryLabel.bounds.width),
+            maximumLines: summaryLabel.maximumNumberOfLines
+        )
+    }
+    var testHasAmbiguousPrimaryLayout: Bool {
+        view.hasAmbiguousLayout
+            || summaryBar.hasAmbiguousLayout
+            || summaryLabel.hasAmbiguousLayout
+            || placeholderLabel.hasAmbiguousLayout
+    }
+
+    func testSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        setContentPreferredFontProvider(provider)
+    }
 }
 #endif
