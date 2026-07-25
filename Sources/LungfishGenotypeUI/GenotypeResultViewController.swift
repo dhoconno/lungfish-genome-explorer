@@ -1320,11 +1320,15 @@ public final class GenotypeResultViewController: NSViewController {
         deferredMatrixAnnotationMutations.count - deferredMatrixAnnotationMutationHead
     }
 
+    private static let deferredMatrixAnnotationStatus =
+        "Saving annotation after the workbook update finishes."
+
     private func submitMatrixAnnotationMutation(
         _ mutation: DeferredMatrixAnnotationMutation
     ) {
         guard deferredMatrixAnnotationMutationCount == 0 else {
             deferredMatrixAnnotationMutations.append(mutation)
+            reportDeferredMatrixAnnotationSave()
             scheduleDeferredMatrixAnnotationRetry()
             return
         }
@@ -1333,6 +1337,7 @@ public final class GenotypeResultViewController: NSViewController {
             return
         case .lockHeld:
             deferredMatrixAnnotationMutations.append(mutation)
+            reportDeferredMatrixAnnotationSave()
             scheduleDeferredMatrixAnnotationRetry()
         case let .failure(error, sidecarBeforeAttempt):
             surfaceMatrixAnnotationMutationFailure(
@@ -1402,6 +1407,7 @@ public final class GenotypeResultViewController: NSViewController {
             case .success:
                 discardFirstDeferredMatrixAnnotationMutation()
             case .lockHeld:
+                reportDeferredMatrixAnnotationSave()
                 scheduleDeferredMatrixAnnotationRetry()
                 return
             case let .failure(error, sidecarBeforeAttempt):
@@ -1413,6 +1419,21 @@ public final class GenotypeResultViewController: NSViewController {
                 )
             }
         }
+        clearDeferredMatrixAnnotationStatusIfNeeded()
+    }
+
+    private func reportDeferredMatrixAnnotationSave() {
+        currentWorkbookUpdateStatus = Self.deferredMatrixAnnotationStatus
+        rebuildArtifactLens()
+    }
+
+    private func clearDeferredMatrixAnnotationStatusIfNeeded() {
+        guard deferredMatrixAnnotationMutationCount == 0,
+              currentWorkbookUpdateStatus == Self.deferredMatrixAnnotationStatus else {
+            return
+        }
+        currentWorkbookUpdateStatus = nil
+        rebuildArtifactLens()
     }
 
     private func discardFirstDeferredMatrixAnnotationMutation() {

@@ -1296,6 +1296,10 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 3)
         XCTAssertEqual(retryScheduler.scheduledCount, 1)
         XCTAssertEqual(workbookScheduler.scheduledCount, 0)
+        XCTAssertEqual(
+            controller.testingCurrentWorkbookUpdateStatus,
+            "Saving annotation after the workbook update finishes."
+        )
         XCTAssertTrue(surfacedErrors.isEmpty)
         var persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
             forBundleAt: bundleURL
@@ -1308,12 +1312,20 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 3)
         XCTAssertEqual(retryScheduler.scheduledCount, 1)
+        XCTAssertEqual(
+            controller.testingCurrentWorkbookUpdateStatus,
+            "Saving annotation after the workbook update finishes."
+        )
         XCTAssertTrue(surfacedErrors.isEmpty)
         publicationLock.release()
         retryScheduler.fireScheduledActions()
 
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 0)
         XCTAssertEqual(workbookScheduler.scheduledCount, 3)
+        XCTAssertEqual(
+            controller.testingCurrentWorkbookUpdateStatus,
+            "current.xlsx does not include workbook annotation changes."
+        )
         XCTAssertTrue(surfacedErrors.isEmpty)
         persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
             forBundleAt: bundleURL
