@@ -6,11 +6,100 @@ import AppKit
 import LungfishIO
 import LungfishKit
 
+/// Keeps table-column geometry tied to a stable 100% baseline.
+///
+/// Object identity is part of the baseline key so a metadata column removed
+/// and later re-added while content is enlarged starts from its declared
+/// width, rather than inheriting the removed column's scaled width.
+@MainActor
+final class TwelveSAdaptiveColumnWidthState {
+    private struct Baseline {
+        var objectID: ObjectIdentifier
+        var width: CGFloat
+        var minimumWidth: CGFloat
+        var lastProgrammaticWidth: CGFloat?
+        var lastScale: CGFloat
+    }
+
+    private var baselines: [String: Baseline] = [:]
+    private var isApplying = false
+
+    func captureUserWidths(in tableView: NSTableView) {
+        guard !isApplying else { return }
+        for column in tableView.tableColumns {
+            let identifier = column.identifier.rawValue
+            let objectID = ObjectIdentifier(column)
+            guard var baseline = baselines[identifier],
+                  baseline.objectID == objectID else {
+                baselines[identifier] = Baseline(
+                    objectID: objectID,
+                    width: column.width,
+                    minimumWidth: column.minWidth,
+                    lastProgrammaticWidth: nil,
+                    lastScale: 1
+                )
+                continue
+            }
+            if let lastWidth = baseline.lastProgrammaticWidth,
+               abs(column.width - lastWidth) > 0.5 {
+                baseline.width = column.width / max(baseline.lastScale, 0.01)
+            }
+            baselines[identifier] = baseline
+        }
+    }
+
+    func apply(
+        to tableView: NSTableView,
+        typography: ContentTypography,
+        canonicalBodyPointSize: CGFloat
+    ) {
+        let scale = typography.font(for: .body).pointSize
+            / max(canonicalBodyPointSize, 1)
+        isApplying = true
+        defer { isApplying = false }
+
+        for column in tableView.tableColumns {
+            let identifier = column.identifier.rawValue
+            let objectID = ObjectIdentifier(column)
+            var baseline: Baseline
+            if let existing = baselines[identifier], existing.objectID == objectID {
+                baseline = existing
+            } else {
+                baseline = Baseline(
+                    objectID: objectID,
+                    width: column.width,
+                    minimumWidth: column.minWidth,
+                    lastProgrammaticWidth: nil,
+                    lastScale: 1
+                )
+            }
+
+            let headerWidth = ceil(column.headerCell.cellSize.width + 20)
+            let resolvedMinimum = scale > 1.01
+                ? max(baseline.minimumWidth, headerWidth)
+                : baseline.minimumWidth
+            let resolvedWidth = max(
+                resolvedMinimum,
+                scale > 1.01
+                    ? max(baseline.width * scale, headerWidth)
+                    : baseline.width
+            )
+            column.minWidth = resolvedMinimum
+            column.width = resolvedWidth
+            baseline.lastProgrammaticWidth = resolvedWidth
+            baseline.lastScale = scale
+            baselines[identifier] = baseline
+        }
+    }
+}
+
 /// Sortable/filterable table of 12S target rows, projected to one row per
 /// sample/species evidence pair.
 @MainActor
 final class TwelveSTargetTableView: BatchTableView<TwelveSTargetSampleRow> {
     private static let metadataPrefix = "sampleMeta::"
+    private let adaptiveColumnWidths = TwelveSAdaptiveColumnWidthState()
+    private(set) var typographyApplicationCount = 0
 
     /// Imported sample metadata backing the row-scoped metadata columns (if any).
     private var metadataStore: SampleMetadataStore?
@@ -40,10 +129,11 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSTargetSampleRow> {
             column.title = field
             column.width = 120
             column.minWidth = 70
+            column.headerToolTip = field
             column.sortDescriptorPrototype = NSSortDescriptor(key: column.identifier.rawValue, ascending: true)
             tableView.addTableColumn(column)
         }
-        tableView.reloadData()
+        applyContentTypography()
     }
 
     /// Returns the alternate-match display texts for a row (alternate matches,
@@ -74,7 +164,24 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSTargetSampleRow> {
     }
 
     override var searchPlaceholder: String { "Filter species or matches" }
-    override var tableAccessibilityIdentifier: String? { "twelve-s-result-table" }
+    override var searchAccessibilityIdentifier: String? { "twelve-s-target-search" }
+    override var searchAccessibilityLabel: String? { "Filter 12S target match results" }
+    override var tableAccessibilityIdentifier: String? { "twelve-s-target-result-table" }
+    override var tableAccessibilityLabel: String? { "12S target match results" }
+
+    override func applyContentTypography() {
+        guard tableView != nil else { return }
+        let scrollOriginY = currentScrollOriginY
+        adaptiveColumnWidths.captureUserWidths(in: tableView)
+        super.applyContentTypography()
+        adaptiveColumnWidths.apply(
+            to: tableView,
+            typography: resolvedContentTypography(),
+            canonicalBodyPointSize: canonicalContentPointSize(for: .body)
+        )
+        restoreScrollOriginY(scrollOriginY)
+        typographyApplicationCount += 1
+    }
 
     override var columnTypeHints: [String: Bool] {
         [

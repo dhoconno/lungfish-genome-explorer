@@ -1,4 +1,5 @@
 import AppKit
+import LungfishCore
 import LungfishKit
 import XCTest
 @testable import LungfishTwelveSUI
@@ -6,6 +7,137 @@ import XCTest
 
 @MainActor
 final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
+    func testPrimaryContentTypographyUsesResolvedMetricsWithoutRecomputingResults() throws {
+        try preservingTwelveSContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .system
+            settings.save()
+            let provider = MutableTwelveSFontProvider(pointSize: 13)
+            let controller = TwelveSAmpliconResultViewController()
+            controller.view.frame = NSRect(x: 0, y: 0, width: 860, height: 640)
+            controller.testingSetContentPreferredFontProvider(provider)
+            controller.configure(result: makeResult())
+            controller.showUnresolvedForTesting()
+            controller.setSearchTextForTesting("a")
+            controller.testingSetUnresolvedSort(key: "sequenceID", ascending: true)
+            controller.testingSelectUnresolvedRow(0)
+            controller.testingSetActiveTableColumnWidth(identifier: "sequence", width: 223)
+            controller.testingSetActiveTableScrollOriginY(7)
+
+            try withSafeTwelveSHostWindow(
+                content: controller.view,
+                size: controller.view.frame.size
+            ) { window in
+                controller.view.layoutSubtreeIfNeeded()
+                let searchField = controller.testingHeaderSearchField
+                XCTAssertTrue(window.makeFirstResponder(searchField))
+                let responder = try XCTUnwrap(window.firstResponder)
+                let baseline = controller.testingPrimaryContentMetrics
+                let baselineState = controller.testingPreservedState
+                let baselineComputations = controller.testingScientificComputationCounts
+                let baselineTypographyCounts = controller.testingTypographyApplicationCounts
+
+                provider.pointSize = 24
+                NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+                controller.view.layoutSubtreeIfNeeded()
+
+                let enlarged = controller.testingPrimaryContentMetrics
+                XCTAssertEqual(enlarged.titleFontPointSize, 18 * 24 / 13, accuracy: 0.01)
+                XCTAssertEqual(enlarged.summaryFontPointSize, 12 * 24 / 13, accuracy: 0.01)
+                XCTAssertEqual(enlarged.searchFontPointSize, 24, accuracy: 0.01)
+                XCTAssertEqual(enlarged.targetCellFontPointSize, 24, accuracy: 0.01)
+                XCTAssertEqual(enlarged.unresolvedCellFontPointSize, 11 * 24 / 13, accuracy: 0.01)
+                XCTAssertGreaterThan(enlarged.targetRowHeight, baseline.targetRowHeight)
+                XCTAssertGreaterThan(enlarged.unresolvedRowHeight, baseline.unresolvedRowHeight)
+                XCTAssertGreaterThan(enlarged.targetHeaderHeight, baseline.targetHeaderHeight)
+                XCTAssertGreaterThan(enlarged.unresolvedHeaderHeight, baseline.unresolvedHeaderHeight)
+                XCTAssertGreaterThan(enlarged.searchHeight, baseline.searchHeight)
+                XCTAssertEqual(controller.testingPreservedState, baselineState)
+                XCTAssertEqual(controller.testingScientificComputationCounts, baselineComputations)
+                XCTAssertEqual(
+                    controller.testingTypographyApplicationCounts,
+                    .init(
+                        controller: baselineTypographyCounts.controller + 1,
+                        targetTable: baselineTypographyCounts.targetTable + 1,
+                        unresolvedTable: baselineTypographyCounts.unresolvedTable + 1
+                    )
+                )
+                XCTAssertEqual(ObjectIdentifier(try XCTUnwrap(window.firstResponder)), ObjectIdentifier(responder))
+                XCTAssertFalse(controller.testingHasAmbiguousPrimaryLayout)
+
+                NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+                controller.view.layoutSubtreeIfNeeded()
+                let repeated = controller.testingPrimaryContentMetrics
+                XCTAssertEqual(repeated, enlarged)
+                XCTAssertEqual(controller.testingPreservedState, baselineState)
+                XCTAssertEqual(controller.testingScientificComputationCounts, baselineComputations)
+                XCTAssertEqual(
+                    controller.testingTypographyApplicationCounts,
+                    .init(
+                        controller: baselineTypographyCounts.controller + 2,
+                        targetTable: baselineTypographyCounts.targetTable + 2,
+                        unresolvedTable: baselineTypographyCounts.unresolvedTable + 2
+                    )
+                )
+
+                provider.pointSize = 13
+                NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+                controller.view.layoutSubtreeIfNeeded()
+                let recovered = controller.testingPrimaryContentMetrics
+                XCTAssertEqual(recovered.titleFontPointSize, baseline.titleFontPointSize, accuracy: 0.01)
+                XCTAssertEqual(recovered.summaryFontPointSize, baseline.summaryFontPointSize, accuracy: 0.01)
+                XCTAssertEqual(recovered.searchFontPointSize, baseline.searchFontPointSize, accuracy: 0.01)
+                XCTAssertEqual(recovered.targetRowHeight, baseline.targetRowHeight, accuracy: 0.01)
+                XCTAssertEqual(recovered.unresolvedRowHeight, baseline.unresolvedRowHeight, accuracy: 0.01)
+                XCTAssertEqual(
+                    controller.testingActiveTableColumnWidths["sequence"] ?? 0,
+                    223,
+                    accuracy: 0.01
+                )
+                XCTAssertEqual(controller.testingPreservedState, baselineState)
+                XCTAssertEqual(controller.testingScientificComputationCounts, baselineComputations)
+
+                settings.contentTextSizePreference = .custom(100)
+                settings.save()
+                controller.view.layoutSubtreeIfNeeded()
+                let customBaseline = controller.testingPrimaryContentMetrics
+                XCTAssertEqual(customBaseline.titleFontPointSize, 18, accuracy: 0.01)
+                XCTAssertEqual(customBaseline.summaryFontPointSize, 12, accuracy: 0.01)
+                XCTAssertEqual(customBaseline.searchFontPointSize, 13, accuracy: 0.01)
+
+                settings.contentTextSizePreference = .custom(200)
+                settings.save()
+                controller.view.layoutSubtreeIfNeeded()
+                let customEnlarged = controller.testingPrimaryContentMetrics
+                XCTAssertEqual(customEnlarged.titleFontPointSize, 36, accuracy: 0.01)
+                XCTAssertEqual(customEnlarged.summaryFontPointSize, 24, accuracy: 0.01)
+                XCTAssertEqual(customEnlarged.searchFontPointSize, 26, accuracy: 0.01)
+                XCTAssertEqual(customEnlarged.targetCellFontPointSize, 26, accuracy: 0.01)
+                XCTAssertEqual(customEnlarged.unresolvedCellFontPointSize, 22, accuracy: 0.01)
+                NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+                controller.view.layoutSubtreeIfNeeded()
+                XCTAssertEqual(controller.testingPrimaryContentMetrics, customEnlarged)
+
+                settings.contentTextSizePreference = .custom(100)
+                settings.save()
+                controller.view.layoutSubtreeIfNeeded()
+                XCTAssertEqual(controller.testingPrimaryContentMetrics, customBaseline)
+                XCTAssertEqual(controller.testingPreservedState, baselineState)
+                XCTAssertEqual(controller.testingScientificComputationCounts, baselineComputations)
+            }
+        }
+    }
+
+    func testTypographyObserverTearsDownWithController() {
+        weak var released: TwelveSAmpliconResultViewController?
+        autoreleasepool {
+            let controller = TwelveSAmpliconResultViewController()
+            _ = controller.view
+            released = controller
+        }
+        XCTAssertNil(released)
+    }
+
     func testTargetTableUsesFixedColumnsAndSampleEvidenceDetailPane() {
         let controller = TwelveSAmpliconResultViewController()
         controller.loadViewIfNeeded()
@@ -552,5 +684,68 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
             }
         }
         return nil
+    }
+}
+
+@MainActor
+private func preservingTwelveSContentTextSizePreference(
+    _ body: () throws -> Void
+) rethrows {
+    let settings = AppSettings.shared
+    let original = settings.contentTextSizePreference
+    defer {
+        settings.contentTextSizePreference = original
+        settings.save()
+    }
+    try body()
+}
+
+@MainActor
+private final class MutableTwelveSFontProvider: ContentPreferredFontProviding {
+    var pointSize: CGFloat
+
+    init(pointSize: CGFloat) {
+        self.pointSize = pointSize
+    }
+
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        switch role {
+        case .monospaced:
+            return .monospacedSystemFont(ofSize: pointSize, weight: .regular)
+        case .emphasizedBody, .tableHeader:
+            return .systemFont(ofSize: pointSize, weight: .semibold)
+        default:
+            return .systemFont(ofSize: pointSize)
+        }
+    }
+}
+
+@MainActor
+private func withSafeTwelveSHostWindow<T>(
+    content: NSView,
+    size: NSSize,
+    _ body: (NSWindow) throws -> T
+) rethrows -> T {
+    try autoreleasepool {
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let host = NSView(frame: NSRect(origin: .zero, size: size))
+        content.frame = host.bounds
+        content.translatesAutoresizingMaskIntoConstraints = true
+        content.autoresizingMask = [.width, .height]
+        host.addSubview(content)
+        window.contentView = host
+        defer {
+            _ = window.makeFirstResponder(nil)
+            content.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+        return try body(window)
     }
 }

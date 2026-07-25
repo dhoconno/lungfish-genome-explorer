@@ -8,6 +8,33 @@ import LungfishIO
 import LungfishWorkflow
 import UniformTypeIdentifiers
 
+@MainActor
+private final class PhylogeneticContentTypographyObservation {
+    private var token: NSObjectProtocol?
+
+    init(handler: @escaping @MainActor () -> Void) {
+        token = NotificationCenter.default.addObserver(
+            forName: .contentTextSizeDidChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { handler() }
+        }
+    }
+
+    func cancel() {
+        guard let token else { return }
+        self.token = nil
+        NotificationCenter.default.removeObserver(token)
+    }
+
+    isolated deinit {
+        if let token {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+}
+
 private enum PhylogeneticTreeAccessibilityID {
     static let root = "phylogenetic-tree-bundle-view"
     static let summary = "phylogenetic-tree-summary"
@@ -22,6 +49,7 @@ private enum PhylogeneticTreeAccessibilityID {
     static let colorMode = "phylogenetic-tree-color-mode"
     static let tipLabelColumn = "phylogenetic-tree-tip-label-column"
     static let detail = "phylogenetic-tree-detail"
+    static let nodeDrawerTitle = "phylogenetic-tree-node-drawer-title"
 }
 
 private enum PhylogeneticTreeCanvasMetrics {
@@ -64,7 +92,20 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
     private let treeCanvasView = PhylogeneticTreeCanvasView()
     private let treeScrollView = NSScrollView()
     private let detailLabel = NSTextField(labelWithString: "")
+    private let nodeDrawerTitle = NSTextField(labelWithString: "Nodes")
     private let toolbarContainer = NSView()
+    private var toolbarContentView: NSView?
+    private var toolbarHeightConstraint: NSLayoutConstraint?
+    private var nodeDrawerHeightConstraint: NSLayoutConstraint?
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private var contentTypographyObservation: PhylogeneticContentTypographyObservation?
+    private var baselineColumnWidths: [String: CGFloat] = [:]
+    private var baselineColumnMinimumWidths: [String: CGFloat] = [:]
+    private var lastProgrammaticColumnWidths: [String: CGFloat] = [:]
+    private var lastResolvedColumnScale: CGFloat = 1
+    private var typographyApplicationCount = 0
+    private var centerSelectedNodeCount = 0
 
     private var nodes: [PhylogeneticTreeNormalizedNode] = []
     private var originalNodes: [PhylogeneticTreeNormalizedNode] = []
@@ -92,6 +133,15 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         configureLayout()
     }
 
+    public override func viewDidLayout() {
+        super.viewDidLayout()
+        updatePrimaryContentGeometry()
+    }
+
+    isolated deinit {
+        contentTypographyObservation?.cancel()
+    }
+
     public func displayBundle(at url: URL) throws {
         _ = view
         let loaded = try PhylogeneticTreeBundle.load(from: url)
@@ -112,8 +162,12 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             "\(loaded.manifest.internalNodeCount) internal nodes",
             loaded.manifest.isRooted ? "rooted" : "unrooted",
         ].joined(separator: "   ")
+        summaryLabel.toolTip = summaryLabel.stringValue
+        summaryLabel.setAccessibilityValue(summaryLabel.stringValue)
 
         detailLabel.stringValue = defaultDetailText(for: loaded)
+        detailLabel.toolTip = detailLabel.stringValue
+        detailLabel.setAccessibilityValue(detailLabel.stringValue)
         treeCanvasView.configure(nodes: nodes, collapsedNodeIDs: collapsedNodeIDs)
         nodeTableView.reloadData()
         selectInitialNode()
@@ -150,10 +204,11 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
     }
 
     private func configureLayout() {
-        summaryLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        summaryLabel.lineBreakMode = .byTruncatingMiddle
+        summaryLabel.lineBreakMode = .byWordWrapping
+        summaryLabel.maximumNumberOfLines = 0
         summaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         summaryLabel.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.summary)
+        summaryLabel.setAccessibilityLabel("Phylogenetic tree summary")
         summaryLabel.translatesAutoresizingMaskIntoConstraints = false
 
         nodeTableView.headerView = NSTableHeaderView()
@@ -162,6 +217,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         nodeTableView.dataSource = self
         nodeTableView.delegate = self
         nodeTableView.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.nodeTable)
+        nodeTableView.setAccessibilityLabel("Phylogenetic tree nodes")
         addTableColumn(id: "node", title: "Node", width: 180)
         addTableColumn(id: "type", title: "Type", width: 70)
         addTableColumn(id: "tips", title: "Tips", width: 54)
@@ -189,14 +245,16 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         treeScrollView.setAccessibilityLabel("Phylogenetic tree canvas")
         treeScrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        detailLabel.font = .systemFont(ofSize: 11)
         detailLabel.textColor = .secondaryLabelColor
-        detailLabel.lineBreakMode = .byTruncatingMiddle
+        detailLabel.lineBreakMode = .byWordWrapping
+        detailLabel.maximumNumberOfLines = 0
         detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         detailLabel.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.detail)
+        detailLabel.setAccessibilityLabel("Selected phylogenetic tree node details")
         detailLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let toolbar = configureToolbar()
+        toolbarContentView = toolbar
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         toolbarContainer.translatesAutoresizingMaskIntoConstraints = false
         toolbarContainer.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
@@ -206,9 +264,10 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         let nodeDrawer = NSView()
         nodeDrawer.translatesAutoresizingMaskIntoConstraints = false
         nodeDrawer.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        let nodeDrawerTitle = NSTextField(labelWithString: "Nodes")
-        nodeDrawerTitle.font = .systemFont(ofSize: 11, weight: .semibold)
         nodeDrawerTitle.textColor = .secondaryLabelColor
+        nodeDrawerTitle.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.nodeDrawerTitle)
+        nodeDrawerTitle.setAccessibilityRole(.staticText)
+        nodeDrawerTitle.setAccessibilityLabel("Nodes")
         nodeDrawerTitle.translatesAutoresizingMaskIntoConstraints = false
         nodeDrawer.addSubview(nodeDrawerTitle)
         nodeDrawer.addSubview(tableScroll)
@@ -218,11 +277,15 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         view.addSubview(detailLabel)
         view.addSubview(nodeDrawer)
 
+        let toolbarHeightConstraint = toolbarContainer.heightAnchor.constraint(equalToConstant: 76)
+        let nodeDrawerHeightConstraint = nodeDrawer.heightAnchor.constraint(equalToConstant: 104)
+        self.toolbarHeightConstraint = toolbarHeightConstraint
+        self.nodeDrawerHeightConstraint = nodeDrawerHeightConstraint
         NSLayoutConstraint.activate([
             toolbarContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             toolbarContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             toolbarContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            toolbarContainer.heightAnchor.constraint(equalToConstant: 76),
+            toolbarHeightConstraint,
 
             summaryLabel.leadingAnchor.constraint(equalTo: toolbarContainer.leadingAnchor, constant: 12),
             summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: toolbarContainer.trailingAnchor, constant: -12),
@@ -236,7 +299,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             treeScrollView.topAnchor.constraint(equalTo: toolbarContainer.bottomAnchor),
             treeScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             treeScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            treeScrollView.bottomAnchor.constraint(equalTo: nodeDrawer.topAnchor),
+            treeScrollView.bottomAnchor.constraint(equalTo: detailLabel.topAnchor, constant: -8),
 
             detailLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -12),
@@ -245,7 +308,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             nodeDrawer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             nodeDrawer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             nodeDrawer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            nodeDrawer.heightAnchor.constraint(equalToConstant: 132),
+            nodeDrawerHeightConstraint,
 
             nodeDrawerTitle.topAnchor.constraint(equalTo: nodeDrawer.topAnchor, constant: 7),
             nodeDrawerTitle.leadingAnchor.constraint(equalTo: nodeDrawer.leadingAnchor, constant: 12),
@@ -254,6 +317,119 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             tableScroll.trailingAnchor.constraint(equalTo: nodeDrawer.trailingAnchor),
             tableScroll.bottomAnchor.constraint(equalTo: nodeDrawer.bottomAnchor),
         ])
+
+        applyContentTypography()
+        contentTypographyObservation = PhylogeneticContentTypographyObservation { [weak self] in
+            self?.applyContentTypography()
+        }
+    }
+
+    private func applyContentTypography() {
+        captureUserColumnWidths()
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
+        summaryLabel.font = typography.font(for: .emphasizedBody)
+        detailLabel.font = typography.font(for: .detail)
+        nodeDrawerTitle.font = typography.font(for: .tableHeader)
+        nodeTableView.rowHeight = typography.tableRowHeight()
+        if let headerView = nodeTableView.headerView {
+            var frame = headerView.frame
+            frame.size.height = typography.tableHeaderHeight()
+            headerView.frame = frame
+        }
+        for column in nodeTableView.tableColumns {
+            column.headerCell.font = typography.font(for: .tableHeader)
+        }
+        applyAdaptiveColumnWidths(typography: typography)
+
+        let selectedRows = nodeTableView.selectedRowIndexes
+        let scrollOrigin = nodeTableView.enclosingScrollView?.contentView.bounds.origin
+        isUpdatingTableSelection = true
+        defer { isUpdatingTableSelection = false }
+        nodeTableView.reloadData()
+        nodeTableView.selectRowIndexes(selectedRows, byExtendingSelection: false)
+        if let scrollOrigin, let scrollView = nodeTableView.enclosingScrollView {
+            scrollView.contentView.scroll(to: scrollOrigin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        nodeTableView.enclosingScrollView?.tile()
+        updatePrimaryContentGeometry()
+        view.needsLayout = true
+        typographyApplicationCount += 1
+    }
+
+    private func updatePrimaryContentGeometry() {
+        guard isViewLoaded else { return }
+        let availableWidth = max(1, view.bounds.width - 24)
+        let summaryHeight = measuredTextHeight(
+            summaryLabel.stringValue,
+            font: summaryLabel.font,
+            width: availableWidth
+        )
+        let toolbarContentHeight = toolbarContentView?.fittingSize.height ?? 0
+        let toolbarHeight = max(76, ceil(8 + summaryHeight + 7 + toolbarContentHeight + 7))
+        if abs((toolbarHeightConstraint?.constant ?? 0) - toolbarHeight) > 0.5 {
+            toolbarHeightConstraint?.constant = toolbarHeight
+        }
+
+        let titleHeight = nodeDrawerTitle.font?.boundingRectForFont.height ?? 0
+        let headerHeight = nodeTableView.headerView?.frame.height ?? 0
+        let drawerHeight = max(
+            104,
+            ceil(7 + titleHeight + 5 + headerHeight + nodeTableView.rowHeight * 2)
+        )
+        if abs((nodeDrawerHeightConstraint?.constant ?? 0) - drawerHeight) > 0.5 {
+            nodeDrawerHeightConstraint?.constant = drawerHeight
+        }
+    }
+
+    private func measuredTextHeight(_ text: String, font: NSFont?, width: CGFloat) -> CGFloat {
+        guard let font else { return 0 }
+        return ceil((text as NSString).boundingRect(
+            with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        ).height)
+    }
+
+    private func captureUserColumnWidths() {
+        for column in nodeTableView.tableColumns {
+            let identifier = column.identifier.rawValue
+            if baselineColumnWidths[identifier] == nil {
+                baselineColumnWidths[identifier] = column.width
+                baselineColumnMinimumWidths[identifier] = column.minWidth
+            } else if let lastWidth = lastProgrammaticColumnWidths[identifier],
+                      abs(lastWidth - column.width) > 0.5 {
+                baselineColumnWidths[identifier] = column.width / max(lastResolvedColumnScale, 0.01)
+            }
+        }
+    }
+
+    private func applyAdaptiveColumnWidths(typography: ContentTypography) {
+        let scale = typography.font(for: .body).pointSize
+            / max(preferredFontProvider.canonicalUnscaledPointSize(for: .body), 1)
+        for column in nodeTableView.tableColumns {
+            let identifier = column.identifier.rawValue
+            let baselineWidth = baselineColumnWidths[identifier] ?? column.width
+            let baselineMinimum = baselineColumnMinimumWidths[identifier] ?? column.minWidth
+            let headerWidth = ceil(column.headerCell.cellSize.width + 20)
+            column.minWidth = scale > 1.01 ? max(baselineMinimum, headerWidth) : baselineMinimum
+            column.width = max(
+                column.minWidth,
+                max(baselineWidth * scale, scale > 1.01 ? headerWidth : 0)
+            )
+            lastProgrammaticColumnWidths[identifier] = column.width
+        }
+        lastResolvedColumnScale = scale
+    }
+
+    private func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        guard isViewLoaded else { return }
+        applyContentTypography()
     }
 
     private func configureToolbar() -> NSView {
@@ -491,6 +667,8 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         }
         treeCanvasView.selectedNodeIDs = selectedNodeIDs
         detailLabel.stringValue = detailText(for: node)
+        detailLabel.toolTip = detailLabel.stringValue
+        detailLabel.setAccessibilityValue(detailLabel.stringValue)
         if let row = nodes.firstIndex(where: { $0.id == id }),
            nodeTableView.selectedRow != row {
             isUpdatingTableSelection = true
@@ -540,6 +718,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
     }
 
     private func centerSelectedNode() {
+        centerSelectedNodeCount += 1
         guard let selectedNodeID,
               let rect = treeCanvasView.rectForNode(id: selectedNodeID) else { return }
         treeCanvasView.scrollToVisible(rect.insetBy(dx: -80, dy: -36))
@@ -877,7 +1056,14 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             ])
         }
         label.stringValue = value
-        label.font = .systemFont(ofSize: 12)
+        label.font = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        ).font(for: .body)
+        label.toolTip = value
+        let columnTitle = nodeTableView.tableColumns
+            .first(where: { $0.identifier == identifier })?.title ?? "Node value"
+        label.setAccessibilityLabel("\(columnTitle): \(value)")
+        label.setAccessibilityValue(value)
         return cell
     }
 }
@@ -905,6 +1091,27 @@ extension PhylogeneticTreeViewController {
 }
 
 public extension PhylogeneticTreeViewController {
+    struct TestingPrimaryContentMetrics: Equatable {
+        public let summaryFontPointSize: CGFloat
+        public let detailFontPointSize: CGFloat
+        public let searchFontPointSize: CGFloat
+        public let nodeCellFontPointSize: CGFloat
+        public let rowHeight: CGFloat
+        public let headerHeight: CGFloat
+        public let toolbarHeight: CGFloat
+        public let nodeDrawerHeight: CGFloat
+        public let typographyApplicationCount: Int
+    }
+
+    struct TestingScientificMutationCounts: Equatable {
+        public let configure: Int
+        public let recomputeLayout: Int
+        public let fit: Int
+        public let reset: Int
+        public let zoom: Int
+        public let center: Int
+    }
+
     struct TestingToolbarTextControlMetric: Equatable {
         public let controlSize: NSControl.ControlSize
         public let fontPointSize: CGFloat
@@ -917,6 +1124,107 @@ public extension PhylogeneticTreeViewController {
 
     var testingCanvasNodeCount: Int {
         treeCanvasView.testingNodeCount
+    }
+
+    var testingPrimaryContentMetrics: TestingPrimaryContentMetrics {
+        let cell = nodeTableView.view(
+            atColumn: 0,
+            row: max(0, min(nodeTableView.numberOfRows - 1, nodeTableView.selectedRow)),
+            makeIfNecessary: true
+        ) as? NSTableCellView
+        return TestingPrimaryContentMetrics(
+            summaryFontPointSize: summaryLabel.font?.pointSize ?? 0,
+            detailFontPointSize: detailLabel.font?.pointSize ?? 0,
+            searchFontPointSize: searchField.font?.pointSize ?? 0,
+            nodeCellFontPointSize: cell?.textField?.font?.pointSize ?? 0,
+            rowHeight: nodeTableView.rowHeight,
+            headerHeight: nodeTableView.headerView?.frame.height ?? 0,
+            toolbarHeight: toolbarHeightConstraint?.constant ?? 0,
+            nodeDrawerHeight: nodeDrawerHeightConstraint?.constant ?? 0,
+            typographyApplicationCount: typographyApplicationCount
+        )
+    }
+
+    var testingScientificMutationCounts: TestingScientificMutationCounts {
+        TestingScientificMutationCounts(
+            configure: treeCanvasView.testingConfigureCount,
+            recomputeLayout: treeCanvasView.testingRecomputeLayoutCount,
+            fit: treeCanvasView.testingFitCount,
+            reset: treeCanvasView.testingResetCount,
+            zoom: treeCanvasView.testingZoomCount,
+            center: centerSelectedNodeCount
+        )
+    }
+
+    var testingNodeColumnWidths: [String: CGFloat] {
+        Dictionary(uniqueKeysWithValues: nodeTableView.tableColumns.map {
+            ($0.identifier.rawValue, $0.width)
+        })
+    }
+
+    func testingSetNodeColumnWidth(identifier: String, width: CGFloat) {
+        nodeTableView.tableColumns.first {
+            $0.identifier.rawValue == identifier
+        }?.width = width
+    }
+
+    var testingSearchField: NSSearchField { searchField }
+
+    func testingSetSearchText(_ text: String) {
+        searchField.stringValue = text
+    }
+
+    var testingCanvasScrollOrigin: NSPoint {
+        treeScrollView.contentView.bounds.origin
+    }
+
+    func testingSetCanvasScrollOrigin(_ origin: NSPoint) {
+        treeScrollView.contentView.scroll(to: origin)
+        treeScrollView.reflectScrolledClipView(treeScrollView.contentView)
+    }
+
+    var testingNodeTableScrollOrigin: NSPoint {
+        nodeTableView.enclosingScrollView?.contentView.bounds.origin ?? .zero
+    }
+
+    func testingSetNodeTableScrollOrigin(_ origin: NSPoint) {
+        guard let scrollView = nodeTableView.enclosingScrollView else { return }
+        scrollView.contentView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    var testingNodeTableSelectedRow: Int { nodeTableView.selectedRow }
+
+    var testingSelectedNodeRow: Int {
+        selectedNodeID.flatMap { id in nodes.firstIndex(where: { $0.id == id }) } ?? -1
+    }
+
+    var testingNodeTableAccessibilityLabel: String {
+        nodeTableView.accessibilityLabel() ?? ""
+    }
+
+    func testingNodeCellAccessibilityValue(column: String, row: Int) -> String {
+        guard let columnIndex = nodeTableView.tableColumns.firstIndex(where: {
+            $0.identifier.rawValue == column
+        }), row >= 0 else { return "" }
+        let cell = nodeTableView.view(atColumn: columnIndex, row: row, makeIfNecessary: true)
+            as? NSTableCellView
+        return cell?.textField?.accessibilityValue() ?? ""
+    }
+
+    var testingHasAmbiguousPrimaryLayout: Bool {
+        view.hasAmbiguousLayout
+            || toolbarContainer.hasAmbiguousLayout
+            || summaryLabel.hasAmbiguousLayout
+            || detailLabel.hasAmbiguousLayout
+            || nodeDrawerTitle.hasAmbiguousLayout
+            || nodeTableView.hasAmbiguousLayout
+    }
+
+    func testingSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        setContentPreferredFontProvider(provider)
     }
 
     var testingRenderedTipLabels: [String] {
@@ -977,6 +1285,7 @@ public extension PhylogeneticTreeViewController {
             "toolbar": toolbarContainer.frame,
             "treeScrollView": treeScrollView.frame,
             "treeCanvasView": treeCanvasView.frame,
+            "detailLabel": detailLabel.frame,
         ]
     }
 
@@ -1136,8 +1445,18 @@ private final class PhylogeneticTreeCanvasView: NSView {
     private var labelWidth: CGFloat = 180
     private var pointsPerBranchLengthUnit: CGFloat?
     private var maxBranchLengthUnits: CGFloat = 0
+    private var configureCount = 0
+    private var recomputeLayoutCount = 0
+    private var fitCount = 0
+    private var resetCount = 0
+    private var zoomCount = 0
 
     var testingNodeCount: Int { nodes.count }
+    var testingConfigureCount: Int { configureCount }
+    var testingRecomputeLayoutCount: Int { recomputeLayoutCount }
+    var testingFitCount: Int { fitCount }
+    var testingResetCount: Int { resetCount }
+    var testingZoomCount: Int { zoomCount }
     var testingZoomScale: CGFloat { zoomScale }
     var testingLayoutMode: String {
         switch layoutMode {
@@ -1204,6 +1523,7 @@ private final class PhylogeneticTreeCanvasView: NSView {
     }
 
     func configure(nodes: [PhylogeneticTreeNormalizedNode], collapsedNodeIDs: Set<String>) {
+        configureCount += 1
         self.nodes = nodes
         self.collapsedNodeIDs = collapsedNodeIDs
         nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
@@ -1212,6 +1532,7 @@ private final class PhylogeneticTreeCanvasView: NSView {
     }
 
     func fit(to visibleSize: NSSize) {
+        fitCount += 1
         guard baseSize.width > 0, baseSize.height > 0 else { return }
         let horizontal = visibleSize.width > 0 ? visibleSize.width / baseSize.width : 1
         let vertical = visibleSize.height > 0 ? visibleSize.height / baseSize.height : 1
@@ -1221,12 +1542,14 @@ private final class PhylogeneticTreeCanvasView: NSView {
     }
 
     func resetView() {
+        resetCount += 1
         zoomScale = 1
         updateFrameSize()
         needsDisplay = true
     }
 
     func zoom(by factor: CGFloat) {
+        zoomCount += 1
         zoomScale = min(4, max(0.25, zoomScale * factor))
         updateFrameSize()
         needsDisplay = true
@@ -1271,6 +1594,7 @@ private final class PhylogeneticTreeCanvasView: NSView {
     }
 
     private func recomputeLayout() {
+        recomputeLayoutCount += 1
         guard !nodes.isEmpty else {
             layoutByID = [:]
             baseSize = NSSize(width: PhylogeneticTreeCanvasMetrics.minimumWidth, height: PhylogeneticTreeCanvasMetrics.minimumHeight)

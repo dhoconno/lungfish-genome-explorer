@@ -1,14 +1,94 @@
 import AppKit
+import LungfishCore
 import LungfishIO
 import SwiftUI
 import UniformTypeIdentifiers
 import LungfishKit
 
 @MainActor
+private final class TwelveSContentTypographyObservation {
+    private let notificationCenter: NotificationCenter
+    private var token: NSObjectProtocol?
+
+    init(
+        notificationCenter: NotificationCenter = .default,
+        handler: @escaping @MainActor () -> Void
+    ) {
+        self.notificationCenter = notificationCenter
+        token = notificationCenter.addObserver(
+            forName: .contentTextSizeDidChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                handler()
+            }
+        }
+    }
+
+    func cancel() {
+        guard let token else { return }
+        self.token = nil
+        notificationCenter.removeObserver(token)
+    }
+
+    isolated deinit {
+        if let token {
+            notificationCenter.removeObserver(token)
+        }
+    }
+}
+
+@MainActor
 public final class TwelveSAmpliconResultViewController: NSViewController {
     enum Mode: Int {
         case targets
         case unresolved
+    }
+
+    struct TestingPrimaryContentMetrics: Equatable {
+        let titleFontPointSize: CGFloat
+        let summaryFontPointSize: CGFloat
+        let searchFontPointSize: CGFloat
+        let targetCellFontPointSize: CGFloat
+        let unresolvedCellFontPointSize: CGFloat
+        let targetRowHeight: CGFloat
+        let unresolvedRowHeight: CGFloat
+        let targetHeaderHeight: CGFloat
+        let unresolvedHeaderHeight: CGFloat
+        let searchHeight: CGFloat
+    }
+
+    struct TestingPreservedState: Equatable {
+        let mode: Int
+        let filterText: String
+        let targetSortKey: String?
+        let targetSortAscending: Bool?
+        let unresolvedSortKey: String?
+        let unresolvedSortAscending: Bool?
+        let targetSelectedRows: [Int]
+        let unresolvedSelectedRows: [Int]
+        let hasDetailPayload: Bool
+        let activeScrollOriginY: CGFloat
+        let targetColumnOrder: [String]
+        let unresolvedColumnOrder: [String]
+        let selectedSamples: [String]
+        let targetRowCount: Int
+        let unresolvedRowCount: Int
+    }
+
+    struct TestingScientificComputationCounts: Equatable {
+        let filterApplications: Int
+        let targetProjectionRebuilds: Int
+        let referenceFetches: Int
+        let detailEmissions: Int
+        let displaySummaryNotifications: Int
+    }
+
+    struct TestingTypographyApplicationCounts: Equatable {
+        let controller: Int
+        let targetTable: Int
+        let unresolvedTable: Int
     }
 
     private let titleLabel = NSTextField(labelWithString: "12S Amplicon Matches")
@@ -25,6 +105,19 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private let targetTable = TwelveSTargetTableView()
     private let unresolvedTable = TwelveSUnresolvedTableView()
     private let actionBar = ClassifierActionBar()
+    private var headerSearchHeightConstraint: NSLayoutConstraint?
+    private var headerSearchMinimumWidthConstraint: NSLayoutConstraint?
+    private var headerSearchMaximumWidthConstraint: NSLayoutConstraint?
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private var contentTypographyObservation: TwelveSContentTypographyObservation?
+    private var typographyApplicationCount = 0
+
+    private var filterApplicationCount = 0
+    private var targetProjectionRebuildCount = 0
+    private var referenceFetchCount = 0
+    private var detailEmissionCount = 0
+    private var displaySummaryNotificationCount = 0
 
     private var splitViewBottomConstraint: NSLayoutConstraint?
     private var blastDrawerContainer: BlastResultsDrawerContainerView?
@@ -204,6 +297,14 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         configureTables()
         configureActionBar()
         layout()
+        applyContentTypography()
+        contentTypographyObservation = TwelveSContentTypographyObservation { [weak self] in
+            self?.applyContentTypography()
+        }
+    }
+
+    isolated deinit {
+        contentTypographyObservation?.cancel()
     }
 
     public func configure(result: TwelveSAmpliconResultBundleData) {
@@ -234,6 +335,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         rebuildAllTargetSampleRows()
         titleLabel.stringValue = "\(result.manifest.outputName) 12S Matches"
         summaryLabel.stringValue = Self.summaryText(for: result)
+        titleLabel.toolTip = titleLabel.stringValue
+        titleLabel.setAccessibilityValue(titleLabel.stringValue)
+        summaryLabel.toolTip = summaryLabel.stringValue
+        summaryLabel.setAccessibilityValue(summaryLabel.stringValue)
         applyFilters(notify: false)
         applyDefaultSort()
         showTargets()
@@ -263,6 +368,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func rebuildAllTargetSampleRows() {
+        targetProjectionRebuildCount += 1
         allTargetSampleRows = TwelveSTargetSampleRow.rows(
             from: allTargetRows,
             samples: result?.samples ?? [],
@@ -432,6 +538,146 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         applyFilterText(text)
     }
 
+    func testingSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        targetTable.setContentPreferredFontProvider(provider)
+        unresolvedTable.setContentPreferredFontProvider(provider)
+        applyContentTypography()
+    }
+
+    var testingHeaderSearchField: NSSearchField { searchField }
+
+    var testingPrimaryContentMetrics: TestingPrimaryContentMetrics {
+        let targetCell = renderedTextField(
+            in: targetTable.tableView,
+            columnIdentifier: "scientificName",
+            row: 0
+        )
+        let unresolvedCell = renderedTextField(
+            in: unresolvedTable.tableView,
+            columnIdentifier: "sequence",
+            row: 0
+        )
+        return TestingPrimaryContentMetrics(
+            titleFontPointSize: titleLabel.font?.pointSize ?? 0,
+            summaryFontPointSize: summaryLabel.font?.pointSize ?? 0,
+            searchFontPointSize: searchField.font?.pointSize ?? 0,
+            targetCellFontPointSize: targetCell?.font?.pointSize ?? 0,
+            unresolvedCellFontPointSize: unresolvedCell?.font?.pointSize ?? 0,
+            targetRowHeight: targetTable.tableView.rowHeight,
+            unresolvedRowHeight: unresolvedTable.tableView.rowHeight,
+            targetHeaderHeight: targetTable.tableView.headerView?.frame.height ?? 0,
+            unresolvedHeaderHeight: unresolvedTable.tableView.headerView?.frame.height ?? 0,
+            searchHeight: headerSearchHeightConstraint?.constant ?? searchField.frame.height
+        )
+    }
+
+    var testingPreservedState: TestingPreservedState {
+        let targetSort = targetTable.tableView.sortDescriptors.first
+        let unresolvedSort = unresolvedTable.tableView.sortDescriptors.first
+        return TestingPreservedState(
+            mode: mode.rawValue,
+            filterText: searchField.stringValue,
+            targetSortKey: targetSort?.key,
+            targetSortAscending: targetSort?.ascending,
+            unresolvedSortKey: unresolvedSort?.key,
+            unresolvedSortAscending: unresolvedSort?.ascending,
+            targetSelectedRows: Array(targetTable.tableView.selectedRowIndexes),
+            unresolvedSelectedRows: Array(unresolvedTable.tableView.selectedRowIndexes),
+            hasDetailPayload: lastDetailPayload != nil,
+            activeScrollOriginY: mode == .targets
+                ? targetTable.currentScrollOriginY
+                    + (targetTable.tableView.headerView?.frame.height ?? 0)
+                : unresolvedTable.currentScrollOriginY
+                    + (unresolvedTable.tableView.headerView?.frame.height ?? 0),
+            targetColumnOrder: targetTable.tableView.tableColumns.map(\.identifier.rawValue),
+            unresolvedColumnOrder: unresolvedTable.tableView.tableColumns.map(\.identifier.rawValue),
+            selectedSamples: selectedSamples.sorted(),
+            targetRowCount: targetTable.displayedRows.count,
+            unresolvedRowCount: unresolvedTable.displayedRows.count
+        )
+    }
+
+    var testingScientificComputationCounts: TestingScientificComputationCounts {
+        TestingScientificComputationCounts(
+            filterApplications: filterApplicationCount,
+            targetProjectionRebuilds: targetProjectionRebuildCount,
+            referenceFetches: referenceFetchCount,
+            detailEmissions: detailEmissionCount,
+            displaySummaryNotifications: displaySummaryNotificationCount
+        )
+    }
+
+    var testingTypographyApplicationCounts: TestingTypographyApplicationCounts {
+        TestingTypographyApplicationCounts(
+            controller: typographyApplicationCount,
+            targetTable: targetTable.typographyApplicationCount,
+            unresolvedTable: unresolvedTable.typographyApplicationCount
+        )
+    }
+
+    var testingActiveTableColumnWidths: [String: CGFloat] {
+        Dictionary(uniqueKeysWithValues: activeTableView.tableColumns.map {
+            ($0.identifier.rawValue, $0.width)
+        })
+    }
+
+    func testingSetActiveTableColumnWidth(identifier: String, width: CGFloat) {
+        activeTableView.tableColumn(withIdentifier: .init(identifier))?.width = width
+    }
+
+    func testingSetActiveTableScrollOriginY(_ originY: CGFloat) {
+        if mode == .targets {
+            targetTable.restoreScrollOriginY(originY)
+        } else {
+            unresolvedTable.restoreScrollOriginY(originY)
+        }
+    }
+
+    func testingSetUnresolvedSort(key: String, ascending: Bool) {
+        unresolvedTable.tableView.sortDescriptors = [
+            NSSortDescriptor(key: key, ascending: ascending)
+        ]
+    }
+
+    func testingSelectUnresolvedRow(_ row: Int) {
+        guard unresolvedTable.displayedRows.indices.contains(row) else { return }
+        unresolvedTable.tableView.selectRowIndexes(
+            IndexSet(integer: row),
+            byExtendingSelection: false
+        )
+        unresolvedTable.tableViewSelectionDidChange(
+            Notification(
+                name: NSTableView.selectionDidChangeNotification,
+                object: unresolvedTable.tableView
+            )
+        )
+    }
+
+    var testingHasAmbiguousPrimaryLayout: Bool {
+        [view, titleLabel, summaryLabel, searchField, targetTable, unresolvedTable]
+            .contains(where: \.hasAmbiguousLayout)
+    }
+
+    private func renderedTextField(
+        in tableView: NSTableView,
+        columnIdentifier: String,
+        row: Int
+    ) -> NSTextField? {
+        guard row >= 0,
+              row < tableView.numberOfRows,
+              let columnIndex = tableView.tableColumns.firstIndex(where: {
+                  $0.identifier.rawValue == columnIdentifier
+              }) else { return nil }
+        return (tableView.view(
+            atColumn: columnIndex,
+            row: row,
+            makeIfNecessary: true
+        ) as? NSTableCellView)?.textField
+    }
+
     func showUnresolvedForTesting() {
         modeControl.selectedSegment = Mode.unresolved.rawValue
         applyMode(.unresolved)
@@ -524,14 +770,17 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func configureHeader() {
-        titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
-        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.maximumNumberOfLines = 0
+        titleLabel.lineBreakMode = .byWordWrapping
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleLabel.setAccessibilityIdentifier("twelve-s-title")
+        titleLabel.setAccessibilityLabel("12S amplicon result title")
 
-        summaryLabel.font = .systemFont(ofSize: 12, weight: .regular)
         summaryLabel.textColor = .secondaryLabelColor
-        summaryLabel.lineBreakMode = .byTruncatingTail
+        summaryLabel.maximumNumberOfLines = 0
+        summaryLabel.lineBreakMode = .byWordWrapping
         summaryLabel.setAccessibilityIdentifier("twelve-s-summary")
+        summaryLabel.setAccessibilityLabel("12S amplicon result summary")
 
         modeControl.selectedSegment = Mode.targets.rawValue
         modeControl.target = self
@@ -540,7 +789,6 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
         searchField.placeholderString = "Filter species or matches"
         searchField.controlSize = .small
-        searchField.font = .systemFont(ofSize: 11)
         searchField.target = self
         searchField.action = #selector(searchFieldChanged(_:))
         searchField.setAccessibilityIdentifier("twelve-s-search-field")
@@ -563,6 +811,62 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         sampleColumnsButton.setAccessibilityIdentifier("twelve-s-sample-columns-button")
         sampleColumnsButton.setAccessibilityLabel("12S Sample Columns")
         sampleColumnsButton.isHidden = true // shown once samples are wired
+    }
+
+    /// Applies typography to result content only. Mode buttons, sample
+    /// controls, the action bar, and BLAST controls remain ordinary chrome.
+    private func applyContentTypography() {
+        guard isViewLoaded else { return }
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
+        let resolvedBody = typography.font(for: .body)
+        let scale = resolvedBody.pointSize
+            / max(preferredFontProvider.canonicalUnscaledPointSize(for: .body), 1)
+        titleLabel.font = scaledStableFont(
+            baseline: .systemFont(ofSize: 18, weight: .semibold),
+            scale: scale
+        )
+        summaryLabel.font = scaledStableFont(
+            baseline: .systemFont(ofSize: 12, weight: .regular),
+            scale: scale
+        )
+        searchField.font = resolvedBody
+        headerSearchHeightConstraint?.constant = max(
+            24,
+            ceil(resolvedBody.boundingRectForFont.height + 8)
+        )
+        let searchFittingWidth = ceil(max(
+            searchField.cell?.cellSize(forBounds: NSRect(
+                x: 0,
+                y: 0,
+                width: 1_000,
+                height: headerSearchHeightConstraint?.constant ?? 24
+            )).width ?? 0,
+            (searchField.placeholderString as NSString?)?.size(
+                withAttributes: [.font: resolvedBody]
+            ).width ?? 0
+        ) + 36)
+        headerSearchMinimumWidthConstraint?.constant = max(
+            140,
+            min(searchFittingWidth, 260)
+        )
+        headerSearchMaximumWidthConstraint?.constant = max(
+            200,
+            min(searchFittingWidth, 360)
+        )
+
+        titleLabel.toolTip = titleLabel.stringValue
+        titleLabel.setAccessibilityValue(titleLabel.stringValue)
+        summaryLabel.toolTip = summaryLabel.stringValue
+        summaryLabel.setAccessibilityValue(summaryLabel.stringValue)
+        typographyApplicationCount += 1
+        view.needsLayout = true
+    }
+
+    private func scaledStableFont(baseline: NSFont, scale: CGFloat) -> NSFont {
+        let size = max(ContentTypography.minimumPointSize, baseline.pointSize * scale)
+        return NSFont(descriptor: baseline.fontDescriptor, size: size) ?? baseline
     }
 
     private func configureTables() {
@@ -678,10 +982,17 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func layout() {
-        let headerRow = NSStackView(views: [titleLabel, modeControl, sampleFilterButton, sampleColumnsButton, searchField])
-        headerRow.orientation = .horizontal
-        headerRow.alignment = .centerY
-        headerRow.spacing = 12
+        let controlRow = NSStackView(
+            views: [modeControl, sampleFilterButton, sampleColumnsButton, searchField]
+        )
+        controlRow.orientation = .horizontal
+        controlRow.alignment = .centerY
+        controlRow.spacing = 12
+
+        let headerRow = NSStackView(views: [titleLabel, controlRow])
+        headerRow.orientation = .vertical
+        headerRow.alignment = .leading
+        headerRow.spacing = 8
         headerRow.translatesAutoresizingMaskIntoConstraints = false
 
         tableContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -696,13 +1007,23 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         // container's bottom; the BLAST drawer re-points it when it opens.
         let tableBottom = tableContainer.bottomAnchor.constraint(equalTo: actionBar.topAnchor)
         splitViewBottomConstraint = tableBottom
+        let searchHeight = searchField.heightAnchor.constraint(equalToConstant: 24)
+        let searchMinimumWidth = searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 140)
+        let searchMaximumWidth = searchField.widthAnchor.constraint(lessThanOrEqualToConstant: 200)
+        searchMaximumWidth.priority = .defaultHigh
+        headerSearchHeightConstraint = searchHeight
+        headerSearchMinimumWidthConstraint = searchMinimumWidth
+        headerSearchMaximumWidthConstraint = searchMaximumWidth
         NSLayoutConstraint.activate([
             headerRow.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
             headerRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             headerRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            titleLabel.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
+            controlRow.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
             modeControl.widthAnchor.constraint(equalToConstant: 190),
-            searchField.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
-            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
+            searchHeight,
+            searchMinimumWidth,
+            searchMaximumWidth,
 
             summaryLabel.topAnchor.constraint(equalTo: headerRow.bottomAnchor, constant: 6),
             summaryLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
@@ -770,6 +1091,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func applyFilters(notify: Bool) {
+        filterApplicationCount += 1
         targetRows = allTargetSampleRows.filter(targetSampleMatchesDisplayState)
         unresolvedRows = allUnresolvedRows.filter(unresolvedMatchesDisplayState)
         // When comparing a strict subset of samples, drop rows that have no
@@ -837,6 +1159,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func notifyDisplaySummaryChanged() {
+        displaySummaryNotificationCount += 1
         switch mode {
         case .targets:
             onDisplaySummaryChanged?(
@@ -927,6 +1250,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// still on the same species.
     private func loadReferenceSequences(for row: TwelveSTargetSampleRow) {
         guard let provider = referenceProvider else { return }
+        referenceFetchCount += 1
         let targetIDs = row.targetIDs
         let species = row.scientificName
         let sampleID = row.sampleID
@@ -957,6 +1281,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func emitDetail(_ payload: TwelveSDetailPayload?) {
+        detailEmissionCount += 1
         lastDetailPayload = payload
         onSelectedRowDetailChanged?(payload)
     }

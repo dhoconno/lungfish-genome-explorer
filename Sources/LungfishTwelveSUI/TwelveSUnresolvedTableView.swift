@@ -9,6 +9,8 @@ import LungfishKit
 /// Sortable/filterable table of 12S unresolved (unmatched) sequence clusters.
 @MainActor
 final class TwelveSUnresolvedTableView: BatchTableView<TwelveSUnresolvedSequence> {
+    private let adaptiveColumnWidths = TwelveSAdaptiveColumnWidthState()
+    private(set) var typographyApplicationCount = 0
 
     override var columnSpecs: [BatchColumnSpec] {
         [
@@ -21,7 +23,24 @@ final class TwelveSUnresolvedTableView: BatchTableView<TwelveSUnresolvedSequence
     }
 
     override var searchPlaceholder: String { "Filter species or matches" }
-    override var tableAccessibilityIdentifier: String? { "twelve-s-result-table" }
+    override var searchAccessibilityIdentifier: String? { "twelve-s-unresolved-search" }
+    override var searchAccessibilityLabel: String? { "Filter 12S unresolved sequences" }
+    override var tableAccessibilityIdentifier: String? { "twelve-s-unresolved-result-table" }
+    override var tableAccessibilityLabel: String? { "12S unresolved sequence results" }
+
+    override func applyContentTypography() {
+        guard tableView != nil else { return }
+        let scrollOriginY = currentScrollOriginY
+        adaptiveColumnWidths.captureUserWidths(in: tableView)
+        super.applyContentTypography()
+        adaptiveColumnWidths.apply(
+            to: tableView,
+            typography: resolvedContentTypography(),
+            canonicalBodyPointSize: canonicalContentPointSize(for: .body)
+        )
+        restoreScrollOriginY(scrollOriginY)
+        typographyApplicationCount += 1
+    }
 
     override var columnTypeHints: [String: Bool] {
         ["readCount": true, "sampleCount": true]
