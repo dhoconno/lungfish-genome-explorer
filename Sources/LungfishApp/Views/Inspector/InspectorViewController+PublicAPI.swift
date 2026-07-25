@@ -569,7 +569,13 @@ extension InspectorViewController {
             }
             nextState.qcRows = genotypeQCRows(subjects: subjects)
             nextState.haplotypeDefinitionRows = genotypeHaplotypeDefinitionRows(result, sidecar: sidecar)
-            nextState.currentWorkbookUpdate = genotypeCurrentWorkbookUpdateState(result: result, sidecar: sidecar)
+            if let currentWorkbookUpdate = nextState.currentWorkbookUpdate {
+                nextState.currentWorkbookUpdate = GenotypeResultCurrentWorkbookUpdateState(
+                    manualChangeCount: genotypeWorkbookChangeCount(sidecar),
+                    statusText: currentWorkbookUpdate.statusText,
+                    isEnabled: currentWorkbookUpdate.isEnabled
+                )
+            }
             var displayState = viewModel.genotypeResultDisplaySectionViewModel.displayState
             if viewModel.genotypeResultDisplaySectionViewModel.mhcCandidateControlsAvailable {
                 displayState.mhcCandidateDisplaySettings = sidecar.settings.mhcCandidateDisplay
@@ -589,6 +595,24 @@ extension InspectorViewController {
                 )
             }
         }
+    }
+
+    func updateGenotypeCurrentWorkbookSyncState(
+        bundleURL: URL,
+        phase: GenotypeCurrentWorkbookUIPhase,
+        isReadOnly: Bool
+    ) {
+        guard var state = viewModel.documentSectionViewModel.genotypeResultDocument,
+              state.bundleURL?.standardizedFileURL == bundleURL.standardizedFileURL
+        else {
+            return
+        }
+        let manualChangeCount = state.currentWorkbookUpdate?.manualChangeCount ?? 0
+        state.currentWorkbookUpdate = phase.presentation(
+            isReadOnly: isReadOnly,
+            manualChangeCount: manualChangeCount
+        )
+        viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
     }
 
     private func genotypeSummaryRows(_ result: ONTGenotypeResultBundleData) -> [(String, String)] {
@@ -621,31 +645,22 @@ extension InspectorViewController {
         result: ONTGenotypeResultBundleData,
         sidecar: GenotypeAnnotationSidecar
     ) -> GenotypeResultCurrentWorkbookUpdateState {
-        let workbookChangeCount = sidecar.callOverrides.count
+        let workbookChangeCount = genotypeWorkbookChangeCount(sidecar)
+        let isWritable = FileManager.default.isWritableFile(atPath: result.bundleURL.path)
+        return GenotypeCurrentWorkbookUIPhase.current.presentation(
+            isReadOnly: !isWritable,
+            manualChangeCount: workbookChangeCount
+        )
+    }
+
+    private func genotypeWorkbookChangeCount(
+        _ sidecar: GenotypeAnnotationSidecar
+    ) -> Int {
+        sidecar.callOverrides.count
             + sidecar.manualHaplotypeAssignments.count
             + sidecar.matrixStyles.count
+            + sidecar.matrixReviews.count
             + sidecar.matrixComments.count
-        let hasMatrixAnnotations = !sidecar.matrixStyles.isEmpty || !sidecar.matrixComments.isEmpty
-        let changeLabel: String
-        if hasMatrixAnnotations {
-            changeLabel = workbookChangeCount == 1 ? "workbook annotation change" : "workbook annotation changes"
-        } else {
-            changeLabel = workbookChangeCount == 1 ? "manual haplotype change" : "manual haplotype changes"
-        }
-        let isWritable = FileManager.default.isWritableFile(atPath: result.bundleURL.path)
-        let statusText: String
-        if workbookChangeCount == 0 {
-            statusText = "current.xlsx has no workbook annotation edits to apply."
-        } else if !isWritable {
-            statusText = "current.xlsx cannot be updated because this bundle is read-only."
-        } else {
-            statusText = "current.xlsx can be refreshed from \(workbookChangeCount) \(changeLabel)."
-        }
-        return GenotypeResultCurrentWorkbookUpdateState(
-            manualChangeCount: workbookChangeCount,
-            statusText: statusText,
-            isEnabled: workbookChangeCount > 0 && isWritable
-        )
     }
 
     private func genotypeSampleIds(_ result: ONTGenotypeResultBundleData) -> [String] {

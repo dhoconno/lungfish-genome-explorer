@@ -299,8 +299,13 @@ extension MainSplitViewController {
                 controller.onDisplayStateChanged = { [weak self] state in
                     self?.inspectorController.updateGenotypeResultDisplayState(state)
                 }
-                controller.onAnnotationSidecarChanged = { [weak self] sidecar in
-                    self?.inspectorController.updateGenotypeAnnotationSidecar(sidecar)
+                controller.onAnnotationSidecarChanged = { [weak self, weak controller] sidecar in
+                    guard let self,
+                          self.viewerController.genotypeResultViewController === controller
+                    else {
+                        return
+                    }
+                    self.inspectorController.updateGenotypeAnnotationSidecar(sidecar)
                 }
                 controller.onMatrixReviewCapabilityChanged = { [weak self] capability in
                     self?.inspectorController.genotypeResultDisplaySectionViewModel
@@ -310,37 +315,8 @@ extension MainSplitViewController {
                     self?.inspectorController.genotypeResultDisplaySectionViewModel
                         .updateMHCCandidatePersistenceWarning(warning)
                 }
-                controller.onCurrentWorkbookUpdateRequested = { [weak self, weak controller] bundleURL, calls, includedLoci, annotationOnly in
-                    guard let self else { return }
-                    guard self.canWriteProjectOutputs(workflowName: "Update current.xlsx") else { return }
-                    let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
-                    let routeContext = OperationRouteContext(
-                        projectURL: self.sidebarController.currentProjectURL,
-                        windowStateScope: self.projectSession.windowStateScope
-                    )
-                    Task { @MainActor [weak self, weak controller] in
-                        guard let self else { return }
-                        do {
-                            try await GenotypeCurrentWorkbookUpdateExecutionService().run(
-                                bundleURL: bundleURL,
-                                calls: calls,
-                                includedLoci: includedLoci,
-                                annotationSidecarURL: annotationURL,
-                                annotationOnly: annotationOnly,
-                                routeContext: routeContext
-                            )
-                            let updated = try await ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)
-                            controller?.applyCurrentWorkbookUpdateCompleted(
-                                result: updated,
-                                annotationOnly: annotationOnly
-                            )
-                            self.inspectorController.updateGenotypeResultDocument(updated)
-                            self.sidebarController.requestReloadFromFilesystem()
-                        } catch {
-                            controller?.applyCurrentWorkbookUpdateFailed(error)
-                            (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
-                        }
-                    }
+                controller.onCurrentWorkbookSyncRequested = { [weak self] request in
+                    self?.routeGenotypeCurrentWorkbookRequest(request)
                 }
                 controller.onAIHaplotypingRequested = { [weak self, weak controller] bundleURL, request in
                     guard let self else { return }
@@ -402,6 +378,7 @@ extension MainSplitViewController {
                 }
                 controller.notifyDisplayStateIfAvailable()
                 controller.notifySelectionStateIfAvailable()
+                controller.requestCurrentWorkbookRegistration()
             } catch is CancellationError {
                 return
             } catch {
@@ -420,6 +397,164 @@ extension MainSplitViewController {
                 viewerController.displayQuickLookPreview(url: workbookURL)
             }
         }
+    }
+
+    func routeGenotypeCurrentWorkbookRequest(
+        _ request: GenotypeCurrentWorkbookUIRequest
+    ) {
+        let key = request.snapshot.bundleURL.standardizedFileURL.path
+        nextGenotypeCurrentWorkbookRouteGeneration &+= 1
+        let generation = nextGenotypeCurrentWorkbookRouteGeneration
+        let action = preferredGenotypeCurrentWorkbookAction(
+            pendingGenotypeCurrentWorkbookRoutes[key]?.action,
+            request.action
+        )
+        pendingGenotypeCurrentWorkbookRoutes[key] = PendingGenotypeCurrentWorkbookRoute(
+            generation: generation,
+            snapshot: request.snapshot,
+            action: action,
+            routeContext: operationRouteContext
+        )
+
+        Task { @MainActor [weak self] in
+            do {
+                let fingerprint = try await Task.detached {
+                    try GenotypeCurrentWorkbookInputFingerprint.make(
+                        calls: request.snapshot.calls,
+                        includedLoci: request.snapshot.includedLoci,
+                        annotationSidecar: request.snapshot.annotationSidecar,
+                        candidateArtifacts: request.snapshot.candidateArtifacts
+                    )
+                }.value
+                guard let self,
+                      let pending = self.pendingGenotypeCurrentWorkbookRoutes[key],
+                      pending.generation == generation
+                else {
+                    return
+                }
+                self.pendingGenotypeCurrentWorkbookRoutes.removeValue(forKey: key)
+                if pending.snapshot.isReadOnly {
+                    switch pending.action {
+                    case .register:
+                        break
+                    case .synchronize(.updateAndView)
+                        where self.genotypeCurrentWorkbookSyncCoordinator.phase(
+                            for: pending.snapshot.bundleURL
+                        ) == .current:
+                        break
+                    case .markDirty, .synchronize:
+                        return
+                    }
+                }
+                let coordinatorRequest = GenotypeCurrentWorkbookSyncCoordinator.Request(
+                    bundleURL: pending.snapshot.bundleURL,
+                    calls: pending.snapshot.calls,
+                    includedLoci: pending.snapshot.includedLoci,
+                    annotationSidecarURL: pending.snapshot.annotationSidecarURL,
+                    annotationOnly: pending.snapshot.annotationOnly,
+                    fingerprint: fingerprint,
+                    routeContext: pending.routeContext
+                )
+                switch pending.action {
+                case .register:
+                    await self.genotypeCurrentWorkbookSyncCoordinator.register(
+                        coordinatorRequest
+                    )
+                case .markDirty:
+                    self.genotypeCurrentWorkbookSyncCoordinator.markDirty(
+                        coordinatorRequest
+                    )
+                case .synchronize(let intent):
+                    do {
+                        _ = try await self.genotypeCurrentWorkbookSyncCoordinator
+                            .synchronize(coordinatorRequest, intent: intent)
+                    } catch {
+                        (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
+                    }
+                }
+            } catch {
+                guard let self,
+                      self.pendingGenotypeCurrentWorkbookRoutes[key]?.generation == generation
+                else {
+                    return
+                }
+                self.pendingGenotypeCurrentWorkbookRoutes.removeValue(forKey: key)
+                self.applyGenotypeCurrentWorkbookSyncPhase(
+                    .failed(error.localizedDescription),
+                    bundleURL: request.snapshot.bundleURL
+                )
+            }
+        }
+    }
+
+    func prepareGenotypeResultViewForRemoval(
+        _ controller: GenotypeResultViewController
+    ) {
+        controller.requestCurrentWorkbookSyncForBundleSwitch()
+        guard controller.hasDeferredMatrixAnnotationMutations else { return }
+        let identifier = ObjectIdentifier(controller)
+        retainedDeferredGenotypeResultControllers[identifier] = controller
+        controller.onDeferredMatrixAnnotationMutationsDrained = {
+            [weak self, weak controller] in
+            guard let self, let controller else { return }
+            self.retainedDeferredGenotypeResultControllers.removeValue(
+                forKey: ObjectIdentifier(controller)
+            )
+        }
+    }
+
+    func applyGenotypeCurrentWorkbookSyncPhase(
+        _ phase: GenotypeCurrentWorkbookSyncCoordinator.Phase,
+        bundleURL: URL
+    ) {
+        guard let controller = viewerController.genotypeResultViewController,
+              controller.currentResultBundleURL?.standardizedFileURL
+                == bundleURL.standardizedFileURL
+        else {
+            return
+        }
+        let uiPhase: GenotypeCurrentWorkbookUIPhase
+        switch phase {
+        case .current:
+            uiPhase = .current
+        case .dirty:
+            uiPhase = .dirty
+        case .updating:
+            uiPhase = .updating
+        case .dirtyWhileUpdating:
+            uiPhase = .dirtyWhileUpdating
+        case .failed(let message):
+            uiPhase = .failed(message)
+        }
+        let isReadOnly = controller.currentResultBundleIsReadOnly
+        controller.applyCurrentWorkbookSyncPhase(uiPhase, isReadOnly: isReadOnly)
+        inspectorController.updateGenotypeCurrentWorkbookSyncState(
+            bundleURL: bundleURL,
+            phase: uiPhase,
+            isReadOnly: isReadOnly
+        )
+    }
+
+    private func preferredGenotypeCurrentWorkbookAction(
+        _ lhs: GenotypeCurrentWorkbookUIRequest.Action?,
+        _ rhs: GenotypeCurrentWorkbookUIRequest.Action
+    ) -> GenotypeCurrentWorkbookUIRequest.Action {
+        guard let lhs else { return rhs }
+        func rank(_ action: GenotypeCurrentWorkbookUIRequest.Action) -> Int {
+            switch action {
+            case .register:
+                return 0
+            case .markDirty:
+                return 1
+            case .synchronize(.automaticIdle):
+                return 2
+            case .synchronize(.bundleSwitch):
+                return 3
+            case .synchronize(.updateAndView):
+                return 4
+            }
+        }
+        return rank(rhs) > rank(lhs) ? rhs : lhs
     }
 
     static func shouldPreviewPrimaryWorkbook(for result: ONTGenotypeResultBundleData) -> Bool {

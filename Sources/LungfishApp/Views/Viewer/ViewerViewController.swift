@@ -102,6 +102,7 @@ public class ViewerViewController: NSViewController {
 
     /// Native ONT genotype result bundle viewport.
     var genotypeResultViewController: GenotypeResultViewController?
+    var onGenotypeResultViewWillHide: ((GenotypeResultViewController) -> Void)?
 
     /// Native 12S amplicon result bundle viewport.
     var twelveSAmpliconResultViewController: TwelveSAmpliconResultViewController?

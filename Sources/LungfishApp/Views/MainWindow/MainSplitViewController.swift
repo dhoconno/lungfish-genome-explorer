@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishGenotypeUI
 import LungfishIO
 import LungfishWorkflow
 import os.log
@@ -110,6 +111,13 @@ enum DuplicateResolution {
     case skip       // Skip importing, use existing file
 }
 
+struct PendingGenotypeCurrentWorkbookRoute {
+    let generation: UInt64
+    let snapshot: GenotypeCurrentWorkbookUISnapshot
+    let action: GenotypeCurrentWorkbookUIRequest.Action
+    let routeContext: OperationRouteContext
+}
+
 /// The main split view controller managing sidebar, viewer, and inspector panels.
 ///
 /// Layout:
@@ -206,6 +214,14 @@ public class MainSplitViewController: NSSplitViewController {
     var genotypeResultLoader: @Sendable (URL) async throws -> ONTGenotypeResultBundleData = { url in
         try await ONTGenotypeResultBundle.loadResultAsync(from: url)
     }
+    var genotypeCurrentWorkbookSyncCoordinator = GenotypeCurrentWorkbookSyncCoordinator()
+    var genotypeCurrentWorkbookSyncObservation:
+        GenotypeCurrentWorkbookSyncCoordinator.Observation?
+    var pendingGenotypeCurrentWorkbookRoutes:
+        [String: PendingGenotypeCurrentWorkbookRoute] = [:]
+    var nextGenotypeCurrentWorkbookRouteGeneration: UInt64 = 0
+    var retainedDeferredGenotypeResultControllers:
+        [ObjectIdentifier: GenotypeResultViewController] = [:]
 
     var windowStateScope: WindowStateScope {
         projectSession.windowStateScope
@@ -364,6 +380,9 @@ public class MainSplitViewController: NSSplitViewController {
         viewerController = ViewerViewController()
         inspectorController = InspectorViewController()
         viewerController.windowStateScope = windowStateScope
+        viewerController.onGenotypeResultViewWillHide = { [weak self] controller in
+            self?.prepareGenotypeResultViewForRemoval(controller)
+        }
         _ = inspectorController.view
         let sidebarView = sidebarController.view
         sidebarView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -374,6 +393,16 @@ public class MainSplitViewController: NSSplitViewController {
         sidebarController.selectionDelegate = self
         sidebarController.windowStateScope = windowStateScope
         inspectorController.windowStateScope = windowStateScope
+        genotypeCurrentWorkbookSyncObservation =
+            genotypeCurrentWorkbookSyncCoordinator.observe(self) {
+                owner,
+                bundleURL,
+                phase in
+                owner.applyGenotypeCurrentWorkbookSyncPhase(
+                    phase,
+                    bundleURL: bundleURL
+                )
+            }
 
         // Create split view items with appropriate behaviors
 
