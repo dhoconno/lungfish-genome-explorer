@@ -2,6 +2,21 @@ import AppKit
 import LungfishCore
 import LungfishKit
 
+/// An ordinary TaxTriage table in production, with a DEBUG-only counter around
+/// the real `reloadData()` entry point so typography tests can prove that a
+/// notification did not ask AppKit to reload rows.
+@MainActor
+final class TaxTriageTableView: NSTableView {
+#if DEBUG
+    private(set) var testingReloadDataCallCount = 0
+
+    override func reloadData() {
+        testingReloadDataCallCount += 1
+        super.reloadData()
+    }
+#endif
+}
+
 @MainActor
 func taxTriageContentFont(
     canonicalPointSize: CGFloat,

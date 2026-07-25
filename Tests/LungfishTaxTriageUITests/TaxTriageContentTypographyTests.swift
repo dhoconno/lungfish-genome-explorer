@@ -125,12 +125,20 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             )
             let confidenceIdentity = ObjectIdentifier(confidence)
             let confidenceScore = confidence.score
-            let confidenceTrackInsets = confidence.testingTrackInsets
+            let baselineConfidenceTrack = confidence.testingTrackRect
+            let confidenceColor = confidence.testingFillColor
+            XCTAssertEqual(baselineConfidenceTrack.height, 16)
+            XCTAssertEqual(baselineConfidenceTrack.midY, confidence.bounds.midY)
+            XCTAssertEqual(
+                confidenceColor,
+                TaxTriageConfidencePalette.color(for: confidenceScore)
+            )
             XCTAssertEqual(confidence.accessibilityValue() as? NSNumber, 0.91)
             XCTAssertEqual(
                 confidence.accessibilityHelp(),
                 "High confidence, TASS score 0.910"
             )
+            let baselineReloadCount = view.testingTableReloadCount
 
             settings.contentTextSizePreference = .custom(200)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
@@ -145,11 +153,67 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             )
             XCTAssertEqual(ObjectIdentifier(confidenceAfter), confidenceIdentity)
             XCTAssertEqual(confidenceAfter.score, confidenceScore)
-            XCTAssertEqual(confidenceAfter.testingTrackInsets.top, confidenceTrackInsets.top)
-            XCTAssertEqual(confidenceAfter.testingTrackInsets.left, confidenceTrackInsets.left)
-            XCTAssertEqual(confidenceAfter.testingTrackInsets.bottom, confidenceTrackInsets.bottom)
-            XCTAssertEqual(confidenceAfter.testingTrackInsets.right, confidenceTrackInsets.right)
+            XCTAssertEqual(confidenceAfter.testingTrackRect.height, 16)
+            XCTAssertEqual(confidenceAfter.testingTrackRect.midY, confidenceAfter.bounds.midY)
+            XCTAssertEqual(confidenceAfter.testingFillColor, confidenceColor)
+            XCTAssertEqual(view.testingTableReloadCount, baselineReloadCount)
 
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+            XCTAssertEqual(
+                view.testingCell(column: "organism", row: 4)?.font?.pointSize,
+                baselineFont * 2
+            )
+            XCTAssertEqual(view.testingTableReloadCount, baselineReloadCount)
+            let confidenceRepeated = try XCTUnwrap(
+                view.testingCellView(column: "confidence", row: 4)
+                    as? TaxTriageConfidenceCellView
+            )
+            XCTAssertEqual(ObjectIdentifier(confidenceRepeated), confidenceIdentity)
+            XCTAssertEqual(confidenceRepeated.score, confidenceScore)
+            XCTAssertEqual(confidenceRepeated.testingTrackRect.height, 16)
+            XCTAssertEqual(confidenceRepeated.testingFillColor, confidenceColor)
+            XCTAssertLessThan(
+                view.testingTypographyRealizedCellResolutionCount,
+                view.rows.count * view.testingTableView.tableColumns.count
+            )
+
+            settings.contentTextSizePreference = .custom(100)
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+            XCTAssertEqual(
+                view.testingCell(column: "organism", row: 4)?.font?.pointSize,
+                baselineFont
+            )
+            let confidenceRestored = try XCTUnwrap(
+                view.testingCellView(column: "confidence", row: 4)
+                    as? TaxTriageConfidenceCellView
+            )
+            XCTAssertEqual(ObjectIdentifier(confidenceRestored), confidenceIdentity)
+            XCTAssertEqual(confidenceRestored.score, confidenceScore)
+            XCTAssertEqual(confidenceRestored.testingTrackRect.height, 16)
+            XCTAssertEqual(confidenceRestored.testingTrackRect.midY, confidenceRestored.bounds.midY)
+            XCTAssertEqual(confidenceRestored.testingFillColor, confidenceColor)
+            XCTAssertEqual(view.testingTableReloadCount, baselineReloadCount)
+            settings.contentTextSizePreference = .system
+            provider.bodyPointSize = 26
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+            XCTAssertEqual(
+                view.testingCell(column: "organism", row: 4)?.font?.pointSize,
+                baselineFont * 2
+            )
+            let confidenceSystem = try XCTUnwrap(
+                view.testingCellView(column: "confidence", row: 4)
+                    as? TaxTriageConfidenceCellView
+            )
+            XCTAssertEqual(ObjectIdentifier(confidenceSystem), confidenceIdentity)
+            XCTAssertEqual(confidenceSystem.score, confidenceScore)
+            XCTAssertEqual(confidenceSystem.testingTrackRect.height, 16)
+            XCTAssertEqual(confidenceSystem.testingTrackRect.midY, confidenceSystem.bounds.midY)
+            XCTAssertEqual(confidenceSystem.testingFillColor, confidenceColor)
+            XCTAssertEqual(view.testingTableReloadCount, baselineReloadCount)
+
+            settings.contentTextSizePreference = .custom(200)
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+            XCTAssertEqual(view.testingTableReloadCount, baselineReloadCount)
             let store = try SampleMetadataStore(
                 csvData: Data("sample_id,collection_site\nsample-1,Very long site\n".utf8),
                 knownSampleIds: ["sample-1"]
@@ -162,31 +226,6 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             XCTAssertEqual(metadata.font?.pointSize, 26)
             XCTAssertEqual(metadata.toolTip, "Very long site")
             XCTAssertEqual(metadata.accessibilityValue(), "Very long site")
-
-            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
-            XCTAssertEqual(
-                view.testingCell(column: "organism", row: 4)?.font?.pointSize,
-                baselineFont * 2
-            )
-            XCTAssertEqual(view.testingTypographyReloadCount, 0)
-            XCTAssertLessThan(
-                view.testingTypographyRealizedCellResolutionCount,
-                view.rows.count * view.testingTableView.tableColumns.count
-            )
-
-            settings.contentTextSizePreference = .custom(100)
-            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
-            XCTAssertEqual(
-                view.testingCell(column: "organism", row: 4)?.font?.pointSize,
-                baselineFont
-            )
-            settings.contentTextSizePreference = .system
-            provider.bodyPointSize = 26
-            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
-            XCTAssertEqual(
-                view.testingCell(column: "organism", row: 4)?.font?.pointSize,
-                baselineFont * 2
-            )
         }
     }
 
@@ -226,6 +265,7 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             let heatmapText = heatmap.textField?.stringValue
             XCTAssertNotNil(heatmapColor)
             XCTAssertEqual(view.currentFacet, .tass)
+            let baselineReloadCount = view.testingTableReloadCount
 
             settings.contentTextSizePreference = .custom(200)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
@@ -250,7 +290,7 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             )
             XCTAssertGreaterThan(view.testingBannerHeight, 24)
             XCTAssertTrue(view.testingBannerLabelWraps)
-            XCTAssertEqual(view.testingTypographyReloadCount, 0)
+            XCTAssertEqual(view.testingTableReloadCount, baselineReloadCount)
             XCTAssertLessThanOrEqual(
                 view.testingTypographyRealizedCellResolutionCount,
                 view.testingTableView.tableColumns.count
@@ -265,11 +305,105 @@ final class TaxTriageContentTypographyTests: XCTestCase {
                 26
             )
             XCTAssertEqual(view.testingFullSampleIds, ids)
+            let postRevealReloadCount = view.testingTableReloadCount
 
             settings.contentTextSizePreference = .custom(100)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
             XCTAssertEqual(view.testingCell(column: "organism", row: 0)?.font?.pointSize, baselineFont)
+            XCTAssertEqual(view.testingTableReloadCount, postRevealReloadCount)
         }
+    }
+
+    func testBatchOverviewReusedCellsReplaceFacetAndRiskAccessibilityState() throws {
+        let control = TaxTriageMetric(
+            sample: "control",
+            organism: "Risk organism",
+            rank: "S",
+            reads: 1_234,
+            abundance: 0.1,
+            coverageBreadth: 50,
+            coverageDepth: 10,
+            tassScore: 0.91,
+            confidence: "High"
+        )
+        let safe = TaxTriageMetric(
+            sample: "sample-1",
+            organism: "Safe organism",
+            rank: "S",
+            reads: 77,
+            abundance: 0.1,
+            coverageBreadth: 25,
+            coverageDepth: 5,
+            tassScore: 0.51,
+            confidence: "Medium"
+        )
+        let view = TaxTriageBatchOverviewView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: 100)
+        )
+        view.configure(
+            metrics: [control, safe],
+            sampleIds: ["control", "sample-1"],
+            negativeControlSampleIds: ["control"]
+        )
+        let window = host(view, size: view.frame.size)
+        defer { close(window) }
+        let riskRow = try XCTUnwrap(view.testingRowIndex(organism: "Risk organism"))
+        let safeRow = try XCTUnwrap(view.testingRowIndex(organism: "Safe organism"))
+
+        let sampleCell = try XCTUnwrap(
+            view.testingConfigureReusableCell(
+                column: "sample_control",
+                row: riskRow,
+                reusing: nil
+            )
+        )
+        XCTAssertEqual(sampleCell.textField?.stringValue, "0.91")
+        XCTAssertEqual(sampleCell.textField?.toolTip, "0.91")
+        XCTAssertEqual(sampleCell.textField?.accessibilityValue(), "0.91")
+        XCTAssertNil(sampleCell.textField?.accessibilityHelp())
+
+        view.testingSelectFacet(.reads)
+        let readsCell = try XCTUnwrap(
+            view.testingConfigureReusableCell(
+                column: "sample_control",
+                row: riskRow,
+                reusing: sampleCell
+            )
+        )
+        XCTAssertTrue(readsCell === sampleCell)
+        XCTAssertEqual(readsCell.textField?.stringValue, "1.2K")
+        XCTAssertEqual(readsCell.textField?.toolTip, "1.2K")
+        XCTAssertEqual(readsCell.textField?.accessibilityValue(), "1.2K")
+        XCTAssertNil(readsCell.textField?.accessibilityHelp())
+
+        let riskCell = try XCTUnwrap(
+            view.testingConfigureReusableCell(column: "risk", row: riskRow, reusing: nil)
+        )
+        XCTAssertEqual(riskCell.textField?.stringValue, "\u{26A0}")
+        XCTAssertEqual(riskCell.textField?.toolTip, "Detected in negative control sample")
+        XCTAssertEqual(riskCell.textField?.accessibilityLabel(), "Contamination risk")
+        XCTAssertEqual(riskCell.textField?.accessibilityValue(), "\u{26A0}")
+        XCTAssertEqual(
+            riskCell.textField?.accessibilityHelp(),
+            "Detected in negative control sample"
+        )
+
+        view.testingTableView.scrollRowToVisible(safeRow)
+        view.testingTableView.layoutSubtreeIfNeeded()
+        let reusedSafeCell = try XCTUnwrap(
+            view.testingConfigureReusableCell(
+                column: "risk",
+                row: safeRow,
+                reusing: riskCell
+            )
+        )
+        XCTAssertTrue(reusedSafeCell === riskCell)
+        XCTAssertEqual(reusedSafeCell.textField?.stringValue, "")
+        XCTAssertNil(reusedSafeCell.textField?.toolTip)
+        XCTAssertNil(reusedSafeCell.textField?.accessibilityLabel())
+        XCTAssertEqual(reusedSafeCell.textField?.accessibilityValue(), "")
+        XCTAssertNil(reusedSafeCell.textField?.accessibilityHelp())
+        XCTAssertNil(reusedSafeCell.layer?.backgroundColor)
     }
 
     func testStrainComparisonScalesLateColumnsWithoutChangingBaseCalls() throws {
@@ -315,6 +449,7 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             let baselinePointSize = try XCTUnwrap(baselineBase.font).pointSize
             let baselineText = baselineBase.stringValue
             let baselineColor = baselineBase.textColor
+            let baselineReloadCount = view.testingTableReloadCount
 
             settings.contentTextSizePreference = .custom(200)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
@@ -333,7 +468,7 @@ final class TaxTriageContentTypographyTests: XCTestCase {
                 try XCTUnwrap(view.testingTableView.headerView).frame.height,
                 24
             )
-            XCTAssertEqual(view.testingTypographyReloadCount, 0)
+            XCTAssertEqual(view.testingTableReloadCount, baselineReloadCount)
             XCTAssertLessThanOrEqual(
                 view.testingTypographyRealizedCellResolutionCount,
                 view.testingTableView.tableColumns.count
@@ -345,6 +480,7 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             let late = try XCTUnwrap(view.testingCell(column: "sample_S149", row: 0))
             XCTAssertEqual(late.font?.pointSize, baselinePointSize * 2)
             XCTAssertEqual(late.stringValue, "A")
+            let postRevealReloadCount = view.testingTableReloadCount
 
             settings.contentTextSizePreference = .custom(100)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
@@ -353,6 +489,7 @@ final class TaxTriageContentTypographyTests: XCTestCase {
                 view.testingCell(column: "sample_S149", row: 0)?.font?.pointSize,
                 baselinePointSize
             )
+            XCTAssertEqual(view.testingTableReloadCount, postRevealReloadCount)
         }
     }
 
@@ -400,7 +537,6 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             XCTAssertTrue(controller.testingPlaceholderFieldsAreContainedAndSeparated)
             XCTAssertEqual(controller.testingMiniBAMControllerIdentity, baselineMiniIdentity)
             XCTAssertEqual(controller.testingMiniBAMLoadCount, baselineMiniLoadCount)
-            XCTAssertEqual(controller.testingTypographyReloadCount, 0)
 
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
             XCTAssertEqual(

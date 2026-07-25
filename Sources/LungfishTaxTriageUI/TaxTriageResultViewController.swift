@@ -405,7 +405,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         AppKitContentPreferredFontProvider()
     private nonisolated(unsafe) var contentTypographyObserver: NSObjectProtocol?
 #if DEBUG
-    private var typographyReloadCount = 0
     private var miniBAMLoadCount = 0
 #endif
 
@@ -4126,7 +4125,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         miniBAMController.map(ObjectIdentifier.init)
     }
     var testingMiniBAMLoadCount: Int { miniBAMLoadCount }
-    var testingTypographyReloadCount: Int { typographyReloadCount }
 
     func testingSetContentPreferredFontProvider(
         _ provider: any ContentPreferredFontProviding
@@ -4335,12 +4333,11 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     // MARK: - Subviews
 
     private let scrollView = NSScrollView()
-    private let tableView = NSTableView()
+    private let tableView = TaxTriageTableView()
     private var preferredFontProvider: any ContentPreferredFontProviding =
         AppKitContentPreferredFontProvider()
     private nonisolated(unsafe) var contentTypographyObserver: NSObjectProtocol?
 #if DEBUG
-    private var typographyReloadCount = 0
     private var typographyRealizedCellResolutionCount = 0
 #endif
 
@@ -4911,7 +4908,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 
 #if DEBUG
     var testingTableView: NSTableView { tableView }
-    var testingTypographyReloadCount: Int { typographyReloadCount }
+    var testingTableReloadCount: Int { tableView.testingReloadDataCallCount }
     var testingTypographyRealizedCellResolutionCount: Int {
         typographyRealizedCellResolutionCount
     }

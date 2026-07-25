@@ -20,9 +20,8 @@ enum TaxTriageConfidencePalette {
 
 #if DEBUG
 extension TaxTriageConfidenceCellView {
-    var testingTrackInsets: NSEdgeInsets {
-        NSEdgeInsets(top: 4, left: 2, bottom: 4, right: 2)
-    }
+    var testingTrackRect: NSRect { trackRect }
+    var testingFillColor: NSColor { fillColor }
 }
 #endif
 
@@ -33,6 +32,8 @@ extension TaxTriageConfidenceCellView {
 /// Renders a single horizontal bar with color coding in the TaxTriage confidence column.
 @MainActor
 final class TaxTriageConfidenceCellView: NSView {
+    private static let trackHeight: CGFloat = 16
+    private static let horizontalInset: CGFloat = 2
 
     /// The TASS confidence score to display (0.0 to 1.0).
     var score: Double = 0 {
@@ -43,6 +44,20 @@ final class TaxTriageConfidenceCellView: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    private var trackRect: NSRect {
+        let height = min(Self.trackHeight, max(0, bounds.height))
+        return NSRect(
+            x: bounds.minX + Self.horizontalInset,
+            y: bounds.midY - height / 2,
+            width: max(0, bounds.width - Self.horizontalInset * 2),
+            height: height
+        )
+    }
+
+    private var fillColor: NSColor {
+        TaxTriageConfidencePalette.color(for: min(max(score, 0), 1))
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -56,9 +71,6 @@ final class TaxTriageConfidenceCellView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-
-        let inset: CGFloat = 2
-        let trackRect = bounds.insetBy(dx: inset, dy: 4)
 
         // Track background
         ctx.setFillColor(NSColor.controlBackgroundColor.withAlphaComponent(0.4).cgColor)
@@ -80,8 +92,7 @@ final class TaxTriageConfidenceCellView: NSView {
             width: barWidth,
             height: trackRect.height
         )
-        let barColor = TaxTriageConfidencePalette.color(for: clampedScore)
-        ctx.setFillColor(barColor.cgColor)
+        ctx.setFillColor(fillColor.cgColor)
         let barPath = CGPath(
             roundedRect: barRect,
             cornerWidth: 2,

@@ -55,14 +55,13 @@ final class StrainComparisonView: NSView {
     // MARK: - Child Views
 
     private let scrollView = NSScrollView()
-    private let tableView = NSTableView()
+    private let tableView = TaxTriageTableView()
     private let headerLabel = NSTextField(labelWithString: "")
     private let columnWindowBanner = SampleColumnWindowBanner()
     private var preferredFontProvider: any ContentPreferredFontProviding =
         AppKitContentPreferredFontProvider()
     private nonisolated(unsafe) var contentTypographyObserver: NSObjectProtocol?
 #if DEBUG
-    private var typographyReloadCount = 0
     private var typographyRealizedCellResolutionCount = 0
 #endif
 
@@ -373,7 +372,7 @@ extension StrainComparisonView {
 
     var testingTableView: NSTableView { tableView }
     var testingHeaderPointSize: CGFloat { headerLabel.font?.pointSize ?? 0 }
-    var testingTypographyReloadCount: Int { typographyReloadCount }
+    var testingTableReloadCount: Int { tableView.testingReloadDataCallCount }
     var testingTypographyRealizedCellResolutionCount: Int {
         typographyRealizedCellResolutionCount
     }

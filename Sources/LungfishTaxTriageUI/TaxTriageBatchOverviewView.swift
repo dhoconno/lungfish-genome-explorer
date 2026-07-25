@@ -106,12 +106,11 @@ final class TaxTriageBatchOverviewView: NSView {
     private let facetControl = NSSegmentedControl()
     private let columnWindowBanner = SampleColumnWindowBanner()
     private let scrollView = NSScrollView()
-    private let tableView = NSTableView()
+    private let tableView = TaxTriageTableView()
     private var preferredFontProvider: any ContentPreferredFontProviding =
         AppKitContentPreferredFontProvider()
     private nonisolated(unsafe) var contentTypographyObserver: NSObjectProtocol?
 #if DEBUG
-    private var typographyReloadCount = 0
     private var typographyRealizedCellResolutionCount = 0
 #endif
 
@@ -249,10 +248,6 @@ final class TaxTriageBatchOverviewView: NSView {
                 digitsOnly: true,
                 preferredFontProvider: preferredFontProvider
             )
-        }
-        if !field.stringValue.isEmpty {
-            field.toolTip = field.toolTip ?? field.stringValue
-            field.setAccessibilityValue(field.stringValue)
         }
     }
 
@@ -579,45 +574,60 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let column = tableColumn, row < crossSampleRows.count else { return nil }
         let data = crossSampleRows[row]
-        let id = column.identifier.rawValue
 
         let cellView = tableView.makeView(withIdentifier: column.identifier, owner: self) as? NSTableCellView
             ?? makeCellView(identifier: column.identifier)
+        configure(cellView, column: column, rowData: data)
+        return cellView
+    }
+
+    private func configure(
+        _ cellView: NSTableCellView,
+        column: NSTableColumn,
+        rowData data: CrossSampleRow
+    ) {
+        guard let field = cellView.textField else { return }
+        let id = column.identifier.rawValue
+
+        // NSTableView reuses views across rows and after facet reloads. Reset
+        // every semantic/display property before assigning the new value so a
+        // warning explanation or an old facet value can never leak.
+        field.stringValue = ""
+        field.alignment = .natural
+        field.toolTip = nil
+        field.setAccessibilityLabel(nil)
+        field.setAccessibilityValue(nil)
+        field.setAccessibilityHelp(nil)
+        cellView.toolTip = nil
+        cellView.layer?.backgroundColor = nil
 
         switch id {
         case "organism":
-            cellView.textField?.stringValue = data.organism
-            cellView.layer?.backgroundColor = nil
+            field.stringValue = data.organism
 
         case "sampleCount":
-            cellView.textField?.stringValue = "\(data.sampleCount)/\(sampleIds.count)"
-            cellView.textField?.alignment = .center
-            cellView.layer?.backgroundColor = nil
+            field.stringValue = "\(data.sampleCount)/\(sampleIds.count)"
+            field.alignment = .center
 
         case "meanTASS":
-            cellView.textField?.stringValue = String(format: "%.2f", data.meanTASS)
-            cellView.textField?.alignment = .right
+            field.stringValue = String(format: "%.2f", data.meanTASS)
+            field.alignment = .right
             let color = Self.tassColor(for: data.meanTASS)
             cellView.layer?.backgroundColor = color.cgColor
 
         case "reads":
             if data.minReads == data.maxReads {
-                cellView.textField?.stringValue = formatReadCount(data.minReads)
+                field.stringValue = formatReadCount(data.minReads)
             } else {
-                cellView.textField?.stringValue = "\(formatReadCount(data.minReads))-\(formatReadCount(data.maxReads))"
+                field.stringValue = "\(formatReadCount(data.minReads))-\(formatReadCount(data.maxReads))"
             }
-            cellView.textField?.alignment = .right
-            cellView.layer?.backgroundColor = nil
+            field.alignment = .right
 
         case "risk":
             if data.isContaminationRisk {
-                cellView.textField?.stringValue = "\u{26A0}"  // warning sign
-                cellView.textField?.alignment = .center
-                cellView.textField?.toolTip = "Detected in negative control sample"
+                field.stringValue = "\u{26A0}"  // warning sign
+                field.alignment = .center
                 cellView.layer?.backgroundColor = NSColor.lungfishDanger.withAlphaComponent(0.15).cgColor
-            } else {
-                cellView.textField?.stringValue = ""
-                cellView.layer?.backgroundColor = nil
             }
 
         default:
@@ -628,51 +638,58 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                 switch currentFacet {
                 case .tass:
                     if let score {
-                        cellView.textField?.stringValue = String(format: "%.2f", score)
+                        field.stringValue = String(format: "%.2f", score)
                     } else {
-                        cellView.textField?.stringValue = "-"
+                        field.stringValue = "-"
                     }
-                    cellView.textField?.alignment = .center
+                    field.alignment = .center
                     cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
 
                 case .reads:
                     if let reads = data.perSampleReads[sampleId] {
-                        cellView.textField?.stringValue = formatReadCount(reads)
+                        field.stringValue = formatReadCount(reads)
                     } else {
-                        cellView.textField?.stringValue = "-"
+                        field.stringValue = "-"
                     }
-                    cellView.textField?.alignment = .center
+                    field.alignment = .center
                     cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
 
                 case .uniqueReads:
                     if let unique = data.perSampleUniqueReads[sampleId] {
-                        cellView.textField?.stringValue = formatReadCount(unique)
+                        field.stringValue = formatReadCount(unique)
                     } else if score != nil {
                         // Organism detected in this sample but unique reads not yet computed
-                        cellView.textField?.stringValue = "\u{2026}"  // ellipsis
+                        field.stringValue = "\u{2026}"  // ellipsis
                     } else {
-                        cellView.textField?.stringValue = "-"
+                        field.stringValue = "-"
                     }
-                    cellView.textField?.alignment = .center
+                    field.alignment = .center
                     cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
 
                 case .coverage:
                     if let cov = data.perSampleCoverage[sampleId], cov > 0 {
-                        cellView.textField?.stringValue = String(format: "%.1f%%", cov)
+                        field.stringValue = String(format: "%.1f%%", cov)
                     } else {
-                        cellView.textField?.stringValue = "-"
+                        field.stringValue = "-"
                     }
-                    cellView.textField?.alignment = .center
+                    field.alignment = .center
                     cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
                 }
             }
         }
 
-        if let field = cellView.textField {
-            applyContentTypography(to: field, column: column.identifier)
+        applyContentTypography(to: field, column: column.identifier)
+        if id == "risk", data.isContaminationRisk {
+            let explanation = "Detected in negative control sample"
+            field.toolTip = explanation
+            field.setAccessibilityLabel("Contamination risk")
+            field.setAccessibilityValue("Contamination risk")
+            field.setAccessibilityHelp(explanation)
+            cellView.toolTip = explanation
+        } else if !field.stringValue.isEmpty {
+            field.toolTip = field.stringValue
+            field.setAccessibilityValue(field.stringValue)
         }
-
-        return cellView
     }
 
     private func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
@@ -728,7 +745,7 @@ extension TaxTriageBatchOverviewView {
     var testingTableView: NSTableView { tableView }
     var testingBannerHeight: CGFloat { columnWindowBanner.testingPreferredHeight }
     var testingBannerLabelWraps: Bool { columnWindowBanner.testingMessageWraps }
-    var testingTypographyReloadCount: Int { typographyReloadCount }
+    var testingTableReloadCount: Int { tableView.testingReloadDataCallCount }
     var testingTypographyRealizedCellResolutionCount: Int {
         typographyRealizedCellResolutionCount
     }
@@ -757,6 +774,31 @@ extension TaxTriageBatchOverviewView {
 
     func testingCell(column identifier: String, row: Int) -> NSTextField? {
         (testingCellView(column: identifier, row: row) as? NSTableCellView)?.textField
+    }
+
+    func testingRowIndex(organism: String) -> Int? {
+        crossSampleRows.firstIndex { $0.organism == organism }
+    }
+
+    func testingSelectFacet(_ facet: ValueFacet) {
+        facetControl.selectedSegment = facet.rawValue
+        facetChanged(facetControl)
+    }
+
+    func testingConfigureReusableCell(
+        column identifier: String,
+        row: Int,
+        reusing cell: NSTableCellView?
+    ) -> NSTableCellView? {
+        guard row >= 0, row < crossSampleRows.count,
+              let column = tableView.tableColumns.first(where: {
+                  $0.identifier.rawValue == identifier
+              }) else {
+            return nil
+        }
+        let resolvedCell = cell ?? makeCellView(identifier: column.identifier)
+        configure(resolvedCell, column: column, rowData: crossSampleRows[row])
+        return resolvedCell
     }
 
     func testingScroll(to origin: NSPoint) {
