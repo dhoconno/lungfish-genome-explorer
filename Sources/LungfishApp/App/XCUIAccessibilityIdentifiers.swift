@@ -33,6 +33,7 @@ enum SettingsAccessibilityID {
     static let aiErrorMessage = "settings-ai-error-message"
     static let experimentalFeaturesToggle = "settings-advanced-experimental-features-toggle"
     static let analystIdentityField = "settings-general-analyst-identity-field"
+    static let contentTextSizePicker = "settings-appearance-content-text-size-picker"
 
     static func tab(_ tab: SettingsNavigationTab) -> String {
         switch tab {
@@ -181,6 +182,10 @@ enum MainMenuAccessibilityID {
 
     static let focusViewer = "view-menu-focus-viewer"
     static let restoreSidePanes = "view-menu-restore-side-panes"
+    static let contentTextSize = "view-menu-content-text-size"
+    static let contentTextSizeLarger = "view-menu-content-text-size-larger"
+    static let contentTextSizeSmaller = "view-menu-content-text-size-smaller"
+    static let contentTextSizeDefault = "view-menu-content-text-size-default"
 
     static let callVariants = "tools-menu-call-variants"
     static let freyjaDemix = "tools-menu-freyja-demix"

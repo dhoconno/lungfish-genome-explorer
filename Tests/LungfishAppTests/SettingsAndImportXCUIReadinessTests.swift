@@ -17,6 +17,7 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertEqual(SettingsAccessibilityID.aiClearKeysButton, "settings-ai-clear-keys-button")
         XCTAssertEqual(SettingsAccessibilityID.experimentalFeaturesToggle, "settings-advanced-experimental-features-toggle")
         XCTAssertEqual(SettingsAccessibilityID.analystIdentityField, "settings-general-analyst-identity-field")
+        XCTAssertEqual(SettingsAccessibilityID.contentTextSizePicker, "settings-appearance-content-text-size-picker")
         XCTAssertEqual(InspectorAccessibilityID.analystIdentityLabel, "genotype-annotation-analyst-identity-label")
         XCTAssertEqual(InspectorAccessibilityID.analystIdentitySettingsButton, "genotype-annotation-analyst-identity-settings-button")
     }
@@ -33,6 +34,10 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertEqual(MainMenuAccessibilityID.applicationMenu, "main-menu-application")
         XCTAssertEqual(MainMenuAccessibilityID.fileMenu, "main-menu-file")
         XCTAssertEqual(MainMenuAccessibilityID.helpMenu, "main-menu-help")
+        XCTAssertEqual(MainMenuAccessibilityID.contentTextSize, "view-menu-content-text-size")
+        XCTAssertEqual(MainMenuAccessibilityID.contentTextSizeLarger, "view-menu-content-text-size-larger")
+        XCTAssertEqual(MainMenuAccessibilityID.contentTextSizeSmaller, "view-menu-content-text-size-smaller")
+        XCTAssertEqual(MainMenuAccessibilityID.contentTextSizeDefault, "view-menu-content-text-size-default")
         XCTAssertEqual(MainMenuAccessibilityID.newProject, "file-menu-new-project")
         XCTAssertEqual(MainMenuAccessibilityID.importCenter, "file-menu-import-center")
         XCTAssertEqual(MainMenuAccessibilityID.callVariants, "tools-menu-call-variants")
@@ -130,6 +135,22 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("SettingsAccessibilityID.panel(.advanced)"))
         XCTAssertTrue(advancedSource.contains("SettingsAccessibilityID.experimentalFeaturesToggle"))
         XCTAssertTrue(advancedSource.contains("settings.experimentalFeaturesEnabled"))
+    }
+
+    func testAppearanceSettingsExposeAccessibleContentTextSizePicker() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Settings/AppearanceSettingsTab.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("Section(\"Content Text Size\")"))
+        XCTAssertTrue(source.contains("Text(\"System\")"))
+        XCTAssertTrue(source.contains("ContentTextSizePreference.supportedPercentages"))
+        XCTAssertTrue(source.contains("SettingsAccessibilityID.contentTextSizePicker"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Content text size\")"))
+        XCTAssertTrue(source.contains("settings.contentTextSizePreference ="))
+        XCTAssertTrue(source.contains("settings.save()"))
     }
 
     func testAnalystIdentitySettingsAndInspectorUseStableIdentifiersAndResolvedAuthors() throws {

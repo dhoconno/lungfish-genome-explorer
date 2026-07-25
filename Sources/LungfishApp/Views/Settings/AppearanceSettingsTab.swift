@@ -28,6 +28,27 @@ struct AppearanceSettingsTab: View {
 
     var body: some View {
         Form {
+            Section("Content Text Size") {
+                Picker(
+                    "Content text size:",
+                    selection: contentTextSizeSelection
+                ) {
+                    Text("System").tag(0)
+                    ForEach(
+                        Array(ContentTextSizePreference.supportedPercentages.enumerated()),
+                        id: \.offset
+                    ) { index, percentage in
+                        Text("\(percentage)%").tag(index + 1)
+                    }
+                }
+                .accessibilityLabel("Content text size")
+                .accessibilityIdentifier(SettingsAccessibilityID.contentTextSizePicker)
+
+                Text("Adjusts primary list, table, and detail text throughout Lungfish.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Nucleotide Colors") {
                 HStack(spacing: 16) {
                     baseColorPicker("A", color: $colorA)
@@ -122,6 +143,40 @@ struct AppearanceSettingsTab: View {
     }
 
     // MARK: - Subviews
+
+    private var contentTextSizeSelection: Binding<Int> {
+        Binding(
+            get: {
+                switch settings.contentTextSizePreference.normalized {
+                case .system:
+                    return 0
+                case .custom(let percentage):
+                    return (ContentTextSizePreference.supportedPercentages.firstIndex(
+                        of: percentage
+                    ) ?? 0) + 1
+                }
+            },
+            set: { selection in
+                let preference: ContentTextSizePreference
+                if selection == 0 {
+                    preference = .system
+                } else {
+                    let index = selection - 1
+                    guard ContentTextSizePreference.supportedPercentages.indices.contains(index) else {
+                        return
+                    }
+                    preference = .custom(
+                        ContentTextSizePreference.supportedPercentages[index]
+                    )
+                }
+                guard settings.contentTextSizePreference.normalized != preference else {
+                    return
+                }
+                settings.contentTextSizePreference = preference
+                settings.save()
+            }
+        )
+    }
 
     private func baseColorPicker(_ base: String, color: Binding<Color>) -> some View {
         VStack(spacing: 4) {
