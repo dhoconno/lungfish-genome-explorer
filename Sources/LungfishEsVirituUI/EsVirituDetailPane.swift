@@ -200,6 +200,9 @@ public final class EsVirituDetailPane: NSView {
         #if DEBUG
         contentRebuildCount += 1
         #endif
+        NSLayoutConstraint.deactivate(activeMetricWidthConstraints)
+        activeMetricWidthConstraints = []
+        activeMetricsView = nil
         // Remove all subviews from content
         for subview in contentView.subviews {
             subview.removeFromSuperview()

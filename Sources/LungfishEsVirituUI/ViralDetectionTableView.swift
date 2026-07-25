@@ -350,11 +350,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     private var searchHeightConstraint: NSLayoutConstraint?
     private let contentTypographyApplicator = ContentTypographyViewApplicator()
     private var contentTypographyObservation: ContentTypographyViewObservation?
-    private var typographyScrollAnchorRow = -1
-    private var typographyScrollAnchorFraction: CGFloat = 0
     #if DEBUG
-    private var typographyRestoredRow = -1
-    private var typographyRestoredY: CGFloat = -1
     private var debugOutlineReloadCount = 0
     private var debugItemRebuildCount = 0
     #endif
@@ -394,9 +390,6 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         contentTypographyObservation = ContentTypographyViewObservation(
             applicator: contentTypographyApplicator,
             rootProvider: { [weak self] in self },
-            beforeApply: { [weak self] in
-                self?.captureTypographyScrollAnchor()
-            },
             afterApply: { [weak self] in
                 guard let self else { return }
                 self.searchHeightConstraint?.constant = max(
@@ -404,7 +397,6 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
                     ceil((self.searchField.font?.boundingRectForFont.height ?? 0) + 8)
                 )
                 self.layoutSubtreeIfNeeded()
-                self.restoreTypographyScrollAnchor()
             }
         )
     }
@@ -570,37 +562,6 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollBottom,
         ])
-    }
-
-    private func captureTypographyScrollAnchor() {
-        let rows = outlineView.rows(in: outlineView.visibleRect)
-        guard rows.location != NSNotFound,
-              outlineView.item(atRow: rows.location) != nil else {
-            typographyScrollAnchorRow = -1
-            typographyScrollAnchorFraction = 0
-            return
-        }
-        typographyScrollAnchorRow = rows.location
-        let rowRect = outlineView.rect(ofRow: rows.location)
-        typographyScrollAnchorFraction = rowRect.height > 0
-            ? (outlineView.visibleRect.minY - rowRect.minY) / rowRect.height
-            : 0
-    }
-
-    private func restoreTypographyScrollAnchor() {
-        let row = typographyScrollAnchorRow
-        guard row >= 0, row < outlineView.numberOfRows else { return }
-        let rowRect = outlineView.rect(ofRow: row)
-        let destination = NSPoint(
-            x: scrollView.contentView.bounds.minX,
-            y: rowRect.minY + typographyScrollAnchorFraction * rowRect.height
-        )
-        #if DEBUG
-        typographyRestoredRow = row
-        typographyRestoredY = destination.y
-        #endif
-        scrollView.contentView.setBoundsOrigin(destination)
-        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     // MARK: - Item Rebuilding
@@ -2012,10 +1973,6 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     var testingTopVisibleRow: Int {
         let rows = outlineView.rows(in: outlineView.visibleRect)
         return rows.location == NSNotFound ? -1 : rows.location
-    }
-
-    var testingTypographyScrollRestore: (row: Int, y: CGFloat) {
-        (typographyRestoredRow, typographyRestoredY)
     }
 
     func testingScrollRowToVisible(_ row: Int) {

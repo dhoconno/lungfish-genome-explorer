@@ -28,6 +28,7 @@ Each adopted surface resolves from
 | `BatchEsVirituTableView.swift` | Sample, virus, family, and assembly cells | Primary list content with explicit leaf overrides | Stable 11-point medium/regular/monospaced baselines scale without compounding; shared table geometry and late columns use the current typography. |
 | `ViralDetectionTableView.swift` | Search, result count, outline headers, names, and numeric cells | Primary list content | Body/detail/monospaced roles with adaptive search, row, and header geometry; selection, sort, search, expansion, and scroll remain stable without a data reload. Coverage sparkline data and scientific geometry remain unchanged. |
 | `EsVirituDetailPane.swift` | Overview/title/virus/family/summary/metric/pill text | Primary detail content | Stable 9–16-point traits scale from canonical metrics; text wraps and detail geometry expands without rebuilding content. |
+| `EsVirituResultViewController.swift` | Multi-selection placeholder title and guidance | Primary detail content | Stable 11/13-point traits scale on the persistent placeholder; both fields wrap and remain contained at narrow widths. |
 
 The two 12S result modes have distinct table/search accessibility identifiers
 and labels. Full scientific names, metadata strings, and base sequences remain
@@ -46,8 +47,10 @@ sample filter/column buttons, action bar, menus, popovers, and BLAST controls
 remain native control chrome.
 
 EsViritu action bars, sample/grouping buttons, menus, popovers, drawer resize
-handles, and BLAST controls remain native control chrome. Provenance Inspector
-SwiftUI labels retain their native semantic SwiftUI styles.
+handles, and BLAST controls remain native control chrome. The Provenance
+Inspector still contains fixed `.system(size: 11, ...)` SwiftUI labels; those
+are not native semantic styles and remain outside this completed viewport
+checkpoint.
 
 ## Scientific rendering exclusions
 

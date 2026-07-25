@@ -190,6 +190,11 @@ public struct ContentTypography {
 /// Applies the global content scale to an existing AppKit view tree while
 /// retaining stable, per-instance baseline fonts and table geometry.
 @MainActor
+protocol ContentTypographyBaselineFontProviding: AnyObject {
+    var contentTypographyBaselineFont: NSFont { get }
+}
+
+@MainActor
 public final class ContentTypographyViewApplicator {
     private let preferredFontProvider: any ContentPreferredFontProviding
     private let excludedSubtree: (NSView) -> Bool
@@ -237,6 +242,9 @@ public final class ContentTypographyViewApplicator {
             let baseline: NSFont
             if let recorded = baselineFonts.object(forKey: field) {
                 baseline = recorded
+            } else if let provider = field as? ContentTypographyBaselineFontProviding {
+                baseline = provider.contentTypographyBaselineFont
+                baselineFonts.setObject(baseline, forKey: field)
             } else {
                 baseline = current
                 baselineFonts.setObject(current, forKey: field)
@@ -252,18 +260,6 @@ public final class ContentTypographyViewApplicator {
             }
         }
         if let table = view as? NSTableView {
-            let expandedItems: [Any]
-            if let outline = table as? NSOutlineView {
-                expandedItems = (0..<outline.numberOfRows).compactMap { row in
-                    guard let item = outline.item(atRow: row),
-                          outline.isItemExpanded(item) else {
-                        return nil
-                    }
-                    return item
-                }
-            } else {
-                expandedItems = []
-            }
             let previousRowHeight = table.rowHeight
             let visibleRows = table.rows(in: table.visibleRect)
             let topVisibleRow = visibleRows.location == NSNotFound
@@ -316,11 +312,6 @@ public final class ContentTypographyViewApplicator {
                     contentHeight
                 )
                 table.frame = tableFrame
-            }
-            if let outline = table as? NSOutlineView {
-                for item in expandedItems {
-                    outline.expandItem(item)
-                }
             }
             if let topVisibleRow, previousRowHeight > 0 {
                 table.layoutSubtreeIfNeeded()

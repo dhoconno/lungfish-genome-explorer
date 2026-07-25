@@ -552,6 +552,39 @@ final class ContentTypographyTests: XCTestCase {
         XCTAssertEqual(table.headerView?.frame.height, baseline.3)
     }
 
+    func testViewApplicatorDoesNotTraverseEveryOutlineItemToPreserveExpansion() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let dataSource = CountingOutlineDataSource(rowCount: 500)
+        let outline = CountingItemLookupOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 180)
+        )
+        outline.addTableColumn(
+            NSTableColumn(identifier: NSUserInterfaceItemIdentifier("value"))
+        )
+        outline.outlineTableColumn = outline.tableColumns[0]
+        outline.dataSource = dataSource
+        outline.reloadData()
+        outline.resetItemLookupCount()
+        let root = NSView()
+        root.addSubview(outline)
+
+        ContentTypographyViewApplicator(
+            preferredFontProvider: StubPreferredFontProvider()
+        ).apply(to: root)
+
+        XCTAssertLessThanOrEqual(
+            outline.itemLookupCount,
+            2,
+            "Typography updates may resolve only the visible scroll anchor, not scan every outline row."
+        )
+    }
+
     func testViewObservationAppliesInitiallyAndOnContentSizeNotifications() {
         let center = NotificationCenter()
         let root = NSView()
@@ -614,6 +647,48 @@ private final class FourCardGenomicSummaryCardBar: GenomicSummaryCardBar {
 private final class MutableGenomicSummaryCardBar: GenomicSummaryCardBar {
     var values: [Card] = []
     override var cards: [Card] { values }
+}
+
+@MainActor
+private final class CountingItemLookupOutlineView: NSOutlineView {
+    private(set) var itemLookupCount = 0
+
+    override func item(atRow row: Int) -> Any? {
+        itemLookupCount += 1
+        return super.item(atRow: row)
+    }
+
+    func resetItemLookupCount() {
+        itemLookupCount = 0
+    }
+}
+
+@MainActor
+private final class CountingOutlineDataSource: NSObject, NSOutlineViewDataSource {
+    private let items: [NSString]
+
+    init(rowCount: Int) {
+        items = (0..<rowCount).map { NSString(string: "row-\($0)") }
+    }
+
+    func outlineView(
+        _ outlineView: NSOutlineView,
+        numberOfChildrenOfItem item: Any?
+    ) -> Int {
+        item == nil ? items.count : 0
+    }
+
+    func outlineView(
+        _ outlineView: NSOutlineView,
+        child index: Int,
+        ofItem item: Any?
+    ) -> Any {
+        items[index]
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
+        false
+    }
 }
 
 @MainActor

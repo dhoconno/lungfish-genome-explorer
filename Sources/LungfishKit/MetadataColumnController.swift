@@ -8,6 +8,16 @@ import LungfishCore
 /// Prefix used for all metadata column identifiers to distinguish them from standard columns.
 private let metadataColumnPrefix = "metadata_"
 
+@MainActor
+private final class MetadataContentTextField:
+    NSTextField,
+    ContentTypographyBaselineFontProviding
+{
+    let contentTypographyBaselineFont = ContentTypography(
+        preference: .custom(100)
+    ).font(for: .body)
+}
+
 // MARK: - MetadataColumnController
 
 /// Manages dynamic metadata columns in classifier taxonomy tables.
@@ -502,7 +512,7 @@ public final class MetadataColumnController {
     private func makeMetadataCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
         let cell = NSTableCellView()
         cell.identifier = identifier
-        let field = NSTextField(labelWithString: "")
+        let field = MetadataContentTextField(labelWithString: "")
         field.tag = Self.metadataCellTextFieldTag
         let typography = ContentTypography.current()
         field.font = typography.font(for: .body)

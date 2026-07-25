@@ -8,6 +8,7 @@ import AppKit
 import LungfishIO
 import LungfishWorkflow
 import LungfishKit
+import LungfishCore
 
 final class EsVirituResultViewControllerSmokeTests: XCTestCase {
     @MainActor func testViewControllerInstantiates() {
@@ -83,6 +84,52 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(table.testingTypographyMetrics, baseline)
     }
 
+    @MainActor func testLateMetadataCellDoesNotCompoundAtRepeatedTwoHundredPercent() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let table = ViralDetectionTableView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: 360)
+        )
+        table.result = Self.esvirituResult([
+            Self.viralAssembly(
+                name: "Alpha virus",
+                sampleId: "sample-A",
+                assembly: "GCF_A",
+                accession: "NC_A",
+                reads: 40
+            ),
+        ])
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        table.metadataColumns.visibleColumns = ["Type"]
+        table.metadataColumns.update(
+            store: try SampleMetadataStore(
+                csvData: Data("Sample\tType\nsample-A\tclinical\n".utf8),
+                knownSampleIds: ["sample-A"]
+            ),
+            sampleId: "sample-A"
+        )
+        let metadataCell = try XCTUnwrap(
+            table.testingRealizedCell(column: "metadata_Type", row: 0)
+        )
+        let expectedEnlarged = ContentTypography.current().font(for: .body).pointSize
+        XCTAssertEqual(metadataCell.textField?.font?.pointSize, expectedEnlarged)
+
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        XCTAssertEqual(metadataCell.textField?.font?.pointSize, expectedEnlarged)
+
+        settings.contentTextSizePreference = .custom(100)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        let expectedBaseline = ContentTypography.current().font(for: .body).pointSize
+        XCTAssertEqual(metadataCell.textField?.font?.pointSize, expectedBaseline)
+    }
+
     @MainActor func testEsVirituDetailTypographyDoesNotRebuildScientificContent() {
         let settings = AppSettings.shared
         let original = settings.contentTextSizePreference
@@ -118,6 +165,134 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         settings.contentTextSizePreference = .custom(100)
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         XCTAssertEqual(pane.testingTypographyMetrics, baseline)
+        XCTAssertEqual(pane.testingContentRebuildCount, rebuildCount)
+    }
+
+    @MainActor func testDetailRebuildReleasesRetiredMetricLayoutConstraints() {
+        let assembly = Self.viralAssembly(
+            name: "Alpha virus",
+            sampleId: "sample-A",
+            assembly: "GCF_A",
+            accession: "NC_A",
+            reads: 40
+        )
+        let result = Self.esvirituResult([assembly])
+        let pane = EsVirituDetailPane()
+        pane.showVirusDetail(assembly: assembly, coverageWindows: [:], bamURL: nil)
+        XCTAssertEqual(Self.retainedMetricConstraintCount(in: pane), 5)
+
+        pane.configureOverview(result: result, coverageWindows: [:], bamURL: nil)
+
+        XCTAssertEqual(Self.retainedMetricConstraintCount(in: pane), 0)
+    }
+
+    @MainActor func testDetailTypographyPreservesScientificViewsAndScrollOrigin() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let first = Self.viralAssembly(
+            name: "Segmented virus",
+            sampleId: "sample-A",
+            assembly: "GCF_SEG",
+            accession: "NC_SEG_L",
+            reads: 40,
+            segment: "L"
+        )
+        let second = Self.viralAssembly(
+            name: "Segmented virus",
+            sampleId: "sample-A",
+            assembly: "GCF_SEG",
+            accession: "NC_SEG_S",
+            reads: 30,
+            segment: "S"
+        )
+        let assembly = ViralAssembly(
+            assembly: first.assembly,
+            assemblyLength: first.assemblyLength + second.assemblyLength,
+            name: first.name,
+            family: first.family,
+            genus: first.genus,
+            species: first.species,
+            totalReads: first.totalReads + second.totalReads,
+            rpkmf: first.rpkmf + second.rpkmf,
+            meanCoverage: first.meanCoverage,
+            avgReadIdentity: first.avgReadIdentity,
+            contigs: first.contigs + second.contigs
+        )
+        let windows = Dictionary(uniqueKeysWithValues: assembly.contigs.map { contig in
+            (
+                contig.accession,
+                [
+                    ViralCoverageWindow(
+                        accession: contig.accession,
+                        windowIndex: 0,
+                        windowStart: 0,
+                        windowEnd: 50,
+                        averageCoverage: 2
+                    ),
+                    ViralCoverageWindow(
+                        accession: contig.accession,
+                        windowIndex: 1,
+                        windowStart: 50,
+                        windowEnd: 100,
+                        averageCoverage: 8
+                    ),
+                ]
+            )
+        })
+        let pane = EsVirituDetailPane(
+            frame: NSRect(x: 0, y: 0, width: 360, height: 180)
+        )
+        let window = NSWindow(
+            contentRect: pane.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = pane
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+        pane.showVirusDetail(
+            assembly: assembly,
+            coverageWindows: windows,
+            bamURL: nil
+        )
+        pane.layoutSubtreeIfNeeded()
+        let segmentView = try XCTUnwrap(
+            Self.firstDescendant(of: SegmentCompletenessView.self, in: pane)
+        )
+        let coverageView = try XCTUnwrap(
+            Self.firstDescendant(of: CoverageAreaChartView.self, in: pane)
+        )
+        let scrollView = try XCTUnwrap(
+            Self.firstDescendant(of: NSScrollView.self, in: pane)
+        )
+        let segmentIdentity = ObjectIdentifier(segmentView)
+        let coverageIdentity = ObjectIdentifier(coverageView)
+        let segmentSize = segmentView.bounds.size
+        let coverageSize = coverageView.bounds.size
+        let rebuildCount = pane.testingContentRebuildCount
+        scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: 24))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        let scrollOrigin = scrollView.contentView.bounds.origin
+
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        pane.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(ObjectIdentifier(segmentView), segmentIdentity)
+        XCTAssertEqual(ObjectIdentifier(coverageView), coverageIdentity)
+        XCTAssertEqual(segmentView.bounds.size, segmentSize)
+        XCTAssertEqual(coverageView.bounds.size, coverageSize)
+        XCTAssertEqual(scrollView.contentView.bounds.origin, scrollOrigin)
         XCTAssertEqual(pane.testingContentRebuildCount, rebuildCount)
     }
 
@@ -253,7 +428,7 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(
             table.testingTopVisibleRow,
             baselineTopVisibleRow,
-            "origin=\(table.testingScrollOriginY), anchorRect=\(table.testOutlineView.rect(ofRow: baselineTopVisibleRow)), rowHeight=\(table.testOutlineView.rowHeight), table=\(table.testOutlineView.frame), clip=\(table.testOutlineView.enclosingScrollView?.contentView.bounds ?? .zero), restore=\(table.testingTypographyScrollRestore)"
+            "origin=\(table.testingScrollOriginY), anchorRect=\(table.testOutlineView.rect(ofRow: baselineTopVisibleRow)), rowHeight=\(table.testOutlineView.rowHeight), table=\(table.testOutlineView.frame), clip=\(table.testOutlineView.enclosingScrollView?.contentView.bounds ?? .zero)"
         )
         let scaledNameCell = try XCTUnwrap(
             table.testingRealizedCell(column: "name", row: baselineTopVisibleRow)
@@ -494,19 +669,43 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         )
     }
 
+    private static func retainedMetricConstraintCount(
+        in pane: EsVirituDetailPane
+    ) -> Int {
+        return (Mirror(reflecting: pane).children.first {
+            $0.label == "activeMetricWidthConstraints"
+        }?.value as? [NSLayoutConstraint] ?? []).count
+    }
+
+    @MainActor private static func firstDescendant<View: NSView>(
+        of type: View.Type,
+        in root: NSView
+    ) -> View? {
+        if let match = root as? View {
+            return match
+        }
+        for subview in root.subviews {
+            if let match = firstDescendant(of: type, in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
     private static func viralAssembly(
         name: String,
         sampleId: String,
         assembly: String,
         accession: String,
-        reads: Int
+        reads: Int,
+        segment: String? = nil
     ) -> ViralAssembly {
         let detection = ViralDetection(
             sampleId: sampleId,
             name: name,
             description: name,
             length: 100,
-            segment: nil,
+            segment: segment,
             accession: accession,
             assembly: assembly,
             assemblyLength: 100,
