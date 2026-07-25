@@ -132,7 +132,21 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Displayed Data
 
     /// Best hits (hit_rank=1) for currently selected samples.
-    private var displayedContigs: [NvdBlastHit] = []
+    private var displayedContigs: [NvdBlastHit] = [] {
+        didSet {
+            displayedContigLookup = Dictionary(
+                displayedContigs.map {
+                    (Self.contigLookupKey(sampleId: $0.sampleId, qseqid: $0.qseqid), $0)
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
+    }
+
+    /// Updated only when the result projection changes. Typography refreshes
+    /// resolve a realized row in O(1) instead of rescanning every contig for
+    /// every visible column.
+    private var displayedContigLookup: [String: NvdBlastHit] = [:]
 
     /// Cache of child hits per contig. Key: "sampleId\tqseqid".
     private var childHitsCache: [String: [NvdBlastHit]] = [:]
@@ -234,12 +248,15 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private var typographyDetailScrollOrigin: NSPoint?
     private var typographyDividerPosition: CGFloat?
     private weak var detailMetricsStack: NSStackView?
+    private var isApplyingOutlineTypography = false
 
 #if DEBUG
     private var outlineReloadCount = 0
     private var childHitLoadCount = 0
     private var detailRebuildCount = 0
     private var miniBAMLoadCount = 0
+    private var typographyDisplayedContigScanCount = 0
+    private var typographyRealizedCellResolutionCount = 0
     var testDisableMiniBAMLoading = false
 #endif
 
@@ -405,10 +422,13 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
                 self.updateDetailTypographyLayout()
                 let origin = self.typographyDetailScrollOrigin
                 self.resizeDetailContentToFit(restoringScrollOrigin: origin)
+                self.isApplyingOutlineTypography = false
                 self.typographyDetailScrollOrigin = nil
                 self.typographyDividerPosition = nil
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
+                    self.isApplyingOutlineTypography = true
+                    defer { self.isApplyingOutlineTypography = false }
                     if let divider, self.splitView.arrangedSubviews.count == 2 {
                         self.splitView.setPosition(divider, ofDividerAt: 0)
                         self.splitView.layoutSubtreeIfNeeded()
@@ -835,6 +855,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             NSLayoutConstraint.activate([
                 label.topAnchor.constraint(equalTo: container.topAnchor),
                 label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+                label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8),
                 label.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             ])
             return container
@@ -1248,6 +1269,15 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// Updates only realized outline content and geometry. It deliberately
     /// avoids `reloadData`, which would collapse items and clear lazy children.
     private func applyOutlineTypography() {
+        let exactScrollOrigin = outlineView.enclosingScrollView?.contentView.bounds.origin
+        isApplyingOutlineTypography = true
+        defer {
+            if let exactScrollOrigin,
+               let scrollView = outlineView.enclosingScrollView {
+                scrollView.contentView.scroll(to: exactScrollOrigin)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+        }
         outlineTypographyApplicator.apply(to: outlineView)
         let visibleRows = outlineView.rows(in: outlineView.visibleRect)
         guard visibleRows.location != NSNotFound else { return }
@@ -1281,11 +1311,14 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         column: NSUserInterfaceItemIdentifier,
         item: NvdOutlineItem
     ) {
+#if DEBUG
+        typographyRealizedCellResolutionCount += 1
+#endif
         switch item {
         case .contig(let sampleId, let qseqid):
-            guard let hit = displayedContigs.first(where: {
-                $0.sampleId == sampleId && $0.qseqid == qseqid
-            }) else { return }
+            guard let hit = displayedContigLookup[
+                Self.contigLookupKey(sampleId: sampleId, qseqid: qseqid)
+            ] else { return }
             configureCell(cell, column: column.rawValue, hit: hit, isChild: false)
         case .childHit(let sampleId, let qseqid, let hitRank):
             let key = "\(sampleId)\t\(qseqid)"
@@ -1320,6 +1353,10 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             return .monospacedSystemFont(ofSize: resolvedSize, weight: weight)
         }
         return .systemFont(ofSize: resolvedSize, weight: weight)
+    }
+
+    private static func contigLookupKey(sampleId: String, qseqid: String) -> String {
+        "\(sampleId)\u{1F}\(qseqid)"
     }
 
     private func finishPrimaryCell(_ cell: NSTableCellView, childAlpha: CGFloat = 1) {
@@ -2179,6 +2216,10 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             return cached
         }
 
+        // Row-height/header relayout can ask the outline whether newly realized
+        // rows are expandable. A typography-only transaction must never turn
+        // those layout queries into database reads or cache mutations.
+        guard !isApplyingOutlineTypography else { return [] }
         guard let database else { return [] }
 
         do {
@@ -2317,7 +2358,9 @@ extension NvdResultViewController {
 
         switch outlineItem {
         case .contig(let sampleId, let qseqid):
-            guard let hit = displayedContigs.first(where: { $0.sampleId == sampleId && $0.qseqid == qseqid }) else {
+            guard let hit = displayedContigLookup[
+                Self.contigLookupKey(sampleId: sampleId, qseqid: qseqid)
+            ] else {
                 cellView.textField?.stringValue = ""
                 return cellView
             }
@@ -2595,6 +2638,12 @@ extension NvdResultViewController {
     var testChildHitLoadCount: Int { childHitLoadCount }
     var testDetailRebuildCount: Int { detailRebuildCount }
     var testMiniBAMLoadCount: Int { miniBAMLoadCount }
+    var testTypographyDisplayedContigScanCount: Int {
+        typographyDisplayedContigScanCount
+    }
+    var testTypographyRealizedCellResolutionCount: Int {
+        typographyRealizedCellResolutionCount
+    }
     var testMiniBAMControllerIdentity: ObjectIdentifier? {
         miniBAMController.map(ObjectIdentifier.init)
     }
@@ -2684,6 +2733,11 @@ extension NvdResultViewController {
         guard outlineView.numberOfRows > 0,
               let item = outlineView.item(atRow: 0) else { return }
         outlineView.expandItem(item)
+    }
+
+    func testResetTypographyDisplayedContigScanCount() {
+        typographyDisplayedContigScanCount = 0
+        typographyRealizedCellResolutionCount = 0
     }
 
     func testSetGroupingMode(_ mode: GroupingMode) {

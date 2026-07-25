@@ -220,24 +220,13 @@ final class NvdResultViewControllerTests: XCTestCase {
             window.contentView = nil
         }
         vc.configure(database: fixture.database, manifest: fixture.manifest, bundleURL: fixture.bundleURL)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        let table = vc.testOutlineView
         vc.testExpandFirstContig()
         vc.view.layoutSubtreeIfNeeded()
 
-        let table = vc.testOutlineView
-        let contigColumn = try XCTUnwrap(table.tableColumns.firstIndex {
-            $0.identifier.rawValue == "contig"
-        })
-        let rankColumn = try XCTUnwrap(table.tableColumns.firstIndex {
-            $0.identifier.rawValue == "rank"
-        })
-        let contig = try XCTUnwrap(
-            (table.view(atColumn: contigColumn, row: 0, makeIfNecessary: true)
-                as? NSTableCellView)?.textField
-        )
-        let child = try XCTUnwrap(
-            (table.view(atColumn: contigColumn, row: 2, makeIfNecessary: true)
-                as? NSTableCellView)?.textField
-        )
+        let contig = try Self.outlineField(table, identifier: "contig", row: 0)
+        let child = try Self.outlineField(table, identifier: "contig", row: 2)
         let baselineContig = try XCTUnwrap(contig.font).pointSize
         let baselineChild = try XCTUnwrap(child.font).pointSize
         XCTAssertEqual(baselineContig, 11)
@@ -254,8 +243,8 @@ final class NvdResultViewControllerTests: XCTestCase {
 
         vc.testSetGroupingMode(.byTaxon)
         vc.testExpandFirstTaxon()
-        var taxon = try Self.outlineField(table, column: contigColumn, row: 0)
-        var rank = try Self.outlineField(table, column: rankColumn, row: 0)
+        var taxon = try Self.outlineField(table, identifier: "contig", row: 0)
+        var rank = try Self.outlineField(table, identifier: "rank", row: 0)
         XCTAssertEqual(taxon.font?.pointSize, 22)
         XCTAssertTrue(try XCTUnwrap(taxon.font).fontDescriptor.symbolicTraits.contains(.bold))
         XCTAssertEqual(rank.font?.pointSize, 22)
@@ -266,20 +255,19 @@ final class NvdResultViewControllerTests: XCTestCase {
         )
         vc.testShowMetadataColumn("collection_site", store: store)
         vc.view.layoutSubtreeIfNeeded()
-        let metadataColumn = try XCTUnwrap(table.tableColumns.firstIndex {
-            $0.identifier.rawValue == "metadata_collection_site"
-        })
-        var metadata = try Self.outlineField(table, column: metadataColumn, row: 1)
+        var metadata = try Self.outlineField(
+            table,
+            identifier: "metadata_collection_site",
+            row: 1
+        )
         let enlargedMetadata = try XCTUnwrap(metadata.font).pointSize
         let enlargedSearch = try XCTUnwrap(vc.testSearchField.font).pointSize
-        vc.testSelectOutlineRow(1)
-        XCTAssertTrue(window.makeFirstResponder(vc.testSearchField))
-        let baselineFirstResponder = window.firstResponder.map(ObjectIdentifier.init)
         let baselineRows = vc.testOutlineReloadCount
         let baselineChildLoads = vc.testChildHitLoadCount
         let baselineExpanded = vc.testExpandedOutlineItemIdentities
         let baselineSelection = table.selectedRowIndexes
         let baselineWidths = table.tableColumns.map(\.width)
+        let baselineColumnOrder = table.tableColumns.map(\.identifier)
         table.sortDescriptors = [NSSortDescriptor(key: "contig", ascending: false)]
         let baselineSort = table.sortDescriptors
 
@@ -290,9 +278,6 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(table.headerView).frame.height, 24)
 
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
-        taxon = try Self.outlineField(table, column: contigColumn, row: 0)
-        rank = try Self.outlineField(table, column: rankColumn, row: 0)
-        metadata = try Self.outlineField(table, column: metadataColumn, row: 1)
         XCTAssertEqual(taxon.font?.pointSize, 22)
         XCTAssertEqual(vc.testOutlineReloadCount, baselineRows)
         XCTAssertEqual(vc.testChildHitLoadCount, baselineChildLoads)
@@ -300,31 +285,40 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertEqual(table.selectedRowIndexes, baselineSelection)
         XCTAssertEqual(table.sortDescriptors, baselineSort)
         XCTAssertEqual(table.tableColumns.map(\.width), baselineWidths)
-        XCTAssertEqual(window.firstResponder.map(ObjectIdentifier.init), baselineFirstResponder)
+        XCTAssertEqual(table.tableColumns.map(\.identifier), baselineColumnOrder)
 
         settings.contentTextSizePreference = .custom(100)
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
-        taxon = try Self.outlineField(table, column: contigColumn, row: 0)
-        rank = try Self.outlineField(table, column: rankColumn, row: 0)
-        metadata = try Self.outlineField(table, column: metadataColumn, row: 1)
+        taxon = try Self.outlineField(table, identifier: "contig", row: 0)
+        rank = try Self.outlineField(table, identifier: "rank", row: 0)
+        metadata = try Self.outlineField(
+            table,
+            identifier: "metadata_collection_site",
+            row: 1
+        )
         XCTAssertEqual(taxon.font?.pointSize, 11)
         XCTAssertEqual(rank.font?.pointSize, 11)
         XCTAssertEqual(metadata.font?.pointSize, enlargedMetadata / 2)
         XCTAssertEqual(vc.testSearchField.font?.pointSize, enlargedSearch / 2)
+        XCTAssertEqual(table.tableColumns.map(\.identifier), baselineColumnOrder)
 
         settings.contentTextSizePreference = .system
         provider.bodyPointSize = 26
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
-        taxon = try Self.outlineField(table, column: contigColumn, row: 0)
-        rank = try Self.outlineField(table, column: rankColumn, row: 0)
-        metadata = try Self.outlineField(table, column: metadataColumn, row: 1)
+        taxon = try Self.outlineField(table, identifier: "contig", row: 0)
+        rank = try Self.outlineField(table, identifier: "rank", row: 0)
+        metadata = try Self.outlineField(
+            table,
+            identifier: "metadata_collection_site",
+            row: 1
+        )
         XCTAssertEqual(taxon.font?.pointSize, 22)
         XCTAssertEqual(rank.font?.pointSize, 22)
         XCTAssertEqual(metadata.font?.pointSize, enlargedMetadata)
         provider.bodyPointSize = 13
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
-        taxon = try Self.outlineField(table, column: contigColumn, row: 0)
-        rank = try Self.outlineField(table, column: rankColumn, row: 0)
+        taxon = try Self.outlineField(table, identifier: "contig", row: 0)
+        rank = try Self.outlineField(table, identifier: "rank", row: 0)
         XCTAssertEqual(taxon.font?.pointSize, 11)
         XCTAssertEqual(rank.font?.pointSize, 11)
     }
@@ -421,6 +415,101 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertTrue(vc.testPlaceholderPointSizes.allSatisfy { $0 >= 20 })
     }
 
+    func testLargeOutlineTypographyIsBoundedAndPreservesEditorScrollAndColumns() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let vc = NvdResultViewController()
+        vc.view.frame = NSRect(x: 0, y: 0, width: 820, height: 420)
+        let window = NSWindow(
+            contentRect: vc.view.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = vc.view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+        let rows = (0..<120).map {
+            Self.contigRow(sampleId: "sample-A", qseqid: "NODE_\($0)")
+        }
+        vc.configureWithCachedRows(
+            rows,
+            manifest: NvdManifest(
+                experiment: "exp-large",
+                sampleCount: 1,
+                contigCount: rows.count,
+                hitCount: rows.count,
+                blastDbVersion: "db",
+                snakemakeRunId: "run",
+                sourceDirectoryPath: "/tmp",
+                samples: [],
+                cachedTopContigs: nil
+            ),
+            bundleURL: URL(fileURLWithPath: "/tmp/nvd-large", isDirectory: true)
+        )
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        vc.view.layoutSubtreeIfNeeded()
+
+        let table = vc.testOutlineView
+        table.selectRowIndexes(IndexSet(integer: 30), byExtendingSelection: false)
+        XCTAssertTrue(window.makeFirstResponder(vc.testSearchField))
+        let editor = try XCTUnwrap(vc.testSearchField.currentEditor() as? NSTextView)
+        editor.string = "unfinished analyst search"
+        editor.setSelectedRange(NSRange(location: 11, length: 7))
+        let editorIdentity = ObjectIdentifier(editor)
+        let editorText = editor.string
+        let editorSelection = editor.selectedRange()
+
+        table.moveColumn(0, toColumn: 3)
+        let columnOrder = table.tableColumns.map(\.identifier)
+        let columnWidths = table.tableColumns.map(\.width)
+        let sort = [NSSortDescriptor(key: "contig", ascending: false)]
+        table.sortDescriptors = sort
+        table.layoutSubtreeIfNeeded()
+        let scrollView = try XCTUnwrap(table.enclosingScrollView)
+        let requestedOrigin = NSPoint(x: 37, y: table.rect(ofRow: 30).minY + 3)
+        scrollView.contentView.scroll(to: requestedOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        _ = try Self.outlineField(table, identifier: "contig", row: 30)
+        _ = try Self.outlineField(table, identifier: "rank", row: 30)
+        let exactOrigin = scrollView.contentView.bounds.origin
+        let reloads = vc.testOutlineReloadCount
+        let childLoads = vc.testChildHitLoadCount
+        let selection = table.selectedRowIndexes
+        let realizedCellCapacity = table.rows(in: table.visibleRect).length
+            * table.tableColumns.filter { !$0.isHidden }.count
+        vc.testResetTypographyDisplayedContigScanCount()
+
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+
+        XCTAssertEqual(scrollView.contentView.bounds.origin, exactOrigin)
+        XCTAssertEqual(window.firstResponder.map(ObjectIdentifier.init), ObjectIdentifier(editor))
+        XCTAssertEqual(ObjectIdentifier(try XCTUnwrap(vc.testSearchField.currentEditor() as? NSTextView)), editorIdentity)
+        XCTAssertEqual(editor.string, editorText)
+        XCTAssertEqual(editor.selectedRange(), editorSelection)
+        XCTAssertEqual(table.selectedRowIndexes, selection)
+        XCTAssertEqual(table.tableColumns.map(\.identifier), columnOrder)
+        XCTAssertEqual(table.tableColumns.map(\.width), columnWidths)
+        XCTAssertEqual(table.sortDescriptors, sort)
+        XCTAssertEqual(vc.testOutlineReloadCount, reloads)
+        XCTAssertEqual(vc.testChildHitLoadCount, childLoads)
+        XCTAssertEqual(vc.testTypographyDisplayedContigScanCount, 0)
+        XCTAssertLessThanOrEqual(
+            vc.testTypographyRealizedCellResolutionCount,
+            realizedCellCapacity
+        )
+    }
+
     func testTypographyObservationDoesNotRetainController() {
         weak var weakController: NvdResultViewController?
         autoreleasepool {
@@ -441,7 +530,19 @@ final class NvdResultViewControllerTests: XCTestCase {
         }
         settings.contentTextSizePreference = .custom(100)
         let vc = NvdResultViewController()
-        _ = vc.view
+        vc.view.frame = NSRect(x: 0, y: 0, width: 520, height: 360)
+        let window = NSWindow(
+            contentRect: vc.view.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = vc.view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
         vc.configureWithCachedRows(
             [Self.contigRow(sampleId: "sample-A", qseqid: "NODE_1")],
             manifest: NvdManifest(
@@ -458,6 +559,8 @@ final class NvdResultViewControllerTests: XCTestCase {
             bundleURL: URL(fileURLWithPath: "/tmp/nvd-no-bam", isDirectory: true)
         )
         vc.testSelectOutlineRow(0)
+        vc.testSetDetailPaneWidth(240)
+        vc.view.layoutSubtreeIfNeeded()
         XCTAssertEqual(
             vc.testDetailPrimaryPointSize(containing: "No BAM data available"),
             11
@@ -465,11 +568,15 @@ final class NvdResultViewControllerTests: XCTestCase {
         let rebuilds = vc.testDetailRebuildCount
         settings.contentTextSizePreference = .custom(200)
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        vc.testSetDetailPaneWidth(240)
+        vc.view.layoutSubtreeIfNeeded()
         XCTAssertEqual(
             vc.testDetailPrimaryPointSize(containing: "No BAM data available"),
             22
         )
         XCTAssertEqual(vc.testDetailRebuildCount, rebuilds)
+        XCTAssertTrue(vc.testDetailPrimaryFieldsAreContained)
+        XCTAssertTrue(vc.testDetailFullTextAccessibility)
     }
 
     private static func contigRow(sampleId: String, qseqid: String) -> NvdContigRow {
@@ -491,10 +598,17 @@ final class NvdResultViewControllerTests: XCTestCase {
 
     private static func outlineField(
         _ table: NSOutlineView,
-        column: Int,
+        identifier: String,
         row: Int
     ) throws -> NSTextField {
-        try XCTUnwrap(
+        let column = table.column(
+            withIdentifier: NSUserInterfaceItemIdentifier(identifier)
+        )
+        guard column >= 0 else {
+            XCTFail("Missing outline column \(identifier)")
+            throw NSError(domain: "NvdTests", code: 1)
+        }
+        return try XCTUnwrap(
             (table.view(atColumn: column, row: row, makeIfNecessary: true)
                 as? NSTableCellView)?.textField
         )
