@@ -244,7 +244,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     private var searchHeightConstraint: NSLayoutConstraint!
     private var preferredFontProvider: any ContentPreferredFontProviding =
         AppKitContentPreferredFontProvider()
-    private var overridePreferredFontBaselinePointSize: CGFloat = 0
+    private var overridePreferredFontCanonicalPointSize: CGFloat = 0
 
     // MARK: - Init
 
@@ -265,9 +265,8 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     // MARK: - Setup
 
     private func setupTableView() {
-        overridePreferredFontBaselinePointSize = preferredFontProvider
-            .preferredFont(for: .body)
-            .pointSize
+        overridePreferredFontCanonicalPointSize = preferredFontProvider
+            .canonicalUnscaledPointSize(for: .body)
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -384,9 +383,8 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         _ provider: any ContentPreferredFontProviding
     ) {
         preferredFontProvider = provider
-        overridePreferredFontBaselinePointSize = provider
-            .preferredFont(for: .body)
-            .pointSize
+        overridePreferredFontCanonicalPointSize = provider
+            .canonicalUnscaledPointSize(for: .body)
         applyContentTypography()
     }
 
@@ -942,7 +940,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             .preferredFont(for: .body)
             .pointSize
         let systemMetricScale = currentPreferredPointSize
-            / max(overridePreferredFontBaselinePointSize, 1)
+            / max(overridePreferredFontCanonicalPointSize, 1)
         let scale = preferenceScale * systemMetricScale
         let pointSize = max(ContentTypography.minimumPointSize, baseline.pointSize * scale)
         return NSFont(descriptor: baseline.fontDescriptor, size: pointSize) ?? baseline

@@ -72,6 +72,18 @@ final class NotificationCenterContentTypographyNotifications:
 @MainActor
 public protocol ContentPreferredFontProviding {
     func preferredFont(for role: ContentTypography.Role) -> NSFont
+    func canonicalUnscaledPointSize(for role: ContentTypography.Role) -> CGFloat
+}
+
+public extension ContentPreferredFontProviding {
+    func canonicalUnscaledPointSize(for role: ContentTypography.Role) -> CGFloat {
+        switch role {
+        case .caption:
+            return NSFont.smallSystemFontSize
+        default:
+            return NSFont.systemFontSize
+        }
+    }
 }
 
 @MainActor

@@ -296,6 +296,28 @@ final class BatchTableViewTests: XCTestCase {
         }
     }
 
+    func testInitiallyEnlargedSystemMetricsScaleSubclassOverrideFromCanonicalReference() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .system
+            settings.save()
+            let provider = MutablePreferredFontProvider(pointSize: 19.5)
+            let table = ProviderOverrideFontBatchTableView(
+                frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+            )
+            table.setContentPreferredFontProvider(provider)
+            table.configure(rows: [TestBatchRow(name: "alpha")])
+            let column = try XCTUnwrap(table.tableView.tableColumns.first)
+            let cell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: column, row: 0) as? NSTableCellView
+            )
+            let resolved = try XCTUnwrap(cell.textField?.font)
+
+            XCTAssertEqual(resolved.pointSize, 16.5, accuracy: 0.01)
+            XCTAssertTrue(resolved.fontDescriptor.symbolicTraits.contains(.bold))
+        }
+    }
+
     func testRebuildAtTwoHundredPercentImmediatelyStylesNewStandardHeader() throws {
         try preservingContentTextSizePreference {
             let settings = AppSettings.shared
