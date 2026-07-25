@@ -67,7 +67,7 @@ final class BatchEsVirituTableView: BatchTableView<BatchEsVirituRow> {
         case .esv_family:
             return (row.family ?? "\u{2014}", .left, .systemFont(ofSize: 11))
         case .esv_assembly:
-            return (row.assembly, .left, .monospacedDigitSystemFont(ofSize: 11, weight: .regular))
+            return (row.assembly, .left, .monospacedSystemFont(ofSize: 11, weight: .regular))
         case .esv_reads:
             return (formatReadCount(row.readCount), .right, nil)
         case .esv_uniqueReads:

@@ -187,6 +187,220 @@ public struct ContentTypography {
     }
 }
 
+/// Applies the global content scale to an existing AppKit view tree while
+/// retaining stable, per-instance baseline fonts and table geometry.
+@MainActor
+public final class ContentTypographyViewApplicator {
+    private let preferredFontProvider: any ContentPreferredFontProviding
+    private let excludedSubtree: (NSView) -> Bool
+    private let baselineFonts = NSMapTable<NSView, NSFont>(
+        keyOptions: .weakMemory,
+        valueOptions: .strongMemory
+    )
+    private let baselineRowHeights = NSMapTable<NSTableView, NSNumber>(
+        keyOptions: .weakMemory,
+        valueOptions: .strongMemory
+    )
+    private let baselineHeaderHeights = NSMapTable<NSTableView, NSNumber>(
+        keyOptions: .weakMemory,
+        valueOptions: .strongMemory
+    )
+
+    public init(
+        preferredFontProvider: any ContentPreferredFontProviding =
+            AppKitContentPreferredFontProvider(),
+        excludedSubtree: @escaping (NSView) -> Bool = { view in
+            view is NSButton
+                || view is NSSegmentedControl
+                || view is NSPopUpButton
+                || view is NSSlider
+        }
+    ) {
+        self.preferredFontProvider = preferredFontProvider
+        self.excludedSubtree = excludedSubtree
+    }
+
+    public func apply(to root: NSView) {
+        let preferenceScale = CGFloat(
+            AppSettings.shared.contentTextSizePreference.normalized.scaleFactor
+        )
+        let systemScale = preferredFontProvider.preferredFont(for: .body).pointSize
+            / max(preferredFontProvider.canonicalUnscaledPointSize(for: .body), 1)
+        let scale = preferenceScale * systemScale
+        apply(to: root, scale: scale)
+        root.needsLayout = true
+    }
+
+    private func apply(to view: NSView, scale: CGFloat) {
+        guard !excludedSubtree(view) else { return }
+        if let field = view as? NSTextField, let current = field.font {
+            let baseline: NSFont
+            if let recorded = baselineFonts.object(forKey: field) {
+                baseline = recorded
+            } else {
+                baseline = current
+                baselineFonts.setObject(current, forKey: field)
+            }
+            let pointSize = max(
+                ContentTypography.minimumPointSize,
+                baseline.pointSize * scale
+            )
+            field.font = NSFont(descriptor: baseline.fontDescriptor, size: pointSize) ?? baseline
+            if !field.stringValue.isEmpty {
+                field.toolTip = field.stringValue
+                field.setAccessibilityValue(field.stringValue)
+            }
+        }
+        if let table = view as? NSTableView {
+            let expandedItems: [Any]
+            if let outline = table as? NSOutlineView {
+                expandedItems = (0..<outline.numberOfRows).compactMap { row in
+                    guard let item = outline.item(atRow: row),
+                          outline.isItemExpanded(item) else {
+                        return nil
+                    }
+                    return item
+                }
+            } else {
+                expandedItems = []
+            }
+            let previousRowHeight = table.rowHeight
+            let visibleRows = table.rows(in: table.visibleRect)
+            let topVisibleRow = visibleRows.location == NSNotFound
+                ? nil
+                : visibleRows.location
+            let topVisibleItem = topVisibleRow.flatMap {
+                (table as? NSOutlineView)?.item(atRow: $0)
+            }
+            let topRowOffset = topVisibleRow.map {
+                table.visibleRect.minY - table.rect(ofRow: $0).minY
+            }
+            let baselineRow: CGFloat
+            if let recorded = baselineRowHeights.object(forKey: table) {
+                baselineRow = CGFloat(recorded.doubleValue)
+            } else {
+                baselineRow = table.rowHeight
+                baselineRowHeights.setObject(NSNumber(value: Double(table.rowHeight)), forKey: table)
+            }
+            table.rowHeight = max(baselineRow, ceil(baselineRow * scale))
+            if let header = table.headerView {
+                let baselineHeader: CGFloat
+                if let recorded = baselineHeaderHeights.object(forKey: table) {
+                    baselineHeader = CGFloat(recorded.doubleValue)
+                } else {
+                    baselineHeader = max(header.frame.height, 24)
+                    baselineHeaderHeights.setObject(
+                        NSNumber(value: Double(baselineHeader)),
+                        forKey: table
+                    )
+                }
+                var frame = header.frame
+                frame.size.height = max(baselineHeader, ceil(baselineHeader * scale))
+                header.frame = frame
+                for column in table.tableColumns {
+                    column.headerCell.font = ContentTypography(
+                        preference: AppSettings.shared.contentTextSizePreference,
+                        preferredFontProvider: preferredFontProvider
+                    ).font(for: .tableHeader)
+                    column.headerToolTip = column.headerCell.stringValue
+                }
+            }
+            table.enclosingScrollView?.tile()
+            if let scrollView = table.enclosingScrollView {
+                let contentHeight = table.numberOfRows > 0
+                    ? table.rect(ofRow: table.numberOfRows - 1).maxY
+                    : 0
+                var tableFrame = table.frame
+                tableFrame.size.height = max(
+                    scrollView.contentView.bounds.height,
+                    contentHeight
+                )
+                table.frame = tableFrame
+            }
+            if let outline = table as? NSOutlineView {
+                for item in expandedItems {
+                    outline.expandItem(item)
+                }
+            }
+            if let topVisibleRow, previousRowHeight > 0 {
+                table.layoutSubtreeIfNeeded()
+                let restoredRow: Int
+                if let outline = table as? NSOutlineView, let topVisibleItem {
+                    let itemRow = outline.row(forItem: topVisibleItem)
+                    restoredRow = itemRow >= 0 ? itemRow : topVisibleRow
+                } else {
+                    restoredRow = topVisibleRow
+                }
+                guard restoredRow >= 0, restoredRow < table.numberOfRows else {
+                    return
+                }
+                let scaledOffset = (topRowOffset ?? 0) * table.rowHeight / previousRowHeight
+                if let scrollView = table.enclosingScrollView {
+                    scrollView.contentView.setBoundsOrigin(NSPoint(
+                        x: table.visibleRect.minX,
+                        y: table.rect(ofRow: restoredRow).minY + scaledOffset
+                    ))
+                    scrollView.reflectScrolledClipView(scrollView.contentView)
+                }
+            }
+        }
+        for subview in view.subviews {
+            apply(to: subview, scale: scale)
+        }
+    }
+}
+
+/// Keeps a persistent AppKit content tree synchronized with the global content
+/// text-size preference without retaining the host view or controller.
+@MainActor
+public final class ContentTypographyViewObservation {
+    private let notificationCenter: NotificationCenter
+    private var token: NSObjectProtocol?
+    private let apply: @MainActor () -> Void
+
+    public init(
+        notificationCenter: NotificationCenter = .default,
+        applicator: ContentTypographyViewApplicator,
+        rootProvider: @escaping @MainActor () -> NSView?,
+        beforeApply: @escaping @MainActor () -> Void = {},
+        afterApply: @escaping @MainActor () -> Void = {}
+    ) {
+        self.notificationCenter = notificationCenter
+        self.apply = {
+            guard let root = rootProvider() else { return }
+            beforeApply()
+            applicator.apply(to: root)
+            afterApply()
+        }
+        token = notificationCenter.addObserver(
+            forName: .contentTextSizeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.apply()
+            }
+        }
+        apply()
+    }
+
+    public func refresh() {
+        apply()
+    }
+
+    public func cancel() {
+        guard let token else { return }
+        self.token = nil
+        notificationCenter.removeObserver(token)
+    }
+
+    isolated deinit {
+        if let token {
+            notificationCenter.removeObserver(token)
+        }
+    }
+}
+
 private struct ContentPreferredFontSignature: Equatable {
     struct Font: Equatable {
         let role: ContentTypography.Role

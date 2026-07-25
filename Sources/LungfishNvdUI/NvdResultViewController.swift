@@ -1118,12 +1118,18 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Layout
 
     private func layoutSubviews() {
+        let summaryHeight = summaryBar.heightAnchor.constraint(
+            equalToConstant: summaryBar.preferredContentHeight
+        )
+        summaryBar.onPreferredContentHeightChanged = { [weak summaryHeight] height in
+            summaryHeight?.constant = height
+        }
         NSLayoutConstraint.activate([
             // Summary bar (top)
             summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            summaryBar.heightAnchor.constraint(equalToConstant: 48),
+            summaryHeight,
 
             // Action bar (bottom, fixed height)
             actionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -2447,7 +2453,7 @@ final class NvdSummaryBar: GenomicSummaryCardBar {
         let hitStr = hitFmt.string(from: NSNumber(value: hitCount)) ?? "\(hitCount)"
         hitsLabel = "\(hitStr) hits"
 
-        needsDisplay = true
+        cardsDidChange()
     }
 
     override var cards: [Card] {

@@ -104,13 +104,9 @@ public final class FASTQDatasetViewController: NSViewController {
     // MARK: - Layout Defaults
 
     private enum LayoutDefaults {
-        static let summaryBarHeight: CGFloat = 48
         static let summaryToSparklineSpacing: CGFloat = 2
         static let sparklineHeight: CGFloat = 64
         static let topPaneBottomPadding: CGFloat = 1
-
-        /// Fixed height for the top pane (summary + sparklines). Not user-resizable.
-        static let topPaneHeight: CGFloat = summaryBarHeight + summaryToSparklineSpacing + sparklineHeight + topPaneBottomPadding
 
         static let minSidebarWidth: CGFloat = 200
         static let maxSidebarWidth: CGFloat = 320
@@ -240,6 +236,13 @@ public final class FASTQDatasetViewController: NSViewController {
     // Top Pane: Summary + Sparklines
     private let summaryBar = FASTQSummaryBar()
     private let sparklineStrip = FASTQSparklineStrip()
+    private var summaryBarHeightConstraint: NSLayoutConstraint?
+    private var preferredTopPaneHeight: CGFloat {
+        summaryBar.preferredContentHeight
+            + LayoutDefaults.summaryToSparklineSpacing
+            + LayoutDefaults.sparklineHeight
+            + LayoutDefaults.topPaneBottomPadding
+    }
 
     // Middle Pane: Sidebar + Preview (inner split for resizable sidebar)
     private let middleSplitView = NSSplitView()
@@ -445,12 +448,21 @@ public final class FASTQDatasetViewController: NSViewController {
             self?.launchFASTQOperationCategory(.qcReporting)
         }
         topPane.addSubview(sparklineStrip)
+        let summaryHeight = summaryBar.heightAnchor.constraint(
+            equalToConstant: summaryBar.preferredContentHeight
+        )
+        summaryBarHeightConstraint = summaryHeight
+        summaryBar.onPreferredContentHeightChanged = { [weak self, weak summaryHeight] height in
+            summaryHeight?.constant = height
+            guard let self, self.mainSplitView.subviews.count > 1 else { return }
+            self.mainSplitView.setPosition(self.preferredTopPaneHeight, ofDividerAt: 0)
+        }
 
         NSLayoutConstraint.activate([
             summaryBar.topAnchor.constraint(equalTo: topPane.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: topPane.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: topPane.trailingAnchor),
-            summaryBar.heightAnchor.constraint(equalToConstant: LayoutDefaults.summaryBarHeight),
+            summaryHeight,
 
             sparklineStrip.topAnchor.constraint(equalTo: summaryBar.bottomAnchor, constant: LayoutDefaults.summaryToSparklineSpacing),
             sparklineStrip.leadingAnchor.constraint(equalTo: topPane.leadingAnchor),
@@ -876,7 +888,7 @@ public final class FASTQDatasetViewController: NSViewController {
               middleWidth > LayoutDefaults.minGeometryForInitialLayout else { return }
 
         // Pin the top pane to its fixed height.
-        mainSplitView.setPosition(LayoutDefaults.topPaneHeight, ofDividerAt: 0)
+        mainSplitView.setPosition(preferredTopPaneHeight, ofDividerAt: 0)
 
         // Keep operation list compact by default to prioritize preview/read content width.
         let sidebarWidth = max(
@@ -2842,7 +2854,7 @@ extension FASTQDatasetViewController: NSSplitViewDelegate {
     public func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
         if splitView === mainSplitView {
             // Top pane is fixed-height — lock divider in place.
-            return LayoutDefaults.topPaneHeight
+            return preferredTopPaneHeight
         }
         if splitView === middleSplitView {
             return LayoutDefaults.minSidebarWidth
@@ -2853,7 +2865,7 @@ extension FASTQDatasetViewController: NSSplitViewDelegate {
     public func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
         if splitView === mainSplitView {
             // Top pane is fixed-height — lock divider in place.
-            return LayoutDefaults.topPaneHeight
+            return preferredTopPaneHeight
         }
         if splitView === middleSplitView {
             return LayoutDefaults.maxSidebarWidth
@@ -2868,6 +2880,26 @@ extension FASTQDatasetViewController: NSSplitViewDelegate {
 
 #if DEBUG
 extension FASTQDatasetViewController {
+    var testingSummaryBarHeight: CGFloat {
+        summaryBarHeightConstraint?.constant ?? summaryBar.preferredContentHeight
+    }
+
+    var testingSummaryCardCount: Int {
+        summaryBar.cards.count
+    }
+
+    var testingSummaryAccessibilityChildren: [NSAccessibilityElement] {
+        (summaryBar.accessibilityChildren() as? [NSAccessibilityElement]) ?? []
+    }
+
+    var testingTopPaneHeight: CGFloat {
+        preferredTopPaneHeight
+    }
+
+    var testingMainDividerPosition: CGFloat {
+        mainSplitView.subviews.first?.frame.maxY ?? 0
+    }
+
     func testingSelectContaminantFilter(
         mode: FASTQContaminantFilterMode,
         referenceURL: URL? = nil

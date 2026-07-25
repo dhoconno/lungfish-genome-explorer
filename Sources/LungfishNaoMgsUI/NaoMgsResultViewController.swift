@@ -1497,12 +1497,18 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Layout
 
     private func layoutSubviews() {
+        let summaryHeight = summaryBar.heightAnchor.constraint(
+            equalToConstant: summaryBar.preferredContentHeight
+        )
+        summaryBar.onPreferredContentHeightChanged = { [weak summaryHeight] height in
+            summaryHeight?.constant = height
+        }
         NSLayoutConstraint.activate([
             // Summary bar (top)
             summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            summaryBar.heightAnchor.constraint(equalToConstant: 48),
+            summaryHeight,
 
             // Action bar (bottom, fixed height)
             actionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -2804,7 +2810,7 @@ final class NaoMgsSummaryBar: GenomicSummaryCardBar {
         let rows = (try? database.fetchTaxonSummaryRows(samples: selectedSamples)) ?? []
         taxaLabel = rows.count == 1 ? "1 taxon" : "\(rows.count) taxa"
 
-        needsDisplay = true
+        cardsDidChange()
     }
 
     func update(cachedRows: [NaoMgsTaxonSummaryRow], manifest: NaoMgsManifest?, selectedSamples: [String]) {
@@ -2824,14 +2830,14 @@ final class NaoMgsSummaryBar: GenomicSummaryCardBar {
             : cachedRows.filter { selectedSampleIds.contains($0.sample) }
         let taxonCount = selectedRows.isEmpty ? (cachedRows.isEmpty ? (manifest?.taxonCount ?? 0) : 0) : selectedRows.count
         taxaLabel = taxonCount == 1 ? "1 taxon" : "\(taxonCount) taxa"
-        needsDisplay = true
+        cardsDidChange()
     }
 
     /// Legacy update method kept for compatibility.
     func update(result: NaoMgsResult) {
         samplesLabel = "1 sample"
         taxaLabel = result.taxonSummaries.count == 1 ? "1 taxon" : "\(result.taxonSummaries.count) taxa"
-        needsDisplay = true
+        cardsDidChange()
     }
 
     override var cards: [Card] {

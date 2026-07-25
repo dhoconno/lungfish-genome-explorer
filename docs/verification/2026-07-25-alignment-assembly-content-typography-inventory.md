@@ -1,7 +1,8 @@
 # Result Viewport Content Typography Inventory
 
-This inventory records the Task 3b audit of primary content in the Alignment,
-Assembly, Phylogenetic, and 12S result viewports. Each adopted surface resolves from
+This inventory records the completed Task 3b/3c audit of primary content in the
+Alignment, Assembly, Phylogenetic, 12S, and EsViritu result viewports.
+Each adopted surface resolves from
 `ContentTypography` at creation and responds to
 `contentTextSizeDidChange` without scaling an already-scaled font.
 
@@ -23,6 +24,10 @@ Assembly, Phylogenetic, and 12S result viewports. Each adopted surface resolves 
 | `TwelveSAmpliconResultViewController.swift` | Viewport result search | Primary result content | Body role; field height and fitting width follow resolved font metrics. |
 | `TwelveSTargetTableView.swift` | Target search, headers, result cells, and late sample-metadata columns | Primary list content through shared path | Inherits `BatchTableView`; row/header/search geometry and stable user column baselines scale and recover. Columns added or re-added while enlarged receive current fonts and geometry immediately. |
 | `TwelveSUnresolvedTableView.swift` | Unresolved search, headers, and result cells | Primary list content through shared path | Inherits `BatchTableView`; the Bases cell preserves its fixed-pitch 11-point baseline while following System/custom scale. |
+| `GenomicSummaryCardBar.swift` | Shared summary-card title and metric value | Primary summary content | Caption and monospaced emphasized-body roles; card and host heights follow resolved metrics. |
+| `BatchEsVirituTableView.swift` | Sample, virus, family, and assembly cells | Primary list content with explicit leaf overrides | Stable 11-point medium/regular/monospaced baselines scale without compounding; shared table geometry and late columns use the current typography. |
+| `ViralDetectionTableView.swift` | Search, result count, outline headers, names, and numeric cells | Primary list content | Body/detail/monospaced roles with adaptive search, row, and header geometry; selection, sort, search, expansion, and scroll remain stable without a data reload. Coverage sparkline data and scientific geometry remain unchanged. |
+| `EsVirituDetailPane.swift` | Overview/title/virus/family/summary/metric/pill text | Primary detail content | Stable 9–16-point traits scale from canonical metrics; text wraps and detail geometry expands without rebuilding content. |
 
 The two 12S result modes have distinct table/search accessibility identifiers
 and labels. Full scientific names, metadata strings, and base sequences remain
@@ -39,6 +44,10 @@ Phylogenetic search, fit/reset/zoom/layout/color controls, tip popups, and menus
 remain native control chrome. In 12S, the Targets/Unresolved segmented control,
 sample filter/column buttons, action bar, menus, popovers, and BLAST controls
 remain native control chrome.
+
+EsViritu action bars, sample/grouping buttons, menus, popovers, drawer resize
+handles, and BLAST controls remain native control chrome. Provenance Inspector
+SwiftUI labels retain their native semantic SwiftUI styles.
 
 ## Scientific rendering exclusions
 
@@ -57,6 +66,8 @@ remain native control chrome.
 - 12S aggregation, display filtering, reference-sequence lookup, detail
   emission, and display-summary notifications are scientific/result-state
   operations and are not invoked by typography updates.
+- EsViritu segment-completeness and coverage-plot labels, sparklines, plot
+  geometry, and canvas metrics remain graph-owned and unchanged.
 
-No audited primary-content site in these four result families retains an
+No audited primary-content site in these five result families retains an
 unscaled fixed AppKit font size after this adoption.

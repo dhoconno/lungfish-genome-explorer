@@ -39,6 +39,412 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(table.testDisplayedAssemblyCount, 1)
     }
 
+    @MainActor func testViralDetectionTypographyScalesLateCellsAndPreservesSelection() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let table = ViralDetectionTableView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: 360)
+        )
+        table.result = Self.esvirituResult([
+            Self.viralAssembly(
+                name: "Alpha virus",
+                sampleId: "sample-A",
+                assembly: "GCF_A",
+                accession: "NC_A",
+                reads: 40
+            ),
+        ])
+        table.testOutlineView.expandItem(table.testOutlineView.item(atRow: 0))
+        table.testOutlineView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        let baseline = table.testingTypographyMetrics
+        let selectedRows = table.testOutlineView.selectedRowIndexes
+        let displayedCount = table.testDisplayedAssemblyCount
+
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        let enlarged = table.testingTypographyMetrics
+        XCTAssertEqual(enlarged.searchPointSize, baseline.searchPointSize * 2)
+        XCTAssertEqual(enlarged.countPointSize, baseline.countPointSize * 2)
+        XCTAssertEqual(enlarged.nameCellPointSize, baseline.nameCellPointSize * 2)
+        XCTAssertEqual(enlarged.numericCellPointSize, baseline.numericCellPointSize * 2)
+        XCTAssertGreaterThan(enlarged.rowHeight, baseline.rowHeight)
+        XCTAssertGreaterThan(enlarged.headerHeight, baseline.headerHeight)
+        XCTAssertEqual(table.testOutlineView.selectedRowIndexes, selectedRows)
+        XCTAssertEqual(table.testDisplayedAssemblyCount, displayedCount)
+
+        settings.contentTextSizePreference = .custom(100)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        XCTAssertEqual(table.testingTypographyMetrics, baseline)
+    }
+
+    @MainActor func testEsVirituDetailTypographyDoesNotRebuildScientificContent() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let pane = EsVirituDetailPane(
+            frame: NSRect(x: 0, y: 0, width: 360, height: 520)
+        )
+        let result = Self.esvirituResult([
+            Self.viralAssembly(
+                name: "Alpha virus",
+                sampleId: "sample-A",
+                assembly: "GCF_A",
+                accession: "NC_A",
+                reads: 40
+            ),
+        ])
+        pane.configureOverview(result: result, coverageWindows: [:], bamURL: nil)
+        let baseline = pane.testingTypographyMetrics
+        let rebuildCount = pane.testingContentRebuildCount
+
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        let enlarged = pane.testingTypographyMetrics
+        XCTAssertEqual(enlarged.titlePointSize, baseline.titlePointSize * 2)
+        XCTAssertEqual(enlarged.summaryPointSize, baseline.summaryPointSize * 2)
+        XCTAssertEqual(pane.testingContentRebuildCount, rebuildCount)
+
+        settings.contentTextSizePreference = .custom(100)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        XCTAssertEqual(pane.testingTypographyMetrics, baseline)
+        XCTAssertEqual(pane.testingContentRebuildCount, rebuildCount)
+    }
+
+    @MainActor func testViralDetectionTypographyPreservesLiveEditingAndOutlineState() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let table = ViralDetectionTableView(
+            frame: NSRect(x: 0, y: 0, width: 700, height: 260)
+        )
+        let assemblies = (0..<30).map {
+            let assembly = Self.viralAssembly(
+                name: "Virus \($0) with a long complete scientific name",
+                sampleId: "sample-\($0)",
+                assembly: "GCF_\($0)",
+                accession: "NC_000000000\($0).1",
+                reads: 40 + $0
+            )
+            guard $0 == 29 else { return assembly }
+            return ViralAssembly(
+                assembly: assembly.assembly,
+                assemblyLength: assembly.assemblyLength,
+                name: assembly.name,
+                family: assembly.family,
+                genus: assembly.genus,
+                species: assembly.species,
+                totalReads: assembly.totalReads,
+                rpkmf: assembly.rpkmf,
+                meanCoverage: assembly.meanCoverage,
+                avgReadIdentity: assembly.avgReadIdentity,
+                contigs: assembly.contigs + assembly.contigs
+            )
+        }
+        for assembly in assemblies {
+            guard let accession = assembly.contigs.first?.accession else { continue }
+            table.coverageWindowsByAccession[accession] = [
+                ViralCoverageWindow(
+                    accession: accession,
+                    windowIndex: 0,
+                    windowStart: 0,
+                    windowEnd: 100,
+                    averageCoverage: 2
+                ),
+                ViralCoverageWindow(
+                    accession: accession,
+                    windowIndex: 1,
+                    windowStart: 100,
+                    windowEnd: 200,
+                    averageCoverage: 8
+                ),
+            ]
+        }
+        table.result = Self.esvirituResult(assemblies)
+        let window = NSWindow(
+            contentRect: table.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: table.frame)
+        table.frame = host.bounds
+        table.autoresizingMask = [.width, .height]
+        host.addSubview(table)
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            _ = window.makeFirstResponder(nil)
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+        table.testOutlineView.sortDescriptors = [
+            NSSortDescriptor(key: "reads", ascending: false),
+        ]
+        let root = try XCTUnwrap(table.testOutlineView.item(atRow: 0))
+        table.testOutlineView.expandItem(root)
+        XCTAssertTrue(table.testOutlineView.isItemExpanded(root))
+        table.testOutlineView.selectRowIndexes(
+            IndexSet([0, 1]),
+            byExtendingSelection: false
+        )
+        let search = table.testingSearchField
+        search.stringValue = "Virus"
+        XCTAssertTrue(window.makeFirstResponder(search))
+        search.currentEditor()?.selectedRange = NSRange(location: 1, length: 3)
+        table.layoutSubtreeIfNeeded()
+        table.testingScrollRowToVisible(20)
+        table.testOutlineView.enclosingScrollView?.reflectScrolledClipView(
+            table.testOutlineView.enclosingScrollView!.contentView
+        )
+        let baselineTopVisibleRow = table.testingTopVisibleRow
+        let nameCell = try XCTUnwrap(
+            table.testingRealizedCell(column: "name", row: baselineTopVisibleRow)
+        )
+        let baselineSparkline = try XCTUnwrap(
+            table.testingCoverageSparkline(row: baselineTopVisibleRow)
+        )
+        baselineSparkline.superview?.layoutSubtreeIfNeeded()
+        let baselineCoverageWindows = baselineSparkline.windows
+        let baselineSparklineHeight = baselineSparkline.frame.height
+        let baselineNamePointSize = try XCTUnwrap(nameCell.textField?.font?.pointSize)
+        let outlineIdentity = ObjectIdentifier(table.testOutlineView)
+        let searchIdentity = ObjectIdentifier(search)
+        let baselineColumnIdentifiers = table.testOutlineView.tableColumns.map(\.identifier)
+        let baselineColumnWidths = table.testOutlineView.tableColumns.map(\.width)
+        let baselineFilterCount = table.testingFilterApplicationCount
+        let baselineReloadCount = table.testingOutlineReloadCount
+        let baselineRebuildCount = table.testingItemRebuildCount
+
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        XCTAssertEqual(ObjectIdentifier(table.testOutlineView), outlineIdentity)
+        XCTAssertEqual(ObjectIdentifier(table.testingSearchField), searchIdentity)
+        XCTAssertTrue(table.testOutlineView.isItemExpanded(root))
+        XCTAssertEqual(table.testOutlineView.selectedRowIndexes, IndexSet([0, 1]))
+        XCTAssertEqual(table.testOutlineView.sortDescriptors.first?.key, "reads")
+        XCTAssertEqual(search.currentEditor()?.selectedRange, NSRange(location: 1, length: 3))
+        XCTAssertEqual(table.testingFilterApplicationCount, baselineFilterCount)
+        XCTAssertEqual(table.testingOutlineReloadCount, baselineReloadCount)
+        XCTAssertEqual(table.testingItemRebuildCount, baselineRebuildCount)
+        XCTAssertEqual(
+            table.testOutlineView.tableColumns.map(\.identifier),
+            baselineColumnIdentifiers
+        )
+        XCTAssertEqual(
+            table.testOutlineView.tableColumns.map(\.width),
+            baselineColumnWidths
+        )
+        XCTAssertEqual(
+            table.testingTopVisibleRow,
+            baselineTopVisibleRow,
+            "origin=\(table.testingScrollOriginY), anchorRect=\(table.testOutlineView.rect(ofRow: baselineTopVisibleRow)), rowHeight=\(table.testOutlineView.rowHeight), table=\(table.testOutlineView.frame), clip=\(table.testOutlineView.enclosingScrollView?.contentView.bounds ?? .zero), restore=\(table.testingTypographyScrollRestore)"
+        )
+        let scaledNameCell = try XCTUnwrap(
+            table.testingRealizedCell(column: "name", row: baselineTopVisibleRow)
+        )
+        XCTAssertGreaterThan(
+            try XCTUnwrap(scaledNameCell.textField?.font?.pointSize),
+            baselineNamePointSize
+        )
+        XCTAssertEqual(
+            scaledNameCell.textField?.toolTip,
+            scaledNameCell.textField?.stringValue
+        )
+        XCTAssertEqual(
+            scaledNameCell.textField?.accessibilityValue() as? String,
+            scaledNameCell.textField?.stringValue
+        )
+        let scaledSparkline = try XCTUnwrap(
+            table.testingCoverageSparkline(row: baselineTopVisibleRow)
+        )
+        scaledSparkline.superview?.layoutSubtreeIfNeeded()
+        XCTAssertEqual(scaledSparkline.windows, baselineCoverageWindows)
+        XCTAssertEqual(scaledSparkline.frame.height, baselineSparklineHeight)
+
+        settings.contentTextSizePreference = .custom(100)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        XCTAssertEqual(
+            table.testingTopVisibleRow,
+            baselineTopVisibleRow,
+            "origin=\(table.testingScrollOriginY), anchorRect=\(table.testOutlineView.rect(ofRow: baselineTopVisibleRow)), rowHeight=\(table.testOutlineView.rowHeight), table=\(table.testOutlineView.frame), clip=\(table.testOutlineView.enclosingScrollView?.contentView.bounds ?? .zero)"
+        )
+        XCTAssertEqual(
+            table.testOutlineView.tableColumns.map(\.identifier),
+            baselineColumnIdentifiers
+        )
+        XCTAssertEqual(
+            table.testOutlineView.tableColumns.map(\.width),
+            baselineColumnWidths
+        )
+        XCTAssertEqual(table.testingOutlineReloadCount, baselineReloadCount)
+        XCTAssertEqual(table.testingItemRebuildCount, baselineRebuildCount)
+        XCTAssertEqual(search.currentEditor()?.selectedRange, NSRange(location: 1, length: 3))
+    }
+
+    @MainActor func testBatchEsVirituExplicitFontsRoundTripWithoutCompounding() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let table = BatchEsVirituTableView(
+            frame: NSRect(x: 0, y: 0, width: 700, height: 220)
+        )
+        table.configure(rows: [
+            BatchEsVirituRow(
+                sample: "sample-A",
+                virusName: "Long virus name",
+                family: "Longviridae",
+                assembly: "GCF_000000001.1",
+                readCount: 100,
+                uniqueReads: 90,
+                rpkmf: 12,
+                coverageBreadth: 0.8,
+                coverageDepth: 3
+            ),
+        ])
+        let sampleColumn = try XCTUnwrap(
+            table.testTableView.tableColumn(withIdentifier: .init("sample"))
+        )
+        let assemblyColumn = try XCTUnwrap(
+            table.testTableView.tableColumn(withIdentifier: .init("assembly"))
+        )
+        func fonts() throws -> (NSFont, NSFont) {
+            let sample = try XCTUnwrap(
+                table.tableView(table.testTableView, viewFor: sampleColumn, row: 0)
+                    as? NSTableCellView
+            )
+            let assembly = try XCTUnwrap(
+                table.tableView(table.testTableView, viewFor: assemblyColumn, row: 0)
+                    as? NSTableCellView
+            )
+            return (
+                try XCTUnwrap(sample.textField?.font),
+                try XCTUnwrap(assembly.textField?.font)
+            )
+        }
+        let baseline = try fonts()
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        let enlarged = try fonts()
+        XCTAssertEqual(enlarged.0.pointSize, baseline.0.pointSize * 2)
+        XCTAssertEqual(enlarged.1.pointSize, baseline.1.pointSize * 2)
+        XCTAssertTrue(enlarged.1.isFixedPitch)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        XCTAssertEqual(try fonts().0.pointSize, enlarged.0.pointSize)
+        settings.contentTextSizePreference = .custom(100)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        XCTAssertEqual(try fonts().0.pointSize, baseline.0.pointSize)
+        XCTAssertEqual(try fonts().1.pointSize, baseline.1.pointSize)
+    }
+
+    @MainActor func testEsNarrowDetailAndPlaceholderReflowAtTwoHundredPercent() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .custom(200)
+        let assembly = Self.viralAssembly(
+            name: "Extremely long virus name requiring multiple complete lines",
+            sampleId: "sample-A",
+            assembly: "GCF_LONG",
+            accession: "NC_EXTREMELY_LONG_ACCESSION.1",
+            reads: 40
+        )
+        let pane = EsVirituDetailPane(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 700)
+        )
+        let detailWindow = NSWindow(
+            contentRect: pane.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        detailWindow.contentView = pane
+        detailWindow.makeKeyAndOrderFront(nil)
+        defer {
+            detailWindow.orderOut(nil)
+            detailWindow.contentView = nil
+        }
+        pane.showVirusDetail(
+            assembly: assembly,
+            coverageWindows: [:],
+            bamURL: nil
+        )
+        pane.layoutSubtreeIfNeeded()
+        XCTAssertEqual(pane.testingTypographyMetrics.metricOrientation, .vertical)
+        XCTAssertTrue(
+            pane.testingTypographyMetrics.metricFieldsAreContained,
+            pane.testingMetricFrameDescription
+        )
+        XCTAssertTrue(pane.testingFullTextAccessibility.allSatisfy {
+            $0.0.isEmpty || ($0.1 == $0.0 && $0.2 == $0.0)
+        })
+
+        let controller = EsVirituResultViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 260, height: 500)
+        let controllerWindow = NSWindow(
+            contentRect: controller.view.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        controllerWindow.contentView = controller.view
+        controllerWindow.makeKeyAndOrderFront(nil)
+        defer {
+            controllerWindow.orderOut(nil)
+            controllerWindow.contentView = nil
+        }
+        controller.testingShowMultiSelectionPlaceholder(count: 123_456)
+        let placeholder = controller.testingPlaceholderTypographyMetrics
+        XCTAssertGreaterThan(placeholder.primaryPointSize, 13)
+        XCTAssertGreaterThan(placeholder.secondaryPointSize, 11)
+        XCTAssertTrue(
+            placeholder.fieldsAreContained,
+            controller.testingPlaceholderFrameDescription
+        )
+    }
+
+    @MainActor func testEsTypographyObserversDoNotRetainTheirHosts() {
+        weak var weakTable: ViralDetectionTableView?
+        weak var weakPane: EsVirituDetailPane?
+        weak var weakController: EsVirituResultViewController?
+        autoreleasepool {
+            let table = ViralDetectionTableView()
+            let pane = EsVirituDetailPane()
+            let controller = EsVirituResultViewController()
+            _ = controller.view
+            weakTable = table
+            weakPane = pane
+            weakController = controller
+        }
+        XCTAssertNil(weakTable)
+        XCTAssertNil(weakPane)
+        XCTAssertNil(weakController)
+    }
+
     @MainActor func testDelimitedDetectionExportWritesScientificProvenanceSidecar() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("EsVirituDetectionExport-\(UUID().uuidString)", isDirectory: true)

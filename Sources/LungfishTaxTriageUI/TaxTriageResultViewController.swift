@@ -2975,13 +2975,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         sampleFilterTopSpacingConstraint = filterTop
         let filterBottom = splitView.topAnchor.constraint(equalTo: sampleFilterControl.bottomAnchor, constant: 0)
         sampleFilterBottomSpacingConstraint = filterBottom
+        let summaryHeight = summaryBar.heightAnchor.constraint(
+            equalToConstant: summaryBar.preferredContentHeight
+        )
+        summaryBar.onPreferredContentHeightChanged = { [weak summaryHeight] height in
+            summaryHeight?.constant = height
+        }
 
         NSLayoutConstraint.activate([
             // Summary bar (top, below safe area)
             summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            summaryBar.heightAnchor.constraint(equalToConstant: 48),
+            summaryHeight,
 
             // Sample filter control (between summary bar and split view)
             filterTop,
@@ -4698,7 +4704,7 @@ public final class TaxTriageSummaryBar: GenomicSummaryCardBar {
         self.runtime = runtime
         self.highConfidenceCount = highConfidenceCount
         self.sampleCount = sampleCount
-        needsDisplay = true
+        cardsDidChange()
     }
 
     /// Updates the summary bar to show batch aggregation statistics.
@@ -4712,7 +4718,7 @@ public final class TaxTriageSummaryBar: GenomicSummaryCardBar {
         isBatchMode = true
         batchSampleCount = sampleCount
         batchTotalOrganisms = totalOrganisms
-        needsDisplay = true
+        cardsDidChange()
     }
 
     public override var cards: [Card] {
