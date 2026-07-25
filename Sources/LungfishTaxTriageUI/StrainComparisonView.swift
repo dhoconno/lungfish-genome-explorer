@@ -58,17 +58,32 @@ final class StrainComparisonView: NSView {
     private let tableView = NSTableView()
     private let headerLabel = NSTextField(labelWithString: "")
     private let columnWindowBanner = SampleColumnWindowBanner()
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private nonisolated(unsafe) var contentTypographyObserver: NSObjectProtocol?
+#if DEBUG
+    private var typographyReloadCount = 0
+    private var typographyRealizedCellResolutionCount = 0
+#endif
 
     // MARK: - Init
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupViews()
+        installContentTypographyObservation()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupViews()
+        installContentTypographyObservation()
+    }
+
+    deinit {
+        if let contentTypographyObserver {
+            NotificationCenter.default.removeObserver(contentTypographyObserver)
+        }
     }
 
     // MARK: - Setup
@@ -77,6 +92,11 @@ final class StrainComparisonView: NSView {
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
         headerLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         headerLabel.textColor = .labelColor
+        headerLabel.lineBreakMode = .byWordWrapping
+        headerLabel.maximumNumberOfLines = 0
+        headerLabel.cell?.wraps = true
+        headerLabel.toolTip = headerLabel.stringValue
+        headerLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(headerLabel)
 
         columnWindowBanner.onShowAll = { [weak self] in self?.showAllSampleColumns() }
@@ -91,6 +111,7 @@ final class StrainComparisonView: NSView {
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsColumnReordering = false
         tableView.allowsColumnResizing = true
+        tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.rowHeight = 20
         tableView.style = .plain
         tableView.delegate = self
@@ -112,6 +133,74 @@ final class StrainComparisonView: NSView {
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    private func installContentTypographyObservation() {
+        contentTypographyObserver = NotificationCenter.default.addObserver(
+            forName: .contentTextSizeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applyContentTypography()
+            }
+        }
+        applyContentTypography()
+    }
+
+    private func applyContentTypography() {
+        headerLabel.font = taxTriageContentFont(
+            canonicalPointSize: 12,
+            weight: .semibold,
+            preferredFontProvider: preferredFontProvider
+        )
+        headerLabel.toolTip = headerLabel.stringValue
+        headerLabel.setAccessibilityValue(headerLabel.stringValue)
+        taxTriageApplyTableGeometry(
+            to: tableView,
+            minimumRowHeight: 20,
+            preferredFontProvider: preferredFontProvider
+        )
+        let realizedCount = taxTriageForEachRealizedCell(in: tableView) {
+            [weak self] column, _, view in
+            guard let self, let field = view as? NSTextField else { return }
+            self.applyContentTypography(to: field, column: column.identifier)
+        }
+#if DEBUG
+        typographyRealizedCellResolutionCount = realizedCount
+#endif
+    }
+
+    private func applyContentTypography(
+        to field: NSTextField,
+        column: NSUserInterfaceItemIdentifier
+    ) {
+        let isAlternateBase: Bool
+        if column.rawValue.hasPrefix("sample_"),
+           field.stringValue != "-",
+           field.textColor == .lungfishDanger {
+            isAlternateBase = true
+        } else {
+            isAlternateBase = false
+        }
+        field.font = taxTriageContentFont(
+            canonicalPointSize: 11,
+            weight: isAlternateBase ? .bold : .regular,
+            monospaced: true,
+            preferredFontProvider: preferredFontProvider
+        )
+        if !field.stringValue.isEmpty {
+            field.toolTip = field.stringValue
+            field.setAccessibilityValue(field.stringValue)
+        }
+    }
+
+    func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        columnWindowBanner.setContentPreferredFontProvider(provider)
+        applyContentTypography()
     }
 
     /// Keep the reveal banner in sync with the current window state.
@@ -153,9 +242,21 @@ final class StrainComparisonView: NSView {
         for sampleId in windowedSampleIds {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sample_\(sampleId)"))
             col.title = sampleId
+            col.headerToolTip = sampleId
             col.width = 60
             col.minWidth = 40
             tableView.addTableColumn(col)
+        }
+        applyCurrentColumnHeaderTypography()
+    }
+
+    private func applyCurrentColumnHeaderTypography() {
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
+        for column in tableView.tableColumns {
+            column.headerCell.font = typography.font(for: .tableHeader)
+            column.headerToolTip = column.headerToolTip ?? column.title
         }
     }
 
@@ -177,6 +278,8 @@ final class StrainComparisonView: NSView {
         } else {
             headerLabel.stringValue = "\(organismName) \u{2014} \(entries.count) differing position(s)"
         }
+        headerLabel.toolTip = headerLabel.stringValue
+        headerLabel.setAccessibilityValue(headerLabel.stringValue)
 
         columnWindow.reset()
         rebuildColumns()
@@ -215,7 +318,6 @@ extension StrainComparisonView: NSTableViewDelegate {
         let id = column.identifier.rawValue
 
         let field = NSTextField(labelWithString: "")
-        field.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         field.lineBreakMode = .byTruncatingTail
 
         switch id {
@@ -238,7 +340,6 @@ extension StrainComparisonView: NSTableViewDelegate {
                     // Highlight if different from reference
                     if let refBase = entry.referenceBase, base != refBase {
                         field.textColor = .lungfishDanger
-                        field.font = .monospacedSystemFont(ofSize: 11, weight: .bold)
                     }
                 } else {
                     field.stringValue = "-"
@@ -247,6 +348,8 @@ extension StrainComparisonView: NSTableViewDelegate {
                 field.alignment = .center
             }
         }
+
+        applyContentTypography(to: field, column: column.identifier)
 
         return field
     }
@@ -267,5 +370,39 @@ extension StrainComparisonView {
 
     /// Invoke the banner's "Show all" action, exercising the wired callback.
     func testingTapShowAllBanner() { columnWindowBanner.onShowAll?() }
+
+    var testingTableView: NSTableView { tableView }
+    var testingHeaderPointSize: CGFloat { headerLabel.font?.pointSize ?? 0 }
+    var testingTypographyReloadCount: Int { typographyReloadCount }
+    var testingTypographyRealizedCellResolutionCount: Int {
+        typographyRealizedCellResolutionCount
+    }
+    var testingPresentationState: TaxTriageTablePresentationState {
+        TaxTriageTablePresentationState(tableView: tableView)
+    }
+
+    func testingSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        setContentPreferredFontProvider(provider)
+    }
+
+    func testingCell(column identifier: String, row: Int) -> NSTextField? {
+        guard let columnIndex = tableView.tableColumns.firstIndex(where: {
+            $0.identifier.rawValue == identifier
+        }) else {
+            return nil
+        }
+        return tableView.view(
+            atColumn: columnIndex,
+            row: row,
+            makeIfNecessary: true
+        ) as? NSTextField
+    }
+
+    func testingScroll(to origin: NSPoint) {
+        scrollView.contentView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
 }
 #endif

@@ -34,6 +34,10 @@ public final class SampleColumnWindowBanner: NSView {
     private let messageLabel = NSTextField(labelWithString: "")
     private let showAllButton = NSButton()
     private var heightConstraint: NSLayoutConstraint?
+    private var contentTypographyObservation: ContentTypographyNotificationObservation?
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private var isWindowActive = false
 
     /// Invoked when the user clicks "Show all". Wire this to the host view's
     /// `showAllSampleColumns()` reveal method.
@@ -57,7 +61,10 @@ public final class SampleColumnWindowBanner: NSView {
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
         messageLabel.font = .systemFont(ofSize: 11)
         messageLabel.textColor = .lungfishSecondaryText
-        messageLabel.lineBreakMode = .byTruncatingTail
+        messageLabel.lineBreakMode = .byWordWrapping
+        messageLabel.maximumNumberOfLines = 0
+        messageLabel.cell?.wraps = true
+        messageLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         messageLabel.setAccessibilityIdentifier("sample-column-window-banner-label")
         addSubview(messageLabel)
 
@@ -76,11 +83,22 @@ public final class SampleColumnWindowBanner: NSView {
         NSLayoutConstraint.activate([
             height,
             messageLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            messageLabel.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 6),
+            messageLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
             messageLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             messageLabel.trailingAnchor.constraint(lessThanOrEqualTo: showAllButton.leadingAnchor, constant: -8),
             showAllButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             showAllButton.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+        let notifications = NotificationCenterContentTypographyNotifications(
+            notificationCenter: .default
+        )
+        contentTypographyObservation = notifications.observe(
+            .contentTextSizeDidChange
+        ) { [weak self] in
+            self?.applyContentTypography()
+        }
+        applyContentTypography()
     }
 
     public override func draw(_ dirtyRect: NSRect) {
@@ -98,18 +116,79 @@ public final class SampleColumnWindowBanner: NSView {
     ///   - shownCount: The number of currently-instantiated sample columns.
     ///   - totalCount: The full logical sample count.
     public func update(isWindowActive: Bool, shownCount: Int, totalCount: Int) {
+        self.isWindowActive = isWindowActive
         isHidden = !isWindowActive
         needsDisplay = true
-        // Collapse the reserved 24pt row when hidden so the host layout closes the
-        // gap; expand it back when the affordance is shown.
-        heightConstraint?.constant = isWindowActive ? 24 : 0
+        updatePreferredHeight()
         guard isWindowActive else { return }
         let samples = totalCount == 1 ? "sample" : "samples"
         messageLabel.stringValue = "Showing \(shownCount) of \(totalCount) \(samples)"
+        messageLabel.toolTip = messageLabel.stringValue
+        messageLabel.setAccessibilityValue(messageLabel.stringValue)
         toolTip = "Only the first \(shownCount) sample columns are shown. Click Show all to reveal the remaining columns."
+        updatePreferredHeight()
     }
 
     @objc private func showAllClicked(_ sender: NSButton) {
         onShowAll?()
     }
+
+    public override func layout() {
+        super.layout()
+        updatePreferredHeight()
+    }
+
+    /// Re-resolves the message using an injected semantic System-font source.
+    public func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        applyContentTypography()
+    }
+
+    private func applyContentTypography() {
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
+        let canonicalBody = max(
+            preferredFontProvider.canonicalUnscaledPointSize(for: .body),
+            1
+        )
+        let scale = typography.font(for: .body).pointSize / canonicalBody
+        let pointSize = max(ContentTypography.minimumPointSize, 11 * scale)
+        messageLabel.font = .systemFont(ofSize: pointSize)
+        updatePreferredHeight()
+        needsLayout = true
+    }
+
+    private func updatePreferredHeight() {
+        guard isWindowActive else {
+            heightConstraint?.constant = 0
+            return
+        }
+        let availableWidth = max(
+            40,
+            bounds.width - showAllButton.fittingSize.width - 30
+        )
+        let measured = messageLabel.attributedStringValue.boundingRect(
+            with: NSSize(width: availableWidth, height: 10_000),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        ).height
+        heightConstraint?.constant = max(
+            24,
+            ceil(measured + 12),
+            ceil(showAllButton.fittingSize.height + 8)
+        )
+    }
 }
+
+#if DEBUG
+public extension SampleColumnWindowBanner {
+    var testingMessagePointSize: CGFloat { messageLabel.font?.pointSize ?? 0 }
+    var testingPreferredHeight: CGFloat { heightConstraint?.constant ?? 0 }
+    var testingMessageWraps: Bool {
+        messageLabel.maximumNumberOfLines == 0
+            && messageLabel.lineBreakMode == .byWordWrapping
+    }
+}
+#endif

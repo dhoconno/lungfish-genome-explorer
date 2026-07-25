@@ -1,7 +1,8 @@
 # Result Viewport Content Typography Inventory
 
 This inventory records the completed Task 3b/3c audit of primary content in the
-Alignment, Assembly, Phylogenetic, 12S, EsViritu, NAO-MGS, and NVD result viewports.
+Alignment, Assembly, Phylogenetic, 12S, EsViritu, NAO-MGS, NVD, and TaxTriage
+result viewports.
 Each adopted surface resolves from
 `ContentTypography` at creation and responds to
 `contentTextSizeDidChange` without scaling an already-scaled font.
@@ -34,6 +35,12 @@ Each adopted surface resolves from
 | `NaoMgsResultViewController.swift` | Taxon title/subtitle, miniBAM list heading/note/empty state, accession strip, metrics, loading text, and selection placeholder | Primary detail content | Stable 9–14-point regular/bold/monospaced traits scale without rebuilding detail. Five metric pills and accession statistics stack and wrap at 150–200 percent or narrow widths. Detail scroll, MiniBAM controller identity/height, caches, and load state remain stable. |
 | `NvdResultViewController.swift` | Search, outline headers, contig/child/taxon rows, numeric fields, and late metadata cells | Primary list content | Stable 10/11-point regular/medium/semibold/monospaced traits are resolved for each assigned reuse role, so a cell reused between contig, rank-two child, and taxon rows never inherits the previous role. Rows and headers adapt while expansion, lazy child cache, selection, focus/editor, scroll, sort/order, and user widths remain stable without an outline reload. |
 | `NvdResultViewController.swift` | Overview, contig title/subtitle, six metric pills, no-BAM/alignment/accession text, loading text, and selection placeholder | Primary detail content | Stable 9–14-point traits scale from canonical metrics. Titles and values wrap; metric pills stack at 150–200 percent or narrow widths; the persistent placeholder remains bounded. Live updates preserve detail identity and scroll plus MiniBAM controller identity, height, lazy-load state, and cache state. |
+| `BatchTaxTriageTableView.swift` | Sample, organism, confidence, numeric cells, search, headers, and metadata columns | Primary list content through the shared batch path | Explicit 11-point regular/medium fonts and the shared monospaced numeric role scale from stable baselines. Shared table ownership preserves selection, sort, editing, horizontal scroll, user widths/order, and late metadata columns. |
+| `TaxTriageResultViewController.swift` (`TaxTriageOrganismTableView`) | Organism, numeric, metadata cells, headers, and rows | Primary list content | Stable 11/12-point regular/medium/monospaced baselines and embedded metadata scale without reloading. Only realized cells are revisited. Full values remain in tooltips/accessibility values, and the table keeps horizontal scrolling with no column autoresizing. |
+| `TaxTriageBatchOverviewView.swift` | Organism/summary/sample heatmap text, headers, and late sample columns | Primary matrix/table content | Stable 11/12-point baselines and semantic headers scale without changing TASS colors, values, facet, full sample IDs, display window, reveal state, or cell-to-sample mapping. Columns added by Show All receive the current typography. |
+| `StrainComparisonView.swift` | Comparison heading, accession/position/reference/base cells, headers, and late sample columns | Primary list/detail content | The 12-point heading wraps and the 11-point monospaced cells scale from stable baselines. Base-call text/color, full sample IDs, display window, and reveal state remain unchanged; late columns receive current fonts and full header tooltips. |
+| `TaxTriageResultViewController.swift` | Organism search and multi-selection placeholder | Primary result content | Stable 11/13-point text scales live. The placeholder wraps inside bounded margins, and the search-bearing filter row grows from its 24-point minimum while the sample segmented control stays native. |
+| `SampleColumnWindowBanner.swift` | Window-status message | Shared primary explanatory content | The stable 11-point message scales, wraps, exposes its full accessibility value, and drives an adaptive banner height. The Show All button remains native control chrome. |
 
 The two 12S result modes have distinct table/search accessibility identifiers
 and labels. Full scientific names, metadata strings, and base sequences remain
@@ -66,6 +73,13 @@ provenance hosting, BLAST drawer, and split-pane container chrome remain
 independently owned or native control chrome. The outline search field is
 primary list content and is intentionally included.
 
+TaxTriage sample/filter segmented controls, action buttons (including their
+fixed 11-point accessory-bar fonts), menus, popovers, BLAST drawer, split-pane
+chrome, and the shared banner's Show All button remain native control chrome.
+`TaxTriageProvenanceView` is Inspector/popover content rather than a primary
+result list/detail surface; its SwiftUI headline and fixed 11-point label/value
+rows remain outside this viewport checkpoint.
+
 ## Scientific rendering exclusions
 
 - BAM pileup, coverage tracks, base-coordinate rulers, and other
@@ -94,6 +108,13 @@ primary list content and is intentionally included.
   grouping, filtering, and detail reconstruction remain excluded. Typography
   changes only resize ordinary surrounding text and never reload the outline
   or rebuild the selected detail.
+- TaxTriage confidence-bar track insets, score-to-color thresholds, fill
+  fraction, and palette remain fixed scientific rendering. The custom cell
+  exposes its complete confidence category and numeric TASS score through
+  accessibility. TaxTriage MiniBAM drawing/loading, BAM reference lookup,
+  database paging, filtering, heatmap scientific colors, facet data, sample
+  mapping, and provenance/export workflows are not invoked by typography
+  updates.
 
-No audited primary-content site in these seven result families retains an
+No audited primary-content site in these eight result families retains an
 unscaled fixed AppKit font size after this adoption.

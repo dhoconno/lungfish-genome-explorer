@@ -18,6 +18,14 @@ enum TaxTriageConfidencePalette {
     }
 }
 
+#if DEBUG
+extension TaxTriageConfidenceCellView {
+    var testingTrackInsets: NSEdgeInsets {
+        NSEdgeInsets(top: 4, left: 2, bottom: 4, right: 2)
+    }
+}
+#endif
+
 // MARK: - TaxTriageConfidenceCellView
 
 /// A compact single-bar confidence indicator for use in an NSTableView cell.
@@ -28,10 +36,23 @@ final class TaxTriageConfidenceCellView: NSView {
 
     /// The TASS confidence score to display (0.0 to 1.0).
     var score: Double = 0 {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            updateAccessibility()
+        }
     }
 
     override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureAccessibility()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureAccessibility()
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
@@ -75,5 +96,28 @@ final class TaxTriageConfidenceCellView: NSView {
         ctx.setLineWidth(0.5)
         ctx.addPath(trackPath)
         ctx.strokePath()
+    }
+
+    private func configureAccessibility() {
+        setAccessibilityElement(true)
+        setAccessibilityRole(.valueIndicator)
+        setAccessibilityLabel("Confidence")
+        updateAccessibility()
+    }
+
+    private func updateAccessibility() {
+        let clampedScore = min(max(score, 0), 1)
+        let category: String
+        if clampedScore >= 0.8 {
+            category = "High"
+        } else if clampedScore >= 0.4 {
+            category = "Medium"
+        } else {
+            category = "Low"
+        }
+        setAccessibilityValue(NSNumber(value: clampedScore))
+        setAccessibilityHelp(
+            "\(category) confidence, TASS score \(String(format: "%.3f", clampedScore))"
+        )
     }
 }

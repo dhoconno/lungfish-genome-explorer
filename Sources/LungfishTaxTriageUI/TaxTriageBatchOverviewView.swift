@@ -107,6 +107,13 @@ final class TaxTriageBatchOverviewView: NSView {
     private let columnWindowBanner = SampleColumnWindowBanner()
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private nonisolated(unsafe) var contentTypographyObserver: NSObjectProtocol?
+#if DEBUG
+    private var typographyReloadCount = 0
+    private var typographyRealizedCellResolutionCount = 0
+#endif
 
     // MARK: - Init
 
@@ -116,6 +123,7 @@ final class TaxTriageBatchOverviewView: NSView {
         setAccessibilityLabel("TaxTriage batch overview")
         setupFacetControl()
         setupTableView()
+        installContentTypographyObservation()
     }
 
     required init?(coder: NSCoder) {
@@ -124,6 +132,13 @@ final class TaxTriageBatchOverviewView: NSView {
         setAccessibilityLabel("TaxTriage batch overview")
         setupFacetControl()
         setupTableView()
+        installContentTypographyObservation()
+    }
+
+    deinit {
+        if let contentTypographyObserver {
+            NotificationCenter.default.removeObserver(contentTypographyObserver)
+        }
     }
 
     // MARK: - Setup
@@ -172,6 +187,7 @@ final class TaxTriageBatchOverviewView: NSView {
         tableView.allowsColumnReordering = false
         tableView.allowsColumnResizing = true
         tableView.allowsColumnSelection = false
+        tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.rowHeight = 22
         tableView.style = .plain
         tableView.delegate = self
@@ -182,6 +198,70 @@ final class TaxTriageBatchOverviewView: NSView {
         tableView.setAccessibilityLabel("Cross-sample summary table")
 
         scrollView.documentView = tableView
+    }
+
+    private func installContentTypographyObservation() {
+        contentTypographyObserver = NotificationCenter.default.addObserver(
+            forName: .contentTextSizeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applyContentTypography()
+            }
+        }
+        applyContentTypography()
+    }
+
+    private func applyContentTypography() {
+        taxTriageApplyTableGeometry(
+            to: tableView,
+            minimumRowHeight: 22,
+            preferredFontProvider: preferredFontProvider
+        )
+        let realizedCount = taxTriageForEachRealizedCell(in: tableView) {
+            [weak self] column, _, view in
+            guard let self,
+                  let cell = view as? NSTableCellView,
+                  let field = cell.textField else {
+                return
+            }
+            self.applyContentTypography(to: field, column: column.identifier)
+        }
+#if DEBUG
+        typographyRealizedCellResolutionCount = realizedCount
+#endif
+    }
+
+    private func applyContentTypography(
+        to field: NSTextField,
+        column: NSUserInterfaceItemIdentifier
+    ) {
+        if column.rawValue == "organism" {
+            field.font = taxTriageContentFont(
+                canonicalPointSize: 12,
+                weight: .medium,
+                preferredFontProvider: preferredFontProvider
+            )
+        } else {
+            field.font = taxTriageContentFont(
+                canonicalPointSize: 11,
+                digitsOnly: true,
+                preferredFontProvider: preferredFontProvider
+            )
+        }
+        if !field.stringValue.isEmpty {
+            field.toolTip = field.toolTip ?? field.stringValue
+            field.setAccessibilityValue(field.stringValue)
+        }
+    }
+
+    func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        columnWindowBanner.setContentPreferredFontProvider(provider)
+        applyContentTypography()
     }
 
     @objc private func facetChanged(_ sender: NSSegmentedControl) {
@@ -243,10 +323,22 @@ final class TaxTriageBatchOverviewView: NSView {
         for sampleId in windowedSampleIds {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sample_\(sampleId)"))
             col.title = sampleLabels[sampleId] ?? sampleId
+            col.headerToolTip = sampleId
             col.width = 70
             col.minWidth = 50
             col.sortDescriptorPrototype = NSSortDescriptor(key: "sample_\(sampleId)", ascending: false)
             tableView.addTableColumn(col)
+        }
+        applyCurrentColumnHeaderTypography()
+    }
+
+    private func applyCurrentColumnHeaderTypography() {
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
+        for column in tableView.tableColumns {
+            column.headerCell.font = typography.font(for: .tableHeader)
+            column.headerToolTip = column.headerToolTip ?? column.title
         }
     }
 
@@ -495,7 +587,6 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
         switch id {
         case "organism":
             cellView.textField?.stringValue = data.organism
-            cellView.textField?.font = .systemFont(ofSize: 12, weight: .medium)
             cellView.layer?.backgroundColor = nil
 
         case "sampleCount":
@@ -577,14 +668,19 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
             }
         }
 
+        if let field = cellView.textField {
+            applyContentTypography(to: field, column: column.identifier)
+        }
+
         return cellView
     }
 
     private func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
         let cell = NSTableCellView()
         cell.identifier = identifier
+        cell.wantsLayer = true
         let tf = NSTextField(labelWithString: "")
-        tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        applyContentTypography(to: tf, column: identifier)
         tf.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(tf)
         cell.textField = tf
@@ -628,5 +724,44 @@ extension TaxTriageBatchOverviewView {
 
     /// Invoke the banner's "Show all" action, exercising the wired callback.
     func testingTapShowAllBanner() { columnWindowBanner.onShowAll?() }
+
+    var testingTableView: NSTableView { tableView }
+    var testingBannerHeight: CGFloat { columnWindowBanner.testingPreferredHeight }
+    var testingBannerLabelWraps: Bool { columnWindowBanner.testingMessageWraps }
+    var testingTypographyReloadCount: Int { typographyReloadCount }
+    var testingTypographyRealizedCellResolutionCount: Int {
+        typographyRealizedCellResolutionCount
+    }
+    var testingPresentationState: TaxTriageTablePresentationState {
+        TaxTriageTablePresentationState(tableView: tableView)
+    }
+
+    func testingSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        setContentPreferredFontProvider(provider)
+    }
+
+    func testingCellView(column identifier: String, row: Int) -> NSView? {
+        guard let columnIndex = tableView.tableColumns.firstIndex(where: {
+            $0.identifier.rawValue == identifier
+        }) else {
+            return nil
+        }
+        return tableView.view(
+            atColumn: columnIndex,
+            row: row,
+            makeIfNecessary: true
+        )
+    }
+
+    func testingCell(column identifier: String, row: Int) -> NSTextField? {
+        (testingCellView(column: identifier, row: row) as? NSTableCellView)?.textField
+    }
+
+    func testingScroll(to origin: NSPoint) {
+        scrollView.contentView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
 }
 #endif
