@@ -104,6 +104,39 @@ public final class GenotypeResultViewController: NSViewController {
     typealias Lens = GenotypeResultViewportLens
     typealias GenotypeResultLoader = @Sendable (URL) async throws -> ONTGenotypeResultBundleData
 
+    private enum DeferredMatrixAnnotationMutation {
+        case style(
+            request: GenotypeMatrixStyleRequest,
+            store: GenotypeAnnotationStore,
+            author: String
+        )
+        case review(
+            request: GenotypeMatrixReviewRequest,
+            store: GenotypeAnnotationStore,
+            author: String
+        )
+        case comment(
+            request: GenotypeMatrixCommentEditRequest,
+            store: GenotypeAnnotationStore,
+            author: String
+        )
+
+        var store: GenotypeAnnotationStore {
+            switch self {
+            case let .style(_, store, _),
+                 let .review(_, store, _),
+                 let .comment(_, store, _):
+                return store
+            }
+        }
+    }
+
+    private enum MatrixAnnotationMutationAttempt {
+        case success
+        case lockHeld
+        case failure(Error, sidecarBeforeAttempt: GenotypeAnnotationSidecar)
+    }
+
     private struct SharedCallKey: Hashable {
         let locus: String
         let genotype: String
@@ -263,6 +296,11 @@ public final class GenotypeResultViewController: NSViewController {
     private var currentWorkbookAnnotationAutoUpdateTask: GenotypeMatrixWorkbookUpdateCancellation?
     var matrixWorkbookUpdateScheduler: GenotypeMatrixWorkbookUpdateScheduling =
         DelayedGenotypeMatrixWorkbookUpdateScheduler()
+    var matrixAnnotationRetryScheduler: GenotypeMatrixWorkbookUpdateScheduling =
+        DelayedGenotypeMatrixWorkbookUpdateScheduler(delayNanoseconds: 500_000_000)
+    private var deferredMatrixAnnotationMutations: [DeferredMatrixAnnotationMutation] = []
+    private var deferredMatrixAnnotationMutationHead = 0
+    private var deferredMatrixAnnotationRetryTask: GenotypeMatrixWorkbookUpdateCancellation?
     private var currentWorkbookResultReloadTask: Task<Void, Never>?
     private var resultConfigurationGeneration: UInt64 = 0
     private var aiHaplotypingStatus: String?
@@ -1139,23 +1177,30 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func applyMatrixStyle(_ request: GenotypeMatrixStyleRequest) {
         guard let store = annotationStore else { return }
-        let author = annotationAuthorProvider()
+        submitMatrixAnnotationMutation(.style(
+            request: request,
+            store: store,
+            author: annotationAuthorProvider()
+        ))
+    }
+
+    private func applyMatrixStyle(
+        _ request: GenotypeMatrixStyleRequest,
+        store: GenotypeAnnotationStore,
+        author: String
+    ) throws {
         let requestedTargets = uniqueMatrixTargets(request.targets)
         if case .clear = request.field {
             let targets = matrixStyleTargetsToClear(for: requestedTargets, in: store.sidecar)
             let reloadTargets = uniqueMatrixTargets(requestedTargets + targets)
             guard !reloadTargets.isEmpty else { return }
-            do {
-                if !targets.isEmpty {
-                    try store.setMatrixStyles(targets.map { (target: $0, style: nil) }, author: author)
-                }
-                comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
-                refreshCurrentSelectionDetails()
-                onAnnotationSidecarChanged?(store.sidecar)
-                scheduleCurrentWorkbookUpdateForMatrixAnnotation()
-            } catch {
-                presentSheetAlert(error: error)
+            if !targets.isEmpty {
+                try store.setMatrixStyles(targets.map { (target: $0, style: nil) }, author: author)
             }
+            comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
+            refreshCurrentSelectionDetails()
+            onAnnotationSidecarChanged?(store.sidecar)
+            scheduleCurrentWorkbookUpdateForMatrixAnnotation()
             return
         }
         let broadTargets = request.minimumReads == nil
@@ -1173,102 +1218,255 @@ public final class GenotypeResultViewController: NSViewController {
         } ?? requestedTargets
         let reloadTargets = uniqueMatrixTargets(broadTargets + targets)
         guard !reloadTargets.isEmpty else { return }
-        do {
-            let broadEdits = broadTargets.map { target in
-                let current = matrixStyle(for: target, in: store.sidecar)
-                let next = matrixStyle(current, removing: request.field)
-                return (target: target, style: next)
-            }
-            let cellEdits = targets.map { target in
-                let current = matrixStyle(for: target, in: store.sidecar)
-                let next = matrixStyle(current, applying: request.field)
-                return (target: target, style: next)
-            }
-            let edits = broadEdits + cellEdits
-            try store.setMatrixStyles(edits, author: author)
-            comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
-            if targets != requestedTargets {
-                comparisonMatrix.replaceMatrixTargetSelection(targets)
-                if targets.isEmpty {
-                    publishSelectionState(nil)
-                } else {
-                    showMatrixTargetSelection(targets)
-                }
-            } else {
-                refreshCurrentSelectionDetails()
-            }
-            onAnnotationSidecarChanged?(store.sidecar)
-            scheduleCurrentWorkbookUpdateForMatrixAnnotation()
-        } catch {
-            presentSheetAlert(error: error)
+        let broadEdits = broadTargets.map { target in
+            let current = matrixStyle(for: target, in: store.sidecar)
+            let next = matrixStyle(current, removing: request.field)
+            return (target: target, style: next)
         }
+        let cellEdits = targets.map { target in
+            let current = matrixStyle(for: target, in: store.sidecar)
+            let next = matrixStyle(current, applying: request.field)
+            return (target: target, style: next)
+        }
+        let edits = broadEdits + cellEdits
+        try store.setMatrixStyles(edits, author: author)
+        comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
+        if targets != requestedTargets {
+            comparisonMatrix.replaceMatrixTargetSelection(targets)
+            if targets.isEmpty {
+                publishSelectionState(nil)
+            } else {
+                showMatrixTargetSelection(targets)
+            }
+        } else {
+            refreshCurrentSelectionDetails()
+        }
+        onAnnotationSidecarChanged?(store.sidecar)
+        scheduleCurrentWorkbookUpdateForMatrixAnnotation()
     }
 
     public func applyMatrixReview(_ request: GenotypeMatrixReviewRequest) {
         guard let store = annotationStore else { return }
-        let author = annotationAuthorProvider()
+        submitMatrixAnnotationMutation(.review(
+            request: request,
+            store: store,
+            author: annotationAuthorProvider()
+        ))
+    }
+
+    private func applyMatrixReview(
+        _ request: GenotypeMatrixReviewRequest,
+        store: GenotypeAnnotationStore,
+        author: String
+    ) throws {
         let targets = uniqueMatrixTargets(request.targets)
-        let sidecarBeforeAttempt = store.sidecar
-        do {
-            switch request.intent {
-            case let .set(disposition):
-                try store.setMatrixReviewSynchronously(
-                    disposition,
-                    targets: targets,
-                    evidence: matrixEvidenceIndex,
-                    author: author
-                )
-            case .clear:
-                try store.clearMatrixReviewSynchronously(targets: targets, author: author)
-            }
-            finishMatrixAnnotationPublication(store: store, targets: targets)
-        } catch {
-            handleMatrixAnnotationCommandFailure(
-                error,
-                store: store,
-                sidecarBeforeAttempt: sidecarBeforeAttempt
+        switch request.intent {
+        case let .set(disposition):
+            try store.setMatrixReviewSynchronously(
+                disposition,
+                targets: targets,
+                evidence: matrixEvidenceIndex,
+                author: author
             )
+        case .clear:
+            try store.clearMatrixReviewSynchronously(targets: targets, author: author)
         }
+        finishMatrixAnnotationPublication(store: store, targets: targets)
     }
 
     public func editMatrixComment(_ request: GenotypeMatrixCommentEditRequest) {
         guard let store = annotationStore else { return }
-        let author = annotationAuthorProvider()
+        submitMatrixAnnotationMutation(.comment(
+            request: request,
+            store: store,
+            author: annotationAuthorProvider()
+        ))
+    }
+
+    private func editMatrixComment(
+        _ request: GenotypeMatrixCommentEditRequest,
+        store: GenotypeAnnotationStore,
+        author: String
+    ) throws {
         let targets = uniqueMatrixTargets(request.targets)
-        let sidecarBeforeAttempt = store.sidecar
-        do {
-            switch request.intent {
-            case let .upsert(body):
-                if targets.count > 1,
-                   targets.contains(where: { matrixCommentsByTarget[$0] != nil }) {
-                    throw GenotypeMatrixAnnotationCommandError.explicitBulkCommentReplaceRequired
-                }
-                try store.upsertMatrixCommentSynchronously(
-                    body: body.trimmingCharacters(in: .whitespacesAndNewlines),
-                    targets: targets,
-                    author: author
-                )
-            case .remove:
-                try store.removeMatrixCommentsSynchronously(targets: targets, author: author)
-            case let .replace(body):
-                try store.upsertMatrixCommentSynchronously(
-                    body: body.trimmingCharacters(in: .whitespacesAndNewlines),
-                    targets: targets,
-                    author: author
-                )
+        switch request.intent {
+        case let .upsert(body):
+            if targets.count > 1,
+               targets.contains(where: { matrixCommentsByTarget[$0] != nil }) {
+                throw GenotypeMatrixAnnotationCommandError.explicitBulkCommentReplaceRequired
             }
-            finishMatrixAnnotationPublication(store: store, targets: targets)
-        } catch {
-            handleMatrixAnnotationCommandFailure(
+            try store.upsertMatrixCommentSynchronously(
+                body: body.trimmingCharacters(in: .whitespacesAndNewlines),
+                targets: targets,
+                author: author
+            )
+        case .remove:
+            try store.removeMatrixCommentsSynchronously(targets: targets, author: author)
+        case let .replace(body):
+            try store.upsertMatrixCommentSynchronously(
+                body: body.trimmingCharacters(in: .whitespacesAndNewlines),
+                targets: targets,
+                author: author
+            )
+        }
+        finishMatrixAnnotationPublication(store: store, targets: targets)
+    }
+
+    public func addMatrixComment(_ request: GenotypeMatrixCommentEditRequest) {
+        editMatrixComment(request)
+    }
+
+    private var deferredMatrixAnnotationMutationCount: Int {
+        deferredMatrixAnnotationMutations.count - deferredMatrixAnnotationMutationHead
+    }
+
+    private func submitMatrixAnnotationMutation(
+        _ mutation: DeferredMatrixAnnotationMutation
+    ) {
+        guard deferredMatrixAnnotationMutationCount == 0 else {
+            deferredMatrixAnnotationMutations.append(mutation)
+            scheduleDeferredMatrixAnnotationRetry()
+            return
+        }
+        switch attemptMatrixAnnotationMutation(mutation) {
+        case .success:
+            return
+        case .lockHeld:
+            deferredMatrixAnnotationMutations.append(mutation)
+            scheduleDeferredMatrixAnnotationRetry()
+        case let .failure(error, sidecarBeforeAttempt):
+            surfaceMatrixAnnotationMutationFailure(
                 error,
-                store: store,
+                mutation: mutation,
                 sidecarBeforeAttempt: sidecarBeforeAttempt
             )
         }
     }
 
-    public func addMatrixComment(_ request: GenotypeMatrixCommentEditRequest) {
-        editMatrixComment(request)
+    private func attemptMatrixAnnotationMutation(
+        _ mutation: DeferredMatrixAnnotationMutation
+    ) -> MatrixAnnotationMutationAttempt {
+        let sidecarBeforeAttempt = mutation.store.sidecar
+        do {
+            switch mutation {
+            case let .style(request, store, author):
+                try applyMatrixStyle(request, store: store, author: author)
+            case let .review(request, store, author):
+                try applyMatrixReview(request, store: store, author: author)
+            case let .comment(request, store, author):
+                try editMatrixComment(request, store: store, author: author)
+            }
+            return .success
+        } catch {
+            if isWorkbookPublicationLockHeld(error) {
+                return .lockHeld
+            }
+            return .failure(error, sidecarBeforeAttempt: sidecarBeforeAttempt)
+        }
+    }
+
+    private func surfaceMatrixAnnotationMutationFailure(
+        _ error: Error,
+        mutation: DeferredMatrixAnnotationMutation,
+        sidecarBeforeAttempt: GenotypeAnnotationSidecar
+    ) {
+        switch mutation {
+        case .style:
+            presentSheetAlert(error: error)
+        case .review, .comment:
+            handleMatrixAnnotationCommandFailure(
+                error,
+                store: mutation.store,
+                sidecarBeforeAttempt: sidecarBeforeAttempt
+            )
+        }
+    }
+
+    private func scheduleDeferredMatrixAnnotationRetry() {
+        guard deferredMatrixAnnotationMutationCount > 0,
+              deferredMatrixAnnotationRetryTask == nil else { return }
+        deferredMatrixAnnotationRetryTask = matrixAnnotationRetryScheduler.schedule {
+            [weak self] in
+            guard let self else { return }
+            self.deferredMatrixAnnotationRetryTask = nil
+            self.retryDeferredMatrixAnnotationMutations()
+        }
+    }
+
+    private func retryDeferredMatrixAnnotationMutations() {
+        while deferredMatrixAnnotationMutationCount > 0 {
+            let mutation = deferredMatrixAnnotationMutations[
+                deferredMatrixAnnotationMutationHead
+            ]
+            switch attemptMatrixAnnotationMutation(mutation) {
+            case .success:
+                discardFirstDeferredMatrixAnnotationMutation()
+            case .lockHeld:
+                scheduleDeferredMatrixAnnotationRetry()
+                return
+            case let .failure(error, sidecarBeforeAttempt):
+                discardFirstDeferredMatrixAnnotationMutation()
+                surfaceMatrixAnnotationMutationFailure(
+                    error,
+                    mutation: mutation,
+                    sidecarBeforeAttempt: sidecarBeforeAttempt
+                )
+            }
+        }
+    }
+
+    private func discardFirstDeferredMatrixAnnotationMutation() {
+        deferredMatrixAnnotationMutationHead += 1
+        guard deferredMatrixAnnotationMutationHead == deferredMatrixAnnotationMutations.count else {
+            if deferredMatrixAnnotationMutationHead >= 32,
+               deferredMatrixAnnotationMutationHead * 2 >= deferredMatrixAnnotationMutations.count {
+                deferredMatrixAnnotationMutations.removeFirst(
+                    deferredMatrixAnnotationMutationHead
+                )
+                deferredMatrixAnnotationMutationHead = 0
+            }
+            return
+        }
+        deferredMatrixAnnotationMutations.removeAll(keepingCapacity: true)
+        deferredMatrixAnnotationMutationHead = 0
+    }
+
+    private func isWorkbookPublicationLockHeld(_ error: Error) -> Bool {
+        var visitedNSErrorObjects: Set<ObjectIdentifier> = []
+        return isWorkbookPublicationLockHeld(
+            error,
+            depth: 0,
+            visitedNSErrorObjects: &visitedNSErrorObjects
+        )
+    }
+
+    private func isWorkbookPublicationLockHeld(
+        _ error: Error,
+        depth: Int,
+        visitedNSErrorObjects: inout Set<ObjectIdentifier>
+    ) -> Bool {
+        guard depth < 16 else { return false }
+        if let recoveryError = error as? ONTGenotypeWorkbookUpdateRecoveryError,
+           case .lockHeld = recoveryError {
+            return true
+        }
+        if let transactionError = error as? GenotypeAnnotationPublicationTransactionError {
+            return isWorkbookPublicationLockHeld(
+                transactionError.primaryError,
+                depth: depth + 1,
+                visitedNSErrorObjects: &visitedNSErrorObjects
+            )
+        }
+        let nsError = error as NSError
+        guard visitedNSErrorObjects.insert(ObjectIdentifier(nsError)).inserted,
+              let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? Error else {
+            return false
+        }
+        return isWorkbookPublicationLockHeld(
+            underlyingError,
+            depth: depth + 1,
+            visitedNSErrorObjects: &visitedNSErrorObjects
+        )
     }
 
     private func finishMatrixAnnotationPublication(
@@ -7052,6 +7250,14 @@ extension GenotypeResultViewController {
 
     var testingMatrixAnnotationIndexBuildCount: Int {
         matrixAnnotationIndexBuildCount
+    }
+
+    var testingDeferredMatrixAnnotationMutationCount: Int {
+        deferredMatrixAnnotationMutationCount
+    }
+
+    func testingIsWorkbookPublicationLockHeld(_ error: Error) -> Bool {
+        isWorkbookPublicationLockHeld(error)
     }
 
     var testingCurrentSelectionDetailRows: [(String, String)] {
