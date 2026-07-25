@@ -110,6 +110,11 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
     private var typographyBaselineWidths: [String: CGFloat] = [:]
     private var typographyBaselineMinWidths: [String: CGFloat] = [:]
     private var lastAppliedTypographyScale: CGFloat = 1
+    private struct TypographyScrollAnchor {
+        let row: Int
+        let withinRowOffset: CGFloat
+        let horizontalOrigin: CGFloat
+    }
 #if DEBUG
     private var configurationCount = 0
 #endif
@@ -370,6 +375,7 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
     }
 
     private func applyContentTypography() {
+        let scrollAnchor = captureTypographyScrollAnchor()
         captureTypographyBaselines()
         let typography = resolvedContentTypography()
         titleLabel.font = typography.font(for: .emphasizedBody)
@@ -394,7 +400,35 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
         }
         lastAppliedTypographyScale = scale
         tableView.reloadData()
+        restoreTypographyScrollAnchor(scrollAnchor)
         needsLayout = true
+    }
+
+    private func captureTypographyScrollAnchor() -> TypographyScrollAnchor {
+        let origin = scrollView.contentView.bounds.origin
+        guard tableView.numberOfRows > 0 else {
+            return .init(row: 0, withinRowOffset: 0, horizontalOrigin: origin.x)
+        }
+        let candidate = tableView.row(at: NSPoint(x: 0, y: origin.y))
+        let row = min(max(candidate >= 0 ? candidate : Int(origin.y / max(tableView.rowHeight, 1)), 0),
+                      tableView.numberOfRows - 1)
+        return .init(
+            row: row,
+            withinRowOffset: origin.y - tableView.rect(ofRow: row).minY,
+            horizontalOrigin: origin.x
+        )
+    }
+
+    private func restoreTypographyScrollAnchor(_ anchor: TypographyScrollAnchor) {
+        guard tableView.numberOfRows > 0 else { return }
+        tableView.layoutSubtreeIfNeeded()
+        let row = min(max(anchor.row, 0), tableView.numberOfRows - 1)
+        let origin = NSPoint(
+            x: anchor.horizontalOrigin,
+            y: tableView.rect(ofRow: row).minY + anchor.withinRowOffset
+        )
+        scrollView.contentView.setBoundsOrigin(origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     private func registerTypographyBaselines() {
@@ -595,6 +629,19 @@ extension GenotypeHaplotypeDefinitionMatrixView {
 
     var testingConfigurationCount: Int {
         configurationCount
+    }
+
+    func testingSetContentScrollOrigin(_ origin: NSPoint) {
+        scrollView.contentView.setBoundsOrigin(origin)
+    }
+
+    var testingContentScrollAnchor: [CGFloat] {
+        let anchor = captureTypographyScrollAnchor()
+        return [
+            CGFloat(anchor.row),
+            anchor.withinRowOffset,
+            anchor.horizontalOrigin,
+        ]
     }
 
     var testingText: String {

@@ -152,6 +152,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var filterHeightConstraint: NSLayoutConstraint?
     private var reviewLegendHeightConstraint: NSLayoutConstraint?
     private var isApplyingContentTypography = false
+    private struct TypographyScrollAnchor {
+        let row: Int
+        let withinRowOffset: CGFloat
+        let horizontalOrigin: CGFloat
+    }
     private let columnDefaults = UserDefaults.standard
     private static let pinnedPaneWidthKey = "GenotypeMatrix.pinnedPaneWidth"
     private var displayState = GenotypeResultDisplayState()
@@ -871,7 +876,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         rebuildPinnedColumnMenu()
         updateColumnCommentMetadata()
         registerColumnTypographyBaselines()
-        applyColumnTypography()
+        applyContentTypography()
     }
 
     private func updatePinnedTableAccessibilityLabel() {
@@ -3236,13 +3241,26 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func applyContentTypography() {
+        let pinnedScrollAnchor = captureTypographyScrollAnchor(
+            scrollView: pinnedScrollView,
+            tableView: pinnedTableView
+        )
+        let sampleScrollAnchor = captureTypographyScrollAnchor(
+            scrollView: scrollView,
+            tableView: tableView
+        )
         let typography = resolvedContentTypography()
         filterField.font = typography.font(for: .body)
         reviewLegend.font = typography.font(for: .caption)
         let rowHeight = typography.tableRowHeight(minimum: 22, verticalPadding: 6)
         pinnedTableView.rowHeight = rowHeight
         tableView.rowHeight = rowHeight
-        let headerHeight = typography.tableHeaderHeight(minimum: 34, verticalPadding: 10)
+        let headerHeight = max(
+            typography.tableHeaderHeight(minimum: 34, verticalPadding: 10),
+            ceil(typography.font(for: .tableHeader).boundingRectForFont.height)
+                + ceil(typography.font(for: .caption).boundingRectForFont.height)
+                + 8
+        )
         pinnedTableView.headerView?.frame.size.height = headerHeight
         tableView.headerView?.frame.size.height = headerHeight
         filterHeightConstraint?.constant = max(24, ceil(typography.font(for: .body).boundingRectForFont.height + 8))
@@ -3258,8 +3276,54 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             table.reloadData()
             table.headerView?.needsDisplay = true
         }
+        restoreTypographyScrollAnchor(
+            pinnedScrollAnchor,
+            scrollView: pinnedScrollView,
+            tableView: pinnedTableView
+        )
+        restoreTypographyScrollAnchor(
+            sampleScrollAnchor,
+            scrollView: scrollView,
+            tableView: tableView
+        )
         invalidateIntrinsicContentSize()
         needsLayout = true
+    }
+
+    private func captureTypographyScrollAnchor(
+        scrollView: NSScrollView,
+        tableView: NSTableView
+    ) -> TypographyScrollAnchor {
+        let origin = scrollView.contentView.bounds.origin
+        guard tableView.numberOfRows > 0 else {
+            return .init(row: 0, withinRowOffset: 0, horizontalOrigin: origin.x)
+        }
+        let candidate = tableView.row(at: NSPoint(x: 0, y: origin.y))
+        let row = min(max(candidate >= 0 ? candidate : Int(origin.y / max(tableView.rowHeight, 1)), 0),
+                      tableView.numberOfRows - 1)
+        return .init(
+            row: row,
+            withinRowOffset: origin.y - tableView.rect(ofRow: row).minY,
+            horizontalOrigin: origin.x
+        )
+    }
+
+    private func restoreTypographyScrollAnchor(
+        _ anchor: TypographyScrollAnchor,
+        scrollView: NSScrollView,
+        tableView: NSTableView
+    ) {
+        guard tableView.numberOfRows > 0 else { return }
+        tableView.layoutSubtreeIfNeeded()
+        let row = min(max(anchor.row, 0), tableView.numberOfRows - 1)
+        let origin = NSPoint(
+            x: anchor.horizontalOrigin,
+            y: tableView.rect(ofRow: row).minY + anchor.withinRowOffset
+        )
+        suppressScrollSync = true
+        scrollView.contentView.setBoundsOrigin(origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        suppressScrollSync = false
     }
 
     private var tableViewHeaderHeight: CGFloat {
@@ -3962,18 +4026,9 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
         }
 
         let leftInset: CGFloat = selectable ? 20 : 6
-        let titleRect = NSRect(
-            x: rect.minX + leftInset,
-            y: rect.midY - 1,
-            width: max(0, rect.width - leftInset - 4),
-            height: rect.height / 2
-        )
-        let readRect = NSRect(
-            x: rect.minX + 6,
-            y: rect.minY + 2,
-            width: max(0, rect.width - 10),
-            height: rect.height / 2 - 2
-        )
+        let bands = textBandRects(in: rect, leftInset: leftInset)
+        let titleRect = bands.title
+        let readRect = bands.read
         drawText(
             title,
             in: titleRect,
@@ -4005,6 +4060,36 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
         path.close()
         NSColor.controlAccentColor.setFill()
         path.fill()
+    }
+
+    fileprivate func textBandRects(
+        in rect: NSRect,
+        leftInset: CGFloat
+    ) -> (title: NSRect, read: NSRect) {
+        let titleHeight = ceil(
+            (titleFont?() ?? .systemFont(ofSize: 11, weight: .semibold))
+                .boundingRectForFont.height
+        )
+        let readHeight = ceil(
+            (readFont?() ?? .monospacedDigitSystemFont(ofSize: 10, weight: .regular))
+                .boundingRectForFont.height
+        )
+        let gap: CGFloat = 2
+        let totalHeight = titleHeight + gap + readHeight
+        let lowerY = rect.midY - totalHeight / 2
+        let readRect = NSRect(
+            x: rect.minX + 6,
+            y: lowerY,
+            width: max(0, rect.width - 10),
+            height: readHeight
+        )
+        let titleRect = NSRect(
+            x: rect.minX + leftInset,
+            y: readRect.maxY + gap,
+            width: max(0, rect.width - leftInset - 4),
+            height: titleHeight
+        )
+        return (titleRect, readRect)
     }
 
     private func chicletRect(in rect: NSRect) -> NSRect {
@@ -4778,6 +4863,53 @@ extension GenotypeComparisonMatrixView {
         return geometry.commentFoldSize <= min(tableView.rowHeight, testingMatrixHeaderHeight)
             && geometry.selectionCornerBracketLength <= tableView.rowHeight
             && headerChicletSize <= testingMatrixHeaderHeight
+    }
+
+    func testingSetContentScrollOrigins(pinned: NSPoint, samples: NSPoint) {
+        suppressScrollSync = true
+        pinnedScrollView.contentView.setBoundsOrigin(pinned)
+        scrollView.contentView.setBoundsOrigin(samples)
+        suppressScrollSync = false
+    }
+
+    var testingContentScrollAnchors: [CGFloat] {
+        let pinned = captureTypographyScrollAnchor(
+            scrollView: pinnedScrollView,
+            tableView: pinnedTableView
+        )
+        let samples = captureTypographyScrollAnchor(
+            scrollView: scrollView,
+            tableView: tableView
+        )
+        return [
+            CGFloat(pinned.row), pinned.withinRowOffset, pinned.horizontalOrigin,
+            CGFloat(samples.row), samples.withinRowOffset, samples.horizontalOrigin,
+        ]
+    }
+
+    var testingHeaderTextBandsFit: Bool {
+        guard let header = tableView.headerView as? GenotypeMatrixHeaderView else {
+            return false
+        }
+        let titleFont = header.titleFont?() ?? .systemFont(ofSize: 11, weight: .semibold)
+        let readFont = header.readFont?()
+            ?? .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+        return tableView.tableColumns.indices.allSatisfy { column in
+            let rect = header.headerRect(ofColumn: column)
+            let bands = header.textBandRects(in: rect, leftInset: 20)
+            return rect.contains(bands.title)
+                && rect.contains(bands.read)
+                && bands.title.height >= ceil(titleFont.boundingRectForFont.height)
+                && bands.read.height >= ceil(readFont.boundingRectForFont.height)
+                && bands.title.intersection(bands.read).isEmpty
+        }
+    }
+
+    func testingSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        contentPreferredFontProvider = provider
+        applyContentTypography()
     }
 
     func testingRenderVisibleCells(rowLimit: Int) {

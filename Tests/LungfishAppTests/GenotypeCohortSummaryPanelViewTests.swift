@@ -7,6 +7,47 @@ import LungfishKit
 
 @MainActor
 final class GenotypeCohortSummaryPanelViewTests: XCTestCase {
+    func testConfigureAtEnlargedSizeUsesCanonicalRolesAndDoesNotCompoundAcrossModes() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        let provider = MutableCohortPreferredFonts(pointSize: 13)
+        settings.contentTextSizePreference = .custom(150)
+        settings.save()
+        let view = GenotypeCohortSummaryPanelView()
+        view.testingSetContentPreferredFontProvider(provider)
+        view.configure(summary: .init(
+            qcCounts: [("OK", 154)],
+            errorTypeCounts: [("NO HAP", 1)],
+            annotationCounts: [("Comments", 4)],
+            outlierSamples: [],
+            belowThresholdSamples: [],
+            belowThresholdValue: 5_000
+        ))
+
+        XCTAssertEqual(view.testingFontPointSize(for: .body), 19.5, accuracy: 0.01)
+        XCTAssertEqual(view.testingFontPointSize(for: .tableHeader), 19.5, accuracy: 0.01)
+
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+        XCTAssertEqual(view.testingFontPointSize(for: .body), 26, accuracy: 0.01)
+        XCTAssertEqual(view.testingFontPointSize(for: .tableHeader), 26, accuracy: 0.01)
+
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        XCTAssertEqual(view.testingFontPointSize(for: .body), 13, accuracy: 0.01)
+        XCTAssertEqual(view.testingFontPointSize(for: .tableHeader), 13, accuracy: 0.01)
+
+        provider.pointSize = 17
+        settings.contentTextSizePreference = .system
+        settings.save()
+        XCTAssertEqual(view.testingFontPointSize(for: .body), 17, accuracy: 0.01)
+        XCTAssertEqual(view.testingFontPointSize(for: .tableHeader), 17, accuracy: 0.01)
+    }
+
     func testPrimarySummaryTypographyUpdatesWithoutReconfiguringSummary() {
         let settings = AppSettings.shared
         let original = settings.contentTextSizePreference
@@ -50,5 +91,29 @@ final class GenotypeCohortSummaryPanelViewTests: XCTestCase {
             belowThresholdValue: 5_000
         ))
         XCTAssertTrue(view.subviews.count > 0)
+    }
+}
+
+@MainActor
+private final class MutableCohortPreferredFonts: ContentPreferredFontProviding {
+    var pointSize: CGFloat
+
+    init(pointSize: CGFloat) {
+        self.pointSize = pointSize
+    }
+
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        switch role {
+        case .monospaced:
+            return .monospacedSystemFont(ofSize: pointSize, weight: .regular)
+        case .emphasizedBody, .tableHeader:
+            return .systemFont(ofSize: pointSize, weight: .semibold)
+        default:
+            return .systemFont(ofSize: pointSize)
+        }
+    }
+
+    func canonicalUnscaledPointSize(for role: ContentTypography.Role) -> CGFloat {
+        13
     }
 }

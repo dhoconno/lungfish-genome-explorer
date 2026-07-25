@@ -6607,6 +6607,11 @@ final class GenotypeResultViewportTests: XCTestCase {
         let baselineHeaderHeight = matrix.testingMatrixHeaderHeight
         let baselineWidths = matrix.testingAllColumnWidths
         let baselineRows = matrix.testingVisibleGenotypes
+        matrix.testingSetContentScrollOrigins(
+            pinned: NSPoint(x: 0, y: baselineRowHeight * 2 + 5),
+            samples: NSPoint(x: 19, y: baselineRowHeight * 2 + 5)
+        )
+        let baselineScrollAnchors = matrix.testingContentScrollAnchors
 
         settings.contentTextSizePreference = .custom(200)
         settings.save()
@@ -6624,6 +6629,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(matrix.testingVisibleGenotypes, baselineRows)
         XCTAssertTrue(matrix.testingIsSelectedCell(genotype: genotype, sample: "Sample0"))
         XCTAssertTrue(matrix.testingSemanticDecorationFramesAreContained)
+        XCTAssertEqual(matrix.testingContentScrollAnchors, baselineScrollAnchors)
+        XCTAssertTrue(matrix.testingHeaderTextBandsFit)
         XCTAssertLessThanOrEqual(matrix.testingFullReloadCount, 2)
 
         settings.contentTextSizePreference = .custom(100)
@@ -6637,7 +6644,54 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(matrix.testingAllColumnWidths, baselineWidths)
         XCTAssertEqual(matrix.testingVisibleGenotypes, baselineRows)
         XCTAssertTrue(matrix.testingIsSelectedCell(genotype: genotype, sample: "Sample0"))
+        XCTAssertEqual(matrix.testingContentScrollAnchors, baselineScrollAnchors)
+        XCTAssertTrue(matrix.testingHeaderTextBandsFit)
         XCTAssertLessThanOrEqual(matrix.testingFullReloadCount, 4)
+
+        let provider = MutableGenotypePreferredFonts(pointSize: 17)
+        settings.contentTextSizePreference = .system
+        settings.save()
+        matrix.testingSetContentPreferredFontProvider(provider)
+        matrix.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(matrix.testingContentScrollAnchors, baselineScrollAnchors)
+        XCTAssertTrue(matrix.testingHeaderTextBandsFit)
+    }
+
+    func testResultTableSampleFontUsesCanonicalBaselineAtCustomAndSystemSizes() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        let provider = MutableGenotypePreferredFonts(pointSize: 13)
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        let table = GenotypeResultTableView()
+        table.setContentPreferredFontProvider(provider)
+        table.configure(rows: [
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 42,
+                passedUniqueReads: 40,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: []
+            ),
+        ])
+
+        XCTAssertEqual(try sampleCellFontPointSize(in: table), 13, accuracy: 0.01)
+
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+        XCTAssertEqual(try sampleCellFontPointSize(in: table), 26, accuracy: 0.01)
+
+        provider.pointSize = 17
+        settings.contentTextSizePreference = .system
+        settings.save()
+        table.setContentPreferredFontProvider(provider)
+        XCTAssertEqual(try sampleCellFontPointSize(in: table), 17, accuracy: 0.01)
     }
 
     private func makeManySampleMatrix(sampleCount: Int) -> GenotypeComparisonMatrixView {
@@ -7710,9 +7764,9 @@ final class GenotypeResultViewportTests: XCTestCase {
         settings.contentTextSizePreference = .custom(100)
         settings.save()
         let view = GenotypeHaplotypeDefinitionMatrixView()
-        view.configure(rows: [
+        view.configure(rows: (0..<12).map { index in
             .init(
-                sample: "DW472",
+                sample: "DW\(index)",
                 locus: "MHC-B",
                 callName: "M3B",
                 haplotypeName: "M3B",
@@ -7721,12 +7775,14 @@ final class GenotypeResultViewportTests: XCTestCase {
                 minimumMatches: 2,
                 status: .called,
                 alleles: [.init(name: "12_M3_B_075_01", reads: 100)]
-            ),
-        ], definitionName: "Test")
+            )
+        }, definitionName: "Test")
         let baselineFont = view.testingCellFontPointSize
         let baselineRowHeight = view.testingRowHeight
         let baselineWidths = view.testingColumnWidths
         let configurationCount = view.testingConfigurationCount
+        view.testingSetContentScrollOrigin(NSPoint(x: 21, y: baselineRowHeight * 3 + 4))
+        let baselineScrollAnchor = view.testingContentScrollAnchor
 
         settings.contentTextSizePreference = .custom(200)
         settings.save()
@@ -7735,6 +7791,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertGreaterThan(view.testingRowHeight, baselineRowHeight)
         XCTAssertTrue(zip(view.testingColumnWidths, baselineWidths).allSatisfy { $0 > $1 })
         XCTAssertEqual(view.testingConfigurationCount, configurationCount)
+        XCTAssertEqual(view.testingContentScrollAnchor, baselineScrollAnchor)
 
         settings.contentTextSizePreference = .custom(100)
         settings.save()
@@ -7742,6 +7799,17 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(view.testingRowHeight, baselineRowHeight, accuracy: 0.01)
         XCTAssertEqual(view.testingColumnWidths, baselineWidths)
         XCTAssertEqual(view.testingConfigurationCount, configurationCount)
+        XCTAssertEqual(view.testingContentScrollAnchor, baselineScrollAnchor)
+    }
+
+    private func sampleCellFontPointSize(in table: GenotypeResultTableView) throws -> CGFloat {
+        let column = try XCTUnwrap(table.tableView.tableColumns.first {
+            $0.identifier.rawValue == "sample"
+        })
+        let cell = try XCTUnwrap(
+            table.tableView(table.tableView, viewFor: column, row: 0) as? NSTableCellView
+        )
+        return try XCTUnwrap(cell.textField?.font).pointSize
     }
 
     func testHaplotypeMatrixSearchFiltersDefinitionRowsRatherThanWholeSamples() throws {
@@ -11640,6 +11708,30 @@ final class GenotypeResultViewportTests: XCTestCase {
                 )
             ]
         )
+    }
+}
+
+@MainActor
+private final class MutableGenotypePreferredFonts: ContentPreferredFontProviding {
+    var pointSize: CGFloat
+
+    init(pointSize: CGFloat) {
+        self.pointSize = pointSize
+    }
+
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        switch role {
+        case .monospaced:
+            return .monospacedSystemFont(ofSize: pointSize, weight: .regular)
+        case .emphasizedBody, .tableHeader:
+            return .systemFont(ofSize: pointSize, weight: .semibold)
+        default:
+            return .systemFont(ofSize: pointSize)
+        }
+    }
+
+    func canonicalUnscaledPointSize(for role: ContentTypography.Role) -> CGFloat {
+        13
     }
 }
 
