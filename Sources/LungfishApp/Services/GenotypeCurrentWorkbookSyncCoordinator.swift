@@ -8,6 +8,8 @@ import LungfishWorkflow
 /// Serializes `current.xlsx` publication independently for each genotype bundle.
 @MainActor
 final class GenotypeCurrentWorkbookSyncCoordinator {
+    static let shared = GenotypeCurrentWorkbookSyncCoordinator()
+
     enum Phase: Equatable {
         case current
         case dirty
@@ -21,26 +23,32 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         let calls: [GenotypeWorkbookHaplotypeCall]
         let includedLoci: [String]
         let annotationSidecarURL: URL?
+        let annotationSidecarData: Data?
         let annotationOnly: Bool
         let fingerprint: GenotypeCurrentWorkbookInputFingerprint
         let routeContext: OperationRouteContext?
+        let mayUpdate: Bool
 
         init(
             bundleURL: URL,
             calls: [GenotypeWorkbookHaplotypeCall],
             includedLoci: [String],
             annotationSidecarURL: URL?,
+            annotationSidecarData: Data? = nil,
             annotationOnly: Bool,
             fingerprint: GenotypeCurrentWorkbookInputFingerprint,
-            routeContext: OperationRouteContext?
+            routeContext: OperationRouteContext?,
+            mayUpdate: Bool = true
         ) {
             self.bundleURL = bundleURL.standardizedFileURL
             self.calls = calls
             self.includedLoci = includedLoci
             self.annotationSidecarURL = annotationSidecarURL?.standardizedFileURL
+            self.annotationSidecarData = annotationSidecarData
             self.annotationOnly = annotationOnly
             self.fingerprint = fingerprint
             self.routeContext = routeContext
+            self.mayUpdate = mayUpdate
         }
     }
 
@@ -100,6 +108,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
     private enum SyncStateError: Error, LocalizedError {
         case supersedingUpdateFailed(String)
         case supersedingWorkbookUnavailable
+        case updateNotAuthorized
 
         var errorDescription: String? {
             switch self {
@@ -107,6 +116,8 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 return message
             case .supersedingWorkbookUnavailable:
                 return "The newer current workbook could not be resolved safely."
+            case .updateNotAuthorized:
+                return "This current workbook is out of date and cannot be updated in the active project session."
             }
         }
     }
@@ -151,6 +162,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 calls: request.calls,
                 includedLoci: request.includedLoci,
                 annotationSidecarURL: request.annotationSidecarURL,
+                annotationSidecarData: request.annotationSidecarData,
                 annotationOnly: request.annotationOnly,
                 inputFingerprint: request.fingerprint,
                 syncIntent: intent,
@@ -201,7 +213,9 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 to: state.phase,
                 bundleURL: request.bundleURL
             )
-            scheduleIdle(for: key, bundleURL: request.bundleURL)
+            if request.mayUpdate {
+                scheduleIdle(for: key, bundleURL: request.bundleURL)
+            }
             return
         }
         if authoritativeCurrentFingerprint(in: state) == request.fingerprint {
@@ -223,7 +237,9 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             to: state.phase,
             bundleURL: request.bundleURL
         )
-        scheduleIdle(for: key, bundleURL: request.bundleURL)
+        if request.mayUpdate {
+            scheduleIdle(for: key, bundleURL: request.bundleURL)
+        }
     }
 
     /// Registers the controller's latest semantic snapshot without immediately
@@ -279,7 +295,9 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             to: .dirty,
             bundleURL: request.bundleURL
         )
-        scheduleIdle(for: key, bundleURL: request.bundleURL)
+        if request.mayUpdate {
+            scheduleIdle(for: key, bundleURL: request.bundleURL)
+        }
     }
 
     /// Synchronizes the requested fingerprint and joins any update already running
@@ -293,6 +311,9 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         cancelIdle(for: key)
 
         if var state = states[key], let operation = state.operation {
+            guard request.mayUpdate else {
+                throw SyncStateError.updateNotAuthorized
+            }
             let oldPhase = state.phase
             let changedGeneration = registerLatest(request, in: &state)
             state.pendingIntent = preferredIntent(state.pendingIntent, intent)
@@ -314,6 +335,9 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         _ = await recordedFingerprint(for: key, bundleURL: request.bundleURL)
         var state = states[key] ?? BundleState()
         if let operation = state.operation {
+            guard request.mayUpdate else {
+                throw SyncStateError.updateNotAuthorized
+            }
             let oldPhase = state.phase
             let changedGeneration = registerLatest(request, in: &state)
             state.pendingIntent = preferredIntent(state.pendingIntent, intent)
@@ -386,6 +410,19 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             }
         }
 
+        guard request.mayUpdate else {
+            let oldPhase = state.phase
+            registerLatest(request, in: &state)
+            state.phase = .dirty
+            states[key] = state
+            notifyPhaseIfChanged(
+                from: oldPhase,
+                to: .dirty,
+                bundleURL: request.bundleURL
+            )
+            throw SyncStateError.updateNotAuthorized
+        }
+
         let oldPhase = state.phase
         registerLatest(request, in: &state)
         state.pendingIntent = intent
@@ -441,6 +478,18 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             guard var state = states[key],
                   let request = state.latestRequest else {
                 throw CancellationError()
+            }
+            guard request.mayUpdate else {
+                let oldPhase = state.phase
+                clearTerminalTransients(in: &state)
+                state.phase = .dirty
+                states[key] = state
+                notifyPhaseIfChanged(
+                    from: oldPhase,
+                    to: .dirty,
+                    bundleURL: request.bundleURL
+                )
+                throw SyncStateError.updateNotAuthorized
             }
             let generation = state.generation
             let intent = state.pendingIntent
@@ -512,6 +561,12 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
 
     private func scheduleIdle(for key: String, bundleURL: URL) {
         guard var state = states[key] else {
+            return
+        }
+        guard state.latestRequest?.mayUpdate == true else {
+            state.idleCancellation?.cancel()
+            state.idleCancellation = nil
+            states[key] = state
             return
         }
         state.idleCancellation?.cancel()

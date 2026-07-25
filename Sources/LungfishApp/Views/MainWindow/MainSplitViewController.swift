@@ -214,12 +214,19 @@ public class MainSplitViewController: NSSplitViewController {
     var genotypeResultLoader: @Sendable (URL) async throws -> ONTGenotypeResultBundleData = { url in
         try await ONTGenotypeResultBundle.loadResultAsync(from: url)
     }
-    var genotypeCurrentWorkbookSyncCoordinator = GenotypeCurrentWorkbookSyncCoordinator()
+    var genotypeCurrentWorkbookSyncCoordinator =
+        GenotypeCurrentWorkbookSyncCoordinator.shared
+    var genotypeCurrentWorkbookProjectWriteAuthorizationProvider: (() -> Bool)?
     var genotypeCurrentWorkbookSyncObservation:
         GenotypeCurrentWorkbookSyncCoordinator.Observation?
     var pendingGenotypeCurrentWorkbookRoutes:
         [String: PendingGenotypeCurrentWorkbookRoute] = [:]
     var nextGenotypeCurrentWorkbookRouteGeneration: UInt64 = 0
+    var latestGenotypeCurrentWorkbookRouteGenerations: [String: UInt64] = [:]
+    var latestGenotypeCurrentWorkbookSnapshots:
+        [String: GenotypeCurrentWorkbookUISnapshot] = [:]
+    var genotypeCurrentWorkbookResultReloadTasks:
+        [String: Task<Void, Never>] = [:]
     var retainedDeferredGenotypeResultControllers:
         [ObjectIdentifier: GenotypeResultViewController] = [:]
 

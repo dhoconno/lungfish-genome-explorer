@@ -717,6 +717,86 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         XCTAssertTrue(runner.invocations.isEmpty)
     }
 
+    func testUnauthorizedDirtyRegistrationDoesNotArmIdleUpdate() async throws {
+        let bundle = bundleURL("unauthorized-register")
+        let scheduler = TestIdleScheduler()
+        let runner = ControlledRunner()
+        let coordinator = makeCoordinator(
+            recorded: nil,
+            runner: runner,
+            scheduler: scheduler
+        )
+        let request = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("7"),
+            mayUpdate: false
+        )
+
+        await coordinator.register(request)
+
+        XCTAssertEqual(coordinator.phase(for: bundle), .dirty)
+        XCTAssertTrue(scheduler.delays.isEmpty)
+        XCTAssertTrue(runner.invocations.isEmpty)
+    }
+
+    func testUnauthorizedDirtySynchronizeFailsWithoutRunnerOrOpen() async throws {
+        let bundle = bundleURL("unauthorized-sync")
+        let runner = ControlledRunner()
+        var opened: [URL] = []
+        let coordinator = makeCoordinator(
+            recorded: nil,
+            runner: runner,
+            opened: { opened.append($0) }
+        )
+        let request = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("8"),
+            mayUpdate: false
+        )
+
+        do {
+            _ = try await coordinator.synchronize(request, intent: .updateAndView)
+            XCTFail("Expected unauthorized dirty synchronization to fail")
+        } catch {
+            XCTAssertEqual(
+                (error as NSError).localizedDescription,
+                "This current workbook is out of date and cannot be updated in the active project session."
+            )
+        }
+
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertTrue(opened.isEmpty)
+        XCTAssertEqual(coordinator.phase(for: bundle), .dirty)
+    }
+
+    func testUnauthorizedVerifiedCurrentRequestMayOpenWithoutRunner() async throws {
+        let bundle = bundleURL("unauthorized-clean-open")
+        let workbook = bundle.appendingPathComponent("current.xlsx")
+        let fingerprint = try makeFingerprint("9")
+        let runner = ControlledRunner()
+        var opened: [URL] = []
+        let coordinator = makeCoordinator(
+            recorded: fingerprint,
+            runner: runner,
+            workbookURL: workbook,
+            opened: { opened.append($0) }
+        )
+        let request = makeRequest(
+            bundle: bundle,
+            fingerprint: fingerprint,
+            mayUpdate: false
+        )
+
+        let resolved = try await coordinator.synchronize(
+            request,
+            intent: .updateAndView
+        )
+
+        XCTAssertEqual(resolved, workbook.standardizedFileURL)
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertEqual(opened, [workbook.standardizedFileURL])
+    }
+
     func testStaleRegistrationLoaderCannotOverwriteNewerDirtyRequest() async throws {
         let bundle = bundleURL("register-race")
         let recorded = try makeFingerprint("8")
@@ -968,7 +1048,8 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
 
     private func makeRequest(
         bundle: URL,
-        fingerprint: GenotypeCurrentWorkbookInputFingerprint
+        fingerprint: GenotypeCurrentWorkbookInputFingerprint,
+        mayUpdate: Bool = true
     ) -> GenotypeCurrentWorkbookSyncCoordinator.Request {
         let displayed = [
             GenotypeWorkbookHaplotypeCall(
@@ -987,7 +1068,8 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
             annotationSidecarURL: bundle.appendingPathComponent("annotations.json"),
             annotationOnly: false,
             fingerprint: fingerprint,
-            routeContext: OperationRouteContext(projectURL: nil, windowStateScopeID: nil)
+            routeContext: OperationRouteContext(projectURL: nil, windowStateScopeID: nil),
+            mayUpdate: mayUpdate
         )
     }
 
