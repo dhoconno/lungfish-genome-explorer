@@ -93,6 +93,7 @@ public struct GenotypeWorkbookRevisionProvenanceContext: Equatable, Sendable {
     public let toolKind: String
     public let argv: [String]
     public let durableReplayArgv: [String]
+    public let cliInputDescriptors: [ProvenanceFileDescriptor]
     public let inputFingerprint: GenotypeCurrentWorkbookInputFingerprint?
     public let syncIntent: GenotypeCurrentWorkbookSyncIntent?
 
@@ -101,6 +102,7 @@ public struct GenotypeWorkbookRevisionProvenanceContext: Equatable, Sendable {
         toolKind: String,
         argv: [String],
         durableReplayArgv: [String]? = nil,
+        cliInputDescriptors: [ProvenanceFileDescriptor] = [],
         inputFingerprint: GenotypeCurrentWorkbookInputFingerprint? = nil,
         syncIntent: GenotypeCurrentWorkbookSyncIntent? = nil
     ) {
@@ -108,6 +110,7 @@ public struct GenotypeWorkbookRevisionProvenanceContext: Equatable, Sendable {
         self.toolKind = toolKind
         self.argv = argv
         self.durableReplayArgv = durableReplayArgv ?? argv
+        self.cliInputDescriptors = cliInputDescriptors
         self.inputFingerprint = inputFingerprint
         self.syncIntent = syncIntent
     }
@@ -390,6 +393,19 @@ public struct GenotypeWorkbookRevisionService {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                 "Annotation-only workbook updates require an annotation sidecar."
             )
+        }
+        if let annotationSidecarURL,
+           let annotationSidecarWitness,
+           let descriptor = provenanceContext?.cliInputDescriptors.first(where: {
+               URL(fileURLWithPath: $0.path).standardizedFileURL
+                   == annotationSidecarURL.standardizedFileURL
+           }) {
+            guard descriptor.fileSize == UInt64(annotationSidecarWitness.sizeBytes),
+                  descriptor.checksumSHA256 == annotationSidecarWitness.sha256 else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "The annotation sidecar consumed by the workbook update does not match its CLI provenance descriptor."
+                )
+            }
         }
         let sidecar = try annotationSidecarData.map {
             try JSONDecoder().decode(GenotypeAnnotationSidecar.self, from: $0)
@@ -1655,7 +1671,11 @@ public struct GenotypeWorkbookRevisionService {
         let completedAt = nondecreasingCompletion(dateProvider(), after: startedAt)
         let inputURLs = ([sourceWorkbookURL, previousCurrentURL, importedSourceURL].compactMap { $0 } + additionalInputURLs)
         let outputURLs = [snapshotURL, newCurrentURL, manifestURL].compactMap { $0 }
-        let inputs = try inputURLs.map { try ProvenanceFileDescriptor.file(url: $0, role: .input) }
+        let durableInputs = try inputURLs.map {
+            try ProvenanceFileDescriptor.file(url: $0, role: .input)
+        }
+        let cliInputs = provenanceContext?.cliInputDescriptors ?? []
+        let inputs = durableInputs + cliInputs
         let outputs = try outputURLs.map { try ProvenanceFileDescriptor.file(url: $0, role: .output) }
         let provenanceURL = ONTGenotypeResultBundle.resolvedURL(for: provenancePath, in: bundleURL)
         let provenanceDescriptor = ProvenanceFileDescriptor(path: provenanceURL.path, role: .log)
@@ -1677,6 +1697,11 @@ public struct GenotypeWorkbookRevisionService {
         ]
         if !additionalInputURLs.isEmpty {
             explicitOptions["additionalInputs"] = .array(additionalInputURLs.map { .file($0) })
+        }
+        if !cliInputs.isEmpty {
+            explicitOptions["cliImmutableInputs"] = .array(
+                cliInputs.map { .file(URL(fileURLWithPath: $0.path)) }
+            )
         }
         explicitOptions.merge(additionalExplicitOptions) { _, new in new }
         if let fingerprint = provenanceContext?.inputFingerprint {

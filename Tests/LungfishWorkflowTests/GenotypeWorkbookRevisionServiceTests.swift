@@ -3009,6 +3009,15 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         sidecar.lastEditor = "attestation-reviewer"
         try sidecar.encoded().write(to: annotationURL)
         let calls: [GenotypeWorkbookHaplotypeCall] = []
+        let immutableRequestDirectory = fixture.bundleURL
+            .appendingPathComponent("artifacts/workbooks/updates/request-inputs", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: immutableRequestDirectory,
+            withIntermediateDirectories: true
+        )
+        let outerCallsURL = immutableRequestDirectory
+            .appendingPathComponent("displayed-haplotype-calls.json")
+        try ProvenanceJSON.encoder.encode(calls).write(to: outerCallsURL)
         let includedLoci = ["MHC-A"]
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
         let fingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
@@ -3033,9 +3042,23 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
                 argv: [
                     "lungfish-cli", "fastq", "update-current-workbook",
                     fixture.bundleURL.path,
+                    "--calls-json", outerCallsURL.path,
+                    "--annotations", annotationURL.path,
                     "--input-fingerprint", fingerprint.sha256,
                     "--input-fingerprint-schema", String(fingerprint.schemaVersion),
                     "--sync-intent", GenotypeCurrentWorkbookSyncIntent.updateAndView.rawValue,
+                ],
+                cliInputDescriptors: [
+                    try ProvenanceFileDescriptor.file(
+                        url: outerCallsURL,
+                        format: .json,
+                        role: .input
+                    ),
+                    try ProvenanceFileDescriptor.file(
+                        url: annotationURL,
+                        format: .json,
+                        role: .input
+                    ),
                 ],
                 inputFingerprint: fingerprint,
                 syncIntent: .updateAndView
@@ -3066,6 +3089,35 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertEqual(envelope.argv.filter { $0 == "--input-fingerprint-schema" }.count, 1)
         XCTAssertEqual(envelope.argv.filter { $0 == "--sync-intent" }.count, 1)
         XCTAssertEqual(envelope.durableReplayArgv, envelope.argv)
+        for flag in ["--calls-json", "--annotations"] {
+            let flagIndex = try XCTUnwrap(envelope.argv.firstIndex(of: flag))
+            let path = envelope.argv[envelope.argv.index(after: flagIndex)]
+            let inputURL = URL(fileURLWithPath: path)
+            let descriptor = try XCTUnwrap(
+                envelope.files.first {
+                    $0.path == inputURL.standardizedFileURL.path && $0.role == .input
+                }
+            )
+            XCTAssertEqual(
+                descriptor.fileSize,
+                UInt64(try ProvenanceFileHasher.fileSize(of: inputURL))
+            )
+            XCTAssertEqual(
+                descriptor.checksumSHA256,
+                try ProvenanceFileHasher.sha256(of: inputURL)
+            )
+            let publicationStep = try XCTUnwrap(
+                envelope.steps.first {
+                    $0.toolName.contains("genotype workbook update-current-workbook")
+                }
+            )
+            XCTAssertTrue(
+                publicationStep.inputs.contains { $0 == descriptor },
+                "\(flag) exact immutable input is absent from the publication step"
+            )
+        }
+        XCTAssertNotNil(envelope.options.explicit["cliImmutableInputs"])
+        XCTAssertNotNil(envelope.options.explicit["additionalInputs"])
     }
 
     func testApplyHaplotypeOverridesRejectsMismatchedInputFingerprintWithoutBundleMutation() throws {

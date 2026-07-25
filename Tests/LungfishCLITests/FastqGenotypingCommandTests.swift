@@ -133,6 +133,56 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(inputs.fingerprintInputs?.includedLoci, ["MHC-A"])
     }
 
+    func testUpdateCurrentWorkbookProvenanceDescribesExactImmutableCLIInputPaths() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqUpdateCurrentWorkbookProvenance-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let callsURL = root.appendingPathComponent("displayed-haplotype-calls.json")
+        let annotationURL = root.appendingPathComponent("annotations.json")
+        let callsData = Data(#"[{"sample":"s1"}]"#.utf8)
+        let annotationData = Data(#"{"generatedAt":"2026-07-24T00:00:00Z"}"#.utf8)
+        try callsData.write(to: callsURL)
+        try annotationData.write(to: annotationURL)
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+            "--annotations", annotationURL.path,
+        ])
+        let argv = [
+            "lungfish-cli", "fastq", "update-current-workbook",
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+            "--annotations", annotationURL.path,
+        ]
+
+        let context = try command.provenanceContext(
+            argv: argv,
+            callsURL: callsURL,
+            annotationURL: annotationURL,
+            attestation: command.validatedAttestation()
+        )
+
+        XCTAssertEqual(context.argv, argv)
+        XCTAssertEqual(context.cliInputDescriptors.map(\.path), [
+            callsURL.standardizedFileURL.path,
+            annotationURL.standardizedFileURL.path,
+        ])
+        for descriptor in context.cliInputDescriptors {
+            let expectedData = descriptor.path == callsURL.path ? callsData : annotationData
+            XCTAssertEqual(descriptor.role, .input)
+            XCTAssertEqual(descriptor.format, .json)
+            XCTAssertEqual(descriptor.fileSize, UInt64(expectedData.count))
+            XCTAssertEqual(
+                descriptor.checksumSHA256,
+                try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: descriptor.path))
+            )
+        }
+    }
+
     func testONTFluidigmSamplesCommandParsesRequiredInputs() throws {
         let command = try FastqONTFluidigmSamplesSubcommand.parse([
             "/tmp/barcode11.lungfishfastq",

@@ -7,6 +7,10 @@ import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
+private enum WorkbookSnapshotEncodingTestError: Error {
+    case injected
+}
+
 @MainActor
 private final class MatrixWorkbookUpdateSchedulerSpy: GenotypeMatrixWorkbookUpdateScheduling {
     private final class Token: GenotypeMatrixWorkbookUpdateCancellation {
@@ -1471,6 +1475,28 @@ final class GenotypeResultViewportTests: XCTestCase {
             bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
                 .standardizedFileURL
         )
+    }
+
+    func testCurrentWorkbookSnapshotEncodingFailurePropagatesWithoutEmptySidecarFallback() throws {
+        let sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-24T00:00:00Z"
+        )
+
+        XCTAssertThrowsError(
+            try GenotypeCurrentWorkbookUISnapshot.encodingAnnotationSidecar(
+                bundleURL: URL(fileURLWithPath: "/tmp/encoding-failure.lungfishgenotype"),
+                calls: [],
+                includedLoci: [],
+                annotationSidecar: sidecar,
+                annotationSidecarURL: URL(fileURLWithPath: "/tmp/annotations.json"),
+                candidateArtifacts: nil,
+                annotationOnly: true,
+                isReadOnly: false,
+                encoder: { _ in throw WorkbookSnapshotEncodingTestError.injected }
+            )
+        ) { error in
+            XCTAssertEqual(error as? WorkbookSnapshotEncodingTestError, .injected)
+        }
     }
 
     func testCurrentWorkbookPresentationMapsPhasesAndReadOnlyAvailability() throws {

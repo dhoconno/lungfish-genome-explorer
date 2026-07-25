@@ -81,7 +81,7 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
         calls: [GenotypeWorkbookHaplotypeCall],
         includedLoci: [String],
         annotationSidecar: GenotypeAnnotationSidecar,
-        annotationSidecarData: Data? = nil,
+        annotationSidecarData: Data,
         annotationSidecarURL: URL,
         candidateArtifacts: ONTMHCCandidateArtifactManifest?,
         annotationOnly: Bool,
@@ -92,12 +92,36 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
         self.includedLoci = includedLoci
         self.annotationSidecar = annotationSidecar
         self.annotationSidecarData = annotationSidecarData
-            ?? (try? ProvenanceJSON.encoder.encode(annotationSidecar))
-            ?? Data()
         self.annotationSidecarURL = annotationSidecarURL.standardizedFileURL
         self.candidateArtifacts = candidateArtifacts
         self.annotationOnly = annotationOnly
         self.isReadOnly = isReadOnly
+    }
+
+    public static func encodingAnnotationSidecar(
+        bundleURL: URL,
+        calls: [GenotypeWorkbookHaplotypeCall],
+        includedLoci: [String],
+        annotationSidecar: GenotypeAnnotationSidecar,
+        annotationSidecarURL: URL,
+        candidateArtifacts: ONTMHCCandidateArtifactManifest?,
+        annotationOnly: Bool,
+        isReadOnly: Bool,
+        encoder: @Sendable (GenotypeAnnotationSidecar) throws -> Data = {
+            try $0.encoded()
+        }
+    ) throws -> Self {
+        Self(
+            bundleURL: bundleURL,
+            calls: calls,
+            includedLoci: includedLoci,
+            annotationSidecar: annotationSidecar,
+            annotationSidecarData: try encoder(annotationSidecar),
+            annotationSidecarURL: annotationSidecarURL,
+            candidateArtifacts: candidateArtifacts,
+            annotationOnly: annotationOnly,
+            isReadOnly: isReadOnly
+        )
     }
 }
 

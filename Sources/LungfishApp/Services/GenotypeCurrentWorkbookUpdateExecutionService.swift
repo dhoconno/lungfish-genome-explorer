@@ -5,20 +5,28 @@ import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
+enum GenotypeCurrentWorkbookInputPreparationEvent: Equatable, Sendable {
+    case started
+    case snapshotDirectoryCreated
+    case completed
+}
+
 @MainActor
 final class GenotypeCurrentWorkbookUpdateExecutionService {
     private let operationCenter: OperationCenter
     private let processRunner: LocalWorkflowCLIProcessRunning
-    private let fileManager: FileManager
+    private let inputPreparationObserver:
+        (@Sendable (GenotypeCurrentWorkbookInputPreparationEvent) throws -> Void)?
 
     init(
         operationCenter: OperationCenter = .shared,
         processRunner: LocalWorkflowCLIProcessRunning = ProcessLocalWorkflowCLIProcessRunner(),
-        fileManager: FileManager = .default
+        inputPreparationObserver:
+            (@Sendable (GenotypeCurrentWorkbookInputPreparationEvent) throws -> Void)? = nil
     ) {
         self.operationCenter = operationCenter
         self.processRunner = processRunner
-        self.fileManager = fileManager
+        self.inputPreparationObserver = inputPreparationObserver
     }
 
     @discardableResult
@@ -34,12 +42,16 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         routeContext: OperationRouteContext? = nil
     ) async throws -> URL {
         let bundle = bundleURL.standardizedFileURL
-        let snapshot = try writeInputSnapshot(
-            calls: calls,
-            annotationSidecarData: annotationSidecarData,
-            annotationSidecarURL: annotationSidecarURL,
-            bundleURL: bundle
-        )
+        let preparationObserver = inputPreparationObserver
+        let snapshot = try await Task.detached(priority: .userInitiated) {
+            try Self.writeInputSnapshot(
+                calls: calls,
+                annotationSidecarData: annotationSidecarData,
+                annotationSidecarURL: annotationSidecarURL,
+                bundleURL: bundle,
+                observer: preparationObserver
+            )
+        }.value
         let arguments = cliArguments(
             bundleURL: bundle,
             callsURL: snapshot.callsURL,
@@ -104,6 +116,17 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             )
             return currentWorkbookURL
         } catch {
+            do {
+                try await Task.detached(priority: .utility) {
+                    try Self.removeInputSnapshot(snapshot)
+                }.value
+            } catch let cleanupError {
+                operationCenter.log(
+                    id: operationID,
+                    level: .warning,
+                    message: "Could not remove failed current-workbook input snapshot: \(cleanupError.localizedDescription)"
+                )
+            }
             if operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
                 _ = operationCenter.fail(
                     id: operationID,
@@ -116,30 +139,36 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         }
     }
 
-    private struct InputSnapshot {
+    private struct InputSnapshot: Sendable {
+        let bundleURL: URL
+        let directoryName: String
         let callsURL: URL
         let annotationSidecarURL: URL?
     }
 
-    private func writeInputSnapshot(
+    private nonisolated static func writeInputSnapshot(
         calls: [GenotypeWorkbookHaplotypeCall],
         annotationSidecarData: Data?,
         annotationSidecarURL: URL?,
-        bundleURL: URL
+        bundleURL: URL,
+        observer: (@Sendable (GenotypeCurrentWorkbookInputPreparationEvent) throws -> Void)?
     ) throws -> InputSnapshot {
+        try observer?(.started)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let callsData = try encoder.encode(calls)
         let retainedAnnotationData: Data?
         if let annotationSidecarData {
             retainedAnnotationData = annotationSidecarData
-        } else if let annotationSidecarURL,
-                  fileManager.fileExists(atPath: annotationSidecarURL.path) {
+        } else if let annotationSidecarURL {
             retainedAnnotationData = try readRegularFileNoFollow(
                 at: annotationSidecarURL.standardizedFileURL
             )
         } else {
             retainedAnnotationData = nil
+        }
+        if let retainedAnnotationData {
+            _ = try GenotypeAnnotationSidecar.decode(retainedAnnotationData)
         }
 
         let rootDescriptor = Darwin.open(
@@ -173,21 +202,25 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             parentDescriptor = descriptor
         }
 
-        let snapshotDirectoryName =
+        let publishedDirectoryName =
             "\(timestampSlug())-current-workbook-inputs-\(UUID().uuidString)"
+        let stagingDirectoryName =
+            ".preparing-current-workbook-inputs-\(UUID().uuidString)"
         let snapshotDescriptor = try createDirectoryNoFollow(
-            named: snapshotDirectoryName,
+            named: stagingDirectoryName,
             parentDescriptor: parentDescriptor,
             displayPath: bundleURL
                 .appendingPathComponent("artifacts/workbooks/updates")
-                .appendingPathComponent(snapshotDirectoryName)
+                .appendingPathComponent(stagingDirectoryName)
                 .path
         )
         ownedDirectoryDescriptors.append(snapshotDescriptor)
+        try observer?(.snapshotDirectoryCreated)
 
         let callsName = "displayed-haplotype-calls.json"
         let annotationName = GenotypeAnnotationSidecar.filename
         var snapshotComplete = false
+        var currentDirectoryName = stagingDirectoryName
         defer {
             if !snapshotComplete {
                 callsName.withCString {
@@ -196,9 +229,10 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
                 annotationName.withCString {
                     _ = Darwin.unlinkat(snapshotDescriptor, $0, 0)
                 }
-                snapshotDirectoryName.withCString {
+                currentDirectoryName.withCString {
                     _ = Darwin.unlinkat(parentDescriptor, $0, AT_REMOVEDIR)
                 }
+                _ = Darwin.fsync(parentDescriptor)
             }
         }
         try writeNewRegularFileNoFollow(
@@ -206,7 +240,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             named: callsName,
             directoryDescriptor: snapshotDescriptor,
             displayPath: displayDirectoryURL
-                .appendingPathComponent(snapshotDirectoryName, isDirectory: true)
+                .appendingPathComponent(stagingDirectoryName, isDirectory: true)
                 .appendingPathComponent(callsName)
                 .path
         )
@@ -216,7 +250,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
                 named: annotationName,
                 directoryDescriptor: snapshotDescriptor,
                 displayPath: displayDirectoryURL
-                    .appendingPathComponent(snapshotDirectoryName, isDirectory: true)
+                    .appendingPathComponent(stagingDirectoryName, isDirectory: true)
                     .appendingPathComponent(annotationName)
                     .path
             )
@@ -224,23 +258,43 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         guard Darwin.fsync(snapshotDescriptor) == 0 else {
             throw posixError(
                 operation: "Sync current-workbook input snapshot directory",
-                path: snapshotDirectoryName
+                path: stagingDirectoryName
             )
         }
+        let renameResult = stagingDirectoryName.withCString { stagingName in
+            publishedDirectoryName.withCString { publishedName in
+                Darwin.renameat(
+                    parentDescriptor,
+                    stagingName,
+                    parentDescriptor,
+                    publishedName
+                )
+            }
+        }
+        guard renameResult == 0 else {
+            throw posixError(
+                operation: "Publish current-workbook input snapshot",
+                path: publishedDirectoryName
+            )
+        }
+        currentDirectoryName = publishedDirectoryName
         guard Darwin.fsync(parentDescriptor) == 0 else {
             throw posixError(
                 operation: "Sync current-workbook updates directory",
-                path: snapshotDirectoryName
+                path: publishedDirectoryName
             )
         }
+        try observer?(.completed)
         snapshotComplete = true
 
         let snapshotDirectoryURL = bundleURL
             .appendingPathComponent("artifacts", isDirectory: true)
             .appendingPathComponent("workbooks", isDirectory: true)
             .appendingPathComponent("updates", isDirectory: true)
-            .appendingPathComponent(snapshotDirectoryName, isDirectory: true)
+            .appendingPathComponent(publishedDirectoryName, isDirectory: true)
         return InputSnapshot(
+            bundleURL: bundleURL,
+            directoryName: publishedDirectoryName,
             callsURL: snapshotDirectoryURL.appendingPathComponent(callsName),
             annotationSidecarURL: retainedAnnotationData == nil
                 ? nil
@@ -248,7 +302,95 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         )
     }
 
-    private func openOrCreateDirectoryNoFollow(
+    private nonisolated static func removeInputSnapshot(_ snapshot: InputSnapshot) throws {
+        let rootDescriptor = Darwin.open(
+            snapshot.bundleURL.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard rootDescriptor >= 0 else {
+            throw posixError(
+                operation: "Open genotype bundle to remove failed input snapshot",
+                path: snapshot.bundleURL.path
+            )
+        }
+        defer { Darwin.close(rootDescriptor) }
+
+        var ownedDescriptors: [Int32] = []
+        defer {
+            for descriptor in ownedDescriptors.reversed() {
+                Darwin.close(descriptor)
+            }
+        }
+        var parentDescriptor = rootDescriptor
+        for component in ["artifacts", "workbooks", "updates"] {
+            let descriptor = component.withCString {
+                Darwin.openat(
+                    parentDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+            guard descriptor >= 0 else {
+                throw posixError(
+                    operation: "Open current-workbook updates directory for cleanup",
+                    path: component
+                )
+            }
+            ownedDescriptors.append(descriptor)
+            parentDescriptor = descriptor
+        }
+
+        let snapshotDescriptor = snapshot.directoryName.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard snapshotDescriptor >= 0 else {
+            if errno == ENOENT { return }
+            throw posixError(
+                operation: "Open failed current-workbook input snapshot",
+                path: snapshot.directoryName
+            )
+        }
+        defer { Darwin.close(snapshotDescriptor) }
+
+        for name in ["displayed-haplotype-calls.json", GenotypeAnnotationSidecar.filename] {
+            let result = name.withCString {
+                Darwin.unlinkat(snapshotDescriptor, $0, 0)
+            }
+            if result != 0, errno != ENOENT {
+                throw posixError(
+                    operation: "Remove failed current-workbook input file",
+                    path: name
+                )
+            }
+        }
+        guard Darwin.fsync(snapshotDescriptor) == 0 else {
+            throw posixError(
+                operation: "Sync failed current-workbook input snapshot cleanup",
+                path: snapshot.directoryName
+            )
+        }
+        let removeResult = snapshot.directoryName.withCString {
+            Darwin.unlinkat(parentDescriptor, $0, AT_REMOVEDIR)
+        }
+        guard removeResult == 0 else {
+            throw posixError(
+                operation: "Remove failed current-workbook input snapshot",
+                path: snapshot.directoryName
+            )
+        }
+        guard Darwin.fsync(parentDescriptor) == 0 else {
+            throw posixError(
+                operation: "Sync current-workbook updates cleanup",
+                path: snapshot.directoryName
+            )
+        }
+    }
+
+    private nonisolated static func openOrCreateDirectoryNoFollow(
         named name: String,
         parentDescriptor: Int32,
         displayPath: String
@@ -287,7 +429,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         return descriptor
     }
 
-    private func createDirectoryNoFollow(
+    private nonisolated static func createDirectoryNoFollow(
         named name: String,
         parentDescriptor: Int32,
         displayPath: String
@@ -317,7 +459,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         return descriptor
     }
 
-    private func writeNewRegularFileNoFollow(
+    private nonisolated static func writeNewRegularFileNoFollow(
         _ data: Data,
         named name: String,
         directoryDescriptor: Int32,
@@ -365,7 +507,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         }
     }
 
-    private func readRegularFileNoFollow(at url: URL) throws -> Data {
+    private nonisolated static func readRegularFileNoFollow(at url: URL) throws -> Data {
         let descriptor = Darwin.open(
             url.path,
             O_RDONLY | O_NOFOLLOW | O_CLOEXEC
@@ -377,9 +519,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             )
         }
         defer { Darwin.close(descriptor) }
-        var information = stat()
-        guard Darwin.fstat(descriptor, &information) == 0,
-              information.st_mode & S_IFMT == S_IFREG else {
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG else {
             throw posixError(
                 operation: "Validate annotation sidecar for snapshot",
                 path: url.path
@@ -404,10 +546,25 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             guard count > 0 else { break }
             result.append(buffer, count: count)
         }
+        var after = stat()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              Int64(result.count) == after.st_size else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileReadUnknownError,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Annotation sidecar changed while its immutable current-workbook snapshot was being read.",
+                ]
+            )
+        }
         return result
     }
 
-    private func posixError(operation: String, path: String) -> NSError {
+    private nonisolated static func posixError(operation: String, path: String) -> NSError {
         let code = errno
         return NSError(
             domain: NSPOSIXErrorDomain,
@@ -456,7 +613,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         return arguments
     }
 
-    private func timestampSlug() -> String {
+    private nonisolated static func timestampSlug() -> String {
         ISO8601DateFormatter()
             .string(from: Date())
             .replacingOccurrences(of: ":", with: "-")

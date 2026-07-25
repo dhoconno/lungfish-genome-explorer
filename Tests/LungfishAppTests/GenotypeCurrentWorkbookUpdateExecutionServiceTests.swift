@@ -1,4 +1,5 @@
 import XCTest
+import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 @testable import LungfishApp
@@ -14,7 +15,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             withIntermediateDirectories: true
         )
         let annotationURL = bundleURL.appendingPathComponent("annotations.json")
-        try Data("{}".utf8).write(to: annotationURL)
+        try annotationData(editor: "metadata-test").write(to: annotationURL)
         let calls = [
             GenotypeWorkbookHaplotypeCall(
                 sample: "LF2888",
@@ -156,7 +157,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             withIntermediateDirectories: true
         )
         let annotationURL = bundleURL.appendingPathComponent("annotations.json")
-        try Data("{}".utf8).write(to: annotationURL)
+        try annotationData(editor: "annotation-only-test").write(to: annotationURL)
         let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
             exitCode: 0,
             standardOutput: "{}",
@@ -208,8 +209,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         )
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let liveAnnotationURL = bundleURL.appendingPathComponent("annotations.json")
-        let admittedA = Data(#"{"lastEditor":"analyst-a"}"#.utf8)
-        let admittedB = Data(#"{"lastEditor":"analyst-b"}"#.utf8)
+        let admittedA = try annotationData(editor: "analyst-a")
+        let admittedB = try annotationData(editor: "analyst-b")
         try admittedA.write(to: liveAnnotationURL)
 
         var annotationPayloadsSeenByCLI: [Data] = []
@@ -301,7 +302,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
                 bundleURL: bundleURL,
                 calls: [],
                 annotationSidecarURL: bundleURL.appendingPathComponent("annotations.json"),
-                annotationSidecarData: Data("{}".utf8)
+                annotationSidecarData: try annotationData(editor: "symlink-test")
             )
             XCTFail("Expected an unsafe updates-directory error")
         } catch {
@@ -317,11 +318,200 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         )
     }
 
+    func testLargeInputPreparationRunsOffMainActorWithoutBlockingMainActor() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "responsive-preparation.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let gate = WorkbookInputPreparationGate()
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "{}",
+            standardError: "[100%] Updated current.xlsx\n"
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: runner,
+            inputPreparationObserver: { event in
+                guard event == .started else { return }
+                gate.enterAndWaitForRelease()
+            }
+        )
+        let calls = (0..<20_000).map { index in
+            GenotypeWorkbookHaplotypeCall(
+                sample: "sample-\(index)",
+                locus: "MHC-A",
+                haplotype1: "A-\(index)-1",
+                haplotype2: "A-\(index)-2",
+                status: "called",
+                notes: String(repeating: "reviewed ", count: 8)
+            )
+        }
+
+        let update = Task {
+            try await service.run(
+                bundleURL: bundleURL,
+                calls: calls,
+                annotationSidecarURL: nil
+            )
+        }
+        while !gate.hasEntered {
+            await Task.yield()
+        }
+
+        XCTAssertFalse(gate.workerWasMainThread)
+        // Reaching this MainActor-isolated assertion while preparation is held
+        // proves the large-input worker did not monopolize the UI executor.
+        MainActor.assertIsolated()
+        gate.release()
+        _ = try await update.value
+    }
+
+    func testPreparationFailureRemovesRequestDirectoryButRetainsSharedUpdatesDirectory() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "failed-preparation.lungfishgenotype",
+            isDirectory: true
+        )
+        let updatesURL = bundleURL.appendingPathComponent(
+            "artifacts/workbooks/updates",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "{}",
+            standardError: ""
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: runner,
+            inputPreparationObserver: { event in
+                if event == .snapshotDirectoryCreated {
+                    throw WorkbookInputPreparationTestError.injected
+                }
+            }
+        )
+
+        await XCTAssertThrowsErrorAsync {
+            try await service.run(
+                bundleURL: bundleURL,
+                calls: [],
+                annotationSidecarURL: nil
+            )
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: updatesURL.path))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: updatesURL,
+                includingPropertiesForKeys: nil
+            ),
+            []
+        )
+        XCTAssertTrue(runner.invocations.isEmpty)
+    }
+
+    func testCLIFailureRemovesRequestDirectoryButRetainsSharedUpdatesDirectory() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "failed-cli.lungfishgenotype",
+            isDirectory: true
+        )
+        let updatesURL = bundleURL.appendingPathComponent(
+            "artifacts/workbooks/updates",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 70,
+            standardOutput: "",
+            standardError: "publication failed"
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: runner
+        )
+
+        await XCTAssertThrowsErrorAsync {
+            try await service.run(
+                bundleURL: bundleURL,
+                calls: [],
+                annotationSidecarURL: nil
+            )
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: updatesURL.path))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: updatesURL,
+                includingPropertiesForKeys: nil
+            ),
+            []
+        )
+    }
+
+    func testInvalidAnnotationBytesFailBeforeCLIWithoutWritingEmptySidecar() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "invalid-annotation.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "{}",
+            standardError: ""
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: runner
+        )
+
+        await XCTAssertThrowsErrorAsync {
+            try await service.run(
+                bundleURL: bundleURL,
+                calls: [],
+                annotationSidecarURL: bundleURL.appendingPathComponent("annotations.json"),
+                annotationSidecarData: Data()
+            )
+        }
+
+        XCTAssertTrue(runner.invocations.isEmpty)
+        let updatesURL = bundleURL.appendingPathComponent(
+            "artifacts/workbooks/updates",
+            isDirectory: true
+        )
+        if FileManager.default.fileExists(atPath: updatesURL.path) {
+            XCTAssertEqual(
+                try FileManager.default.contentsOfDirectory(
+                    at: updatesURL,
+                    includingPropertiesForKeys: nil
+                ),
+                []
+            )
+        }
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeCurrentWorkbookUpdateExecutionServiceTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func annotationData(editor: String) throws -> Data {
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-24T00:00:00Z"
+        )
+        sidecar.lastEditor = editor
+        return try sidecar.encoded()
     }
 
     private func value(after flag: String, in arguments: [String]) throws -> String {
@@ -356,6 +546,65 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             }
         }
         return values
+    }
+}
+
+private enum WorkbookInputPreparationTestError: Error {
+    case injected
+}
+
+@MainActor
+private func XCTAssertThrowsErrorAsync(
+    _ expression: () async throws -> Void,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    do {
+        try await expression()
+        XCTFail("Expected expression to throw", file: file, line: line)
+    } catch {
+        // Expected.
+    }
+}
+
+private final class WorkbookInputPreparationGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var entered = false
+    private var mainThread = true
+    private var released = false
+
+    var hasEntered: Bool {
+        condition.withLock { entered }
+    }
+
+    var workerWasMainThread: Bool {
+        condition.withLock { mainThread }
+    }
+
+    func enterAndWaitForRelease() {
+        condition.lock()
+        entered = true
+        mainThread = Thread.isMainThread
+        condition.broadcast()
+        while !released {
+            condition.wait()
+        }
+        condition.unlock()
+    }
+
+    func release() {
+        condition.withLock {
+            released = true
+            condition.broadcast()
+        }
+    }
+}
+
+private extension NSCondition {
+    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock()
+        defer { unlock() }
+        return try body()
     }
 }
 

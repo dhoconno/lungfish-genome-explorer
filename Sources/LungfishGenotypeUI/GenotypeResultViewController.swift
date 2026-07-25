@@ -4139,16 +4139,25 @@ public final class GenotypeResultViewController: NSViewController {
         let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(
             forBundleAt: result.bundleURL
         )
-        return GenotypeCurrentWorkbookUISnapshot(
-            bundleURL: result.bundleURL,
-            calls: currentWorkbookEffectiveHaplotypeCalls(),
-            includedLoci: currentWorkbookIncludedLoci(),
-            annotationSidecar: store.sidecar,
-            annotationSidecarURL: annotationURL,
-            candidateArtifacts: result.manifest.mhcCandidateArtifacts,
-            annotationOnly: !currentWorkbookRequiresFullUpdate,
-            isReadOnly: store.isReadOnly
-        )
+        do {
+            return try GenotypeCurrentWorkbookUISnapshot.encodingAnnotationSidecar(
+                bundleURL: result.bundleURL,
+                calls: currentWorkbookEffectiveHaplotypeCalls(),
+                includedLoci: currentWorkbookIncludedLoci(),
+                annotationSidecar: store.sidecar,
+                annotationSidecarURL: annotationURL,
+                candidateArtifacts: result.manifest.mhcCandidateArtifacts,
+                annotationOnly: !currentWorkbookRequiresFullUpdate,
+                isReadOnly: store.isReadOnly
+            )
+        } catch {
+            currentWorkbookNeedsRefresh = true
+            currentWorkbookSyncPhase = .failed(
+                "Could not encode annotations for current.xlsx: \(error.localizedDescription)"
+            )
+            rebuildArtifactLens()
+            return nil
+        }
     }
 
     public func applyCurrentWorkbookUpdateCompleted(

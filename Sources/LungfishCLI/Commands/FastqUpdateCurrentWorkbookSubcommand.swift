@@ -1,4 +1,6 @@
 import ArgumentParser
+import CryptoKit
+import Darwin
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -13,6 +15,11 @@ struct FastqUpdateCurrentWorkbookCallInputs {
     let mutationCalls: [GenotypeWorkbookHaplotypeCall]
     let mutationIncludedLoci: [String]
     let fingerprintInputs: GenotypeWorkbookFingerprintInputs?
+}
+
+private struct FastqUpdateCurrentWorkbookImmutableJSONInput {
+    let data: Data
+    let descriptor: ProvenanceFileDescriptor
 }
 
 struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
@@ -61,26 +68,29 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             throw ValidationError("Expected a .lungfishgenotype bundle: \(bundle)")
         }
         let callsURL = URL(fileURLWithPath: callsJSON).standardizedFileURL
-        guard FileManager.default.fileExists(atPath: callsURL.path) else {
-            throw ValidationError("--calls-json does not exist: \(callsURL.path)")
-        }
         let annotationURL = resolvedAnnotationURL(bundleURL: bundleURL)
-        if let annotationURL, !FileManager.default.fileExists(atPath: annotationURL.path) {
-            throw ValidationError("--annotations does not exist: \(annotationURL.path)")
-        }
+        let callsInput = try immutableJSONInput(at: callsURL)
+        let annotationInput = try annotationURL.map(immutableJSONInput(at:))
 
         FileHandle.standardError.write(Data("[ 10%] Resolving managed openpyxl runtime.\n".utf8))
         let pythonURL = try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl")
         FileHandle.standardError.write(Data("[ 35%] Loading displayed haplotype call snapshot.\n".utf8))
         let calls = try JSONDecoder().decode(
             [GenotypeWorkbookHaplotypeCall].self,
-            from: Data(contentsOf: callsURL)
+            from: callsInput.data
         )
         let callInputs = workbookCallInputs(displayedCalls: calls)
         let arguments = cliArguments(
             bundleURL: bundleURL,
             callsURL: callsURL,
             annotationURL: annotationURL
+        )
+        let argv = [CLICommandIdentity.executableName, "fastq"] + arguments
+        let provenanceContext = try provenanceContext(
+            argv: argv,
+            callsInput: callsInput,
+            annotationInput: annotationInput,
+            attestation: attestation
         )
         FileHandle.standardError.write(Data("[ 55%] Applying haplotype edits to current.xlsx.\n".utf8))
         _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: pythonURL)
@@ -91,13 +101,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 annotationOnly: annotationOnly,
                 includedLoci: callInputs.mutationIncludedLoci,
                 fingerprintInputs: callInputs.fingerprintInputs,
-                provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
-                    toolName: "\(CLICommandIdentity.executableName) fastq update-current-workbook",
-                    toolKind: "cli",
-                    argv: [CLICommandIdentity.executableName, "fastq"] + arguments,
-                    inputFingerprint: attestation.inputFingerprint,
-                    syncIntent: attestation.syncIntent
-                )
+                provenanceContext: provenanceContext
             )
         FileHandle.standardError.write(Data("[100%] Updated current.xlsx\n".utf8))
 
@@ -203,6 +207,115 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             arguments += ["--included-locus", locus]
         }
         return arguments
+    }
+
+    func provenanceContext(
+        argv: [String],
+        callsURL: URL,
+        annotationURL: URL?,
+        attestation: FastqUpdateCurrentWorkbookAttestation
+    ) throws -> GenotypeWorkbookRevisionProvenanceContext {
+        let callsInput = try immutableJSONInput(at: callsURL.standardizedFileURL)
+        let annotationInput = try annotationURL.map {
+            try immutableJSONInput(at: $0.standardizedFileURL)
+        }
+        return try provenanceContext(
+            argv: argv,
+            callsInput: callsInput,
+            annotationInput: annotationInput,
+            attestation: attestation
+        )
+    }
+
+    private func provenanceContext(
+        argv: [String],
+        callsInput: FastqUpdateCurrentWorkbookImmutableJSONInput,
+        annotationInput: FastqUpdateCurrentWorkbookImmutableJSONInput?,
+        attestation: FastqUpdateCurrentWorkbookAttestation
+    ) throws -> GenotypeWorkbookRevisionProvenanceContext {
+        let descriptors = [callsInput.descriptor] + [annotationInput?.descriptor].compactMap { $0 }
+        return GenotypeWorkbookRevisionProvenanceContext(
+            toolName: "\(CLICommandIdentity.executableName) fastq update-current-workbook",
+            toolKind: "cli",
+            argv: argv,
+            cliInputDescriptors: descriptors,
+            inputFingerprint: attestation.inputFingerprint,
+            syncIntent: attestation.syncIntent
+        )
+    }
+
+    private func immutableJSONInput(
+        at url: URL
+    ) throws -> FastqUpdateCurrentWorkbookImmutableJSONInput {
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            throw immutableInputPOSIXError(operation: "open", url: url)
+        }
+        defer { Darwin.close(descriptor) }
+
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0 else {
+            throw immutableInputPOSIXError(operation: "inspect", url: url)
+        }
+        guard before.st_mode & S_IFMT == S_IFREG else {
+            throw ValidationError(
+                "Current-workbook immutable input is not a regular file: \(url.path)"
+            )
+        }
+
+        var data = Data()
+        if before.st_size > 0, before.st_size <= Int.max {
+            data.reserveCapacity(Int(before.st_size))
+        }
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = buffer.withUnsafeMutableBytes {
+                Darwin.read(descriptor, $0.baseAddress, $0.count)
+            }
+            if count < 0, errno == EINTR {
+                continue
+            }
+            guard count >= 0 else {
+                throw immutableInputPOSIXError(operation: "read", url: url)
+            }
+            guard count > 0 else { break }
+            data.append(buffer, count: count)
+        }
+        var after = stat()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              Int64(data.count) == after.st_size else {
+            throw ValidationError(
+                "Current-workbook immutable input changed while it was being read: \(url.path)"
+            )
+        }
+        let checksum = SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return FastqUpdateCurrentWorkbookImmutableJSONInput(
+            data: data,
+            descriptor: ProvenanceFileDescriptor(
+                path: url.path,
+                checksumSHA256: checksum,
+                fileSize: UInt64(data.count),
+                format: .json,
+                role: .input
+            )
+        )
+    }
+
+    private func immutableInputPOSIXError(operation: String, url: URL) -> NSError {
+        let code = errno
+        return NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(code),
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Could not \(operation) current-workbook immutable input \(url.path) without following links: \(String(cString: strerror(code)))",
+            ]
+        )
     }
 }
 
