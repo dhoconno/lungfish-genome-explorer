@@ -2,7 +2,7 @@
 
 Date: 2026-07-24  
 Branch: `codex/genotype-matrix-review-annotations`  
-Verified HEAD: `1f2980eea2f5da164d617aca121a282972154ecd`  
+Verified HEAD: `e42c5d11e32e6ae6e323e6110ee97541e5d1ee54`
 Host: macOS 26.5.2, arm64  
 Status: **acceptance complete**
 
@@ -44,6 +44,101 @@ It passed with these final aggregates:
 - Swift Testing: 547 tests in 68 suites passed in 119.096 seconds.
 - Process exit status: `0`.
 - Complete log: `/tmp/lungfish-task9-final-full-1f2980ee.log`.
+
+## Current Workbook Synchronization Refinement
+
+The subsequent update-and-view refinement was verified at the HEAD named above with:
+
+```text
+swift test --skip-update --filter \
+  'GenotypeCurrentWorkbookInputFingerprintTests|GenotypeWorkbookRevisionServiceTests|FastqGenotypingCommandTests|GenotypeCurrentWorkbookUpdateExecutionServiceTests|GenotypeCurrentWorkbookSyncCoordinatorTests|GenotypeResultViewportTests|MappingViewportRoutingTests'
+```
+
+It passed 479 tests with 0 failures in 116.453 seconds:
+
+| Suite | Passed | Failed |
+| --- | ---: | ---: |
+| `FastqGenotypingCommandTests` | 21 | 0 |
+| `GenotypeCurrentWorkbookInputFingerprintTests` | 19 | 0 |
+| `GenotypeCurrentWorkbookUpdateExecutionServiceTests` | 10 | 0 |
+| `GenotypeCurrentWorkbookSyncCoordinatorTests` | 33 | 0 |
+| `GenotypeResultViewportTests` | 266 | 0 |
+| `GenotypeWorkbookRevisionServiceTests` | 85 | 0 |
+| `MappingViewportRoutingTests` | 45 | 0 |
+| **Refinement total** | **479** | **0** |
+
+The coordinator tests verify a shared per-bundle single flight, exactly one newest
+follow-up after an edit during publication, clean-fingerprint no-op, explicit
+update-and-view opening exactly once, automatic idle and bundle-switch updates that
+never open Excel, a resettable 90-second idle interval, exact current/dirty/failed
+state transitions, and independent updates for different bundles. The routing tests
+verify the same behavior across two windows and ensure a bundle switch immediately
+synchronizes the bundle being hidden.
+
+Publication admission is revalidated immediately before the runner. Tests cover
+read-only transitions, reentrant observer supersession, same-fingerprint request
+replacement, stale resolver results, symlink and traversal rejection, failed-open
+staging cleanup, and same-size mutation of both calls and annotation inputs. Deferred
+style, review, and comment mutations retain FIFO order across the workbook lock,
+survive bundle switching, and produce one newest follow-up publication.
+
+Snapshot preparation runs off the main actor. A 20,000-call responsiveness test
+completed preparation in 0.052 seconds while confirming the main actor remained
+schedulable. A 24-bundle retention stress test confirmed that inactive publications
+release full snapshots, reload tasks, and detached controllers. The fresh aggregate's
+representative viewport benchmark recorded:
+
+```text
+small=0.0000360012
+large=0.0003850460
+menu=0.0000109673
+redraw=0.0253829956
+bulkSidecar=0.0006060600
+```
+
+### Copied production bundle regression
+
+The reported production bundle was cloned to a disposable directory on the same
+volume. Its source `current.xlsx` SHA-256 was
+`2affdfbb8b3d0fd89accd6286acdf336e4d200ebeb66a9cb55740f9952ae414c`
+before and after verification, confirming that the source bundle was not modified.
+The copied bundle was updated with:
+
+```text
+.build/debug/lungfish-cli fastq update-current-workbook \
+  /Volumes/iWES_WNPRC/.codex-lungfish-current-workbook.QSZ5pG/32355-Ionis-CR-merged.lungfishgenotype \
+  --calls-json /Volumes/iWES_WNPRC/.codex-lungfish-current-workbook.QSZ5pG/32355-Ionis-CR-merged.lungfishgenotype/artifacts/workbooks/updates/2026-07-24T20-57-27Z-displayed-haplotype-calls-F0785A60.json \
+  --annotations /Volumes/iWES_WNPRC/.codex-lungfish-current-workbook.QSZ5pG/32355-Ionis-CR-merged.lungfishgenotype/annotations.json \
+  --annotation-only \
+  --sync-intent update-and-view
+```
+
+The command completed successfully despite two retained occurrences of the unrelated
+legacy label `Mafa-B*070:01:01:03_0nt_nov`, reproducing and closing the original
+failure mode. `Unified Genotype Pivot!CP152` retained the quantitative value `[87]`
+with italic font and opaque gray `FF767676`.
+
+The copied output was 484,666 B with SHA-256
+`5e691593cff49a931376e5c0c688d97c6a5c371bb2bf45350172ac896804fa55`.
+Its 64,288 B provenance had SHA-256
+`d71ab73c003758e7eaab86115c0485012b7ca3a454458b83455ff185d43bb9e8`,
+status `completed`, exit status `0`, wall time `11.283452987670898`, and
+`currentWorkbookSyncIntent=update-and-view`. It records the exact calls and
+annotations CLI paths and matching descriptors:
+
+| Exact CLI input | Size | SHA-256 |
+| --- | ---: | --- |
+| displayed haplotype calls | 4 B | `ace810d7e2cbb4f8c40ce09dc8e191ae466adb4e1a7d49c59f2215b411d38b05` |
+| `annotations.json` | 6,670 B | `aac239930d6ca068f26b623e609fba253c579184001596f65a0f7374fd121bd5` |
+
+The legacy empty-calls invocation above specifically exercises the reported
+annotation-only regression. Separate attestation tests verify that the new app path
+retains and fingerprints full semantic calls and loci, records schema version 1,
+rejects mismatched or mutated inputs before publication, and names the exact retained
+bundle-contained calls and annotation inputs in provenance.
+
+After inspection, the 971 MB disposable copy was moved recoverably to
+`/Volumes/iWES_WNPRC/.Trashes/501/codex-lungfish-current-workbook-QSZ5pG-verified-20260724`.
 
 ## Eligibility, Atomicity, and UX
 
@@ -307,6 +402,9 @@ acceptance:
 | Coalesced workbook regeneration | Structural scheduler assertion | Pass |
 | Current workbook exact identity, review formatting, audit, and final paths | 77 workbook tests and retained XLSX inspection | Pass |
 | Current workbook complete truthful provenance | Final retained provenance inspection | Pass |
+| Shared current-workbook single flight, 90-second idle, bundle switch, and update-and-view | 33 coordinator and 45 routing tests | Pass |
+| Versioned semantic fingerprint and immutable CLI input revalidation | 19 fingerprint, 21 CLI, 10 execution-service, and 85 revision tests | Pass |
+| Reported legacy-label regression on copied production bundle | Copied bundle CLI run and XLSX/provenance inspection | Pass |
 | Explicit viewport XLSX annotation sheet and native note | 13 CLI tests, 8 OOXML tests, retained package inspection | Pass |
 | Explicit viewport complete structured option provenance | Final retained provenance inspection | Pass |
 | CSV/TSV quantitative preservation | Focused CLI/export tests | Pass |
@@ -314,4 +412,4 @@ acceptance:
 | Repository hygiene | No tracked ignored files, temporary evidence hooks, or report markers | Pass |
 
 Overall acceptance is complete at
-`1f2980eea2f5da164d617aca121a282972154ecd`.
+`e42c5d11e32e6ae6e323e6110ee97541e5d1ee54`.
