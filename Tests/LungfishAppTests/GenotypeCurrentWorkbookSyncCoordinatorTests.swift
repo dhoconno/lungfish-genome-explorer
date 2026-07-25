@@ -903,6 +903,109 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         withExtendedLifetime(observation) {}
     }
 
+    func testUpdatingObserverNewerDeniedRequestSupersedesRunnerAdmission()
+        async throws {
+        let bundle = bundleURL("observer-supersedes-admission")
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        let newerAuthorization = WorkbookAuthorizationGate()
+        newerAuthorization.isAllowed = false
+        let coordinator = makeCoordinator(recorded: nil, runner: runner)
+        let original = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("e"),
+            authorizationRevalidator: { true }
+        )
+        let newer = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("f"),
+            authorizationRevalidator: { newerAuthorization.isAllowed }
+        )
+        let observer = ObserverOwner()
+        var installedNewerRequest = false
+        let observation = coordinator.observe(observer) {
+            owner,
+            _,
+            phase in
+            owner.phases.append(phase)
+            guard phase == .updating, !installedNewerRequest else {
+                return
+            }
+            installedNewerRequest = true
+            coordinator.markDirty(newer)
+        }
+
+        do {
+            _ = try await coordinator.synchronize(
+                original,
+                intent: .automaticIdle
+            )
+            XCTFail("Expected the newer denied request to fail closed")
+        } catch {
+            XCTAssertEqual(
+                (error as NSError).localizedDescription,
+                "This current workbook is out of date and cannot be updated in the active project session."
+            )
+        }
+
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertEqual(coordinator.phase(for: bundle), .dirty)
+        XCTAssertTrue(coordinator.testingHasRetainedRequest(for: bundle))
+
+        newerAuthorization.isAllowed = true
+        _ = try await coordinator.synchronize(newer, intent: .bundleSwitch)
+
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertEqual(
+            runner.invocations.first?.request.fingerprint,
+            newer.fingerprint
+        )
+        withExtendedLifetime(observation) {}
+    }
+
+    func testUpdatingObserverNewerAuthorizedRequestIsOnlyRunnerAdmission()
+        async throws {
+        let bundle = bundleURL("observer-authorized-supersession")
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        let coordinator = makeCoordinator(recorded: nil, runner: runner)
+        let original = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("1")
+        )
+        let newer = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("2")
+        )
+        let observer = ObserverOwner()
+        var installedNewerRequest = false
+        let observation = coordinator.observe(observer) {
+            owner,
+            _,
+            phase in
+            owner.phases.append(phase)
+            guard phase == .updating, !installedNewerRequest else {
+                return
+            }
+            installedNewerRequest = true
+            coordinator.markDirty(newer)
+        }
+
+        _ = try await coordinator.synchronize(
+            original,
+            intent: .automaticIdle
+        )
+
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertEqual(
+            runner.invocations.first?.request.fingerprint,
+            newer.fingerprint
+        )
+        XCTAssertEqual(coordinator.phase(for: bundle), .current)
+        XCTAssertFalse(coordinator.testingHasRetainedRequest(for: bundle))
+        withExtendedLifetime(observation) {}
+    }
+
     func testStaleRegistrationLoaderCannotOverwriteNewerDirtyRequest() async throws {
         let bundle = bundleURL("register-race")
         let recorded = try makeFingerprint("8")

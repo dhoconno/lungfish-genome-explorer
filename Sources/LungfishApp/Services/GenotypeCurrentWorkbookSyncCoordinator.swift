@@ -19,6 +19,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
     }
 
     struct Request: Sendable {
+        fileprivate let admissionID: UUID
         let bundleURL: URL
         let calls: [GenotypeWorkbookHaplotypeCall]
         let includedLoci: [String]
@@ -43,6 +44,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             authorizationRevalidator:
                 (@MainActor @Sendable () -> Bool)? = nil
         ) {
+            self.admissionID = UUID()
             self.bundleURL = bundleURL.standardizedFileURL
             self.calls = calls
             self.includedLoci = includedLoci
@@ -491,7 +493,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             }
             guard request.isUpdateAuthorized() else {
                 let oldPhase = state.phase
-                clearTerminalTransients(in: &state)
+                clearOperationTransientsPreservingRequest(in: &state)
                 state.phase = .dirty
                 states[key] = state
                 notifyPhaseIfChanged(
@@ -514,21 +516,34 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 bundleURL: request.bundleURL
             )
 
-            guard request.isUpdateAuthorized() else {
-                var deniedState = states[key] ?? state
+            guard let admissionState = states[key],
+                  admissionState.generation == generation,
+                  admissionState.latestRequest?.admissionID
+                    == request.admissionID
+            else {
+                continue
+            }
+            guard let admissionRequest = admissionState.latestRequest else {
+                throw CancellationError()
+            }
+            guard admissionRequest.isUpdateAuthorized() else {
+                var deniedState = states[key] ?? admissionState
                 let phaseBeforeDenial = deniedState.phase
-                clearTerminalTransients(in: &deniedState)
+                clearOperationTransientsPreservingRequest(in: &deniedState)
                 deniedState.phase = .dirty
                 states[key] = deniedState
                 notifyPhaseIfChanged(
                     from: phaseBeforeDenial,
                     to: .dirty,
-                    bundleURL: request.bundleURL
+                    bundleURL: admissionRequest.bundleURL
                 )
                 throw SyncStateError.updateNotAuthorized
             }
             do {
-                let workbookURL = try await updateRunner(request, intent)
+                let workbookURL = try await updateRunner(
+                    admissionRequest,
+                    intent
+                )
                     .standardizedFileURL
                 guard var completedState = states[key] else {
                     return workbookURL
@@ -662,6 +677,16 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
 
     private func clearTerminalTransients(in state: inout BundleState) {
         state.latestRequest = nil
+        state.idleCancellation?.cancel()
+        state.idleCancellation = nil
+        state.idleGeneration &+= 1
+        state.operation = nil
+        state.openAfterSuccess = false
+    }
+
+    private func clearOperationTransientsPreservingRequest(
+        in state: inout BundleState
+    ) {
         state.idleCancellation?.cancel()
         state.idleCancellation = nil
         state.idleGeneration &+= 1
