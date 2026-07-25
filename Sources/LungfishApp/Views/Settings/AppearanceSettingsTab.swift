@@ -119,19 +119,12 @@ struct AppearanceSettingsTab: View {
             HStack {
                 Spacer()
                 Button("Restore Defaults") {
-                    settings.resetSection(.appearance)
-                    loadColorsFromSettings()
+                    restoreAppearanceDefaults()
                 }
             }
         }
         .formStyle(.grouped)
         .onAppear { loadColorsFromSettings() }
-        .onChange(of: colorA) { _, _ in syncBaseColor("A", from: colorA) }
-        .onChange(of: colorT) { _, _ in syncBaseColor("T", from: colorT) }
-        .onChange(of: colorG) { _, _ in syncBaseColor("G", from: colorG) }
-        .onChange(of: colorC) { _, _ in syncBaseColor("C", from: colorC) }
-        .onChange(of: colorN) { _, _ in syncBaseColor("N", from: colorN) }
-        .onChange(of: colorU) { _, _ in syncBaseColor("U", from: colorU) }
         .onChange(of: settings.variantColorThemeName) { _, _ in
             settings.save()
             NotificationCenter.default.post(name: .variantColorThemeDidChange, object: nil)
@@ -182,7 +175,11 @@ struct AppearanceSettingsTab: View {
         VStack(spacing: 4) {
             Text(base)
                 .font(.system(.body, design: .monospaced, weight: .bold))
-            ColorPicker("", selection: color, supportsOpacity: false)
+            ColorPicker(
+                "",
+                selection: persistedBaseColorBinding(base, color: color),
+                supportsOpacity: false
+            )
                 .labelsHidden()
         }
     }
@@ -227,6 +224,36 @@ struct AppearanceSettingsTab: View {
         let hex = AppSettings.hexString(from: nsColor)
         settings.sequenceAppearance.baseColors[base] = hex
         settings.save()
+    }
+
+    private func persistedBaseColorBinding(
+        _ base: String,
+        color: Binding<Color>
+    ) -> Binding<Color> {
+        Binding(
+            get: { color.wrappedValue },
+            set: { newColor in
+                color.wrappedValue = newColor
+                syncBaseColor(base, from: newColor)
+            }
+        )
+    }
+
+    private func restoreAppearanceDefaults() {
+        Self.restoreAppearanceDefaults(
+            settings: settings,
+            reloadColors: loadColorsFromSettings
+        )
+    }
+
+    @MainActor
+    static func restoreAppearanceDefaults(
+        settings: AppSettings,
+        reloadColors: () -> Void
+    ) {
+        settings.resetSection(.appearance)
+        settings.save()
+        reloadColors()
     }
 
     private func annotationColorBinding(for type: String) -> Binding<Color> {

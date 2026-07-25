@@ -188,12 +188,57 @@ final class MainMenuStructureTests: XCTestCase {
         }
     }
 
+    func testAppearanceRestoreDefaultsPersistsSystemWithOneNarrowNotification() {
+        preservingAppSettings {
+            AppSettings.shared.resetSection(.appearance)
+            AppSettings.shared.contentTextSizePreference = .custom(175)
+            AppSettings.shared.save()
+            let saves = AppSettingsSaveCounter()
+            let contentTextSizeChanges = ContentTextSizeNotificationCounter()
+            var colorReloadCount = 0
+
+            AppearanceSettingsTab.restoreAppearanceDefaults(
+                settings: AppSettings.shared
+            ) {
+                colorReloadCount += 1
+            }
+
+            XCTAssertEqual(AppSettings.shared.contentTextSizePreference, .system)
+            XCTAssertEqual(saves.count, 1)
+            XCTAssertEqual(contentTextSizeChanges.count, 1)
+            XCTAssertEqual(colorReloadCount, 1)
+
+            AppSettings.shared.contentTextSizePreference = .custom(175)
+            AppSettings.load()
+            XCTAssertEqual(
+                AppSettings.shared.contentTextSizePreference,
+                .system,
+                "Restore Defaults must persist System, not only update the in-memory picker"
+            )
+        }
+    }
+
     private func preservingAppSettings(_ body: () -> Void) {
         let key = "com.lungfish.appSettings"
         let persistedData = UserDefaults.standard.data(forKey: key)
-        let originalPreference = AppSettings.shared.contentTextSizePreference
+        let settings = AppSettings.shared
+        let originalPreference = settings.contentTextSizePreference
+        let originalSequenceAppearance = settings.sequenceAppearance
+        let originalAnnotationColors = settings.annotationTypeColorHexes
+        let originalVariantTheme = settings.variantColorThemeName
+        let originalAnnotationHeight = settings.defaultAnnotationHeight
+        let originalAnnotationSpacing = settings.defaultAnnotationSpacing
+        let originalHorizontalScroll = settings.horizontalScrollDirection
+        let originalVerticalScroll = settings.verticalScrollDirection
         defer {
-            AppSettings.shared.contentTextSizePreference = originalPreference
+            settings.contentTextSizePreference = originalPreference
+            settings.sequenceAppearance = originalSequenceAppearance
+            settings.annotationTypeColorHexes = originalAnnotationColors
+            settings.variantColorThemeName = originalVariantTheme
+            settings.defaultAnnotationHeight = originalAnnotationHeight
+            settings.defaultAnnotationSpacing = originalAnnotationSpacing
+            settings.horizontalScrollDirection = originalHorizontalScroll
+            settings.verticalScrollDirection = originalVerticalScroll
             if let persistedData {
                 UserDefaults.standard.set(persistedData, forKey: key)
             } else {
@@ -226,6 +271,32 @@ private final class AppSettingsSaveCounter {
         self.notificationCenter = notificationCenter
         token = notificationCenter.addObserver(
             forName: .appSettingsChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.count += 1
+            }
+        }
+    }
+
+    isolated deinit {
+        if let token {
+            notificationCenter.removeObserver(token)
+        }
+    }
+}
+
+@MainActor
+private final class ContentTextSizeNotificationCounter {
+    private(set) var count = 0
+    private let notificationCenter: NotificationCenter
+    private var token: NSObjectProtocol?
+
+    init(notificationCenter: NotificationCenter = .default) {
+        self.notificationCenter = notificationCenter
+        token = notificationCenter.addObserver(
+            forName: .contentTextSizeDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in

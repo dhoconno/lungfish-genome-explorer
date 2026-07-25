@@ -151,6 +151,12 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertTrue(source.contains(".accessibilityLabel(\"Content text size\")"))
         XCTAssertTrue(source.contains("settings.contentTextSizePreference ="))
         XCTAssertTrue(source.contains("settings.save()"))
+        XCTAssertFalse(source.contains(".onChange(of: colorA)"))
+        XCTAssertFalse(source.contains(".onChange(of: colorT)"))
+        XCTAssertFalse(source.contains(".onChange(of: colorG)"))
+        XCTAssertFalse(source.contains(".onChange(of: colorC)"))
+        XCTAssertFalse(source.contains(".onChange(of: colorN)"))
+        XCTAssertFalse(source.contains(".onChange(of: colorU)"))
     }
 
     func testAnalystIdentitySettingsAndInspectorUseStableIdentifiersAndResolvedAuthors() throws {
