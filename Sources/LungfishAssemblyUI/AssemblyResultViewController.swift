@@ -75,6 +75,10 @@ public final class AssemblyResultViewController: NSViewController {
     private var blastDrawerContainer: BlastResultsDrawerContainerView?
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
     private var isBlastDrawerOpen = false
+    private var contentTypographyObservation: AssemblyContentTypographyObservation?
+#if DEBUG
+    private var typographyApplicationCount = 0
+#endif
 
     public override func loadView() {
         let root = NSView()
@@ -91,6 +95,10 @@ public final class AssemblyResultViewController: NSViewController {
         layoutSubviews()
         wireCallbacks()
         applyLayoutPreference()
+        applyContentTypography()
+        contentTypographyObservation = AssemblyContentTypographyObservation { [weak self] in
+            self?.applyContentTypography()
+        }
     }
 
     public override func viewDidLayout() {
@@ -99,7 +107,8 @@ public final class AssemblyResultViewController: NSViewController {
         scheduleInitialSplitValidationIfNeeded()
     }
 
-    deinit {
+    isolated deinit {
+        contentTypographyObservation?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -125,7 +134,6 @@ public final class AssemblyResultViewController: NSViewController {
         emptyStateLabel.alignment = .center
         emptyStateLabel.lineBreakMode = .byWordWrapping
         emptyStateLabel.maximumNumberOfLines = 0
-        emptyStateLabel.font = .systemFont(ofSize: 14, weight: .medium)
         emptyStateLabel.textColor = .secondaryLabelColor
         emptyStateLabel.setAccessibilityIdentifier("assembly-result-empty-state-message")
         emptyStateView.addSubview(emptyStateLabel)
@@ -167,6 +175,14 @@ public final class AssemblyResultViewController: NSViewController {
         splitView.addArrangedSubview(detailContainer)
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
+    }
+
+    private func applyContentTypography() {
+        emptyStateLabel.font = ContentTypography.current().font(for: .emphasizedBody)
+        view.needsLayout = true
+#if DEBUG
+        typographyApplicationCount += 1
+#endif
     }
 
     private func setupActionBar() {
@@ -673,6 +689,8 @@ extension AssemblyResultViewController {
     var testContextMenuTitles: [String] { contextMenu.items.map(\.title) }
     var testEmptyStateView: NSView { emptyStateView }
     var testEmptyStateMessage: String { emptyStateLabel.stringValue }
+    var testEmptyStateFontPointSize: CGFloat { emptyStateLabel.font?.pointSize ?? 0 }
+    var testTypographyApplicationCount: Int { typographyApplicationCount }
 
     func testSelectContig(named name: String) async throws {
         if let record = contigTableView.displayedRows.first(where: { $0.name == name }) {

@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+@testable import LungfishCore
 @testable import LungfishAssemblyUI
 @testable import LungfishWorkflow
 import LungfishKit
@@ -379,4 +380,250 @@ final class AssemblyResultViewControllerTests: XCTestCase {
         textField.mouseDown(with: event)
         XCTAssertEqual(pasteboard.lastString, "contig_7")
     }
+
+    func testAssemblyPrimaryTypographyUpdatesLiveAndPreservesTableAndSplitState() async throws {
+        try await preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+
+            let vc = AssemblyResultViewController()
+            vc.view.frame = NSRect(x: 0, y: 0, width: 1_200, height: 760)
+            try await vc.configureForTesting(result: makeAssemblyResult())
+            vc.view.layoutSubtreeIfNeeded()
+
+            let identity = ObjectIdentifier(vc)
+            let baselineSummaryFont = vc.testSummaryStrip.testValueFontPointSize(
+                identifier: "assembly-result-summary-assembler"
+            )
+            let baselineSummaryHeight = vc.testSummaryStrip.testHeight
+            let baselineEmptyFont = vc.testEmptyStateFontPointSize
+            let baselineRowHeight = vc.testContigTableView.testTableView.rowHeight
+            let splitOrientation = vc.testSplitView.isVertical
+            let arrangedSubviews = vc.testSplitView.arrangedSubviews.map(ObjectIdentifier.init)
+            let widths = vc.testContigTableView.testTableView.tableColumns.map(\.width)
+            let typographyApplyCount = vc.testTypographyApplicationCount
+
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+            vc.view.layoutSubtreeIfNeeded()
+
+            XCTAssertEqual(ObjectIdentifier(vc), identity)
+            XCTAssertEqual(
+                vc.testSummaryStrip.testValueFontPointSize(
+                    identifier: "assembly-result-summary-assembler"
+                ),
+                baselineSummaryFont * 2,
+                accuracy: 0.01
+            )
+            XCTAssertGreaterThan(vc.testSummaryStrip.testHeight, baselineSummaryHeight)
+            XCTAssertGreaterThan(vc.testSummaryStrip.testRowCount, 1)
+            XCTAssertEqual(vc.testEmptyStateFontPointSize, baselineEmptyFont * 2, accuracy: 0.01)
+            XCTAssertGreaterThan(vc.testContigTableView.testTableView.rowHeight, baselineRowHeight)
+            XCTAssertEqual(vc.testSplitView.isVertical, splitOrientation)
+            XCTAssertEqual(
+                vc.testSplitView.arrangedSubviews.map(ObjectIdentifier.init),
+                arrangedSubviews
+            )
+            XCTAssertEqual(vc.testContigTableView.testTableView.tableColumns.map(\.width), widths)
+            XCTAssertEqual(vc.testTypographyApplicationCount, typographyApplyCount + 1)
+
+            let readableHeaderTooltips = Dictionary(
+                uniqueKeysWithValues: vc.testContigTableView.testTableView.tableColumns.map {
+                    ($0.identifier.rawValue, $0.headerToolTip)
+                }
+            )
+            XCTAssertEqual(readableHeaderTooltips["length"], "Length (bp)")
+            XCTAssertEqual(readableHeaderTooltips["share"], "Share of Assembly (%)")
+            XCTAssertEqual(readableHeaderTooltips["preview"], "Sequence Preview")
+
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            vc.view.layoutSubtreeIfNeeded()
+
+            XCTAssertEqual(
+                vc.testSummaryStrip.testValueFontPointSize(
+                    identifier: "assembly-result-summary-assembler"
+                ),
+                baselineSummaryFont,
+                accuracy: 0.01
+            )
+            XCTAssertEqual(vc.testSummaryStrip.testHeight, baselineSummaryHeight, accuracy: 0.01)
+            XCTAssertEqual(vc.testSummaryStrip.testRowCount, 1)
+            XCTAssertEqual(vc.testEmptyStateFontPointSize, baselineEmptyFont, accuracy: 0.01)
+            XCTAssertEqual(vc.testContigTableView.testTableView.rowHeight, baselineRowHeight, accuracy: 0.01)
+            XCTAssertEqual(vc.testContigTableView.testTableView.tableColumns.map(\.width), widths)
+            XCTAssertEqual(vc.testTypographyApplicationCount, typographyApplyCount + 2)
+        }
+    }
+
+    func testSummaryOptionalMetricsCreatedAtLargeSizeUseCurrentTypographyAndReadableValues() async throws {
+        try await preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            let baseResult = try makeAssemblyResult()
+            let initialResult = AssemblyResult(
+                tool: baseResult.tool,
+                readType: baseResult.readType,
+                contigsPath: baseResult.contigsPath,
+                graphPath: baseResult.graphPath,
+                logPath: baseResult.logPath,
+                assemblerVersion: nil,
+                commandLine: baseResult.commandLine,
+                outputDirectory: baseResult.outputDirectory,
+                statistics: baseResult.statistics,
+                wallTimeSeconds: 0,
+                scaffoldsPath: baseResult.scaffoldsPath,
+                paramsPath: baseResult.paramsPath
+            )
+
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            let vc = AssemblyResultViewController()
+            vc.view.frame = NSRect(x: 0, y: 0, width: 900, height: 640)
+            try await vc.configureForTesting(result: initialResult)
+            let baseline = vc.testSummaryStrip.testValueFontPointSize(
+                identifier: "assembly-result-summary-assembler"
+            )
+
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+            try await vc.configureForTesting(result: baseResult)
+            vc.view.layoutSubtreeIfNeeded()
+
+            XCTAssertEqual(
+                vc.testSummaryStrip.testValueFontPointSize(
+                    identifier: "assembly-result-summary-version"
+                ),
+                baseline * 2,
+                accuracy: 0.01
+            )
+            XCTAssertEqual(
+                vc.testSummaryStrip.testValueFontPointSize(
+                    identifier: "assembly-result-summary-wall-time"
+                ),
+                baseline * 2,
+                accuracy: 0.01
+            )
+            XCTAssertEqual(
+                vc.testSummaryStrip.testAccessibilityValue(
+                    identifier: "assembly-result-summary-version"
+                ),
+                "4.0.0"
+            )
+            XCTAssertTrue(vc.testSummaryStrip.testFieldsAllowWrapping)
+        }
+    }
+
+    func testDetailTypographyReflowsAndPreservesSequenceSelectionAndScroll() {
+        preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+
+            let pane = AssemblyContigDetailPane(
+                frame: NSRect(x: 0, y: 0, width: 520, height: 540)
+            )
+
+            let longSequence = (0..<240)
+                .map { index in "\(index): AACCGGTTAACCGGTTAACCGGTTAACCGGTT" }
+                .joined(separator: "\n")
+            pane.showSingleSelection(
+                record: AssemblyContigRecord(
+                    rank: 1,
+                    name: "NODE_1",
+                    header: "NODE_1 long annotated header that must remain readable without truncation",
+                    lengthBP: 8_000,
+                    gcPercent: 50,
+                    shareOfAssemblyPercent: 100,
+                    previewSequence: "AACCGGTT"
+                ),
+                fastaPreview: longSequence
+            )
+            pane.layoutSubtreeIfNeeded()
+
+            let baselineSequenceFont = pane.testSequenceFontPointSize
+            let baselineMinimumHeight = pane.testSequenceMinimumHeight
+            let baselineApplyCount = pane.testTypographyApplicationCount
+            let selection = NSRange(location: 120, length: 24)
+            pane.testSetSequenceSelection(selection)
+            pane.testSetSequenceScrollOrigin(NSPoint(x: 0, y: 180))
+            let scrollOrigin = pane.testSequenceScrollOrigin
+
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+            pane.layoutSubtreeIfNeeded()
+
+            XCTAssertEqual(pane.testSequenceFontPointSize, baselineSequenceFont * 2, accuracy: 0.01)
+            XCTAssertTrue(pane.testSequenceFontIsFixedPitch)
+            XCTAssertGreaterThan(pane.testSequenceMinimumHeight, baselineMinimumHeight)
+            XCTAssertEqual(pane.testMetricsRowCount, 2)
+            XCTAssertEqual(pane.testSequenceSelectedRange, selection)
+            XCTAssertEqual(pane.testSequenceScrollOrigin.y, scrollOrigin.y, accuracy: 0.01)
+            XCTAssertEqual(pane.testTypographyApplicationCount, baselineApplyCount + 1)
+            XCTAssertEqual(pane.testTitleMaximumNumberOfLines, 0)
+            XCTAssertEqual(pane.testTitleLineBreakMode, .byWordWrapping)
+
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            pane.layoutSubtreeIfNeeded()
+
+            XCTAssertEqual(pane.testSequenceFontPointSize, baselineSequenceFont, accuracy: 0.01)
+            XCTAssertEqual(pane.testSequenceMinimumHeight, baselineMinimumHeight, accuracy: 0.01)
+            XCTAssertEqual(pane.testMetricsRowCount, 1)
+            XCTAssertEqual(pane.testSequenceSelectedRange, selection)
+            XCTAssertEqual(pane.testTypographyApplicationCount, baselineApplyCount + 2)
+        }
+    }
+
+    func testAlignmentAndAssemblyFixedFontInventoryIsDurableAndExcludesScientificZoom() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let inventory = try String(
+            contentsOf: root.appendingPathComponent(
+                "docs/verification/2026-07-25-alignment-assembly-content-typography-inventory.md"
+            ),
+            encoding: .utf8
+        )
+
+        for source in [
+            "AlignmentResultViewController.swift",
+            "AssemblyContigDetailPane.swift",
+            "AssemblyContigTableView.swift",
+            "AssemblyResultViewController.swift",
+            "AssemblySummaryStrip.swift",
+        ] {
+            XCTAssertTrue(inventory.contains(source), "Missing inventory entry for \(source)")
+        }
+        XCTAssertTrue(inventory.contains("BAM pileup"))
+        XCTAssertTrue(inventory.contains("scientific zoom"))
+        XCTAssertTrue(inventory.contains("ContentTypography"))
+    }
+}
+
+@MainActor
+private func preservingContentTextSizePreference<T>(
+    _ body: () async throws -> T
+) async rethrows -> T {
+    let settings = AppSettings.shared
+    let original = settings.contentTextSizePreference
+    defer {
+        settings.contentTextSizePreference = original
+        settings.save()
+    }
+    return try await body()
+}
+
+@MainActor
+private func preservingContentTextSizePreference<T>(
+    _ body: () throws -> T
+) rethrows -> T {
+    let settings = AppSettings.shared
+    let original = settings.contentTextSizePreference
+    defer {
+        settings.contentTextSizePreference = original
+        settings.save()
+    }
+    return try body()
 }

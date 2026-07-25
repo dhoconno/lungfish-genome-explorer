@@ -16,6 +16,14 @@ final class AssemblyContigDetailPane: NSView {
     private let shareLabel = AssemblyQuickCopyTextField(labelWithString: "")
     private let sequenceSectionLabel = NSTextField(labelWithString: "Sequence")
     private let sequenceView = NSTextView()
+    private let sequenceScrollView = NSScrollView()
+    private let metricsStack = NSStackView()
+    private let rootStack = NSStackView()
+    private var sequenceMinimumHeightConstraint: NSLayoutConstraint?
+    private var contentTypographyObservation: AssemblyContentTypographyObservation?
+#if DEBUG
+    private var typographyApplicationCount = 0
+#endif
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -25,23 +33,21 @@ final class AssemblyContigDetailPane: NSView {
 
         sequenceView.isEditable = false
         sequenceView.isSelectable = true
-        sequenceView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         sequenceView.setAccessibilityIdentifier("assembly-result-detail-sequence-text")
         sequenceView.setAccessibilityLabel("Contig sequence")
 
         [overviewSectionLabel, sequenceSectionLabel].forEach {
-            $0.font = .systemFont(ofSize: 11, weight: .semibold)
             $0.textColor = .secondaryLabelColor
         }
 
-        let sequenceScrollView = NSScrollView()
         sequenceScrollView.translatesAutoresizingMaskIntoConstraints = false
         sequenceScrollView.hasVerticalScroller = true
         sequenceScrollView.autohidesScrollers = true
         sequenceScrollView.documentView = sequenceView
         sequenceScrollView.setAccessibilityIdentifier("assembly-result-detail-sequence-area")
 
-        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.lineBreakMode = .byWordWrapping
+        titleLabel.maximumNumberOfLines = 0
         titleLabel.setAccessibilityIdentifier("assembly-result-detail-title")
 
         lengthLabel.setAccessibilityIdentifier("assembly-result-detail-length")
@@ -49,35 +55,99 @@ final class AssemblyContigDetailPane: NSView {
         rankLabel.setAccessibilityIdentifier("assembly-result-detail-rank")
         shareLabel.setAccessibilityIdentifier("assembly-result-detail-share")
 
-        let metricsRow = NSStackView(views: [lengthLabel, gcLabel, rankLabel, shareLabel])
-        metricsRow.orientation = .horizontal
-        metricsRow.spacing = 12
+        for field in [lengthLabel, gcLabel, rankLabel, shareLabel] {
+            field.lineBreakMode = .byWordWrapping
+            field.maximumNumberOfLines = 0
+        }
+        metricsStack.orientation = .vertical
+        metricsStack.spacing = 4
 
-        let stack = NSStackView(
-            views: [
+        rootStack.setViews(
+            [
                 overviewSectionLabel,
                 titleLabel,
-                metricsRow,
+                metricsStack,
                 sequenceSectionLabel,
                 sequenceScrollView,
-            ]
+            ],
+            in: .top
         )
-        stack.orientation = .vertical
-        stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
+        rootStack.orientation = .vertical
+        rootStack.spacing = 8
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(rootStack)
 
+        let sequenceMinimumHeightConstraint = sequenceScrollView.heightAnchor.constraint(
+            greaterThanOrEqualToConstant: 180
+        )
+        self.sequenceMinimumHeightConstraint = sequenceMinimumHeightConstraint
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            sequenceScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 180),
+            rootStack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            sequenceMinimumHeightConstraint,
         ])
+
+        applyContentTypography()
+        contentTypographyObservation = AssemblyContentTypographyObservation { [weak self] in
+            self?.applyContentTypography()
+        }
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    isolated deinit {
+        contentTypographyObservation?.cancel()
+    }
+
+    private func applyContentTypography() {
+        let typography = ContentTypography.current()
+        let selectedRange = sequenceView.selectedRange()
+        let scrollOrigin = sequenceScrollView.contentView.bounds.origin
+
+        overviewSectionLabel.font = typography.font(for: .tableHeader)
+        sequenceSectionLabel.font = typography.font(for: .tableHeader)
+        titleLabel.font = typography.font(for: .emphasizedBody)
+        for field in [lengthLabel, gcLabel, rankLabel, shareLabel] {
+            field.font = typography.font(for: .body)
+        }
+        let sequenceFont = typography.font(for: .monospaced)
+        sequenceView.font = sequenceFont
+        sequenceMinimumHeightConstraint?.constant = max(
+            180,
+            ceil(sequenceFont.boundingRectForFont.height * 8 + 24)
+        )
+        rebuildMetricRows(useTwoRows: typography.preference.scaleFactor >= 1.75)
+
+        sequenceView.setSelectedRange(selectedRange)
+        sequenceScrollView.layoutSubtreeIfNeeded()
+        sequenceScrollView.contentView.scroll(to: scrollOrigin)
+        sequenceScrollView.reflectScrolledClipView(sequenceScrollView.contentView)
+        needsLayout = true
+#if DEBUG
+        typographyApplicationCount += 1
+#endif
+    }
+
+    private func rebuildMetricRows(useTwoRows: Bool) {
+        for row in metricsStack.arrangedSubviews {
+            metricsStack.removeArrangedSubview(row)
+            row.removeFromSuperview()
+        }
+        let groups: [[AssemblyQuickCopyTextField]] = useTwoRows
+            ? [[lengthLabel, gcLabel], [rankLabel, shareLabel]]
+            : [[lengthLabel, gcLabel, rankLabel, shareLabel]]
+        for fields in groups {
+            let row = NSStackView(views: fields)
+            row.orientation = .horizontal
+            row.alignment = .firstBaseline
+            row.distribution = .fillEqually
+            row.spacing = 12
+            metricsStack.addArrangedSubview(row)
+        }
     }
 
     func configureQuickCopy(pasteboard: PasteboardWriting) {
@@ -148,5 +218,23 @@ final class AssemblyContigDetailPane: NSView {
     var currentSummaryTitle: String { titleLabel.stringValue }
     var currentContextText: String { "" }
     var currentArtifactsText: String { "" }
+    var testSequenceFontPointSize: CGFloat { sequenceView.font?.pointSize ?? 0 }
+    var testSequenceFontIsFixedPitch: Bool { sequenceView.font?.isFixedPitch ?? false }
+    var testSequenceMinimumHeight: CGFloat { sequenceMinimumHeightConstraint?.constant ?? 0 }
+    var testSequenceSelectedRange: NSRange { sequenceView.selectedRange() }
+    var testSequenceScrollOrigin: NSPoint { sequenceScrollView.contentView.bounds.origin }
+    var testMetricsRowCount: Int { metricsStack.arrangedSubviews.count }
+    var testTypographyApplicationCount: Int { typographyApplicationCount }
+    var testTitleMaximumNumberOfLines: Int { titleLabel.maximumNumberOfLines }
+    var testTitleLineBreakMode: NSLineBreakMode { titleLabel.lineBreakMode }
+
+    func testSetSequenceSelection(_ range: NSRange) {
+        sequenceView.setSelectedRange(range)
+    }
+
+    func testSetSequenceScrollOrigin(_ origin: NSPoint) {
+        sequenceScrollView.contentView.scroll(to: origin)
+        sequenceScrollView.reflectScrolledClipView(sequenceScrollView.contentView)
+    }
 #endif
 }

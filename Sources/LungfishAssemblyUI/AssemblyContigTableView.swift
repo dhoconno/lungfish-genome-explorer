@@ -14,10 +14,31 @@ final class AssemblyContigTableView: BatchTableView<AssemblyContigRecord> {
         [
             .init(identifier: NSUserInterfaceItemIdentifier("rank"), title: "#", width: 44, minWidth: 34, defaultAscending: true),
             .init(identifier: NSUserInterfaceItemIdentifier("name"), title: "Contig", width: 220, minWidth: 140, defaultAscending: true),
-            .init(identifier: NSUserInterfaceItemIdentifier("length"), title: "Length (bp)", width: 110, minWidth: 90, defaultAscending: false),
+            .init(
+                identifier: NSUserInterfaceItemIdentifier("length"),
+                title: "Length (bp)",
+                width: 110,
+                minWidth: 90,
+                defaultAscending: false,
+                toolTip: "Length (bp)"
+            ),
             .init(identifier: NSUserInterfaceItemIdentifier("gc"), title: "GC %", width: 90, minWidth: 70, defaultAscending: false),
-            .init(identifier: NSUserInterfaceItemIdentifier("share"), title: "Share of Assembly (%)", width: 150, minWidth: 120, defaultAscending: false),
-            .init(identifier: NSUserInterfaceItemIdentifier("preview"), title: "Sequence Preview", width: 360, minWidth: 220, defaultAscending: true),
+            .init(
+                identifier: NSUserInterfaceItemIdentifier("share"),
+                title: "Share of Assembly (%)",
+                width: 150,
+                minWidth: 120,
+                defaultAscending: false,
+                toolTip: "Share of Assembly (%)"
+            ),
+            .init(
+                identifier: NSUserInterfaceItemIdentifier("preview"),
+                title: "Sequence Preview",
+                width: 360,
+                minWidth: 220,
+                defaultAscending: true,
+                toolTip: "Sequence Preview"
+            ),
         ]
     }
 
