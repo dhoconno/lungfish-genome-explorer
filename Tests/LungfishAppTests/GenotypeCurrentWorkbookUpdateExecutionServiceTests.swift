@@ -65,7 +65,24 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             2
         )
         XCTAssertEqual(try values(after: "--included-locus", in: invocation.arguments), ["MHC-A", "MHC-DP"])
-        XCTAssertEqual(try value(after: "--annotations", in: invocation.arguments), annotationURL.standardizedFileURL.path)
+        let retainedAnnotationURL = URL(
+            fileURLWithPath: try value(after: "--annotations", in: invocation.arguments)
+        )
+        XCTAssertNotEqual(
+            retainedAnnotationURL.standardizedFileURL,
+            annotationURL.standardizedFileURL
+        )
+        XCTAssertTrue(
+            retainedAnnotationURL.standardizedFileURL.path.hasPrefix(
+                bundleURL
+                    .appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
+                    .standardizedFileURL.path + "/"
+            )
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: retainedAnnotationURL),
+            try Data(contentsOf: annotationURL)
+        )
         XCTAssertEqual(invocation.arguments.filter { $0 == "--input-fingerprint" }.count, 1)
         XCTAssertEqual(invocation.arguments.filter { $0 == "--input-fingerprint-schema" }.count, 1)
         XCTAssertEqual(invocation.arguments.filter { $0 == "--sync-intent" }.count, 1)
@@ -86,9 +103,14 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         XCTAssertTrue(item.cliCommand?.contains("--input-fingerprint \(fingerprint.sha256)") == true)
         XCTAssertTrue(item.cliCommand?.contains("--input-fingerprint-schema 1") == true)
         XCTAssertTrue(item.cliCommand?.contains("--sync-intent update-and-view") == true)
+        XCTAssertTrue(item.cliCommand?.contains(retainedAnnotationURL.path) == true)
+        XCTAssertFalse(item.cliCommand?.contains(annotationURL.path) == true)
         XCTAssertTrue(item.outputURLs.contains(bundleURL.appendingPathComponent("artifacts/workbooks/current.xlsx").standardizedFileURL))
         XCTAssertTrue(item.logEntries.contains { $0.message == "Updated current.xlsx" })
         XCTAssertTrue(item.logEntries.contains { $0.message == "Included loci: MHC-A, MHC-DP" })
+        XCTAssertTrue(item.logEntries.contains {
+            $0.message == "Annotations: \(retainedAnnotationURL.path)"
+        })
     }
 
     func testFailureReportsCLIExitStatusAndStderr() async throws {
@@ -177,6 +199,124 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         XCTAssertEqual(decoded, displayedCalls)
     }
 
+    func testRunUsesImmutableRetainedAnnotationSnapshotsAcrossSupersedingRequests() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "immutable-annotations.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let liveAnnotationURL = bundleURL.appendingPathComponent("annotations.json")
+        let admittedA = Data(#"{"lastEditor":"analyst-a"}"#.utf8)
+        let admittedB = Data(#"{"lastEditor":"analyst-b"}"#.utf8)
+        try admittedA.write(to: liveAnnotationURL)
+
+        var annotationPayloadsSeenByCLI: [Data] = []
+        var annotationURLsSeenByCLI: [URL] = []
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "{}",
+            standardError: "[100%] Updated current.xlsx\n"
+        )) { invocation in
+            let annotationPath = try self.value(
+                after: "--annotations",
+                in: invocation.arguments
+            )
+            let annotationURL = URL(fileURLWithPath: annotationPath)
+            annotationURLsSeenByCLI.append(annotationURL)
+            annotationPayloadsSeenByCLI.append(try Data(contentsOf: annotationURL))
+        }
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: runner
+        )
+
+        // Request A has already captured its immutable sidecar when a later edit
+        // reaches the live bundle sidecar.
+        try admittedB.write(to: liveAnnotationURL, options: .atomic)
+        try await service.run(
+            bundleURL: bundleURL,
+            calls: [],
+            annotationSidecarURL: liveAnnotationURL,
+            annotationSidecarData: admittedA
+        )
+        try await service.run(
+            bundleURL: bundleURL,
+            calls: [],
+            annotationSidecarURL: liveAnnotationURL,
+            annotationSidecarData: admittedB
+        )
+
+        XCTAssertEqual(annotationPayloadsSeenByCLI, [admittedA, admittedB])
+        XCTAssertEqual(Set(annotationURLsSeenByCLI).count, 2)
+        let updatesDirectory = bundleURL
+            .appendingPathComponent("artifacts/workbooks/updates", isDirectory: true)
+            .standardizedFileURL
+        for annotationURL in annotationURLsSeenByCLI {
+            XCTAssertNotEqual(annotationURL.standardizedFileURL, liveAnnotationURL.standardizedFileURL)
+            XCTAssertTrue(
+                annotationURL.standardizedFileURL.path.hasPrefix(
+                    updatesDirectory.path + "/"
+                )
+            )
+            XCTAssertTrue(FileManager.default.fileExists(atPath: annotationURL.path))
+        }
+    }
+
+    func testRunRejectsSymlinkedUpdatesDirectoryWithoutWritingSnapshotOutsideBundle() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "unsafe-updates.lungfishgenotype",
+            isDirectory: true
+        )
+        let workbooksDirectory = bundleURL
+            .appendingPathComponent("artifacts/workbooks", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: workbooksDirectory,
+            withIntermediateDirectories: true
+        )
+        let outsideDirectory = temp.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: outsideDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createSymbolicLink(
+            at: workbooksDirectory.appendingPathComponent("updates"),
+            withDestinationURL: outsideDirectory
+        )
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "{}",
+            standardError: ""
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: runner
+        )
+
+        do {
+            try await service.run(
+                bundleURL: bundleURL,
+                calls: [],
+                annotationSidecarURL: bundleURL.appendingPathComponent("annotations.json"),
+                annotationSidecarData: Data("{}".utf8)
+            )
+            XCTFail("Expected an unsafe updates-directory error")
+        } catch {
+            XCTAssertTrue(runner.invocations.isEmpty)
+        }
+
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: outsideDirectory,
+                includingPropertiesForKeys: nil
+            ),
+            []
+        )
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeCurrentWorkbookUpdateExecutionServiceTests-\(UUID().uuidString)", isDirectory: true)
@@ -227,9 +367,14 @@ private final class StubGenotypeWorkbookUpdateCLIProcessRunner: LocalWorkflowCLI
 
     private(set) var invocations: [Invocation] = []
     let result: LocalWorkflowCLIProcessResult
+    let onInvocation: ((Invocation) throws -> Void)?
 
-    init(result: LocalWorkflowCLIProcessResult) {
+    init(
+        result: LocalWorkflowCLIProcessResult,
+        onInvocation: ((Invocation) throws -> Void)? = nil
+    ) {
         self.result = result
+        self.onInvocation = onInvocation
     }
 
     func runLungfishCLI(
@@ -237,10 +382,12 @@ private final class StubGenotypeWorkbookUpdateCLIProcessRunner: LocalWorkflowCLI
         workingDirectory: URL,
         outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
     ) async throws -> LocalWorkflowCLIProcessResult {
-        invocations.append(Invocation(
+        let invocation = Invocation(
             arguments: arguments,
             workingDirectory: workingDirectory.standardizedFileURL
-        ))
+        )
+        invocations.append(invocation)
+        try onInvocation?(invocation)
         if let outputHandler {
             for line in result.standardError.split(whereSeparator: \.isNewline) {
                 outputHandler(.standardError(String(line)))
