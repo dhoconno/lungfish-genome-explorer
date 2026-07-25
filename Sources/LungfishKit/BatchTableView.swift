@@ -224,7 +224,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     // MARK: - Metadata Columns
 
     /// Controller for dynamic sample-metadata columns (from imported CSV/TSV).
-    public let metadataColumns = MetadataColumnController()
+    public let metadataColumns = MetadataColumnController(
+        contentTypographyOwnership: .embedded
+    )
 
     /// Optional contextual menu assigned to the table.
     public var tableContextMenu: NSMenu? {
@@ -240,6 +242,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     private var scrollView: NSScrollView!
     private var searchField: NSSearchField!
     private var searchHeightConstraint: NSLayoutConstraint!
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private var overridePreferredFontBaselinePointSize: CGFloat = 0
 
     // MARK: - Init
 
@@ -260,6 +265,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     // MARK: - Setup
 
     private func setupTableView() {
+        overridePreferredFontBaselinePointSize = preferredFontProvider
+            .preferredFont(for: .body)
+            .pointSize
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -345,7 +353,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     ///
     /// Subclasses overriding this hook must call `super`.
     open func applyContentTypography() {
-        let typography = ContentTypography.current()
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
         let selectedRows = tableView.selectedRowIndexes
         isRestoringSelection = true
         defer { isRestoringSelection = false }
@@ -360,12 +370,24 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             frame.size.height = typography.tableHeaderHeight()
             headerView.frame = frame
         }
+        scrollView.tile()
         for column in tableView.tableColumns {
             column.headerCell.font = typography.font(for: .tableHeader)
         }
-        metadataColumns.applyContentTypography()
         tableView.reloadData()
         tableView.selectRowIndexes(selectedRows, byExtendingSelection: false)
+    }
+
+    /// Replaces the semantic preferred-font source and resets the stable
+    /// baseline used for explicit subclass font overrides.
+    public func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        overridePreferredFontBaselinePointSize = provider
+            .preferredFont(for: .body)
+            .pointSize
+        applyContentTypography()
     }
 
     private func addFixedColumns() {
@@ -468,6 +490,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         }
         metadataColumns.standardColumnNames = standardColumnNames
         metadataColumns.refreshAfterStandardColumnsChanged()
+        applyContentTypography()
     }
 
     // MARK: - Empty Column Hiding
@@ -659,7 +682,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         let tf = BatchQuickCopyTextField(labelWithString: "")
         tf.pasteboard = cellCopyPasteboard
         tf.copiedValue = { [weak tf] in tf?.stringValue ?? "" }
-        let typography = ContentTypography.current()
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
         tf.font = typography.font(for: .monospaced)
         tf.lineBreakMode = .byTruncatingTail
         tf.translatesAutoresizingMaskIntoConstraints = false
@@ -901,14 +926,24 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         if let font {
             cellView.textField?.font = scaledContentFont(from: font)
         } else {
-            cellView.textField?.font = ContentTypography.current().font(for: .monospaced)
+            cellView.textField?.font = ContentTypography.current(
+                preferredFontProvider: preferredFontProvider
+            ).font(for: .monospaced)
         }
 
         return cellView
     }
 
     private func scaledContentFont(from baseline: NSFont) -> NSFont {
-        let scale = CGFloat(AppSettings.shared.contentTextSizePreference.normalized.scaleFactor)
+        let preferenceScale = CGFloat(
+            AppSettings.shared.contentTextSizePreference.normalized.scaleFactor
+        )
+        let currentPreferredPointSize = preferredFontProvider
+            .preferredFont(for: .body)
+            .pointSize
+        let systemMetricScale = currentPreferredPointSize
+            / max(overridePreferredFontBaselinePointSize, 1)
+        let scale = preferenceScale * systemMetricScale
         let pointSize = max(ContentTypography.minimumPointSize, baseline.pointSize * scale)
         return NSFont(descriptor: baseline.fontDescriptor, size: pointSize) ?? baseline
     }

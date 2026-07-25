@@ -160,11 +160,16 @@ final class BatchTableViewTests: XCTestCase {
             window.makeKeyAndOrderFront(nil)
             defer { window.close() }
             let searchField = try XCTUnwrap(table.firstDescendant(of: NSSearchField.self))
+            _ = try XCTUnwrap(table.firstDescendant(of: NSScrollView.self))
+            let headerClipView = try XCTUnwrap(table.tableView.headerView?.superview as? NSClipView)
+            let baselineHeaderClipHeight = headerClipView.frame.height
             XCTAssertTrue(window.makeFirstResponder(searchField))
             searchField.currentEditor()?.selectedRange = NSRange(location: 2, length: 2)
 
             settings.contentTextSizePreference = .custom(200)
             settings.save()
+            let enlargedHeaderClipHeight = headerClipView.frame.height
+            XCTAssertGreaterThan(enlargedHeaderClipHeight, baselineHeaderClipHeight)
             settings.contentTextSizePreference = .custom(100)
             settings.save()
 
@@ -178,6 +183,11 @@ final class BatchTableViewTests: XCTestCase {
             XCTAssertEqual(table.tableView.tableColumns.map(\.width), columnWidths)
             XCTAssertEqual(table.tableView.tableColumns.map(\.isHidden), hiddenState)
             XCTAssertEqual(table.metadataColumns.visibleColumns, metadataVisibility)
+            XCTAssertEqual(
+                headerClipView.frame.height,
+                baselineHeaderClipHeight,
+                accuracy: 0.01
+            )
         }
     }
 
@@ -208,6 +218,17 @@ final class BatchTableViewTests: XCTestCase {
         XCTAssertFalse(batchSource.contains(".systemFont(ofSize: 11)"))
         XCTAssertFalse(batchSource.contains(".monospacedDigitSystemFont(ofSize: 11"))
         XCTAssertFalse(metadataSource.contains(".systemFont(ofSize: 11)"))
+        XCTAssertTrue(
+            batchSource.contains("contentTypographyOwnership: .embedded"),
+            "Batch tables must explicitly own the one live typography observation"
+        )
+        XCTAssertFalse(
+            batchSource.contains("metadataColumns.applyContentTypography()"),
+            "An embedded metadata controller must not scan cells before Batch reloads them"
+        )
+        XCTAssertTrue(metadataSource.contains("if contentTypographyOwnership == .standalone"))
+        XCTAssertTrue(metadataSource.contains("tableView.rows(in: tableView.visibleRect)"))
+        XCTAssertFalse(metadataSource.contains("for row in 0..<tableView.numberOfRows"))
     }
 
     func testSubclassFontOverrideScalesFromStableBaselineWithoutCompounding() throws {
@@ -243,6 +264,94 @@ final class BatchTableViewTests: XCTestCase {
             let restored = try resolvedFont()
             XCTAssertEqual(restored.pointSize, baseline.pointSize, accuracy: 0.01)
             XCTAssertTrue(restored.fontDescriptor.symbolicTraits.contains(.bold))
+        }
+    }
+
+    func testSystemPreferredMetricChangeRescalesStableSubclassOverride() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .system
+            settings.save()
+            let provider = MutablePreferredFontProvider(pointSize: 13)
+            let table = ProviderOverrideFontBatchTableView(
+                frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+            )
+            table.setContentPreferredFontProvider(provider)
+            table.configure(rows: [TestBatchRow(name: "alpha")])
+            let column = try XCTUnwrap(table.tableView.tableColumns.first)
+            let baselineCell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: column, row: 0) as? NSTableCellView
+            )
+            let baseline = try XCTUnwrap(baselineCell.textField?.font)
+
+            provider.pointSize = 19.5
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+
+            let updatedCell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: column, row: 0) as? NSTableCellView
+            )
+            let updated = try XCTUnwrap(updatedCell.textField?.font)
+            XCTAssertEqual(updated.pointSize, baseline.pointSize * 1.5, accuracy: 0.01)
+            XCTAssertTrue(updated.fontDescriptor.symbolicTraits.contains(.bold))
+        }
+    }
+
+    func testRebuildAtTwoHundredPercentImmediatelyStylesNewStandardHeader() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+            let table = ReconfigurableBatchTableView(
+                frame: NSRect(x: 0, y: 0, width: 360, height: 240)
+            )
+            let existingHeaderSize = try XCTUnwrap(
+                table.tableView.tableColumns.first?.headerCell.font
+            ).pointSize
+
+            table.showScoreColumn = true
+            table.rebuildStandardColumns()
+
+            let score = try XCTUnwrap(
+                table.tableView.tableColumns.first { $0.identifier.rawValue == "score" }
+            )
+            XCTAssertEqual(
+                try XCTUnwrap(score.headerCell.font).pointSize,
+                existingHeaderSize,
+                accuracy: 0.01
+            )
+        }
+    }
+
+    func testStandaloneMetadataControllerSynchronizesTableGeometryAndTiling() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            let table = NSTableView()
+            table.addTableColumn(NSTableColumn(identifier: .init("metadata_Group")))
+            let scrollView = NSScrollView(
+                frame: NSRect(x: 0, y: 0, width: 320, height: 160)
+            )
+            scrollView.documentView = table
+            let controller = MetadataColumnController()
+            controller.install(on: table)
+            let baselineRowHeight = table.rowHeight
+            let baselineHeaderHeight = try XCTUnwrap(table.headerView).frame.height
+            let headerClipView = try XCTUnwrap(table.headerView?.superview as? NSClipView)
+            let baselineClipHeight = headerClipView.frame.height
+
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+
+            XCTAssertGreaterThan(table.rowHeight, baselineRowHeight)
+            XCTAssertGreaterThan(try XCTUnwrap(table.headerView).frame.height, baselineHeaderHeight)
+            XCTAssertGreaterThan(headerClipView.frame.height, baselineClipHeight)
+
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            XCTAssertEqual(table.rowHeight, baselineRowHeight, accuracy: 0.01)
+            XCTAssertEqual(try XCTUnwrap(table.headerView).frame.height, baselineHeaderHeight, accuracy: 0.01)
+            XCTAssertEqual(headerClipView.frame.height, baselineClipHeight, accuracy: 0.01)
         }
     }
 
@@ -482,6 +591,48 @@ private final class OverrideFontBatchTableView: BatchTableView<TestBatchRow> {
         row: TestBatchRow
     ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
         (row.name, .left, .boldSystemFont(ofSize: 11))
+    }
+}
+
+@MainActor
+private final class ProviderOverrideFontBatchTableView: BatchTableView<TestBatchRow> {
+    override var columnSpecs: [BatchColumnSpec] {
+        [
+            BatchColumnSpec(
+                identifier: .init("name"),
+                title: "Name",
+                width: 120,
+                minWidth: 80,
+                defaultAscending: true
+            ),
+        ]
+    }
+
+    override func cellContent(
+        for column: NSUserInterfaceItemIdentifier,
+        row: TestBatchRow
+    ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
+        (row.name, .left, .boldSystemFont(ofSize: 11))
+    }
+}
+
+@MainActor
+private final class MutablePreferredFontProvider: ContentPreferredFontProviding {
+    var pointSize: CGFloat
+
+    init(pointSize: CGFloat) {
+        self.pointSize = pointSize
+    }
+
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        switch role {
+        case .emphasizedBody, .tableHeader:
+            return .boldSystemFont(ofSize: pointSize)
+        case .monospaced:
+            return .monospacedSystemFont(ofSize: pointSize, weight: .regular)
+        default:
+            return .systemFont(ofSize: pointSize)
+        }
     }
 }
 

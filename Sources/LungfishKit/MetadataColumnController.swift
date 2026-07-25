@@ -43,17 +43,24 @@ private let metadataColumnPrefix = "metadata_"
 /// This class is `@MainActor` isolated.
 @MainActor
 public final class MetadataColumnController {
+    public enum ContentTypographyOwnership {
+        case standalone
+        case embedded
+    }
 
     // MARK: - Properties
 
-    public init() {
-        let notifications = NotificationCenterContentTypographyNotifications(
-            notificationCenter: .default
-        )
-        contentTypographyObservation = notifications.observe(
-            .contentTextSizeDidChange
-        ) { [weak self] in
-            self?.applyContentTypography()
+    public init(contentTypographyOwnership: ContentTypographyOwnership = .standalone) {
+        self.contentTypographyOwnership = contentTypographyOwnership
+        if contentTypographyOwnership == .standalone {
+            let notifications = NotificationCenterContentTypographyNotifications(
+                notificationCenter: .default
+            )
+            contentTypographyObservation = notifications.observe(
+                .contentTextSizeDidChange
+            ) { [weak self] in
+                self?.applyContentTypography()
+            }
         }
     }
 
@@ -93,6 +100,7 @@ public final class MetadataColumnController {
 
     /// Live content-size preference observation.
     private var contentTypographyObservation: ContentTypographyNotificationObservation?
+    private let contentTypographyOwnership: ContentTypographyOwnership
 
     /// Avoids recursive resize/visibility handling while applying manager changes.
     private var isApplyingColumnVisibility = false
@@ -127,10 +135,24 @@ public final class MetadataColumnController {
     public func applyContentTypography() {
         guard let tableView else { return }
         let typography = ContentTypography.current()
+        if contentTypographyOwnership == .standalone {
+            tableView.rowHeight = typography.tableRowHeight()
+            if let headerView = tableView.headerView {
+                var frame = headerView.frame
+                frame.size.height = typography.tableHeaderHeight()
+                headerView.frame = frame
+            }
+            tableView.enclosingScrollView?.tile()
+        }
         for column in tableView.tableColumns where Self.isMetadataColumn(column.identifier) {
             column.headerCell.font = typography.font(for: .tableHeader)
         }
-        for row in 0..<tableView.numberOfRows {
+        let visibleRows = tableView.rows(in: tableView.visibleRect)
+        guard visibleRows.location != NSNotFound else { return }
+        for row in visibleRows.location..<min(
+            NSMaxRange(visibleRows),
+            tableView.numberOfRows
+        ) {
             for (columnIndex, column) in tableView.tableColumns.enumerated()
             where Self.isMetadataColumn(column.identifier) && !column.isHidden {
                 let cell = tableView.view(
