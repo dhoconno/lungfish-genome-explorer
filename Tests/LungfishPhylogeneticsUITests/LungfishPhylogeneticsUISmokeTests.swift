@@ -12,6 +12,57 @@ import LungfishWorkflow
 
 @MainActor
 final class LungfishPhylogeneticsUISmokeTests: XCTestCase {
+    func testReleaseSourcesExcludeTestOnlyInstrumentation() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let relativePaths = [
+            "Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift",
+            "Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift",
+            "Sources/LungfishTwelveSUI/TwelveSTargetTableView.swift",
+            "Sources/LungfishTwelveSUI/TwelveSUnresolvedTableView.swift",
+        ]
+        let prohibitedReleaseTokens = [
+            "typographyApplicationCount",
+            "centerSelectedNodeCount",
+            "configureCount",
+            "recomputeLayoutCount",
+            "fitCount",
+            "resetCount",
+            "zoomCount",
+            "filterApplicationCount",
+            "targetProjectionRebuildCount",
+            "referenceFetchCount",
+            "detailEmissionCount",
+            "displaySummaryNotificationCount",
+            "testing",
+            "Testing",
+            "ForTesting",
+            "visibleTargetRowCount",
+            "visibleUnresolvedRowCount",
+            "tableColumnIdentifiers",
+            "TestingPrimaryContentMetrics",
+            "testingSetContentPreferredFontProvider",
+            "summaryTextForTesting",
+            "showUnresolvedForTesting",
+        ]
+
+        for relativePath in relativePaths {
+            let source = try String(
+                contentsOf: repositoryRoot.appendingPathComponent(relativePath),
+                encoding: .utf8
+            )
+            let releaseProjection = sourceRemovingDebugConditionalBlocks(source)
+            for token in prohibitedReleaseTokens {
+                XCTAssertFalse(
+                    releaseProjection.contains(token),
+                    "\(relativePath) retains test-only token \(token) in Release"
+                )
+            }
+        }
+    }
+
     func testTreeViewControllerLoadsViewStandalone() {
         let controller = PhylogeneticTreeViewController()
         XCTAssertEqual(controller.view.accessibilityIdentifier(), "phylogenetic-tree-bundle-view")
@@ -187,6 +238,43 @@ final class LungfishPhylogeneticsUISmokeTests: XCTestCase {
         }
     }
 
+    func testLongDetailAtTwoHundredPercentKeepsANavigableCanvasAndFullAccessibilityText() throws {
+        try preservingPhylogeneticContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+            let controller = PhylogeneticTreeViewController()
+            controller.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+            controller.testingSetContentPreferredFontProvider(
+                MutablePhylogeneticFontProvider(pointSize: 13)
+            )
+            let bundleURL = try makePhylogeneticTreeBundle()
+            defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+            try controller.displayBundle(at: bundleURL)
+            let longDetail = String(
+                repeating: "Long arbitrary phylogenetic metadata must stay available to assistive technology. ",
+                count: 30
+            )
+            controller.testingSetDetailText(longDetail)
+
+            try withSafePhylogeneticHostWindow(
+                content: controller.view,
+                size: controller.view.frame.size
+            ) { _ in
+                controller.view.layoutSubtreeIfNeeded()
+                let frames = controller.testingTreeLayoutFrames
+                let canvas = try XCTUnwrap(frames["treeScrollView"])
+                let detail = try XCTUnwrap(frames["detailLabel"])
+                XCTAssertFalse(canvas.intersects(detail), "frames: \(frames)")
+                XCTAssertGreaterThanOrEqual(canvas.height, 160, "frames: \(frames)")
+                XCTAssertLessThanOrEqual(detail.height, 90, "frames: \(frames)")
+                XCTAssertEqual(controller.testingDetailAccessibilityValue, longDetail)
+                XCTAssertEqual(controller.testingDetailToolTip, longDetail)
+                XCTAssertFalse(controller.testingHasAmbiguousPrimaryLayout)
+            }
+        }
+    }
+
     func testTreeTypographyObserverTearsDownWithController() {
         weak var released: PhylogeneticTreeViewController?
         autoreleasepool {
@@ -278,6 +366,30 @@ final class LungfishPhylogeneticsUISmokeTests: XCTestCase {
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
     }
+}
+
+private func sourceRemovingDebugConditionalBlocks(_ source: String) -> String {
+    var debugDepth = 0
+    var output: [Substring] = []
+    for line in source.split(separator: "\n", omittingEmptySubsequences: false) {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed == "#if DEBUG" {
+            debugDepth += 1
+            continue
+        }
+        if trimmed.hasPrefix("#if "), debugDepth > 0 {
+            debugDepth += 1
+            continue
+        }
+        if trimmed == "#endif", debugDepth > 0 {
+            debugDepth -= 1
+            continue
+        }
+        if debugDepth == 0 {
+            output.append(line)
+        }
+    }
+    return output.joined(separator: "\n")
 }
 
 @MainActor

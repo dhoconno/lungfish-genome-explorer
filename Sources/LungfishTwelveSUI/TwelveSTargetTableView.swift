@@ -99,7 +99,9 @@ final class TwelveSAdaptiveColumnWidthState {
 final class TwelveSTargetTableView: BatchTableView<TwelveSTargetSampleRow> {
     private static let metadataPrefix = "sampleMeta::"
     private let adaptiveColumnWidths = TwelveSAdaptiveColumnWidthState()
+    #if DEBUG
     private(set) var typographyApplicationCount = 0
+    #endif
 
     /// Imported sample metadata backing the row-scoped metadata columns (if any).
     private var metadataStore: SampleMetadataStore?
@@ -180,7 +182,9 @@ final class TwelveSTargetTableView: BatchTableView<TwelveSTargetSampleRow> {
             canonicalBodyPointSize: canonicalContentPointSize(for: .body)
         )
         restoreScrollOriginY(scrollOriginY)
+        #if DEBUG
         typographyApplicationCount += 1
+        #endif
     }
 
     override var columnTypeHints: [String: Bool] {

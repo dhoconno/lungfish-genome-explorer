@@ -10,7 +10,9 @@ import LungfishKit
 @MainActor
 final class TwelveSUnresolvedTableView: BatchTableView<TwelveSUnresolvedSequence> {
     private let adaptiveColumnWidths = TwelveSAdaptiveColumnWidthState()
+    #if DEBUG
     private(set) var typographyApplicationCount = 0
+    #endif
 
     override var columnSpecs: [BatchColumnSpec] {
         [
@@ -39,7 +41,9 @@ final class TwelveSUnresolvedTableView: BatchTableView<TwelveSUnresolvedSequence
             canonicalBodyPointSize: canonicalContentPointSize(for: .body)
         )
         restoreScrollOriginY(scrollOriginY)
+        #if DEBUG
         typographyApplicationCount += 1
+        #endif
     }
 
     override var columnTypeHints: [String: Bool] {

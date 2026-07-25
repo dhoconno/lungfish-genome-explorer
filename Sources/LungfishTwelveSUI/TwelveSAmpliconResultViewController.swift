@@ -40,12 +40,148 @@ private final class TwelveSContentTypographyObservation {
 }
 
 @MainActor
+private final class TwelveSAdaptiveHeaderControlsView: NSView {
+    private let modeControl: NSSegmentedControl
+    private let sampleFilterButton: NSButton
+    private let sampleColumnsButton: NSButton
+    private let searchField: NSSearchField
+    private let itemSpacing: CGFloat = 12
+    private let rowSpacing: CGFloat = 8
+    private let modeWidth: CGFloat = 190
+
+    var searchHeight: CGFloat = 24 {
+        didSet { needsLayout = true }
+    }
+    var searchDesiredWidth: CGFloat = 200 {
+        didSet { needsLayout = true }
+    }
+    #if DEBUG
+    private(set) var rowCount = 1
+    #endif
+
+    init(
+        modeControl: NSSegmentedControl,
+        sampleFilterButton: NSButton,
+        sampleColumnsButton: NSButton,
+        searchField: NSSearchField
+    ) {
+        self.modeControl = modeControl
+        self.sampleFilterButton = sampleFilterButton
+        self.sampleColumnsButton = sampleColumnsButton
+        self.searchField = searchField
+        super.init(frame: .zero)
+        [modeControl, sampleFilterButton, sampleColumnsButton, searchField].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = true
+            addSubview($0)
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    func requiredHeight(for width: CGFloat) -> CGFloat {
+        let rows = arrangedRows(for: max(1, width))
+        return rows.enumerated().reduce(0) { height, entry in
+            height + rowHeight(entry.element) + (entry.offset == 0 ? 0 : rowSpacing)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        let rows = arrangedRows(for: max(1, bounds.width))
+        #if DEBUG
+        rowCount = rows.count
+        #endif
+        var y: CGFloat = 0
+        for row in rows {
+            let height = rowHeight(row)
+            var x: CGFloat = 0
+            for (index, control) in row.enumerated() {
+                let width = control === searchField
+                    ? max(1, bounds.width - x)
+                    : controlWidth(control)
+                let controlHeight = control === searchField
+                    ? searchHeight
+                    : min(height, max(1, control.fittingSize.height))
+                control.frame = NSRect(
+                    x: x,
+                    y: y + floor((height - controlHeight) / 2),
+                    width: min(width, max(1, bounds.width - x)),
+                    height: controlHeight
+                )
+                x = control.frame.maxX + (index == row.count - 1 ? 0 : itemSpacing)
+            }
+            y += height + rowSpacing
+        }
+    }
+
+    #if DEBUG
+    var testingVisibleControlFrames: [String: NSRect] {
+        let controls: [(String, NSView)] = [
+            ("mode", modeControl),
+            ("samples", sampleFilterButton),
+            ("columns", sampleColumnsButton),
+            ("search", searchField),
+        ]
+        return Dictionary(uniqueKeysWithValues: controls.compactMap { identifier, control in
+            control.isHidden ? nil : (identifier, control.frame)
+        })
+    }
+    #endif
+
+    private func arrangedRows(for width: CGFloat) -> [[NSView]] {
+        let chrome = [modeControl, sampleFilterButton, sampleColumnsButton].filter { !$0.isHidden }
+        let oneRow = chrome + [searchField]
+        if requiredWidth(oneRow) <= width {
+            return [oneRow]
+        }
+        if requiredWidth(chrome) <= width {
+            return [chrome, [searchField]]
+        }
+        var rows: [[NSView]] = [[modeControl]]
+        let buttons = [sampleFilterButton, sampleColumnsButton].filter { !$0.isHidden }
+        if !buttons.isEmpty {
+            if requiredWidth(buttons) <= width {
+                rows.append(buttons)
+            } else {
+                rows.append(contentsOf: buttons.map { [$0] })
+            }
+        }
+        rows.append([searchField])
+        return rows
+    }
+
+    private func requiredWidth(_ controls: [NSView]) -> CGFloat {
+        controls.enumerated().reduce(0) { width, entry in
+            width
+                + (entry.offset == 0 ? 0 : itemSpacing)
+                + (entry.element === searchField ? searchDesiredWidth : controlWidth(entry.element))
+        }
+    }
+
+    private func controlWidth(_ control: NSView) -> CGFloat {
+        control === modeControl ? modeWidth : max(1, control.fittingSize.width)
+    }
+
+    private func rowHeight(_ row: [NSView]) -> CGFloat {
+        row.reduce(0) { height, control in
+            max(height, control === searchField ? searchHeight : control.fittingSize.height)
+        }
+    }
+}
+
+@MainActor
 public final class TwelveSAmpliconResultViewController: NSViewController {
     enum Mode: Int {
         case targets
         case unresolved
     }
 
+    #if DEBUG
     struct TestingPrimaryContentMetrics: Equatable {
         let titleFontPointSize: CGFloat
         let summaryFontPointSize: CGFloat
@@ -90,6 +226,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         let targetTable: Int
         let unresolvedTable: Int
     }
+    #endif
 
     private let titleLabel = NSTextField(labelWithString: "12S Amplicon Matches")
     private let summaryLabel = NSTextField(labelWithString: "")
@@ -105,19 +242,18 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private let targetTable = TwelveSTargetTableView()
     private let unresolvedTable = TwelveSUnresolvedTableView()
     private let actionBar = ClassifierActionBar()
-    private var headerSearchHeightConstraint: NSLayoutConstraint?
-    private var headerSearchMinimumWidthConstraint: NSLayoutConstraint?
-    private var headerSearchMaximumWidthConstraint: NSLayoutConstraint?
+    private var headerControlsHeightConstraint: NSLayoutConstraint?
     private var preferredFontProvider: any ContentPreferredFontProviding =
         AppKitContentPreferredFontProvider()
     private var contentTypographyObservation: TwelveSContentTypographyObservation?
+    #if DEBUG
     private var typographyApplicationCount = 0
-
     private var filterApplicationCount = 0
     private var targetProjectionRebuildCount = 0
     private var referenceFetchCount = 0
     private var detailEmissionCount = 0
     private var displaySummaryNotificationCount = 0
+    #endif
 
     private var splitViewBottomConstraint: NSLayoutConstraint?
     private var blastDrawerContainer: BlastResultsDrawerContainerView?
@@ -161,6 +297,12 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// Threshold above which per-sample reads columns are auto-suppressed.
     private let autoReadsColumnSampleLimit = 8
     private let sampleColumnsButton = NSButton(title: "Sample Columns", target: nil, action: nil)
+    private lazy var headerControlsView = TwelveSAdaptiveHeaderControlsView(
+        modeControl: modeControl,
+        sampleFilterButton: sampleFilterButton,
+        sampleColumnsButton: sampleColumnsButton,
+        searchField: searchField
+    )
 
     public var inspectorSamplePickerState: ClassifierSamplePickerState? { samplePickerState }
     public var inspectorSampleEntries: [any ClassifierSampleEntry] { sampleEntries }
@@ -185,9 +327,8 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// to log or intercept.
     public var onOpenURLRequested: ((URL) -> Void)?
 
-    /// The most recent detail payload, retained so the legacy `testing*`
-    /// accessors keep reporting the selected row's evidence after the split
-    /// detail pane was removed.
+    /// The most recent detail payload, retained after the split detail pane
+    /// moved to the Inspector.
     private var lastDetailPayload: TwelveSDetailPayload?
 
     /// Resolves per-target reference sequences from the bundle's reference
@@ -205,6 +346,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         mode == .targets ? targetTable.tableView : unresolvedTable.tableView
     }
 
+    #if DEBUG
     var visibleTargetRowCount: Int {
         targetTable.displayedRows.count
     }
@@ -283,6 +425,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     func testingTriggerMetadataImport() {
         onMetadataImportRequested?()
     }
+    #endif
 
     public override func loadView() {
         let root = NSView()
@@ -301,6 +444,11 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         contentTypographyObservation = TwelveSContentTypographyObservation { [weak self] in
             self?.applyContentTypography()
         }
+    }
+
+    public override func viewDidLayout() {
+        super.viewDidLayout()
+        updateHeaderControlGeometry()
     }
 
     isolated deinit {
@@ -368,7 +516,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func rebuildAllTargetSampleRows() {
+        #if DEBUG
         targetProjectionRebuildCount += 1
+        #endif
         allTargetSampleRows = TwelveSTargetSampleRow.rows(
             from: allTargetRows,
             samples: result?.samples ?? [],
@@ -522,6 +672,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         !allSampleIDs.isEmpty && selectedSamples.count < allSampleIDs.count
     }
 
+    #if DEBUG
     /// Test seam: drive the sample selection without the popover.
     func testingSetSelectedSamples(_ ids: Set<String>) {
         if let samplePickerState {
@@ -549,6 +700,16 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
     var testingHeaderSearchField: NSSearchField { searchField }
 
+    var testingHeaderControlsBounds: NSRect {
+        headerControlsView.bounds
+    }
+
+    var testingHeaderControlFrames: [String: NSRect] {
+        headerControlsView.testingVisibleControlFrames
+    }
+
+    var testingHeaderControlRowCount: Int { headerControlsView.rowCount }
+
     var testingPrimaryContentMetrics: TestingPrimaryContentMetrics {
         let targetCell = renderedTextField(
             in: targetTable.tableView,
@@ -570,7 +731,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             unresolvedRowHeight: unresolvedTable.tableView.rowHeight,
             targetHeaderHeight: targetTable.tableView.headerView?.frame.height ?? 0,
             unresolvedHeaderHeight: unresolvedTable.tableView.headerView?.frame.height ?? 0,
-            searchHeight: headerSearchHeightConstraint?.constant ?? searchField.frame.height
+            searchHeight: headerControlsView.searchHeight
         )
     }
 
@@ -657,7 +818,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     var testingHasAmbiguousPrimaryLayout: Bool {
-        [view, titleLabel, summaryLabel, searchField, targetTable, unresolvedTable]
+        [view, titleLabel, summaryLabel, headerControlsView, searchField, targetTable, unresolvedTable]
             .contains(where: \.hasAmbiguousLayout)
     }
 
@@ -700,6 +861,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         guard targetTable.displayedRows.indices.contains(row) else { return "" }
         return targetTable.cellContent(for: NSUserInterfaceItemIdentifier(column), row: targetTable.displayedRows[row]).text
     }
+    #endif
 
     func exportSnapshot() -> TwelveSAmpliconResultExportSnapshot? {
         guard let result else { return nil }
@@ -832,7 +994,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             scale: scale
         )
         searchField.font = resolvedBody
-        headerSearchHeightConstraint?.constant = max(
+        headerControlsView.searchHeight = max(
             24,
             ceil(resolvedBody.boundingRectForFont.height + 8)
         )
@@ -841,32 +1003,43 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
                 x: 0,
                 y: 0,
                 width: 1_000,
-                height: headerSearchHeightConstraint?.constant ?? 24
+                height: headerControlsView.searchHeight
             )).width ?? 0,
             (searchField.placeholderString as NSString?)?.size(
                 withAttributes: [.font: resolvedBody]
             ).width ?? 0
         ) + 36)
-        headerSearchMinimumWidthConstraint?.constant = max(
-            140,
-            min(searchFittingWidth, 260)
-        )
-        headerSearchMaximumWidthConstraint?.constant = max(
+        headerControlsView.searchDesiredWidth = max(
             200,
             min(searchFittingWidth, 360)
         )
+        updateHeaderControlGeometry()
 
         titleLabel.toolTip = titleLabel.stringValue
         titleLabel.setAccessibilityValue(titleLabel.stringValue)
         summaryLabel.toolTip = summaryLabel.stringValue
         summaryLabel.setAccessibilityValue(summaryLabel.stringValue)
+        #if DEBUG
         typographyApplicationCount += 1
+        #endif
         view.needsLayout = true
     }
 
     private func scaledStableFont(baseline: NSFont, scale: CGFloat) -> NSFont {
         let size = max(ContentTypography.minimumPointSize, baseline.pointSize * scale)
         return NSFont(descriptor: baseline.fontDescriptor, size: size) ?? baseline
+    }
+
+    private func updateHeaderControlGeometry() {
+        guard isViewLoaded else { return }
+        let width = max(1, headerControlsView.bounds.width > 0
+            ? headerControlsView.bounds.width
+            : view.bounds.width - 32)
+        let height = headerControlsView.requiredHeight(for: width)
+        if abs((headerControlsHeightConstraint?.constant ?? 0) - height) > 0.5 {
+            headerControlsHeightConstraint?.constant = height
+        }
+        headerControlsView.needsLayout = true
     }
 
     private func configureTables() {
@@ -949,6 +1122,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         return selected.isEmpty ? Array(unresolvedTable.displayedRows.prefix(1)) : selected
     }
 
+    #if DEBUG
     /// Test seam: override the pasteboard used by the copy menu.
     func testingSetPasteboard(_ pasteboard: PasteboardWriting) {
         self.pasteboard = pasteboard
@@ -965,6 +1139,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             pasteboard.setString(TwelveSCopyFormatting.unresolvedNames([unresolvedTable.displayedRows[row]]))
         }
     }
+    #endif
 
     private func configureActionBar() {
         actionBar.extractButton.isHidden = true
@@ -982,19 +1157,11 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func layout() {
-        let controlRow = NSStackView(
-            views: [modeControl, sampleFilterButton, sampleColumnsButton, searchField]
-        )
-        controlRow.orientation = .horizontal
-        controlRow.alignment = .centerY
-        controlRow.spacing = 12
-
-        let headerRow = NSStackView(views: [titleLabel, controlRow])
+        let headerRow = NSStackView(views: [titleLabel, headerControlsView])
         headerRow.orientation = .vertical
         headerRow.alignment = .leading
         headerRow.spacing = 8
         headerRow.translatesAutoresizingMaskIntoConstraints = false
-
         tableContainer.translatesAutoresizingMaskIntoConstraints = false
 
         [headerRow, summaryLabel, tableContainer, actionBar].forEach {
@@ -1007,23 +1174,15 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         // container's bottom; the BLAST drawer re-points it when it opens.
         let tableBottom = tableContainer.bottomAnchor.constraint(equalTo: actionBar.topAnchor)
         splitViewBottomConstraint = tableBottom
-        let searchHeight = searchField.heightAnchor.constraint(equalToConstant: 24)
-        let searchMinimumWidth = searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 140)
-        let searchMaximumWidth = searchField.widthAnchor.constraint(lessThanOrEqualToConstant: 200)
-        searchMaximumWidth.priority = .defaultHigh
-        headerSearchHeightConstraint = searchHeight
-        headerSearchMinimumWidthConstraint = searchMinimumWidth
-        headerSearchMaximumWidthConstraint = searchMaximumWidth
+        let headerControlsHeight = headerControlsView.heightAnchor.constraint(equalToConstant: 24)
+        headerControlsHeightConstraint = headerControlsHeight
         NSLayoutConstraint.activate([
             headerRow.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
             headerRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             headerRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             titleLabel.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
-            controlRow.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
-            modeControl.widthAnchor.constraint(equalToConstant: 190),
-            searchHeight,
-            searchMinimumWidth,
-            searchMaximumWidth,
+            headerControlsView.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
+            headerControlsHeight,
 
             summaryLabel.topAnchor.constraint(equalTo: headerRow.bottomAnchor, constant: 6),
             summaryLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
@@ -1091,7 +1250,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func applyFilters(notify: Bool) {
+        #if DEBUG
         filterApplicationCount += 1
+        #endif
         targetRows = allTargetSampleRows.filter(targetSampleMatchesDisplayState)
         unresolvedRows = allUnresolvedRows.filter(unresolvedMatchesDisplayState)
         // When comparing a strict subset of samples, drop rows that have no
@@ -1159,7 +1320,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func notifyDisplaySummaryChanged() {
+        #if DEBUG
         displaySummaryNotificationCount += 1
+        #endif
         switch mode {
         case .targets:
             onDisplaySummaryChanged?(
@@ -1250,7 +1413,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     /// still on the same species.
     private func loadReferenceSequences(for row: TwelveSTargetSampleRow) {
         guard let provider = referenceProvider else { return }
+        #if DEBUG
         referenceFetchCount += 1
+        #endif
         let targetIDs = row.targetIDs
         let species = row.scientificName
         let sampleID = row.sampleID
@@ -1281,7 +1446,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func emitDetail(_ payload: TwelveSDetailPayload?) {
+        #if DEBUG
         detailEmissionCount += 1
+        #endif
         lastDetailPayload = payload
         onSelectedRowDetailChanged?(payload)
     }

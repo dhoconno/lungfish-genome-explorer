@@ -104,8 +104,10 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
     private var baselineColumnMinimumWidths: [String: CGFloat] = [:]
     private var lastProgrammaticColumnWidths: [String: CGFloat] = [:]
     private var lastResolvedColumnScale: CGFloat = 1
+    #if DEBUG
     private var typographyApplicationCount = 0
     private var centerSelectedNodeCount = 0
+    #endif
 
     private var nodes: [PhylogeneticTreeNormalizedNode] = []
     private var originalNodes: [PhylogeneticTreeNormalizedNode] = []
@@ -247,7 +249,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
 
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.lineBreakMode = .byWordWrapping
-        detailLabel.maximumNumberOfLines = 0
+        detailLabel.maximumNumberOfLines = 3
         detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         detailLabel.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.detail)
         detailLabel.setAccessibilityLabel("Selected phylogenetic tree node details")
@@ -300,6 +302,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             treeScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             treeScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             treeScrollView.bottomAnchor.constraint(equalTo: detailLabel.topAnchor, constant: -8),
+            treeScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 160),
 
             detailLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -12),
@@ -356,7 +359,9 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         nodeTableView.enclosingScrollView?.tile()
         updatePrimaryContentGeometry()
         view.needsLayout = true
+        #if DEBUG
         typographyApplicationCount += 1
+        #endif
     }
 
     private func updatePrimaryContentGeometry() {
@@ -718,7 +723,9 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
     }
 
     private func centerSelectedNode() {
+        #if DEBUG
         centerSelectedNodeCount += 1
+        #endif
         guard let selectedNodeID,
               let rect = treeCanvasView.rectForNode(id: selectedNodeID) else { return }
         treeCanvasView.scrollToVisible(rect.insetBy(dx: -80, dy: -36))
@@ -1090,6 +1097,7 @@ extension PhylogeneticTreeViewController {
     }
 }
 
+#if DEBUG
 public extension PhylogeneticTreeViewController {
     struct TestingPrimaryContentMetrics: Equatable {
         public let summaryFontPointSize: CGFloat
@@ -1317,6 +1325,21 @@ public extension PhylogeneticTreeViewController {
         detailLabel.stringValue
     }
 
+    func testingSetDetailText(_ text: String) {
+        detailLabel.stringValue = text
+        detailLabel.toolTip = text
+        detailLabel.setAccessibilityValue(text)
+        view.needsLayout = true
+    }
+
+    var testingDetailAccessibilityValue: String {
+        detailLabel.accessibilityValue() ?? ""
+    }
+
+    var testingDetailToolTip: String {
+        detailLabel.toolTip ?? ""
+    }
+
     var testingNodeContextMenuTitles: [String] {
         nodeContextMenu().items.map(\.title)
     }
@@ -1396,6 +1419,7 @@ public extension PhylogeneticTreeViewController {
         colorModeChanged(colorModeControl)
     }
 }
+#endif
 
 public enum PhylogeneticTreeCanvasColorMode {
     case none
@@ -1445,12 +1469,12 @@ private final class PhylogeneticTreeCanvasView: NSView {
     private var labelWidth: CGFloat = 180
     private var pointsPerBranchLengthUnit: CGFloat?
     private var maxBranchLengthUnits: CGFloat = 0
+    #if DEBUG
     private var configureCount = 0
     private var recomputeLayoutCount = 0
     private var fitCount = 0
     private var resetCount = 0
     private var zoomCount = 0
-
     var testingNodeCount: Int { nodes.count }
     var testingConfigureCount: Int { configureCount }
     var testingRecomputeLayoutCount: Int { recomputeLayoutCount }
@@ -1488,6 +1512,7 @@ private final class PhylogeneticTreeCanvasView: NSView {
         let scaleUnits = niceScaleLength(near: targetUnits)
         return String(format: "%.3g substitutions/site", Double(scaleUnits))
     }
+    #endif
 
     override var isFlipped: Bool { true }
 
@@ -1523,7 +1548,9 @@ private final class PhylogeneticTreeCanvasView: NSView {
     }
 
     func configure(nodes: [PhylogeneticTreeNormalizedNode], collapsedNodeIDs: Set<String>) {
+        #if DEBUG
         configureCount += 1
+        #endif
         self.nodes = nodes
         self.collapsedNodeIDs = collapsedNodeIDs
         nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
@@ -1532,7 +1559,9 @@ private final class PhylogeneticTreeCanvasView: NSView {
     }
 
     func fit(to visibleSize: NSSize) {
+        #if DEBUG
         fitCount += 1
+        #endif
         guard baseSize.width > 0, baseSize.height > 0 else { return }
         let horizontal = visibleSize.width > 0 ? visibleSize.width / baseSize.width : 1
         let vertical = visibleSize.height > 0 ? visibleSize.height / baseSize.height : 1
@@ -1542,14 +1571,18 @@ private final class PhylogeneticTreeCanvasView: NSView {
     }
 
     func resetView() {
+        #if DEBUG
         resetCount += 1
+        #endif
         zoomScale = 1
         updateFrameSize()
         needsDisplay = true
     }
 
     func zoom(by factor: CGFloat) {
+        #if DEBUG
         zoomCount += 1
+        #endif
         zoomScale = min(4, max(0.25, zoomScale * factor))
         updateFrameSize()
         needsDisplay = true
@@ -1566,6 +1599,7 @@ private final class PhylogeneticTreeCanvasView: NSView {
         )
     }
 
+    #if DEBUG
     func testingPoint(label: String) -> NSPoint? {
         guard let node = nodes.first(where: { $0.displayLabel == label }),
               let layout = layoutByID[node.id] else {
@@ -1573,6 +1607,7 @@ private final class PhylogeneticTreeCanvasView: NSView {
         }
         return scaled(layout.point)
     }
+    #endif
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.textBackgroundColor.setFill()
@@ -1594,7 +1629,9 @@ private final class PhylogeneticTreeCanvasView: NSView {
     }
 
     private func recomputeLayout() {
+        #if DEBUG
         recomputeLayoutCount += 1
+        #endif
         guard !nodes.isEmpty else {
             layoutByID = [:]
             baseSize = NSSize(width: PhylogeneticTreeCanvasMetrics.minimumWidth, height: PhylogeneticTreeCanvasMetrics.minimumHeight)

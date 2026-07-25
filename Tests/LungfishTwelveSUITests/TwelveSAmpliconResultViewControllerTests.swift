@@ -128,6 +128,58 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
         }
     }
 
+    func testNarrowHeaderControlsReflowAtTwoHundredPercentWithoutLosingFocus() throws {
+        try preservingTwelveSContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            let controller = TwelveSAmpliconResultViewController()
+            controller.view.frame = NSRect(x: 0, y: 0, width: 460, height: 640)
+            controller.configure(result: makeResult())
+
+            try withSafeTwelveSHostWindow(
+                content: controller.view,
+                size: controller.view.frame.size
+            ) { window in
+                controller.view.layoutSubtreeIfNeeded()
+                let search = controller.testingHeaderSearchField
+                XCTAssertTrue(window.makeFirstResponder(search))
+                let responder = try XCTUnwrap(window.firstResponder)
+                let baselineFrames = controller.testingHeaderControlFrames
+                let baselineRows = controller.testingHeaderControlRowCount
+                assertTwelveSHeaderControlsAreContainedAndDisjoint(controller)
+
+                settings.contentTextSizePreference = .custom(200)
+                settings.save()
+                controller.view.layoutSubtreeIfNeeded()
+
+                assertTwelveSHeaderControlsAreContainedAndDisjoint(controller)
+                XCTAssertGreaterThanOrEqual(controller.testingHeaderControlRowCount, 2)
+                XCTAssertGreaterThanOrEqual(
+                    controller.testingHeaderControlRowCount,
+                    baselineRows
+                )
+                XCTAssertEqual(
+                    ObjectIdentifier(try XCTUnwrap(window.firstResponder)),
+                    ObjectIdentifier(responder)
+                )
+                XCTAssertFalse(controller.testingHasAmbiguousPrimaryLayout)
+
+                settings.contentTextSizePreference = .custom(100)
+                settings.save()
+                controller.view.layoutSubtreeIfNeeded()
+
+                XCTAssertEqual(controller.testingHeaderControlRowCount, baselineRows)
+                XCTAssertEqual(controller.testingHeaderControlFrames, baselineFrames)
+                XCTAssertEqual(
+                    ObjectIdentifier(try XCTUnwrap(window.firstResponder)),
+                    ObjectIdentifier(responder)
+                )
+                XCTAssertFalse(controller.testingHasAmbiguousPrimaryLayout)
+            }
+        }
+    }
+
     func testTypographyObserverTearsDownWithController() {
         weak var released: TwelveSAmpliconResultViewController?
         autoreleasepool {
@@ -684,6 +736,35 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
             }
         }
         return nil
+    }
+}
+
+@MainActor
+private func assertTwelveSHeaderControlsAreContainedAndDisjoint(
+    _ controller: TwelveSAmpliconResultViewController,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    let bounds = controller.testingHeaderControlsBounds
+    let frames = controller.testingHeaderControlFrames
+    for (identifier, frame) in frames {
+        XCTAssertTrue(
+            bounds.contains(frame),
+            "\(identifier) escaped header bounds: \(frame) not in \(bounds)",
+            file: file,
+            line: line
+        )
+    }
+    let entries = Array(frames)
+    for leftIndex in entries.indices {
+        for rightIndex in entries.indices where rightIndex > leftIndex {
+            XCTAssertFalse(
+                entries[leftIndex].value.intersects(entries[rightIndex].value),
+                "\(entries[leftIndex].key) overlaps \(entries[rightIndex].key)",
+                file: file,
+                line: line
+            )
+        }
     }
 }
 
