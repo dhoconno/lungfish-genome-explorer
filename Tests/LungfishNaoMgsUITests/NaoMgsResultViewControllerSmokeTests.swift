@@ -198,6 +198,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             (table.view(atColumn: hitsColumn, row: 24, makeIfNecessary: true)
                 as? NSTableCellView)?.textField
         )
+        table.tableColumns[sampleColumn].width = 173
         let baselineSampleSize = try XCTUnwrap(sampleField.font).pointSize
         let baselineHitsSize = try XCTUnwrap(hitsField.font).pointSize
         let baselineRowHeight = table.rowHeight
@@ -207,6 +208,15 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         let baselineOrigin = scrollView.contentView.bounds.origin
         let baselineReloadCount = controller.testTaxonomyReloadCount
         let baselineTransformCount = controller.testTaxonomyTransformCount
+        let baselineSort = table.sortDescriptors.map {
+            "\($0.key ?? ""):\($0.ascending)"
+        }
+        let baselineOrder = controller.testDisplayedTaxonOrder
+        let baselineColumnWidths = Dictionary(
+            uniqueKeysWithValues: table.tableColumns.map {
+                ($0.identifier.rawValue, $0.width)
+            }
+        )
 
         settings.contentTextSizePreference = .custom(200)
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
@@ -236,6 +246,18 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(table.rows(in: table.visibleRect).location, 24)
         XCTAssertEqual(controller.testTaxonomyReloadCount, baselineReloadCount)
         XCTAssertEqual(controller.testTaxonomyTransformCount, baselineTransformCount)
+        XCTAssertEqual(table.sortDescriptors.map { "\($0.key ?? ""):\($0.ascending)" }, baselineSort)
+        XCTAssertEqual(controller.testDisplayedTaxonOrder, baselineOrder)
+        for column in table.tableColumns where baselineColumnWidths[column.identifier.rawValue] != nil {
+            let baselineWidth = try XCTUnwrap(
+                baselineColumnWidths[column.identifier.rawValue]
+            )
+            XCTAssertEqual(
+                column.width,
+                baselineWidth,
+                accuracy: 0.01
+            )
+        }
         XCTAssertEqual(enlargedSampleField.toolTip, enlargedSampleField.stringValue)
         XCTAssertEqual(enlargedSampleField.accessibilityValue(), enlargedSampleField.stringValue)
         XCTAssertTrue(table.tableColumns.allSatisfy {
@@ -282,6 +304,18 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(restoredHitsField.font?.pointSize, baselineHitsSize)
         XCTAssertEqual(table.rowHeight, baselineRowHeight)
         XCTAssertEqual(try XCTUnwrap(table.headerView).frame.height, baselineHeaderHeight)
+        XCTAssertEqual(table.sortDescriptors.map { "\($0.key ?? ""):\($0.ascending)" }, baselineSort)
+        XCTAssertEqual(controller.testDisplayedTaxonOrder, baselineOrder)
+        for column in table.tableColumns where baselineColumnWidths[column.identifier.rawValue] != nil {
+            let baselineWidth = try XCTUnwrap(
+                baselineColumnWidths[column.identifier.rawValue]
+            )
+            XCTAssertEqual(
+                column.width,
+                baselineWidth,
+                accuracy: 0.01
+            )
+        }
 
         settings.contentTextSizePreference = .system
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
@@ -292,6 +326,92 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         let firstSystemSize = systemSampleField.font?.pointSize
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         XCTAssertEqual(systemSampleField.font?.pointSize, firstSystemSize)
+        XCTAssertEqual(table.sortDescriptors.map { "\($0.key ?? ""):\($0.ascending)" }, baselineSort)
+        XCTAssertEqual(controller.testDisplayedTaxonOrder, baselineOrder)
+        for column in table.tableColumns where baselineColumnWidths[column.identifier.rawValue] != nil {
+            let baselineWidth = try XCTUnwrap(
+                baselineColumnWidths[column.identifier.rawValue]
+            )
+            XCTAssertEqual(
+                column.width,
+                baselineWidth,
+                accuracy: 0.01
+            )
+        }
+    }
+
+    @MainActor func testTaxonomySystemTypographyUsesInjectedPreferredMetricsAndRecovers() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .system
+        let provider = MutableNaoMgsPreferredFonts(bodyPointSize: 13)
+        let controller = NaoMgsResultViewController()
+        controller.testingSetContentPreferredFontProvider(provider)
+        controller.loadViewIfNeeded()
+        controller.configureWithCachedRows(
+            [
+                NaoMgsTaxonSummaryRow(
+                    sample: "sample-A",
+                    taxId: 12_345,
+                    name: "System typography taxon",
+                    hitCount: 100,
+                    uniqueReadCount: 90,
+                    avgIdentity: 99,
+                    avgBitScore: 210,
+                    avgEditDistance: 1,
+                    pcrDuplicateCount: 10,
+                    accessionCount: 1,
+                    topAccessions: ["NC_000001.1"],
+                    bamPath: nil,
+                    bamIndexPath: nil
+                ),
+            ],
+            manifest: NaoMgsManifest(
+                sampleName: "sample-A",
+                sourceFilePath: "/tmp/naomgs.tsv",
+                hitCount: 100,
+                taxonCount: 1,
+                topTaxon: "System typography taxon",
+                topTaxonId: 12_345
+            ),
+            awaitingDatabase: false
+        )
+        let table = controller.testTaxonomyTableView
+        let nameColumn = try XCTUnwrap(table.tableColumns.firstIndex {
+            $0.identifier.rawValue == "name"
+        })
+        let field = try XCTUnwrap(
+            (table.view(atColumn: nameColumn, row: 0, makeIfNecessary: true)
+                as? NSTableCellView)?.textField
+        )
+        let baselineSize = try XCTUnwrap(field.font).pointSize
+        let baselineRowHeight = table.rowHeight
+        let baselineHeaderHeight = try XCTUnwrap(table.headerView).frame.height
+
+        provider.bodyPointSize = 26
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        let enlargedField = try XCTUnwrap(
+            (table.view(atColumn: nameColumn, row: 0, makeIfNecessary: true)
+                as? NSTableCellView)?.textField
+        )
+        XCTAssertEqual(enlargedField.font?.pointSize, baselineSize * 2)
+        XCTAssertGreaterThan(table.rowHeight, baselineRowHeight)
+        XCTAssertGreaterThan(try XCTUnwrap(table.headerView).frame.height, baselineHeaderHeight)
+
+        provider.bodyPointSize = 13
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        let restoredField = try XCTUnwrap(
+            (table.view(atColumn: nameColumn, row: 0, makeIfNecessary: true)
+                as? NSTableCellView)?.textField
+        )
+        XCTAssertEqual(restoredField.font?.pointSize, baselineSize)
+        XCTAssertEqual(table.rowHeight, baselineRowHeight)
+        XCTAssertEqual(try XCTUnwrap(table.headerView).frame.height, baselineHeaderHeight)
     }
 
     @MainActor func testOverviewScalesOnlyOrdinaryTextAndKeepsTaxonGraphGeometryFixed() {
@@ -408,7 +528,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(hostingView.frame.width, 240)
     }
 
-    @MainActor func testDatabaseDetailTypographyReflowsWithoutRebuildingOrMutatingMiniBAMState() throws {
+    @MainActor func testHostedOverviewRefitsAfterLiveModelUpdatesAndPreservesScrollOrigin() throws {
         let settings = AppSettings.shared
         let original = settings.contentTextSizePreference
         defer {
@@ -417,6 +537,126 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
+        let provider = MutableNaoMgsPreferredFonts(bodyPointSize: 13)
+        let rows = (0..<30).map { index in
+            NaoMgsTaxonSummaryRow(
+                sample: "Extremely long longitudinal clinical sample identifier",
+                taxId: 20_000 + index,
+                name: "Complete taxon name \(index)",
+                hitCount: 10_000 - index,
+                uniqueReadCount: 9_000 - index,
+                avgIdentity: 99,
+                avgBitScore: 210,
+                avgEditDistance: 1,
+                pcrDuplicateCount: 1,
+                accessionCount: 1,
+                topAccessions: ["NC_000001.1"],
+                bamPath: nil,
+                bamIndexPath: nil
+            )
+        }
+        let controller = NaoMgsResultViewController()
+        controller.testingSetContentPreferredFontProvider(provider)
+        controller.view.frame = NSRect(x: 0, y: 0, width: 720, height: 420)
+        let window = NSWindow(
+            contentRect: controller.view.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = controller.view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+        controller.configureWithCachedRows(
+            rows,
+            manifest: NaoMgsManifest(
+                sampleName: rows[0].sample,
+                sourceFilePath: "/tmp/naomgs.tsv",
+                hitCount: 100_000,
+                taxonCount: rows.count,
+                topTaxon: rows[0].name,
+                topTaxonId: rows[0].taxId
+            ),
+            awaitingDatabase: false
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        controller.view.layoutSubtreeIfNeeded()
+        let hostingView = try XCTUnwrap(controller.testOverviewHostingView)
+        let scrollView = controller.testDetailScrollView
+        let baselineHostingIdentity = ObjectIdentifier(hostingView)
+        let baselineHeight = controller.testDetailContentView.frame.height
+        XCTAssertTrue(controller.testOverviewIsContained)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: 24))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        let baselineOrigin = scrollView.contentView.bounds.origin
+
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        controller.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(ObjectIdentifier(try XCTUnwrap(controller.testOverviewHostingView)), baselineHostingIdentity)
+        XCTAssertTrue(controller.testOverviewIsContained)
+        XCTAssertGreaterThan(controller.testDetailContentView.frame.height, baselineHeight)
+        XCTAssertEqual(scrollView.contentView.bounds.origin, baselineOrigin)
+
+        settings.contentTextSizePreference = .custom(100)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        controller.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(controller.testOverviewIsContained)
+        XCTAssertEqual(controller.testDetailContentView.frame.height, baselineHeight, accuracy: 1)
+        XCTAssertEqual(scrollView.contentView.bounds.origin, baselineOrigin)
+
+        settings.contentTextSizePreference = .system
+        provider.bodyPointSize = 26
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        controller.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(controller.testOverviewIsContained)
+        XCTAssertGreaterThan(controller.testDetailContentView.frame.height, baselineHeight)
+        XCTAssertEqual(scrollView.contentView.bounds.origin, baselineOrigin)
+
+        provider.bodyPointSize = 13
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        controller.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(controller.testOverviewIsContained)
+        XCTAssertEqual(controller.testDetailContentView.frame.height, baselineHeight, accuracy: 1)
+        XCTAssertEqual(scrollView.contentView.bounds.origin, baselineOrigin)
+    }
+
+    func testTaxonRowsUseNativeButtonActivationSemantics() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishNaoMgsUI/NaoMgsChartViews.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("Button {"))
+        XCTAssertTrue(source.contains(".buttonStyle(.plain)"))
+        XCTAssertFalse(source.contains(".onTapGesture"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(presentation.accessibilityLabel)"))
+        XCTAssertTrue(source.contains(".accessibilityValue(presentation.accessibilityValue)"))
+    }
+
+    @MainActor func testDatabaseDetailTypographyReflowsWithoutRebuildingOrMutatingMiniBAMState() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+        settings.contentTextSizePreference = .system
+        let provider = MutableNaoMgsPreferredFonts(bodyPointSize: 13)
 
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("NaoMgsTypography-\(UUID().uuidString)", isDirectory: true)
@@ -424,17 +664,18 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let database = try NaoMgsDatabase.create(
             at: tempDirectory.appendingPathComponent("hits.sqlite"),
-            hits: [Self.makeNaoMgsHit()]
+            hits: Self.makeNaoMgsHits()
         )
         let manifest = NaoMgsManifest(
             sampleName: "sample-A",
             sourceFilePath: "/tmp/naomgs.tsv",
-            hitCount: 1,
+            hitCount: 2,
             taxonCount: 1,
             topTaxon: "Very long complete virus taxon name for reflow verification",
             topTaxonId: 12_345
         )
         let controller = NaoMgsResultViewController()
+        controller.testingSetContentPreferredFontProvider(provider)
         controller.testDisableMiniBAMLoading = true
         controller.view.frame = NSRect(x: 0, y: 0, width: 900, height: 440)
         let window = NSWindow(
@@ -481,6 +722,9 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         let accessionButton = try XCTUnwrap(
             Self.descendantButton(in: detailContent, title: "NC_000001.1")
         )
+        let secondAccessionButton = try XCTUnwrap(
+            Self.descendantButton(in: detailContent, title: "NC_000002.1")
+        )
         let pillLabel = try XCTUnwrap(
             Self.descendantTextField(in: detailContent, exactly: "Avg Identity")
         )
@@ -499,6 +743,9 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             controller.testLoadingLabel.font?.pointSize,
         ]
         XCTAssertEqual(controller.testDetailMetricsOrientation, .horizontal)
+        XCTAssertEqual(controller.testAccessionHeaderCount, 2)
+        XCTAssertEqual(controller.testAccessionHeaderOrientations, [.horizontal, .horizontal])
+        XCTAssertEqual(controller.testAccessionButtonCount, 2)
         let contentIdentity = ObjectIdentifier(detailContent)
         let miniBAMIdentities = controller.testMiniBAMControllerIdentities
         let miniBAMHeights = controller.testMiniBAMViewSizes.map(\.height)
@@ -509,7 +756,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         detailScroll.reflectScrolledClipView(detailScroll.contentView)
         let baselineScrollOrigin = detailScroll.contentView.bounds.origin
 
-        settings.contentTextSizePreference = .custom(200)
+        provider.bodyPointSize = 26
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         controller.view.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.03))
@@ -530,7 +777,11 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             return enlarged > baseline
         })
         XCTAssertEqual(controller.testDetailMetricsOrientation, .vertical)
-        XCTAssertEqual(controller.testAccessionHeaderOrientation, .vertical)
+        XCTAssertEqual(controller.testAccessionHeaderOrientations, [.vertical, .vertical])
+        XCTAssertEqual(
+            controller.testAccessionButtonPointSizes,
+            [baselineSizes[5]! * 2, baselineSizes[5]! * 2]
+        )
         XCTAssertTrue(controller.testDetailTypographyFieldsAreContained)
         let inaccessibleText = controller.testDetailFullTextAccessibility.filter {
             !$0.text.isEmpty && ($0.toolTip != $0.text || $0.accessibilityValue != $0.text)
@@ -538,6 +789,11 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         XCTAssertTrue(inaccessibleText.isEmpty, inaccessibleText.map(\.text).joined(separator: " | "))
         XCTAssertEqual(accessionButton.toolTip, accessionButton.title)
         XCTAssertEqual(accessionButton.accessibilityValue() as? String, accessionButton.title)
+        XCTAssertEqual(secondAccessionButton.toolTip, secondAccessionButton.title)
+        XCTAssertEqual(
+            secondAccessionButton.accessibilityValue() as? String,
+            secondAccessionButton.title
+        )
         XCTAssertEqual(
             detailScroll.contentView.bounds.origin,
             baselineScrollOrigin,
@@ -558,10 +814,13 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         XCTAssertEqual(controller.testDetailRebuildCount, rebuildCount)
         XCTAssertEqual(controller.testMiniBAMLoadStartCount, loadStartCount)
-        settings.contentTextSizePreference = .custom(100)
+        provider.bodyPointSize = 13
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         XCTAssertEqual(title.font?.pointSize, baselineSizes[0])
         XCTAssertEqual(accessionButton.font?.pointSize, baselineSizes[5])
+        XCTAssertEqual(secondAccessionButton.font?.pointSize, baselineSizes[5])
+        XCTAssertEqual(controller.testDetailMetricsOrientation, .horizontal)
+        XCTAssertEqual(controller.testAccessionHeaderOrientations, [.horizontal, .horizontal])
     }
 
     @MainActor func testNaoMgsTypographyObserversDoNotRetainController() {
@@ -576,8 +835,9 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         XCTAssertNil(weakController)
     }
 
-    private static func makeNaoMgsHit() -> NaoMgsVirusHit {
-        NaoMgsVirusHit(
+    private static func makeNaoMgsHits() -> [NaoMgsVirusHit] {
+        [
+            NaoMgsVirusHit(
             sample: "sample-A",
             seqId: "read-1",
             taxId: 12_345,
@@ -599,7 +859,31 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             isReverseComplement: false,
             pairStatus: "CP",
             queryLength: 100
-        )
+            ),
+            NaoMgsVirusHit(
+                sample: "sample-A",
+                seqId: "read-2",
+                taxId: 12_345,
+                bestAlignmentScore: 119,
+                cigar: "100M",
+                queryStart: 0,
+                queryEnd: 100,
+                refStart: 100,
+                refEnd: 200,
+                readSequence: String(repeating: "C", count: 100),
+                readQuality: String(repeating: "I", count: 100),
+                subjectSeqId: "NC_000002.1",
+                subjectTitle: "Very long complete virus taxon name for reflow verification",
+                bitScore: 209,
+                eValue: 1e-39,
+                percentIdentity: 99,
+                editDistance: 1,
+                fragmentLength: 100,
+                isReverseComplement: false,
+                pairStatus: "CP",
+                queryLength: 100
+            ),
+        ]
     }
 
     @MainActor private static func descendantTextField(
@@ -633,5 +917,48 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             result.append(contentsOf: descendants(of: type, in: subview))
         }
         return result
+    }
+}
+
+@MainActor
+private final class MutableNaoMgsPreferredFonts:
+    ContentPreferredFontProviding,
+    @unchecked Sendable
+{
+    var bodyPointSize: CGFloat
+
+    init(bodyPointSize: CGFloat) {
+        self.bodyPointSize = bodyPointSize
+    }
+
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        let size: CGFloat
+        switch role {
+        case .caption:
+            size = bodyPointSize * 11 / 13
+        case .tableHeader:
+            size = bodyPointSize * 12 / 13
+        default:
+            size = bodyPointSize
+        }
+        switch role {
+        case .emphasizedBody, .tableHeader:
+            return .systemFont(ofSize: size, weight: .bold)
+        case .monospaced:
+            return .monospacedSystemFont(ofSize: size, weight: .regular)
+        default:
+            return .systemFont(ofSize: size)
+        }
+    }
+
+    func canonicalUnscaledPointSize(for role: ContentTypography.Role) -> CGFloat {
+        switch role {
+        case .caption:
+            return 11
+        case .tableHeader:
+            return 12
+        default:
+            return 13
+        }
     }
 }

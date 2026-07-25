@@ -236,11 +236,16 @@ struct NaoMgsOverviewView: View {
                         .foregroundStyle(.primary)
 
                     ForEach(topTaxa, id: \.taxId) { summary in
-                        TaxonBarRow(summary: summary, maxCount: maxHitCount)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                onTaxonSelected?(summary.taxId)
-                            }
+                        let presentation = NaoMgsTaxonBarPresentation(summary: summary)
+                        Button {
+                            onTaxonSelected?(summary.taxId)
+                        } label: {
+                            TaxonBarRow(summary: summary, maxCount: maxHitCount)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(presentation.accessibilityLabel)
+                        .accessibilityValue(presentation.accessibilityValue)
                     }
                 }
             }
@@ -260,7 +265,6 @@ private struct TaxonBarRow: View {
     }
 
     var body: some View {
-        let presentation = NaoMgsTaxonBarPresentation(summary: summary)
         VStack(alignment: .leading, spacing: 1) {
             HStack {
                 Text(summary.name.isEmpty ? "Taxid \(summary.taxId)" : summary.name)
@@ -284,7 +288,5 @@ private struct TaxonBarRow: View {
             .frame(height: NaoMgsOverviewTypography.taxonBarHeight)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(presentation.accessibilityLabel)
-        .accessibilityValue(presentation.accessibilityValue)
     }
 }

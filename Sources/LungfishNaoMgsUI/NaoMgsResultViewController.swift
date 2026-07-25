@@ -195,7 +195,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Accession summaries for the currently displayed taxon (retained for async loading).
     private var currentAccessionSummaries: [DBAccessionSummary] = []
     private weak var detailMetricsStack: NSStackView?
-    private weak var accessionHeaderStack: NSStackView?
+    private var accessionHeaderStacks: [NSStackView] = []
+    private var accessionContentButtons: [NaoMgsContentButton] = []
 
     // MARK: - Split View State
 
@@ -242,7 +243,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     private weak var overviewHostingView: NSView?
     private var typographyDetailScrollOrigin: NSPoint?
+    private var contentPreferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private lazy var overviewTypographyModel = ContentTypographyModel(
+        preferredFontProvider: contentPreferredFontProvider
+    )
     private lazy var contentTypographyApplicator = ContentTypographyViewApplicator(
+        preferredFontProvider: contentPreferredFontProvider,
         excludedSubtree: { [weak self] candidate in
             guard let self else { return true }
             return candidate === self.summaryBar
@@ -312,11 +319,21 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             },
             afterApply: { [weak self] in
                 guard let self else { return }
+                let scrollOrigin = self.typographyDetailScrollOrigin
                 self.updateDetailTypographyLayout()
                 self.resizeDetailContentToFit(
-                    restoringScrollOrigin: self.typographyDetailScrollOrigin
+                    restoringScrollOrigin: scrollOrigin
                 )
                 self.typographyDetailScrollOrigin = nil
+                // ContentTypographyModel observes the same notification after
+                // this AppKit observer. Refit once SwiftUI has consumed that
+                // update, without rebuilding the hosted overview or jumping.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.overviewHostingView != nil else { return }
+                    self.resizeDetailContentToFit(
+                        restoringScrollOrigin: scrollOrigin
+                    )
+                }
             }
         )
     }
@@ -746,7 +763,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         teardownEmbeddedMiniBAMControllers()
         overviewHostingView = nil
         detailMetricsStack = nil
-        accessionHeaderStack = nil
+        accessionHeaderStacks.removeAll(keepingCapacity: true)
+        accessionContentButtons.removeAll(keepingCapacity: true)
         for subview in detailContentView.subviews {
             subview.removeFromSuperview()
         }
@@ -871,6 +889,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             taxonSummaries: summaries,
             totalHitReads: totalHits,
             sampleNames: sampleNames,
+            typographyModel: overviewTypographyModel,
             onTaxonSelected: { [weak self] taxId in
                 self?.selectTaxonById(taxId)
             }
@@ -1070,6 +1089,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             accessionButton.isBordered = false
             accessionButton.contentTintColor = .linkColor
             accessionButton.translatesAutoresizingMaskIntoConstraints = false
+            accessionContentButtons.append(accessionButton)
 
             let accMenu = NSMenu()
             let viewItem = NSMenuItem(
@@ -1108,9 +1128,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             headerStrip.spacing = 8
             headerStrip.identifier = NSUserInterfaceItemIdentifier("naomgs-accession-header")
             headerStrip.translatesAutoresizingMaskIntoConstraints = false
-            if accessionHeaderStack == nil {
-                accessionHeaderStack = headerStrip
-            }
+            accessionHeaderStacks.append(headerStrip)
             // Let the stats label compress but not the accession button
             accessionButton.setContentCompressionResistancePriority(.required, for: .horizontal)
             statsLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -1418,21 +1436,27 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     private func updateDetailTypographyLayout() {
-        let scale = CGFloat(
-            AppSettings.shared.contentTextSizePreference.normalized.scaleFactor
+        let typography = ContentTypography(
+            preference: AppSettings.shared.contentTextSizePreference,
+            preferredFontProvider: contentPreferredFontProvider
+        )
+        let scale = typography.font(for: .body).pointSize / max(
+            contentPreferredFontProvider.canonicalUnscaledPointSize(for: .body),
+            1
         )
         let shouldStack = scale >= 1.5
             || detailScrollView.contentView.bounds.width < 320
         detailMetricsStack?.orientation = shouldStack ? .vertical : .horizontal
         detailMetricsStack?.distribution = shouldStack ? .fill : .fillEqually
         detailMetricsStack?.alignment = shouldStack ? .width : .top
-        accessionHeaderStack?.orientation = shouldStack ? .vertical : .horizontal
-        accessionHeaderStack?.alignment = shouldStack ? .width : .firstBaseline
-        for button in naoMgsDescendants(
-            of: NaoMgsContentButton.self,
-            in: detailContentView
-        ) {
-            button.applyContentTypography()
+        for headerStack in accessionHeaderStacks {
+            headerStack.orientation = shouldStack ? .vertical : .horizontal
+            headerStack.alignment = shouldStack ? .width : .firstBaseline
+        }
+        for button in accessionContentButtons {
+            button.applyContentTypography(
+                preferredFontProvider: contentPreferredFontProvider
+            )
         }
         detailContentView.needsLayout = true
         detailContentView.layoutSubtreeIfNeeded()
@@ -2345,8 +2369,23 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 #if DEBUG
     var testTaxonomyReloadCount: Int { taxonomyReloadCount }
     var testTaxonomyTransformCount: Int { taxonomyTransformCount }
+    var testDisplayedTaxonOrder: [String] {
+        displayedRows.map { "\($0.sample):\($0.taxId)" }
+    }
     var testDetailContentView: NSView { detailContentView }
     var testDetailScrollView: NSScrollView { detailScrollView }
+    var testOverviewHostingView: NSView? { overviewHostingView }
+    var testOverviewIsContained: Bool {
+        guard let overviewHostingView else { return false }
+        let frame = overviewHostingView.convert(
+            overviewHostingView.bounds,
+            to: detailContentView
+        )
+        return frame.minX >= -0.5
+            && frame.maxX <= detailContentView.bounds.width + 0.5
+            && frame.minY >= -0.5
+            && frame.maxY <= detailContentView.bounds.height + 0.5
+    }
     var testLoadingLabel: NSTextField { loadingLabel }
     var testDetailRebuildCount: Int { detailRebuildCount }
     var testMiniBAMLoadStartCount: Int { miniBAMLoadStartCount }
@@ -2361,7 +2400,19 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         detailMetricsStack?.orientation ?? .horizontal
     }
     var testAccessionHeaderOrientation: NSUserInterfaceLayoutOrientation {
-        accessionHeaderStack?.orientation ?? .horizontal
+        accessionHeaderStacks.first?.orientation ?? .horizontal
+    }
+    var testAccessionHeaderCount: Int {
+        accessionHeaderStacks.count
+    }
+    var testAccessionHeaderOrientations: [NSUserInterfaceLayoutOrientation] {
+        accessionHeaderStacks.map(\.orientation)
+    }
+    var testAccessionButtonCount: Int {
+        accessionContentButtons.count
+    }
+    var testAccessionButtonPointSizes: [CGFloat] {
+        accessionContentButtons.compactMap { $0.font?.pointSize }
     }
     var testDetailTypographyFieldsAreContained: Bool {
         let miniBAMRoots = miniBAMControllers.map(\.view)
@@ -2405,6 +2456,15 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
     func testingShowMultiSelectionPlaceholder(count: Int) {
         showMultiSelectionPlaceholder(count: count)
+    }
+    func testingSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        precondition(
+            !isViewLoaded,
+            "The preferred-font provider must be injected before loading the view."
+        )
+        contentPreferredFontProvider = provider
     }
 #endif
     func testBuildNaoMgsSelectors() -> [ClassifierRowSelector] { buildNaoMgsSelectors() }
@@ -2653,15 +2713,20 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
 @MainActor
 private final class NaoMgsContentButton: NSButton {
-    func applyContentTypography() {
-        let preferenceScale = CGFloat(
-            AppSettings.shared.contentTextSizePreference.normalized.scaleFactor
+    func applyContentTypography(
+        preferredFontProvider: any ContentPreferredFontProviding
+    ) {
+        let typography = ContentTypography(
+            preference: AppSettings.shared.contentTextSizePreference,
+            preferredFontProvider: preferredFontProvider
         )
-        let preferredBody = NSFont.preferredFont(forTextStyle: .body)
-        let systemScale = preferredBody.pointSize / max(NSFont.systemFontSize, 1)
+        let resolvedScale = typography.font(for: .body).pointSize / max(
+            preferredFontProvider.canonicalUnscaledPointSize(for: .body),
+            1
+        )
         let size = max(
             ContentTypography.minimumPointSize,
-            11 * preferenceScale * systemScale
+            11 * resolvedScale
         )
         font = .monospacedSystemFont(ofSize: size, weight: .bold)
         toolTip = title
