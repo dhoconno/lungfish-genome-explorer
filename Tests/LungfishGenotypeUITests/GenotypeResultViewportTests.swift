@@ -1494,6 +1494,11 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains(
             "Pending edits while updating"
         ) == true)
+        controller.testingApplyCurrentWorkbookSyncPhase(
+            .dirtyWhileUpdating,
+            isReadOnly: true
+        )
+        XCTAssertFalse(controller.testingCurrentWorkbookUpdateButtonEnabled)
 
         controller.testingApplyCurrentWorkbookSyncPhase(.failed("boom"), isReadOnly: false)
         XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("Failed") == true)

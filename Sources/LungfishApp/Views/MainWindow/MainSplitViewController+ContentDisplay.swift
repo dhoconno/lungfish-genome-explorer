@@ -405,6 +405,8 @@ extension MainSplitViewController {
         let key = request.snapshot.bundleURL.standardizedFileURL.path
         nextGenotypeCurrentWorkbookRouteGeneration &+= 1
         let generation = nextGenotypeCurrentWorkbookRouteGeneration
+        latestGenotypeCurrentWorkbookRouteGenerations[key] = generation
+        latestGenotypeCurrentWorkbookSnapshots[key] = request.snapshot
         let action = preferredGenotypeCurrentWorkbookAction(
             pendingGenotypeCurrentWorkbookRoutes[key]?.action,
             request.action
@@ -433,32 +435,29 @@ extension MainSplitViewController {
                     return
                 }
                 self.pendingGenotypeCurrentWorkbookRoutes.removeValue(forKey: key)
-                if pending.snapshot.isReadOnly {
-                    switch pending.action {
-                    case .register:
-                        break
-                    case .synchronize(.updateAndView)
-                        where self.genotypeCurrentWorkbookSyncCoordinator.phase(
-                            for: pending.snapshot.bundleURL
-                        ) == .current:
-                        break
-                    case .markDirty, .synchronize:
-                        return
-                    }
-                }
                 let coordinatorRequest = GenotypeCurrentWorkbookSyncCoordinator.Request(
                     bundleURL: pending.snapshot.bundleURL,
                     calls: pending.snapshot.calls,
                     includedLoci: pending.snapshot.includedLoci,
                     annotationSidecarURL: pending.snapshot.annotationSidecarURL,
+                    annotationSidecarData: pending.snapshot.annotationSidecarData,
                     annotationOnly: pending.snapshot.annotationOnly,
                     fingerprint: fingerprint,
-                    routeContext: pending.routeContext
+                    routeContext: pending.routeContext,
+                    mayUpdate: self.mayUpdateGenotypeCurrentWorkbook(
+                        pending.snapshot
+                    )
                 )
                 switch pending.action {
                 case .register:
                     await self.genotypeCurrentWorkbookSyncCoordinator.register(
                         coordinatorRequest
+                    )
+                    self.applyGenotypeCurrentWorkbookSyncPhase(
+                        self.genotypeCurrentWorkbookSyncCoordinator.phase(
+                            for: coordinatorRequest.bundleURL
+                        ),
+                        bundleURL: coordinatorRequest.bundleURL
                     )
                 case .markDirty:
                     self.genotypeCurrentWorkbookSyncCoordinator.markDirty(
@@ -485,6 +484,19 @@ extension MainSplitViewController {
                 )
             }
         }
+    }
+
+    private func mayUpdateGenotypeCurrentWorkbook(
+        _ snapshot: GenotypeCurrentWorkbookUISnapshot
+    ) -> Bool {
+        let projectSessionAllowsWrites =
+            genotypeCurrentWorkbookProjectWriteAuthorizationProvider?()
+            ?? !projectSession.isReadOnlyRecommended
+        return projectSessionAllowsWrites
+            && !snapshot.isReadOnly
+            && FileManager.default.isWritableFile(
+                atPath: snapshot.bundleURL.path
+            )
     }
 
     func prepareGenotypeResultViewForRemoval(
@@ -533,6 +545,60 @@ extension MainSplitViewController {
             phase: uiPhase,
             isReadOnly: isReadOnly
         )
+        if phase == .current {
+            reloadCompletedGenotypeCurrentWorkbookResult(
+                bundleURL: bundleURL,
+                controller: controller
+            )
+        }
+    }
+
+    private func reloadCompletedGenotypeCurrentWorkbookResult(
+        bundleURL: URL,
+        controller: GenotypeResultViewController
+    ) {
+        let key = bundleURL.standardizedFileURL.path
+        guard let expectedGeneration =
+                latestGenotypeCurrentWorkbookRouteGenerations[key],
+              let snapshot = latestGenotypeCurrentWorkbookSnapshots[key]
+        else {
+            return
+        }
+        genotypeCurrentWorkbookResultReloadTasks[key]?.cancel()
+        let loader = genotypeResultLoader
+        genotypeCurrentWorkbookResultReloadTasks[key] = Task {
+            @MainActor [weak self, weak controller] in
+            do {
+                let updated = try await loader(bundleURL)
+                try Task.checkCancellation()
+                guard let self,
+                      let controller,
+                      self.latestGenotypeCurrentWorkbookRouteGenerations[key]
+                        == expectedGeneration,
+                      self.viewerController.genotypeResultViewController
+                        === controller,
+                      updated.bundleURL.standardizedFileURL
+                        == bundleURL.standardizedFileURL
+                else {
+                    return
+                }
+                self.genotypeCurrentWorkbookResultReloadTasks.removeValue(
+                    forKey: key
+                )
+                controller.applyCurrentWorkbookUpdateCompleted(
+                    result: updated,
+                    annotationOnly: snapshot.annotationOnly
+                )
+                self.inspectorController.updateGenotypeResultDocument(updated)
+                self.sidebarController.requestReloadFromFilesystem()
+            } catch is CancellationError {
+                return
+            } catch {
+                mainSplitLogger.warning(
+                    "Could not reload completed current workbook result for \(bundleURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
     }
 
     private func preferredGenotypeCurrentWorkbookAction(

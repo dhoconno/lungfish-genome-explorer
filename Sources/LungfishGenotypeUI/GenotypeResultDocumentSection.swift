@@ -52,7 +52,7 @@ public enum GenotypeCurrentWorkbookUIPhase: Equatable, Sendable {
             isEnabled = true
         case .dirtyWhileUpdating:
             statusText = "Pending edits while updating — one newer workbook update will follow."
-            isEnabled = true
+            isEnabled = !isReadOnly
         case .failed(let message):
             statusText = "Failed — \(message)"
             isEnabled = !isReadOnly
@@ -70,6 +70,7 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
     public let calls: [GenotypeWorkbookHaplotypeCall]
     public let includedLoci: [String]
     public let annotationSidecar: GenotypeAnnotationSidecar
+    public let annotationSidecarData: Data
     public let annotationSidecarURL: URL
     public let candidateArtifacts: ONTMHCCandidateArtifactManifest?
     public let annotationOnly: Bool
@@ -80,6 +81,7 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
         calls: [GenotypeWorkbookHaplotypeCall],
         includedLoci: [String],
         annotationSidecar: GenotypeAnnotationSidecar,
+        annotationSidecarData: Data? = nil,
         annotationSidecarURL: URL,
         candidateArtifacts: ONTMHCCandidateArtifactManifest?,
         annotationOnly: Bool,
@@ -89,6 +91,9 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
         self.calls = calls
         self.includedLoci = includedLoci
         self.annotationSidecar = annotationSidecar
+        self.annotationSidecarData = annotationSidecarData
+            ?? (try? ProvenanceJSON.encoder.encode(annotationSidecar))
+            ?? Data()
         self.annotationSidecarURL = annotationSidecarURL.standardizedFileURL
         self.candidateArtifacts = candidateArtifacts
         self.annotationOnly = annotationOnly

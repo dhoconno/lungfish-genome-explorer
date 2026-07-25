@@ -169,6 +169,18 @@ public final class GenotypeResultViewController: NSViewController {
     public var hasDeferredMatrixAnnotationMutations: Bool {
         !deferredMatrixAnnotationMutations.isEmpty
     }
+
+    public func detachHostPresentationCallbacks() {
+        onSelectionStateChanged = nil
+        onDisplaySummaryChanged = nil
+        onDisplayStateChanged = nil
+        onAnnotationSidecarChanged = nil
+        onMatrixReviewCapabilityChanged = nil
+        onMatrixAnnotationCommandError = nil
+        onCandidatePersistenceWarningChanged = nil
+        onAIHaplotypingRequested = nil
+    }
+
     public var onAIHaplotypingRequested: ((URL, GenotypeAIHaplotypingUIRequest) -> Void)?
     /// Supplied by the host application so annotations capture the active identity at edit time.
     public var annotationAuthorProvider: () -> String = { NSUserName() }
@@ -4077,7 +4089,6 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func requestCurrentWorkbookSyncForBundleSwitch() {
-        guard currentWorkbookNeedsRefresh else { return }
         emitCurrentWorkbookRequest(action: .synchronize(.bundleSwitch))
     }
 
@@ -7537,6 +7548,15 @@ extension GenotypeResultViewController {
 
     var testingCurrentWorkbookNeedsRefresh: Bool {
         currentWorkbookNeedsRefresh
+    }
+
+    var testingCurrentWorkbookRequiresFullUpdate: Bool {
+        currentWorkbookRequiresFullUpdate
+    }
+
+    func testingRequireFullCurrentWorkbookUpdate() {
+        currentWorkbookRequiresFullUpdate = true
+        currentWorkbookNeedsRefresh = true
     }
 
     var testingCurrentWorkbookUpdateStatus: String? {
