@@ -245,6 +245,10 @@ XCTest, Swift Package Manager.
 
 ## Task 5: Editable threshold drafts and coalesced commits
 
+**Execution dependency:** Complete Task 10's explicit haplotyping-capability
+foundation before Tasks 5–9. Search labels and genotype-only work avoidance must
+consume that single capability rather than infer it independently.
+
 **Files**
 
 - Create: `Sources/LungfishGenotypeUI/GenotypeNumericFilterDraft.swift`
@@ -272,6 +276,9 @@ launchable/user-ready until Task 6 removes the synchronous rebuild path.
   clock for empty drafts, paste, locale decimal separators, invalid input,
   Return, focus loss, Escape, clamping, immediate visible Stepper value, and
   latest-value coalescing.
+- [ ] Add generation/cancellation tests proving a pending draft cannot publish
+  after a bundle switch, Inspector clear, callback rewire, or view-model
+  deinitialization.
 - [ ] Add explicit AX tests for stable identifiers, label/value/bounds,
   increment/decrement actions, invalid-entry help/description, and one
   validation announcement through the injectable poster.
@@ -308,6 +315,9 @@ launchable/user-ready until Task 6 removes the synchronous rebuild path.
   table reloads, column rebuilds, layout applications, unrelated lens rebuilds,
   maximum derived-pass duration, and commit-to-visible settling time.
 
+- [ ] Record the representative legacy Release benchmark before replacing the
+  projection implementation so the optimization has a checked-in comparison
+  artifact.
 - [ ] Write failing base-projection correctness tests comparing cached
   derivation with the legacy result for zero and nonzero read/percent
   thresholds, both denominators, known rows, candidates, and zero/absent
@@ -378,7 +388,8 @@ launchable/user-ready until Task 6 removes the synchronous rebuild path.
 - [ ] Commit: `fix: unify genotype sample and allele search`
 
 Task 8 adds the manual-visibility composition regression after that state model
-exists; Task 7 does not depend on future visibility behavior.
+exists. Task 7 depends on the explicit Task 10 capability foundation, but not on
+future visibility behavior.
 
 ---
 
@@ -424,6 +435,9 @@ exists; Task 7 does not depend on future visibility behavior.
   windows/controllers for the same or different bundle.
 - [ ] After the model exists, add the deferred regression proving search and
   threshold changes compose with—not clear—manual visibility.
+- [ ] Add one end-to-end derived-pipeline test proving the required order:
+  manual visibility → quick search → Inspector sample/allele filters → support
+  thresholds → sorting.
 - [ ] Run visibility/viewport tests and `git diff --check`.
 - [ ] Commit: `feat: add matrix row and column visibility`
 
@@ -494,6 +508,8 @@ exists; Task 7 does not depend on future visibility behavior.
   actions, and sidecar preservation. Pre-seed and write the sidecar before
   recording comparison bytes so first-open built-in cohort seeding cannot
   invalidate the assertion.
+- [ ] Add an equality regression proving two `GenotypeResultDocumentState`
+  values that differ only in haplotyping capability are unequal.
 - [ ] Add failing controller tests for active-cohort clearing and zero cohort
   subject rebuilds in genotype-only mode.
 - [ ] Implement capability routing and conditional section/divider rendering.
@@ -520,6 +536,8 @@ exists; Task 7 does not depend on future visibility behavior.
 
 - [ ] Run all leaf UI targets affected by typography and the relevant app/core/
   kit regression suites.
+- [ ] Re-run the representative Release projection benchmark after search and
+  manual visibility are active, exercising the complete derived pipeline.
 - [ ] Run the prior annotation/workbook gate to prove no regression:
 
   ```bash
