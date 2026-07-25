@@ -80,6 +80,28 @@ final class MappingViewportRoutingTests: XCTestCase {
         }
     }
 
+    @MainActor
+    private final class WorkbookResultReloadGate {
+        private(set) var loadCount = 0
+        private var continuations:
+            [Int: CheckedContinuation<ONTGenotypeResultBundleData, Error>] = [:]
+
+        func load() async throws -> ONTGenotypeResultBundleData {
+            let index = loadCount
+            loadCount += 1
+            return try await withCheckedThrowingContinuation {
+                continuations[index] = $0
+            }
+        }
+
+        func succeed(
+            at index: Int,
+            with result: ONTGenotypeResultBundleData
+        ) {
+            continuations.removeValue(forKey: index)?.resume(returning: result)
+        }
+    }
+
     func testViewerDisplaysLegacyMappingResultInMappingMode() throws {
         let resultDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("mapping-legacy-route-\(UUID().uuidString)", isDirectory: true)
@@ -530,6 +552,86 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertTrue(routingFinished)
         XCTAssertEqual(updateCount, 0)
         XCTAssertTrue(openedURLs.isEmpty)
+    }
+
+    func testRegisteredWorkbookRequestRevalidatesCurrentWindowAuthorization()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeWorkbookFreshWindowAuthorization-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = try makeGenotypeResultBundle(
+            root: root,
+            name: "fresh-window-authorization",
+            haplotypeAnalysisPath: nil
+        )
+        var allowsWrites = true
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in nil },
+            idleScheduler: { _, _ in IdleCancellation() }
+        )
+        let splitController = MainSplitViewController()
+        splitController.genotypeCurrentWorkbookSyncCoordinator = coordinator
+        splitController.genotypeCurrentWorkbookProjectWriteAuthorizationProvider = {
+            allowsWrites
+        }
+        _ = splitController.view
+
+        await splitController.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        let registered = await eventually {
+            coordinator.testingLatestRequestIsUpdateAuthorized(
+                for: bundleURL
+            ) == true
+        }
+        XCTAssertTrue(registered)
+
+        allowsWrites = false
+
+        XCTAssertEqual(
+            coordinator.testingLatestRequestIsUpdateAuthorized(for: bundleURL),
+            false
+        )
+    }
+
+    func testRegisteredWorkbookAuthorizationDoesNotRetainWindowController()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeWorkbookWeakWindowAuthorization-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = try makeGenotypeResultBundle(
+            root: root,
+            name: "weak-window-authorization",
+            haplotypeAnalysisPath: nil
+        )
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in nil },
+            idleScheduler: { _, _ in IdleCancellation() }
+        )
+        var splitController: MainSplitViewController? = MainSplitViewController()
+        splitController?.genotypeCurrentWorkbookSyncCoordinator = coordinator
+        _ = splitController?.view
+        await splitController?.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        let registered = await eventually {
+            coordinator.testingLatestRequestIsUpdateAuthorized(
+                for: bundleURL
+            ) == true
+        }
+        XCTAssertTrue(registered)
+        let weakController = WeakReference(splitController)
+
+        splitController = nil
+        let released = await eventually { weakController.value == nil }
+
+        XCTAssertTrue(released)
+        XCTAssertEqual(
+            coordinator.testingLatestRequestIsUpdateAuthorized(for: bundleURL),
+            false
+        )
     }
 
     func testUpdateAndViewRoutesThroughWindowCoordinatorAndOpensSynchronizedWorkbook() async throws {
@@ -1025,6 +1127,157 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
+    func testManyInactiveWorkbookPublicationsReleaseFullSnapshotsAndTasks()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeWorkbookRetentionStress-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let activeBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "retention-active",
+            haplotypeAnalysisPath: nil
+        )
+        var updateCount = 0
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in nil },
+            updateRunner: { request, _ in
+                updateCount += 1
+                return request.bundleURL.appendingPathComponent("current.xlsx")
+            },
+            idleScheduler: { _, _ in IdleCancellation() }
+        )
+        let splitController = MainSplitViewController()
+        splitController.genotypeCurrentWorkbookSyncCoordinator = coordinator
+        _ = splitController.view
+        await splitController.testingDisplayGenotypeResultBundleAndWait(
+            activeBundle
+        )
+        let resultController = try XCTUnwrap(
+            splitController.viewerController.genotypeResultViewController
+        )
+        var capturedRequest: GenotypeCurrentWorkbookUIRequest?
+        resultController.onCurrentWorkbookSyncRequested = {
+            capturedRequest = $0
+        }
+        resultController.requestCurrentWorkbookRegistration()
+        let activeSnapshot = try XCTUnwrap(capturedRequest?.snapshot)
+        let inactiveBundles = (0..<24).map {
+            root.appendingPathComponent(
+                "inactive-\($0).lungfishgenotype",
+                isDirectory: true
+            )
+        }
+
+        for bundleURL in inactiveBundles {
+            try FileManager.default.createDirectory(
+                at: bundleURL,
+                withIntermediateDirectories: true
+            )
+            let snapshot = GenotypeCurrentWorkbookUISnapshot(
+                bundleURL: bundleURL,
+                calls: activeSnapshot.calls,
+                includedLoci: activeSnapshot.includedLoci,
+                annotationSidecar: activeSnapshot.annotationSidecar,
+                annotationSidecarData: activeSnapshot.annotationSidecarData,
+                annotationSidecarURL: activeSnapshot.annotationSidecarURL,
+                candidateArtifacts: activeSnapshot.candidateArtifacts,
+                annotationOnly: activeSnapshot.annotationOnly,
+                isReadOnly: false
+            )
+            splitController.routeGenotypeCurrentWorkbookRequest(.init(
+                snapshot: snapshot,
+                action: .synchronize(.bundleSwitch)
+            ))
+        }
+
+        let allTerminal = await eventually(timeout: 5) {
+            updateCount == inactiveBundles.count
+                && inactiveBundles.allSatisfy {
+                coordinator.phase(for: $0) == .current
+            }
+                && splitController.pendingGenotypeCurrentWorkbookRoutes.isEmpty
+        }
+        XCTAssertTrue(allTerminal)
+        let diagnostics =
+            splitController.testingGenotypeCurrentWorkbookRetentionDiagnostics
+        XCTAssertEqual(diagnostics.pendingFullSnapshotCount, 0)
+        XCTAssertEqual(diagnostics.inactiveCompletionContextCount, 0)
+        XCTAssertEqual(diagnostics.reloadTaskCount, 0)
+        XCTAssertEqual(diagnostics.retainedDetachedControllerCount, 0)
+        XCTAssertLessThanOrEqual(diagnostics.completionContextCount, 1)
+    }
+
+    func testCancelledReloadCannotReleaseSameGenerationReplacementInputs()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeWorkbookReloadReplacement-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = try makeGenotypeResultBundle(
+            root: root,
+            name: "reload-replacement",
+            haplotypeAnalysisPath: nil
+        )
+        let updatedResult = try await ONTGenotypeResultBundle.loadResultAsync(
+            from: bundleURL
+        )
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in nil },
+            idleScheduler: { _, _ in IdleCancellation() }
+        )
+        let splitController = MainSplitViewController()
+        splitController.genotypeCurrentWorkbookSyncCoordinator = coordinator
+        _ = splitController.view
+        await splitController.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        let registered = await eventually {
+            splitController
+                .testingGenotypeCurrentWorkbookRetentionDiagnostics
+                .completionContextCount == 1
+        }
+        XCTAssertTrue(registered)
+        let reloadGate = WorkbookResultReloadGate()
+        splitController.genotypeResultLoader = { _ in
+            try await reloadGate.load()
+        }
+
+        splitController.applyGenotypeCurrentWorkbookSyncPhase(
+            .current,
+            bundleURL: bundleURL
+        )
+        let firstStarted = await eventually { reloadGate.loadCount == 1 }
+        XCTAssertTrue(firstStarted)
+        splitController.applyGenotypeCurrentWorkbookSyncPhase(
+            .current,
+            bundleURL: bundleURL
+        )
+        let replacementStarted = await eventually { reloadGate.loadCount == 2 }
+        XCTAssertTrue(replacementStarted)
+
+        reloadGate.succeed(at: 0, with: updatedResult)
+        await Task.yield()
+
+        var diagnostics =
+            splitController.testingGenotypeCurrentWorkbookRetentionDiagnostics
+        XCTAssertEqual(diagnostics.completionContextCount, 1)
+        XCTAssertEqual(diagnostics.reloadTaskCount, 1)
+
+        reloadGate.succeed(at: 1, with: updatedResult)
+        let replacementFinished = await eventually {
+            splitController
+                .testingGenotypeCurrentWorkbookRetentionDiagnostics
+                .reloadTaskCount == 0
+        }
+        XCTAssertTrue(replacementFinished)
+        diagnostics =
+            splitController.testingGenotypeCurrentWorkbookRetentionDiagnostics
+        XCTAssertEqual(diagnostics.completionContextCount, 0)
+    }
+
     func testAIHaplotypingGUIUsesReplayableCLICommandPreviewAndSanitizedFailureDetail() throws {
         let source = try loadSource(at: "Sources/LungfishApp/Services/GenotypeAIHaplotypingExecutionService.swift")
 
@@ -1382,6 +1635,7 @@ final class MappingViewportRoutingTests: XCTestCase {
             calls: snapshot.calls,
             includedLoci: snapshot.includedLoci,
             annotationSidecar: snapshot.annotationSidecar,
+            annotationSidecarData: snapshot.annotationSidecarData,
             annotationSidecarURL: snapshot.annotationSidecarURL,
             candidateArtifacts: snapshot.candidateArtifacts,
             annotationOnly: snapshot.annotationOnly,

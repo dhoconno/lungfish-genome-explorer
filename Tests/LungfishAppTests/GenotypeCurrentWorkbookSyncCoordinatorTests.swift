@@ -797,6 +797,71 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(opened, [workbook.standardizedFileURL])
     }
 
+    func testIdleRevalidatesAuthorizationAfterDirtyRegistration() async throws {
+        let bundle = bundleURL("fresh-authorization-idle")
+        let scheduler = TestIdleScheduler()
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        let authorization = WorkbookAuthorizationGate()
+        let coordinator = makeCoordinator(
+            recorded: nil,
+            runner: runner,
+            scheduler: scheduler
+        )
+        let request = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("a"),
+            authorizationRevalidator: { authorization.isAllowed }
+        )
+
+        await coordinator.register(request)
+        XCTAssertEqual(scheduler.tokens.filter { !$0.cancelled }.count, 1)
+
+        authorization.isAllowed = false
+        await scheduler.tokens[0].fire()
+
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertEqual(coordinator.phase(for: bundle), .dirty)
+    }
+
+    func testFollowUpRevalidatesAuthorizationImmediatelyBeforeRunnerAdmission()
+        async throws {
+        let bundle = bundleURL("fresh-authorization-follow-up")
+        let runner = ControlledRunner()
+        let authorization = WorkbookAuthorizationGate()
+        let coordinator = makeCoordinator(recorded: nil, runner: runner)
+        let first = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("b"),
+            authorizationRevalidator: { authorization.isAllowed }
+        )
+        let followUp = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("c"),
+            authorizationRevalidator: { authorization.isAllowed }
+        )
+
+        let waiter = Task {
+            try await coordinator.synchronize(first, intent: .automaticIdle)
+        }
+        try await waitUntil { runner.invocations.count == 1 }
+        coordinator.markDirty(followUp)
+        authorization.isAllowed = false
+        runner.succeedInvocation(at: 0)
+
+        do {
+            _ = try await waiter.value
+            XCTFail("Expected the denied follow-up to fail closed")
+        } catch {
+            XCTAssertEqual(
+                (error as NSError).localizedDescription,
+                "This current workbook is out of date and cannot be updated in the active project session."
+            )
+        }
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertEqual(coordinator.phase(for: bundle), .dirty)
+    }
+
     func testStaleRegistrationLoaderCannotOverwriteNewerDirtyRequest() async throws {
         let bundle = bundleURL("register-race")
         let recorded = try makeFingerprint("8")
@@ -1049,7 +1114,9 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
     private func makeRequest(
         bundle: URL,
         fingerprint: GenotypeCurrentWorkbookInputFingerprint,
-        mayUpdate: Bool = true
+        mayUpdate: Bool = true,
+        authorizationRevalidator:
+            (@MainActor @Sendable () -> Bool)? = nil
     ) -> GenotypeCurrentWorkbookSyncCoordinator.Request {
         let displayed = [
             GenotypeWorkbookHaplotypeCall(
@@ -1069,7 +1136,8 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
             annotationOnly: false,
             fingerprint: fingerprint,
             routeContext: OperationRouteContext(projectURL: nil, windowStateScopeID: nil),
-            mayUpdate: mayUpdate
+            mayUpdate: mayUpdate,
+            authorizationRevalidator: authorizationRevalidator
         )
     }
 
@@ -1232,6 +1300,11 @@ private final class WeakReference<Value: AnyObject> {
     init(_ value: Value?) {
         self.value = value
     }
+}
+
+@MainActor
+private final class WorkbookAuthorizationGate {
+    var isAllowed = true
 }
 
 private enum TestError: Error {

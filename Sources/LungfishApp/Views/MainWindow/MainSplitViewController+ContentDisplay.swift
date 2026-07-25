@@ -405,8 +405,6 @@ extension MainSplitViewController {
         let key = request.snapshot.bundleURL.standardizedFileURL.path
         nextGenotypeCurrentWorkbookRouteGeneration &+= 1
         let generation = nextGenotypeCurrentWorkbookRouteGeneration
-        latestGenotypeCurrentWorkbookRouteGenerations[key] = generation
-        latestGenotypeCurrentWorkbookSnapshots[key] = request.snapshot
         let action = preferredGenotypeCurrentWorkbookAction(
             pendingGenotypeCurrentWorkbookRoutes[key]?.action,
             request.action
@@ -435,8 +433,15 @@ extension MainSplitViewController {
                     return
                 }
                 self.pendingGenotypeCurrentWorkbookRoutes.removeValue(forKey: key)
+                self.genotypeCurrentWorkbookCompletionContexts[key] =
+                    GenotypeCurrentWorkbookCompletionContext(
+                        generation: generation,
+                        annotationOnly: pending.snapshot.annotationOnly
+                    )
+                let bundleURL = pending.snapshot.bundleURL
+                let isReadOnly = pending.snapshot.isReadOnly
                 let coordinatorRequest = GenotypeCurrentWorkbookSyncCoordinator.Request(
-                    bundleURL: pending.snapshot.bundleURL,
+                    bundleURL: bundleURL,
                     calls: pending.snapshot.calls,
                     includedLoci: pending.snapshot.includedLoci,
                     annotationSidecarURL: pending.snapshot.annotationSidecarURL,
@@ -445,8 +450,16 @@ extension MainSplitViewController {
                     fingerprint: fingerprint,
                     routeContext: pending.routeContext,
                     mayUpdate: self.mayUpdateGenotypeCurrentWorkbook(
-                        pending.snapshot
-                    )
+                        bundleURL: bundleURL,
+                        isReadOnly: isReadOnly
+                    ),
+                    authorizationRevalidator: { @MainActor [weak self] in
+                        guard let self else { return false }
+                        return self.mayUpdateGenotypeCurrentWorkbook(
+                            bundleURL: bundleURL,
+                            isReadOnly: isReadOnly
+                        )
+                    }
                 )
                 switch pending.action {
                 case .register:
@@ -478,6 +491,10 @@ extension MainSplitViewController {
                     return
                 }
                 self.pendingGenotypeCurrentWorkbookRoutes.removeValue(forKey: key)
+                self.removeGenotypeCurrentWorkbookCompletionContext(
+                    for: key,
+                    generation: generation
+                )
                 self.applyGenotypeCurrentWorkbookSyncPhase(
                     .failed(error.localizedDescription),
                     bundleURL: request.snapshot.bundleURL
@@ -487,15 +504,16 @@ extension MainSplitViewController {
     }
 
     private func mayUpdateGenotypeCurrentWorkbook(
-        _ snapshot: GenotypeCurrentWorkbookUISnapshot
+        bundleURL: URL,
+        isReadOnly: Bool
     ) -> Bool {
         let projectSessionAllowsWrites =
             genotypeCurrentWorkbookProjectWriteAuthorizationProvider?()
             ?? !projectSession.isReadOnlyRecommended
         return projectSessionAllowsWrites
-            && !snapshot.isReadOnly
+            && !isReadOnly
             && FileManager.default.isWritableFile(
-                atPath: snapshot.bundleURL.path
+                atPath: bundleURL.path
             )
     }
 
@@ -513,16 +531,35 @@ extension MainSplitViewController {
                 forKey: ObjectIdentifier(controller)
             )
         }
+        if !controller.hasDeferredMatrixAnnotationMutations {
+            retainedDeferredGenotypeResultControllers.removeValue(
+                forKey: identifier
+            )
+        }
     }
 
     func applyGenotypeCurrentWorkbookSyncPhase(
         _ phase: GenotypeCurrentWorkbookSyncCoordinator.Phase,
         bundleURL: URL
     ) {
+        let key = bundleURL.standardizedFileURL.path
+        let isTerminal: Bool
+        switch phase {
+        case .current, .failed:
+            isTerminal = true
+        case .dirty, .updating, .dirtyWhileUpdating:
+            isTerminal = false
+        }
         guard let controller = viewerController.genotypeResultViewController,
               controller.currentResultBundleURL?.standardizedFileURL
                 == bundleURL.standardizedFileURL
         else {
+            if isTerminal {
+                cleanupGenotypeCurrentWorkbookTerminalState(
+                    for: key,
+                    bundleURL: bundleURL
+                )
+            }
             return
         }
         let uiPhase: GenotypeCurrentWorkbookUIPhase
@@ -550,6 +587,11 @@ extension MainSplitViewController {
                 bundleURL: bundleURL,
                 controller: controller
             )
+        } else if case .failed = phase {
+            cleanupGenotypeCurrentWorkbookTerminalState(
+                for: key,
+                bundleURL: bundleURL
+            )
         }
     }
 
@@ -558,23 +600,32 @@ extension MainSplitViewController {
         controller: GenotypeResultViewController
     ) {
         let key = bundleURL.standardizedFileURL.path
-        guard let expectedGeneration =
-                latestGenotypeCurrentWorkbookRouteGenerations[key],
-              let snapshot = latestGenotypeCurrentWorkbookSnapshots[key]
-        else {
+        guard let context = genotypeCurrentWorkbookCompletionContexts[key] else {
             return
         }
-        genotypeCurrentWorkbookResultReloadTasks[key]?.cancel()
+        let expectedGeneration = context.generation
+        genotypeCurrentWorkbookResultReloadTasks
+            .removeValue(forKey: key)?
+            .task
+            .cancel()
         let loader = genotypeResultLoader
-        genotypeCurrentWorkbookResultReloadTasks[key] = Task {
+        let reloadID = UUID()
+        let reloadTask = Task {
             @MainActor [weak self, weak controller] in
+            defer {
+                self?.finishGenotypeCurrentWorkbookReload(
+                    for: key,
+                    reloadID: reloadID,
+                    expectedGeneration: expectedGeneration
+                )
+            }
             do {
                 let updated = try await loader(bundleURL)
                 try Task.checkCancellation()
                 guard let self,
                       let controller,
-                      self.latestGenotypeCurrentWorkbookRouteGenerations[key]
-                        == expectedGeneration,
+                      self.genotypeCurrentWorkbookCompletionContexts[key]?
+                        .generation == expectedGeneration,
                       self.viewerController.genotypeResultViewController
                         === controller,
                       updated.bundleURL.standardizedFileURL
@@ -582,12 +633,9 @@ extension MainSplitViewController {
                 else {
                     return
                 }
-                self.genotypeCurrentWorkbookResultReloadTasks.removeValue(
-                    forKey: key
-                )
                 controller.applyCurrentWorkbookUpdateCompleted(
                     result: updated,
-                    annotationOnly: snapshot.annotationOnly
+                    annotationOnly: context.annotationOnly
                 )
                 self.inspectorController.updateGenotypeResultDocument(updated)
                 self.sidebarController.requestReloadFromFilesystem()
@@ -598,6 +646,68 @@ extension MainSplitViewController {
                     "Could not reload completed current workbook result for \(bundleURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
                 )
             }
+        }
+        genotypeCurrentWorkbookResultReloadTasks[key] =
+            GenotypeCurrentWorkbookReloadTask(
+                id: reloadID,
+                task: reloadTask
+            )
+    }
+
+    private func finishGenotypeCurrentWorkbookReload(
+        for key: String,
+        reloadID: UUID,
+        expectedGeneration: UInt64
+    ) {
+        guard genotypeCurrentWorkbookResultReloadTasks[key]?.id == reloadID else {
+            return
+        }
+        genotypeCurrentWorkbookResultReloadTasks.removeValue(forKey: key)
+        removeGenotypeCurrentWorkbookCompletionContext(
+            for: key,
+            generation: expectedGeneration
+        )
+    }
+
+    private func removeGenotypeCurrentWorkbookCompletionContext(
+        for key: String,
+        generation: UInt64
+    ) {
+        guard genotypeCurrentWorkbookCompletionContexts[key]?.generation
+                == generation
+        else {
+            return
+        }
+        genotypeCurrentWorkbookCompletionContexts.removeValue(forKey: key)
+    }
+
+    private func cleanupGenotypeCurrentWorkbookTerminalState(
+        for key: String,
+        bundleURL: URL
+    ) {
+        genotypeCurrentWorkbookResultReloadTasks
+            .removeValue(forKey: key)?
+            .task
+            .cancel()
+        genotypeCurrentWorkbookCompletionContexts.removeValue(forKey: key)
+        let activeController = viewerController.genotypeResultViewController
+        let releasableControllerIDs: [ObjectIdentifier] =
+            retainedDeferredGenotypeResultControllers.compactMap { entry in
+                let (identifier, retainedController) = entry
+                guard retainedController !== activeController,
+                      retainedController.currentResultBundleURL?
+                        .standardizedFileURL
+                        == bundleURL.standardizedFileURL,
+                      !retainedController.hasDeferredMatrixAnnotationMutations
+                else {
+                    return nil
+                }
+                return identifier
+            }
+        for identifier in releasableControllerIDs {
+            retainedDeferredGenotypeResultControllers.removeValue(
+                forKey: identifier
+            )
         }
     }
 

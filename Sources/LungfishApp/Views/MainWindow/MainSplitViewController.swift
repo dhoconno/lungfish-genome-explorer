@@ -118,6 +118,16 @@ struct PendingGenotypeCurrentWorkbookRoute {
     let routeContext: OperationRouteContext
 }
 
+struct GenotypeCurrentWorkbookCompletionContext {
+    let generation: UInt64
+    let annotationOnly: Bool
+}
+
+struct GenotypeCurrentWorkbookReloadTask {
+    let id: UUID
+    let task: Task<Void, Never>
+}
+
 /// The main split view controller managing sidebar, viewer, and inspector panels.
 ///
 /// Layout:
@@ -222,11 +232,10 @@ public class MainSplitViewController: NSSplitViewController {
     var pendingGenotypeCurrentWorkbookRoutes:
         [String: PendingGenotypeCurrentWorkbookRoute] = [:]
     var nextGenotypeCurrentWorkbookRouteGeneration: UInt64 = 0
-    var latestGenotypeCurrentWorkbookRouteGenerations: [String: UInt64] = [:]
-    var latestGenotypeCurrentWorkbookSnapshots:
-        [String: GenotypeCurrentWorkbookUISnapshot] = [:]
+    var genotypeCurrentWorkbookCompletionContexts:
+        [String: GenotypeCurrentWorkbookCompletionContext] = [:]
     var genotypeCurrentWorkbookResultReloadTasks:
-        [String: Task<Void, Never>] = [:]
+        [String: GenotypeCurrentWorkbookReloadTask] = [:]
     var retainedDeferredGenotypeResultControllers:
         [ObjectIdentifier: GenotypeResultViewController] = [:]
 

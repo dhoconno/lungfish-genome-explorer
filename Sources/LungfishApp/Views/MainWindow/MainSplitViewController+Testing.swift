@@ -9,7 +9,41 @@ import LungfishWorkflow
 import os.log
 import LungfishKit
 
+struct GenotypeCurrentWorkbookRetentionDiagnostics: Equatable {
+    let pendingFullSnapshotCount: Int
+    let completionContextCount: Int
+    let inactiveCompletionContextCount: Int
+    let reloadTaskCount: Int
+    let retainedDetachedControllerCount: Int
+}
+
 extension MainSplitViewController {
+    var testingGenotypeCurrentWorkbookRetentionDiagnostics:
+        GenotypeCurrentWorkbookRetentionDiagnostics {
+        let activeKey = viewerController.genotypeResultViewController?
+            .currentResultBundleURL?
+            .standardizedFileURL
+            .path
+        return GenotypeCurrentWorkbookRetentionDiagnostics(
+            pendingFullSnapshotCount:
+                pendingGenotypeCurrentWorkbookRoutes.count,
+            completionContextCount:
+                genotypeCurrentWorkbookCompletionContexts.count,
+            inactiveCompletionContextCount:
+                genotypeCurrentWorkbookCompletionContexts.keys.reduce(into: 0) {
+                    count,
+                    key in
+                    if key != activeKey {
+                        count += 1
+                    }
+                },
+            reloadTaskCount:
+                genotypeCurrentWorkbookResultReloadTasks.count,
+            retainedDetachedControllerCount:
+                retainedDeferredGenotypeResultControllers.count
+        )
+    }
+
     var testingShellLayoutState: WorkspaceShellLayoutState {
         shellLayoutCoordinator.state
     }

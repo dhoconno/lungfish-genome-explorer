@@ -28,6 +28,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         let fingerprint: GenotypeCurrentWorkbookInputFingerprint
         let routeContext: OperationRouteContext?
         let mayUpdate: Bool
+        let authorizationRevalidator: @MainActor @Sendable () -> Bool
 
         init(
             bundleURL: URL,
@@ -38,7 +39,9 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             annotationOnly: Bool,
             fingerprint: GenotypeCurrentWorkbookInputFingerprint,
             routeContext: OperationRouteContext?,
-            mayUpdate: Bool = true
+            mayUpdate: Bool = true,
+            authorizationRevalidator:
+                (@MainActor @Sendable () -> Bool)? = nil
         ) {
             self.bundleURL = bundleURL.standardizedFileURL
             self.calls = calls
@@ -49,6 +52,13 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             self.fingerprint = fingerprint
             self.routeContext = routeContext
             self.mayUpdate = mayUpdate
+            self.authorizationRevalidator =
+                authorizationRevalidator ?? { mayUpdate }
+        }
+
+        @MainActor
+        func isUpdateAuthorized() -> Bool {
+            authorizationRevalidator()
         }
     }
 
@@ -311,7 +321,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         cancelIdle(for: key)
 
         if var state = states[key], let operation = state.operation {
-            guard request.mayUpdate else {
+            guard request.isUpdateAuthorized() else {
                 throw SyncStateError.updateNotAuthorized
             }
             let oldPhase = state.phase
@@ -335,7 +345,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         _ = await recordedFingerprint(for: key, bundleURL: request.bundleURL)
         var state = states[key] ?? BundleState()
         if let operation = state.operation {
-            guard request.mayUpdate else {
+            guard request.isUpdateAuthorized() else {
                 throw SyncStateError.updateNotAuthorized
             }
             let oldPhase = state.phase
@@ -410,7 +420,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             }
         }
 
-        guard request.mayUpdate else {
+        guard request.isUpdateAuthorized() else {
             let oldPhase = state.phase
             registerLatest(request, in: &state)
             state.phase = .dirty
@@ -479,7 +489,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                   let request = state.latestRequest else {
                 throw CancellationError()
             }
-            guard request.mayUpdate else {
+            guard request.isUpdateAuthorized() else {
                 let oldPhase = state.phase
                 clearTerminalTransients(in: &state)
                 state.phase = .dirty
@@ -820,6 +830,14 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
 
     func testingHasRetainedRequest(for bundleURL: URL) -> Bool {
         states[Self.bundleKey(for: bundleURL)]?.latestRequest != nil
+    }
+
+    func testingLatestRequestIsUpdateAuthorized(
+        for bundleURL: URL
+    ) -> Bool? {
+        states[Self.bundleKey(for: bundleURL)]?
+            .latestRequest?
+            .isUpdateAuthorized()
     }
 }
 
