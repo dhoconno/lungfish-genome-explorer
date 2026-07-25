@@ -481,6 +481,10 @@ extension MainSplitViewController {
                         _ = try await self.genotypeCurrentWorkbookSyncCoordinator
                             .synchronize(coordinatorRequest, intent: intent)
                     } catch {
+                        self.removeGenotypeCurrentWorkbookCompletionContext(
+                            for: key,
+                            generation: generation
+                        )
                         (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
                     }
                 }

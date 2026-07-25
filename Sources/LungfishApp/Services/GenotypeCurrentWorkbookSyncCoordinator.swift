@@ -514,6 +514,19 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 bundleURL: request.bundleURL
             )
 
+            guard request.isUpdateAuthorized() else {
+                var deniedState = states[key] ?? state
+                let phaseBeforeDenial = deniedState.phase
+                clearTerminalTransients(in: &deniedState)
+                deniedState.phase = .dirty
+                states[key] = deniedState
+                notifyPhaseIfChanged(
+                    from: phaseBeforeDenial,
+                    to: .dirty,
+                    bundleURL: request.bundleURL
+                )
+                throw SyncStateError.updateNotAuthorized
+            }
             do {
                 let workbookURL = try await updateRunner(request, intent)
                     .standardizedFileURL

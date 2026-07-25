@@ -862,6 +862,47 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.phase(for: bundle), .dirty)
     }
 
+    func testUpdatingObserverAuthorizationRevocationPreventsRunnerAdmission()
+        async throws {
+        let bundle = bundleURL("observer-revokes-authorization")
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        let authorization = WorkbookAuthorizationGate()
+        let coordinator = makeCoordinator(recorded: nil, runner: runner)
+        let observer = ObserverOwner()
+        let observation = coordinator.observe(observer) {
+            owner,
+            _,
+            phase in
+            owner.phases.append(phase)
+            if phase == .updating {
+                authorization.isAllowed = false
+            }
+        }
+        let request = makeRequest(
+            bundle: bundle,
+            fingerprint: try makeFingerprint("d"),
+            authorizationRevalidator: { authorization.isAllowed }
+        )
+
+        do {
+            _ = try await coordinator.synchronize(
+                request,
+                intent: .automaticIdle
+            )
+            XCTFail("Expected observer revocation to deny publication")
+        } catch {
+            XCTAssertEqual(
+                (error as NSError).localizedDescription,
+                "This current workbook is out of date and cannot be updated in the active project session."
+            )
+        }
+
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertEqual(coordinator.phase(for: bundle), .dirty)
+        withExtendedLifetime(observation) {}
+    }
+
     func testStaleRegistrationLoaderCannotOverwriteNewerDirtyRequest() async throws {
         let bundle = bundleURL("register-race")
         let recorded = try makeFingerprint("8")

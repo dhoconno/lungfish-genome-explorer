@@ -634,6 +634,150 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
+    func testUnauthorizedSynchronizeCleansContextWithoutPhaseTransition()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeWorkbookUnauthorizedContextCleanup-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = try makeGenotypeResultBundle(
+            root: root,
+            name: "unauthorized-context-cleanup",
+            haplotypeAnalysisPath: nil
+        )
+        var allowsWrites = true
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in nil },
+            idleScheduler: { _, _ in IdleCancellation() }
+        )
+        let splitController = MainSplitViewController()
+        splitController.genotypeCurrentWorkbookSyncCoordinator = coordinator
+        splitController.genotypeCurrentWorkbookProjectWriteAuthorizationProvider = {
+            allowsWrites
+        }
+        _ = splitController.view
+        await splitController.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        let registeredDirty = await eventually {
+            coordinator.phase(for: bundleURL) == .dirty
+                && splitController
+                    .testingGenotypeCurrentWorkbookRetentionDiagnostics
+                    .completionContextCount == 1
+        }
+        XCTAssertTrue(registeredDirty)
+
+        allowsWrites = false
+        splitController.viewerController.genotypeResultViewController?
+            .testingRequestCurrentWorkbookUpdateAndView()
+
+        let released = await eventually {
+            splitController.pendingGenotypeCurrentWorkbookRoutes.isEmpty
+                && splitController
+                    .testingGenotypeCurrentWorkbookRetentionDiagnostics
+                    .completionContextCount == 0
+        }
+        XCTAssertTrue(released)
+        XCTAssertEqual(coordinator.phase(for: bundleURL), .dirty)
+    }
+
+    func testOlderUnauthorizedCatchPreservesNewerCompletionContext()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeWorkbookGenerationScopedCleanup-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "generation-scoped-source",
+            haplotypeAnalysisPath: nil
+        )
+        let loadedResult = try await ONTGenotypeResultBundle.loadResultAsync(
+            from: sourceBundle
+        )
+        let snapshotProbe = GenotypeResultViewController()
+        _ = snapshotProbe.view
+        var probeRequest: GenotypeCurrentWorkbookUIRequest?
+        snapshotProbe.onCurrentWorkbookSyncRequested = {
+            probeRequest = $0
+        }
+        snapshotProbe.configure(result: loadedResult)
+        snapshotProbe.requestCurrentWorkbookRegistration()
+        let sourceSnapshot = try XCTUnwrap(probeRequest?.snapshot)
+        let routedBundle = root.appendingPathComponent(
+            "generation-scoped-route.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: routedBundle,
+            withIntermediateDirectories: true
+        )
+        let deniedSnapshot = GenotypeCurrentWorkbookUISnapshot(
+            bundleURL: routedBundle,
+            calls: sourceSnapshot.calls,
+            includedLoci: sourceSnapshot.includedLoci,
+            annotationSidecar: sourceSnapshot.annotationSidecar,
+            annotationSidecarData: sourceSnapshot.annotationSidecarData,
+            annotationSidecarURL: sourceSnapshot.annotationSidecarURL,
+            candidateArtifacts: sourceSnapshot.candidateArtifacts,
+            annotationOnly: sourceSnapshot.annotationOnly,
+            isReadOnly: true
+        )
+        let newerSnapshot = GenotypeCurrentWorkbookUISnapshot(
+            bundleURL: routedBundle,
+            calls: sourceSnapshot.calls,
+            includedLoci: sourceSnapshot.includedLoci,
+            annotationSidecar: sourceSnapshot.annotationSidecar,
+            annotationSidecarData: sourceSnapshot.annotationSidecarData,
+            annotationSidecarURL: sourceSnapshot.annotationSidecarURL,
+            candidateArtifacts: sourceSnapshot.candidateArtifacts,
+            annotationOnly: sourceSnapshot.annotationOnly,
+            isReadOnly: false
+        )
+        let fingerprintGate = FingerprintLoadGate()
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in await fingerprintGate.load() },
+            idleScheduler: { _, _ in IdleCancellation() }
+        )
+        let splitController = MainSplitViewController()
+        splitController.genotypeCurrentWorkbookSyncCoordinator = coordinator
+        _ = splitController.view
+
+        splitController.routeGenotypeCurrentWorkbookRequest(.init(
+            snapshot: deniedSnapshot,
+            action: .synchronize(.updateAndView)
+        ))
+        let olderReachedCoordinator = await eventually {
+            fingerprintGate.loadCount == 1
+        }
+        XCTAssertTrue(olderReachedCoordinator)
+        splitController.routeGenotypeCurrentWorkbookRequest(.init(
+            snapshot: newerSnapshot,
+            action: .register
+        ))
+        let newerContextInstalled = await eventually {
+            splitController.pendingGenotypeCurrentWorkbookRoutes.isEmpty
+                && splitController
+                    .testingGenotypeCurrentWorkbookRetentionDiagnostics
+                    .completionContextCount == 1
+        }
+        XCTAssertTrue(newerContextInstalled)
+
+        fingerprintGate.resume(with: nil)
+
+        let settled = await eventually {
+            coordinator.phase(for: routedBundle) == .dirty
+                && splitController.pendingGenotypeCurrentWorkbookRoutes.isEmpty
+        }
+        XCTAssertTrue(settled)
+        let diagnostics =
+            splitController.testingGenotypeCurrentWorkbookRetentionDiagnostics
+        XCTAssertEqual(diagnostics.completionContextCount, 1)
+        XCTAssertEqual(diagnostics.inactiveCompletionContextCount, 1)
+    }
+
     func testUpdateAndViewRoutesThroughWindowCoordinatorAndOpensSynchronizedWorkbook() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeWorkbookUpdateAndView-\(UUID().uuidString)", isDirectory: true)
