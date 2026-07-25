@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 import LungfishIO
 import LungfishWorkflow
 import LungfishKit
@@ -394,6 +395,51 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
                 if event == .snapshotDirectoryCreated {
                     throw WorkbookInputPreparationTestError.injected
                 }
+            }
+        )
+
+        await XCTAssertThrowsErrorAsync {
+            try await service.run(
+                bundleURL: bundleURL,
+                calls: [],
+                annotationSidecarURL: nil
+            )
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: updatesURL.path))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: updatesURL,
+                includingPropertiesForKeys: nil
+            ),
+            []
+        )
+        XCTAssertTrue(runner.invocations.isEmpty)
+    }
+
+    func testStagingDirectoryOpenFailureRemovesNewDirectoryEntry() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "failed-staging-open.lungfishgenotype",
+            isDirectory: true
+        )
+        let updatesURL = bundleURL.appendingPathComponent(
+            "artifacts/workbooks/updates",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "{}",
+            standardError: ""
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: runner,
+            stagingDirectoryOpener: { _, _ in
+                errno = EACCES
+                return -1
             }
         )
 

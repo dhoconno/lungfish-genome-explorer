@@ -17,16 +17,28 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
     private let processRunner: LocalWorkflowCLIProcessRunning
     private let inputPreparationObserver:
         (@Sendable (GenotypeCurrentWorkbookInputPreparationEvent) throws -> Void)?
+    private let stagingDirectoryOpener: @Sendable (Int32, String) -> Int32
 
     init(
         operationCenter: OperationCenter = .shared,
         processRunner: LocalWorkflowCLIProcessRunning = ProcessLocalWorkflowCLIProcessRunner(),
         inputPreparationObserver:
-            (@Sendable (GenotypeCurrentWorkbookInputPreparationEvent) throws -> Void)? = nil
+            (@Sendable (GenotypeCurrentWorkbookInputPreparationEvent) throws -> Void)? = nil,
+        stagingDirectoryOpener: @escaping @Sendable (Int32, String) -> Int32 = {
+            parentDescriptor, name in
+            name.withCString {
+                Darwin.openat(
+                    parentDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+        }
     ) {
         self.operationCenter = operationCenter
         self.processRunner = processRunner
         self.inputPreparationObserver = inputPreparationObserver
+        self.stagingDirectoryOpener = stagingDirectoryOpener
     }
 
     @discardableResult
@@ -43,13 +55,15 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
     ) async throws -> URL {
         let bundle = bundleURL.standardizedFileURL
         let preparationObserver = inputPreparationObserver
+        let stagingDirectoryOpener = stagingDirectoryOpener
         let snapshot = try await Task.detached(priority: .userInitiated) {
             try Self.writeInputSnapshot(
                 calls: calls,
                 annotationSidecarData: annotationSidecarData,
                 annotationSidecarURL: annotationSidecarURL,
                 bundleURL: bundle,
-                observer: preparationObserver
+                observer: preparationObserver,
+                stagingDirectoryOpener: stagingDirectoryOpener
             )
         }.value
         let arguments = cliArguments(
@@ -151,7 +165,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         annotationSidecarData: Data?,
         annotationSidecarURL: URL?,
         bundleURL: URL,
-        observer: (@Sendable (GenotypeCurrentWorkbookInputPreparationEvent) throws -> Void)?
+        observer: (@Sendable (GenotypeCurrentWorkbookInputPreparationEvent) throws -> Void)?,
+        stagingDirectoryOpener: @Sendable (Int32, String) -> Int32
     ) throws -> InputSnapshot {
         try observer?(.started)
         let encoder = JSONEncoder()
@@ -212,7 +227,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             displayPath: bundleURL
                 .appendingPathComponent("artifacts/workbooks/updates")
                 .appendingPathComponent(stagingDirectoryName)
-                .path
+                .path,
+            openDirectory: stagingDirectoryOpener
         )
         ownedDirectoryDescriptors.append(snapshotDescriptor)
 
@@ -432,7 +448,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
     private nonisolated static func createDirectoryNoFollow(
         named name: String,
         parentDescriptor: Int32,
-        displayPath: String
+        displayPath: String,
+        openDirectory: @Sendable (Int32, String) -> Int32
     ) throws -> Int32 {
         let creationResult = name.withCString {
             Darwin.mkdirat(parentDescriptor, $0, S_IRWXU)
@@ -443,14 +460,16 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
                 path: displayPath
             )
         }
-        let descriptor = name.withCString {
-            Darwin.openat(
-                parentDescriptor,
-                $0,
-                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
-            )
-        }
+        let descriptor = openDirectory(parentDescriptor, name)
         guard descriptor >= 0 else {
+            let openError = errno
+            let cleanupResult = name.withCString {
+                Darwin.unlinkat(parentDescriptor, $0, AT_REMOVEDIR)
+            }
+            if cleanupResult == 0 {
+                _ = Darwin.fsync(parentDescriptor)
+            }
+            errno = openError
             throw posixError(
                 operation: "Open current-workbook input snapshot",
                 path: displayPath

@@ -3120,6 +3120,118 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertNotNil(envelope.options.explicit["additionalInputs"])
     }
 
+    func testApplyHaplotypeOverridesRejectsSameSizeCallsInputMutationBeforePublication() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "mutated-cli-input"
+        )
+        try installCandidateArtifacts(in: fixture.bundleURL)
+        try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-24T00:00:00Z"
+        )
+        try sidecar.encoded().write(to: annotationURL)
+        let admittedCalls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "sample-a",
+                locus: "MHC-A",
+                haplotype1: "A-H1",
+                haplotype2: "A-H2",
+                status: "called",
+                notes: "review"
+            ),
+        ]
+        let changedCalls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "sample-b",
+                locus: "MHC-A",
+                haplotype1: "A-H1",
+                haplotype2: "A-H2",
+                status: "called",
+                notes: "review"
+            ),
+        ]
+        let retainedDirectory = root.appendingPathComponent(
+            "retained-cli-inputs",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: retainedDirectory,
+            withIntermediateDirectories: true
+        )
+        let callsURL = retainedDirectory.appendingPathComponent(
+            "displayed-haplotype-calls.json"
+        )
+        let admittedData = try ProvenanceJSON.encoder.encode(admittedCalls)
+        let changedData = try ProvenanceJSON.encoder.encode(changedCalls)
+        XCTAssertEqual(admittedData.count, changedData.count)
+        try admittedData.write(to: callsURL)
+        let bundleBefore = try bundleSnapshot(fixture.bundleURL)
+        let mutationCheckpoint = SendableFlagBox()
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_125) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            publicationFailureInjector: { checkpoint in
+                guard checkpoint == "after-python-before-source-conflict-check" else {
+                    return
+                }
+                mutationCheckpoint.set(1)
+                let handle = try FileHandle(forWritingTo: callsURL)
+                defer { try? handle.close() }
+                try handle.seek(toOffset: 0)
+                try handle.write(contentsOf: changedData)
+                try handle.synchronize()
+            }
+        )
+        let argv = [
+            "lungfish-cli", "fastq", "update-current-workbook",
+            fixture.bundleURL.path,
+            "--calls-json", callsURL.path,
+            "--annotations", annotationURL.path,
+        ]
+
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
+                admittedCalls,
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL,
+                provenanceContext: GenotypeWorkbookRevisionProvenanceContext(
+                    toolName: "lungfish-cli fastq update-current-workbook",
+                    toolKind: "cli",
+                    argv: argv,
+                    cliInputDescriptors: [
+                        try ProvenanceFileDescriptor.file(
+                            url: callsURL,
+                            format: .json,
+                            role: .input
+                        ),
+                        try ProvenanceFileDescriptor.file(
+                            url: annotationURL,
+                            format: .json,
+                            role: .input
+                        ),
+                    ]
+                )
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("CLI provenance descriptor"),
+                "Unexpected error: \(error)"
+            )
+        }
+
+        XCTAssertEqual(mutationCheckpoint.value, 1)
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), bundleBefore)
+        XCTAssertEqual(try Data(contentsOf: callsURL), changedData)
+    }
+
     func testApplyHaplotypeOverridesRejectsMismatchedInputFingerprintWithoutBundleMutation() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()

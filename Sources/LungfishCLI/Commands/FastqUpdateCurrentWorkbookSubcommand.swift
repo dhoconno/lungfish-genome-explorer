@@ -70,7 +70,9 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         let callsURL = URL(fileURLWithPath: callsJSON).standardizedFileURL
         let annotationURL = resolvedAnnotationURL(bundleURL: bundleURL)
         let callsInput = try immutableJSONInput(at: callsURL)
-        let annotationInput = try annotationURL.map(immutableJSONInput(at:))
+        let annotationInput = try annotationURL.map {
+            try immutableJSONInput(at: $0)
+        }
 
         FileHandle.standardError.write(Data("[ 10%] Resolving managed openpyxl runtime.\n".utf8))
         let pythonURL = try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl")
@@ -213,11 +215,19 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         argv: [String],
         callsURL: URL,
         annotationURL: URL?,
-        attestation: FastqUpdateCurrentWorkbookAttestation
+        attestation: FastqUpdateCurrentWorkbookAttestation,
+        immutableInputReadObserver:
+            (@Sendable (URL, Int) throws -> Void)? = nil
     ) throws -> GenotypeWorkbookRevisionProvenanceContext {
-        let callsInput = try immutableJSONInput(at: callsURL.standardizedFileURL)
+        let callsInput = try immutableJSONInput(
+            at: callsURL.standardizedFileURL,
+            readObserver: immutableInputReadObserver
+        )
         let annotationInput = try annotationURL.map {
-            try immutableJSONInput(at: $0.standardizedFileURL)
+            try immutableJSONInput(
+                at: $0.standardizedFileURL,
+                readObserver: immutableInputReadObserver
+            )
         }
         return try provenanceContext(
             argv: argv,
@@ -245,7 +255,8 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     }
 
     private func immutableJSONInput(
-        at url: URL
+        at url: URL,
+        readObserver: (@Sendable (URL, Int) throws -> Void)? = nil
     ) throws -> FastqUpdateCurrentWorkbookImmutableJSONInput {
         let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard descriptor >= 0 else {
@@ -268,6 +279,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             data.reserveCapacity(Int(before.st_size))
         }
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        var chunkIndex = 0
         while true {
             let count = buffer.withUnsafeMutableBytes {
                 Darwin.read(descriptor, $0.baseAddress, $0.count)
@@ -280,12 +292,12 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             }
             guard count > 0 else { break }
             data.append(buffer, count: count)
+            chunkIndex += 1
+            try readObserver?(url, chunkIndex)
         }
         var after = stat()
         guard Darwin.fstat(descriptor, &after) == 0,
-              before.st_dev == after.st_dev,
-              before.st_ino == after.st_ino,
-              before.st_size == after.st_size,
+              sameImmutableInputMetadata(before, after),
               Int64(data.count) == after.st_size else {
             throw ValidationError(
                 "Current-workbook immutable input changed while it was being read: \(url.path)"
@@ -294,6 +306,11 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         let checksum = SHA256.hash(data: data)
             .map { String(format: "%02x", $0) }
             .joined()
+        try verifyImmutableJSONInput(
+            at: url,
+            expectedSize: UInt64(data.count),
+            expectedChecksum: checksum
+        )
         return FastqUpdateCurrentWorkbookImmutableJSONInput(
             data: data,
             descriptor: ProvenanceFileDescriptor(
@@ -304,6 +321,64 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 role: .input
             )
         )
+    }
+
+    private func verifyImmutableJSONInput(
+        at url: URL,
+        expectedSize: UInt64,
+        expectedChecksum: String
+    ) throws {
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            throw immutableInputPOSIXError(operation: "reopen", url: url)
+        }
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG else {
+            throw immutableInputPOSIXError(operation: "reinspect", url: url)
+        }
+        var hasher = SHA256()
+        var byteCount: UInt64 = 0
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = buffer.withUnsafeMutableBytes {
+                Darwin.read(descriptor, $0.baseAddress, $0.count)
+            }
+            if count < 0, errno == EINTR {
+                continue
+            }
+            guard count >= 0 else {
+                throw immutableInputPOSIXError(operation: "reread", url: url)
+            }
+            guard count > 0 else { break }
+            byteCount += UInt64(count)
+            hasher.update(data: Data(buffer[0..<count]))
+        }
+        var after = stat()
+        let checksum = hasher.finalize()
+            .map { String(format: "%02x", $0) }
+            .joined()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              sameImmutableInputMetadata(before, after),
+              byteCount == expectedSize,
+              checksum == expectedChecksum else {
+            throw ValidationError(
+                "Current-workbook immutable input changed while it was being read: \(url.path)"
+            )
+        }
+    }
+
+    private func sameImmutableInputMetadata(_ lhs: stat, _ rhs: stat) -> Bool {
+        lhs.st_dev == rhs.st_dev
+            && lhs.st_ino == rhs.st_ino
+            && lhs.st_size == rhs.st_size
+            && lhs.st_mode == rhs.st_mode
+            && lhs.st_nlink == rhs.st_nlink
+            && lhs.st_mtimespec.tv_sec == rhs.st_mtimespec.tv_sec
+            && lhs.st_mtimespec.tv_nsec == rhs.st_mtimespec.tv_nsec
+            && lhs.st_ctimespec.tv_sec == rhs.st_ctimespec.tv_sec
+            && lhs.st_ctimespec.tv_nsec == rhs.st_ctimespec.tv_nsec
     }
 
     private func immutableInputPOSIXError(operation: String, url: URL) -> NSError {

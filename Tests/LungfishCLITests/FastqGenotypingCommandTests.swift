@@ -183,6 +183,57 @@ final class FastqGenotypingCommandTests: XCTestCase {
         }
     }
 
+    func testImmutableCLIInputReadRejectsSameSizeMutationDuringInitialRead() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqUpdateCurrentWorkbookInitialRead-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let callsURL = root.appendingPathComponent("displayed-haplotype-calls.json")
+        let admittedData = Data(("\"" + String(repeating: "a", count: 150_000) + "\"").utf8)
+        let changedData = Data(("\"" + String(repeating: "b", count: 150_000) + "\"").utf8)
+        XCTAssertEqual(admittedData.count, changedData.count)
+        try admittedData.write(to: callsURL)
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+        ])
+        let mutation = FastqImmutableInputMutationBox()
+
+        XCTAssertThrowsError(
+            try command.provenanceContext(
+                argv: [
+                    "lungfish-cli", "fastq", "update-current-workbook",
+                    bundleURL.path, "--calls-json", callsURL.path,
+                ],
+                callsURL: callsURL,
+                annotationURL: nil,
+                attestation: command.validatedAttestation(),
+                immutableInputReadObserver: { url, chunkIndex in
+                    guard url.standardizedFileURL == callsURL.standardizedFileURL,
+                          chunkIndex == 1,
+                          mutation.claim() else {
+                        return
+                    }
+                    let handle = try FileHandle(forWritingTo: callsURL)
+                    defer { try? handle.close() }
+                    try handle.seek(toOffset: 0)
+                    try handle.write(contentsOf: changedData)
+                    try handle.synchronize()
+                }
+            )
+        ) { error in
+            XCTAssertTrue(
+                String(describing: error).contains("changed while it was being read"),
+                "Unexpected error: \(error)"
+            )
+        }
+        XCTAssertTrue(mutation.wasClaimed)
+        XCTAssertEqual(try Data(contentsOf: callsURL), changedData)
+    }
+
     func testONTFluidigmSamplesCommandParsesRequiredInputs() throws {
         let command = try FastqONTFluidigmSamplesSubcommand.parse([
             "/tmp/barcode11.lungfishfastq",
@@ -435,5 +486,22 @@ final class FastqGenotypingCommandTests: XCTestCase {
             FastqMHCReferenceBundleSubcommand.warningLine(warning),
             "warning: Invalid GenBank location: bad..location [record MHCREF1, feature CDS, location bad..location]\n"
         )
+    }
+}
+
+private final class FastqImmutableInputMutationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    var wasClaimed: Bool {
+        lock.withLock { claimed }
+    }
+
+    func claim() -> Bool {
+        lock.withLock {
+            guard !claimed else { return false }
+            claimed = true
+            return true
+        }
     }
 }

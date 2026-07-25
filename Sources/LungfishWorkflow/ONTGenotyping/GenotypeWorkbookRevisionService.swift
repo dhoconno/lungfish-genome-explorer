@@ -410,6 +410,12 @@ public struct GenotypeWorkbookRevisionService {
         let sidecar = try annotationSidecarData.map {
             try JSONDecoder().decode(GenotypeAnnotationSidecar.self, from: $0)
         }
+        func requireCLIInputDescriptorsUnchanged() throws {
+            for descriptor in provenanceContext?.cliInputDescriptors ?? [] {
+                try requireCLIInputDescriptorUnchanged(descriptor)
+            }
+        }
+        try requireCLIInputDescriptorsUnchanged()
         let semanticFingerprintCalls = fingerprintInputs?.calls ?? calls
         let semanticFingerprintIncludedLoci = fingerprintInputs?.includedLoci ?? includedLoci
         if let suppliedFingerprint = provenanceContext?.inputFingerprint {
@@ -511,6 +517,7 @@ public struct GenotypeWorkbookRevisionService {
         try writeStagedFile(try encoder.encode(executionRecord), to: stagedRuntimeRecordURL)
         try validateWorkbook(patchedURL)
         try publicationFailureInjector?("after-python-before-source-conflict-check")
+        try requireCLIInputDescriptorsUnchanged()
         try requireAnnotationSidecarUnchanged()
         try checkCancellation()
 
@@ -613,6 +620,7 @@ public struct GenotypeWorkbookRevisionService {
             sourceWorkbookURL,
             witness: sourceWorkbookWitness
         )
+        try requireCLIInputDescriptorsUnchanged()
         try requireAnnotationSidecarUnchanged()
 
         let oldCurrentPath = manifest.currentWorkbookPath ?? manifest.primaryWorkbookPath
@@ -695,6 +703,7 @@ public struct GenotypeWorkbookRevisionService {
             sourceWorkbookURL,
             witness: sourceWorkbookWitness
         )
+        try requireCLIInputDescriptorsUnchanged()
         try requireAnnotationSidecarUnchanged()
         workbookTransaction = try ONTGenotypeWorkbookUpdateRecovery.createAttestation(
             for: workbookTransaction,
@@ -738,6 +747,7 @@ public struct GenotypeWorkbookRevisionService {
                 sourceWorkbookURL,
                 witness: sourceWorkbookWitness
             )
+            try requireCLIInputDescriptorsUnchanged()
             try requireAnnotationSidecarUnchanged()
         } catch {
             try ONTGenotypeWorkbookUpdateRecovery.discardPreparedTransactionAssumingLock(
@@ -2487,6 +2497,12 @@ public struct GenotypeWorkbookRevisionService {
               before.st_dev == after.st_dev,
               before.st_ino == after.st_ino,
               before.st_size == after.st_size,
+              before.st_mode == after.st_mode,
+              before.st_nlink == after.st_nlink,
+              before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
+              before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec,
+              before.st_ctimespec.tv_sec == after.st_ctimespec.tv_sec,
+              before.st_ctimespec.tv_nsec == after.st_ctimespec.tv_nsec,
               Int64(data.count) == after.st_size else {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                 "Annotation sidecar changed while its immutable input snapshot was being created."
@@ -2501,6 +2517,25 @@ public struct GenotypeWorkbookRevisionService {
                 sha256: hasher.finalize().map { String(format: "%02x", $0) }.joined()
             )
         )
+    }
+
+    private func requireCLIInputDescriptorUnchanged(
+        _ descriptor: ProvenanceFileDescriptor
+    ) throws {
+        guard let expectedSize = descriptor.fileSize,
+              let expectedChecksum = descriptor.checksumSHA256 else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "CLI provenance descriptor is missing a size or SHA-256 checksum: \(descriptor.path)"
+            )
+        }
+        let url = URL(fileURLWithPath: descriptor.path).standardizedFileURL
+        let snapshot = try readRegularFileNoFollow(url)
+        guard UInt64(snapshot.witness.sizeBytes) == expectedSize,
+              snapshot.witness.sha256 == expectedChecksum else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "CLI provenance descriptor no longer matches the exact retained input path: \(descriptor.path)"
+            )
+        }
     }
 
     private func snapshotRegularFileNoFollow(
