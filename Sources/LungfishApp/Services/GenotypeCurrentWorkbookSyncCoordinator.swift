@@ -97,6 +97,20 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         var idleCancellation: (any IdleCancellation)?
     }
 
+    private enum SyncStateError: Error, LocalizedError {
+        case supersedingUpdateFailed(String)
+        case supersedingWorkbookUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .supersedingUpdateFailed(let message):
+                return message
+            case .supersedingWorkbookUnavailable:
+                return "The newer current workbook could not be resolved safely."
+            }
+        }
+    }
+
     private typealias Observer = @MainActor (URL, Phase) -> Bool
 
     private let recordedFingerprintLoader: RecordedFingerprintLoader
@@ -128,12 +142,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         }
         self.currentWorkbookResolver = currentWorkbookResolver ?? { bundleURL in
             await Task.detached {
-                guard let resolved = try? ONTGenotypeResultBundle.currentWorkbookURL(
-                    for: bundleURL
-                ) else {
-                    return nil
-                }
-                return Self.validatedCurrentWorkbookURL(at: resolved)
+                Self.resolvedValidatedCurrentWorkbookURL(in: bundleURL)
             }.value
         }
         self.updateRunner = updateRunner ?? { request, intent in
@@ -323,31 +332,57 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             return try await operation.value
         }
         if authoritativeCurrentFingerprint(in: state) == request.fingerprint {
-            let resolutionGeneration = state.generation
-            let workbookURL = await currentWorkbookResolver(request.bundleURL)
-            var resolvedState = states[key] ?? state
-            if resolvedState.generation != resolutionGeneration,
-               let latestRequest = resolvedState.latestRequest {
-                return try await synchronize(latestRequest, intent: intent)
-            }
-            if let operation = resolvedState.operation {
-                if intent == .updateAndView {
-                    resolvedState.openAfterSuccess = true
-                    states[key] = resolvedState
+            var resolutionGeneration = state.generation
+            var requestWasSuperseded = false
+            while true {
+                let workbookURL = await currentWorkbookResolver(request.bundleURL)
+                var resolvedState = states[key] ?? state
+                if resolvedState.generation != resolutionGeneration {
+                    requestWasSuperseded = true
+                    if let operation = resolvedState.operation {
+                        if intent == .updateAndView {
+                            resolvedState.openAfterSuccess = true
+                            states[key] = resolvedState
+                        }
+                        return try await operation.value
+                    }
+                    if let latestRequest = resolvedState.latestRequest {
+                        return try await synchronize(latestRequest, intent: intent)
+                    }
+                    switch resolvedState.phase {
+                    case .current:
+                        resolutionGeneration = resolvedState.generation
+                        state = resolvedState
+                        continue
+                    case .failed(let message):
+                        throw SyncStateError.supersedingUpdateFailed(message)
+                    case .dirty, .dirtyWhileUpdating, .updating:
+                        throw SyncStateError.supersedingWorkbookUnavailable
+                    }
                 }
-                return try await operation.value
-            }
-            state = resolvedState
-            if let workbookURL {
-                var currentState = resolvedState
-                clearTerminalTransients(in: &currentState)
-                states[key] = currentState
-                setPhase(.current, for: key, bundleURL: request.bundleURL)
-                let standardizedWorkbookURL = workbookURL.standardizedFileURL
-                if intent == .updateAndView {
-                    workbookOpener(standardizedWorkbookURL)
+                if let operation = resolvedState.operation {
+                    if intent == .updateAndView {
+                        resolvedState.openAfterSuccess = true
+                        states[key] = resolvedState
+                    }
+                    return try await operation.value
                 }
-                return standardizedWorkbookURL
+                state = resolvedState
+                if let workbookURL {
+                    var currentState = resolvedState
+                    clearTerminalTransients(in: &currentState)
+                    states[key] = currentState
+                    setPhase(.current, for: key, bundleURL: request.bundleURL)
+                    let standardizedWorkbookURL = workbookURL.standardizedFileURL
+                    if intent == .updateAndView {
+                        workbookOpener(standardizedWorkbookURL)
+                    }
+                    return standardizedWorkbookURL
+                }
+                if requestWasSuperseded {
+                    throw SyncStateError.supersedingWorkbookUnavailable
+                }
+                break
             }
         }
 
@@ -629,6 +664,103 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             return nil
         }
         return standardizedURL
+    }
+
+    nonisolated static func resolvedValidatedCurrentWorkbookURL(
+        in bundleURL: URL
+    ) -> URL? {
+        let standardizedBundleURL = bundleURL.standardizedFileURL
+        guard let manifest = try? ONTGenotypeResultBundle.loadManifest(
+            from: standardizedBundleURL
+        ),
+        let components = safeRelativePathComponents(
+            manifest.currentWorkbookPath ?? manifest.primaryWorkbookPath
+        ) else {
+            return nil
+        }
+        let rootDescriptor = Darwin.open(
+            standardizedBundleURL.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard rootDescriptor >= 0 else {
+            return nil
+        }
+        defer { Darwin.close(rootDescriptor) }
+
+        var directoryDescriptor = rootDescriptor
+        var ownedDirectoryDescriptors: [Int32] = []
+        defer {
+            for descriptor in ownedDirectoryDescriptors.reversed() {
+                Darwin.close(descriptor)
+            }
+        }
+        for component in components.dropLast() {
+            let nextDescriptor = component.withCString {
+                Darwin.openat(
+                    directoryDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+                )
+            }
+            guard nextDescriptor >= 0 else {
+                return nil
+            }
+            var information = stat()
+            guard Darwin.fstat(nextDescriptor, &information) == 0,
+                  information.st_mode & S_IFMT == S_IFDIR else {
+                Darwin.close(nextDescriptor)
+                return nil
+            }
+            ownedDirectoryDescriptors.append(nextDescriptor)
+            directoryDescriptor = nextDescriptor
+        }
+
+        guard let finalComponent = components.last else {
+            return nil
+        }
+        let workbookDescriptor = finalComponent.withCString {
+            Darwin.openat(
+                directoryDescriptor,
+                $0,
+                O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+            )
+        }
+        guard workbookDescriptor >= 0 else {
+            return nil
+        }
+        defer { Darwin.close(workbookDescriptor) }
+        var workbookInformation = stat()
+        guard Darwin.fstat(workbookDescriptor, &workbookInformation) == 0,
+              workbookInformation.st_mode & S_IFMT == S_IFREG else {
+            return nil
+        }
+
+        return components.reduce(standardizedBundleURL) { partialURL, component in
+            partialURL.appendingPathComponent(component)
+        }.standardizedFileURL
+    }
+
+    nonisolated private static func safeRelativePathComponents(
+        _ path: String
+    ) -> [String]? {
+        guard path == path.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty,
+              !path.hasPrefix("/"),
+              !path.hasPrefix("~"),
+              !path.contains("\\"),
+              !path.utf8.contains(0) else {
+            return nil
+        }
+        let components = path.split(
+            separator: "/",
+            omittingEmptySubsequences: false
+        ).map(String.init)
+        guard components.allSatisfy({
+            !$0.isEmpty && $0 != "." && $0 != ".."
+        }) else {
+            return nil
+        }
+        return components
     }
 
     func testingHasRetainedRequest(for bundleURL: URL) -> Bool {

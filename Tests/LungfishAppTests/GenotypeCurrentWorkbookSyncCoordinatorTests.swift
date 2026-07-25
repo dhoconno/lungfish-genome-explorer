@@ -1,4 +1,5 @@
 import XCTest
+import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 @testable import LungfishApp
@@ -107,6 +108,100 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         )
     }
 
+    func testDefaultResolverRejectsAbsoluteTraversalAndIntermediateSymlinkPaths() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "GenotypeCurrentWorkbookResolverSafety-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outsideWorkbook = root.appendingPathComponent("outside.xlsx")
+        try Data("outside".utf8).write(to: outsideWorkbook)
+
+        let absoluteBundle = root.appendingPathComponent(
+            "absolute.lungfishgenotype",
+            isDirectory: true
+        )
+        try writeManifest(
+            in: absoluteBundle,
+            currentWorkbookPath: outsideWorkbook.path
+        )
+        XCTAssertNil(
+            GenotypeCurrentWorkbookSyncCoordinator
+                .resolvedValidatedCurrentWorkbookURL(in: absoluteBundle)
+        )
+
+        let traversalBundle = root.appendingPathComponent(
+            "traversal.lungfishgenotype",
+            isDirectory: true
+        )
+        try writeManifest(
+            in: traversalBundle,
+            currentWorkbookPath: "../outside.xlsx"
+        )
+        XCTAssertNil(
+            GenotypeCurrentWorkbookSyncCoordinator
+                .resolvedValidatedCurrentWorkbookURL(in: traversalBundle)
+        )
+
+        let symlinkBundle = root.appendingPathComponent(
+            "symlink.lungfishgenotype",
+            isDirectory: true
+        )
+        try writeManifest(
+            in: symlinkBundle,
+            currentWorkbookPath: "artifacts/workbooks/current.xlsx"
+        )
+        let outsideArtifacts = root.appendingPathComponent(
+            "outside-artifacts",
+            isDirectory: true
+        )
+        let outsideWorkbooks = outsideArtifacts.appendingPathComponent(
+            "workbooks",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: outsideWorkbooks,
+            withIntermediateDirectories: true
+        )
+        try Data("linked".utf8).write(
+            to: outsideWorkbooks.appendingPathComponent("current.xlsx")
+        )
+        try FileManager.default.createSymbolicLink(
+            at: symlinkBundle.appendingPathComponent("artifacts"),
+            withDestinationURL: outsideArtifacts
+        )
+        XCTAssertNil(
+            GenotypeCurrentWorkbookSyncCoordinator
+                .resolvedValidatedCurrentWorkbookURL(in: symlinkBundle)
+        )
+
+        let validBundle = root.appendingPathComponent(
+            "valid.lungfishgenotype",
+            isDirectory: true
+        )
+        try writeManifest(
+            in: validBundle,
+            currentWorkbookPath: "artifacts/workbooks/current.xlsx"
+        )
+        let validWorkbook = validBundle.appendingPathComponent(
+            "artifacts/workbooks/current.xlsx"
+        )
+        try FileManager.default.createDirectory(
+            at: validWorkbook.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("valid".utf8).write(to: validWorkbook)
+        XCTAssertEqual(
+            GenotypeCurrentWorkbookSyncCoordinator
+                .resolvedValidatedCurrentWorkbookURL(in: validBundle),
+            validWorkbook.standardizedFileURL
+        )
+    }
+
     func testWorkbookResolutionCannotOverwriteNewerDirtyGeneration() async throws {
         let bundle = bundleURL("resolver-race")
         let recorded = try makeFingerprint("a")
@@ -148,6 +243,103 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         _ = try await waiter.value
         XCTAssertEqual(opened.count, 1)
         XCTAssertFalse(coordinator.testingHasRetainedRequest(for: bundle))
+    }
+
+    func testCompletedNewerGenerationForcesFreshResolutionBeforeOldWaiterOpens() async throws {
+        let bundle = bundleURL("resolver-completed-generation")
+        let recorded = try makeFingerprint("a")
+        let newer = try makeFingerprint("b")
+        let resolver = ControlledWorkbookResolver()
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        var opened: [URL] = []
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in recorded },
+            currentWorkbookResolver: { bundle in
+                await resolver.resolve(bundle)
+            },
+            updateRunner: { request, intent in
+                try await runner.run(request, intent: intent)
+            },
+            workbookOpener: { opened.append($0) },
+            idleScheduler: TestIdleScheduler().schedule
+        )
+        let oldWaiter = Task {
+            try await coordinator.synchronize(
+                makeRequest(bundle: bundle, fingerprint: recorded),
+                intent: .updateAndView
+            )
+        }
+        try await waitUntil { resolver.callCount == 1 }
+
+        let newerWorkbook = try await coordinator.synchronize(
+            makeRequest(bundle: bundle, fingerprint: newer),
+            intent: .bundleSwitch
+        )
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertTrue(opened.isEmpty)
+
+        resolver.finish(with: bundle.appendingPathComponent("stale-a.xlsx"))
+        try await waitUntil { resolver.callCount == 2 }
+        XCTAssertTrue(opened.isEmpty)
+
+        resolver.finish(with: newerWorkbook)
+        let resolvedForOldWaiter = try await oldWaiter.value
+
+        XCTAssertEqual(resolvedForOldWaiter, newerWorkbook)
+        XCTAssertEqual(opened, [newerWorkbook])
+        XCTAssertEqual(coordinator.phase(for: bundle), .current)
+    }
+
+    func testFailedNewerGenerationNeverOpensStaleResolverResult() async throws {
+        let bundle = bundleURL("resolver-failed-generation")
+        let recorded = try makeFingerprint("a")
+        let newer = try makeFingerprint("b")
+        let resolver = ControlledWorkbookResolver()
+        let runner = ControlledRunner()
+        runner.failNext = TestError.expected
+        var opened: [URL] = []
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in recorded },
+            currentWorkbookResolver: { bundle in
+                await resolver.resolve(bundle)
+            },
+            updateRunner: { request, intent in
+                try await runner.run(request, intent: intent)
+            },
+            workbookOpener: { opened.append($0) },
+            idleScheduler: TestIdleScheduler().schedule
+        )
+        let oldWaiter = Task {
+            try await coordinator.synchronize(
+                makeRequest(bundle: bundle, fingerprint: recorded),
+                intent: .updateAndView
+            )
+        }
+        try await waitUntil { resolver.callCount == 1 }
+
+        do {
+            _ = try await coordinator.synchronize(
+                makeRequest(bundle: bundle, fingerprint: newer),
+                intent: .bundleSwitch
+            )
+            XCTFail("Expected the newer generation update to fail")
+        } catch TestError.expected {}
+        guard case .failed = coordinator.phase(for: bundle) else {
+            return XCTFail("Expected the newer generation to remain failed")
+        }
+
+        resolver.finish(with: bundle.appendingPathComponent("stale-a.xlsx"))
+        do {
+            _ = try await oldWaiter.value
+            XCTFail("Expected the old waiter to observe the newer failure")
+        } catch {}
+
+        XCTAssertTrue(opened.isEmpty)
+        XCTAssertEqual(resolver.callCount, 1)
+        guard case .failed = coordinator.phase(for: bundle) else {
+            return XCTFail("Expected the newer generation to remain failed")
+        }
     }
 
     func testDirtyRequestRunsOnceRecordsIntentAndAutomaticNeverOpens() async throws {
@@ -755,6 +947,23 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
             workbookOpener: opened,
             idleScheduler: scheduler.schedule
         )
+    }
+
+    private func writeManifest(
+        in bundleURL: URL,
+        currentWorkbookPath: String
+    ) throws {
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: bundleURL.deletingPathExtension().lastPathComponent,
+            analysisName: "sync-coordinator-test",
+            primaryWorkbookPath: "primary.xlsx",
+            currentWorkbookPath: currentWorkbookPath,
+            longSummaryCSVPath: "long.csv",
+            sampleSummaryCSVPath: "samples.csv",
+            statsJSONPath: "stats.json",
+            provenancePath: "provenance.json"
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
     }
 
     private func makeRequest(
