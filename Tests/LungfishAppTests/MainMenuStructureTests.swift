@@ -190,31 +190,76 @@ final class MainMenuStructureTests: XCTestCase {
 
     func testAppearanceRestoreDefaultsPersistsSystemWithOneNarrowNotification() {
         preservingAppSettings {
-            AppSettings.shared.resetSection(.appearance)
-            AppSettings.shared.contentTextSizePreference = .custom(175)
-            AppSettings.shared.save()
+            let settings = AppSettings.shared
+            settings.resetSection(.appearance)
+            settings.contentTextSizePreference = .custom(175)
+            settings.sequenceAppearance.baseColors["A"] = "#123456"
+            settings.annotationTypeColorHexes["gene"] = "#654321"
+            settings.variantColorThemeName = "High Contrast"
+            settings.defaultAnnotationHeight = 32
+            settings.defaultAnnotationSpacing = 8
+            settings.horizontalScrollDirection = .natural
+            settings.verticalScrollDirection = .traditional
+            settings.save()
             let saves = AppSettingsSaveCounter()
             let contentTextSizeChanges = ContentTextSizeNotificationCounter()
+            let variantThemeChanges = VariantThemeNotificationCounter()
             var colorReloadCount = 0
+            let persistence = AppearanceSettingsPersistence(
+                settings: settings,
+                notificationCenter: .default
+            )
 
-            AppearanceSettingsTab.restoreAppearanceDefaults(
-                settings: AppSettings.shared
-            ) {
+            persistence.restoreDefaults {
                 colorReloadCount += 1
             }
 
-            XCTAssertEqual(AppSettings.shared.contentTextSizePreference, .system)
+            XCTAssertEqual(settings.contentTextSizePreference, .system)
+            XCTAssertEqual(settings.sequenceAppearance, .default)
+            XCTAssertEqual(
+                settings.annotationTypeColorHexes,
+                AppSettings.defaultAnnotationTypeColorHexes
+            )
+            XCTAssertEqual(settings.variantColorThemeName, "Modern")
+            XCTAssertEqual(settings.defaultAnnotationHeight, 16)
+            XCTAssertEqual(settings.defaultAnnotationSpacing, 2)
+            XCTAssertEqual(settings.horizontalScrollDirection, .traditional)
+            XCTAssertEqual(settings.verticalScrollDirection, .system)
             XCTAssertEqual(saves.count, 1)
             XCTAssertEqual(contentTextSizeChanges.count, 1)
+            XCTAssertEqual(variantThemeChanges.count, 1)
             XCTAssertEqual(colorReloadCount, 1)
 
-            AppSettings.shared.contentTextSizePreference = .custom(175)
+            settings.contentTextSizePreference = .custom(175)
             AppSettings.load()
             XCTAssertEqual(
-                AppSettings.shared.contentTextSizePreference,
+                settings.contentTextSizePreference,
                 .system,
                 "Restore Defaults must persist System, not only update the in-memory picker"
             )
+        }
+    }
+
+    func testDirectUserVariantThemeChangeSavesAndNotifiesExactlyOnce() {
+        preservingAppSettings {
+            let settings = AppSettings.shared
+            settings.resetSection(.appearance)
+            settings.save()
+            let saves = AppSettingsSaveCounter()
+            let contentTextSizeChanges = ContentTextSizeNotificationCounter()
+            let variantThemeChanges = VariantThemeNotificationCounter()
+            let persistence = AppearanceSettingsPersistence(
+                settings: settings,
+                notificationCenter: .default
+            )
+
+            persistence.updateVariantTheme("High Contrast")
+            persistence.updateVariantTheme("High Contrast")
+
+            XCTAssertEqual(settings.variantColorThemeName, "High Contrast")
+            XCTAssertEqual(saves.count, 1)
+            XCTAssertEqual(contentTextSizeChanges.count, 0)
+            XCTAssertEqual(variantThemeChanges.count, 1)
         }
     }
 
@@ -297,6 +342,32 @@ private final class ContentTextSizeNotificationCounter {
         self.notificationCenter = notificationCenter
         token = notificationCenter.addObserver(
             forName: .contentTextSizeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.count += 1
+            }
+        }
+    }
+
+    isolated deinit {
+        if let token {
+            notificationCenter.removeObserver(token)
+        }
+    }
+}
+
+@MainActor
+private final class VariantThemeNotificationCounter {
+    private(set) var count = 0
+    private let notificationCenter: NotificationCenter
+    private var token: NSObjectProtocol?
+
+    init(notificationCenter: NotificationCenter = .default) {
+        self.notificationCenter = notificationCenter
+        token = notificationCenter.addObserver(
+            forName: .variantColorThemeDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in

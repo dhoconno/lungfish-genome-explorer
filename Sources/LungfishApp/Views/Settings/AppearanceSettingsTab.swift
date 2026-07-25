@@ -5,6 +5,61 @@
 import SwiftUI
 import LungfishCore
 
+@MainActor
+struct AppearanceSettingsPersistence {
+    let settings: AppSettings
+    let notificationCenter: NotificationCenter
+
+    init(
+        settings: AppSettings,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        self.settings = settings
+        self.notificationCenter = notificationCenter
+    }
+
+    func updateVariantTheme(_ themeName: String) {
+        guard settings.variantColorThemeName != themeName else { return }
+        settings.variantColorThemeName = themeName
+        settings.save()
+        notificationCenter.post(name: .variantColorThemeDidChange, object: nil)
+    }
+
+    func updateAnnotationHeight(_ height: Double) {
+        guard settings.defaultAnnotationHeight != height else { return }
+        settings.defaultAnnotationHeight = height
+        settings.save()
+    }
+
+    func updateAnnotationSpacing(_ spacing: Double) {
+        guard settings.defaultAnnotationSpacing != spacing else { return }
+        settings.defaultAnnotationSpacing = spacing
+        settings.save()
+    }
+
+    func updateHorizontalScrollDirection(_ direction: ScrollDirectionPreference) {
+        guard settings.horizontalScrollDirection != direction else { return }
+        settings.horizontalScrollDirection = direction
+        settings.save()
+    }
+
+    func updateVerticalScrollDirection(_ direction: ScrollDirectionPreference) {
+        guard settings.verticalScrollDirection != direction else { return }
+        settings.verticalScrollDirection = direction
+        settings.save()
+    }
+
+    func restoreDefaults(reloadColors: () -> Void) {
+        let previousThemeName = settings.variantColorThemeName
+        settings.resetSection(.appearance)
+        settings.save()
+        if settings.variantColorThemeName != previousThemeName {
+            notificationCenter.post(name: .variantColorThemeDidChange, object: nil)
+        }
+        reloadColors()
+    }
+}
+
 /// Appearance preferences: nucleotide colors, annotation type colors, dimensions.
 struct AppearanceSettingsTab: View {
 
@@ -75,7 +130,7 @@ struct AppearanceSettingsTab: View {
             }
 
             Section("Variant Theme") {
-                Picker("Color theme:", selection: $settings.variantColorThemeName) {
+                Picker("Color theme:", selection: variantColorThemeSelection) {
                     Text("Modern").tag("Modern")
                     Text("IGV Classic").tag("IGV Classic")
                     Text("High Contrast").tag("High Contrast")
@@ -86,14 +141,14 @@ struct AppearanceSettingsTab: View {
             Section("Dimensions") {
                 HStack {
                     Text("Annotation height:")
-                    Slider(value: $settings.defaultAnnotationHeight, in: 8...32, step: 1)
+                    Slider(value: annotationHeightSelection, in: 8...32, step: 1)
                     Text("\(Int(settings.defaultAnnotationHeight)) px")
                         .monospacedDigit()
                         .frame(width: 44, alignment: .trailing)
                 }
                 HStack {
                     Text("Row spacing:")
-                    Slider(value: $settings.defaultAnnotationSpacing, in: 0...8, step: 1)
+                    Slider(value: annotationSpacingSelection, in: 0...8, step: 1)
                     Text("\(Int(settings.defaultAnnotationSpacing)) px")
                         .monospacedDigit()
                         .frame(width: 44, alignment: .trailing)
@@ -101,12 +156,12 @@ struct AppearanceSettingsTab: View {
             }
 
             Section("Scrolling") {
-                Picker("Horizontal:", selection: $settings.horizontalScrollDirection) {
+                Picker("Horizontal:", selection: horizontalScrollDirectionSelection) {
                     ForEach(ScrollDirectionPreference.allCases, id: \.self) { option in
                         Text(option.label).tag(option)
                     }
                 }
-                Picker("Vertical:", selection: $settings.verticalScrollDirection) {
+                Picker("Vertical:", selection: verticalScrollDirectionSelection) {
                     ForEach(ScrollDirectionPreference.allCases, id: \.self) { option in
                         Text(option.label).tag(option)
                     }
@@ -125,17 +180,13 @@ struct AppearanceSettingsTab: View {
         }
         .formStyle(.grouped)
         .onAppear { loadColorsFromSettings() }
-        .onChange(of: settings.variantColorThemeName) { _, _ in
-            settings.save()
-            NotificationCenter.default.post(name: .variantColorThemeDidChange, object: nil)
-        }
-        .onChange(of: settings.defaultAnnotationHeight) { _, _ in settings.save() }
-        .onChange(of: settings.defaultAnnotationSpacing) { _, _ in settings.save() }
-        .onChange(of: settings.horizontalScrollDirection) { _, _ in settings.save() }
-        .onChange(of: settings.verticalScrollDirection) { _, _ in settings.save() }
     }
 
     // MARK: - Subviews
+
+    private var appearancePersistence: AppearanceSettingsPersistence {
+        AppearanceSettingsPersistence(settings: settings)
+    }
 
     private var contentTextSizeSelection: Binding<Int> {
         Binding(
@@ -168,6 +219,41 @@ struct AppearanceSettingsTab: View {
                 settings.contentTextSizePreference = preference
                 settings.save()
             }
+        )
+    }
+
+    private var variantColorThemeSelection: Binding<String> {
+        Binding(
+            get: { settings.variantColorThemeName },
+            set: { appearancePersistence.updateVariantTheme($0) }
+        )
+    }
+
+    private var annotationHeightSelection: Binding<Double> {
+        Binding(
+            get: { settings.defaultAnnotationHeight },
+            set: { appearancePersistence.updateAnnotationHeight($0) }
+        )
+    }
+
+    private var annotationSpacingSelection: Binding<Double> {
+        Binding(
+            get: { settings.defaultAnnotationSpacing },
+            set: { appearancePersistence.updateAnnotationSpacing($0) }
+        )
+    }
+
+    private var horizontalScrollDirectionSelection: Binding<ScrollDirectionPreference> {
+        Binding(
+            get: { settings.horizontalScrollDirection },
+            set: { appearancePersistence.updateHorizontalScrollDirection($0) }
+        )
+    }
+
+    private var verticalScrollDirectionSelection: Binding<ScrollDirectionPreference> {
+        Binding(
+            get: { settings.verticalScrollDirection },
+            set: { appearancePersistence.updateVerticalScrollDirection($0) }
         )
     }
 
@@ -240,20 +326,7 @@ struct AppearanceSettingsTab: View {
     }
 
     private func restoreAppearanceDefaults() {
-        Self.restoreAppearanceDefaults(
-            settings: settings,
-            reloadColors: loadColorsFromSettings
-        )
-    }
-
-    @MainActor
-    static func restoreAppearanceDefaults(
-        settings: AppSettings,
-        reloadColors: () -> Void
-    ) {
-        settings.resetSection(.appearance)
-        settings.save()
-        reloadColors()
+        appearancePersistence.restoreDefaults(reloadColors: loadColorsFromSettings)
     }
 
     private func annotationColorBinding(for type: String) -> Binding<Color> {

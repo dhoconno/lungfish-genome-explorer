@@ -157,6 +157,16 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertFalse(source.contains(".onChange(of: colorC)"))
         XCTAssertFalse(source.contains(".onChange(of: colorN)"))
         XCTAssertFalse(source.contains(".onChange(of: colorU)"))
+        XCTAssertFalse(source.contains(".onChange(of: settings.variantColorThemeName)"))
+        XCTAssertFalse(source.contains(".onChange(of: settings.defaultAnnotationHeight)"))
+        XCTAssertFalse(source.contains(".onChange(of: settings.defaultAnnotationSpacing)"))
+        XCTAssertFalse(source.contains(".onChange(of: settings.horizontalScrollDirection)"))
+        XCTAssertFalse(source.contains(".onChange(of: settings.verticalScrollDirection)"))
+        XCTAssertTrue(source.contains("selection: variantColorThemeSelection"))
+        XCTAssertTrue(source.contains("value: annotationHeightSelection"))
+        XCTAssertTrue(source.contains("value: annotationSpacingSelection"))
+        XCTAssertTrue(source.contains("selection: horizontalScrollDirectionSelection"))
+        XCTAssertTrue(source.contains("selection: verticalScrollDirectionSelection"))
     }
 
     func testAnalystIdentitySettingsAndInspectorUseStableIdentifiersAndResolvedAuthors() throws {
