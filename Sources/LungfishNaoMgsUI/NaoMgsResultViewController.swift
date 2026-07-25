@@ -132,12 +132,16 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let primary = NSTextField(labelWithString: "")
         primary.font = .systemFont(ofSize: 13, weight: .semibold)
         primary.alignment = .center
+        primary.lineBreakMode = .byWordWrapping
+        primary.maximumNumberOfLines = 0
         primary.translatesAutoresizingMaskIntoConstraints = false
 
         let secondary = NSTextField(labelWithString: "Select a single row to view details")
         secondary.font = .systemFont(ofSize: 11)
         secondary.textColor = .tertiaryLabelColor
         secondary.alignment = .center
+        secondary.lineBreakMode = .byWordWrapping
+        secondary.maximumNumberOfLines = 0
         secondary.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = NSStackView(views: [primary, secondary])
@@ -150,6 +154,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
         ])
 
         container.isHidden = true
@@ -188,6 +194,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     /// Accession summaries for the currently displayed taxon (retained for async loading).
     private var currentAccessionSummaries: [DBAccessionSummary] = []
+    private weak var detailMetricsStack: NSStackView?
+    private weak var accessionHeaderStack: NSStackView?
 
     // MARK: - Split View State
 
@@ -222,7 +230,42 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
-    let metadataColumnController = MetadataColumnController()
+    ///
+    /// This viewport owns the one AppKit typography observer for both standard
+    /// and metadata cells, so the embedded controller must not observe the same
+    /// preference independently.
+    let metadataColumnController = MetadataColumnController(
+        contentTypographyOwnership: .embedded
+    )
+
+    // MARK: - Content Typography
+
+    private weak var overviewHostingView: NSView?
+    private var typographyDetailScrollOrigin: NSPoint?
+    private lazy var contentTypographyApplicator = ContentTypographyViewApplicator(
+        excludedSubtree: { [weak self] candidate in
+            guard let self else { return true }
+            return candidate === self.summaryBar
+                || candidate === self.actionBar
+                || candidate === self.taxonomyFilterBar
+                || candidate === self.overviewHostingView
+                || candidate === self.blastDrawerContainer
+                || self.miniBAMControllers.contains { $0.view === candidate }
+                || candidate is NSButton
+                || candidate is NSSegmentedControl
+                || candidate is NSPopUpButton
+                || candidate is NSSlider
+        }
+    )
+    private var contentTypographyObservation: ContentTypographyViewObservation?
+
+#if DEBUG
+    private var taxonomyReloadCount = 0
+    private var taxonomyTransformCount = 0
+    var testDisableMiniBAMLoading = false
+    private var detailRebuildCount = 0
+    private var miniBAMLoadStartCount = 0
+#endif
 
     // MARK: - Selection Sync
 
@@ -259,6 +302,23 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         setupLoadingOverlay()
         layoutSubviews()
         wireCallbacks()
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: contentTypographyApplicator,
+            rootProvider: { [weak self] in self?.view },
+            beforeApply: { [weak self] in
+                self?.typographyDetailScrollOrigin =
+                    self?.detailScrollView.contentView.bounds.origin
+                self?.updateDetailTypographyLayout()
+            },
+            afterApply: { [weak self] in
+                guard let self else { return }
+                self.updateDetailTypographyLayout()
+                self.resizeDetailContentToFit(
+                    restoringScrollOrigin: self.typographyDetailScrollOrigin
+                )
+                self.typographyDetailScrollOrigin = nil
+            }
+        )
     }
 
     public override func viewDidLayout() {
@@ -291,6 +351,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         // Populate the taxonomy table from cached data
         displayedRows = rows
+#if DEBUG
+        taxonomyReloadCount += 1
+#endif
         taxonomyTableView.reloadData()
 
         // Update summary bar with cached counts
@@ -396,6 +459,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         let selectedTaxId = selectedRow?.taxId
         let selectedSample = selectedRow?.sample
+#if DEBUG
+        taxonomyReloadCount += 1
+#endif
         taxonomyTableView.reloadData()
         ColumnFilter.updateColumnTitleIndicators(on: taxonomyTableView, filters: columnFilters, originalTitles: &originalColumnTitles)
 
@@ -426,6 +492,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     private func applyCurrentTableTransforms(to sourceRows: [NaoMgsTaxonSummaryRow]) -> [NaoMgsTaxonSummaryRow] {
+#if DEBUG
+        taxonomyTransformCount += 1
+#endif
         var rows = sourceRows
 
         if columnFilterSet.isActive {
@@ -671,7 +740,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Detail Content Rebuild
 
     private func rebuildDetailContent() {
+#if DEBUG
+        detailRebuildCount += 1
+#endif
         teardownEmbeddedMiniBAMControllers()
+        overviewHostingView = nil
+        detailMetricsStack = nil
+        accessionHeaderStack = nil
         for subview in detailContentView.subviews {
             subview.removeFromSuperview()
         }
@@ -683,6 +758,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         } else {
             buildOverviewContent()
         }
+        contentTypographyObservation?.refresh()
 
         // Use a deferred layout pass so the scroll view has real bounds.
         DispatchQueue.main.async { [weak self] in
@@ -692,9 +768,14 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     /// Sizes the detail content view to match the scroll view width and fit content height.
-    private func resizeDetailContentToFit() {
+    private func resizeDetailContentToFit(
+        preservingScrollOrigin: Bool = false,
+        restoringScrollOrigin: NSPoint? = nil
+    ) {
         let clipWidth = detailScrollView.contentView.bounds.width
         guard clipWidth > 0 else { return }
+        let priorOrigin = restoringScrollOrigin
+            ?? detailScrollView.contentView.bounds.origin
 
         // Set width to match clip view, then let Auto Layout compute height.
         detailContentView.frame.size.width = clipWidth
@@ -707,8 +788,43 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             height: max(fittingSize.height, 400)
         )
 
-        detailScrollView.contentView.scroll(to: .zero)
+        let targetOrigin: NSPoint
+        if preservingScrollOrigin || restoringScrollOrigin != nil {
+            let maxX = max(0, detailContentView.frame.width - detailScrollView.contentView.bounds.width)
+            let maxY = max(0, detailContentView.frame.height - detailScrollView.contentView.bounds.height)
+            targetOrigin = NSPoint(
+                x: min(max(priorOrigin.x, 0), maxX),
+                y: min(max(priorOrigin.y, 0), maxY)
+            )
+        } else {
+            targetOrigin = .zero
+        }
+        detailScrollView.contentView.scroll(to: targetOrigin)
         detailScrollView.reflectScrolledClipView(detailScrollView.contentView)
+        if restoringScrollOrigin != nil {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.detailContentView.layoutSubtreeIfNeeded()
+                let maxX = max(
+                    0,
+                    self.detailContentView.frame.width
+                        - self.detailScrollView.contentView.bounds.width
+                )
+                let maxY = max(
+                    0,
+                    self.detailContentView.frame.height
+                        - self.detailScrollView.contentView.bounds.height
+                )
+                let restored = NSPoint(
+                    x: min(max(priorOrigin.x, 0), maxX),
+                    y: min(max(priorOrigin.y, 0), maxY)
+                )
+                self.detailScrollView.contentView.scroll(to: restored)
+                self.detailScrollView.reflectScrolledClipView(
+                    self.detailScrollView.contentView
+                )
+            }
+        }
     }
 
     // MARK: - Overview Content
@@ -760,6 +876,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             }
         )
         let hostingView = NSHostingView(rootView: statsView)
+        overviewHostingView = hostingView
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         detailContentView.addSubview(hostingView)
 
@@ -790,7 +907,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         // Taxon name header
         let nameLabel = NSTextField(labelWithString: row.name.isEmpty ? "Taxid \(row.taxId)" : row.name)
         nameLabel.font = .systemFont(ofSize: 14, weight: .bold)
-        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.lineBreakMode = .byWordWrapping
+        nameLabel.maximumNumberOfLines = 0
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         detailContentView.addSubview(nameLabel)
 
@@ -799,6 +917,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         )
         subtitleLabel.font = .systemFont(ofSize: 10)
         subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.lineBreakMode = .byWordWrapping
+        subtitleLabel.maximumNumberOfLines = 0
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         detailContentView.addSubview(subtitleLabel)
 
@@ -867,6 +987,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             labelWithString: "miniBAM Panels (\(scopeLabel): \(shownCount) of \(totalCount) accessions)"
         )
         headerLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        headerLabel.lineBreakMode = .byWordWrapping
+        headerLabel.maximumNumberOfLines = 0
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(headerLabel)
 
@@ -875,6 +997,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         )
         noteLabel.font = .systemFont(ofSize: 10)
         noteLabel.textColor = .secondaryLabelColor
+        noteLabel.lineBreakMode = .byWordWrapping
+        noteLabel.maximumNumberOfLines = 0
         noteLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(noteLabel)
 
@@ -937,10 +1061,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             let coveragePct = String(format: "%.0f%%", accessionSummary.coverageFraction * 100)
 
             // Accession button — clickable link to GenBank, with context menu
-            let accessionButton = NSButton(title: accessionSummary.accession, target: self, action: #selector(openGenBankFromButton(_:)))
+            let accessionButton = NaoMgsContentButton(
+                title: accessionSummary.accession,
+                target: self,
+                action: #selector(openGenBankFromButton(_:))
+            )
             accessionButton.bezelStyle = .inline
             accessionButton.isBordered = false
-            accessionButton.font = .monospacedSystemFont(ofSize: 11, weight: .bold)
             accessionButton.contentTintColor = .linkColor
             accessionButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -970,7 +1097,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             )
             statsLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
             statsLabel.textColor = .secondaryLabelColor
-            statsLabel.lineBreakMode = .byTruncatingTail
+            statsLabel.lineBreakMode = .byWordWrapping
+            statsLabel.maximumNumberOfLines = 0
             statsLabel.translatesAutoresizingMaskIntoConstraints = false
 
             // Header strip: accession button + stats in an HStack
@@ -978,12 +1106,19 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             headerStrip.orientation = .horizontal
             headerStrip.alignment = .firstBaseline
             headerStrip.spacing = 8
+            headerStrip.identifier = NSUserInterfaceItemIdentifier("naomgs-accession-header")
             headerStrip.translatesAutoresizingMaskIntoConstraints = false
+            if accessionHeaderStack == nil {
+                accessionHeaderStack = headerStrip
+            }
             // Let the stats label compress but not the accession button
             accessionButton.setContentCompressionResistancePriority(.required, for: .horizontal)
             statsLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             statsLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
             card.addSubview(headerStrip)
+            statsLabel.widthAnchor.constraint(
+                lessThanOrEqualTo: headerStrip.widthAnchor
+            ).isActive = true
 
             let miniBAM = MiniBAMViewController()
             miniBAM.subjectNoun = "reference"
@@ -1116,6 +1251,12 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         taxId: Int,
         bamRelativePath: String?
     ) {
+#if DEBUG
+        miniBAMLoadStartCount += 1
+        if testDisableMiniBAMLoading {
+            return
+        }
+#endif
         miniBAMLoadingTask?.cancel()
         let displayed = Array(accessionSummaries.prefix(miniBAMDisplayLimit))
 
@@ -1224,7 +1365,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         container.alignment = .top
         container.distribution = .fillEqually
         container.spacing = 8
+        container.identifier = NSUserInterfaceItemIdentifier("naomgs-detail-metrics")
         container.translatesAutoresizingMaskIntoConstraints = false
+        detailMetricsStack = container
 
         let metrics: [(String, String)] = [
             ("Avg Identity", String(format: "%.1f%%", row.avgIdentity)),
@@ -1272,6 +1415,27 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         ])
 
         return pill
+    }
+
+    private func updateDetailTypographyLayout() {
+        let scale = CGFloat(
+            AppSettings.shared.contentTextSizePreference.normalized.scaleFactor
+        )
+        let shouldStack = scale >= 1.5
+            || detailScrollView.contentView.bounds.width < 320
+        detailMetricsStack?.orientation = shouldStack ? .vertical : .horizontal
+        detailMetricsStack?.distribution = shouldStack ? .fill : .fillEqually
+        detailMetricsStack?.alignment = shouldStack ? .width : .top
+        accessionHeaderStack?.orientation = shouldStack ? .vertical : .horizontal
+        accessionHeaderStack?.alignment = shouldStack ? .width : .firstBaseline
+        for button in naoMgsDescendants(
+            of: NaoMgsContentButton.self,
+            in: detailContentView
+        ) {
+            button.applyContentTypography()
+        }
+        detailContentView.needsLayout = true
+        detailContentView.layoutSubtreeIfNeeded()
     }
 
     // MARK: - Taxon Selection
@@ -1426,9 +1590,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         taxonomyTableScrollView.setAccessibilityLabel("NAO-MGS Taxonomy Table Shell")
         taxonomyTableScrollView.documentView = taxonomyTableView
         taxonomyTableScrollView.hasVerticalScroller = true
-        taxonomyTableScrollView.hasHorizontalScroller = false
+        taxonomyTableScrollView.hasHorizontalScroller = true
         taxonomyTableScrollView.autohidesScrollers = true
         taxonomyTableScrollView.drawsBackground = true
+        taxonomyTableView.columnAutoresizingStyle = .noColumnAutoresizing
 
         taxonomyTableView.setAccessibilityIdentifier("naomgs-taxonomy-table")
         taxonomyTableView.setAccessibilityLabel("NAO-MGS Taxonomy Table")
@@ -2176,6 +2341,72 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     var testSplitView: NSSplitView { splitView }
     var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
     var testTaxonomyTableView: NSTableView { taxonomyTableView }
+    var testTaxonomyScrollView: NSScrollView { taxonomyTableScrollView }
+#if DEBUG
+    var testTaxonomyReloadCount: Int { taxonomyReloadCount }
+    var testTaxonomyTransformCount: Int { taxonomyTransformCount }
+    var testDetailContentView: NSView { detailContentView }
+    var testDetailScrollView: NSScrollView { detailScrollView }
+    var testLoadingLabel: NSTextField { loadingLabel }
+    var testDetailRebuildCount: Int { detailRebuildCount }
+    var testMiniBAMLoadStartCount: Int { miniBAMLoadStartCount }
+    var testCurrentAccessionSummaryCount: Int { currentAccessionSummaries.count }
+    var testMiniBAMControllerIdentities: [ObjectIdentifier] {
+        miniBAMControllers.map(ObjectIdentifier.init)
+    }
+    var testMiniBAMViewSizes: [NSSize] {
+        miniBAMControllers.map(\.view.bounds.size)
+    }
+    var testDetailMetricsOrientation: NSUserInterfaceLayoutOrientation {
+        detailMetricsStack?.orientation ?? .horizontal
+    }
+    var testAccessionHeaderOrientation: NSUserInterfaceLayoutOrientation {
+        accessionHeaderStack?.orientation ?? .horizontal
+    }
+    var testDetailTypographyFieldsAreContained: Bool {
+        let miniBAMRoots = miniBAMControllers.map(\.view)
+        return naoMgsDescendants(of: NSTextField.self, in: detailContentView)
+            .filter { field in
+                !miniBAMRoots.contains { root in field.isDescendant(of: root) }
+                    && !naoMgsHasAncestor(of: NSButton.self, from: field)
+            }
+            .allSatisfy { field in
+                let frame = field.convert(field.bounds, to: detailContentView)
+                return frame.minX >= -0.5
+                    && frame.maxX <= detailContentView.bounds.width + 0.5
+            }
+    }
+    var testDetailFullTextAccessibility: [NaoMgsTestingTextAccessibility] {
+        let miniBAMRoots = miniBAMControllers.map(\.view)
+        return naoMgsDescendants(of: NSTextField.self, in: detailContentView)
+            .filter { field in
+                !miniBAMRoots.contains { root in field.isDescendant(of: root) }
+                    && !naoMgsHasAncestor(of: NSButton.self, from: field)
+            }
+            .map {
+                NaoMgsTestingTextAccessibility(
+                    text: $0.stringValue,
+                    toolTip: $0.toolTip,
+                    accessibilityValue: $0.accessibilityValue()
+                )
+            }
+    }
+    var testPlaceholderFieldsAreContained: Bool {
+        naoMgsDescendants(of: NSTextField.self, in: multiSelectionPlaceholder)
+            .allSatisfy { field in
+                let frame = field.convert(field.bounds, to: multiSelectionPlaceholder)
+                return frame.minX >= -0.5
+                    && frame.maxX <= multiSelectionPlaceholder.bounds.width + 0.5
+            }
+    }
+    var testPlaceholderPointSizes: [CGFloat] {
+        naoMgsDescendants(of: NSTextField.self, in: multiSelectionPlaceholder)
+            .compactMap { $0.font?.pointSize }
+    }
+    func testingShowMultiSelectionPlaceholder(count: Int) {
+        showMultiSelectionPlaceholder(count: count)
+    }
+#endif
     func testBuildNaoMgsSelectors() -> [ClassifierRowSelector] { buildNaoMgsSelectors() }
 
     // MARK: - Multi-Selection Helpers
@@ -2418,6 +2649,59 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
 }
 
+// MARK: - Content Typography Helpers
+
+@MainActor
+private final class NaoMgsContentButton: NSButton {
+    func applyContentTypography() {
+        let preferenceScale = CGFloat(
+            AppSettings.shared.contentTextSizePreference.normalized.scaleFactor
+        )
+        let preferredBody = NSFont.preferredFont(forTextStyle: .body)
+        let systemScale = preferredBody.pointSize / max(NSFont.systemFontSize, 1)
+        let size = max(
+            ContentTypography.minimumPointSize,
+            11 * preferenceScale * systemScale
+        )
+        font = .monospacedSystemFont(ofSize: size, weight: .bold)
+        toolTip = title
+        setAccessibilityLabel(title)
+        setAccessibilityValue(title)
+    }
+}
+
+@MainActor
+private func naoMgsDescendants<T: NSView>(of type: T.Type, in root: NSView) -> [T] {
+    var result: [T] = []
+    if let typed = root as? T {
+        result.append(typed)
+    }
+    for subview in root.subviews {
+        result.append(contentsOf: naoMgsDescendants(of: type, in: subview))
+    }
+    return result
+}
+
+@MainActor
+private func naoMgsHasAncestor<T: NSView>(of type: T.Type, from view: NSView) -> Bool {
+    var ancestor = view.superview
+    while let current = ancestor {
+        if current is T {
+            return true
+        }
+        ancestor = current.superview
+    }
+    return false
+}
+
+#if DEBUG
+struct NaoMgsTestingTextAccessibility {
+    let text: String
+    let toolTip: String?
+    let accessibilityValue: String?
+}
+#endif
+
 // MARK: - FlippedNaoMgsContentView
 
 /// Flipped container so Auto Layout `topAnchor` maps to visual top.
@@ -2453,6 +2737,7 @@ extension NaoMgsResultViewController: NSTableViewDelegate {
         // Check for dynamic metadata columns first — pass per-row sample ID for join
         let rowSampleId = displayedRows[row].sample
         if let cell = metadataColumnController.cellForColumn(tableColumn, in: tableView, sampleId: rowSampleId) {
+            contentTypographyApplicator.apply(to: cell)
             return cell
         }
 
@@ -2475,20 +2760,21 @@ extension NaoMgsResultViewController: NSTableViewDelegate {
             cellView.textField?.alignment = .left
         case "hits":
             cellView.textField?.stringValue = naoMgsFormatCount(summaryRow.hitCount)
-            cellView.textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+            cellView.textField?.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
             cellView.textField?.alignment = .right
         case "unique":
             cellView.textField?.stringValue = naoMgsFormatCount(summaryRow.uniqueReadCount)
-            cellView.textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+            cellView.textField?.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
             cellView.textField?.alignment = .right
         case "refs":
             cellView.textField?.stringValue = "\(summaryRow.accessionCount)"
-            cellView.textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+            cellView.textField?.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
             cellView.textField?.alignment = .right
         default:
             cellView.textField?.stringValue = ""
         }
 
+        contentTypographyApplicator.apply(to: cellView)
         return cellView
     }
 

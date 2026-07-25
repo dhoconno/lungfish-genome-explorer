@@ -68,6 +68,17 @@ public final class ContentTypographyModel {
     public func font(for role: ContentTypography.Role) -> SwiftUI.Font {
         SwiftUI.Font(resolvedNSFont(for: role))
     }
+
+    /// Resolves a stable fixed-size content baseline through the same live
+    /// System/custom scale used by AppKit result content.
+    public func scaledPointSize(fromCanonicalPointSize pointSize: CGFloat) -> CGFloat {
+        let canonicalBodySize = max(
+            preferredFontProvider.canonicalUnscaledPointSize(for: .body),
+            1
+        )
+        let contentScale = resolvedNSFont(for: .body).pointSize / canonicalBodySize
+        return max(ContentTypography.minimumPointSize, pointSize * contentScale)
+    }
 }
 
 private struct ContentTypographyFontModifier: ViewModifier {

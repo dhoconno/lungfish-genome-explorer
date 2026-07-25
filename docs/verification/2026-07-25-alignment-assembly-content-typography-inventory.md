@@ -1,7 +1,7 @@
 # Result Viewport Content Typography Inventory
 
 This inventory records the completed Task 3b/3c audit of primary content in the
-Alignment, Assembly, Phylogenetic, 12S, and EsViritu result viewports.
+Alignment, Assembly, Phylogenetic, 12S, EsViritu, and NAO-MGS result viewports.
 Each adopted surface resolves from
 `ContentTypography` at creation and responds to
 `contentTextSizeDidChange` without scaling an already-scaled font.
@@ -29,6 +29,9 @@ Each adopted surface resolves from
 | `ViralDetectionTableView.swift` | Search, result count, outline headers, names, and numeric cells | Primary list content | Body/detail/monospaced roles with adaptive search, row, and header geometry; selection, sort, search, expansion, and scroll remain stable without a data reload. Coverage sparkline data and scientific geometry remain unchanged. |
 | `EsVirituDetailPane.swift` | Overview/title/virus/family/summary/metric/pill text | Primary detail content | Stable 9–16-point traits scale from canonical metrics; text wraps and detail geometry expands without rebuilding content. |
 | `EsVirituResultViewController.swift` | Multi-selection placeholder title and guidance | Primary detail content | Stable 11/13-point traits scale on the persistent placeholder; both fields wrap and remain contained at narrow widths. |
+| `NaoMgsResultViewController.swift` | Taxonomy table standard and late metadata cells | Primary list content | Stable 11-point regular/medium monospaced baselines and semantic metadata fonts scale with adaptive rows/headers. Full values remain in tooltips and accessibility values. The horizontal scroller and no-autoresize policy preserve user widths; typography does not reload or re-transform rows. |
+| `NaoMgsChartViews.swift` | Overview title, explanation, section heading, and quick-stat cards | Primary overview content | Stable 9/11/13/14-point baselines resolve through `ContentTypographyModel`. Quick stats use an adaptive grid and multiline values, remaining contained as one column in a 240-point viewport at 200 percent. |
+| `NaoMgsResultViewController.swift` | Taxon title/subtitle, miniBAM list heading/note/empty state, accession strip, metrics, loading text, and selection placeholder | Primary detail content | Stable 9–14-point regular/bold/monospaced traits scale without rebuilding detail. Five metric pills and accession statistics stack and wrap at 150–200 percent or narrow widths. Detail scroll, MiniBAM controller identity/height, caches, and load state remain stable. |
 
 The two 12S result modes have distinct table/search accessibility identifiers
 and labels. Full scientific names, metadata strings, and base sequences remain
@@ -52,6 +55,10 @@ Inspector still contains fixed `.system(size: 11, ...)` SwiftUI labels; those
 are not native semantic styles and remain outside this completed viewport
 checkpoint.
 
+NAO-MGS summary/action/filter bars, native buttons other than the accession
+content link, menus, popovers, provenance hosting, BLAST drawer, and split-pane
+container chrome remain independently owned or native control chrome.
+
 ## Scientific rendering exclusions
 
 - BAM pileup, coverage tracks, base-coordinate rulers, and other
@@ -71,6 +78,11 @@ checkpoint.
   operations and are not invoked by typography updates.
 - EsViritu segment-completeness and coverage-plot labels, sparklines, plot
   geometry, and canvas metrics remain graph-owned and unchanged.
+- NAO-MGS TaxonBarRow labels, count labels, bar fraction, orange color, and
+  eight-point bar geometry remain chart-owned and fixed. TaxonBarRow exposes
+  the complete taxon and localized read count as one accessibility element.
+  Embedded MiniBAM renderers and BAM loading/cache state are excluded from
+  content typography updates.
 
-No audited primary-content site in these five result families retains an
+No audited primary-content site in these six result families retains an
 unscaled fixed AppKit font size after this adoption.
