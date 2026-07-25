@@ -46,7 +46,16 @@ public final class MetadataColumnController {
 
     // MARK: - Properties
 
-    public init() {}
+    public init() {
+        let notifications = NotificationCenterContentTypographyNotifications(
+            notificationCenter: .default
+        )
+        contentTypographyObservation = notifications.observe(
+            .contentTextSizeDidChange
+        ) { [weak self] in
+            self?.applyContentTypography()
+        }
+    }
 
     private static let zeroWidthDisableThreshold: CGFloat = 0.5
     private static let metadataCellTextFieldTag = 51_001
@@ -82,6 +91,9 @@ public final class MetadataColumnController {
     /// Observer token for zero-width column resize detection.
     private nonisolated(unsafe) var columnResizeObserver: NSObjectProtocol?
 
+    /// Live content-size preference observation.
+    private var contentTypographyObservation: ContentTypographyNotificationObservation?
+
     /// Avoids recursive resize/visibility handling while applying manager changes.
     private var isApplyingColumnVisibility = false
 
@@ -107,6 +119,28 @@ public final class MetadataColumnController {
         captureAndRelaxExistingColumns(on: table)
         installResizeObserver(on: table)
         rebuildHeaderMenu()
+        applyContentTypography()
+    }
+
+    /// Applies semantic metadata-cell and header typography without recreating
+    /// the owning controller.
+    public func applyContentTypography() {
+        guard let tableView else { return }
+        let typography = ContentTypography.current()
+        for column in tableView.tableColumns where Self.isMetadataColumn(column.identifier) {
+            column.headerCell.font = typography.font(for: .tableHeader)
+        }
+        for row in 0..<tableView.numberOfRows {
+            for (columnIndex, column) in tableView.tableColumns.enumerated()
+            where Self.isMetadataColumn(column.identifier) && !column.isHidden {
+                let cell = tableView.view(
+                    atColumn: columnIndex,
+                    row: row,
+                    makeIfNecessary: false
+                ) as? NSTableCellView
+                cell?.textField?.font = typography.font(for: .body)
+            }
+        }
     }
 
     // MARK: - Update
@@ -186,6 +220,7 @@ public final class MetadataColumnController {
 
         tableView.reloadData()
         rebuildHeaderMenu()
+        applyContentTypography()
     }
 
     // MARK: - Flexible Resizing
@@ -447,7 +482,8 @@ public final class MetadataColumnController {
         cell.identifier = identifier
         let field = NSTextField(labelWithString: "")
         field.tag = Self.metadataCellTextFieldTag
-        field.font = .systemFont(ofSize: 11)
+        let typography = ContentTypography.current()
+        field.font = typography.font(for: .body)
         field.lineBreakMode = .byTruncatingTail
         field.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(field)
@@ -463,7 +499,8 @@ public final class MetadataColumnController {
     private func configureMetadataCell(_ cell: NSTableCellView, value: String) {
         let field = cell.textField ?? cell.viewWithTag(Self.metadataCellTextFieldTag) as? NSTextField
         field?.stringValue = value
-        field?.font = .systemFont(ofSize: 11)
+        let typography = ContentTypography.current()
+        field?.font = typography.font(for: .body)
         field?.lineBreakMode = .byTruncatingTail
         field?.textColor = value == "\u{2014}" ? .tertiaryLabelColor : .labelColor
         field?.toolTip = value == "\u{2014}" ? nil : value
