@@ -1423,6 +1423,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func reportDeferredMatrixAnnotationSave() {
+        guard currentWorkbookUpdateStatus != Self.deferredMatrixAnnotationStatus else {
+            return
+        }
         currentWorkbookUpdateStatus = Self.deferredMatrixAnnotationStatus
         rebuildArtifactLens()
     }
