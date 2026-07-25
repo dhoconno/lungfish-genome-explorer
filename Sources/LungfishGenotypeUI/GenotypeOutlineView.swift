@@ -1,6 +1,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 
 @MainActor
 final class GenotypeOutlineView: NSView {
@@ -80,6 +81,9 @@ final class GenotypeOutlineView: NSView {
     /// stays fixed while the sample rows scroll under it.
     private let headerContainer = NSView()
     private var headerView: NSView?
+    private var contentTypographyObservation: ContentTypographyViewObservation?
+    private var contentPreferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -130,6 +134,15 @@ final class GenotypeOutlineView: NSView {
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: ContentTypographyViewApplicator(
+                excludedSubtree: { $0 is GenotypeHaplotypeTapeView }
+            ),
+            rootProvider: { [weak self] in self },
+            afterApply: { [weak self] in
+                self?.applyContentTypography()
+            }
+        )
     }
 
     func configure(rows: [Row]) {
@@ -153,7 +166,18 @@ final class GenotypeOutlineView: NSView {
     /// Fixed-width gutter for the leading fixed widgets (block glyph +
     /// animal label). All rows + the header share this so
     /// the locus columns align vertically across the whole table.
-    private static let leadingGutter: CGFloat = 16 + 6 + 80
+    private var blockColumnWidth: CGFloat {
+        max(16, ceil(resolvedContentTypography().font(for: .body).boundingRectForFont.height))
+    }
+
+    private var animalColumnWidth: CGFloat {
+        let font = resolvedContentTypography().font(for: .emphasizedBody)
+        return max(80, ceil(("WWWWWWWWWW" as NSString).size(withAttributes: [.font: font]).width))
+    }
+
+    private var leadingGutter: CGFloat {
+        blockColumnWidth + 6 + animalColumnWidth
+    }
     /// Fixed per-sample row height: 26pt tape + 4pt top/bottom content insets.
     private static let rowHeight: CGFloat = 34
 
@@ -189,14 +213,14 @@ final class GenotypeOutlineView: NSView {
         leading.spacing = 6
         leading.alignment = .centerY
         let blockSpacer = NSTextField(labelWithString: " ")
-        blockSpacer.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        blockSpacer.widthAnchor.constraint(equalToConstant: blockColumnWidth).isActive = true
         let animalHeader = NSTextField(labelWithString: "Animal")
-        animalHeader.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        animalHeader.font = resolvedContentTypography().font(for: .tableHeader)
         animalHeader.textColor = .secondaryLabelColor
-        animalHeader.widthAnchor.constraint(equalToConstant: 80).isActive = true
+        animalHeader.widthAnchor.constraint(equalToConstant: animalColumnWidth).isActive = true
         leading.addArrangedSubview(blockSpacer)
         leading.addArrangedSubview(animalHeader)
-        leading.widthAnchor.constraint(equalToConstant: Self.leadingGutter).isActive = true
+        leading.widthAnchor.constraint(equalToConstant: leadingGutter).isActive = true
 
         // Locus header columns — one label per locus, evenly distributed
         // across whatever horizontal space the row gets. The tape view
@@ -215,7 +239,10 @@ final class GenotypeOutlineView: NSView {
             let shortLabel = shortLocusLabel(locus)
             let label = NSTextField(labelWithString: shortLabel)
             let isSelected = reviewSelection.locus == locus
-            let font = NSFont.systemFont(ofSize: 10, weight: isSelected ? .bold : .semibold)
+            let base = resolvedContentTypography().font(for: .tableHeader)
+            let font = isSelected
+                ? NSFontManager.shared.convert(base, toHaveTrait: .boldFontMask)
+                : base
             label.font = font
             label.textColor = isSelected ? .controlAccentColor : .secondaryLabelColor
             if isSelected {
@@ -293,18 +320,22 @@ final class GenotypeOutlineView: NSView {
         leading.alignment = .centerY
         leading.identifier = NSUserInterfaceItemIdentifier(row.animalId)
         let blockGlyph = NSTextField(labelWithString: blockGlyphSymbol(row.blockKind))
-        blockGlyph.font = NSFont.systemFont(ofSize: 11)
+        blockGlyph.font = resolvedContentTypography().font(for: .body)
         blockGlyph.textColor = blockGlyphColor(row.blockKind)
         blockGlyph.toolTip = blockGlyphTooltip(row.blockKind)
-        blockGlyph.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        blockGlyph.widthAnchor.constraint(equalToConstant: blockColumnWidth).isActive = true
         let animalLabel = NSTextField(labelWithString: row.animalId)
-        animalLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: isSelectedSample ? .bold : .semibold)
+        let mono = resolvedContentTypography().font(for: .monospaced)
+        animalLabel.font = NSFont.monospacedSystemFont(
+            ofSize: mono.pointSize,
+            weight: isSelectedSample ? .bold : .semibold
+        )
         animalLabel.textColor = .labelColor
-        animalLabel.widthAnchor.constraint(equalToConstant: 80).isActive = true
+        animalLabel.widthAnchor.constraint(equalToConstant: animalColumnWidth).isActive = true
         animalLabel.lineBreakMode = .byTruncatingTail
         leading.addArrangedSubview(blockGlyph)
         leading.addArrangedSubview(animalLabel)
-        leading.widthAnchor.constraint(equalToConstant: Self.leadingGutter).isActive = true
+        leading.widthAnchor.constraint(equalToConstant: leadingGutter).isActive = true
 
         let tape = GenotypeHaplotypeTapeView()
         tape.translatesAutoresizingMaskIntoConstraints = false
@@ -346,6 +377,37 @@ final class GenotypeOutlineView: NSView {
         container.widthAnchor.constraint(equalTo: outer.widthAnchor).isActive = true
 
         return outer
+    }
+
+    private func resolvedContentTypography() -> ContentTypography {
+        ContentTypography(
+            preference: AppSettings.shared.contentTextSizePreference,
+            preferredFontProvider: contentPreferredFontProvider
+        )
+    }
+
+    private func applyContentTypography() {
+        let topVisibleRow = {
+            let range = tableView.rows(in: tableView.visibleRect)
+            return range.location == NSNotFound ? nil : range.location
+        }()
+        let topOffset = topVisibleRow.map {
+            tableView.visibleRect.minY - tableView.rect(ofRow: $0).minY
+        }
+        let typography = resolvedContentTypography()
+        tableView.rowHeight = max(
+            Self.rowHeight,
+            typography.tableRowHeight(minimum: Self.rowHeight, verticalPadding: 8)
+        )
+        rebuildHeader()
+        tableView.reloadData()
+        if let topVisibleRow, topVisibleRow < tableView.numberOfRows {
+            tableView.layoutSubtreeIfNeeded()
+            let y = tableView.rect(ofRow: topVisibleRow).minY + (topOffset ?? 0)
+            scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: y))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        needsLayout = true
     }
 
     @objc private func handleTapeClick(_ recognizer: NSClickGestureRecognizer) {
@@ -537,6 +599,34 @@ extension GenotypeOutlineView {
 
     var testingReviewSelectedSample: String? {
         reviewSelection.sample
+    }
+
+    var testingAnimalFontPointSize: CGFloat {
+        let animalIDs = Set(rows.map(\.animalId))
+        return descendantTextFields(in: self)
+            .first(where: { animalIDs.contains($0.stringValue) })?
+            .font?.pointSize ?? 0
+    }
+
+    var testingRowHeight: CGFloat {
+        tableView.rowHeight
+    }
+
+    var testingTapeHeight: CGFloat {
+        descendantViews(in: self)
+            .compactMap { $0 as? GenotypeHaplotypeTapeView }
+            .first?
+            .constraints
+            .first(where: { $0.firstAttribute == .height && $0.relation == .equal })?
+            .constant ?? 26
+    }
+
+    private func descendantTextFields(in view: NSView) -> [NSTextField] {
+        descendantViews(in: view).compactMap { $0 as? NSTextField }
+    }
+
+    private func descendantViews(in view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendantViews(in: $0) }
     }
 
     var testingReviewSelectedLocus: String? {

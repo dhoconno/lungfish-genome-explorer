@@ -1,6 +1,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 
 /// Single filter bar above the active genotype content.
 ///
@@ -96,6 +97,7 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
     private var activePills: Set<Pill> = []
     private var currentSearchText: String = ""
     private let searchDebounceInterval: TimeInterval = 0.18
+    private var contentTypographyObservation: ContentTypographyViewObservation?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -150,10 +152,27 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
             containerStack.bottomAnchor.constraint(equalTo: bottomAnchor),
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
         ])
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: ContentTypographyViewApplicator(),
+            rootProvider: { [weak self] in self },
+            afterApply: { [weak self] in
+                self?.applyContentTypography()
+            }
+        )
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: Self.preferredHeight)
+        let lineHeight = searchField.font?.boundingRectForFont.height ?? 0
+        return NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: max(Self.preferredHeight, ceil(lineHeight + 26))
+        )
+    }
+
+    private func applyContentTypography() {
+        searchField.font = ContentTypography.current().font(for: .body)
+        invalidateIntrinsicContentSize()
+        needsLayout = true
     }
 
     private func configureSavedCohortButton() {
@@ -289,6 +308,14 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         return nil
     }
 }
+
+#if DEBUG
+extension GenotypeQuickFilterBarView {
+    var testingSearchFontPointSize: CGFloat {
+        searchField.font?.pointSize ?? 0
+    }
+}
+#endif
 
 #if DEBUG
 extension GenotypeQuickFilterBarView {

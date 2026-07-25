@@ -1,4 +1,6 @@
 import AppKit
+import LungfishCore
+import LungfishKit
 
 @MainActor
 final class GenotypeCohortSummaryPanelView: NSView {
@@ -37,6 +39,10 @@ final class GenotypeCohortSummaryPanelView: NSView {
     private let stack = NSStackView()
     private let scrollView = NSScrollView()
     private let documentView = FlippedDocumentView()
+    private var contentTypographyObservation: ContentTypographyViewObservation?
+#if DEBUG
+    private var configurationCount = 0
+#endif
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect); build()
@@ -75,9 +81,17 @@ final class GenotypeCohortSummaryPanelView: NSView {
             stack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: documentView.bottomAnchor),
         ])
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: ContentTypographyViewApplicator(),
+            rootProvider: { [weak self] in self },
+            afterApply: { [weak self] in self?.finishContentTypographyUpdate() }
+        )
     }
 
     func configure(summary: Summary) {
+#if DEBUG
+        configurationCount += 1
+#endif
         stack.arrangedSubviews.forEach { view in
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -121,13 +135,17 @@ final class GenotypeCohortSummaryPanelView: NSView {
         container.alignment = .leading
         container.spacing = 4
         let titleLabel = NSTextField(labelWithString: title.uppercased())
-        titleLabel.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        titleLabel.font = ContentTypography.current().font(for: .tableHeader)
         titleLabel.textColor = .secondaryLabelColor
         let valueRow = NSStackView()
         valueRow.orientation = .horizontal
         valueRow.spacing = 6
         let countLabel = NSTextField(labelWithString: "\(count) sample\(count == 1 ? "" : "s")")
-        countLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: count > 0 ? .semibold : .regular)
+        let mono = ContentTypography.current().font(for: .monospaced)
+        countLabel.font = NSFont.monospacedDigitSystemFont(
+            ofSize: mono.pointSize,
+            weight: count > 0 ? .semibold : .regular
+        )
         countLabel.textColor = count > 0 ? NSColor.lungfishDanger : .labelColor
         let detail = samples.isEmpty
             ? footnote
@@ -136,10 +154,10 @@ final class GenotypeCohortSummaryPanelView: NSView {
         countLabel.toolTip = detail
         valueRow.addArrangedSubview(countLabel)
         let footnoteLabel = NSTextField(labelWithString: footnote)
-        footnoteLabel.font = NSFont.systemFont(ofSize: 10)
+        footnoteLabel.font = ContentTypography.current().font(for: .caption)
         footnoteLabel.textColor = .tertiaryLabelColor
         footnoteLabel.lineBreakMode = .byWordWrapping
-        footnoteLabel.maximumNumberOfLines = 2
+        footnoteLabel.maximumNumberOfLines = 0
         container.addArrangedSubview(titleLabel)
         container.addArrangedSubview(valueRow)
         container.addArrangedSubview(footnoteLabel)
@@ -159,7 +177,7 @@ final class GenotypeCohortSummaryPanelView: NSView {
         let label = NSTextField(wrappingLabelWithString:
             "Read-only bundle. Edits and annotations are kept in memory only — they will not persist."
         )
-        label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        label.font = ContentTypography.current().font(for: .emphasizedBody)
         label.textColor = .labelColor
         label.translatesAutoresizingMaskIntoConstraints = false
 
@@ -179,7 +197,7 @@ final class GenotypeCohortSummaryPanelView: NSView {
         v.alignment = .leading
         v.spacing = 6
         let titleLabel = NSTextField(labelWithString: title.uppercased())
-        titleLabel.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        titleLabel.font = ContentTypography.current().font(for: .tableHeader)
         titleLabel.textColor = .secondaryLabelColor
         v.addArrangedSubview(titleLabel)
         for (key, value) in content {
@@ -188,10 +206,11 @@ final class GenotypeCohortSummaryPanelView: NSView {
             row.alignment = .firstBaseline
             row.spacing = 8
             let k = NSTextField(labelWithString: key)
-            k.font = NSFont.systemFont(ofSize: 11)
+            k.font = ContentTypography.current().font(for: .body)
             k.textColor = .secondaryLabelColor
             let val = NSTextField(labelWithString: value)
-            val.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+            let mono = ContentTypography.current().font(for: .monospaced)
+            val.font = NSFont.monospacedDigitSystemFont(ofSize: mono.pointSize, weight: .regular)
             val.textColor = .labelColor
             row.addArrangedSubview(k)
             row.addArrangedSubview(val)
@@ -200,7 +219,45 @@ final class GenotypeCohortSummaryPanelView: NSView {
         return v
     }
 
+    private func finishContentTypographyUpdate() {
+        for field in descendantTextFields(in: self) {
+            field.maximumNumberOfLines = 0
+            field.lineBreakMode = .byWordWrapping
+            field.usesSingleLineMode = false
+            if !field.stringValue.isEmpty {
+                field.toolTip = field.stringValue
+            }
+        }
+        documentView.needsLayout = true
+        needsLayout = true
+    }
+
+    private func descendantTextFields(in view: NSView) -> [NSTextField] {
+        view.subviews.flatMap { subview in
+            (subview as? NSTextField).map { [$0] } ?? []
+                + descendantTextFields(in: subview)
+        }
+    }
+
     private final class FlippedDocumentView: NSView {
         override var isFlipped: Bool { true }
     }
 }
+
+#if DEBUG
+extension GenotypeCohortSummaryPanelView {
+    var testingLargestContentFontPointSize: CGFloat {
+        descendantTextFields(in: self).compactMap { $0.font?.pointSize }.max() ?? 0
+    }
+
+    var testingAllTextFieldsAllowWrapping: Bool {
+        descendantTextFields(in: self).allSatisfy {
+            !$0.usesSingleLineMode && $0.maximumNumberOfLines != 1
+        }
+    }
+
+    var testingConfigurationCount: Int {
+        configurationCount
+    }
+}
+#endif

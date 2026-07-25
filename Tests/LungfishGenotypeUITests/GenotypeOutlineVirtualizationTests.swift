@@ -10,6 +10,44 @@ import LungfishIO
 /// sample stays reachable and a small cohort renders exactly as before.
 @MainActor
 final class GenotypeOutlineVirtualizationTests: XCTestCase {
+    func testContentTypographyGrowsOrdinaryOutlineTextButKeepsTapeGeometryFixed() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        let view = GenotypeOutlineView()
+        GenotypeOutlineView.testingResetRowViewConstructionCount()
+        view.frame = NSRect(x: 0, y: 0, width: 800, height: 220)
+        view.configure(rows: [makeRow("AnimalA"), makeRow("AnimalB")])
+        view.testingForceRowMaterialization()
+        let baselineFont = view.testingAnimalFontPointSize
+        let baselineRowHeight = view.testingRowHeight
+        let baselineTapeHeight = view.testingTapeHeight
+
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+        view.testingForceRowMaterialization()
+
+        XCTAssertEqual(view.testingAnimalFontPointSize, baselineFont * 2, accuracy: 0.01)
+        XCTAssertGreaterThan(view.testingRowHeight, baselineRowHeight)
+        XCTAssertEqual(view.testingTapeHeight, baselineTapeHeight, accuracy: 0.01)
+        XCTAssertLessThanOrEqual(
+            GenotypeOutlineView.testingRowViewConstructionCount,
+            12,
+            "Typography refresh must stay proportional to the realized window"
+        )
+
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        view.testingForceRowMaterialization()
+        XCTAssertEqual(view.testingAnimalFontPointSize, baselineFont, accuracy: 0.01)
+        XCTAssertEqual(view.testingRowHeight, baselineRowHeight, accuracy: 0.01)
+        XCTAssertEqual(view.testingTapeHeight, baselineTapeHeight, accuracy: 0.01)
+    }
 
     /// Hosts the outline view in an off-screen window so the backing
     /// NSTableView/NSScrollView get real clip geometry — without a window the

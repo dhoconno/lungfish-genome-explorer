@@ -1,6 +1,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 
 @MainActor
 final class GenotypeHaplotypeDefinitionMatrixView: NSView {
@@ -103,6 +104,15 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
     private var rows: [Row] = []
     private var alleleColumns: [String] = []
     private var definitionName: String?
+    private var contentTypographyObservation: ContentTypographyViewObservation?
+    private var contentPreferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private var typographyBaselineWidths: [String: CGFloat] = [:]
+    private var typographyBaselineMinWidths: [String: CGFloat] = [:]
+    private var lastAppliedTypographyScale: CGFloat = 1
+#if DEBUG
+    private var configurationCount = 0
+#endif
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -115,6 +125,9 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
     }
 
     func configure(rows: [Row], definitionName: String?) {
+#if DEBUG
+        configurationCount += 1
+#endif
         allRows = rows
         self.definitionName = definitionName
         let newAlleleColumns = orderedAlleleColumns(from: rows)
@@ -127,6 +140,7 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
         applySortDescriptors()
         tableView.reloadData()
         emptyLabel.isHidden = !rows.isEmpty
+        applyContentTypography()
     }
 
     func exportSnapshot(
@@ -234,6 +248,11 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
 
         setAccessibilityIdentifier("genotype-haplotype-definition-matrix")
         setAccessibilityLabel("Haplotype diagnostic allele matrix")
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: ContentTypographyViewApplicator(excludedSubtree: { _ in true }),
+            rootProvider: { [weak self] in self },
+            afterApply: { [weak self] in self?.applyContentTypography() }
+        )
     }
 
     private func updateHeader() {
@@ -246,6 +265,7 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
     }
 
     private func rebuildColumns() {
+        captureTypographyBaselines()
         for column in tableView.tableColumns {
             tableView.removeTableColumn(column)
         }
@@ -259,6 +279,7 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
         for allele in alleleColumns {
             addColumn(Column.allele(allele), title: allele, width: 126, minWidth: 88)
         }
+        registerTypographyBaselines()
     }
 
     private func addColumn(
@@ -327,10 +348,73 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
     }
 
     private func font(row: Row, column: NSUserInterfaceItemIdentifier) -> NSFont {
+        let size = resolvedContentTypography().font(for: .monospaced).pointSize
         if column == Column.haplotype || row.status == .called && column == Column.status {
-            return .monospacedSystemFont(ofSize: 10, weight: .semibold)
+            return .monospacedSystemFont(ofSize: size, weight: .semibold)
         }
-        return .monospacedSystemFont(ofSize: 10, weight: .regular)
+        return .monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
+    private func resolvedContentTypography() -> ContentTypography {
+        ContentTypography(
+            preference: AppSettings.shared.contentTextSizePreference,
+            preferredFontProvider: contentPreferredFontProvider
+        )
+    }
+
+    private var contentTypographyScale: CGFloat {
+        resolvedContentTypography().font(for: .body).pointSize / max(
+            contentPreferredFontProvider.canonicalUnscaledPointSize(for: .body),
+            1
+        )
+    }
+
+    private func applyContentTypography() {
+        captureTypographyBaselines()
+        let typography = resolvedContentTypography()
+        titleLabel.font = typography.font(for: .emphasizedBody)
+        subtitleLabel.font = typography.font(for: .caption)
+        emptyLabel.font = typography.font(for: .body)
+        tableView.rowHeight = typography.tableRowHeight(minimum: 24, verticalPadding: 7)
+        tableView.headerView?.frame.size.height =
+            typography.tableHeaderHeight(minimum: 24, verticalPadding: 8)
+        registerTypographyBaselines()
+        let scale = contentTypographyScale
+        for column in tableView.tableColumns {
+            let key = column.identifier.rawValue
+            let baselineWidth = typographyBaselineWidths[key] ?? column.width
+            let baselineMinimum = typographyBaselineMinWidths[key] ?? column.minWidth
+            let headerFont = typography.font(for: .tableHeader)
+            let headerWidth = ceil(
+                (column.title as NSString).size(withAttributes: [.font: headerFont]).width + 20
+            )
+            column.headerCell.font = headerFont
+            column.minWidth = max(baselineMinimum * scale, headerWidth)
+            column.width = max(baselineWidth * scale, column.minWidth)
+        }
+        lastAppliedTypographyScale = scale
+        tableView.reloadData()
+        needsLayout = true
+    }
+
+    private func registerTypographyBaselines() {
+        for column in tableView.tableColumns {
+            let key = column.identifier.rawValue
+            if typographyBaselineWidths[key] == nil {
+                typographyBaselineWidths[key] = column.width
+            }
+            if typographyBaselineMinWidths[key] == nil {
+                typographyBaselineMinWidths[key] = column.minWidth
+            }
+        }
+    }
+
+    private func captureTypographyBaselines() {
+        let scale = max(lastAppliedTypographyScale, 0.01)
+        for column in tableView.tableColumns {
+            typographyBaselineWidths[column.identifier.rawValue] = column.width / scale
+            typographyBaselineMinWidths[column.identifier.rawValue] = column.minWidth / scale
+        }
     }
 
     private func statusColor(_ status: Row.Status) -> NSColor {
@@ -496,6 +580,23 @@ private final class MatrixRowView: NSTableRowView {
 
 #if DEBUG
 extension GenotypeHaplotypeDefinitionMatrixView {
+    var testingCellFontPointSize: CGFloat {
+        guard let row = rows.first ?? allRows.first else { return 0 }
+        return font(row: row, column: Column.sample).pointSize
+    }
+
+    var testingRowHeight: CGFloat {
+        tableView.rowHeight
+    }
+
+    var testingColumnWidths: [CGFloat] {
+        tableView.tableColumns.map(\.width)
+    }
+
+    var testingConfigurationCount: Int {
+        configurationCount
+    }
+
     var testingText: String {
         var values = [
             "Diagnostic allele matrix",

@@ -6582,6 +6582,64 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Selection Type", "Mixed") })
     }
 
+    func testComparisonMatrixTypographyUpdatesInPlaceAndRecoversWithoutChangingViewState() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+
+        let matrix = makeManyRowComparisonMatrix()
+        matrix.frame = NSRect(x: 0, y: 0, width: 900, height: 240)
+        matrix.layoutSubtreeIfNeeded()
+        let genotype = try! XCTUnwrap(matrix.testingVisibleGenotypes.first)
+        matrix.testingSelectCell(genotype: genotype, sample: "Sample0")
+        matrix.testingSetFilter("Mafa-AG")
+        matrix.testingResetReloadCounters()
+
+        let identity = ObjectIdentifier(matrix)
+        let baselineCellFont = matrix.testingMatrixCellFontPointSize
+        let baselineHeaderFont = matrix.testingMatrixHeaderFontPointSize
+        let baselineRowHeight = matrix.testingMatrixRowHeight
+        let baselineHeaderHeight = matrix.testingMatrixHeaderHeight
+        let baselineWidths = matrix.testingAllColumnWidths
+        let baselineRows = matrix.testingVisibleGenotypes
+
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+        matrix.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(ObjectIdentifier(matrix), identity)
+        XCTAssertEqual(matrix.testingMatrixCellFontPointSize, baselineCellFont * 2, accuracy: 0.01)
+        XCTAssertEqual(matrix.testingMatrixHeaderFontPointSize, baselineHeaderFont * 2, accuracy: 0.01)
+        XCTAssertGreaterThan(matrix.testingMatrixRowHeight, baselineRowHeight)
+        XCTAssertGreaterThan(matrix.testingMatrixHeaderHeight, baselineHeaderHeight)
+        XCTAssertTrue(
+            zip(matrix.testingAllColumnWidths, baselineWidths).allSatisfy { $0 > $1 },
+            "\(matrix.testingAllColumnWidths) should exceed \(baselineWidths)"
+        )
+        XCTAssertEqual(matrix.testingVisibleGenotypes, baselineRows)
+        XCTAssertTrue(matrix.testingIsSelectedCell(genotype: genotype, sample: "Sample0"))
+        XCTAssertTrue(matrix.testingSemanticDecorationFramesAreContained)
+        XCTAssertLessThanOrEqual(matrix.testingFullReloadCount, 2)
+
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        matrix.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(matrix.testingMatrixCellFontPointSize, baselineCellFont, accuracy: 0.01)
+        XCTAssertEqual(matrix.testingMatrixHeaderFontPointSize, baselineHeaderFont, accuracy: 0.01)
+        XCTAssertEqual(matrix.testingMatrixRowHeight, baselineRowHeight, accuracy: 0.01)
+        XCTAssertEqual(matrix.testingMatrixHeaderHeight, baselineHeaderHeight, accuracy: 0.01)
+        XCTAssertEqual(matrix.testingAllColumnWidths, baselineWidths)
+        XCTAssertEqual(matrix.testingVisibleGenotypes, baselineRows)
+        XCTAssertTrue(matrix.testingIsSelectedCell(genotype: genotype, sample: "Sample0"))
+        XCTAssertLessThanOrEqual(matrix.testingFullReloadCount, 4)
+    }
+
     private func makeManySampleMatrix(sampleCount: Int) -> GenotypeComparisonMatrixView {
         let matrix = GenotypeComparisonMatrixView()
         let genotype = "12_M3_B_075_01"
@@ -7640,6 +7698,50 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         let table = try XCTUnwrap(view.firstDescendant(ofType: NSTableView.self))
         XCTAssertTrue(table.tableColumns.allSatisfy { $0.sortDescriptorPrototype != nil })
+    }
+
+    func testHaplotypeDefinitionMatrixTypographyUpdatesAndRecoversWithoutReconfiguration() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        let view = GenotypeHaplotypeDefinitionMatrixView()
+        view.configure(rows: [
+            .init(
+                sample: "DW472",
+                locus: "MHC-B",
+                callName: "M3B",
+                haplotypeName: "M3B",
+                observedCount: 2,
+                diagnosticCount: 3,
+                minimumMatches: 2,
+                status: .called,
+                alleles: [.init(name: "12_M3_B_075_01", reads: 100)]
+            ),
+        ], definitionName: "Test")
+        let baselineFont = view.testingCellFontPointSize
+        let baselineRowHeight = view.testingRowHeight
+        let baselineWidths = view.testingColumnWidths
+        let configurationCount = view.testingConfigurationCount
+
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+
+        XCTAssertEqual(view.testingCellFontPointSize, baselineFont * 2, accuracy: 0.01)
+        XCTAssertGreaterThan(view.testingRowHeight, baselineRowHeight)
+        XCTAssertTrue(zip(view.testingColumnWidths, baselineWidths).allSatisfy { $0 > $1 })
+        XCTAssertEqual(view.testingConfigurationCount, configurationCount)
+
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        XCTAssertEqual(view.testingCellFontPointSize, baselineFont, accuracy: 0.01)
+        XCTAssertEqual(view.testingRowHeight, baselineRowHeight, accuracy: 0.01)
+        XCTAssertEqual(view.testingColumnWidths, baselineWidths)
+        XCTAssertEqual(view.testingConfigurationCount, configurationCount)
     }
 
     func testHaplotypeMatrixSearchFiltersDefinitionRowsRatherThanWholeSamples() throws {

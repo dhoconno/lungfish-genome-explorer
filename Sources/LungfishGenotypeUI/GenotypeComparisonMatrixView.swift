@@ -144,6 +144,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var visibleReferenceFieldKeys: Set<String> = []
     private var visibleStandardColumnIDs: Set<String> = []
     private var restoredColumnWidths: [String: CGFloat] = [:]
+    private var typographyBaselineColumnWidths: [String: CGFloat] = [:]
+    private var typographyBaselineColumnMinWidths: [String: CGFloat] = [:]
+    private var contentTypographyObservation: ContentTypographyViewObservation?
+    private var contentPreferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private var filterHeightConstraint: NSLayoutConstraint?
+    private var reviewLegendHeightConstraint: NSLayoutConstraint?
+    private var isApplyingContentTypography = false
     private let columnDefaults = UserDefaults.standard
     private static let pinnedPaneWidthKey = "GenotypeMatrix.pinnedPaneWidth"
     private var displayState = GenotypeResultDisplayState()
@@ -597,6 +605,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
 
         let pinnedHeaderView = GenotypeMatrixHeaderView()
+        pinnedHeaderView.titleFont = { [weak self] in
+            self?.resolvedContentTypography().font(for: .tableHeader)
+                ?? .systemFont(ofSize: 11, weight: .semibold)
+        }
+        pinnedHeaderView.readFont = { [weak self] in
+            self?.resolvedContentTypography().font(for: .caption)
+                ?? .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+        }
+        pinnedHeaderView.chicletSize = { [weak self] in self?.headerChicletSize ?? 11 }
         pinnedHeaderView.isColumnSelectable = { [weak self] column in
             self?.pinnedColumnIdentifier(at: column) == ColumnID.rowSelector
         }
@@ -619,6 +636,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         pinnedScrollView.documentView = pinnedTableView
 
         let headerView = GenotypeMatrixHeaderView()
+        headerView.titleFont = { [weak self] in
+            self?.resolvedContentTypography().font(for: .tableHeader)
+                ?? .systemFont(ofSize: 11, weight: .semibold)
+        }
+        headerView.readFont = { [weak self] in
+            self?.resolvedContentTypography().font(for: .caption)
+                ?? .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+        }
+        headerView.chicletSize = { [weak self] in self?.headerChicletSize ?? 11 }
         headerView.isColumnSelectable = { [weak self] column in
             self?.sampleName(forColumnAt: column) != nil
         }
@@ -662,11 +688,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             object: pinnedScrollView.contentView
         )
 
+        filterHeightConstraint = filterField.heightAnchor.constraint(equalToConstant: 24)
+        reviewLegendHeightConstraint = reviewLegend.heightAnchor.constraint(equalToConstant: 15)
         NSLayoutConstraint.activate([
             filterField.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             filterField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             filterField.trailingAnchor.constraint(equalTo: locusPopup.leadingAnchor, constant: -8),
-            filterField.heightAnchor.constraint(equalToConstant: 24),
+            filterHeightConstraint!,
 
             locusPopup.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             locusPopup.centerYAnchor.constraint(equalTo: filterField.centerYAnchor),
@@ -689,11 +717,18 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             reviewLegend.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
             reviewLegend.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6),
             reviewLegend.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
-            reviewLegend.heightAnchor.constraint(equalToConstant: 15),
+            reviewLegendHeightConstraint!,
         ])
         let rememberedWidth = columnDefaults.double(forKey: Self.pinnedPaneWidthKey)
         pinnedWidthConstraint = pinnedScrollView.widthAnchor.constraint(equalToConstant: rememberedWidth > 0 ? rememberedWidth : 360)
         pinnedWidthConstraint?.isActive = true
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: ContentTypographyViewApplicator(excludedSubtree: { _ in true }),
+            rootProvider: { [weak self] in self },
+            afterApply: { [weak self] in
+                self?.applyContentTypography()
+            }
+        )
     }
 
     private func configureTableView(_ tableView: GenotypeMatrixTableView) {
@@ -779,6 +814,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func rebuildColumns() {
+        captureColumnTypographyBaselines()
         removeAllColumns(from: pinnedTableView)
         removeAllColumns(from: tableView)
         sampleColumnLookup.removeAll()
@@ -834,6 +870,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         tableView.headerView?.frame.size.height = 34
         rebuildPinnedColumnMenu()
         updateColumnCommentMetadata()
+        registerColumnTypographyBaselines()
+        applyColumnTypography()
     }
 
     private func updatePinnedTableAccessibilityLabel() {
@@ -1610,10 +1648,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     func tableViewColumnDidResize(_ notification: Notification) {
-        guard notification.object as? NSTableView === pinnedTableView else { return }
+        guard !isApplyingContentTypography else { return }
+        guard let resizedTable = notification.object as? NSTableView,
+              resizedTable === pinnedTableView || resizedTable === tableView else {
+            return
+        }
+        captureColumnTypographyBaselines(in: resizedTable)
+        guard resizedTable === pinnedTableView else { return }
         var widths = restoredColumnWidths
         for column in pinnedTableView.tableColumns where column.identifier != ColumnID.rowSelector {
-            widths[column.identifier.rawValue] = column.width
+            widths[column.identifier.rawValue] =
+                typographyBaselineColumnWidths[column.identifier.rawValue] ?? column.width
         }
         restoredColumnWidths = widths
         columnDefaults.set(widths.mapValues { Double($0) }, forKey: Self.columnWidthsKey)
@@ -3160,11 +3205,125 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func font(for style: GenotypeMatrixRenderedStyle) -> NSFont {
-        let base = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: style.isBold ? .semibold : .regular)
+        let resolved = resolvedContentTypography().font(for: .monospaced)
+        let base = NSFont.monospacedDigitSystemFont(
+            ofSize: resolved.pointSize,
+            weight: style.isBold ? .semibold : .regular
+        )
         guard style.isItalic else {
             return base
         }
         return NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask)
+    }
+
+    private func resolvedContentTypography() -> ContentTypography {
+        ContentTypography(
+            preference: AppSettings.shared.contentTextSizePreference,
+            preferredFontProvider: contentPreferredFontProvider
+        )
+    }
+
+    private var contentTypographyScale: CGFloat {
+        let providerBaseline = max(
+            contentPreferredFontProvider.canonicalUnscaledPointSize(for: .body),
+            1
+        )
+        return resolvedContentTypography().font(for: .body).pointSize / providerBaseline
+    }
+
+    private var headerChicletSize: CGFloat {
+        min(max(11, ceil(11 * contentTypographyScale)), max(11, tableViewHeaderHeight - 8))
+    }
+
+    private func applyContentTypography() {
+        let typography = resolvedContentTypography()
+        filterField.font = typography.font(for: .body)
+        reviewLegend.font = typography.font(for: .caption)
+        let rowHeight = typography.tableRowHeight(minimum: 22, verticalPadding: 6)
+        pinnedTableView.rowHeight = rowHeight
+        tableView.rowHeight = rowHeight
+        let headerHeight = typography.tableHeaderHeight(minimum: 34, verticalPadding: 10)
+        pinnedTableView.headerView?.frame.size.height = headerHeight
+        tableView.headerView?.frame.size.height = headerHeight
+        filterHeightConstraint?.constant = max(24, ceil(typography.font(for: .body).boundingRectForFont.height + 8))
+        reviewLegendHeightConstraint?.constant = max(
+            15,
+            ceil(typography.font(for: .caption).boundingRectForFont.height + 4)
+        )
+        applyColumnTypography()
+        for table in [pinnedTableView, tableView] {
+            for column in table.tableColumns {
+                column.headerCell.font = typography.font(for: .tableHeader)
+            }
+            table.reloadData()
+            table.headerView?.needsDisplay = true
+        }
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+    }
+
+    private var tableViewHeaderHeight: CGFloat {
+        tableView.headerView?.frame.height ?? 34
+    }
+
+    private func allMatrixTables() -> [NSTableView] {
+        [pinnedTableView, tableView]
+    }
+
+    private func registerColumnTypographyBaselines() {
+        for table in allMatrixTables() {
+            for column in table.tableColumns {
+                let key = column.identifier.rawValue
+                if typographyBaselineColumnWidths[key] == nil {
+                    typographyBaselineColumnWidths[key] = column.width
+                }
+                if typographyBaselineColumnMinWidths[key] == nil {
+                    typographyBaselineColumnMinWidths[key] = column.minWidth
+                }
+            }
+        }
+    }
+
+    private func captureColumnTypographyBaselines() {
+        for table in allMatrixTables() {
+            captureColumnTypographyBaselines(in: table)
+        }
+    }
+
+    private func captureColumnTypographyBaselines(in table: NSTableView) {
+        let scale = max(contentTypographyScale, 0.01)
+        for column in table.tableColumns {
+            let key = column.identifier.rawValue
+            typographyBaselineColumnWidths[key] = column.width / scale
+            typographyBaselineColumnMinWidths[key] = column.minWidth / scale
+        }
+    }
+
+    private func applyColumnTypography() {
+        registerColumnTypographyBaselines()
+        let scale = contentTypographyScale
+        let headerFont = resolvedContentTypography().font(for: .tableHeader)
+        isApplyingContentTypography = true
+        defer { isApplyingContentTypography = false }
+        for table in allMatrixTables() {
+            for column in table.tableColumns {
+                let key = column.identifier.rawValue
+                let baselineWidth = typographyBaselineColumnWidths[key] ?? column.width
+                let baselineMinimum = typographyBaselineColumnMinWidths[key] ?? column.minWidth
+                let headerWidth = ceil(
+                    (column.title as NSString).size(withAttributes: [.font: headerFont]).width + 24
+                )
+                let minimum = max(baselineMinimum * scale, headerWidth)
+                if column.identifier == ColumnID.rowSelector {
+                    column.maxWidth = max(baselineWidth * scale, minimum)
+                }
+                column.minWidth = minimum
+                column.width = max(baselineWidth * scale, minimum)
+                if column.identifier == ColumnID.rowSelector {
+                    column.maxWidth = column.width
+                }
+            }
+        }
     }
 
     private func backgroundColor(
@@ -3735,6 +3894,9 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
     var readTitleForColumn: ((Int) -> String?)?
     var hasCommentForColumn: ((Int) -> Bool)?
     var commentFoldSize: (() -> CGFloat)?
+    var titleFont: (() -> NSFont)?
+    var readFont: (() -> NSFont)?
+    var chicletSize: (() -> CGFloat)?
     var onContextMenuRequest: ((Int) -> NSMenu?)?
 
     override func draw(_ dirtyRect: NSRect) {
@@ -3812,9 +3974,21 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
             width: max(0, rect.width - 10),
             height: rect.height / 2 - 2
         )
-        drawText(title, in: titleRect, font: .systemFont(ofSize: 11, weight: .semibold), alignment: .left, color: .labelColor)
+        drawText(
+            title,
+            in: titleRect,
+            font: titleFont?() ?? .systemFont(ofSize: 11, weight: .semibold),
+            alignment: .left,
+            color: .labelColor
+        )
         if let readTitle {
-            drawText(readTitle, in: readRect, font: .monospacedDigitSystemFont(ofSize: 10, weight: .regular), alignment: .right, color: .secondaryLabelColor)
+            drawText(
+                readTitle,
+                in: readRect,
+                font: readFont?() ?? .monospacedDigitSystemFont(ofSize: 10, weight: .regular),
+                alignment: .right,
+                color: .secondaryLabelColor
+            )
         }
         if hasComment {
             drawCommentFold(in: rect, size: commentFoldSize?() ?? 7)
@@ -3834,10 +4008,10 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
     }
 
     private func chicletRect(in rect: NSRect) -> NSRect {
-        let size: CGFloat = 11
+        let size = min(chicletSize?() ?? 11, max(11, rect.height - 6))
         return NSRect(
             x: rect.minX + 5,
-            y: rect.midY + 1,
+            y: rect.midY - size / 2,
             width: size,
             height: size
         )
@@ -4577,6 +4751,33 @@ extension GenotypeComparisonMatrixView {
 
     var testingReloadTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
         testingLastReloadTargets
+    }
+
+    var testingMatrixCellFontPointSize: CGFloat {
+        font(for: .init()).pointSize
+    }
+
+    var testingMatrixHeaderFontPointSize: CGFloat {
+        (tableView.headerView as? GenotypeMatrixHeaderView)?.titleFont?().pointSize ?? 0
+    }
+
+    var testingMatrixRowHeight: CGFloat {
+        tableView.rowHeight
+    }
+
+    var testingMatrixHeaderHeight: CGFloat {
+        tableView.headerView?.frame.height ?? 0
+    }
+
+    var testingAllColumnWidths: [CGFloat] {
+        pinnedTableView.tableColumns.map(\.width) + tableView.tableColumns.map(\.width)
+    }
+
+    var testingSemanticDecorationFramesAreContained: Bool {
+        let geometry = semanticGeometry()
+        return geometry.commentFoldSize <= min(tableView.rowHeight, testingMatrixHeaderHeight)
+            && geometry.selectionCornerBracketLength <= tableView.rowHeight
+            && headerChicletSize <= testingMatrixHeaderHeight
     }
 
     func testingRenderVisibleCells(rowLimit: Int) {

@@ -46,7 +46,7 @@ final class GenotypeResultTableView: BatchTableView<ONTGenotypeSampleResult> {
     ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
         switch column {
         case ColumnID.sample:
-            return (row.sample, .left, .systemFont(ofSize: 12, weight: .medium))
+            return (row.sample, .left, ContentTypography.current().font(for: .emphasizedBody))
         case ColumnID.qc:
             return (row.qcStatus.displayName, .left, nil)
         case ColumnID.calls:
