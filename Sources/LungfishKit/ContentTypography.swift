@@ -190,8 +190,8 @@ public struct ContentTypography {
 /// Applies the global content scale to an existing AppKit view tree while
 /// retaining stable, per-instance baseline fonts and table geometry.
 @MainActor
-protocol ContentTypographyBaselineFontProviding: AnyObject {
-    var contentTypographyBaselineFont: NSFont { get }
+protocol ContentTypographySemanticFontProviding: AnyObject {
+    var contentTypographyRole: ContentTypography.Role { get }
 }
 
 @MainActor
@@ -239,21 +239,28 @@ public final class ContentTypographyViewApplicator {
     private func apply(to view: NSView, scale: CGFloat) {
         guard !excludedSubtree(view) else { return }
         if let field = view as? NSTextField, let current = field.font {
-            let baseline: NSFont
-            if let recorded = baselineFonts.object(forKey: field) {
-                baseline = recorded
-            } else if let provider = field as? ContentTypographyBaselineFontProviding {
-                baseline = provider.contentTypographyBaselineFont
-                baselineFonts.setObject(baseline, forKey: field)
+            if let semantic = field as? ContentTypographySemanticFontProviding {
+                field.font = ContentTypography(
+                    preference: AppSettings.shared.contentTextSizePreference,
+                    preferredFontProvider: preferredFontProvider
+                ).font(for: semantic.contentTypographyRole)
             } else {
-                baseline = current
-                baselineFonts.setObject(current, forKey: field)
+                let baseline: NSFont
+                if let recorded = baselineFonts.object(forKey: field) {
+                    baseline = recorded
+                } else {
+                    baseline = current
+                    baselineFonts.setObject(current, forKey: field)
+                }
+                let pointSize = max(
+                    ContentTypography.minimumPointSize,
+                    baseline.pointSize * scale
+                )
+                field.font = NSFont(
+                    descriptor: baseline.fontDescriptor,
+                    size: pointSize
+                ) ?? baseline
             }
-            let pointSize = max(
-                ContentTypography.minimumPointSize,
-                baseline.pointSize * scale
-            )
-            field.font = NSFont(descriptor: baseline.fontDescriptor, size: pointSize) ?? baseline
             if !field.stringValue.isEmpty {
                 field.toolTip = field.stringValue
                 field.setAccessibilityValue(field.stringValue)

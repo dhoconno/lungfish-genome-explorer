@@ -11,11 +11,9 @@ private let metadataColumnPrefix = "metadata_"
 @MainActor
 private final class MetadataContentTextField:
     NSTextField,
-    ContentTypographyBaselineFontProviding
+    ContentTypographySemanticFontProviding
 {
-    let contentTypographyBaselineFont = ContentTypography(
-        preference: .custom(100)
-    ).font(for: .body)
+    let contentTypographyRole = ContentTypography.Role.body
 }
 
 // MARK: - MetadataColumnController

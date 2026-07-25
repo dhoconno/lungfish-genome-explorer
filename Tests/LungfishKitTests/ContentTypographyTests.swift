@@ -585,6 +585,42 @@ final class ContentTypographyTests: XCTestCase {
         )
     }
 
+    func testSemanticallyResolvedMetadataFontUsesInjectedPreferredBodyExactlyOnce() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        let provider = EnlargedBodyPreferredFontProvider()
+        let root = NSView()
+        let field = ResolvedMetadataTestTextField(
+            preferredFontProvider: provider
+        )
+        field.stringValue = "clinical"
+        root.addSubview(field)
+        let applicator = ContentTypographyViewApplicator(
+            preferredFontProvider: provider
+        )
+
+        settings.contentTextSizePreference = .system
+        applicator.apply(to: root)
+        XCTAssertEqual(field.font?.pointSize ?? 0, 15, accuracy: 0.001)
+
+        settings.contentTextSizePreference = .custom(200)
+        applicator.apply(to: root)
+        XCTAssertEqual(field.font?.pointSize ?? 0, 30, accuracy: 0.001)
+        applicator.apply(to: root)
+        XCTAssertEqual(field.font?.pointSize ?? 0, 30, accuracy: 0.001)
+
+        settings.contentTextSizePreference = .custom(100)
+        applicator.apply(to: root)
+        XCTAssertEqual(field.font?.pointSize ?? 0, 15, accuracy: 0.001)
+        settings.contentTextSizePreference = .system
+        applicator.apply(to: root)
+        XCTAssertEqual(field.font?.pointSize ?? 0, 15, accuracy: 0.001)
+    }
+
     func testViewObservationAppliesInitiallyAndOnContentSizeNotifications() {
         let center = NotificationCenter()
         let root = NSView()
@@ -688,6 +724,45 @@ private final class CountingOutlineDataSource: NSObject, NSOutlineViewDataSource
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
         false
+    }
+}
+
+@MainActor
+private final class ResolvedMetadataTestTextField:
+    NSTextField,
+    ContentTypographySemanticFontProviding
+{
+    let contentTypographyRole = ContentTypography.Role.body
+
+    init(preferredFontProvider: any ContentPreferredFontProviding) {
+        let resolved = ContentTypography(
+            preference: .system,
+            preferredFontProvider: preferredFontProvider
+        ).font(for: .body)
+        super.init(frame: .zero)
+        font = resolved
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+@MainActor
+private struct EnlargedBodyPreferredFontProvider: ContentPreferredFontProviding {
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        switch role {
+        case .emphasizedBody, .tableHeader:
+            return .systemFont(ofSize: 15, weight: .semibold)
+        case .monospaced:
+            return .monospacedSystemFont(ofSize: 15, weight: .regular)
+        default:
+            return .systemFont(ofSize: 15)
+        }
+    }
+
+    func canonicalUnscaledPointSize(for role: ContentTypography.Role) -> CGFloat {
+        13
     }
 }
 
