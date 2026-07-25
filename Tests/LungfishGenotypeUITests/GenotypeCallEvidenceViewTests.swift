@@ -3,10 +3,75 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishKit
 @testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeCallEvidenceViewTests: XCTestCase {
+    func testContentTypographyModelUpdatesEvidenceMetricsWithoutChangingEvidenceOrActions() {
+        let notifications = NotificationCenter()
+        let preference = MutableEvidenceTextSizePreference(.system)
+        let provider = MutableEvidencePreferredFonts(pointSize: 13)
+        let model = ContentTypographyModel(
+            notificationCenter: notifications,
+            preferenceProvider: { preference.value },
+            preferredFontProvider: provider
+        )
+        let evidence = GenotypeCallEvidenceView.Evidence(
+            sample: "DW472",
+            locus: "MHC-DP",
+            slot: .h1,
+            callName: "M4DP",
+            status: .called,
+            observedGenotypeCount: 0,
+            observedGenotypes: [],
+            diagnosticAlleles: [],
+            locusReadTotal: 100,
+            neighborsBefore: [],
+            neighborsAfter: []
+        )
+        let view = GenotypeCallEvidenceView(evidence: evidence, typographyModel: model)
+        let baselineActions = GenotypeCallEvidenceView.unresolvedOverrideActions(for: evidence)
+
+        for (sizePreference, expectedBodySize) in [
+            (ContentTextSizePreference.system, CGFloat(13)),
+            (.custom(90), CGFloat(11.7)),
+            (.custom(150), CGFloat(19.5)),
+            (.custom(200), CGFloat(26)),
+        ] {
+            preference.value = sizePreference
+            notifications.post(name: .contentTextSizeDidChange, object: nil)
+
+            XCTAssertEqual(
+                view.testingContentTypographyPointSizes.body,
+                expectedBodySize,
+                accuracy: 0.01
+            )
+            XCTAssertEqual(
+                view.testingContentTypographyPointSizes.caption,
+                expectedBodySize,
+                accuracy: 0.01
+            )
+            XCTAssertEqual(view.evidence, evidence)
+            XCTAssertEqual(
+                GenotypeCallEvidenceView.unresolvedOverrideActions(for: evidence),
+                baselineActions
+            )
+        }
+    }
+
+    func testEvidenceUsesAdaptiveCardLayoutAndSharedContentTypography() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("ViewThatFits(in: .horizontal)"))
+        XCTAssertTrue(source.contains("typographyModel.font(for:"))
+    }
+
     func testRendersEmptyState() {
         let view = GenotypeCallEvidenceView(evidence: nil)
         let host = NSHostingView(rootView: view)
@@ -465,5 +530,38 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertFalse(source.contains("applyDropoutThresholds"))
         XCTAssertTrue(source.contains("Haplotype Thresholds"))
         XCTAssertTrue(source.contains("Rerun miSeq amplicon MHC genotyping"))
+    }
+}
+
+@MainActor
+private final class MutableEvidenceTextSizePreference {
+    var value: ContentTextSizePreference
+
+    init(_ value: ContentTextSizePreference) {
+        self.value = value
+    }
+}
+
+@MainActor
+private final class MutableEvidencePreferredFonts: ContentPreferredFontProviding {
+    var pointSize: CGFloat
+
+    init(pointSize: CGFloat) {
+        self.pointSize = pointSize
+    }
+
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        switch role {
+        case .monospaced:
+            return .monospacedSystemFont(ofSize: pointSize, weight: .regular)
+        case .emphasizedBody, .tableHeader:
+            return .systemFont(ofSize: pointSize, weight: .semibold)
+        default:
+            return .systemFont(ofSize: pointSize)
+        }
+    }
+
+    func canonicalUnscaledPointSize(for role: ContentTypography.Role) -> CGFloat {
+        13
     }
 }

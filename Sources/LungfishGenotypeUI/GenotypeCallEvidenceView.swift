@@ -373,9 +373,14 @@ struct GenotypeCallEvidenceView: View {
     var onOverridesRequested: (([HaplotypeOverrideRequest]) -> Void)?
     var onConfirmRequested: (() -> Void)?
     var onSkipRequested: (() -> Void)?
+    var typographyModel: ContentTypographyModel = .shared
 
     @State private var pendingOverrides = PendingOverrides()
     @State private var hiddenGenotypeSections: Set<String> = []
+
+    private var contentEmphasizedFont: Font { typographyModel.font(for: .emphasizedBody) }
+    private var contentCaptionFont: Font { typographyModel.font(for: .caption) }
+    private var contentMonospacedFont: Font { typographyModel.font(for: .monospaced) }
 
     static func overrideActions(
         for candidate: CandidateHaplotype,
@@ -576,26 +581,36 @@ struct GenotypeCallEvidenceView: View {
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Call evidence")
-                .font(.subheadline.weight(.semibold))
+                .font(contentEmphasizedFont)
             Text("Select a sample call to see haplotype support and retained genotype evidence.")
-                .font(.caption)
+                .font(contentCaptionFont)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private func haplotypeSlotCards(_ evidence: Evidence) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            slotCard(.h1, evidence: evidence)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-            slotCard(.h2, evidence: evidence)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-            if hasUncalledCandidateHaplotypes(evidence) {
-                candidateAlternativesCard(evidence)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 10) {
+                slotCard(.h1, evidence: evidence)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                slotCard(.h2, evidence: evidence)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                if hasUncalledCandidateHaplotypes(evidence) {
+                    candidateAlternativesCard(evidence)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                animalGenotypesColumn(evidence)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            animalGenotypesColumn(evidence)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+            VStack(alignment: .leading, spacing: 10) {
+                slotCard(.h1, evidence: evidence)
+                slotCard(.h2, evidence: evidence)
+                if hasUncalledCandidateHaplotypes(evidence) {
+                    candidateAlternativesCard(evidence)
+                }
+                animalGenotypesColumn(evidence)
+            }
         }
     }
 
@@ -615,10 +630,10 @@ struct GenotypeCallEvidenceView: View {
         return VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(slot.displayName)
-                    .font(.caption.weight(.semibold))
+                    .font(contentCaptionFont.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Text(displayValue)
-                    .font(.title3.monospaced().weight(.semibold))
+                    .font(contentEmphasizedFont.monospaced().weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
@@ -627,21 +642,21 @@ struct GenotypeCallEvidenceView: View {
             }
             HStack(spacing: 8) {
                 Text("\(alleles.count) allele\(alleles.count == 1 ? "" : "s")")
-                    .font(.caption2)
+                    .font(contentCaptionFont)
                     .foregroundStyle(.secondary)
                 Text("\(reads) reads")
-                    .font(.caption2.monospacedDigit())
+                    .font(contentCaptionFont.monospacedDigit())
                     .foregroundStyle(.secondary)
                 if slot == .h2 && (value.isEmpty || value == "-") {
                     Text("homozygous evidence")
-                        .font(.caption2)
+                        .font(contentCaptionFont)
                         .foregroundStyle(Color.accentColor)
                 }
             }
             Divider()
             if alleles.isEmpty {
                 Text("No diagnostic support assigned to this slot.")
-                    .font(.caption)
+                    .font(contentCaptionFont)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
@@ -652,7 +667,7 @@ struct GenotypeCallEvidenceView: View {
             if let candidate, !candidate.missing.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Missing diagnostics")
-                        .font(.caption2.weight(.semibold))
+                        .font(contentCaptionFont.weight(.semibold))
                         .foregroundStyle(.secondary)
                     ForEach(candidate.missing, id: \.self) { allele in
                         compactAlleleLine(Self.displayAlleleLabel(allele), marker: "missing")
@@ -738,22 +753,22 @@ struct GenotypeCallEvidenceView: View {
         return VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Animal genotypes")
-                    .font(.caption.weight(.semibold))
+                    .font(contentCaptionFont.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Text("\(visibleRows.count) / \(evidence.animalGenotypes.count)")
-                    .font(.caption2.monospacedDigit())
+                    .font(contentCaptionFont.monospacedDigit())
                     .foregroundStyle(.secondary)
                 genotypeSectionVisibilityMenu(evidence)
             }
             if evidence.animalGenotypes.isEmpty {
                 Text("No retained genotype observations were available for this animal.")
-                    .font(.caption)
+                    .font(contentCaptionFont)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if sections.isEmpty {
                 Text("All genotype sections are hidden.")
-                    .font(.caption)
+                    .font(contentCaptionFont)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
@@ -812,10 +827,10 @@ struct GenotypeCallEvidenceView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(section.title)
-                    .font(.caption.weight(.semibold))
+                    .font(contentCaptionFont.weight(.semibold))
                     .foregroundStyle(.primary)
                 Text("\(rows.count)")
-                    .font(.caption2.monospacedDigit())
+                    .font(contentCaptionFont.monospacedDigit())
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -832,18 +847,18 @@ struct GenotypeCallEvidenceView: View {
                 alleleLabelView(row.genotype, compact: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("\(row.reads)")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .font(contentCaptionFont.monospacedDigit().weight(.semibold))
                     .frame(width: 42, alignment: .trailing)
             }
             HStack(spacing: 5) {
                 Text(row.locus)
-                    .font(.caption2.monospaced())
+                    .font(contentCaptionFont.monospaced())
                     .foregroundStyle(.secondary)
                 genotypeEvidencePill(row)
                 if !row.associatedHaplotypes.isEmpty {
                     ForEach(row.associatedHaplotypes.prefix(5), id: \.self) { haplotype in
                         Text(haplotype)
-                            .font(.caption2.monospaced())
+                            .font(contentCaptionFont.monospaced())
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 3)
                             .padding(.vertical, 1)
@@ -854,7 +869,7 @@ struct GenotypeCallEvidenceView: View {
                     }
                     if row.associatedHaplotypes.count > 5 {
                         Text("+\(row.associatedHaplotypes.count - 5)")
-                            .font(.caption2.monospacedDigit())
+                            .font(contentCaptionFont.monospacedDigit())
                             .foregroundStyle(.tertiary)
                     }
                 }
@@ -936,7 +951,7 @@ struct GenotypeCallEvidenceView: View {
 
     private func genotypeEvidencePill(_ row: AnimalGenotype) -> some View {
         Text(genotypeEvidenceLabel(row))
-            .font(.caption2.weight(.semibold))
+            .font(contentCaptionFont.weight(.semibold))
             .foregroundStyle(genotypeEvidenceColor(row))
             .padding(.horizontal, 4)
             .padding(.vertical, 1)
@@ -980,7 +995,7 @@ struct GenotypeCallEvidenceView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(Color(nsColor: .lungfishDanger))
             Text(evidence.errorExplanation)
-                .font(.caption)
+                .font(contentCaptionFont)
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -997,15 +1012,15 @@ struct GenotypeCallEvidenceView: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Text("Other possible haplotypes")
-                    .font(.caption.weight(.semibold))
+                    .font(contentCaptionFont.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Text("\(candidates.count)")
-                    .font(.caption2.monospacedDigit())
+                    .font(contentCaptionFont.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
             Text("Why alternatives were not selected")
-                .font(.caption2)
+                .font(contentCaptionFont)
                 .foregroundStyle(.tertiary)
             ForEach(candidates) { candidate in
                 candidateRow(candidate, evidence: evidence)
@@ -1029,9 +1044,9 @@ struct GenotypeCallEvidenceView: View {
     private func unresolvedActionsRow(_ actions: [HaplotypeOverrideAction]) -> some View {
         HStack(spacing: 6) {
             Text("Leave unresolved")
-                .font(.caption.monospaced().weight(.semibold))
+                .font(contentCaptionFont.monospaced().weight(.semibold))
             Text("manual unknown")
-                .font(.caption2)
+                .font(contentCaptionFont)
                 .foregroundStyle(.secondary)
             Spacer()
             ForEach(actions) { action in
@@ -1061,10 +1076,10 @@ struct GenotypeCallEvidenceView: View {
         return VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Text(candidate.name)
-                    .font(.caption.monospaced().weight(.semibold))
+                    .font(contentCaptionFont.monospaced().weight(.semibold))
                 if isCurrentCall {
                     Text("CALLED")
-                        .font(.caption2.weight(.bold))
+                        .font(contentCaptionFont.weight(.bold))
                         .foregroundStyle(Color.white)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
@@ -1074,10 +1089,10 @@ struct GenotypeCallEvidenceView: View {
                         )
                 }
                 Text("\(candidate.observed.count) / \(totalAlleles) alleles observed")
-                    .font(.caption2)
+                    .font(contentCaptionFont)
                     .foregroundStyle(.secondary)
                 Text(Self.selectionReason(for: candidate, evidence: evidence))
-                    .font(.caption2)
+                    .font(contentCaptionFont)
                     .foregroundStyle(isCurrentCall ? Color.accentColor : .secondary)
                 Spacer()
                 if !actions.isEmpty {
@@ -1120,15 +1135,15 @@ struct GenotypeCallEvidenceView: View {
     private func pendingOverridesBlock(_ evidence: Evidence) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Pending haplotype overrides")
-                .font(.caption.weight(.semibold))
+                .font(contentCaptionFont.weight(.semibold))
                 .foregroundStyle(.secondary)
             ForEach(pendingOverrides.requests) { request in
                 HStack(spacing: 6) {
                     Text(request.slot.displayName)
-                        .font(.caption.monospaced().weight(.semibold))
+                        .font(contentCaptionFont.monospaced().weight(.semibold))
                         .frame(width: 24, alignment: .leading)
                     Text("\(Self.displayOverrideValue(Self.currentHaplotypeName(in: evidence, slot: request.slot))) -> \(request.haplotypeName)")
-                        .font(.caption.monospaced())
+                        .font(contentCaptionFont.monospaced())
                         .textSelection(.enabled)
                     Spacer()
                 }
@@ -1167,12 +1182,12 @@ struct GenotypeCallEvidenceView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Text(evidence.sample)
-                    .font(.title3.weight(.semibold))
+                    .font(contentEmphasizedFont)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
                 Text(evidence.locus)
-                    .font(.callout.monospaced())
+                    .font(contentMonospacedFont)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
@@ -1192,14 +1207,14 @@ struct GenotypeCallEvidenceView: View {
             }
             HStack(spacing: 6) {
                 Text("Call:")
-                    .font(.caption)
+                    .font(contentCaptionFont)
                     .foregroundStyle(.secondary)
                 Text(diploidCallText(evidence))
-                    .font(.callout.monospaced())
+                    .font(contentMonospacedFont)
                     .textSelection(.enabled)
                 if evidence.isHomozygous {
                     Text("(homozygous)")
-                        .font(.caption2)
+                        .font(contentCaptionFont)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
@@ -1220,10 +1235,10 @@ struct GenotypeCallEvidenceView: View {
     private func readMetricLabel(_ label: String, _ value: Int?) -> some View {
         HStack(spacing: 3) {
             Text(label)
-                .font(.caption2)
+                .font(contentCaptionFont)
                 .foregroundStyle(.secondary)
             Text(value.map { $0.formatted(.number) } ?? "Unavailable")
-                .font(.caption2.monospacedDigit())
+                .font(contentCaptionFont.monospacedDigit())
                 .foregroundStyle(.primary)
         }
     }
@@ -1247,10 +1262,10 @@ struct GenotypeCallEvidenceView: View {
             alleleLabelView(allele.allele, compact: compact)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text("\(allele.reads)")
-                .font(.caption.monospacedDigit())
+                .font(contentCaptionFont.monospacedDigit())
                 .frame(width: 60, alignment: .trailing)
             Text(String(format: "%.1f%%", allele.percentOfLocus * 100))
-                .font(.caption.monospacedDigit())
+                .font(contentCaptionFont.monospacedDigit())
                 .foregroundStyle(allele.isLowSupport ? Color(nsColor: .lungfishDanger) : .primary)
                 .frame(width: 60, alignment: .trailing)
         }
@@ -1261,19 +1276,23 @@ struct GenotypeCallEvidenceView: View {
         return VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
                 Text(label.primary)
-                    .font(compact ? .caption2.monospaced() : .caption.monospaced())
+                    .font(
+                        compact
+                            ? contentCaptionFont.monospaced()
+                            : contentMonospacedFont
+                    )
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .textSelection(.enabled)
                 if let badge = label.badge {
                     Text(badge)
-                        .font(.caption2)
+                        .font(contentCaptionFont)
                         .foregroundStyle(.secondary)
                 }
             }
             if !label.secondary.isEmpty {
                 Text(label.secondary)
-                    .font(.caption2.monospaced())
+                    .font(contentCaptionFont.monospaced())
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1286,12 +1305,12 @@ struct GenotypeCallEvidenceView: View {
         let isObserved = marker == "observed"
         return HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(isObserved ? "✓" : "·")
-                .font(.caption2.monospaced())
+                .font(contentCaptionFont.monospaced())
                 .foregroundStyle(isObserved ? Color.green : .secondary)
             alleleLabelView(value, compact: true)
             if !isObserved {
                 Text("[not observed]")
-                    .font(.caption2)
+                    .font(contentCaptionFont)
                     .foregroundStyle(.tertiary)
             }
         }
@@ -1300,23 +1319,23 @@ struct GenotypeCallEvidenceView: View {
     private func omittedHaplotypeGenotypes(_ evidence: Evidence) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Omitted from haplotyping")
-                .font(.caption.weight(.semibold))
+                .font(contentCaptionFont.weight(.semibold))
                 .foregroundStyle(.secondary)
             Text("These retained genotype calls stayed in the run evidence but were below the haplotype thresholds recorded for this analysis.")
-                .font(.caption2)
+                .font(contentCaptionFont)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
                 Text("Genotype")
-                    .font(.caption2.weight(.semibold))
+                    .font(contentCaptionFont.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("Reads")
-                    .font(.caption2.weight(.semibold))
+                    .font(contentCaptionFont.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 60, alignment: .trailing)
                 Text("% locus")
-                    .font(.caption2.weight(.semibold))
+                    .font(contentCaptionFont.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 60, alignment: .trailing)
             }
@@ -1324,20 +1343,20 @@ struct GenotypeCallEvidenceView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(genotype.genotype)
-                            .font(.caption.monospaced())
+                            .font(contentMonospacedFont)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Text("\(genotype.reads)")
-                            .font(.caption.monospacedDigit())
+                            .font(contentCaptionFont.monospacedDigit())
                             .frame(width: 60, alignment: .trailing)
                         Text(String(format: "%.1f%%", genotype.percentOfLocus * 100))
-                            .font(.caption.monospacedDigit())
+                            .font(contentCaptionFont.monospacedDigit())
                             .foregroundStyle(Color(nsColor: .lungfishDanger))
                             .frame(width: 60, alignment: .trailing)
                     }
                     Text(genotype.reason)
-                        .font(.caption2)
+                        .font(contentCaptionFont)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 2)
@@ -1348,17 +1367,17 @@ struct GenotypeCallEvidenceView: View {
     private func observedGenotypes(_ evidence: Evidence) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Observed genotypes (\(evidence.observedGenotypeCount))")
-                .font(.caption.weight(.semibold))
+                .font(contentCaptionFont.weight(.semibold))
                 .foregroundStyle(.secondary)
             ForEach(evidence.observedGenotypes.prefix(8), id: \.self) { gt in
                 Text(gt)
-                    .font(.caption2.monospaced())
+                    .font(contentCaptionFont.monospaced())
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             if evidence.observedGenotypes.count > 8 {
                 Text("+ \(evidence.observedGenotypes.count - 8) more")
-                    .font(.caption2)
+                    .font(contentCaptionFont)
                     .foregroundStyle(.tertiary)
             }
         }
@@ -1376,12 +1395,19 @@ struct GenotypeCallEvidenceView: View {
             }
         }()
         return Text(label)
-            .font(.caption2.weight(.semibold))
+            .font(contentCaptionFont.weight(.semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .background(
                 Capsule().fill(color.opacity(0.18))
             )
             .foregroundStyle(color)
+    }
+
+    var testingContentTypographyPointSizes: (body: CGFloat, caption: CGFloat) {
+        (
+            typographyModel.resolvedNSFont(for: .body).pointSize,
+            typographyModel.resolvedNSFont(for: .caption).pointSize
+        )
     }
 }

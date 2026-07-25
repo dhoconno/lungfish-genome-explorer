@@ -1,5 +1,6 @@
 import AppKit
 import LungfishIO
+import LungfishKit
 
 /// Standalone detail component for a known MHC reference allele.
 @MainActor
@@ -74,6 +75,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
     private var comments: [(String, String)] = []
     private var overviewConfigurationCount = 0
     private var configuredOverviewRecord: ONTMHCReferenceVisualizationRecord?
+    private var contentTypographyObservation: ContentTypographyViewObservation?
     private(set) var testingCommentContentReplacementCount = 0
 
     var testingActiveContentConstraintIdentifiers: [ObjectIdentifier] {
@@ -171,6 +173,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
         if shouldReconfigureOverview {
             layoutSubtreeIfNeeded()
         }
+        contentTypographyObservation?.refresh()
     }
 
     func configureFallback(
@@ -202,6 +205,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
         currentMode = .overview
         updateModeButtonStates()
         installContent(fallbackView)
+        contentTypographyObservation?.refresh()
         invalidateIntrinsicContentSize()
     }
 
@@ -277,6 +281,20 @@ final class GenotypeKnownAlleleDetailView: NSView {
 
         buildOverviewContent()
         buildFallbackContent()
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: ContentTypographyViewApplicator(excludedSubtree: { view in
+                view is NSButton
+                    || view is NSSegmentedControl
+                    || view is NSPopUpButton
+                    || view is NSSlider
+                    || view is GenotypeKnownAlleleOverviewView
+            }),
+            rootProvider: { [weak self] in self },
+            afterApply: { [weak self] in
+                self?.invalidateIntrinsicContentSize()
+                self?.needsLayout = true
+            }
+        )
     }
 
     private func buildOverviewContent() {
@@ -881,6 +899,22 @@ final class GenotypeKnownAlleleDetailView: NSView {
             !value.isEmpty && seen.insert(value).inserted
         }
     }
+
+#if DEBUG
+    var testingPrimaryContentFontPointSize: CGFloat {
+        alleleLabel.font?.pointSize ?? 0
+    }
+
+    var testingScientificOverviewGeometry: [CGFloat] {
+        func geometryConstants(in view: NSView) -> [CGFloat] {
+            view.constraints
+                .filter { $0.relation == .equal }
+                .map(\.constant)
+                + view.subviews.flatMap(geometryConstants(in:))
+        }
+        return geometryConstants(in: overviewView)
+    }
+#endif
 }
 
 @MainActor

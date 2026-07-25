@@ -6582,6 +6582,68 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Selection Type", "Mixed") })
     }
 
+    func testGeneratedDetailTypographyUpdatesWithoutRebuildingSelectionOrChangingState() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.view.frame = NSRect(x: 0, y: 0, width: 900, height: 300)
+        controller.configure(result: makeResult(
+            samples: [], calls: [makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)]
+        ))
+        var displayStateChanges = 0
+        controller.onDisplayStateChanged = { _ in displayStateChanges += 1 }
+        controller.testingShowMatrixTargetSelection(
+            [.row(locus: "NHP01222", genotype: "NHP01222")]
+                + (0..<30).map { .column(sample: "Animal\($0)") }
+        )
+        controller.view.layoutSubtreeIfNeeded()
+        controller.testingSetDetailScrollOriginY(7)
+        let baselineFont = controller.testingGeneratedDetailLargestFontPointSize
+        let baselineText = controller.testingDetailText
+        let baselineSubviewCount = controller.testingDetailArrangedSubviewCount
+        let baselineBuildCount = controller.testingLegacyNonRowDetailBuildCount
+        let baselineRows = controller.testingCurrentSelectionDetailRows.map { "\($0.0)\u{1F}\($0.1)" }
+
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            controller.testingGeneratedDetailLargestFontPointSize,
+            baselineFont * 2,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(controller.testingDetailText, baselineText)
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, baselineSubviewCount)
+        XCTAssertEqual(controller.testingLegacyNonRowDetailBuildCount, baselineBuildCount)
+        XCTAssertEqual(
+            controller.testingCurrentSelectionDetailRows.map { "\($0.0)\u{1F}\($0.1)" },
+            baselineRows
+        )
+        XCTAssertTrue(controller.testingGeneratedDetailFieldsAllowWrapping)
+        XCTAssertEqual(controller.testingDetailScrollOriginY, 7, accuracy: 0.01)
+        XCTAssertEqual(displayStateChanges, 0)
+
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+
+        XCTAssertEqual(
+            controller.testingGeneratedDetailLargestFontPointSize,
+            baselineFont,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(controller.testingLegacyNonRowDetailBuildCount, baselineBuildCount)
+        XCTAssertEqual(controller.testingDetailScrollOriginY, 7, accuracy: 0.01)
+        XCTAssertEqual(displayStateChanges, 0)
+    }
+
     func testComparisonMatrixTypographyUpdatesInPlaceAndRecoversWithoutChangingViewState() {
         let settings = AppSettings.shared
         let original = settings.contentTextSizePreference

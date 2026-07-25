@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import LungfishIO
+import LungfishKit
 
 /// Persistent candidate-allele detail backed only by validated, preloaded result artifacts.
 @MainActor
@@ -148,6 +149,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
     private var narrowOverviewStackWidthConstraint: NSLayoutConstraint?
     private var narrowReferenceWidthConstraint: NSLayoutConstraint?
     private var narrowFactsWidthConstraint: NSLayoutConstraint?
+    private var contentTypographyObservation: ContentTypographyViewObservation?
     private static let maximumCachedPresentations = 8
 
     override var intrinsicContentSize: NSSize {
@@ -282,6 +284,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         }
         invalidateIntrinsicContentSize()
         needsLayout = true
+        contentTypographyObservation?.refresh()
     }
 
     private func buildHierarchy() {
@@ -322,6 +325,21 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         show(mode: .fasta)
         show(mode: .overview)
         updateOverviewLayout(for: bounds.width)
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: ContentTypographyViewApplicator(excludedSubtree: { view in
+                view is NSButton
+                    || view is NSSegmentedControl
+                    || view is NSPopUpButton
+                    || view is NSSlider
+                    || view is GenotypeKnownAlleleOverviewView
+                    || view is GenotypeCandidateDifferenceTrackView
+            }),
+            rootProvider: { [weak self] in self },
+            afterApply: { [weak self] in
+                self?.invalidateIntrinsicContentSize()
+                self?.needsLayout = true
+            }
+        )
     }
 
     private func buildHeader() {
@@ -988,6 +1006,19 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         return "This saved result does not contain \(missing.joined(separator: " or ")). "
             + "Run a fresh analysis to generate the graphical candidate detail artifacts."
     }
+
+#if DEBUG
+    var testingPrimaryContentFontPointSize: CGFloat {
+        alleleNameLabel.font?.pointSize ?? 0
+    }
+
+    var testingDifferenceTrackGeometry: [CGFloat] {
+        [differenceTrack.intrinsicContentSize.width, differenceTrack.intrinsicContentSize.height]
+            + differenceTrack.constraints
+                .filter { $0.relation == .equal }
+                .map(\.constant)
+    }
+#endif
 }
 
 @MainActor

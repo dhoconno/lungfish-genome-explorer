@@ -1,10 +1,43 @@
 import AppKit
 import XCTest
+import LungfishCore
 import LungfishIO
 @testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
+    func testContentTypographyScalesDetailTextWithoutReconfiguringScientificOverview() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        let view = makeView()
+        view.configure(record: makeRecord(), observedSample: "CR1178")
+        let overviewConfigurationCount = view.testingOverviewConfigurationCount
+        let baselineTitle = view.testingPrimaryContentFontPointSize
+        let baselineScientificGeometry = view.testingScientificOverviewGeometry
+
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.testingPrimaryContentFontPointSize, baselineTitle * 2, accuracy: 0.01)
+        XCTAssertEqual(view.testingOverviewConfigurationCount, overviewConfigurationCount)
+        XCTAssertEqual(view.testingScientificOverviewGeometry, baselineScientificGeometry)
+
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.testingPrimaryContentFontPointSize, baselineTitle, accuracy: 0.01)
+        XCTAssertEqual(view.testingOverviewConfigurationCount, overviewConfigurationCount)
+        XCTAssertEqual(view.testingScientificOverviewGeometry, baselineScientificGeometry)
+    }
+
     func testConfigureStartsInOverviewAndShowsOnlyKnownAlleleContext() throws {
         let view = makeView()
 
