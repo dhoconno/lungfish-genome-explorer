@@ -155,6 +155,8 @@ public final class GenotypeResultViewController: NSViewController {
     public var onMatrixReviewCapabilityChanged: ((GenotypeMatrixReviewCapabilityState) -> Void)?
     public var onMatrixAnnotationCommandError: ((Error) -> Void)?
     public var onCandidatePersistenceWarningChanged: ((String?) -> Void)?
+    public var onCurrentWorkbookSyncRequested: ((GenotypeCurrentWorkbookUIRequest) -> Void)?
+    public var onDeferredMatrixAnnotationMutationsDrained: (() -> Void)?
     public var onCurrentWorkbookUpdateRequested: ((URL, [GenotypeWorkbookHaplotypeCall], [String], Bool) -> Void)?
     public var onAIHaplotypingRequested: ((URL, GenotypeAIHaplotypingUIRequest) -> Void)?
     /// Supplied by the host application so annotations capture the active identity at edit time.
@@ -293,6 +295,9 @@ public final class GenotypeResultViewController: NSViewController {
     private var currentWorkbookNeedsRefresh = false
     private var currentWorkbookRequiresFullUpdate = false
     private var currentWorkbookUpdateStatus: String?
+    private var currentWorkbookSyncPhase: GenotypeCurrentWorkbookUIPhase?
+    private var currentWorkbookIsReadOnly = false
+    private var showsDeferredMatrixAnnotationStatus = false
     private var currentWorkbookAnnotationAutoUpdateTask: GenotypeMatrixWorkbookUpdateCancellation?
     var matrixWorkbookUpdateScheduler: GenotypeMatrixWorkbookUpdateScheduling =
         DelayedGenotypeMatrixWorkbookUpdateScheduler()
@@ -301,6 +306,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var deferredMatrixAnnotationMutations: [DeferredMatrixAnnotationMutation] = []
     private var deferredMatrixAnnotationMutationHead = 0
     private var deferredMatrixAnnotationRetryTask: GenotypeMatrixWorkbookUpdateCancellation?
+    private var pendingConfigurationResult: ONTGenotypeResultBundleData?
     private var currentWorkbookResultReloadTask: Task<Void, Never>?
     private var resultConfigurationGeneration: UInt64 = 0
     private var aiHaplotypingStatus: String?
@@ -642,6 +648,14 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func configure(result: ONTGenotypeResultBundleData) {
+        guard deferredMatrixAnnotationMutationCount == 0 else {
+            pendingConfigurationResult = result
+            return
+        }
+        configureImmediately(result: result)
+    }
+
+    private func configureImmediately(result: ONTGenotypeResultBundleData) {
         invalidateCurrentWorkbookResultReload()
         currentWorkbookAnnotationAutoUpdateTask?.cancel()
         currentWorkbookAnnotationAutoUpdateTask = nil
@@ -658,6 +672,8 @@ public final class GenotypeResultViewController: NSViewController {
         currentWorkbookNeedsRefresh = false
         currentWorkbookRequiresFullUpdate = false
         currentWorkbookUpdateStatus = nil
+        currentWorkbookSyncPhase = nil
+        showsDeferredMatrixAnnotationStatus = false
         currentCandidateRow = nil
         candidatePersistenceWarning = nil
         onCandidatePersistenceWarningChanged?(nil)
@@ -725,6 +741,7 @@ public final class GenotypeResultViewController: NSViewController {
             bundleURL: result.bundleURL,
             author: annotationAuthorProvider()
         )
+        currentWorkbookIsReadOnly = annotationStore?.isReadOnly ?? false
         rebuildMatrixAnnotationIndexes()
         publishMatrixReviewCapability(for: [])
         displayState.mhcCandidateDisplaySettings = validatedMHCCandidateDocument(from: result) == nil
@@ -1089,10 +1106,10 @@ public final class GenotypeResultViewController: NSViewController {
                 self.onAnnotationSidecarChanged?(published)
                 self.onDisplayStateChanged?(persistedState)
                 if expectedSettings.tints != published.settings.mhcCandidateDisplay.tints {
-                    self.currentWorkbookNeedsRefresh = true
-                    self.currentWorkbookRequiresFullUpdate = true
-                    self.currentWorkbookUpdateStatus = "current.xlsx does not include candidate tint changes."
-                    self.rebuildArtifactLens()
+                    self.markCurrentWorkbookDirty(
+                        requiresFullUpdate: true,
+                        legacyStatus: "current.xlsx does not include candidate tint changes."
+                    )
                 }
                 self.finishCandidateSettingsPersistence(processPending: true)
             } catch {
@@ -1420,22 +1437,27 @@ public final class GenotypeResultViewController: NSViewController {
             }
         }
         clearDeferredMatrixAnnotationStatusIfNeeded()
+        if let pendingConfigurationResult {
+            self.pendingConfigurationResult = nil
+            configureImmediately(result: pendingConfigurationResult)
+        }
+        onDeferredMatrixAnnotationMutationsDrained?()
     }
 
     private func reportDeferredMatrixAnnotationSave() {
-        guard currentWorkbookUpdateStatus != Self.deferredMatrixAnnotationStatus else {
+        guard !showsDeferredMatrixAnnotationStatus else {
             return
         }
-        currentWorkbookUpdateStatus = Self.deferredMatrixAnnotationStatus
+        showsDeferredMatrixAnnotationStatus = true
         rebuildArtifactLens()
     }
 
     private func clearDeferredMatrixAnnotationStatusIfNeeded() {
         guard deferredMatrixAnnotationMutationCount == 0,
-              currentWorkbookUpdateStatus == Self.deferredMatrixAnnotationStatus else {
+              showsDeferredMatrixAnnotationStatus else {
             return
         }
-        currentWorkbookUpdateStatus = nil
+        showsDeferredMatrixAnnotationStatus = false
         rebuildArtifactLens()
     }
 
@@ -3956,32 +3978,50 @@ public final class GenotypeResultViewController: NSViewController {
         stack.alignment = .leading
         stack.spacing = 6
 
-        let changeCount = currentWorkbookRelevantChangeCount
-        let changeLabel = currentWorkbookRelevantChangeLabel
-        let isReadOnly = annotationStore?.isReadOnly ?? false
-        let statusText: String
-        if let currentWorkbookUpdateStatus {
-            statusText = currentWorkbookUpdateStatus
-        } else if changeCount == 0 {
-            statusText = "current.xlsx is up to date."
-        } else if isReadOnly {
-            statusText = "Bundle is read-only. Save a writable copy to update current.xlsx."
-        } else if currentWorkbookNeedsRefresh {
-            statusText = "current.xlsx does not include \(changeCount) \(changeLabel)."
-        } else {
-            statusText = "current.xlsx can be refreshed from \(changeCount) \(changeLabel)."
-        }
+        let statusText = displayedCurrentWorkbookStatus
+            ?? "Checking whether current.xlsx represents the latest LGE review state."
 
         stack.addArrangedSubview(caption(statusText))
         stack.addArrangedSubview(caption("Regenerates the bundle workbook from displayed haplotype calls and matrix annotations, then records a workbook revision."))
 
-        let button = NSButton(title: "Update current.xlsx", target: self, action: #selector(updateCurrentWorkbookFromOverrides))
+        let button = NSButton(
+            title: Self.currentWorkbookActionTitle,
+            target: self,
+            action: #selector(updateCurrentWorkbookFromOverrides)
+        )
         button.bezelStyle = .rounded
         button.controlSize = .small
-        button.isEnabled = (changeCount > 0 || currentWorkbookNeedsRefresh) && !isReadOnly
-        button.toolTip = "Apply Review viewport haplotype overrides and matrix annotations to artifacts/workbooks/current.xlsx."
+        button.isEnabled = currentWorkbookActionIsEnabled
+        button.toolTip = "Open current.xlsx immediately when current; otherwise update it once and open the successful revision."
         stack.addArrangedSubview(button)
         return stack
+    }
+
+    private static let currentWorkbookActionTitle =
+        "Update and View Current Excel Version"
+
+    private var displayedCurrentWorkbookStatus: String? {
+        if showsDeferredMatrixAnnotationStatus {
+            return Self.deferredMatrixAnnotationStatus
+        }
+        if let currentWorkbookSyncPhase {
+            return currentWorkbookSyncPhase.presentation(
+                isReadOnly: currentWorkbookIsReadOnly,
+                manualChangeCount: currentWorkbookRelevantChangeCount
+            ).statusText
+        }
+        return currentWorkbookUpdateStatus
+    }
+
+    private var currentWorkbookActionIsEnabled: Bool {
+        if let currentWorkbookSyncPhase {
+            return currentWorkbookSyncPhase.presentation(
+                isReadOnly: currentWorkbookIsReadOnly,
+                manualChangeCount: currentWorkbookRelevantChangeCount
+            ).isEnabled
+        }
+        return (currentWorkbookRelevantChangeCount > 0 || currentWorkbookNeedsRefresh)
+            && !currentWorkbookIsReadOnly
     }
 
     private var currentWorkbookRelevantChangeCount: Int {
@@ -4011,70 +4051,81 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func scheduleCurrentWorkbookUpdateForMatrixAnnotation() {
-        guard result != nil, !(annotationStore?.isReadOnly ?? true) else { return }
-        currentWorkbookNeedsRefresh = true
-        currentWorkbookUpdateStatus = "current.xlsx does not include workbook annotation changes."
-        rebuildArtifactLens()
-        currentWorkbookAnnotationAutoUpdateTask?.cancel()
-        currentWorkbookAnnotationAutoUpdateTask = matrixWorkbookUpdateScheduler.schedule {
-            [weak self] in
-            guard let self else { return }
-            self.currentWorkbookAnnotationAutoUpdateTask = nil
-            self.performCurrentWorkbookUpdate(
-                annotationOnly: !self.currentWorkbookRequiresFullUpdate
-            )
-        }
+        markCurrentWorkbookDirty(
+            requiresFullUpdate: false,
+            legacyStatus: "current.xlsx does not include workbook annotation changes."
+        )
     }
 
     @objc private func updateCurrentWorkbookFromOverrides() {
-        performCurrentWorkbookUpdate(annotationOnly: false)
+        requestCurrentWorkbookSync(intent: .updateAndView)
     }
 
-    private func performCurrentWorkbookUpdate(annotationOnly: Bool) {
-        guard let result else { return }
-        currentWorkbookAnnotationAutoUpdateTask?.cancel()
-        currentWorkbookAnnotationAutoUpdateTask = nil
-        let calls = annotationOnly ? [] : currentWorkbookEffectiveHaplotypeCalls()
-        let includedLoci = annotationOnly ? [] : currentWorkbookIncludedLoci()
-        guard !calls.isEmpty
-                || currentWorkbookHasMatrixAnnotations
-                || currentWorkbookNeedsRefresh
-                || result.manifest.mhcCandidateArtifacts != nil else {
-            currentWorkbookUpdateStatus = "No displayed haplotype calls are available for current.xlsx."
-            rebuildArtifactLens()
-            return
-        }
-        if let onCurrentWorkbookUpdateRequested {
-            currentWorkbookUpdateStatus = "Queued current.xlsx update in Operations Panel."
-            rebuildArtifactLens()
-            onCurrentWorkbookUpdateRequested(result.bundleURL, calls, includedLoci, annotationOnly)
-            return
-        }
-        currentWorkbookUpdateStatus = "Updating current.xlsx..."
-        rebuildArtifactLens()
-        do {
-            let annotationURL = annotationStore?.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
-            _ = try GenotypeWorkbookRevisionService().applyHaplotypeOverrides(
-                calls,
-                annotationSidecarURL: annotationURL,
-                into: result.bundleURL,
-                annotationOnly: annotationOnly,
-                provenanceContext: currentWorkbookRevisionProvenanceContext(
-                    bundleURL: result.bundleURL,
-                    includedLoci: includedLoci
-                )
-            )
-            reloadCurrentWorkbookResult(
-                from: result.bundleURL,
-                annotationOnly: annotationOnly
-            )
-        } catch {
+    public func requestCurrentWorkbookRegistration() {
+        emitCurrentWorkbookRequest(action: .register)
+    }
+
+    public func requestCurrentWorkbookSyncForBundleSwitch() {
+        emitCurrentWorkbookRequest(action: .synchronize(.bundleSwitch))
+    }
+
+    public func applyCurrentWorkbookSyncPhase(
+        _ phase: GenotypeCurrentWorkbookUIPhase,
+        isReadOnly: Bool
+    ) {
+        currentWorkbookSyncPhase = phase
+        currentWorkbookIsReadOnly = isReadOnly
+        switch phase {
+        case .current:
+            currentWorkbookNeedsRefresh = false
+        case .dirty, .dirtyWhileUpdating, .failed:
             currentWorkbookNeedsRefresh = true
-            currentWorkbookUpdateStatus =
-                "Annotations were saved, but current.xlsx update failed. Use Update current.xlsx to retry. \(error.localizedDescription)"
-            rebuildArtifactLens()
-            presentSheetAlert(error: error)
+        case .updating:
+            break
         }
+        rebuildArtifactLens()
+    }
+
+    private func requestCurrentWorkbookSync(intent: GenotypeCurrentWorkbookSyncIntent) {
+        emitCurrentWorkbookRequest(action: .synchronize(intent))
+    }
+
+    private func markCurrentWorkbookDirty(
+        requiresFullUpdate: Bool,
+        legacyStatus: String
+    ) {
+        guard result != nil, !(annotationStore?.isReadOnly ?? true) else { return }
+        currentWorkbookNeedsRefresh = true
+        currentWorkbookRequiresFullUpdate =
+            currentWorkbookRequiresFullUpdate || requiresFullUpdate
+        currentWorkbookUpdateStatus = legacyStatus
+        currentWorkbookSyncPhase = .dirty
+        rebuildArtifactLens()
+        emitCurrentWorkbookRequest(action: .markDirty)
+    }
+
+    private func emitCurrentWorkbookRequest(
+        action: GenotypeCurrentWorkbookUIRequest.Action
+    ) {
+        guard let snapshot = currentWorkbookUISnapshot() else { return }
+        onCurrentWorkbookSyncRequested?(.init(snapshot: snapshot, action: action))
+    }
+
+    private func currentWorkbookUISnapshot() -> GenotypeCurrentWorkbookUISnapshot? {
+        guard let result, let store = annotationStore else { return nil }
+        let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(
+            forBundleAt: result.bundleURL
+        )
+        return GenotypeCurrentWorkbookUISnapshot(
+            bundleURL: result.bundleURL,
+            calls: currentWorkbookEffectiveHaplotypeCalls(),
+            includedLoci: currentWorkbookIncludedLoci(),
+            annotationSidecar: store.sidecar,
+            annotationSidecarURL: annotationURL,
+            candidateArtifacts: result.manifest.mhcCandidateArtifacts,
+            annotationOnly: !currentWorkbookRequiresFullUpdate,
+            isReadOnly: store.isReadOnly
+        )
     }
 
     public func applyCurrentWorkbookUpdateCompleted(
@@ -4087,6 +4138,7 @@ public final class GenotypeResultViewController: NSViewController {
             currentWorkbookRequiresFullUpdate = false
         }
         currentWorkbookNeedsRefresh = currentWorkbookRequiresFullUpdate
+        currentWorkbookSyncPhase = currentWorkbookRequiresFullUpdate ? .dirty : .current
         currentWorkbookUpdateStatus = currentWorkbookRequiresFullUpdate
             ? "Updated workbook annotations. Other current.xlsx changes still require an explicit update."
             : "Updated current.xlsx. Previous workbook saved in revisions."
@@ -4099,6 +4151,7 @@ public final class GenotypeResultViewController: NSViewController {
     public func applyCurrentWorkbookUpdateFailed(_ error: Error) {
         invalidateCurrentWorkbookResultReload()
         currentWorkbookNeedsRefresh = true
+        currentWorkbookSyncPhase = .failed(error.localizedDescription)
         currentWorkbookUpdateStatus =
             "Annotations were saved, but current.xlsx update failed. Use Update current.xlsx to retry."
         rebuildArtifactLens()
@@ -4516,9 +4569,10 @@ public final class GenotypeResultViewController: NSViewController {
             }
             guard !bulk.isEmpty else { return }
             try store.addManualHaplotypeAssignments(bulk, author: author)
-            currentWorkbookNeedsRefresh = true
-            currentWorkbookRequiresFullUpdate = true
-            currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
+            markCurrentWorkbookDirty(
+                requiresFullUpdate: true,
+                legacyStatus: "current.xlsx does not include workbook changes."
+            )
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
             if let window = view.window ?? NSApp.keyWindow {
@@ -4540,9 +4594,10 @@ public final class GenotypeResultViewController: NSViewController {
                 matching: { other in other.label == assignment.label },
                 author: author
             )
-            currentWorkbookNeedsRefresh = true
-            currentWorkbookRequiresFullUpdate = true
-            currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
+            markCurrentWorkbookDirty(
+                requiresFullUpdate: true,
+                legacyStatus: "current.xlsx does not include workbook changes."
+            )
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
             if let window = view.window ?? NSApp.keyWindow {
@@ -5507,9 +5562,10 @@ public final class GenotypeResultViewController: NSViewController {
                     author: author
                 )
             }
-            currentWorkbookNeedsRefresh = true
-            currentWorkbookRequiresFullUpdate = true
-            currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
+            markCurrentWorkbookDirty(
+                requiresFullUpdate: true,
+                legacyStatus: "current.xlsx does not include workbook changes."
+            )
             refreshAfterHaplotypeOverride()
         } catch {
             presentSheetAlert(error: error)
@@ -5732,9 +5788,10 @@ public final class GenotypeResultViewController: NSViewController {
             presentSheetAlert(error: error)
             return
         }
-        currentWorkbookNeedsRefresh = true
-        currentWorkbookRequiresFullUpdate = true
-        currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
+        markCurrentWorkbookDirty(
+            requiresFullUpdate: true,
+            legacyStatus: "current.xlsx does not include workbook changes."
+        )
         refreshAfterHaplotypeOverride()
         // Re-present the sheet with fresh state so the analyst can keep working.
         dismissSampleDetailSheet()
@@ -5751,9 +5808,10 @@ public final class GenotypeResultViewController: NSViewController {
             presentSheetAlert(error: error)
             return
         }
-        currentWorkbookNeedsRefresh = true
-        currentWorkbookRequiresFullUpdate = true
-        currentWorkbookUpdateStatus = "current.xlsx does not include workbook changes."
+        markCurrentWorkbookDirty(
+            requiresFullUpdate: true,
+            legacyStatus: "current.xlsx does not include workbook changes."
+        )
         refreshAfterHaplotypeOverride()
         dismissSampleDetailSheet()
         presentSampleDetailSheet(forAnimal: animalId)
@@ -7470,18 +7528,37 @@ extension GenotypeResultViewController {
     }
 
     var testingCurrentWorkbookUpdateStatus: String? {
-        currentWorkbookUpdateStatus
+        displayedCurrentWorkbookStatus
     }
 
     var testingCurrentWorkbookUpdateButtonEnabled: Bool {
         makeCurrentWorkbookUpdateHost().subviews
             .compactMap { $0 as? NSButton }
-            .first { $0.title == "Update current.xlsx" }?
+            .first { $0.title == Self.currentWorkbookActionTitle }?
             .isEnabled ?? false
+    }
+
+    var testingCurrentWorkbookActionTitle: String {
+        Self.currentWorkbookActionTitle
     }
 
     func testingRequestCurrentWorkbookUpdate() {
         updateCurrentWorkbookFromOverrides()
+    }
+
+    func testingRequestCurrentWorkbookUpdateAndView() {
+        updateCurrentWorkbookFromOverrides()
+    }
+
+    func testingApplyCurrentWorkbookSyncPhase(
+        _ phase: GenotypeCurrentWorkbookUIPhase,
+        isReadOnly: Bool
+    ) {
+        applyCurrentWorkbookSyncPhase(phase, isReadOnly: isReadOnly)
+    }
+
+    var testingPendingConfigurationBundleURL: URL? {
+        pendingConfigurationResult?.bundleURL.standardizedFileURL
     }
 
     var testingResultBundleURL: URL? {

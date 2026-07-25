@@ -1,6 +1,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import SwiftUI
 import LungfishKit
 
@@ -23,6 +24,97 @@ public struct GenotypeResultCurrentWorkbookUpdateState: Equatable {
         self.manualChangeCount = manualChangeCount
         self.statusText = statusText
         self.isEnabled = isEnabled
+    }
+}
+
+public enum GenotypeCurrentWorkbookUIPhase: Equatable, Sendable {
+    case current
+    case dirty
+    case updating
+    case dirtyWhileUpdating
+    case failed(String)
+
+    public func presentation(
+        isReadOnly: Bool,
+        manualChangeCount: Int = 0
+    ) -> GenotypeResultCurrentWorkbookUpdateState {
+        let statusText: String
+        let isEnabled: Bool
+        switch self {
+        case .current:
+            statusText = "Current — current.xlsx represents the latest LGE review state."
+            isEnabled = true
+        case .dirty:
+            statusText = "Pending edits — current.xlsx does not include the latest LGE review state."
+            isEnabled = !isReadOnly
+        case .updating:
+            statusText = "Updating — publishing the latest LGE review state to current.xlsx."
+            isEnabled = true
+        case .dirtyWhileUpdating:
+            statusText = "Pending edits while updating — one newer workbook update will follow."
+            isEnabled = true
+        case .failed(let message):
+            statusText = "Failed — \(message)"
+            isEnabled = !isReadOnly
+        }
+        return GenotypeResultCurrentWorkbookUpdateState(
+            manualChangeCount: manualChangeCount,
+            statusText: statusText,
+            isEnabled: isEnabled
+        )
+    }
+}
+
+public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
+    public let bundleURL: URL
+    public let calls: [GenotypeWorkbookHaplotypeCall]
+    public let includedLoci: [String]
+    public let annotationSidecar: GenotypeAnnotationSidecar
+    public let annotationSidecarURL: URL
+    public let candidateArtifacts: ONTMHCCandidateArtifactManifest?
+    public let annotationOnly: Bool
+    public let isReadOnly: Bool
+
+    public init(
+        bundleURL: URL,
+        calls: [GenotypeWorkbookHaplotypeCall],
+        includedLoci: [String],
+        annotationSidecar: GenotypeAnnotationSidecar,
+        annotationSidecarURL: URL,
+        candidateArtifacts: ONTMHCCandidateArtifactManifest?,
+        annotationOnly: Bool,
+        isReadOnly: Bool
+    ) {
+        self.bundleURL = bundleURL.standardizedFileURL
+        self.calls = calls
+        self.includedLoci = includedLoci
+        self.annotationSidecar = annotationSidecar
+        self.annotationSidecarURL = annotationSidecarURL.standardizedFileURL
+        self.candidateArtifacts = candidateArtifacts
+        self.annotationOnly = annotationOnly
+        self.isReadOnly = isReadOnly
+    }
+}
+
+public struct GenotypeCurrentWorkbookUIRequest: Sendable {
+    public enum Action: Equatable, Sendable {
+        case register
+        case markDirty
+        case synchronize(GenotypeCurrentWorkbookSyncIntent)
+    }
+
+    public let snapshot: GenotypeCurrentWorkbookUISnapshot
+    public let action: Action
+    public let openAfterSuccess: Bool
+
+    public init(snapshot: GenotypeCurrentWorkbookUISnapshot, action: Action) {
+        self.snapshot = snapshot
+        self.action = action
+        if case .synchronize(.updateAndView) = action {
+            self.openAfterSuccess = true
+        } else {
+            self.openAfterSuccess = false
+        }
     }
 }
 
@@ -392,12 +484,12 @@ public struct GenotypeResultDocumentSection: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button("Update current.xlsx") {
+                    Button("Update and View Current Excel Version") {
                         onCurrentWorkbookUpdateRequested?()
                     }
                     .controlSize(.small)
                     .disabled(!update.isEnabled)
-                    .help("Apply Review viewport haplotype edits, matrix annotations, and audit timeline to artifacts/workbooks/current.xlsx.")
+                    .help("Open current.xlsx immediately when current; otherwise update it once and open the successful revision.")
                     Text("Writes displayed haplotype calls, matrix annotations, Overrides, and Audit Log worksheets.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
