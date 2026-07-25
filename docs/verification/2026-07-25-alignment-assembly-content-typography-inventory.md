@@ -108,10 +108,11 @@ rows remain outside this viewport checkpoint.
   grouping, filtering, and detail reconstruction remain excluded. Typography
   changes only resize ordinary surrounding text and never reload the outline
   or rebuild the selected detail.
-- TaxTriage confidence-bar track insets, score-to-color thresholds, fill
-  fraction, and palette remain fixed scientific rendering. The custom cell
-  exposes its complete confidence category and numeric TASS score through
-  accessibility. TaxTriage MiniBAM drawing/loading, BAM reference lookup,
+- TaxTriage confidence-bar track height remains a fixed 16 points centered
+  within the adaptive row; score-to-color thresholds, fill fraction, and
+  palette remain fixed scientific rendering. The custom cell exposes its
+  complete confidence category and numeric TASS score through accessibility.
+  TaxTriage MiniBAM drawing/loading, BAM reference lookup,
   database paging, filtering, heatmap scientific colors, facet data, sample
   mapping, and provenance/export workflows are not invoked by typography
   updates.
