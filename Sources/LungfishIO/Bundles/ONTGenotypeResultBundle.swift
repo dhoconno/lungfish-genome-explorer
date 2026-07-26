@@ -1701,6 +1701,53 @@ public enum ONTGenotypeResultBundle {
     private static let maximumCollectedCandidateArtifactBytes: Int64 = 256 * 1_024 * 1_024
     private static let artifactReadChunkBytes = 64 * 1_024
     private static let maximumStableReadAttempts = 3
+    private static let artifactValidationCache = ArtifactValidationCache()
+
+    private struct ArtifactValidationCacheKey: Hashable {
+        let device: UInt64
+        let inode: UInt64
+        let sizeBytes: Int64
+        let modifiedSeconds: Int64
+        let modifiedNanoseconds: Int64
+        let changedSeconds: Int64
+        let changedNanoseconds: Int64
+        let sha256: String
+    }
+
+    private final class ArtifactValidationCache: @unchecked Sendable {
+        private static let maximumEntries = 512
+
+        private let lock = NSLock()
+        private var entries: Set<ArtifactValidationCacheKey> = []
+        private var hashingPassCount = 0
+
+        func contains(_ key: ArtifactValidationCacheKey) -> Bool {
+            lock.withLock { entries.contains(key) }
+        }
+
+        func insert(_ key: ArtifactValidationCacheKey) {
+            lock.withLock {
+                if entries.count >= Self.maximumEntries {
+                    entries.removeAll(keepingCapacity: true)
+                }
+                entries.insert(key)
+                hashingPassCount += 1
+            }
+        }
+
+#if DEBUG
+        func resetForTesting() {
+            lock.withLock {
+                entries.removeAll(keepingCapacity: false)
+                hashingPassCount = 0
+            }
+        }
+
+        var hashingPassCountForTesting: Int {
+            lock.withLock { hashingPassCount }
+        }
+#endif
+    }
 
     private struct ManifestSnapshot: Equatable {
         let data: Data
@@ -2819,6 +2866,21 @@ public enum ONTGenotypeResultBundle {
                 path: reference.path
             )
         }
+        let validationCacheKey = ArtifactValidationCacheKey(
+            device: UInt64(status.st_dev),
+            inode: UInt64(status.st_ino),
+            sizeBytes: actualSize,
+            modifiedSeconds: Int64(status.st_mtimespec.tv_sec),
+            modifiedNanoseconds: Int64(status.st_mtimespec.tv_nsec),
+            changedSeconds: Int64(status.st_ctimespec.tv_sec),
+            changedNanoseconds: Int64(status.st_ctimespec.tv_nsec),
+            sha256: reference.sha256.lowercased()
+        )
+        if !collectData,
+           chunkHandler == nil,
+           artifactValidationCache.contains(validationCacheKey) {
+            return nil
+        }
 
         var hasher = SHA256()
         var collected = collectData ? Data() : nil
@@ -2867,8 +2929,21 @@ public enum ONTGenotypeResultBundle {
                 path: reference.path
             )
         }
+        if !collectData, chunkHandler == nil {
+            artifactValidationCache.insert(validationCacheKey)
+        }
         return collected
     }
+
+#if DEBUG
+    static func resetArtifactValidationCacheForTesting() {
+        artifactValidationCache.resetForTesting()
+    }
+
+    static var artifactValidationHashingPassCountForTesting: Int {
+        artifactValidationCache.hashingPassCountForTesting
+    }
+#endif
 
     private static func safeRelativePathComponents(_ path: String) throws -> [String] {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -138,6 +138,55 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(item.outputURLs.contains(fastaURL.standardizedFileURL))
     }
 
+    func testIlluminaGenotypingFailsCompletionWhenDeclaredScientificArtifactIsInvalid() async throws {
+        let temp = try temporaryDirectory()
+        let readsURL = temp.appendingPathComponent("sample-a.lungfishfastq", isDirectory: true)
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let outputURL = temp.appendingPathComponent(
+            "Analyses/miseq-invalid.lungfishgenotype",
+            isDirectory: true
+        )
+        for url in [readsURL, referenceURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [readsURL],
+            referenceSourceURL: referenceURL,
+            outputDirectory: outputURL,
+            outputName: "miseq-invalid",
+            analysisName: "miSeq invalid",
+            projectURL: temp,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+        let operationCenter = OperationCenter()
+        let runner = StubWorkflowOperationCLIProcessRunner(
+            writesGenotypeScientificArtifacts: true,
+            corruptsGenotypeScientificArtifact: true
+        )
+        let service = WorkflowOperationExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner,
+            viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
+            bamImporter: StubWorkflowOperationBAMImporter(),
+            resultRefresher: StubWorkflowOperationResultRefresher()
+        )
+
+        do {
+            _ = try await service.run(.ontGenotyping(request))
+            XCTFail("Expected declared scientific artifact validation to fail")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains("SHA-256"),
+                error.localizedDescription
+            )
+        }
+
+        let item = try XCTUnwrap(operationCenter.items.first)
+        XCTAssertEqual(item.state, .failed)
+        XCTAssertFalse(item.outputURLs.contains(request.retainedBAMURL.standardizedFileURL))
+    }
+
     func testONTGenotypingAISpecialistUsesWorkflowOperationAndUpdatesCurrentWorkbookFromAIRevision() async throws {
         let temp = try temporaryDirectory()
         let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
@@ -978,6 +1027,7 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
     private let writesTwelveSProvenance: Bool
     private let provenanceToolName: String
     private let writesGenotypeScientificArtifacts: Bool
+    private let corruptsGenotypeScientificArtifact: Bool
 
     init(
         exitCode: Int32 = 0,
@@ -985,7 +1035,8 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
         stderr: String = "",
         writesTwelveSProvenance: Bool = true,
         provenanceToolName: String = "lungfish-cli",
-        writesGenotypeScientificArtifacts: Bool = false
+        writesGenotypeScientificArtifacts: Bool = false,
+        corruptsGenotypeScientificArtifact: Bool = false
     ) {
         self.exitCode = exitCode
         self.stdout = stdout
@@ -993,6 +1044,7 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
         self.writesTwelveSProvenance = writesTwelveSProvenance
         self.provenanceToolName = provenanceToolName
         self.writesGenotypeScientificArtifacts = writesGenotypeScientificArtifacts
+        self.corruptsGenotypeScientificArtifact = corruptsGenotypeScientificArtifact
     }
 
     func runLungfishCLI(
@@ -1249,6 +1301,10 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
                 retainedBAMURL: retainedBAM,
                 retainedBAIURL: retainedBAI
             )
+            if corruptsGenotypeScientificArtifact {
+                let original = try Data(contentsOf: retainedBAM)
+                try Data(repeating: 0x58, count: original.count).write(to: retainedBAM)
+            }
         }
         let payload = """
         {

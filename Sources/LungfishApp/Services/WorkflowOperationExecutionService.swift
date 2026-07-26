@@ -456,7 +456,7 @@ final class WorkflowOperationExecutionService {
                 for: request,
                 cliPayload: cliPayload
             )
-            let scientificArtifactURLs = await validatedONTGenotypingScientificArtifactURLs(
+            let scientificArtifactURLs = try await validatedONTGenotypingScientificArtifactURLs(
                 in: request.outputDirectory
             )
             outputURLs = deduplicatedExistingURLs(
@@ -804,17 +804,15 @@ final class WorkflowOperationExecutionService {
 
     private func validatedONTGenotypingScientificArtifactURLs(
         in bundleURL: URL
-    ) async -> [URL] {
+    ) async throws -> [URL] {
         guard let manifest = try? ONTGenotypeResultBundle.loadManifest(from: bundleURL),
               manifest.alignmentArtifacts?.genotypingEvidence != nil
                 || manifest.provisionalExon2Artifacts != nil else {
             return []
         }
-        guard let result = try? await ONTGenotypeResultBundle.loadResultAsync(
+        let result = try await ONTGenotypeResultBundle.loadResultAsync(
             from: bundleURL
-        ) else {
-            return []
-        }
+        )
         return [
             result.alignmentArtifactURLs.genotypingBAM,
             result.alignmentArtifactURLs.genotypingBAI,

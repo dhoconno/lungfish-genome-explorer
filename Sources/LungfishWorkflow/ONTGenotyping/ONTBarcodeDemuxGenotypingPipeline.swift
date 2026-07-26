@@ -797,23 +797,23 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             pythonURL: pythonURL
         )
 
-        progressHandler?(0.76, "Writing retained-demux genotype summaries.")
-        try copyFilterOutput(
-            from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_genotypes.csv"),
-            to: request.reportCSVURL
-        )
-        try copyFilterOutput(
-            from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_samples.csv"),
-            to: request.sampleSummaryCSVURL
-        )
-        try copyFilterOutput(
-            from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_stats.json"),
-            to: request.statsJSONURL
-        )
-        let scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?
-        if resolvedMode == .illuminaPaired {
-            progressHandler?(0.78, "Publishing genotyping evidence and provisional exon 2 sequences.")
-            do {
+        do {
+            progressHandler?(0.76, "Writing retained-demux genotype summaries.")
+            try copyFilterOutput(
+                from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_genotypes.csv"),
+                to: request.reportCSVURL
+            )
+            try copyFilterOutput(
+                from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_samples.csv"),
+                to: request.sampleSummaryCSVURL
+            )
+            try copyFilterOutput(
+                from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_stats.json"),
+                to: request.statsJSONURL
+            )
+            let scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?
+            if resolvedMode == .illuminaPaired {
+                progressHandler?(0.78, "Publishing genotyping evidence and provisional exon 2 sequences.")
                 scientificArtifactPublication =
                     try AmpliconGenotypeScientificArtifactPublisher().publish(
                         reportCSVURL: request.reportCSVURL,
@@ -822,113 +822,115 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                         retainedBAIURL: request.retainedBAIURL,
                         outputDirectoryURL: request.outputDirectory
                     )
-            } catch {
-                try rollbackScientificOutputsAfterPublicationFailure(
+            } else {
+                scientificArtifactPublication = nil
+            }
+
+            progressHandler?(0.80, "Applying selected haplotype definition.")
+            let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
+                request: request,
+                supportDirectory: supportDirectory,
+                generatedAt: Date()
+            )
+
+            progressHandler?(0.84, "Writing Excel genotype workbook.")
+            let report = try await runReport(
+                request: request,
+                referenceFASTAURL: reference.referenceFASTAURL,
+                barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
+                comparisonWorkbookURL: inputSnapshot.comparisonWorkbookURL,
+                haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
+                reportScriptURL: reportScriptURL,
+                pythonURL: reportPythonURL
+            )
+
+            let workbookCopy = try await createInitialCurrentWorkbook(
+                for: request,
+                reportScriptURL: reportScriptURL,
+                reportPythonURL: reportPythonURL,
+                referenceFASTAURL: reference.referenceFASTAURL,
+                barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
+                haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL
+            )
+            let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
+                fromReferenceBundle: reference.sourceReferenceBundleURL ?? request.referenceSourceURL,
+                toResultBundle: request.outputDirectory
+            )
+            let completedAt = Date()
+            progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
+            let provenanceURL = try writeProvenance(
+                request: request,
+                resolvedMode: resolvedMode,
+                resolvedReadType: resolvedReadType,
+                reference: reference,
+                inputFASTQURLs: inputPlan.originalInputFASTQURLs,
+                mappingInputFASTQURLs: mappingInputFASTQURLs,
+                demuxManifestURL: inputPlan.manifestURL,
+                inputSnapshot: inputSnapshot,
+                illuminaPreparation: inputPlan.illuminaPreparation,
+                scriptURL: scriptURL,
+                reportScriptURL: reportScriptURL,
+                minimap2URL: minimap2URL,
+                samtoolsURL: samtoolsURL,
+                pythonURL: pythonURL,
+                reportPythonURL: reportPythonURL,
+                mapping: mapping,
+                filter: filter,
+                report: report,
+                workbookCopy: workbookCopy,
+                haplotypeAnalysis: haplotypeAnalysis,
+                referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
+                scientificArtifactPublication: scientificArtifactPublication,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+            try writeBundleManifest(
+                request: request,
+                resolvedMode: resolvedMode,
+                provenanceURL: provenanceURL,
+                workbookRevision: workbookCopy.revision,
+                referenceRecordStore: referenceRecordStoreSnapshot?.info,
+                scientificArtifactPublication: scientificArtifactPublication,
+                completedAt: completedAt
+            )
+            progressHandler?(0.97, "Removing regenerable alignment intermediates.")
+            try removeGeneratedAlignmentIntermediates(
+                for: request,
+                mapping: mapping,
+                preserveRetainedEvidence: scientificArtifactPublication != nil
+            )
+            progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
+
+            return ONTBarcodeDemuxGenotypingResult(
+                outputDirectory: request.outputDirectory,
+                mappingBAMURL: request.mappingBAMURL,
+                mappingBAIURL: request.mappingBAIURL,
+                retainedBAMURL: request.retainedBAMURL,
+                retainedBAIURL: request.retainedBAIURL,
+                reportCSVURL: request.reportCSVURL,
+                sampleSummaryCSVURL: request.sampleSummaryCSVURL,
+                statsJSONURL: request.statsJSONURL,
+                haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
+                workbookURL: request.currentWorkbookURL,
+                reportProvenanceURL: request.reportProvenanceURL,
+                provenanceURL: provenanceURL,
+                referenceFASTAURL: reference.referenceFASTAURL,
+                sourceReferenceBundleURL: reference.sourceReferenceBundleURL,
+                totalInputReads: filter.stats.totalInputReads,
+                retainedUniqueReads: filter.stats.retainedUniqueReads,
+                retainedUniquePercentOfTotalReads: filter.stats.retainedUniquePercentOfTotalReads,
+                assignedUniqueRetainedReads: filter.stats.assignedUniqueRetainedReads,
+                unassignedUniqueRetainedReads: filter.stats.unassignedUniqueRetainedReads
+            )
+        } catch {
+            if resolvedMode == .illuminaPaired {
+                rollbackScientificOutputsAfterFinalizationFailure(
                     request: request,
                     mapping: mapping
                 )
-                throw error
             }
-        } else {
-            scientificArtifactPublication = nil
+            throw error
         }
-
-        progressHandler?(0.80, "Applying selected haplotype definition.")
-        let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
-            request: request,
-            supportDirectory: supportDirectory,
-            generatedAt: Date()
-        )
-
-        progressHandler?(0.84, "Writing Excel genotype workbook.")
-        let report = try await runReport(
-            request: request,
-            referenceFASTAURL: reference.referenceFASTAURL,
-            barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
-            comparisonWorkbookURL: inputSnapshot.comparisonWorkbookURL,
-            haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
-            reportScriptURL: reportScriptURL,
-            pythonURL: reportPythonURL
-        )
-
-        let workbookCopy = try await createInitialCurrentWorkbook(
-            for: request,
-            reportScriptURL: reportScriptURL,
-            reportPythonURL: reportPythonURL,
-            referenceFASTAURL: reference.referenceFASTAURL,
-            barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
-            haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL
-        )
-        let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
-            fromReferenceBundle: reference.sourceReferenceBundleURL ?? request.referenceSourceURL,
-            toResultBundle: request.outputDirectory
-        )
-        let completedAt = Date()
-        progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
-        let provenanceURL = try writeProvenance(
-            request: request,
-            resolvedMode: resolvedMode,
-            resolvedReadType: resolvedReadType,
-            reference: reference,
-            inputFASTQURLs: inputPlan.originalInputFASTQURLs,
-            mappingInputFASTQURLs: mappingInputFASTQURLs,
-            demuxManifestURL: inputPlan.manifestURL,
-            inputSnapshot: inputSnapshot,
-            illuminaPreparation: inputPlan.illuminaPreparation,
-            scriptURL: scriptURL,
-            reportScriptURL: reportScriptURL,
-            minimap2URL: minimap2URL,
-            samtoolsURL: samtoolsURL,
-            pythonURL: pythonURL,
-            reportPythonURL: reportPythonURL,
-            mapping: mapping,
-            filter: filter,
-            report: report,
-            workbookCopy: workbookCopy,
-            haplotypeAnalysis: haplotypeAnalysis,
-            referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
-            scientificArtifactPublication: scientificArtifactPublication,
-            startedAt: startedAt,
-            completedAt: completedAt
-        )
-        try writeBundleManifest(
-            request: request,
-            resolvedMode: resolvedMode,
-            provenanceURL: provenanceURL,
-            workbookRevision: workbookCopy.revision,
-            referenceRecordStore: referenceRecordStoreSnapshot?.info,
-            scientificArtifactPublication: scientificArtifactPublication,
-            completedAt: completedAt
-        )
-        progressHandler?(0.97, "Removing regenerable alignment intermediates.")
-        try removeGeneratedAlignmentIntermediates(
-            for: request,
-            mapping: mapping,
-            preserveRetainedEvidence: scientificArtifactPublication != nil
-        )
-        progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
-
-        return ONTBarcodeDemuxGenotypingResult(
-            outputDirectory: request.outputDirectory,
-            mappingBAMURL: request.mappingBAMURL,
-            mappingBAIURL: request.mappingBAIURL,
-            retainedBAMURL: request.retainedBAMURL,
-            retainedBAIURL: request.retainedBAIURL,
-            reportCSVURL: request.reportCSVURL,
-            sampleSummaryCSVURL: request.sampleSummaryCSVURL,
-            statsJSONURL: request.statsJSONURL,
-            haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
-            workbookURL: request.currentWorkbookURL,
-            reportProvenanceURL: request.reportProvenanceURL,
-            provenanceURL: provenanceURL,
-            referenceFASTAURL: reference.referenceFASTAURL,
-            sourceReferenceBundleURL: reference.sourceReferenceBundleURL,
-            totalInputReads: filter.stats.totalInputReads,
-            retainedUniqueReads: filter.stats.retainedUniqueReads,
-            retainedUniquePercentOfTotalReads: filter.stats.retainedUniquePercentOfTotalReads,
-            assignedUniqueRetainedReads: filter.stats.assignedUniqueRetainedReads,
-            unassignedUniqueRetainedReads: filter.stats.unassignedUniqueRetainedReads
-        )
     }
 
     public static func resolveInputFASTQURLs(for inputURL: URL) throws -> [URL] {
@@ -3711,29 +3713,52 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
     }
 
-    private func rollbackScientificOutputsAfterPublicationFailure(
+    private func rollbackScientificOutputsAfterFinalizationFailure(
         request: ONTBarcodeDemuxGenotypingRunRequest,
         mapping: MappingStepResult
-    ) throws {
-        try removeGeneratedAlignmentIntermediates(
-            for: request,
-            mapping: mapping,
-            preserveRetainedEvidence: false
-        )
+    ) {
+        let alignmentURLs = [
+            request.mappingBAMURL,
+            request.mappingBAIURL,
+            request.retainedBAMURL,
+            request.retainedBAIURL,
+        ] + mapping.transientBAMURLs
         let sequenceDirectory = request.outputDirectory
             .appendingPathComponent("artifacts/sequences", isDirectory: true)
-        for url in [
+        let canonicalProvenanceURL = request.outputDirectory
+            .appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let removableURLs = alignmentURLs + [
             request.reportCSVURL,
             request.sampleSummaryCSVURL,
             request.statsJSONURL,
+            request.workbookURL,
+            request.currentWorkbookURL,
+            request.reportProvenanceURL,
+            request.currentWorkbookProvenanceURL,
+            request.haplotypeAnalysisURL,
+            request.currentHaplotypeAnalysisURL,
+            request.specialistPromptSnapshotURL,
+            request.provenanceURL,
+            canonicalProvenanceURL,
+            ProvenanceSigningConfiguration.signatureURL(for: canonicalProvenanceURL),
+            ProvenanceSigningConfiguration.publicKeyURL(for: canonicalProvenanceURL),
+            ONTGenotypeResultBundle.manifestURL(in: request.outputDirectory),
+            request.outputDirectory.appendingPathComponent(
+                GenotypeReferenceRecordStoreSnapshot.relativeDatabasePath
+            ),
             sequenceDirectory.appendingPathComponent(
                 "observed-provisional-exon2.json"
             ),
             sequenceDirectory.appendingPathComponent(
                 "observed-provisional-exon2.fasta"
             ),
-        ] where FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
+            request.outputDirectory.appendingPathComponent(
+                ProvenanceWriter.bundleProvenanceDirectoryName,
+                isDirectory: true
+            ),
+        ]
+        for url in removableURLs where FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 

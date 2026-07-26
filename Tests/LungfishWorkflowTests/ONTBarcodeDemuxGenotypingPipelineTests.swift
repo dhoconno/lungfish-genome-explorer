@@ -943,6 +943,103 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         }
     }
 
+    func testIlluminaDownstreamReportFailureRollsBackPublishedScientificOutputs() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let provisionalGenotype = "Mafa-A1*007:08:01:01_1nt_nov"
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(
+            at: condaRoot,
+            genotypeRows: [
+                "DW001,\(provisionalGenotype),12,11",
+            ],
+            failWorkbookReport: true
+        )
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        try """
+        >\(provisionalGenotype)
+        AACCGGTT
+
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "AACCGGTT"
+        )
+        let outputDirectory = root.appendingPathComponent(
+            "miseq-downstream-failure.lungfishgenotype",
+            isDirectory: true
+        )
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-downstream-failure",
+            analysisName: "MiSeq downstream failure",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+
+        do {
+            _ = try await ONTBarcodeDemuxGenotypingPipeline(
+                condaManager: CondaManager(
+                    rootPrefix: condaRoot,
+                    bundledMicromambaProvider: { bundledMicromamba },
+                    bundledMicromambaVersionProvider: { "test-micromamba" }
+                )
+            ).run(request)
+            XCTFail("Expected workbook report generation to fail")
+        } catch {
+            guard case ONTBarcodeDemuxGenotypingError.reportFailed(let status, _) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(status, 73)
+        }
+
+        let sequenceDirectory = outputDirectory
+            .appendingPathComponent("artifacts/sequences", isDirectory: true)
+        for url in [
+            request.mappingBAMURL,
+            request.mappingBAIURL,
+            request.retainedBAMURL,
+            request.retainedBAIURL,
+            request.reportCSVURL,
+            request.sampleSummaryCSVURL,
+            request.statsJSONURL,
+            request.workbookURL,
+            request.currentWorkbookURL,
+            request.reportProvenanceURL,
+            request.currentWorkbookProvenanceURL,
+            request.haplotypeAnalysisURL,
+            request.currentHaplotypeAnalysisURL,
+            request.provenanceURL,
+            outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename),
+            outputDirectory.appendingPathComponent(
+                ProvenanceWriter.bundleProvenanceDirectoryName,
+                isDirectory: true
+            ),
+            outputDirectory.appendingPathComponent(
+                GenotypeReferenceRecordStoreSnapshot.relativeDatabasePath
+            ),
+            sequenceDirectory.appendingPathComponent(
+                "observed-provisional-exon2.json"
+            ),
+            sequenceDirectory.appendingPathComponent(
+                "observed-provisional-exon2.fasta"
+            ),
+            ONTGenotypeResultBundle.manifestURL(in: outputDirectory),
+        ] {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: url.path),
+                "Downstream failure left an unprovenanced output: \(url.path)"
+            )
+        }
+    }
+
     func testIlluminaCohortMapsEachSampleWithSeparateMinimap2Invocation() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2911,7 +3008,8 @@ print(json.dumps(payload))
             "DW472,14_M1_DQB1_18_01_01,100,100",
             "DW472,14_M2M6_DQB1_06g:14_M_DQB1_06_01_01,4,4",
             "DW472,14_M4_DQB1_06_08,4,4",
-        ]
+        ],
+        failWorkbookReport: Bool = false
     ) throws -> URL {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -3125,6 +3223,9 @@ print(json.dumps(payload))
             sys.exit(0)
 
         if script == "write-retained-demux-workbook.py":
+            if \#(failWorkbookReport ? "True" : "False"):
+                print("intentional workbook report failure", file=sys.stderr)
+                sys.exit(73)
             output_xlsx = option("--output-xlsx")
             provenance_json = option("--provenance-json")
             is_client_current = "--client-current-workbook" in sys.argv

@@ -48,13 +48,17 @@ remain regenerable and are removed as before.
 
 If provisional publication fails before provenance can be committed, the
 pipeline transactionally removes its generated BAM/BAI, genotype summaries,
-and provisional files. A failed command therefore cannot leave
-unprovenanced scientific payloads masquerading as a result bundle.
+provisional files, workbook outputs, reference snapshot, and partial
+provenance/manifest files. The transaction remains open through final manifest
+commit, so a failed command cannot leave unprovenanced scientific payloads
+masquerading as a result bundle.
 
 After a GUI-launched workflow completes, Operation Center discovers these
 outputs through the validated bundle manifest and result loader. It reports the
 retained BAM/BAI and optional provisional JSON/FASTA, while continuing to omit
-mapping intermediates.
+mapping intermediates. Declared artifacts that fail path, size, or checksum
+validation fail operation completion instead of silently disappearing from the
+output list.
 
 ## Provisional exon 2 sequences
 
@@ -126,6 +130,11 @@ Bundle loading remains off the main actor. Artifact validation is a single
 linear pass and the viewport stores provisional membership and sequence
 records in keyed dictionaries. Matrix filtering, scrolling, selection, and
 redraw do not parse FASTA or scan artifacts.
+
+Validated BAM/BAI digests are cached in memory by device, inode, byte size,
+modification/change timestamps, and declared SHA-256. Operation Center and the
+immediately opened viewport therefore share integrity work for unchanged
+evidence, while a same-size mutation invalidates the cache and is rechecked.
 
 All new manifest fields are optional. Older miSeq bundles continue to load and
 use the native genotype-only matrix when they contain calls, but cannot offer a

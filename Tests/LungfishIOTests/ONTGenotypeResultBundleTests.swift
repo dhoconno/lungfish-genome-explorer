@@ -389,6 +389,38 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
     }
 
+    func testRepeatedLoadsReuseValidatedUnchangedAlignmentArtifactDigests() throws {
+        let fixture = try ScientificArtifactBundleFixture()
+        defer { fixture.remove() }
+        ONTGenotypeResultBundle.resetArtifactValidationCacheForTesting()
+
+        _ = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        let firstPassCount =
+            ONTGenotypeResultBundle.artifactValidationHashingPassCountForTesting
+        _ = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(firstPassCount, 2)
+        XCTAssertEqual(
+            ONTGenotypeResultBundle.artifactValidationHashingPassCountForTesting,
+            firstPassCount,
+            "An unchanged BAM/BAI pair should not be hashed again on the next bundle load"
+        )
+    }
+
+    func testAlignmentArtifactDigestCacheInvalidatesAfterSameSizeMutation() throws {
+        let fixture = try ScientificArtifactBundleFixture()
+        defer { fixture.remove() }
+        ONTGenotypeResultBundle.resetArtifactValidationCacheForTesting()
+        _ = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        let original = try Data(contentsOf: fixture.bamURL)
+        try Data(repeating: 0x58, count: original.count).write(to: fixture.bamURL)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        )
+    }
+
     func testLoadsSchemaV2CandidateAndUnnameableDocuments() throws {
         let fixture = try CandidateBundleFixture(candidateSchemaVersion: 2)
         defer { fixture.remove() }
