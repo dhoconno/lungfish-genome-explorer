@@ -372,6 +372,32 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertFalse(thresholdSource.contains("Stepper("))
     }
 
+    func testMatrixThresholdControlsUseEditableFieldsHiddenLabelSteppersAndOffGuidance() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "private var matrixFilterControls"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var colorControls"))
+        let controls = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertTrue(controls.contains("Text(\"Min reads\")"))
+        XCTAssertTrue(controls.contains("Text(\"Min percent\")"))
+        XCTAssertTrue(controls.contains("TextField("))
+        XCTAssertTrue(controls.contains("Stepper("))
+        XCTAssertTrue(controls.contains(".labelsHidden()"))
+        XCTAssertTrue(controls.contains("Text(\"%\")"))
+        XCTAssertTrue(controls.contains("Text(\"0 = Off.\")"))
+        XCTAssertTrue(controls.contains("\"genotype-view-minimum-reads-field\""))
+        XCTAssertTrue(controls.contains("\"genotype-view-minimum-reads-stepper\""))
+        XCTAssertTrue(controls.contains("\"genotype-view-minimum-percent-field\""))
+        XCTAssertTrue(controls.contains("\"genotype-view-minimum-percent-stepper\""))
+        XCTAssertFalse(controls.contains("\"Min reads: \\("))
+        XCTAssertFalse(controls.contains("\"Min percent: \\("))
+    }
+
     func testGenotypeViewSectionExposesHaplotypeViewportControl() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

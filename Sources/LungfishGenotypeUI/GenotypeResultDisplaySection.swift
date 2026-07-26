@@ -62,7 +62,11 @@ public final class GenotypeResultDisplaySectionViewModel {
         isWritable: false
     )
 
-    public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
+    public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)? {
+        didSet {
+            cancelPendingNumericFilterCommitAndRestoreDrafts()
+        }
+    }
     public var onGenotypeHighlightRequested: ((GenotypeResultHighlightRequest) -> Void)?
     public var onMatrixStyleRequested: ((GenotypeMatrixStyleRequest) -> Void)?
     public var onMatrixReviewRequested: ((GenotypeMatrixReviewRequest) -> Void)?
@@ -80,16 +84,59 @@ public final class GenotypeResultDisplaySectionViewModel {
     private var isUpdatingFromSelection = false
     @ObservationIgnored
     private let contentTextSizeAnnouncementPoster: any AccessibilityAnnouncementPosting
+    let matrixMinimumReadsDraft: GenotypeNumericFilterDraft
+    let matrixMinimumPercentDraft: GenotypeNumericFilterDraft
+    @ObservationIgnored
+    private let numericFilterCommitCoalescer:
+        GenotypeNumericFilterCommitCoalescer
+    @ObservationIgnored
+    private var dirtyNumericFilterFields: Set<NumericFilterField> = []
     private var matrixCommentDrafts: [GenotypeMatrixCommentScope: String] = [:]
     @ObservationIgnored
     private var loadedMatrixCommentStates:
         [GenotypeMatrixCommentScope: GenotypeMatrixValueState<String>] = [:]
 
-    public init(
+    public convenience init(
         contentTextSizeAnnouncementPoster: any AccessibilityAnnouncementPosting =
             AccessibilityAnnouncementPoster()
     ) {
+        self.init(
+            contentTextSizeAnnouncementPoster:
+                contentTextSizeAnnouncementPoster,
+            numericFilterScheduler:
+                GenotypeNumericFilterRunLoopScheduler(),
+            numericFilterLocale: .autoupdatingCurrent,
+            numericFilterValidationAnnouncementPoster:
+                AccessibilityAnnouncementPoster()
+        )
+    }
+
+    init(
+        contentTextSizeAnnouncementPoster: any AccessibilityAnnouncementPosting =
+            AccessibilityAnnouncementPoster(),
+        numericFilterScheduler: any GenotypeNumericFilterScheduling,
+        numericFilterLocale: Locale,
+        numericFilterValidationAnnouncementPoster:
+            any AccessibilityAnnouncementPosting
+    ) {
         self.contentTextSizeAnnouncementPoster = contentTextSizeAnnouncementPoster
+        matrixMinimumReadsDraft = GenotypeNumericFilterDraft(
+            configuration: .matrixMinimumReads,
+            committedValue: 0,
+            locale: numericFilterLocale,
+            validationAnnouncementPoster:
+                numericFilterValidationAnnouncementPoster
+        )
+        matrixMinimumPercentDraft = GenotypeNumericFilterDraft(
+            configuration: .matrixMinimumPercent,
+            committedValue: 0,
+            locale: numericFilterLocale,
+            validationAnnouncementPoster:
+                numericFilterValidationAnnouncementPoster
+        )
+        numericFilterCommitCoalescer = GenotypeNumericFilterCommitCoalescer(
+            scheduler: numericFilterScheduler
+        )
     }
 
     public var contentTextSizePreference: ContentTextSizePreference {
@@ -147,10 +194,12 @@ public final class GenotypeResultDisplaySectionViewModel {
         hasHaplotypingResult: Bool = false,
         isGenotypeOnlyResult: Bool = false
     ) {
+        cancelPendingNumericFilterCommit()
         self.isAvailable = isAvailable
         self.hasHaplotypingResult = hasHaplotypingResult
         self.isGenotypeOnlyResult = isGenotypeOnlyResult
         setNormalizedDisplayState(state)
+        synchronizeNumericFilterDrafts()
         updateSelection(nil)
     }
 
@@ -161,12 +210,16 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     public func updateDisplayState(_ state: GenotypeResultDisplayState) {
+        cancelPendingNumericFilterCommit()
         setNormalizedDisplayState(state)
+        synchronizeNumericFilterDrafts()
     }
 
     public func clear() {
+        cancelPendingNumericFilterCommit()
         isAvailable = false
         displayState = GenotypeResultDisplayState()
+        synchronizeNumericFilterDrafts()
         visibleRowCount = 0
         totalRowCount = 0
         hiddenCellCount = 0
@@ -289,13 +342,59 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     func setMatrixMinimumReads(_ value: Int) {
-        displayState.matrixMinimumReads = max(0, value)
+        cancelPendingNumericFilterCommit()
+        let value = max(0, min(100_000, value))
+        displayState.matrixMinimumReads = value
+        matrixMinimumReadsDraft.applyCommittedValue(Double(value))
         notifyStateChanged()
     }
 
     func setMatrixMinimumPercent(_ value: Double) {
-        displayState.matrixMinimumPercent = max(0, min(100, value))
+        cancelPendingNumericFilterCommit()
+        let value = max(0, min(100, value))
+        displayState.matrixMinimumPercent = value
+        matrixMinimumPercentDraft.applyCommittedValue(value)
         notifyStateChanged()
+    }
+
+    func updateMatrixMinimumReadsDraft(_ value: String) {
+        matrixMinimumReadsDraft.updateDraftText(value)
+        dirtyNumericFilterFields.insert(.minimumReads)
+        scheduleNumericFilterCommit()
+    }
+
+    func updateMatrixMinimumPercentDraft(_ value: String) {
+        matrixMinimumPercentDraft.updateDraftText(value)
+        dirtyNumericFilterFields.insert(.minimumPercent)
+        scheduleNumericFilterCommit()
+    }
+
+    func commitMatrixMinimumReadsDraft() {
+        commitNumericFilterDrafts(explicitField: .minimumReads)
+    }
+
+    func commitMatrixMinimumPercentDraft() {
+        commitNumericFilterDrafts(explicitField: .minimumPercent)
+    }
+
+    func restoreMatrixMinimumReadsDraft() {
+        restoreNumericFilterDraft(.minimumReads)
+    }
+
+    func restoreMatrixMinimumPercentDraft() {
+        restoreNumericFilterDraft(.minimumPercent)
+    }
+
+    func stepMatrixMinimumReads(up: Bool) {
+        matrixMinimumReadsDraft.step(up: up)
+        dirtyNumericFilterFields.insert(.minimumReads)
+        scheduleNumericFilterCommit()
+    }
+
+    func stepMatrixMinimumPercent(up: Bool) {
+        matrixMinimumPercentDraft.step(up: up)
+        dirtyNumericFilterFields.insert(.minimumPercent)
+        scheduleNumericFilterCommit()
     }
 
     func setMatrixPercentDenominator(_ denominator: ONTGenotypeSupportDenominator) {
@@ -727,6 +826,101 @@ public final class GenotypeResultDisplaySectionViewModel {
         return body
     }
 
+    private enum NumericFilterField: Hashable {
+        case minimumReads
+        case minimumPercent
+    }
+
+    private func scheduleNumericFilterCommit() {
+        numericFilterCommitCoalescer.schedule(after: 0.2) { [weak self] in
+            self?.commitNumericFilterDrafts(explicitField: nil)
+        }
+    }
+
+    private func commitNumericFilterDrafts(
+        explicitField: NumericFilterField?
+    ) {
+        numericFilterCommitCoalescer.cancel()
+        let fields = dirtyNumericFilterFields
+        var changed = false
+        for field in fields {
+            let draft = numericFilterDraft(for: field)
+            let isEmpty = draft.draftText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+            if isEmpty {
+                if explicitField != nil {
+                    draft.restore()
+                    dirtyNumericFilterFields.remove(field)
+                }
+                continue
+            }
+            guard let value = draft.commitIfValid() else {
+                dirtyNumericFilterFields.remove(field)
+                continue
+            }
+            switch field {
+            case .minimumReads:
+                let integerValue = Int(value)
+                if displayState.matrixMinimumReads != integerValue {
+                    displayState.matrixMinimumReads = integerValue
+                    changed = true
+                }
+            case .minimumPercent:
+                if displayState.matrixMinimumPercent != value {
+                    displayState.matrixMinimumPercent = value
+                    changed = true
+                }
+            }
+            dirtyNumericFilterFields.remove(field)
+        }
+        if changed {
+            notifyStateChanged()
+        }
+        if !dirtyNumericFilterFields.isEmpty {
+            scheduleNumericFilterCommit()
+        }
+    }
+
+    private func restoreNumericFilterDraft(_ field: NumericFilterField) {
+        numericFilterCommitCoalescer.cancel()
+        numericFilterDraft(for: field).restore()
+        dirtyNumericFilterFields.remove(field)
+        if !dirtyNumericFilterFields.isEmpty {
+            scheduleNumericFilterCommit()
+        }
+    }
+
+    private func numericFilterDraft(
+        for field: NumericFilterField
+    ) -> GenotypeNumericFilterDraft {
+        switch field {
+        case .minimumReads:
+            matrixMinimumReadsDraft
+        case .minimumPercent:
+            matrixMinimumPercentDraft
+        }
+    }
+
+    private func cancelPendingNumericFilterCommit() {
+        numericFilterCommitCoalescer.cancel()
+        dirtyNumericFilterFields.removeAll()
+    }
+
+    private func cancelPendingNumericFilterCommitAndRestoreDrafts() {
+        cancelPendingNumericFilterCommit()
+        synchronizeNumericFilterDrafts()
+    }
+
+    private func synchronizeNumericFilterDrafts() {
+        matrixMinimumReadsDraft.applyCommittedValue(
+            Double(displayState.matrixMinimumReads)
+        )
+        matrixMinimumPercentDraft.applyCommittedValue(
+            displayState.matrixMinimumPercent
+        )
+    }
+
     func notifyStateChanged() {
         onDisplayStateChanged?(displayState)
     }
@@ -786,6 +980,12 @@ public final class GenotypeResultDisplaySectionViewModel {
 
 public struct GenotypeResultDisplaySection: View {
     @Bindable var viewModel: GenotypeResultDisplaySectionViewModel
+    @FocusState private var focusedNumericFilter: NumericFilterFocus?
+
+    private enum NumericFilterFocus: Hashable {
+        case minimumReads
+        case minimumPercent
+    }
 
     public init(viewModel: GenotypeResultDisplaySectionViewModel) {
         self.viewModel = viewModel
@@ -823,6 +1023,17 @@ public struct GenotypeResultDisplaySection: View {
             } label: {
                 Label("Genotype Display", systemImage: "tablecells")
                     .font(.headline)
+            }
+            .onChange(of: focusedNumericFilter) { oldValue, newValue in
+                guard oldValue != newValue else { return }
+                switch oldValue {
+                case .minimumReads:
+                    viewModel.commitMatrixMinimumReadsDraft()
+                case .minimumPercent:
+                    viewModel.commitMatrixMinimumPercentDraft()
+                case nil:
+                    break
+                }
             }
         }
     }
@@ -984,25 +1195,146 @@ public struct GenotypeResultDisplaySection: View {
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
-            Stepper(
-                "Min reads: \(viewModel.displayState.matrixMinimumReads)",
-                value: Binding(
-                    get: { viewModel.displayState.matrixMinimumReads },
-                    set: { viewModel.setMatrixMinimumReads($0) }
-                ),
-                in: 0...100_000
-            )
-            .controlSize(.small)
-            Stepper(
-                "Min percent: \(viewModel.displayState.matrixMinimumPercent, specifier: "%.1f")%",
-                value: Binding(
-                    get: { viewModel.displayState.matrixMinimumPercent },
-                    set: { viewModel.setMatrixMinimumPercent($0) }
-                ),
-                in: 0...100,
-                step: 0.5
-            )
-            .controlSize(.small)
+            HStack(spacing: 6) {
+                Text("Min reads")
+                Spacer(minLength: 6)
+                TextField("Min reads", text: Binding(
+                    get: { viewModel.matrixMinimumReadsDraft.draftText },
+                    set: { viewModel.updateMatrixMinimumReadsDraft($0) }
+                ))
+                .multilineTextAlignment(.trailing)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(width: 88)
+                .focused($focusedNumericFilter, equals: .minimumReads)
+                .onSubmit {
+                    viewModel.commitMatrixMinimumReadsDraft()
+                }
+                .onExitCommand {
+                    viewModel.restoreMatrixMinimumReadsDraft()
+                }
+                .accessibilityIdentifier("genotype-view-minimum-reads-field")
+                .accessibilityLabel("Min reads")
+                .accessibilityValue(
+                    viewModel.matrixMinimumReadsDraft.accessibility.value
+                )
+                .accessibilityHint(
+                    viewModel.matrixMinimumReadsDraft.accessibility
+                        .validationDescription
+                        ?? viewModel.matrixMinimumReadsDraft.accessibility.bounds
+                )
+                Stepper(
+                    "Min reads",
+                    value: Binding(
+                        get: {
+                            Int(
+                                viewModel.matrixMinimumReadsDraft.parsedValue
+                                    ?? viewModel.matrixMinimumReadsDraft
+                                        .committedValue
+                            )
+                        },
+                        set: { value in
+                            let current = Int(
+                                viewModel.matrixMinimumReadsDraft.parsedValue
+                                    ?? viewModel.matrixMinimumReadsDraft
+                                        .committedValue
+                            )
+                            viewModel.stepMatrixMinimumReads(
+                                up: value >= current
+                            )
+                        }
+                    ),
+                    in: 0 ... 100_000
+                )
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier(
+                    "genotype-view-minimum-reads-stepper"
+                )
+                .accessibilityLabel("Min reads")
+                .accessibilityValue(
+                    viewModel.matrixMinimumReadsDraft.accessibility.value
+                )
+                .accessibilityHint(
+                    "\(viewModel.matrixMinimumReadsDraft.accessibility.bounds) "
+                        + "\(viewModel.matrixMinimumReadsDraft.accessibility.incrementAction) "
+                        + viewModel.matrixMinimumReadsDraft.accessibility
+                            .decrementAction
+                )
+            }
+            HStack(spacing: 6) {
+                Text("Min percent")
+                Spacer(minLength: 6)
+                TextField("Min percent", text: Binding(
+                    get: { viewModel.matrixMinimumPercentDraft.draftText },
+                    set: { viewModel.updateMatrixMinimumPercentDraft($0) }
+                ))
+                .multilineTextAlignment(.trailing)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(width: 88)
+                .focused($focusedNumericFilter, equals: .minimumPercent)
+                .onSubmit {
+                    viewModel.commitMatrixMinimumPercentDraft()
+                }
+                .onExitCommand {
+                    viewModel.restoreMatrixMinimumPercentDraft()
+                }
+                .accessibilityIdentifier(
+                    "genotype-view-minimum-percent-field"
+                )
+                .accessibilityLabel("Min percent")
+                .accessibilityValue(
+                    viewModel.matrixMinimumPercentDraft.accessibility.value
+                )
+                .accessibilityHint(
+                    viewModel.matrixMinimumPercentDraft.accessibility
+                        .validationDescription
+                        ?? viewModel.matrixMinimumPercentDraft.accessibility
+                            .bounds
+                )
+                Text("%")
+                    .foregroundStyle(.secondary)
+                Stepper(
+                    "Min percent",
+                    value: Binding(
+                        get: {
+                            viewModel.matrixMinimumPercentDraft.parsedValue
+                                ?? viewModel.matrixMinimumPercentDraft
+                                    .committedValue
+                        },
+                        set: { value in
+                            let current =
+                                viewModel.matrixMinimumPercentDraft.parsedValue
+                                ?? viewModel.matrixMinimumPercentDraft
+                                    .committedValue
+                            viewModel.stepMatrixMinimumPercent(
+                                up: value >= current
+                            )
+                        }
+                    ),
+                    in: 0 ... 100,
+                    step: 0.5
+                )
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier(
+                    "genotype-view-minimum-percent-stepper"
+                )
+                .accessibilityLabel("Min percent")
+                .accessibilityValue(
+                    viewModel.matrixMinimumPercentDraft.accessibility.value
+                )
+                .accessibilityHint(
+                    "\(viewModel.matrixMinimumPercentDraft.accessibility.bounds) "
+                        + "\(viewModel.matrixMinimumPercentDraft.accessibility.incrementAction) "
+                        + viewModel.matrixMinimumPercentDraft.accessibility
+                            .decrementAction
+                )
+            }
+            Text("0 = Off.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             Picker("Percent Basis", selection: Binding(
                 get: { viewModel.displayState.matrixPercentDenominator },
                 set: { viewModel.setMatrixPercentDenominator($0) }
