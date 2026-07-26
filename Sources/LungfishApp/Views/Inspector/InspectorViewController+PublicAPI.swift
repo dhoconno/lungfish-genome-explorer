@@ -326,12 +326,13 @@ extension InspectorViewController {
             knownSampleIds: Set(sampleIds)
         )
         metadataStore?.wireAutosave(bundleURL: result.bundleURL)
-        // Loading via the store triggers default-cohort seeding the first
-        // time a bundle is opened so the inspector lists Needs review et al.
+        // Haplotype-capable bundles seed the default cohorts on first open.
+        // Genotype-only inspection must remain byte-preserving.
         let sidecar: GenotypeAnnotationSidecar = {
             if let store = try? GenotypeAnnotationStore(
                 bundleURL: result.bundleURL,
-                author: resolvedAnalystIdentity()
+                author: resolvedAnalystIdentity(),
+                seedBuiltInSmartCohorts: hasHaplotypingResult
             ) {
                 return store.sidecar
             }

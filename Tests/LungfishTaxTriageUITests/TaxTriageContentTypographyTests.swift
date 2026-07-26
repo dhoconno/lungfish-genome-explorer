@@ -261,8 +261,9 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             let heatmap = try XCTUnwrap(
                 view.testingCellView(column: "sample_\(ids[0])", row: 0) as? NSTableCellView
             )
-            let heatmapColor = heatmap.layer?.backgroundColor
+            let heatmapColor = view.testingBackgroundFillColor(in: heatmap)
             let heatmapText = heatmap.textField?.stringValue
+            XCTAssertFalse(heatmap.wantsLayer)
             XCTAssertNotNil(heatmapColor)
             XCTAssertEqual(view.currentFacet, .tass)
             let baselineReloadCount = view.testingTableReloadCount
@@ -279,7 +280,7 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             let enlargedHeatmap = try XCTUnwrap(
                 view.testingCellView(column: "sample_\(ids[0])", row: 0) as? NSTableCellView
             )
-            XCTAssertEqual(enlargedHeatmap.layer?.backgroundColor, heatmapColor)
+            XCTAssertEqual(view.testingBackgroundFillColor(in: enlargedHeatmap), heatmapColor)
             XCTAssertEqual(enlargedHeatmap.textField?.stringValue, heatmapText)
             XCTAssertEqual(enlargedHeatmap.textField?.accessibilityValue(), heatmapText)
             XCTAssertEqual(view.currentFacet, .tass)
@@ -379,6 +380,8 @@ final class TaxTriageContentTypographyTests: XCTestCase {
         let riskCell = try XCTUnwrap(
             view.testingConfigureReusableCell(column: "risk", row: riskRow, reusing: nil)
         )
+        XCTAssertFalse(riskCell.wantsLayer)
+        XCTAssertNotNil(view.testingBackgroundFillColor(in: riskCell))
         XCTAssertEqual(riskCell.textField?.stringValue, "\u{26A0}")
         XCTAssertEqual(riskCell.textField?.toolTip, "Detected in negative control sample")
         XCTAssertEqual(riskCell.textField?.accessibilityLabel(), "Contamination risk")
@@ -403,7 +406,7 @@ final class TaxTriageContentTypographyTests: XCTestCase {
         XCTAssertNil(reusedSafeCell.textField?.accessibilityLabel())
         XCTAssertEqual(reusedSafeCell.textField?.accessibilityValue(), "")
         XCTAssertNil(reusedSafeCell.textField?.accessibilityHelp())
-        XCTAssertNil(reusedSafeCell.layer?.backgroundColor)
+        XCTAssertNil(view.testingBackgroundFillColor(in: reusedSafeCell))
     }
 
     func testStrainComparisonScalesLateColumnsWithoutChangingBaseCalls() throws {

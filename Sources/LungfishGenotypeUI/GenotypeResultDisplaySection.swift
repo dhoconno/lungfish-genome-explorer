@@ -92,6 +92,10 @@ public final class GenotypeResultDisplaySectionViewModel {
         GenotypeNumericFilterCommitCoalescer
     @ObservationIgnored
     private var dirtyNumericFilterFields: Set<NumericFilterField> = []
+    @ObservationIgnored
+    private var hasPendingNumericFilterPublication = false
+    @ObservationIgnored
+    private var isNumericFilterStepperBurstActive = false
     private var matrixCommentDrafts: [GenotypeMatrixCommentScope: String] = [:]
     @ObservationIgnored
     private var loadedMatrixCommentStates:
@@ -901,9 +905,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         numericFilterCommitCoalescer.cancel()
         let fields: Set<NumericFilterField>
         if let explicitField {
-            fields = dirtyNumericFilterFields.contains(explicitField)
-                ? [explicitField]
-                : []
+            fields = [explicitField]
         } else {
             fields = dirtyNumericFilterFields
         }
@@ -940,7 +942,11 @@ public final class GenotypeResultDisplaySectionViewModel {
             dirtyNumericFilterFields.remove(field)
         }
         if changed {
-            notifyStateChanged()
+            hasPendingNumericFilterPublication = true
+        }
+        if explicitField != nil || dirtyNumericFilterFields.isEmpty {
+            publishPendingNumericFilterStateIfNeeded()
+            isNumericFilterStepperBurstActive = false
         }
         if !dirtyNumericFilterFields.isEmpty {
             scheduleNumericFilterCommit()
@@ -970,9 +976,16 @@ public final class GenotypeResultDisplaySectionViewModel {
             }
         }
         if changed {
-            notifyStateChanged()
+            if isNumericFilterStepperBurstActive {
+                hasPendingNumericFilterPublication = true
+            } else {
+                isNumericFilterStepperBurstActive = true
+                notifyStateChanged()
+            }
         }
-        if !dirtyNumericFilterFields.isEmpty {
+        if isNumericFilterStepperBurstActive
+            || hasPendingNumericFilterPublication
+            || !dirtyNumericFilterFields.isEmpty {
             scheduleNumericFilterCommit()
         }
     }
@@ -981,9 +994,17 @@ public final class GenotypeResultDisplaySectionViewModel {
         numericFilterCommitCoalescer.cancel()
         numericFilterDraft(for: field).restore()
         dirtyNumericFilterFields.remove(field)
-        if !dirtyNumericFilterFields.isEmpty {
+        if isNumericFilterStepperBurstActive
+            || hasPendingNumericFilterPublication
+            || !dirtyNumericFilterFields.isEmpty {
             scheduleNumericFilterCommit()
         }
+    }
+
+    private func publishPendingNumericFilterStateIfNeeded() {
+        guard hasPendingNumericFilterPublication else { return }
+        hasPendingNumericFilterPublication = false
+        notifyStateChanged()
     }
 
     private func numericFilterDraft(
@@ -1000,6 +1021,8 @@ public final class GenotypeResultDisplaySectionViewModel {
     private func cancelPendingNumericFilterCommit() {
         numericFilterCommitCoalescer.cancel()
         dirtyNumericFilterFields.removeAll()
+        hasPendingNumericFilterPublication = false
+        isNumericFilterStepperBurstActive = false
     }
 
     private func cancelPendingNumericFilterCommitAndRestoreDrafts() {

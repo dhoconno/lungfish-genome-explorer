@@ -208,7 +208,7 @@ final class GenotypeNumericFilterDraftTests: XCTestCase {
         XCTAssertTrue(states.isEmpty)
     }
 
-    func testStepperCommitsImmediatelyAndEscapeCannotUndoTheClick() {
+    func testStepperPublishesFirstClickImmediatelyWithoutDuplicateIdlePublication() {
         let scheduler = ManualGenotypeNumericFilterScheduler()
         let viewModel = makeViewModel(scheduler: scheduler)
         var values: [Int] = []
@@ -218,6 +218,11 @@ final class GenotypeNumericFilterDraftTests: XCTestCase {
         XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "1")
         XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 1)
         XCTAssertEqual(values, [1])
+        XCTAssertEqual(scheduler.pendingCount, 1)
+
+        scheduler.advance(by: 0.2)
+
+        XCTAssertEqual(values, [1])
         XCTAssertEqual(scheduler.pendingCount, 0)
 
         viewModel.restoreMatrixMinimumReadsDraft()
@@ -225,6 +230,104 @@ final class GenotypeNumericFilterDraftTests: XCTestCase {
         XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "1")
         XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 1)
         XCTAssertEqual(values, [1])
+    }
+
+    func testRapidStepperAutorepeatPublishesOnlyLatestVisibleValue() {
+        let scheduler = ManualGenotypeNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        var values: [Int] = []
+        viewModel.onDisplayStateChanged = { values.append($0.matrixMinimumReads) }
+
+        for value in 1...20 {
+            viewModel.setMatrixMinimumReadsFromStepper(value)
+            XCTAssertEqual(viewModel.displayState.matrixMinimumReads, value)
+            XCTAssertEqual(
+                viewModel.matrixMinimumReadsDraft.accessibility.value,
+                "\(value)"
+            )
+        }
+
+        XCTAssertEqual(values, [1])
+        XCTAssertEqual(scheduler.pendingCount, 1)
+        scheduler.advance(by: 0.2)
+        XCTAssertEqual(values, [1, 20])
+        XCTAssertEqual(scheduler.pendingCount, 0)
+    }
+
+    func testEmptyDraftAfterIdleRestoresOnFocusLossWithActiveAccessibilityValue() {
+        let scheduler = ManualGenotypeNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        viewModel.updateDisplayState(.init(matrixMinimumReads: 7))
+        var values: [Int] = []
+        viewModel.onDisplayStateChanged = { values.append($0.matrixMinimumReads) }
+
+        viewModel.updateMatrixMinimumReadsDraft("")
+        scheduler.advance(by: 0.2)
+        XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "")
+        XCTAssertTrue(values.isEmpty)
+
+        viewModel.commitMatrixMinimumReadsDraft()
+
+        XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 7)
+        XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "7")
+        XCTAssertEqual(
+            viewModel.matrixMinimumReadsDraft.accessibility.value,
+            "7"
+        )
+        XCTAssertTrue(values.isEmpty)
+    }
+
+    func testPendingStepperPublicationCannotPublishAfterBundleSwitch() {
+        let scheduler = ManualGenotypeNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        var values: [Int] = []
+        viewModel.onDisplayStateChanged = { values.append($0.matrixMinimumReads) }
+        viewModel.setMatrixMinimumReadsFromStepper(9)
+        viewModel.setMatrixMinimumReadsFromStepper(10)
+
+        viewModel.update(
+            isAvailable: true,
+            state: .init(matrixMinimumReads: 17)
+        )
+        scheduler.runAllIncludingCancelled()
+
+        XCTAssertEqual(values, [9])
+        XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 17)
+        XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "17")
+    }
+
+    func testPendingStepperPublicationCannotPublishAfterInspectorClear() {
+        let scheduler = ManualGenotypeNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        var publicationCount = 0
+        viewModel.onDisplayStateChanged = { _ in publicationCount += 1 }
+        viewModel.setMatrixMinimumReadsFromStepper(9)
+        viewModel.setMatrixMinimumReadsFromStepper(10)
+
+        viewModel.clear()
+        scheduler.runAllIncludingCancelled()
+
+        XCTAssertEqual(publicationCount, 1)
+        XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "0")
+    }
+
+    func testPendingStepperPublicationCannotPublishAfterViewModelDeinitialization() {
+        let scheduler = ManualGenotypeNumericFilterScheduler()
+        var publicationCount = 0
+        weak var weakViewModel: GenotypeResultDisplaySectionViewModel?
+        do {
+            var viewModel: GenotypeResultDisplaySectionViewModel? =
+                makeViewModel(scheduler: scheduler)
+            weakViewModel = viewModel
+            viewModel?.onDisplayStateChanged = { _ in publicationCount += 1 }
+            viewModel?.setMatrixMinimumReadsFromStepper(9)
+            viewModel?.setMatrixMinimumReadsFromStepper(10)
+            viewModel = nil
+        }
+
+        XCTAssertNil(weakViewModel)
+        scheduler.runAllIncludingCancelled()
+        XCTAssertEqual(publicationCount, 1)
     }
 
     func testPendingDraftCannotPublishAfterBundleSwitch() {

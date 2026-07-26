@@ -39,7 +39,7 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
         XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "12")
     }
 
-    func testHostedStepperCommitsItsExactNativeValueAndEscapeKeepsClick() throws {
+    func testHostedStepperPublishesFirstClickImmediatelyAndEscapeDoesNotDuplicateIt() throws {
         let scheduler = HostedNumericFilterScheduler()
         let viewModel = makeViewModel(scheduler: scheduler)
         var values: [Int] = []
@@ -61,7 +61,7 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
         XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 99_999)
         XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "99,999")
         XCTAssertEqual(values, [99_999])
-        XCTAssertEqual(scheduler.pendingCount, 0)
+        XCTAssertEqual(scheduler.pendingCount, 1)
         XCTAssertEqual(
             (readsStepper.accessibilityValue() as? NSNumber)?.doubleValue,
             99_999
@@ -79,9 +79,14 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
         XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 99_999)
         XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "99,999")
         XCTAssertEqual(values, [99_999])
+
+        scheduler.runPending()
+        flush(host)
+
+        XCTAssertEqual(values, [99_999])
     }
 
-    func testHostedPercentStepperCommitsItsExactNativeValueImmediately() throws {
+    func testHostedPercentStepperPublishesFirstClickImmediatelyWithoutIdleDuplicate() throws {
         let scheduler = HostedNumericFilterScheduler()
         let viewModel = makeViewModel(scheduler: scheduler)
         var values: [Double] = []
@@ -106,7 +111,7 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
             "11.75"
         )
         XCTAssertEqual(values, [11.75])
-        XCTAssertEqual(scheduler.pendingCount, 0)
+        XCTAssertEqual(scheduler.pendingCount, 1)
         XCTAssertEqual(
             (percentStepper.accessibilityValue() as? NSNumber)?.doubleValue,
             11.75
@@ -115,6 +120,46 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
             percentStepper.accessibilityValueDescription(),
             "11.75 percent"
         )
+
+        scheduler.runPending()
+        flush(host)
+
+        XCTAssertEqual(values, [11.75])
+    }
+
+    func testHostedEmptyDraftRestoresAfterIdleThenFocusLossAndSynchronizesAccessibility() throws {
+        let scheduler = HostedNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        viewModel.updateDisplayState(.init(
+            summaryViewMode: .matrix,
+            matrixMinimumReads: 7
+        ))
+        let host = hostSection(viewModel)
+        defer { host.window.orderOut(nil) }
+        var readsField = try nativeTextField("Min reads", in: host)
+        let editor = try focus(readsField, host: host)
+        editor.selectAll(nil)
+        editor.insertText("", replacementRange: editor.selectedRange())
+        flush(host)
+
+        scheduler.runPending()
+        flush(host)
+        XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "")
+
+        let percentField = try nativeTextField("Min percent", in: host)
+        _ = try focus(percentField, host: host)
+        flush(host)
+        readsField = try nativeTextField("Min reads", in: host)
+        let readsStepper = try nativeStepper(adjacentTo: readsField, in: host)
+
+        XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 7)
+        XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "7")
+        XCTAssertEqual(readsField.stringValue, "7")
+        XCTAssertEqual(
+            (readsStepper.accessibilityValue() as? NSNumber)?.doubleValue,
+            7
+        )
+        XCTAssertEqual(readsStepper.accessibilityValueDescription(), "7")
     }
 
     func testHostedControlsUseSharedAccessibilityContractAndNativeActions() throws {
@@ -384,7 +429,12 @@ private final class HostedNumericFilterAnnouncements:
 private final class HostedNumericFilterScheduler:
     GenotypeNumericFilterScheduling {
     private final class Task: GenotypeNumericFilterScheduled {
+        let action: @MainActor () -> Void
         var isCancelled = false
+
+        init(action: @escaping @MainActor () -> Void) {
+            self.action = action
+        }
 
         func cancel() {
             isCancelled = true
@@ -399,10 +449,18 @@ private final class HostedNumericFilterScheduler:
 
     func schedule(
         after _: TimeInterval,
-        _: @escaping @MainActor () -> Void
+        _ action: @escaping @MainActor () -> Void
     ) -> any GenotypeNumericFilterScheduled {
-        let task = Task()
+        let task = Task(action: action)
         tasks.append(task)
         return task
+    }
+
+    func runPending() {
+        let pending = tasks
+        tasks.removeAll()
+        for task in pending where !task.isCancelled {
+            task.action()
+        }
     }
 }

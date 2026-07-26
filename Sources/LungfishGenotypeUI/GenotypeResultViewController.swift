@@ -892,7 +892,8 @@ public final class GenotypeResultViewController: NSViewController {
         haplotypeDefinitionStore = HaplotypeDefinitionStore(projectRoot: projectRoot)
         annotationStore = try? GenotypeAnnotationStore(
             bundleURL: result.bundleURL,
-            author: annotationAuthorProvider()
+            author: annotationAuthorProvider(),
+            seedBuiltInSmartCohorts: result.haplotypeAnalysis != nil
         )
         currentWorkbookIsReadOnly = annotationStore?.isReadOnly ?? false
         rebuildMatrixAnnotationIndexes()
@@ -1327,7 +1328,11 @@ public final class GenotypeResultViewController: NSViewController {
                 )
                 guard !Task.isCancelled,
                       generation == self.candidateSettingsPersistenceGeneration else { return }
-                self.annotationStore = try? GenotypeAnnotationStore(bundleURL: bundleURL, author: author)
+                self.annotationStore = try? GenotypeAnnotationStore(
+                    bundleURL: bundleURL,
+                    author: author,
+                    seedBuiltInSmartCohorts: self.hasHaplotypingResult
+                )
                 self.rebuildMatrixAnnotationIndexes()
                 self.publishMatrixReviewCapability(
                     for: self.currentSelectionState?.matrixTargets ?? []
@@ -1356,10 +1361,18 @@ public final class GenotypeResultViewController: NSViewController {
                 if let conflict = error as? GenotypeCandidateDisplayPersistenceError {
                     latest = conflict.latestSidecar
                 } else {
-                    latest = (try? GenotypeAnnotationStore(bundleURL: bundleURL, author: author).sidecar)
+                    latest = (try? GenotypeAnnotationStore(
+                        bundleURL: bundleURL,
+                        author: author,
+                        seedBuiltInSmartCohorts: self.hasHaplotypingResult
+                    ).sidecar)
                         ?? store.sidecar
                 }
-                self.annotationStore = try? GenotypeAnnotationStore(bundleURL: bundleURL, author: author)
+                self.annotationStore = try? GenotypeAnnotationStore(
+                    bundleURL: bundleURL,
+                    author: author,
+                    seedBuiltInSmartCohorts: self.hasHaplotypingResult
+                )
                 self.rebuildMatrixAnnotationIndexes()
                 self.publishMatrixReviewCapability(
                     for: self.currentSelectionState?.matrixTargets ?? []
@@ -4348,7 +4361,8 @@ public final class GenotypeResultViewController: NSViewController {
         rebuildResultIndexes(for: updatedResult)
         annotationStore = try? GenotypeAnnotationStore(
             bundleURL: updatedResult.bundleURL,
-            author: annotationAuthorProvider()
+            author: annotationAuthorProvider(),
+            seedBuiltInSmartCohorts: updatedResult.haplotypeAnalysis != nil
         )
         rebuildMatrixAnnotationIndexes()
         publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])

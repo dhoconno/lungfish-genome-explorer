@@ -932,6 +932,64 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertTrue(names.contains("Recombinants"))
     }
 
+    func testWritableNonseedingOpenPreservesSidecarAndProvenanceUntilExplicitMutation() async throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T00:00:00Z"
+        )
+        sidecar.smartCohorts = [
+            GenotypeCohortSmartFilter(
+                name: "Analyst custom",
+                scope: "bundle",
+                isStarred: true,
+                predicate: .animalIdIn(["Animal-1"])
+            ),
+        ]
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try sidecar.encoded().write(to: annotationURL)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let provenanceBytes = Data("existing provenance".utf8)
+        try provenanceBytes.write(to: provenanceURL)
+        let sidecarBytes = try Data(contentsOf: annotationURL)
+
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "test",
+            seedBuiltInSmartCohorts: false
+        )
+
+        XCTAssertFalse(store.isReadOnly)
+        XCTAssertEqual(store.sidecar.smartCohorts.map(\.name), ["Analyst custom"])
+        XCTAssertEqual(try Data(contentsOf: annotationURL), sidecarBytes)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), provenanceBytes)
+
+        let target = GenotypeAnnotationSidecar.MatrixTarget.column(
+            sample: "Animal-1"
+        )
+        try await store.upsertMatrixComment(
+            body: "Unexpected sample behavior.",
+            targets: [target],
+            author: "test"
+        )
+
+        XCTAssertEqual(store.sidecar.matrixComments.map(\.body), [
+            "Unexpected sample behavior.",
+        ])
+        XCTAssertEqual(store.sidecar.auditLog.last?.action, "upsertMatrixComment")
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(
+                fromSidecar: provenanceURL
+            )
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["action"],
+            .string("upsertMatrixComment")
+        )
+    }
+
     func testDefaultCohortsDoNotOverwriteAnalystCustomVersion() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }

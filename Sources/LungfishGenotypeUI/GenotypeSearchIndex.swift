@@ -127,11 +127,14 @@ struct GenotypeSearchIndex: Sendable {
 
     let sampleRecordCount: Int
     let projectedRowRecordCount: Int
+    let projectedRowCarrierLookupCount: Int
     let annotationAndCommentRecordCount: Int
     let haplotypeRecordCount: Int
 
     private let samples: [IndexedSample]
     private let projectedRows: [IndexedProjectedRow]
+    private let carrierSampleIDsByProjectedRowID:
+        [GenotypeCandidateMatrixRowID: Set<String>]
     private let annotationsAndComments: [IndexedAnnotationOrComment]
     private let haplotypeCarriers: [IndexedHaplotypeCarrier]
 
@@ -151,7 +154,7 @@ struct GenotypeSearchIndex: Sendable {
                 fields: fields.map(IndexedField.init)
             )
         }
-        self.projectedRows = projectedRows.map { row in
+        let indexedProjectedRows = projectedRows.map { row in
             var fields = [
                 row.displayedAllele,
                 row.rawGenotype,
@@ -167,6 +170,11 @@ struct GenotypeSearchIndex: Sendable {
                 carrierSampleIDs: row.carrierSampleIDs
             )
         }
+        self.projectedRows = indexedProjectedRows
+        carrierSampleIDsByProjectedRowID = Dictionary(
+            indexedProjectedRows.map { ($0.id, $0.carrierSampleIDs) },
+            uniquingKeysWith: { existing, latest in existing.union(latest) }
+        )
         self.annotationsAndComments = annotationsAndComments.map {
             IndexedAnnotationOrComment(
                 target: $0.target,
@@ -193,6 +201,8 @@ struct GenotypeSearchIndex: Sendable {
 
         sampleRecordCount = self.samples.count
         projectedRowRecordCount = self.projectedRows.count
+        projectedRowCarrierLookupCount =
+            carrierSampleIDsByProjectedRowID.count
         annotationAndCommentRecordCount = self.annotationsAndComments.count
         haplotypeRecordCount = self.haplotypeCarriers.count
     }
@@ -225,13 +235,9 @@ struct GenotypeSearchIndex: Sendable {
                 annotationRowIDs.insert(rowID)
             }
         }
-        let carriersByRowID = Dictionary(
-            projectedRows.map { ($0.id, $0.carrierSampleIDs) },
-            uniquingKeysWith: { existing, latest in existing.union(latest) }
-        )
         let annotationCarrierSampleIDs = annotationRowIDs.reduce(into: Set<String>()) {
             carriers, rowID in
-            carriers.formUnion(carriersByRowID[rowID] ?? [])
+            carriers.formUnion(carrierSampleIDsByProjectedRowID[rowID] ?? [])
         }
 
         var haplotypeCarrierSampleIDs = Set<String>()

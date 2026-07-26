@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishGenotypeUI
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 @MainActor
 final class InspectorProvenanceTabTests: XCTestCase {
@@ -256,6 +257,82 @@ final class InspectorProvenanceTabTests: XCTestCase {
         XCTAssertEqual(cohortSubjectBuildCount, 0)
         XCTAssertFalse(vc.viewModel.genotypeResultDisplaySectionViewModel.hasHaplotypingResult)
         XCTAssertEqual(try Data(contentsOf: annotationURL), bytesBeforeOpen)
+    }
+
+    func testGenotypeOnlyInspectorConfigurePreservesEveryPreexistingBundleByte() throws {
+        func recursiveBytes(at root: URL) throws -> [String: Data] {
+            let keys: [URLResourceKey] = [.isRegularFileKey]
+            guard let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: keys
+            ) else { return [:] }
+            var bytes: [String: Data] = [:]
+            for case let url as URL in enumerator {
+                guard try url.resourceValues(forKeys: Set(keys))
+                    .isRegularFile == true else { continue }
+                bytes[String(url.path.dropFirst(root.path.count + 1))] =
+                    try Data(contentsOf: url)
+            }
+            return bytes
+        }
+
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "inspector-genotype-only-nonseeding-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL.appendingPathComponent("custom", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T00:00:00Z"
+        )
+        sidecar.smartCohorts = [
+            GenotypeCohortSmartFilter(
+                name: "Only analyst cohort",
+                scope: "bundle",
+                isStarred: true,
+                predicate: .animalIdIn(["AnimalA"])
+            ),
+        ]
+        let annotationURL = bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try sidecar.encoded().write(to: annotationURL)
+        try Data("preexisting provenance".utf8).write(
+            to: ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        )
+        try Data("opaque artifact".utf8).write(
+            to: bundleURL.appendingPathComponent("custom/opaque.bin")
+        )
+        let before = try recursiveBytes(at: bundleURL)
+        let call = ONTGenotypeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            passedAlignments: 42,
+            passedUniqueReads: 42,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedReads: nil,
+            sampleUniqueRetainedPercent: nil,
+            overallInputReads: nil,
+            overallUniqueRetainedReads: nil,
+            overallUniqueRetainedPercent: nil
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        inspector.viewModel.contentMode = .genotype
+
+        inspector.updateGenotypeResultDocument(
+            makeGenotypeResult(
+                bundleURL: bundleURL,
+                haplotypeAnalysis: nil,
+                calls: [call]
+            )
+        )
+
+        XCTAssertEqual(try recursiveBytes(at: bundleURL), before)
     }
 
     private func makeGenotypeResult(

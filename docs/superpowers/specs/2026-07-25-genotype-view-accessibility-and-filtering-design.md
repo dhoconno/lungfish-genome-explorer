@@ -1,6 +1,6 @@
 # Genotype View Accessibility and Filtering Design
 
-**Date:** 2026-07-25  
+**Date:** 2026-07-25
 **Status:** Approved for autonomous implementation after independent UX and technical review
 
 ## 1. Purpose

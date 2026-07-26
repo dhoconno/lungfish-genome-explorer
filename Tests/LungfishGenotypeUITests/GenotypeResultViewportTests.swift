@@ -5842,6 +5842,73 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingHaplotypeWorkCount, 0)
     }
 
+    func testGenotypeOnlyViewportConfigurePreservesEveryPreexistingBundleByte() throws {
+        func recursiveBytes(at root: URL) throws -> [String: Data] {
+            let keys: [URLResourceKey] = [.isRegularFileKey]
+            guard let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: keys
+            ) else { return [:] }
+            var bytes: [String: Data] = [:]
+            for case let url as URL in enumerator {
+                guard try url.resourceValues(forKeys: Set(keys))
+                    .isRegularFile == true else { continue }
+                bytes[String(url.path.dropFirst(root.path.count + 1))] =
+                    try Data(contentsOf: url)
+            }
+            return bytes
+        }
+
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "genotype-only-nonseeding-viewport-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL.appendingPathComponent("custom", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T00:00:00Z"
+        )
+        sidecar.smartCohorts = [
+            GenotypeCohortSmartFilter(
+                name: "Only analyst cohort",
+                scope: "bundle",
+                isStarred: true,
+                predicate: .animalIdIn(["AnimalA"])
+            ),
+        ]
+        let annotationURL = bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try sidecar.encoded().write(to: annotationURL)
+        try Data("preexisting provenance".utf8).write(
+            to: ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        )
+        try Data("opaque artifact".utf8).write(
+            to: bundleURL.appendingPathComponent("custom/opaque.bin")
+        )
+        let before = try recursiveBytes(at: bundleURL)
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call],
+            haplotypeAnalysis: nil
+        ))
+
+        XCTAssertEqual(try recursiveBytes(at: bundleURL), before)
+    }
+
     func testAICompletionWithoutAnalysisClearsUnsupportedHaplotypeState() {
         let call = makeCall(
             sample: "AnimalA",
@@ -13959,6 +14026,136 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
         print(
             "Task6 150-column Debug metrics: derived_total=\(performance.derivedProjectionTotalSeconds), "
+                + "derived_max=\(performance.derivedProjectionMaximumSeconds), "
+                + "visible_total=\(performance.commitToVisibleTotalSeconds), "
+                + "visible_max=\(performance.commitToVisibleMaximumSeconds)"
+        )
+    }
+
+    func testRapidThresholdPipelineWithSearchAndManualVisibilityMeetsBudgetsWithoutMutation() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeCompleteViewPipeline-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("provenance", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        _ = try GenotypeAnnotationStore(bundleURL: root, author: "benchmark-seed")
+        try Data("workflow-provenance-sentinel\n".utf8).write(
+            to: root.appendingPathComponent("provenance/workflow.json")
+        )
+        try Data("current-workbook-sentinel\n".utf8).write(
+            to: root.appendingPathComponent("current.xlsx")
+        )
+
+        func recursiveBytes() throws -> [String: Data] {
+            let enumerator = try XCTUnwrap(
+                FileManager.default.enumerator(
+                    at: root,
+                    includingPropertiesForKeys: [.isRegularFileKey]
+                )
+            )
+            var bytes: [String: Data] = [:]
+            for case let url as URL in enumerator {
+                guard try url.resourceValues(forKeys: [.isRegularFileKey])
+                    .isRegularFile == true else {
+                    continue
+                }
+                let relative = url.path.replacingOccurrences(
+                    of: root.path + "/",
+                    with: ""
+                )
+                bytes[relative] = try Data(contentsOf: url)
+            }
+            return bytes
+        }
+
+        let base = makeRetainedDemuxSizedResult()
+        let result = makeResult(
+            bundleURL: root,
+            samples: base.samples,
+            calls: base.calls,
+            referenceMetadata: base.referenceMetadata
+        )
+        let before = try recursiveBytes()
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        let matrix = controller.testingComparisonMatrix
+        matrix.frame = NSRect(x: 0, y: 0, width: 1_200, height: 320)
+        matrix.layoutSubtreeIfNeeded()
+
+        controller.testingSetQuickFilterSearchText("Mafa")
+        controller.testingClickMatrixRowChiclet(
+            genotype: "00_Mafa_A1_000_01"
+        )
+        controller.testingHideSelectedMatrixRows()
+        controller.testingSelectMatrixColumn(sample: "LF2851")
+        controller.testingHideSelectedMatrixColumns()
+        XCTAssertEqual(controller.testingQuickSearchText, "Mafa")
+        XCTAssertTrue(controller.testingMatrixVisibilityCapability.canResetVisibility)
+        XCTAssertEqual(matrix.testingVisibleRows.count, 119)
+        XCTAssertEqual(matrix.testingVisibleSampleNames.count, 51)
+
+        controller.testingResetProjectionPerformanceCounters()
+        let scheduler = MatrixProjectionManualNumericScheduler()
+        let viewModel = GenotypeResultDisplaySectionViewModel(
+            numericFilterScheduler: scheduler,
+            numericFilterLocale: Locale(identifier: "en_US"),
+            numericFilterValidationAnnouncementPoster:
+                AccessibilityAnnouncementPoster()
+        )
+        viewModel.onDisplayStateChanged = { controller.applyDisplayState($0) }
+        for threshold in 1...20 {
+            viewModel.updateMatrixMinimumReadsDraft(String(threshold))
+        }
+
+        scheduler.runPending()
+        matrix.layoutSubtreeIfNeeded()
+        await Task.yield()
+
+        let aggregate = controller.testingProjectionPerformanceSnapshot
+        let performance = aggregate.matrix
+        let enforcesReleaseBudget =
+            ProcessInfo.processInfo.environment[
+                "LUNGFISH_RELEASE_PERFORMANCE_TEST"
+            ] == "1"
+        let derivedCeiling: TimeInterval =
+            enforcesReleaseBudget ? 0.050 : 0.500
+        let visibleCeiling: TimeInterval =
+            enforcesReleaseBudget ? 0.100 : 0.500
+        XCTAssertEqual(performance.baseProjectionBuildCount, 1)
+        XCTAssertEqual(performance.derivedProjectionPassCount, 1)
+        XCTAssertLessThanOrEqual(
+            performance.derivedProjectionMaximumSeconds,
+            derivedCeiling
+        )
+        XCTAssertEqual(performance.commitToVisibleCount, 1)
+        XCTAssertLessThanOrEqual(
+            performance.commitToVisibleMaximumSeconds,
+            visibleCeiling
+        )
+        XCTAssertEqual(performance.columnRebuildCount, 0)
+        XCTAssertLessThanOrEqual(performance.pinnedFullReloadCount, 1)
+        XCTAssertLessThanOrEqual(performance.sampleFullReloadCount, 1)
+        XCTAssertEqual(aggregate.anchorLensRebuildCount, 0)
+        XCTAssertEqual(aggregate.consumerLensRebuildCount, 0)
+        XCTAssertEqual(aggregate.cohortSummaryRebuildCount, 0)
+        XCTAssertEqual(aggregate.layoutApplicationCount, 0)
+        XCTAssertEqual(controller.testingDisplayState.matrixMinimumReads, 20)
+        XCTAssertEqual(controller.testingQuickSearchText, "Mafa")
+        XCTAssertTrue(controller.testingMatrixVisibilityCapability.canResetVisibility)
+        XCTAssertEqual(matrix.testingVisibleRows.count, 112)
+        XCTAssertEqual(matrix.testingVisibleSampleNames.count, 51)
+        XCTAssertEqual(try recursiveBytes(), before)
+        XCTAssertFalse(controller.testingCurrentWorkbookNeedsRefresh)
+        XCTAssertFalse(controller.testingCurrentWorkbookRequiresFullUpdate)
+        print(
+            "Complete pipeline \(enforcesReleaseBudget ? "Release" : "Debug") metrics: "
+                + "derived_total=\(performance.derivedProjectionTotalSeconds), "
                 + "derived_max=\(performance.derivedProjectionMaximumSeconds), "
                 + "visible_total=\(performance.commitToVisibleTotalSeconds), "
                 + "visible_max=\(performance.commitToVisibleMaximumSeconds)"

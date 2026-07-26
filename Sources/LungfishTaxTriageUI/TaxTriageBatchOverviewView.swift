@@ -9,6 +9,26 @@ import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.app", category: "TaxTriageBatchOverview")
 
+/// A reusable table cell that paints its semantic background through AppKit's
+/// normal drawing lifecycle. This keeps heatmap and risk fills independent of
+/// explicit Core Animation layer backing.
+private final class TaxTriageBackgroundCellView: NSTableCellView {
+    var backgroundFillColor: NSColor? {
+        didSet {
+            guard oldValue != backgroundFillColor else { return }
+            needsDisplay = true
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if let backgroundFillColor {
+            backgroundFillColor.setFill()
+            dirtyRect.fill()
+        }
+        super.draw(dirtyRect)
+    }
+}
+
 // MARK: - TaxTriageBatchOverviewView
 
 /// A scrollable overview showing an organism x sample heatmap and cross-sample summary table
@@ -599,7 +619,7 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
         field.setAccessibilityValue(nil)
         field.setAccessibilityHelp(nil)
         cellView.toolTip = nil
-        cellView.layer?.backgroundColor = nil
+        setBackgroundFillColor(nil, on: cellView)
 
         switch id {
         case "organism":
@@ -613,7 +633,7 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
             field.stringValue = String(format: "%.2f", data.meanTASS)
             field.alignment = .right
             let color = Self.tassColor(for: data.meanTASS)
-            cellView.layer?.backgroundColor = color.cgColor
+            setBackgroundFillColor(color, on: cellView)
 
         case "reads":
             if data.minReads == data.maxReads {
@@ -627,7 +647,10 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
             if data.isContaminationRisk {
                 field.stringValue = "\u{26A0}"  // warning sign
                 field.alignment = .center
-                cellView.layer?.backgroundColor = NSColor.lungfishDanger.withAlphaComponent(0.15).cgColor
+                setBackgroundFillColor(
+                    NSColor.lungfishDanger.withAlphaComponent(0.15),
+                    on: cellView
+                )
             }
 
         default:
@@ -643,7 +666,7 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                         field.stringValue = "-"
                     }
                     field.alignment = .center
-                    cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
+                    setBackgroundFillColor(Self.tassColor(for: score), on: cellView)
 
                 case .reads:
                     if let reads = data.perSampleReads[sampleId] {
@@ -652,7 +675,7 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                         field.stringValue = "-"
                     }
                     field.alignment = .center
-                    cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
+                    setBackgroundFillColor(Self.tassColor(for: score), on: cellView)
 
                 case .uniqueReads:
                     if let unique = data.perSampleUniqueReads[sampleId] {
@@ -664,7 +687,7 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                         field.stringValue = "-"
                     }
                     field.alignment = .center
-                    cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
+                    setBackgroundFillColor(Self.tassColor(for: score), on: cellView)
 
                 case .coverage:
                     if let cov = data.perSampleCoverage[sampleId], cov > 0 {
@@ -673,7 +696,7 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                         field.stringValue = "-"
                     }
                     field.alignment = .center
-                    cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
+                    setBackgroundFillColor(Self.tassColor(for: score), on: cellView)
                 }
             }
         }
@@ -692,10 +715,13 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
         }
     }
 
+    private func setBackgroundFillColor(_ color: NSColor?, on cellView: NSTableCellView) {
+        (cellView as? TaxTriageBackgroundCellView)?.backgroundFillColor = color
+    }
+
     private func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
-        let cell = NSTableCellView()
+        let cell = TaxTriageBackgroundCellView()
         cell.identifier = identifier
-        cell.wantsLayer = true
         let tf = NSTextField(labelWithString: "")
         applyContentTypography(to: tf, column: identifier)
         tf.translatesAutoresizingMaskIntoConstraints = false
@@ -774,6 +800,10 @@ extension TaxTriageBatchOverviewView {
 
     func testingCell(column identifier: String, row: Int) -> NSTextField? {
         (testingCellView(column: identifier, row: row) as? NSTableCellView)?.textField
+    }
+
+    func testingBackgroundFillColor(in cell: NSTableCellView) -> NSColor? {
+        (cell as? TaxTriageBackgroundCellView)?.backgroundFillColor
     }
 
     func testingRowIndex(organism: String) -> Int? {

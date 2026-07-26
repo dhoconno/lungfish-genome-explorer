@@ -233,6 +233,22 @@ final class GenotypeSearchIndexTests: XCTestCase {
         XCTAssertTrue(index.search("Changed").sampleIdentityAndMetadataIDs.isEmpty)
     }
 
+    func testProjectedRowCarrierLookupIsPrecomputedOnceAndReusedAcrossQueries() {
+        let index = makeIndex(
+            annotations: [
+                .init(target: .row(alleleRowID), text: "review carrier lookup"),
+            ]
+        )
+
+        XCTAssertEqual(index.projectedRowCarrierLookupCount, 2)
+        XCTAssertEqual(
+            index.search("review carrier").annotationAndCommentCarrierSampleIDs,
+            ["CR1178", "CR1178b"]
+        )
+        XCTAssertEqual(index.search("A1*007").alleleCarrierSampleIDs, ["CR1178", "CR1178b"])
+        XCTAssertEqual(index.projectedRowCarrierLookupCount, 2)
+    }
+
     private func makeIndex(
         annotations: [GenotypeSearchIndex.AnnotationOrCommentRecord] = [],
         hasHaplotypingResult: Bool = false,
