@@ -53,6 +53,10 @@ provenance/manifest files. The transaction remains open through final manifest
 commit, so a failed command cannot leave unprovenanced scientific payloads
 masquerading as a result bundle.
 
+Regenerable mapping-intermediate cleanup runs only after that commit and is
+best-effort. A housekeeping failure may leave an intermediate for later
+cleanup, but cannot roll back or damage the completed, provenanced result.
+
 After a GUI-launched workflow completes, Operation Center discovers these
 outputs through the validated bundle manifest and result loader. It reports the
 retained BAM/BAI and optional provisional JSON/FASTA, while continuing to omit

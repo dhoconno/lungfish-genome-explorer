@@ -696,6 +696,7 @@ private final class ONTGenotypingMappingProcessGroup: @unchecked Sendable {
 public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private let condaManager: CondaManager
     private let referenceImporter: ReferenceBundleImportService
+    private let fileRemover: @Sendable (URL) throws -> Void
     private static let mappingProcessTimeout: TimeInterval = 86_400
 
     public init(
@@ -704,6 +705,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     ) {
         self.condaManager = condaManager
         self.referenceImporter = referenceImporter
+        self.fileRemover = { url in
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+
+    init(
+        condaManager: CondaManager,
+        referenceImporter: ReferenceBundleImportService = .shared,
+        fileRemover: @escaping @Sendable (URL) throws -> Void
+    ) {
+        self.condaManager = condaManager
+        self.referenceImporter = referenceImporter
+        self.fileRemover = fileRemover
     }
 
     public func run(
@@ -797,6 +811,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             pythonURL: pythonURL
         )
 
+        let finalizedResult: ONTBarcodeDemuxGenotypingResult
+        let preserveRetainedEvidence: Bool
         do {
             progressHandler?(0.76, "Writing retained-demux genotype summaries.")
             try copyFilterOutput(
@@ -893,15 +909,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 scientificArtifactPublication: scientificArtifactPublication,
                 completedAt: completedAt
             )
-            progressHandler?(0.97, "Removing regenerable alignment intermediates.")
-            try removeGeneratedAlignmentIntermediates(
-                for: request,
-                mapping: mapping,
-                preserveRetainedEvidence: scientificArtifactPublication != nil
-            )
-            progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
-
-            return ONTBarcodeDemuxGenotypingResult(
+            preserveRetainedEvidence = scientificArtifactPublication != nil
+            finalizedResult = ONTBarcodeDemuxGenotypingResult(
                 outputDirectory: request.outputDirectory,
                 mappingBAMURL: request.mappingBAMURL,
                 mappingBAIURL: request.mappingBAIURL,
@@ -931,6 +940,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             }
             throw error
         }
+
+        progressHandler?(0.97, "Removing regenerable alignment intermediates.")
+        try? removeGeneratedAlignmentIntermediates(
+            for: request,
+            mapping: mapping,
+            preserveRetainedEvidence: preserveRetainedEvidence
+        )
+        progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
+        return finalizedResult
     }
 
     public static func resolveInputFASTQURLs(for inputURL: URL) throws -> [URL] {
@@ -3709,7 +3727,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ]
         }
         for url in removableURLs where FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
+            try fileRemover(url)
         }
     }
 
@@ -3758,7 +3776,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ),
         ]
         for url in removableURLs where FileManager.default.fileExists(atPath: url.path) {
-            try? FileManager.default.removeItem(at: url)
+            try? fileRemover(url)
         }
     }
 

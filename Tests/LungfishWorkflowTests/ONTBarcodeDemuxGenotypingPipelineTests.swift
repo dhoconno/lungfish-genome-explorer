@@ -1040,6 +1040,82 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         }
     }
 
+    func testPostCommitIntermediateCleanupFailurePreservesProvenancedResult() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        try ">allele1\nAACCGGTT\n".write(
+            to: referenceFASTA,
+            atomically: true,
+            encoding: .utf8
+        )
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "AACCGGTT"
+        )
+        let outputDirectory = root.appendingPathComponent(
+            "miseq-cleanup-failure.lungfishgenotype",
+            isDirectory: true
+        )
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-cleanup-failure",
+            analysisName: "MiSeq cleanup failure",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+        let pipeline = ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            ),
+            fileRemover: { url in
+                if url.standardizedFileURL == request.mappingBAMURL.standardizedFileURL {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+                try FileManager.default.removeItem(at: url)
+            }
+        )
+
+        let result = try await pipeline.run(request)
+
+        XCTAssertEqual(result.outputDirectory, outputDirectory.standardizedFileURL)
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        XCTAssertNotNil(manifest.alignmentArtifacts?.genotypingEvidence)
+        for url in [
+            request.retainedBAMURL,
+            request.retainedBAIURL,
+            request.reportCSVURL,
+            request.sampleSummaryCSVURL,
+            request.statsJSONURL,
+            request.workbookURL,
+            request.currentWorkbookURL,
+            request.reportProvenanceURL,
+            request.provenanceURL,
+            outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename),
+            ONTGenotypeResultBundle.manifestURL(in: outputDirectory),
+        ] {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: url.path),
+                "Post-commit cleanup failure removed valid output: \(url.path)"
+            )
+        }
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: request.mappingBAMURL.path),
+            "The injected failure should leave only the regenerable intermediate behind"
+        )
+    }
+
     func testIlluminaCohortMapsEachSampleWithSeparateMinimap2Invocation() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
