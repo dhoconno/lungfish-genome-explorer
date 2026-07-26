@@ -1188,6 +1188,10 @@ public final class GenotypeResultViewController: NSViewController {
         onSelectionStateChanged?(currentSelectionState)
     }
 
+    public func notifyMatrixVisibilityCapabilityIfAvailable() {
+        onMatrixVisibilityCapabilityChanged?(matrixVisibilityCapability)
+    }
+
     public func notifyDisplayStateIfAvailable() {
         onDisplayStateChanged?(displayState)
     }
@@ -1873,39 +1877,62 @@ public final class GenotypeResultViewController: NSViewController {
         comparisonMatrix.setSupportSelectionPreviewMinimumReads(minimumReads)
     }
 
-    public func showOnlySelectedMatrixRows() {
+    @discardableResult
+    public func performMatrixVisibilityCommand(
+        _ command: GenotypeMatrixVisibilityCommand
+    ) -> Bool {
         ensureComparisonMatrixConfigured()
-        comparisonMatrix.showOnlySelectedRows()
+        switch command {
+        case .hideSelectedRows:
+            guard matrixVisibilityCapability.canHideSelectedRows else { return false }
+            return comparisonMatrix.hideSelectedRows()
+        case .showOnlySelectedRows:
+            guard matrixVisibilityCapability.canShowOnlySelectedRows else { return false }
+            return comparisonMatrix.showOnlySelectedRows()
+        case .showAllRows:
+            guard matrixVisibilityCapability.canShowAllRows else { return false }
+            return comparisonMatrix.showAllRows()
+        case .hideSelectedColumns:
+            guard matrixVisibilityCapability.canHideSelectedColumns else { return false }
+            return comparisonMatrix.hideSelectedColumns()
+        case .showOnlySelectedColumns:
+            guard matrixVisibilityCapability.canShowOnlySelectedColumns else { return false }
+            return comparisonMatrix.showOnlySelectedColumns()
+        case .showAllColumns:
+            guard matrixVisibilityCapability.canShowAllColumns else { return false }
+            return comparisonMatrix.showAllColumns()
+        case .reset:
+            guard matrixVisibilityCapability.canResetVisibility else { return false }
+            return comparisonMatrix.resetVisibility()
+        }
+    }
+
+    public func showOnlySelectedMatrixRows() {
+        performMatrixVisibilityCommand(.showOnlySelectedRows)
     }
 
     public func hideSelectedMatrixRows() {
-        ensureComparisonMatrixConfigured()
-        comparisonMatrix.hideSelectedRows()
+        performMatrixVisibilityCommand(.hideSelectedRows)
     }
 
     public func showAllMatrixRows() {
-        ensureComparisonMatrixConfigured()
-        comparisonMatrix.showAllRows()
+        performMatrixVisibilityCommand(.showAllRows)
     }
 
     public func showOnlySelectedMatrixColumns() {
-        ensureComparisonMatrixConfigured()
-        comparisonMatrix.showOnlySelectedColumns()
+        performMatrixVisibilityCommand(.showOnlySelectedColumns)
     }
 
     public func hideSelectedMatrixColumns() {
-        ensureComparisonMatrixConfigured()
-        comparisonMatrix.hideSelectedColumns()
+        performMatrixVisibilityCommand(.hideSelectedColumns)
     }
 
     public func showAllMatrixColumns() {
-        ensureComparisonMatrixConfigured()
-        comparisonMatrix.showAllColumns()
+        performMatrixVisibilityCommand(.showAllColumns)
     }
 
     public func resetMatrixVisibility() {
-        ensureComparisonMatrixConfigured()
-        comparisonMatrix.resetVisibility()
+        performMatrixVisibilityCommand(.reset)
     }
 
     public func clearMatrixSelectionFilter() {
@@ -7981,9 +8008,21 @@ extension GenotypeResultViewController {
         comparisonMatrix.testingSetContextMenuSnapshotSourceFactory(factory)
     }
 
+    func testingSetMatrixVisibilityAnnouncementPoster(
+        _ poster: any AccessibilityAnnouncementPosting
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSetVisibilityAnnouncementPoster(poster)
+    }
+
     func testingPerformMatrixContextCommand(_ command: GenotypeMatrixContextCommand) -> Bool {
         ensureComparisonMatrixConfigured()
         return comparisonMatrix.testingPerformContextCommand(command)
+    }
+
+    func testingActivateMatrixContextMenuItem(_ item: NSMenuItem) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingActivateContextMenuItem(item)
     }
 
     func testingPerformMatrixKeyboardCommand(_ command: GenotypeMatrixContextCommand) -> Bool {

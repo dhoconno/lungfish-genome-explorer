@@ -25,6 +25,7 @@ extension ViewerViewController {
         hideAssemblyView()
         hideMappingView()
         hideMHCReferenceBundleView()
+        hideGenotypeResultView()
         hideAlignmentTreeBundleViews()
         hideTwelveSAmpliconResultView()
         clearBundleDisplay()

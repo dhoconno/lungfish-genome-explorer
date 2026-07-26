@@ -311,6 +311,15 @@ extension MainSplitViewController {
                     self?.inspectorController.genotypeResultDisplaySectionViewModel
                         .updateMatrixReviewCapability(capability)
                 }
+                controller.onMatrixVisibilityCapabilityChanged = { [weak self, weak controller] capability in
+                    guard let self,
+                          self.viewerController.genotypeResultViewController === controller
+                    else {
+                        return
+                    }
+                    self.inspectorController.genotypeResultDisplaySectionViewModel
+                        .updateMatrixVisibilityCapability(capability)
+                }
                 controller.onCandidatePersistenceWarningChanged = { [weak self] warning in
                     self?.inspectorController.genotypeResultDisplaySectionViewModel
                         .updateMHCCandidatePersistenceWarning(warning)
@@ -364,20 +373,20 @@ extension MainSplitViewController {
                 inspectorController.genotypeResultDisplaySectionViewModel.onSupportSelectionPreviewChanged = { [weak controller] minimumReads in
                     controller?.setMatrixSupportSelectionPreviewMinimumReads(minimumReads)
                 }
-                inspectorController.genotypeResultDisplaySectionViewModel.onShowOnlySelectedMatrixRowsRequested = { [weak controller] in
-                    controller?.showOnlySelectedMatrixRows()
-                }
-                inspectorController.genotypeResultDisplaySectionViewModel.onShowOnlySelectedMatrixColumnsRequested = { [weak controller] in
-                    controller?.showOnlySelectedMatrixColumns()
-                }
-                inspectorController.genotypeResultDisplaySectionViewModel.onClearMatrixSelectionFilterRequested = { [weak controller] in
-                    controller?.clearMatrixSelectionFilter()
+                inspectorController.genotypeResultDisplaySectionViewModel.onMatrixVisibilityCommandRequested = { [weak self, weak controller] command in
+                    guard let self,
+                          self.viewerController.genotypeResultViewController === controller
+                    else {
+                        return
+                    }
+                    controller?.performMatrixVisibilityCommand(command)
                 }
                 inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
                     controller?.applyHighlight(request)
                 }
                 controller.notifyDisplayStateIfAvailable()
                 controller.notifySelectionStateIfAvailable()
+                controller.notifyMatrixVisibilityCapabilityIfAvailable()
                 controller.requestCurrentWorkbookRegistration()
             } catch is CancellationError {
                 return
@@ -642,6 +651,7 @@ extension MainSplitViewController {
                     annotationOnly: context.annotationOnly
                 )
                 self.inspectorController.updateGenotypeResultDocument(updated)
+                controller.notifyMatrixVisibilityCapabilityIfAvailable()
                 self.sidebarController.requestReloadFromFilesystem()
             } catch is CancellationError {
                 return

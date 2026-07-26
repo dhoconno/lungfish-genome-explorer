@@ -61,6 +61,8 @@ public final class GenotypeResultDisplaySectionViewModel {
         comments: [],
         isWritable: false
     )
+    public private(set) var matrixVisibilityCapability =
+        GenotypeMatrixVisibilityCapabilitySnapshot.empty
 
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)? {
         didSet {
@@ -76,9 +78,8 @@ public final class GenotypeResultDisplaySectionViewModel {
         set { onMatrixCommentRequested = newValue }
     }
     public var onSupportSelectionPreviewChanged: ((Int) -> Void)?
-    public var onShowOnlySelectedMatrixRowsRequested: (() -> Void)?
-    public var onShowOnlySelectedMatrixColumnsRequested: (() -> Void)?
-    public var onClearMatrixSelectionFilterRequested: (() -> Void)?
+    public var onMatrixVisibilityCommandRequested:
+        ((GenotypeMatrixVisibilityCommand) -> Void)?
 
     @ObservationIgnored
     private var isUpdatingFromSelection = false
@@ -198,6 +199,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         self.isAvailable = isAvailable
         self.hasHaplotypingResult = hasHaplotypingResult
         self.isGenotypeOnlyResult = isGenotypeOnlyResult
+        matrixVisibilityCapability = .empty
         setNormalizedDisplayState(state)
         synchronizeNumericFilterDrafts()
         updateSelection(nil)
@@ -229,6 +231,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         mhcCandidatePersistenceWarning = nil
         isGenotypeOnlyResult = false
         matrixReviewCapability = Self.emptyMatrixReviewCapability
+        matrixVisibilityCapability = .empty
         matrixCommentDrafts = [:]
         loadedMatrixCommentStates = [:]
         updateSelection(nil)
@@ -414,16 +417,69 @@ public final class GenotypeResultDisplaySectionViewModel {
         notifyStateChanged()
     }
 
+    public func updateMatrixVisibilityCapability(
+        _ capability: GenotypeMatrixVisibilityCapabilitySnapshot
+    ) {
+        matrixVisibilityCapability = capability
+    }
+
+    public var matrixVisibilityScopeSummary: String {
+        matrixVisibilityCapability.summary
+    }
+
+    public var matrixVisibilityStatus: String {
+        switch (
+            matrixVisibilityCapability.isRowVisibilityActive,
+            matrixVisibilityCapability.isColumnVisibilityActive
+        ) {
+        case (false, false):
+            return "No manual visibility restrictions."
+        case (true, false):
+            return "Manual allele-row visibility is active."
+        case (false, true):
+            return "Manual sample-column visibility is active."
+        case (true, true):
+            return "Manual allele-row and sample-column visibility are active."
+        }
+    }
+
+    public var canResetMatrixVisibility: Bool {
+        matrixVisibilityCapability.canResetVisibility
+    }
+
+    func hideSelectedMatrixRows() {
+        guard matrixVisibilityCapability.canHideSelectedRows else { return }
+        onMatrixVisibilityCommandRequested?(.hideSelectedRows)
+    }
+
     func showOnlySelectedMatrixRows() {
-        onShowOnlySelectedMatrixRowsRequested?()
+        guard matrixVisibilityCapability.canShowOnlySelectedRows else { return }
+        onMatrixVisibilityCommandRequested?(.showOnlySelectedRows)
+    }
+
+    func showAllMatrixRows() {
+        guard matrixVisibilityCapability.canShowAllRows else { return }
+        onMatrixVisibilityCommandRequested?(.showAllRows)
+    }
+
+    func hideSelectedMatrixColumns() {
+        guard matrixVisibilityCapability.canHideSelectedColumns else { return }
+        onMatrixVisibilityCommandRequested?(.hideSelectedColumns)
     }
 
     func showOnlySelectedMatrixColumns() {
-        onShowOnlySelectedMatrixColumnsRequested?()
+        guard matrixVisibilityCapability.canShowOnlySelectedColumns else { return }
+        onMatrixVisibilityCommandRequested?(.showOnlySelectedColumns)
     }
 
-    func clearMatrixSelectionFilter() {
-        onClearMatrixSelectionFilterRequested?()
+    func showAllMatrixColumns() {
+        guard matrixVisibilityCapability.canShowAllColumns else { return }
+        onMatrixVisibilityCommandRequested?(.showAllColumns)
+    }
+
+    func resetMatrixVisibility() {
+        guard matrixVisibilityCapability.canResetVisibility else { return }
+        onMatrixVisibilityCommandRequested?(.reset)
     }
 
     func setSupportDenominator(_ denominator: ONTGenotypeSupportDenominator) {
@@ -1104,6 +1160,7 @@ public struct GenotypeResultDisplaySection: View {
                     }
                     thresholdGuidance
                     matrixFilterControls
+                    matrixVisibilityControls
                     colorControls
                     highlightControls
                     Text("Visual filters do not change genotype calls.")
@@ -1237,10 +1294,14 @@ public struct GenotypeResultDisplaySection: View {
 
     private var thresholdGuidance: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Haplotype thresholds")
+            Text("Run and Calling Thresholds")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("Thresholds are fixed by the genotyping run. Re-run miSeq amplicon MHC genotyping to change min reads or percent thresholds.")
+            Text(
+                "Genotype calls and haplotype thresholds are fixed by the completed run. "
+                    + "Re-run the original genotyping workflow to change them. "
+                    + "The editable search and support filters below affect only this view."
+            )
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1249,10 +1310,10 @@ public struct GenotypeResultDisplaySection: View {
 
     private var matrixFilterControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Matrix Filters")
+            Text("Search and Support Filters")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            TextField("Rows: locus, genotype, or sample", text: Binding(
+            TextField("Alleles", text: Binding(
                 get: { viewModel.displayState.matrixRowFilterText },
                 set: { viewModel.setMatrixRowFilterText($0) }
             ))
@@ -1263,29 +1324,6 @@ public struct GenotypeResultDisplaySection: View {
                 set: { viewModel.setMatrixSampleFilterText($0) }
             ))
             .textFieldStyle(.roundedBorder)
-            .controlSize(.small)
-            HStack(spacing: 8) {
-                Button {
-                    viewModel.showOnlySelectedMatrixRows()
-                } label: {
-                    Label("Rows", systemImage: "line.3.horizontal.decrease.circle")
-                }
-                .disabled(!viewModel.hasMatrixSelection)
-
-                Button {
-                    viewModel.showOnlySelectedMatrixColumns()
-                } label: {
-                    Label("Columns", systemImage: "rectangle.split.3x1")
-                }
-                .disabled(!viewModel.hasMatrixSelection)
-
-                Button {
-                    viewModel.clearMatrixSelectionFilter()
-                } label: {
-                    Label("Clear", systemImage: "xmark.circle")
-                }
-            }
-            .buttonStyle(.borderless)
             .controlSize(.small)
             HStack(spacing: 6) {
                 Text(
@@ -1414,6 +1452,84 @@ public struct GenotypeResultDisplaySection: View {
             .pickerStyle(.segmented)
             .controlSize(.small)
         }
+    }
+
+    private var matrixVisibilityControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Selected Rows and Columns")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(viewModel.matrixVisibilityScopeSummary)
+                .font(.callout)
+                .accessibilityIdentifier("genotype-view-visibility-scope")
+            Text(viewModel.matrixVisibilityStatus)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("genotype-view-visibility-status")
+            Text(
+                "Select allele row markers or sample column headers to change visibility. "
+                    + "Visibility actions use the selection. Search and support filters always "
+                    + "apply to the currently visible matrix."
+            )
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("genotype-view-visibility-guidance")
+            HStack(spacing: 8) {
+                Menu("Rows…") {
+                    Button("Hide Selected Rows") {
+                        viewModel.hideSelectedMatrixRows()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canHideSelectedRows)
+                    .accessibilityIdentifier("genotype-view-hide-selected-rows")
+                    Button("Show Only Selected Rows") {
+                        viewModel.showOnlySelectedMatrixRows()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canShowOnlySelectedRows)
+                    .accessibilityIdentifier("genotype-view-show-only-selected-rows")
+                    Divider()
+                    Button("Show All Rows") {
+                        viewModel.showAllMatrixRows()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canShowAllRows)
+                    .accessibilityIdentifier("genotype-view-show-all-rows")
+                }
+                .accessibilityIdentifier("genotype-view-row-visibility-menu")
+
+                Menu("Columns…") {
+                    Button("Hide Selected Columns") {
+                        viewModel.hideSelectedMatrixColumns()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canHideSelectedColumns)
+                    .accessibilityIdentifier("genotype-view-hide-selected-columns")
+                    Button("Show Only Selected Columns") {
+                        viewModel.showOnlySelectedMatrixColumns()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canShowOnlySelectedColumns)
+                    .accessibilityIdentifier("genotype-view-show-only-selected-columns")
+                    Divider()
+                    Button("Show All Columns") {
+                        viewModel.showAllMatrixColumns()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canShowAllColumns)
+                    .accessibilityIdentifier("genotype-view-show-all-columns")
+                }
+                .accessibilityIdentifier("genotype-view-column-visibility-menu")
+            }
+            .controlSize(.small)
+
+            Button {
+                viewModel.resetMatrixVisibility()
+            } label: {
+                Label("Reset Visibility", systemImage: "arrow.counterclockwise")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .disabled(!viewModel.canResetMatrixVisibility)
+            .accessibilityIdentifier("genotype-view-reset-visibility")
+        }
+        .accessibilityIdentifier("genotype-view-visibility-group")
     }
 
     private var colorControls: some View {

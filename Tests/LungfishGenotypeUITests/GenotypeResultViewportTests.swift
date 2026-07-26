@@ -598,6 +598,501 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(snapshotSourceSpy?.snapshotReadCount, 1)
     }
 
+    func testMatrixVisibilityContextBuilderUsesTopLevelCommandsForPureDimensions() {
+        let rowTargets: [GenotypeAnnotationSidecar.MatrixTarget] = [
+            .row(locus: "MHC-A", genotype: "A1"),
+            .row(locus: "MHC-B", genotype: "B1"),
+        ]
+        let rowCapability = GenotypeMatrixVisibilityCapabilitySnapshot(
+            selection: .init(targets: rowTargets),
+            visibility: .init()
+        )
+        let reviewCapability = GenotypeMatrixReviewCapability.evaluate(
+            selection: rowTargets,
+            evidence: .init(),
+            reviews: [],
+            comments: [],
+            isWritable: false
+        )
+
+        let rows = GenotypeMatrixContextMenuBuilder.make(snapshot: .init(
+            selectionTargets: rowTargets,
+            capability: reviewCapability,
+            visibilityCapability: rowCapability,
+            keyModifierRawValue: 0
+        ))
+
+        XCTAssertEqual(
+            rows.visibilityItems.map(\.title),
+            ["Hide 2 Selected Rows", "Show Only 2 Selected Rows"]
+        )
+        XCTAssertEqual(
+            rows.visibilityItems.map(\.command),
+            [.hideSelectedRows, .showOnlySelectedRows]
+        )
+        XCTAssertTrue(rows.visibilitySubmenus.isEmpty)
+        XCTAssertEqual(rows.items.first?.command, .markFalsePositive)
+
+        let columnTargets: [GenotypeAnnotationSidecar.MatrixTarget] = [
+            .column(sample: "AnimalA"),
+        ]
+        let columns = GenotypeMatrixContextMenuBuilder.make(snapshot: .init(
+            selectionTargets: columnTargets,
+            capability: GenotypeMatrixReviewCapability.evaluate(
+                selection: columnTargets,
+                evidence: .init(),
+                reviews: [],
+                comments: [],
+                isWritable: false
+            ),
+            visibilityCapability: .init(
+                selection: .init(targets: columnTargets),
+                visibility: .init()
+            ),
+            keyModifierRawValue: 0
+        ))
+
+        XCTAssertEqual(
+            columns.visibilityItems.map(\.title),
+            ["Hide 1 Selected Column", "Show Only 1 Selected Column"]
+        )
+        XCTAssertEqual(
+            columns.visibilityItems.map(\.command),
+            [.hideSelectedColumns, .showOnlySelectedColumns]
+        )
+        XCTAssertTrue(columns.visibilitySubmenus.isEmpty)
+    }
+
+    func testMatrixVisibilityContextBuilderDeduplicatesCellDimensionsIntoSubmenus() {
+        let targets: [GenotypeAnnotationSidecar.MatrixTarget] = [
+            .cell(locus: "MHC-A", genotype: "A1", sample: "AnimalA"),
+            .cell(locus: "MHC-A", genotype: "A1", sample: "AnimalB"),
+            .cell(locus: "MHC-B", genotype: "B1", sample: "AnimalA"),
+            .cell(locus: "MHC-B", genotype: "B1", sample: "AnimalB"),
+        ]
+        let capability = GenotypeMatrixVisibilityCapabilitySnapshot(
+            selection: .init(targets: targets),
+            visibility: GenotypeMatrixVisibilityState()
+                .hidingSamples(["AnimalC"])
+        )
+        let state = GenotypeMatrixContextMenuBuilder.make(snapshot: .init(
+            selectionTargets: targets,
+            capability: GenotypeMatrixReviewCapability.evaluate(
+                selection: targets,
+                evidence: .init(),
+                reviews: [],
+                comments: [],
+                isWritable: false
+            ),
+            visibilityCapability: capability,
+            keyModifierRawValue: 0
+        ))
+
+        XCTAssertEqual(state.visibilitySubmenus.map(\.title), [
+            "Row Visibility",
+            "Column Visibility",
+        ])
+        XCTAssertEqual(state.visibilitySubmenus[0].items.map(\.title), [
+            "Hide 2 Selected Rows",
+            "Show Only 2 Selected Rows",
+        ])
+        XCTAssertEqual(state.visibilitySubmenus[1].items.map(\.title), [
+            "Hide 2 Selected Columns",
+            "Show Only 2 Selected Columns",
+        ])
+        XCTAssertEqual(
+            state.visibilityItems.map(\.command),
+            [.resetVisibility]
+        )
+        XCTAssertEqual(
+            state.visibilityItems.map(\.title),
+            ["Show All Rows and Columns"]
+        )
+        XCTAssertEqual(state.inspectedTargetCount, 4)
+    }
+
+    func testMatrixVisibilityContextBuilderCoversSparseMixedAndEmptySelections() {
+        func state(
+            _ targets: [GenotypeAnnotationSidecar.MatrixTarget]
+        ) -> GenotypeMatrixContextMenuState {
+            GenotypeMatrixContextMenuBuilder.make(snapshot: .init(
+                selectionTargets: targets,
+                capability: GenotypeMatrixReviewCapability.evaluate(
+                    selection: targets,
+                    evidence: .init(),
+                    reviews: [],
+                    comments: [],
+                    isWritable: false
+                ),
+                visibilityCapability: .init(
+                    selection: .init(targets: targets),
+                    visibility: .init()
+                ),
+                keyModifierRawValue: 0
+            ))
+        }
+
+        let sparse = state([
+            .cell(locus: "MHC-A", genotype: "A1", sample: "AnimalA"),
+            .cell(locus: "MHC-B", genotype: "B1", sample: "AnimalB"),
+        ])
+        XCTAssertEqual(sparse.visibilitySubmenus.map(\.title), [
+            "Row Visibility",
+            "Column Visibility",
+        ])
+        XCTAssertEqual(
+            sparse.visibilitySubmenus[0].items.first?.title,
+            "Hide 2 Selected Rows"
+        )
+        XCTAssertEqual(
+            sparse.visibilitySubmenus[1].items.first?.title,
+            "Hide 2 Selected Columns"
+        )
+
+        let mixed = state([
+            .row(locus: "MHC-A", genotype: "A1"),
+            .column(sample: "AnimalA"),
+        ])
+        XCTAssertEqual(mixed.visibilitySubmenus.map(\.title), [
+            "Row Visibility",
+            "Column Visibility",
+        ])
+        XCTAssertEqual(
+            mixed.visibilitySubmenus.flatMap(\.items).map(\.title),
+            [
+                "Hide 1 Selected Row",
+                "Show Only 1 Selected Row",
+                "Hide 1 Selected Column",
+                "Show Only 1 Selected Column",
+            ]
+        )
+
+        let empty = state([])
+        XCTAssertTrue(empty.visibilityItems.isEmpty)
+        XCTAssertTrue(empty.visibilitySubmenus.isEmpty)
+        XCTAssertEqual(empty.items.first?.command, .markFalsePositive)
+
+        let emptyWithManualVisibility = GenotypeMatrixContextMenuBuilder.make(snapshot: .init(
+            selectionTargets: [],
+            capability: GenotypeMatrixReviewCapability.evaluate(
+                selection: [],
+                evidence: .init(),
+                reviews: [],
+                comments: [],
+                isWritable: false
+            ),
+            visibilityCapability: .init(
+                selection: .init(targets: []),
+                visibility: GenotypeMatrixVisibilityState()
+                    .hidingSamples(["AnimalA"])
+            ),
+            keyModifierRawValue: 0
+        ))
+        XCTAssertEqual(
+            emptyWithManualVisibility.visibilityItems.map(\.command),
+            [.resetVisibility]
+        )
+        XCTAssertEqual(
+            emptyWithManualVisibility.visibilityItems.map(\.title),
+            ["Show All Rows and Columns"]
+        )
+        XCTAssertTrue(emptyWithManualVisibility.visibilitySubmenus.isEmpty)
+    }
+
+    func testMatrixContextMenusRejectTargetsHiddenByManualVisibility() {
+        let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
+        let second = makeCall(sample: "AnimalB", genotype: "02_Mafa_B", reads: 7)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [first, second]))
+
+        controller.testingSelectMatrixRows(genotypes: [first.genotype], sample: nil)
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.hideSelectedRows))
+        XCTAssertNil(controller.testingBuildMatrixContextMenu(for: .row(
+            locus: "MHC-A",
+            genotype: first.genotype
+        )))
+
+        controller.testingSelectMatrixColumns(samples: ["AnimalB"])
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.hideSelectedColumns))
+        XCTAssertNil(controller.testingBuildMatrixContextMenu(for: .column(
+            sample: "AnimalB"
+        )))
+    }
+
+    func testMatrixVisibilityActualContextMenuPreservesReviewGroupAndStableIdentifiers() throws {
+        let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
+        let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 6)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [first, second]))
+
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: first.genotype,
+            sample: "AnimalA"
+        )
+        let menu = try XCTUnwrap(controller.testingBuildActualMatrixContextMenu(for: target))
+
+        XCTAssertFalse(menu.autoenablesItems)
+        XCTAssertEqual(menu.items.first?.title, "Mark False Positive")
+        let rowItem = try XCTUnwrap(menu.items.first {
+            $0.identifier?.rawValue == "genotype-matrix-visibility-rows"
+        })
+        let columnItem = try XCTUnwrap(menu.items.first {
+            $0.identifier?.rawValue == "genotype-matrix-visibility-columns"
+        })
+        XCTAssertFalse(try XCTUnwrap(rowItem.submenu).autoenablesItems)
+        XCTAssertFalse(try XCTUnwrap(columnItem.submenu).autoenablesItems)
+        XCTAssertEqual(rowItem.submenu?.items.map(\.identifier?.rawValue), [
+            "genotype-matrix-visibility-hide-rows",
+            "genotype-matrix-visibility-show-only-rows",
+        ])
+        XCTAssertEqual(columnItem.submenu?.items.map(\.identifier?.rawValue), [
+            "genotype-matrix-visibility-hide-columns",
+            "genotype-matrix-visibility-show-only-columns",
+        ])
+        XCTAssertGreaterThan(
+            try XCTUnwrap(menu.items.firstIndex(of: rowItem)),
+            try XCTUnwrap(menu.items.firstIndex { $0.title == "Remove Comment" })
+        )
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.hideSelectedColumns))
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.showAllColumns))
+        controller.testingSelectMatrixRows(genotypes: [second.genotype], sample: nil)
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.hideSelectedRows))
+        let activeMenu = try XCTUnwrap(
+            controller.testingBuildActualMatrixContextMenu(for: target)
+        )
+        let rowIndex = try XCTUnwrap(activeMenu.items.firstIndex {
+            $0.identifier?.rawValue == "genotype-matrix-visibility-rows"
+        })
+        let columnIndex = try XCTUnwrap(activeMenu.items.firstIndex {
+            $0.identifier?.rawValue == "genotype-matrix-visibility-columns"
+        })
+        let showAllIndex = try XCTUnwrap(activeMenu.items.firstIndex {
+            $0.identifier?.rawValue == "genotype-matrix-visibility-show-all"
+        })
+        XCTAssertLessThan(rowIndex, columnIndex)
+        XCTAssertLessThan(columnIndex, showAllIndex)
+    }
+
+    func testMatrixVisibilityContextCommandRevalidatesCurrentCapability() throws {
+        let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
+        let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [call, second]))
+        let rowTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A",
+            genotype: call.genotype
+        )
+        let menu = try XCTUnwrap(controller.testingBuildActualMatrixContextMenu(
+            for: rowTarget
+        ))
+        XCTAssertNotNil(menu.items.first {
+            $0.identifier?.rawValue == "genotype-matrix-visibility-hide-rows"
+        })
+
+        controller.testingSelectMatrixRows(genotypes: [second.genotype], sample: nil)
+        let capturedHideRow = try XCTUnwrap(menu.items.first {
+            $0.identifier?.rawValue == "genotype-matrix-visibility-hide-rows"
+        })
+
+        XCTAssertFalse(controller.testingActivateMatrixContextMenuItem(capturedHideRow))
+        XCTAssertEqual(
+            Set(controller.testingVisibleMatrixGenotypes),
+            Set([call.genotype, second.genotype])
+        )
+
+        let firstCell = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: call.genotype,
+            sample: "AnimalA"
+        )
+        let cellMenu = try XCTUnwrap(
+            controller.testingBuildActualMatrixContextMenu(for: firstCell)
+        )
+        let capturedCellHideRow = try XCTUnwrap(
+            cellMenu.items
+                .first {
+                    $0.identifier?.rawValue == "genotype-matrix-visibility-rows"
+                }?
+                .submenu?
+                .items
+                .first {
+                    $0.identifier?.rawValue == "genotype-matrix-visibility-hide-rows"
+                }
+        )
+        controller.testingSelectMatrixCell(
+            genotype: second.genotype,
+            sample: "AnimalA"
+        )
+
+        XCTAssertFalse(
+            controller.testingActivateMatrixContextMenuItem(capturedCellHideRow)
+        )
+        XCTAssertEqual(
+            Set(controller.testingVisibleMatrixGenotypes),
+            Set([call.genotype, second.genotype])
+        )
+    }
+
+    func testMatrixVisibilityActualContextMenuCapturesImmutableSnapshotTargets() throws {
+        let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
+        let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [first, second]))
+        controller.testingSetMatrixContextMenuSnapshotSourceFactory { snapshot in
+            controller.testingSelectMatrixRows(genotypes: [second.genotype], sample: nil)
+            return GenotypeMatrixImmutableContextMenuSnapshotSource(snapshot: snapshot)
+        }
+        defer { controller.testingSetMatrixContextMenuSnapshotSourceFactory(nil) }
+
+        let menu = try XCTUnwrap(controller.testingBuildActualMatrixContextMenu(
+            for: .row(locus: "MHC-A", genotype: first.genotype)
+        ))
+        let capturedHide = try XCTUnwrap(menu.items.first {
+            $0.identifier?.rawValue == "genotype-matrix-visibility-hide-rows"
+        })
+
+        XCTAssertFalse(controller.testingActivateMatrixContextMenuItem(capturedHide))
+        XCTAssertEqual(
+            Set(controller.testingVisibleMatrixGenotypes),
+            Set([first.genotype, second.genotype])
+        )
+    }
+
+    func testMatrixShowAllContextCommandRemainsGlobalWhenSelectionChanges() throws {
+        let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
+        let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [first, second]))
+        controller.testingSelectMatrixRows(genotypes: [first.genotype], sample: nil)
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.hideSelectedRows))
+
+        let menu = try XCTUnwrap(controller.testingBuildActualMatrixContextMenu(
+            for: .row(locus: "MHC-B", genotype: second.genotype)
+        ))
+        let showAll = try XCTUnwrap(menu.items.first {
+            $0.identifier?.rawValue == "genotype-matrix-visibility-show-all"
+        })
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+
+        XCTAssertTrue(controller.testingActivateMatrixContextMenuItem(showAll))
+        XCTAssertEqual(
+            Set(controller.testingVisibleMatrixGenotypes),
+            Set([first.genotype, second.genotype])
+        )
+    }
+
+    func testMatrixAnnotationContextCommandContinuesToUseCurrentSelection() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixCurrentAnnotationSelection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
+        let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [first, second]
+        ))
+
+        let menu = try XCTUnwrap(controller.testingBuildActualMatrixContextMenu(
+            for: .cell(locus: "MHC-A", genotype: first.genotype, sample: "AnimalA")
+        ))
+        let falsePositive = try XCTUnwrap(menu.items.first {
+            $0.title == "Mark False Positive"
+        })
+        controller.testingSelectMatrixCell(
+            genotype: second.genotype,
+            sample: "AnimalA"
+        )
+
+        _ = controller.testingActivateMatrixContextMenuItem(falsePositive)
+
+        let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
+            forBundleAt: bundleURL
+        )
+        XCTAssertEqual(sidecar.matrixReviews.map(\.target), [
+            .cell(locus: "MHC-B", genotype: second.genotype, sample: "AnimalA"),
+        ])
+        XCTAssertEqual(sidecar.matrixReviews.map(\.disposition), [.falsePositive])
+    }
+
+    func testMatrixVisibilityCommandsPostOneExactAnnouncementAndNoOpIsSilent() {
+        let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
+        let second = makeCall(sample: "AnimalB", genotype: "02_Mafa_B", reads: 6)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [first, second]))
+        let announcements = RecordingGenotypeSearchAnnouncements()
+        controller.testingSetMatrixVisibilityAnnouncementPoster(announcements)
+
+        controller.testingSelectMatrixRows(genotypes: [first.genotype], sample: nil)
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.hideSelectedRows))
+        XCTAssertFalse(controller.performMatrixVisibilityCommand(.hideSelectedRows))
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.showAllRows))
+
+        controller.testingSelectMatrixRows(genotypes: [first.genotype], sample: nil)
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.showOnlySelectedRows))
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.reset))
+
+        controller.testingSelectMatrixColumns(samples: ["AnimalA"])
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.hideSelectedColumns))
+        XCTAssertFalse(controller.performMatrixVisibilityCommand(.hideSelectedColumns))
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.showAllColumns))
+
+        controller.testingSelectMatrixColumns(samples: ["AnimalA"])
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.showOnlySelectedColumns))
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.reset))
+
+        XCTAssertEqual(announcements.messages, [
+            "Selected rows hidden.",
+            "All rows shown.",
+            "Showing only selected rows.",
+            "All rows and columns shown.",
+            "Selected columns hidden.",
+            "All columns shown.",
+            "Showing only selected columns.",
+            "All rows and columns shown.",
+        ])
+    }
+
+    func testMatrixVisibilityCanRecoverThroughCapabilityAfterEveryRowIsHidden() {
+        let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [call]))
+        controller.testingSelectMatrixRows(genotypes: [call.genotype], sample: nil)
+
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.hideSelectedRows))
+        XCTAssertTrue(controller.testingVisibleMatrixGenotypes.isEmpty)
+        XCTAssertTrue(controller.testingMatrixVisibilityCapability.canResetVisibility)
+        XCTAssertEqual(controller.testingMatrixVisibilityCapability.summary, "Scope: Entire matrix")
+
+        XCTAssertTrue(controller.performMatrixVisibilityCommand(.reset))
+        XCTAssertEqual(controller.testingVisibleMatrixGenotypes, [call.genotype])
+    }
+
+    func testDetachingHostPresentationCallbacksClearsMatrixVisibilityPublication() {
+        let controller = GenotypeResultViewController()
+        var received = 0
+        controller.onMatrixVisibilityCapabilityChanged = { _ in received += 1 }
+
+        controller.detachHostPresentationCallbacks()
+        controller.notifyMatrixVisibilityCapabilityIfAvailable()
+
+        XCTAssertEqual(received, 0)
+    }
+
     func testMatrixCandidateSelectionHotPathUsesIndexedRowIdentity() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -792,12 +1287,20 @@ final class GenotypeResultViewportTests: XCTestCase {
         let rowMenu = try XCTUnwrap(controller.testingBuildMatrixContextMenu(for: rowTarget))
         XCTAssertNotNil(rowMenu.items.first { $0.command == .editComment })
         XCTAssertNotNil(rowMenu.items.first { $0.command == .selectSupportedCells })
+        XCTAssertEqual(rowMenu.visibilityItems.map(\.title), [
+            "Hide 1 Selected Row",
+            "Show Only 1 Selected Row",
+        ])
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.editComment))
 
         let columnTarget = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
         let headerMenu = try XCTUnwrap(controller.testingBuildMatrixContextMenu(for: columnTarget))
         XCTAssertNotNil(headerMenu.items.first { $0.command == .editComment })
         XCTAssertNotNil(headerMenu.items.first { $0.command == .selectSupportedCells })
+        XCTAssertEqual(headerMenu.visibilityItems.map(\.title), [
+            "Hide 1 Selected Column",
+            "Show Only 1 Selected Column",
+        ])
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.editComment))
 
         _ = controller.testingBuildMatrixContextMenu(for: rowTarget)
@@ -11681,6 +12184,57 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingApplyDisplayStateImmediately(state)
         XCTAssertEqual(Set(controller.testingVisibleGenotypes), [low, high])
         XCTAssertFalse(controller.testingVisibleGenotypes.contains(excluded))
+    }
+
+    func testMatrixInspectorAlleleFilterDoesNotMatchSampleNamesOrMetadata() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let genotype = "01_Mafa_A1_FILTER_SCOPE"
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 8)]
+        ))
+
+        var state = controller.testingDisplayState
+        state.matrixRowFilterText = "AnimalA"
+        controller.testingApplyDisplayStateImmediately(state)
+
+        XCTAssertTrue(controller.testingVisibleMatrixGenotypes.isEmpty)
+
+        state.matrixRowFilterText = "A1_FILTER"
+        controller.testingApplyDisplayStateImmediately(state)
+
+        XCTAssertEqual(controller.testingVisibleMatrixGenotypes, [genotype])
+    }
+
+    func testMatrixInspectorAlleleFilterMatchesDisplayedReferenceAlias() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let rawGenotype = "raw-reference-sequence-42"
+        let alleleField = GenBankRecordDatabase.FieldDefinition(
+            key: "feature.allele",
+            displayTitle: "Allele",
+            valueType: "text",
+            sourceCategory: "feature",
+            preferredOrder: 0
+        )
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: rawGenotype, reads: 8)],
+            referenceMetadata: ONTGenotypeReferenceMetadata(
+                fields: [alleleField],
+                recordsBySequenceName: [
+                    rawGenotype: [alleleField.key: "Mafa-A1*007:01"],
+                ],
+                alleleFieldKey: alleleField.key
+            )
+        ))
+
+        var state = controller.testingDisplayState
+        state.matrixRowFilterText = "A1*007"
+        controller.testingApplyDisplayStateImmediately(state)
+
+        XCTAssertEqual(controller.testingVisibleMatrixGenotypes, [rawGenotype])
     }
 
     func testMatrixMinimumReadsIgnoresSupportFromManuallyHiddenSamples() {

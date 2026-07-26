@@ -113,6 +113,19 @@ private final class GenotypeMatrixPaneDivider: NSView {
 
 @MainActor
 final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTableViewDelegate {
+    private final class ContextMenuCommandPayload: NSObject {
+        let command: GenotypeMatrixContextCommand
+        let selectionTargets: Set<GenotypeAnnotationSidecar.MatrixTarget>
+
+        init(
+            command: GenotypeMatrixContextCommand,
+            selectionTargets: [GenotypeAnnotationSidecar.MatrixTarget]
+        ) {
+            self.command = command
+            self.selectionTargets = Set(selectionTargets)
+        }
+    }
+
     private struct CellKey: Hashable {
         let locus: String
         let genotype: String
@@ -170,6 +183,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         (GenotypeMatrixContextMenuSnapshot) -> any GenotypeMatrixContextMenuSnapshotProviding = {
             GenotypeMatrixImmutableContextMenuSnapshotSource(snapshot: $0)
         }
+    private var visibilityAnnouncementPoster: any AccessibilityAnnouncementPosting =
+        AccessibilityAnnouncementPoster()
     private(set) var matrixReviewCapability = GenotypeMatrixReviewCapability.evaluate(
         selection: [],
         evidence: .init(),
@@ -1601,7 +1616,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 return false
             }
             if !matrixRowFilter.isEmpty,
-               !rowMatches(row, filter: matrixRowFilter, activeSamples: activeSamples) {
+               !rowMatchesIdentity(row, filter: matrixRowFilter) {
                 return false
             }
             // Support thresholds are last. A row cannot survive on support
@@ -1902,19 +1917,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
     }
 
-    private func rowMatches(
-        _ row: GenotypeCandidateMatrixRow,
-        filter: String,
-        activeSamples: Set<String>
-    ) -> Bool {
-        if rowMatchesIdentity(row, filter: filter) { return true }
-        return row.sampleSupport.contains { support in
-            guard activeSamples.contains(support.sample) else { return false }
-            return support.sample.localizedCaseInsensitiveContains(filter)
-                || metadataMatches(sample: support.sample, filter: filter)
-        }
-    }
-
     private func rowMatchesIdentity(_ row: GenotypeCandidateMatrixRow, filter: String) -> Bool {
         if row.locus.localizedCaseInsensitiveContains(filter)
             || row.genotype.localizedCaseInsensitiveContains(filter)
@@ -1935,6 +1937,21 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return key.localizedCaseInsensitiveContains(filter)
                 || title.localizedCaseInsensitiveContains(filter)
                 || value.localizedCaseInsensitiveContains(filter)
+        }
+    }
+
+    /// The toolbar's shared quick search intentionally spans both matrix axes.
+    /// Keep that behavior separate from the Inspector's allele-only filter.
+    private func rowMatches(
+        _ row: GenotypeCandidateMatrixRow,
+        filter: String,
+        activeSamples: Set<String>
+    ) -> Bool {
+        if rowMatchesIdentity(row, filter: filter) { return true }
+        return row.sampleSupport.contains { support in
+            guard activeSamples.contains(support.sample) else { return false }
+            return support.sample.localizedCaseInsensitiveContains(filter)
+                || metadataMatches(sample: support.sample, filter: filter)
         }
     }
 
@@ -2476,6 +2493,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         GenotypeMatrixContextMenuSnapshot(
             selectionTargets: selectedMatrixTargets,
             capability: matrixReviewCapability,
+            visibilityCapability: matrixVisibilityCapability,
             keyModifierRawValue: NSEvent.ModifierFlags([.command, .option]).rawValue
         )
     }
@@ -2499,48 +2517,143 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             if itemState.command == .editComment || itemState.command == .selectSupportedCells {
                 menu.addItem(.separator())
             }
+            menu.addItem(makeContextMenuItem(
+                from: itemState,
+                selectionTargets: state.selectionTargets
+            ))
+        }
+        if !state.visibilityItems.isEmpty || !state.visibilitySubmenus.isEmpty {
+            menu.addItem(.separator())
+        }
+        for itemState in state.visibilityItems where itemState.command != .resetVisibility {
+            menu.addItem(makeContextMenuItem(
+                from: itemState,
+                selectionTargets: state.selectionTargets
+            ))
+        }
+        for submenuState in state.visibilitySubmenus {
             let item = NSMenuItem(
-                title: itemState.title,
-                action: #selector(performMatrixContextMenuCommand(_:)),
-                keyEquivalent: itemState.keyEquivalent
+                title: submenuState.title,
+                action: nil,
+                keyEquivalent: ""
             )
-            item.target = self
-            item.representedObject = NSNumber(value: itemState.command.rawValue)
-            item.keyEquivalentModifierMask = NSEvent.ModifierFlags(
-                rawValue: itemState.keyModifierRawValue
+            item.identifier = NSUserInterfaceItemIdentifier(
+                submenuState.kind == .rowVisibility
+                    ? "genotype-matrix-visibility-rows"
+                    : "genotype-matrix-visibility-columns"
             )
-            item.isEnabled = itemState.availability.isEnabled
-            item.toolTip = itemState.availability.disabledReason
+            let submenu = NSMenu(title: submenuState.title)
+            submenu.autoenablesItems = false
+            for childState in submenuState.items {
+                submenu.addItem(makeContextMenuItem(
+                    from: childState,
+                    selectionTargets: state.selectionTargets
+                ))
+            }
+            item.submenu = submenu
             menu.addItem(item)
+        }
+        for itemState in state.visibilityItems where itemState.command == .resetVisibility {
+            menu.addItem(makeContextMenuItem(
+                from: itemState,
+                selectionTargets: state.selectionTargets
+            ))
         }
         return menu
     }
 
+    private func makeContextMenuItem(
+        from state: GenotypeMatrixContextMenuItemState,
+        selectionTargets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: state.title,
+            action: #selector(performMatrixContextMenuCommand(_:)),
+            keyEquivalent: state.keyEquivalent
+        )
+        item.target = self
+        item.representedObject = ContextMenuCommandPayload(
+            command: state.command,
+            selectionTargets: selectionTargets
+        )
+        item.keyEquivalentModifierMask = NSEvent.ModifierFlags(
+            rawValue: state.keyModifierRawValue
+        )
+        item.isEnabled = state.availability.isEnabled
+        item.toolTip = state.availability.disabledReason
+        item.identifier = contextMenuIdentifier(for: state.command)
+        return item
+    }
+
+    private func contextMenuIdentifier(
+        for command: GenotypeMatrixContextCommand
+    ) -> NSUserInterfaceItemIdentifier? {
+        let value: String
+        switch command {
+        case .hideSelectedRows:
+            value = "genotype-matrix-visibility-hide-rows"
+        case .showOnlySelectedRows:
+            value = "genotype-matrix-visibility-show-only-rows"
+        case .hideSelectedColumns:
+            value = "genotype-matrix-visibility-hide-columns"
+        case .showOnlySelectedColumns:
+            value = "genotype-matrix-visibility-show-only-columns"
+        case .resetVisibility:
+            value = "genotype-matrix-visibility-show-all"
+        case .markFalsePositive, .markFalseNegative, .clearReview,
+             .editComment, .removeComments, .selectSupportedCells:
+            return nil
+        }
+        return NSUserInterfaceItemIdentifier(value)
+    }
+
     @objc private func performMatrixContextMenuCommand(_ sender: NSMenuItem) {
-        guard let value = sender.representedObject as? NSNumber,
-              let command = GenotypeMatrixContextCommand(rawValue: value.intValue) else {
+        guard let payload = sender.representedObject as? ContextMenuCommandPayload else {
             return
         }
-        _ = performContextCommand(command)
+        if payload.command.isSelectionTargetedVisibilityCommand,
+           payload.selectionTargets != Set(selectedMatrixTargets) {
+            return
+        }
+        _ = performContextCommand(payload.command)
     }
 
     @discardableResult
     private func performContextCommand(_ command: GenotypeMatrixContextCommand) -> Bool {
         let state = makeContextMenuState()
-        guard let item = state.items.first(where: { $0.command == command }),
+        let currentItems = state.visibilityItems
+            + state.visibilitySubmenus.flatMap(\.items)
+            + state.items
+        guard let item = currentItems.first(where: { $0.command == command }),
               item.availability.isEnabled else {
             return false
         }
+        guard visibilityCommandIsCurrentlyEnabled(command) else {
+            return false
+        }
         let targets = selectedMatrixTargets
-        guard !targets.isEmpty else { return false }
         switch command {
+        case .hideSelectedRows:
+            return hideSelectedRows()
+        case .showOnlySelectedRows:
+            return showOnlySelectedRows()
+        case .hideSelectedColumns:
+            return hideSelectedColumns()
+        case .showOnlySelectedColumns:
+            return showOnlySelectedColumns()
+        case .resetVisibility:
+            return resetVisibility()
         case .markFalsePositive:
+            guard !targets.isEmpty else { return false }
             onMatrixReviewRequested?(.init(targets: targets, intent: .set(.falsePositive)))
         case .markFalseNegative:
+            guard !targets.isEmpty else { return false }
             onMatrixReviewRequested?(.init(targets: targets, intent: .set(.falseNegative)))
         case .clearReview:
+            guard !targets.isEmpty else { return false }
             onMatrixReviewRequested?(.init(targets: targets, intent: .clear))
         case .editComment:
+            guard !targets.isEmpty else { return false }
             let currentBody: String?
             switch matrixReviewCapability.commentState {
             case let .uniform(body):
@@ -2566,12 +2679,34 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             }
             onMatrixCommentEditRequested?(.init(targets: targets, intent: intent))
         case .removeComments:
+            guard !targets.isEmpty else { return false }
             onMatrixCommentEditRequested?(.init(targets: targets, intent: .remove))
         case .selectSupportedCells:
+            guard !targets.isEmpty else { return false }
             let supported = supportedCellTargets(from: targets, minimumReads: 1)
             publishMatrixTargetSelection(supported, anchor: supported.last)
         }
         return true
+    }
+
+    private func visibilityCommandIsCurrentlyEnabled(
+        _ command: GenotypeMatrixContextCommand
+    ) -> Bool {
+        switch command {
+        case .hideSelectedRows:
+            return matrixVisibilityCapability.canHideSelectedRows
+        case .showOnlySelectedRows:
+            return matrixVisibilityCapability.canShowOnlySelectedRows
+        case .hideSelectedColumns:
+            return matrixVisibilityCapability.canHideSelectedColumns
+        case .showOnlySelectedColumns:
+            return matrixVisibilityCapability.canShowOnlySelectedColumns
+        case .resetVisibility:
+            return matrixVisibilityCapability.canResetVisibility
+        case .markFalsePositive, .markFalseNegative, .clearReview,
+             .editComment, .removeComments, .selectSupportedCells:
+            return true
+        }
     }
 
     private func requestCommentBody(currentBody: String?) -> String? {
@@ -3246,56 +3381,80 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         rebuildVisibleColumnIndex()
     }
 
-    func showOnlySelectedRows() {
-        applyVisibilityState(
+    @discardableResult
+    func showOnlySelectedRows() -> Bool {
+        return applyVisibilityState(
             visibilityState.showingOnlyRows(
                 matrixVisibilityCapability.selection.rowIDs
-            )
+            ),
+            announcement: "Showing only selected rows."
         )
     }
 
-    func hideSelectedRows() {
-        applyVisibilityState(
+    @discardableResult
+    func hideSelectedRows() -> Bool {
+        return applyVisibilityState(
             visibilityState.hidingRows(
                 matrixVisibilityCapability.selection.rowIDs
-            )
+            ),
+            announcement: "Selected rows hidden."
         )
     }
 
-    func showAllRows() {
-        applyVisibilityState(visibilityState.showingAllRows())
+    @discardableResult
+    func showAllRows() -> Bool {
+        applyVisibilityState(
+            visibilityState.showingAllRows(),
+            announcement: "All rows shown."
+        )
     }
 
-    func showOnlySelectedColumns() {
-        applyVisibilityState(
+    @discardableResult
+    func showOnlySelectedColumns() -> Bool {
+        return applyVisibilityState(
             visibilityState.showingOnlySamples(
                 matrixVisibilityCapability.selection.sampleIDs
-            )
+            ),
+            announcement: "Showing only selected columns."
         )
     }
 
-    func hideSelectedColumns() {
-        applyVisibilityState(
+    @discardableResult
+    func hideSelectedColumns() -> Bool {
+        return applyVisibilityState(
             visibilityState.hidingSamples(
                 matrixVisibilityCapability.selection.sampleIDs
-            )
+            ),
+            announcement: "Selected columns hidden."
         )
     }
 
-    func showAllColumns() {
-        applyVisibilityState(visibilityState.showingAllSamples())
+    @discardableResult
+    func showAllColumns() -> Bool {
+        applyVisibilityState(
+            visibilityState.showingAllSamples(),
+            announcement: "All columns shown."
+        )
     }
 
     func clearSelectionFilter() {
         resetVisibility()
     }
 
-    func resetVisibility() {
-        applyVisibilityState(visibilityState.reset())
+    @discardableResult
+    func resetVisibility() -> Bool {
+        applyVisibilityState(
+            visibilityState.reset(),
+            announcement: "All rows and columns shown."
+        )
     }
 
-    private func applyVisibilityState(_ next: GenotypeMatrixVisibilityState) {
-        guard next != visibilityState else { return }
+    @discardableResult
+    private func applyVisibilityState(
+        _ next: GenotypeMatrixVisibilityState,
+        announcement: String
+    ) -> Bool {
+        guard next != visibilityState else { return false }
 #if DEBUG
         testingDidFallBackAccessibilityFocusToMatrix = false
 #endif
@@ -3318,6 +3477,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             previousRows: previousRows,
             previousSamples: previousSamples
         )
+        visibilityAnnouncementPoster.post(announcement, priority: .medium)
+        return true
     }
 
     private func selectorAccessibilityFocusChanged(
@@ -5897,8 +6058,20 @@ extension GenotypeComparisonMatrixView {
         }
     }
 
+    func testingSetVisibilityAnnouncementPoster(
+        _ poster: any AccessibilityAnnouncementPosting
+    ) {
+        visibilityAnnouncementPoster = poster
+    }
+
     func testingPerformContextCommand(_ command: GenotypeMatrixContextCommand) -> Bool {
         performContextCommand(command)
+    }
+
+    func testingActivateContextMenuItem(_ item: NSMenuItem) -> Bool {
+        let previous = matrixVisibilityCapability
+        performMatrixContextMenuCommand(item)
+        return matrixVisibilityCapability != previous
     }
 
     func testingPerformKeyboardCommand(_ command: GenotypeMatrixContextCommand) -> Bool {

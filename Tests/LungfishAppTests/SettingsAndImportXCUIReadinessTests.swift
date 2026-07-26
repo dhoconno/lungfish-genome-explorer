@@ -20,6 +20,19 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertEqual(SettingsAccessibilityID.contentTextSizePicker, "settings-appearance-content-text-size-picker")
         XCTAssertEqual(InspectorAccessibilityID.analystIdentityLabel, "genotype-annotation-analyst-identity-label")
         XCTAssertEqual(InspectorAccessibilityID.analystIdentitySettingsButton, "genotype-annotation-analyst-identity-settings-button")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeVisibilityGroup, "genotype-view-visibility-group")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeVisibilityScope, "genotype-view-visibility-scope")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeVisibilityStatus, "genotype-view-visibility-status")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeVisibilityGuidance, "genotype-view-visibility-guidance")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeRowVisibilityMenu, "genotype-view-row-visibility-menu")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeHideSelectedRows, "genotype-view-hide-selected-rows")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeShowOnlySelectedRows, "genotype-view-show-only-selected-rows")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeShowAllRows, "genotype-view-show-all-rows")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeColumnVisibilityMenu, "genotype-view-column-visibility-menu")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeHideSelectedColumns, "genotype-view-hide-selected-columns")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeShowOnlySelectedColumns, "genotype-view-show-only-selected-columns")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeShowAllColumns, "genotype-view-show-all-columns")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeResetVisibility, "genotype-view-reset-visibility")
     }
 
     func testImportCenterAccessibilityIdentifierCatalogIsStable() {

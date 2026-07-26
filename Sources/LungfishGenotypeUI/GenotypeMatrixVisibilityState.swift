@@ -1,6 +1,16 @@
 import Foundation
 import LungfishIO
 
+public enum GenotypeMatrixVisibilityCommand: Equatable, Sendable {
+    case hideSelectedRows
+    case showOnlySelectedRows
+    case showAllRows
+    case hideSelectedColumns
+    case showOnlySelectedColumns
+    case showAllColumns
+    case reset
+}
+
 struct GenotypeMatrixVisibilityState: Equatable, Sendable {
     typealias RowID = GenotypeCandidateMatrixRowID
     typealias SampleID = String
@@ -225,6 +235,10 @@ struct GenotypeMatrixVisibilitySelectionSnapshot: Equatable, Sendable {
 public struct GenotypeMatrixVisibilityCapabilitySnapshot: Equatable, Sendable {
     let selection: GenotypeMatrixVisibilitySelectionSnapshot
     let visibility: GenotypeMatrixVisibilityState
+
+    public static var empty: Self {
+        Self(selection: .init(targets: []), visibility: .init())
+    }
 
     public var selectionShape: GenotypeMatrixVisibilitySelectionShape {
         selection.shape

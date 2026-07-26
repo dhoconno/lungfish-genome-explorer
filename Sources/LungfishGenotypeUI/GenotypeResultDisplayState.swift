@@ -314,12 +314,28 @@ struct GenotypeMatrixCellSemanticState: Equatable {
 }
 
 enum GenotypeMatrixContextCommand: Int, CaseIterable, Equatable {
+    case hideSelectedRows
+    case showOnlySelectedRows
+    case hideSelectedColumns
+    case showOnlySelectedColumns
+    case resetVisibility
     case markFalsePositive
     case markFalseNegative
     case clearReview
     case editComment
     case removeComments
     case selectSupportedCells
+
+    var isSelectionTargetedVisibilityCommand: Bool {
+        switch self {
+        case .hideSelectedRows, .showOnlySelectedRows,
+             .hideSelectedColumns, .showOnlySelectedColumns:
+            true
+        case .resetVisibility, .markFalsePositive, .markFalseNegative, .clearReview,
+             .editComment, .removeComments, .selectSupportedCells:
+            false
+        }
+    }
 }
 
 struct GenotypeMatrixContextMenuItemState: Equatable {
@@ -332,13 +348,27 @@ struct GenotypeMatrixContextMenuItemState: Equatable {
 
 struct GenotypeMatrixContextMenuState: Equatable {
     let selectionTargets: [GenotypeAnnotationSidecar.MatrixTarget]
+    let visibilityItems: [GenotypeMatrixContextMenuItemState]
+    let visibilitySubmenus: [GenotypeMatrixContextMenuSubmenuState]
     let items: [GenotypeMatrixContextMenuItemState]
     let inspectedTargetCount: Int
+}
+
+struct GenotypeMatrixContextMenuSubmenuState: Equatable {
+    enum Kind: Equatable {
+        case rowVisibility
+        case columnVisibility
+    }
+
+    let kind: Kind
+    let title: String
+    let items: [GenotypeMatrixContextMenuItemState]
 }
 
 struct GenotypeMatrixContextMenuSnapshot: Equatable, Sendable {
     let selectionTargets: [GenotypeAnnotationSidecar.MatrixTarget]
     let capability: GenotypeMatrixReviewCapabilityState
+    let visibilityCapability: GenotypeMatrixVisibilityCapabilitySnapshot
     let keyModifierRawValue: UInt
 }
 
@@ -361,6 +391,43 @@ struct GenotypeMatrixContextMenuBuilder {
     static func make(snapshot: GenotypeMatrixContextMenuSnapshot) -> GenotypeMatrixContextMenuState {
         let selectionTargets = snapshot.selectionTargets
         let capability = snapshot.capability
+        let visibilityCapability = snapshot.visibilityCapability
+        var visibilityItems: [GenotypeMatrixContextMenuItemState] = []
+        var visibilitySubmenus: [GenotypeMatrixContextMenuSubmenuState] = []
+        let rowItems = rowVisibilityItems(capability: visibilityCapability)
+        let columnItems = columnVisibilityItems(capability: visibilityCapability)
+        switch visibilityCapability.selectionShape {
+        case .rows:
+            visibilityItems.append(contentsOf: rowItems)
+        case .columns:
+            visibilityItems.append(contentsOf: columnItems)
+        case .cellRectangle, .sparseCells, .mixed:
+            if !rowItems.isEmpty {
+                visibilitySubmenus.append(.init(
+                    kind: .rowVisibility,
+                    title: "Row Visibility",
+                    items: rowItems
+                ))
+            }
+            if !columnItems.isEmpty {
+                visibilitySubmenus.append(.init(
+                    kind: .columnVisibility,
+                    title: "Column Visibility",
+                    items: columnItems
+                ))
+            }
+        case .none:
+            break
+        }
+        if visibilityCapability.canResetVisibility {
+            visibilityItems.append(.init(
+                title: visibilityCapability.showAllTitle,
+                command: .resetVisibility,
+                availability: .enabled,
+                keyEquivalent: "",
+                keyModifierRawValue: 0
+            ))
+        }
         var items = [
             GenotypeMatrixContextMenuItemState(
                 title: "Mark False Positive",
@@ -412,9 +479,55 @@ struct GenotypeMatrixContextMenuBuilder {
         }
         return GenotypeMatrixContextMenuState(
             selectionTargets: selectionTargets,
+            visibilityItems: visibilityItems,
+            visibilitySubmenus: visibilitySubmenus,
             items: items,
             inspectedTargetCount: selectionTargets.count
         )
+    }
+
+    private static func rowVisibilityItems(
+        capability: GenotypeMatrixVisibilityCapabilitySnapshot
+    ) -> [GenotypeMatrixContextMenuItemState] {
+        guard capability.canHideSelectedRows else { return [] }
+        return [
+            .init(
+                title: capability.hideSelectedRowsTitle,
+                command: .hideSelectedRows,
+                availability: .enabled,
+                keyEquivalent: "",
+                keyModifierRawValue: 0
+            ),
+            .init(
+                title: capability.showOnlySelectedRowsTitle,
+                command: .showOnlySelectedRows,
+                availability: .enabled,
+                keyEquivalent: "",
+                keyModifierRawValue: 0
+            ),
+        ]
+    }
+
+    private static func columnVisibilityItems(
+        capability: GenotypeMatrixVisibilityCapabilitySnapshot
+    ) -> [GenotypeMatrixContextMenuItemState] {
+        guard capability.canHideSelectedColumns else { return [] }
+        return [
+            .init(
+                title: capability.hideSelectedColumnsTitle,
+                command: .hideSelectedColumns,
+                availability: .enabled,
+                keyEquivalent: "",
+                keyModifierRawValue: 0
+            ),
+            .init(
+                title: capability.showOnlySelectedColumnsTitle,
+                command: .showOnlySelectedColumns,
+                availability: .enabled,
+                keyEquivalent: "",
+                keyModifierRawValue: 0
+            ),
+        ]
     }
 
     private static func commentMenuTitle(

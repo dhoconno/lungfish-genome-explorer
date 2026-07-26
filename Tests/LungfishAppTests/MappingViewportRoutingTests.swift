@@ -417,6 +417,237 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertNil(resultController.onMatrixReviewCapabilityChanged)
     }
 
+    func testGenotypeMatrixVisibilityBridgePublishesInitialCapabilityAndRoutesViewCommand()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeVisibilityBridge-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = try makeGenotypeResultBundle(
+            root: root,
+            name: "visibility-bridge",
+            haplotypeAnalysisPath: nil
+        )
+        let splitController = MainSplitViewController()
+        _ = splitController.view
+
+        await splitController.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+
+        let resultController = try XCTUnwrap(
+            splitController.viewerController.genotypeResultViewController
+        )
+        let viewModel = splitController.inspectorController
+            .genotypeResultDisplaySectionViewModel
+        XCTAssertEqual(
+            viewModel.matrixVisibilityCapability,
+            resultController.testingMatrixVisibilityCapability
+        )
+        XCTAssertEqual(viewModel.matrixVisibilityScopeSummary, "Scope: Entire matrix")
+        XCTAssertEqual(
+            viewModel.matrixVisibilityStatus,
+            "No manual visibility restrictions."
+        )
+
+        resultController.testingSetQuickFilterSearchText("does-not-match")
+        XCTAssertTrue(resultController.testingVisibleMatrixGenotypes.isEmpty)
+        XCTAssertEqual(
+            viewModel.matrixVisibilityStatus,
+            "No manual visibility restrictions."
+        )
+        resultController.testingSetQuickFilterSearchText("")
+
+        resultController.testingSelectMatrixRows(
+            genotypes: ["01_Mafa_A1_063g"],
+            sample: nil
+        )
+        XCTAssertEqual(
+            viewModel.matrixVisibilityScopeSummary,
+            "Selected: 1 allele row"
+        )
+        viewModel.showOnlySelectedMatrixRows()
+        XCTAssertEqual(
+            resultController.testingVisibleMatrixGenotypes,
+            ["01_Mafa_A1_063g"]
+        )
+        XCTAssertEqual(
+            viewModel.matrixVisibilityStatus,
+            "Manual allele-row visibility is active."
+        )
+        viewModel.resetMatrixVisibility()
+        resultController.testingSelectMatrixRows(
+            genotypes: ["01_Mafa_A1_063g"],
+            sample: nil
+        )
+        viewModel.hideSelectedMatrixRows()
+
+        XCTAssertTrue(resultController.testingVisibleMatrixGenotypes.isEmpty)
+        XCTAssertTrue(viewModel.canResetMatrixVisibility)
+    }
+
+    func testStaleGenotypeVisibilityCommandCannotAffectReplacementBundle()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeVisibilitySwitch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "visibility-first",
+            haplotypeAnalysisPath: nil
+        )
+        let secondBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "visibility-second",
+            haplotypeAnalysisPath: nil
+        )
+        let splitController = MainSplitViewController()
+        _ = splitController.view
+        await splitController.testingDisplayGenotypeResultBundleAndWait(firstBundle)
+        let firstController = try XCTUnwrap(
+            splitController.viewerController.genotypeResultViewController
+        )
+        firstController.testingSelectMatrixRows(
+            genotypes: ["01_Mafa_A1_063g"],
+            sample: nil
+        )
+        let firstView = firstController.view
+        XCTAssertEqual(
+            splitController.viewerController.children
+                .compactMap { $0 as? GenotypeResultViewController }
+                .count,
+            1
+        )
+        let staleCommand = splitController.inspectorController
+            .genotypeResultDisplaySectionViewModel
+            .onMatrixVisibilityCommandRequested
+
+        await splitController.testingDisplayGenotypeResultBundleAndWait(secondBundle)
+        let secondController = try XCTUnwrap(
+            splitController.viewerController.genotypeResultViewController
+        )
+        staleCommand?(.hideSelectedRows)
+
+        XCTAssertEqual(
+            firstController.testingVisibleMatrixGenotypes,
+            ["01_Mafa_A1_063g"]
+        )
+        XCTAssertEqual(
+            secondController.testingVisibleMatrixGenotypes,
+            ["01_Mafa_A1_063g"]
+        )
+        XCTAssertNil(firstView.superview)
+        XCTAssertTrue(secondController.view.superview === splitController.viewerController.view)
+        XCTAssertEqual(
+            splitController.viewerController.children
+                .compactMap { $0 as? GenotypeResultViewController }
+                .count,
+            1
+        )
+        XCTAssertNil(firstController.onMatrixVisibilityCapabilityChanged)
+        XCTAssertEqual(
+            splitController.inspectorController
+                .genotypeResultDisplaySectionViewModel
+                .matrixVisibilityScopeSummary,
+            "Scope: Entire matrix"
+        )
+    }
+
+    func testGenotypeVisibilityCommandsAreIsolatedAcrossTwoWindows()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeVisibilityWindows-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "visibility-window-one",
+            haplotypeAnalysisPath: nil
+        )
+        let secondBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "visibility-window-two",
+            haplotypeAnalysisPath: nil
+        )
+        let first = MainSplitViewController()
+        let second = MainSplitViewController()
+        _ = first.view
+        _ = second.view
+        await first.testingDisplayGenotypeResultBundleAndWait(firstBundle)
+        await second.testingDisplayGenotypeResultBundleAndWait(secondBundle)
+        let firstResult = try XCTUnwrap(
+            first.viewerController.genotypeResultViewController
+        )
+        let secondResult = try XCTUnwrap(
+            second.viewerController.genotypeResultViewController
+        )
+        firstResult.testingSelectMatrixRows(
+            genotypes: ["01_Mafa_A1_063g"],
+            sample: nil
+        )
+        secondResult.testingSelectMatrixRows(
+            genotypes: ["01_Mafa_A1_063g"],
+            sample: nil
+        )
+
+        first.inspectorController.genotypeResultDisplaySectionViewModel
+            .hideSelectedMatrixRows()
+
+        XCTAssertTrue(firstResult.testingVisibleMatrixGenotypes.isEmpty)
+        XCTAssertEqual(
+            secondResult.testingVisibleMatrixGenotypes,
+            ["01_Mafa_A1_063g"]
+        )
+        XCTAssertTrue(
+            first.inspectorController.genotypeResultDisplaySectionViewModel
+                .canResetMatrixVisibility
+        )
+        XCTAssertFalse(
+            second.inspectorController.genotypeResultDisplaySectionViewModel
+                .canResetMatrixVisibility
+        )
+    }
+
+    func testInspectorVisibilityCommandsDoNotMutateBundleOrWorkbookDirtyFlags()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeVisibilityArtifacts-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = try makeGenotypeResultBundle(
+            root: root,
+            name: "visibility-artifacts",
+            haplotypeAnalysisPath: nil
+        )
+        let splitController = MainSplitViewController()
+        _ = splitController.view
+        await splitController.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        let resultController = try XCTUnwrap(
+            splitController.viewerController.genotypeResultViewController
+        )
+        let beforeFiles = try recursiveFileBytes(in: bundleURL)
+        let beforeNeedsRefresh = resultController.testingCurrentWorkbookNeedsRefresh
+        let beforeRequiresFullUpdate =
+            resultController.testingCurrentWorkbookRequiresFullUpdate
+        let viewModel = splitController.inspectorController
+            .genotypeResultDisplaySectionViewModel
+
+        resultController.testingSelectMatrixRows(
+            genotypes: ["01_Mafa_A1_063g"],
+            sample: nil
+        )
+        viewModel.showOnlySelectedMatrixRows()
+        viewModel.resetMatrixVisibility()
+        resultController.testingSelectMatrixColumns(samples: ["DW472"])
+        viewModel.hideSelectedMatrixColumns()
+        viewModel.resetMatrixVisibility()
+
+        XCTAssertEqual(try recursiveFileBytes(in: bundleURL), beforeFiles)
+        XCTAssertEqual(
+            resultController.testingCurrentWorkbookNeedsRefresh,
+            beforeNeedsRefresh
+        )
+        XCTAssertEqual(
+            resultController.testingCurrentWorkbookRequiresFullUpdate,
+            beforeRequiresFullUpdate
+        )
+    }
+
     func testGenotypeResultLoadRegistersCurrentWorkbookSnapshotWithWindowCoordinator() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeWorkbookRegister-\(UUID().uuidString)", isDirectory: true)
@@ -861,6 +1092,17 @@ final class MappingViewportRoutingTests: XCTestCase {
         resultController.onCurrentWorkbookSyncRequested = { capturedRequest = $0 }
         resultController.requestCurrentWorkbookRegistration()
         let snapshot = try XCTUnwrap(capturedRequest?.snapshot)
+        resultController.testingSelectMatrixRows(
+            genotypes: ["01_Mafa_A1_063g"],
+            sample: nil
+        )
+        splitController.inspectorController.genotypeResultDisplaySectionViewModel
+            .hideSelectedMatrixRows()
+        XCTAssertTrue(resultController.testingVisibleMatrixGenotypes.isEmpty)
+        XCTAssertTrue(
+            splitController.inspectorController.genotypeResultDisplaySectionViewModel
+                .canResetMatrixVisibility
+        )
         resultController.testingRequireFullCurrentWorkbookUpdate()
         splitController.genotypeResultLoader = { _ in
             return updatedResult
@@ -887,6 +1129,16 @@ final class MappingViewportRoutingTests: XCTestCase {
                 && !resultController.testingCurrentWorkbookNeedsRefresh
         }
         XCTAssertTrue(completionApplied)
+        XCTAssertTrue(resultController.testingVisibleMatrixGenotypes.isEmpty)
+        XCTAssertTrue(
+            splitController.inspectorController.genotypeResultDisplaySectionViewModel
+                .canResetMatrixVisibility
+        )
+        XCTAssertEqual(
+            splitController.inspectorController.genotypeResultDisplaySectionViewModel
+                .matrixVisibilityCapability,
+            resultController.testingMatrixVisibilityCapability
+        )
     }
 
     func testUpdateAndViewOpensCleanCurrentWorkbookWithoutRunningUpdate() async throws {
@@ -1849,6 +2101,30 @@ final class MappingViewportRoutingTests: XCTestCase {
             .appendingPathComponent(relativePath)
 
         return try String(contentsOf: sourceURL, encoding: .utf8)
+    }
+
+    private func recursiveFileBytes(in root: URL) throws -> [String: Data] {
+        let resourceKeys: [URLResourceKey] = [.isRegularFileKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: resourceKeys
+        ) else {
+            return [:]
+        }
+        var result: [String: Data] = [:]
+        for case let url as URL in enumerator {
+            guard try url.resourceValues(forKeys: Set(resourceKeys)).isRegularFile == true
+            else {
+                continue
+            }
+            let relativePath = String(
+                url.standardizedFileURL.path.dropFirst(
+                    root.standardizedFileURL.path.count + 1
+                )
+            )
+            result[relativePath] = try Data(contentsOf: url)
+        }
+        return result
     }
 }
 
