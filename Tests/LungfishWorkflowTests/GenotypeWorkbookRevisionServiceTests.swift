@@ -14,6 +14,49 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "schema-v4-update")
         try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 4)
         try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let beforeScientificArtifacts = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let evidenceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: beforeScientificArtifacts.primaryWorkbookPath,
+            in: fixture.bundleURL
+        )
+        let evidenceReference = ONTMHCArtifactReference(
+            path: beforeScientificArtifacts.primaryWorkbookPath,
+            sha256: try ProvenanceFileHasher.sha256(of: evidenceURL),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: evidenceURL))
+        )
+        let alignmentArtifacts = ONTGenotypeAlignmentArtifactManifest(
+            genotypingEvidence: ONTMHCBAMArtifactPair(
+                bam: evidenceReference,
+                bai: evidenceReference
+            ),
+            reciprocalEvidence: nil
+        )
+        let provisionalArtifacts = ONTGenotypeProvisionalExon2ArtifactManifest(
+            schemaVersion: 1,
+            catalogJSON: evidenceReference,
+            sequencesFASTA: evidenceReference
+        )
+        try ONTGenotypeResultBundle.writeManifest(
+            ONTGenotypeResultBundleManifest(
+                schemaVersion: beforeScientificArtifacts.schemaVersion,
+                kind: beforeScientificArtifacts.kind,
+                outputName: beforeScientificArtifacts.outputName,
+                analysisName: beforeScientificArtifacts.analysisName,
+                primaryWorkbookPath: beforeScientificArtifacts.primaryWorkbookPath,
+                currentWorkbookPath: beforeScientificArtifacts.currentWorkbookPath,
+                workbookRevisions: beforeScientificArtifacts.workbookRevisions,
+                longSummaryCSVPath: beforeScientificArtifacts.longSummaryCSVPath,
+                sampleSummaryCSVPath: beforeScientificArtifacts.sampleSummaryCSVPath,
+                statsJSONPath: beforeScientificArtifacts.statsJSONPath,
+                provenancePath: beforeScientificArtifacts.provenancePath,
+                mhcCandidateArtifacts: beforeScientificArtifacts.mhcCandidateArtifacts,
+                mhcReferenceVisualizations: beforeScientificArtifacts.mhcReferenceVisualizations,
+                referenceRecordStore: beforeScientificArtifacts.referenceRecordStore,
+                alignmentArtifacts: alignmentArtifacts,
+                provisionalExon2Artifacts: provisionalArtifacts
+            ),
+            to: fixture.bundleURL
+        )
         let installedManifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
         let unnameableDocument = try JSONDecoder().decode(
             ONTMHCUnnameableClustersDocument.self,
@@ -33,6 +76,8 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
 
         XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.candidateJSON)
         XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.unnameableJSON)
+        XCTAssertEqual(updatedManifest.alignmentArtifacts, alignmentArtifacts)
+        XCTAssertEqual(updatedManifest.provisionalExon2Artifacts, provisionalArtifacts)
         XCTAssertFalse((updatedManifest.workbookRevisions ?? []).isEmpty)
         let inspection = try inspectTwoSheetCandidateWorkbook(
             try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)

@@ -29,6 +29,7 @@ struct GenotypeSearchIndex: Sendable {
         let rawGenotype: String
         let locus: String
         let stableClusterID: String?
+        let identityAliases: [String]
         let visibleReferenceMetadata: [String: String]
         let carrierSampleIDs: Set<String>
 
@@ -38,6 +39,7 @@ struct GenotypeSearchIndex: Sendable {
             rawGenotype: String,
             locus: String,
             stableClusterID: String? = nil,
+            identityAliases: [String] = [],
             visibleReferenceMetadata: [String: String] = [:],
             carrierSampleIDs: Set<String>
         ) {
@@ -46,6 +48,7 @@ struct GenotypeSearchIndex: Sendable {
             self.rawGenotype = rawGenotype
             self.locus = locus
             self.stableClusterID = stableClusterID
+            self.identityAliases = identityAliases
             self.visibleReferenceMetadata = visibleReferenceMetadata
             self.carrierSampleIDs = carrierSampleIDs
         }
@@ -163,6 +166,7 @@ struct GenotypeSearchIndex: Sendable {
             if let stableClusterID = row.stableClusterID {
                 fields.append(stableClusterID)
             }
+            fields.append(contentsOf: row.identityAliases)
             fields.append(contentsOf: Self.metadataFields(row.visibleReferenceMetadata))
             return IndexedProjectedRow(
                 id: row.id,

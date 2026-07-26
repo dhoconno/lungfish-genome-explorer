@@ -696,6 +696,7 @@ private final class ONTGenotypingMappingProcessGroup: @unchecked Sendable {
 public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private let condaManager: CondaManager
     private let referenceImporter: ReferenceBundleImportService
+    private let fileRemover: @Sendable (URL) throws -> Void
     private static let mappingProcessTimeout: TimeInterval = 86_400
 
     public init(
@@ -704,6 +705,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     ) {
         self.condaManager = condaManager
         self.referenceImporter = referenceImporter
+        self.fileRemover = { url in
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+
+    init(
+        condaManager: CondaManager,
+        referenceImporter: ReferenceBundleImportService = .shared,
+        fileRemover: @escaping @Sendable (URL) throws -> Void
+    ) {
+        self.condaManager = condaManager
+        self.referenceImporter = referenceImporter
+        self.fileRemover = fileRemover
     }
 
     public func run(
@@ -797,110 +811,144 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             pythonURL: pythonURL
         )
 
-        progressHandler?(0.76, "Writing retained-demux genotype summaries.")
-        try copyFilterOutput(
-            from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_genotypes.csv"),
-            to: request.reportCSVURL
-        )
-        try copyFilterOutput(
-            from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_samples.csv"),
-            to: request.sampleSummaryCSVURL
-        )
-        try copyFilterOutput(
-            from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_stats.json"),
-            to: request.statsJSONURL
-        )
+        let finalizedResult: ONTBarcodeDemuxGenotypingResult
+        let preserveRetainedEvidence: Bool
+        do {
+            progressHandler?(0.76, "Writing retained-demux genotype summaries.")
+            try copyFilterOutput(
+                from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_genotypes.csv"),
+                to: request.reportCSVURL
+            )
+            try copyFilterOutput(
+                from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_samples.csv"),
+                to: request.sampleSummaryCSVURL
+            )
+            try copyFilterOutput(
+                from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_stats.json"),
+                to: request.statsJSONURL
+            )
+            let scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?
+            if resolvedMode == .illuminaPaired {
+                progressHandler?(0.78, "Publishing genotyping evidence and provisional exon 2 sequences.")
+                scientificArtifactPublication =
+                    try AmpliconGenotypeScientificArtifactPublisher().publish(
+                        reportCSVURL: request.reportCSVURL,
+                        referenceFASTAURL: reference.referenceFASTAURL,
+                        retainedBAMURL: request.retainedBAMURL,
+                        retainedBAIURL: request.retainedBAIURL,
+                        outputDirectoryURL: request.outputDirectory
+                    )
+            } else {
+                scientificArtifactPublication = nil
+            }
 
-        progressHandler?(0.80, "Applying selected haplotype definition.")
-        let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
-            request: request,
-            supportDirectory: supportDirectory,
-            generatedAt: Date()
-        )
+            progressHandler?(0.80, "Applying selected haplotype definition.")
+            let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
+                request: request,
+                supportDirectory: supportDirectory,
+                generatedAt: Date()
+            )
 
-        progressHandler?(0.84, "Writing Excel genotype workbook.")
-        let report = try await runReport(
-            request: request,
-            referenceFASTAURL: reference.referenceFASTAURL,
-            barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
-            comparisonWorkbookURL: inputSnapshot.comparisonWorkbookURL,
-            haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
-            reportScriptURL: reportScriptURL,
-            pythonURL: reportPythonURL
-        )
+            progressHandler?(0.84, "Writing Excel genotype workbook.")
+            let report = try await runReport(
+                request: request,
+                referenceFASTAURL: reference.referenceFASTAURL,
+                barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
+                comparisonWorkbookURL: inputSnapshot.comparisonWorkbookURL,
+                haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
+                reportScriptURL: reportScriptURL,
+                pythonURL: reportPythonURL
+            )
 
-        let workbookCopy = try await createInitialCurrentWorkbook(
-            for: request,
-            reportScriptURL: reportScriptURL,
-            reportPythonURL: reportPythonURL,
-            referenceFASTAURL: reference.referenceFASTAURL,
-            barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
-            haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL
-        )
-        let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
-            fromReferenceBundle: reference.sourceReferenceBundleURL ?? request.referenceSourceURL,
-            toResultBundle: request.outputDirectory
-        )
-        let completedAt = Date()
-        progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
-        let provenanceURL = try writeProvenance(
-            request: request,
-            resolvedMode: resolvedMode,
-            resolvedReadType: resolvedReadType,
-            reference: reference,
-            inputFASTQURLs: inputPlan.originalInputFASTQURLs,
-            mappingInputFASTQURLs: mappingInputFASTQURLs,
-            demuxManifestURL: inputPlan.manifestURL,
-            inputSnapshot: inputSnapshot,
-            illuminaPreparation: inputPlan.illuminaPreparation,
-            scriptURL: scriptURL,
-            reportScriptURL: reportScriptURL,
-            minimap2URL: minimap2URL,
-            samtoolsURL: samtoolsURL,
-            pythonURL: pythonURL,
-            reportPythonURL: reportPythonURL,
-            mapping: mapping,
-            filter: filter,
-            report: report,
-            workbookCopy: workbookCopy,
-            haplotypeAnalysis: haplotypeAnalysis,
-            referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
-            startedAt: startedAt,
-            completedAt: completedAt
-        )
-        try writeBundleManifest(
-            request: request,
-            resolvedMode: resolvedMode,
-            provenanceURL: provenanceURL,
-            workbookRevision: workbookCopy.revision,
-            referenceRecordStore: referenceRecordStoreSnapshot?.info,
-            completedAt: completedAt
-        )
+            let workbookCopy = try await createInitialCurrentWorkbook(
+                for: request,
+                reportScriptURL: reportScriptURL,
+                reportPythonURL: reportPythonURL,
+                referenceFASTAURL: reference.referenceFASTAURL,
+                barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
+                haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL
+            )
+            let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
+                fromReferenceBundle: reference.sourceReferenceBundleURL ?? request.referenceSourceURL,
+                toResultBundle: request.outputDirectory
+            )
+            let completedAt = Date()
+            progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
+            let provenanceURL = try writeProvenance(
+                request: request,
+                resolvedMode: resolvedMode,
+                resolvedReadType: resolvedReadType,
+                reference: reference,
+                inputFASTQURLs: inputPlan.originalInputFASTQURLs,
+                mappingInputFASTQURLs: mappingInputFASTQURLs,
+                demuxManifestURL: inputPlan.manifestURL,
+                inputSnapshot: inputSnapshot,
+                illuminaPreparation: inputPlan.illuminaPreparation,
+                scriptURL: scriptURL,
+                reportScriptURL: reportScriptURL,
+                minimap2URL: minimap2URL,
+                samtoolsURL: samtoolsURL,
+                pythonURL: pythonURL,
+                reportPythonURL: reportPythonURL,
+                mapping: mapping,
+                filter: filter,
+                report: report,
+                workbookCopy: workbookCopy,
+                haplotypeAnalysis: haplotypeAnalysis,
+                referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
+                scientificArtifactPublication: scientificArtifactPublication,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+            try writeBundleManifest(
+                request: request,
+                resolvedMode: resolvedMode,
+                provenanceURL: provenanceURL,
+                workbookRevision: workbookCopy.revision,
+                referenceRecordStore: referenceRecordStoreSnapshot?.info,
+                scientificArtifactPublication: scientificArtifactPublication,
+                completedAt: completedAt
+            )
+            preserveRetainedEvidence = scientificArtifactPublication != nil
+            finalizedResult = ONTBarcodeDemuxGenotypingResult(
+                outputDirectory: request.outputDirectory,
+                mappingBAMURL: request.mappingBAMURL,
+                mappingBAIURL: request.mappingBAIURL,
+                retainedBAMURL: request.retainedBAMURL,
+                retainedBAIURL: request.retainedBAIURL,
+                reportCSVURL: request.reportCSVURL,
+                sampleSummaryCSVURL: request.sampleSummaryCSVURL,
+                statsJSONURL: request.statsJSONURL,
+                haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
+                workbookURL: request.currentWorkbookURL,
+                reportProvenanceURL: request.reportProvenanceURL,
+                provenanceURL: provenanceURL,
+                referenceFASTAURL: reference.referenceFASTAURL,
+                sourceReferenceBundleURL: reference.sourceReferenceBundleURL,
+                totalInputReads: filter.stats.totalInputReads,
+                retainedUniqueReads: filter.stats.retainedUniqueReads,
+                retainedUniquePercentOfTotalReads: filter.stats.retainedUniquePercentOfTotalReads,
+                assignedUniqueRetainedReads: filter.stats.assignedUniqueRetainedReads,
+                unassignedUniqueRetainedReads: filter.stats.unassignedUniqueRetainedReads
+            )
+        } catch {
+            if resolvedMode == .illuminaPaired {
+                rollbackScientificOutputsAfterFinalizationFailure(
+                    request: request,
+                    mapping: mapping
+                )
+            }
+            throw error
+        }
+
         progressHandler?(0.97, "Removing regenerable alignment intermediates.")
-        try removeGeneratedAlignmentIntermediates(for: request, mapping: mapping)
-        progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
-
-        return ONTBarcodeDemuxGenotypingResult(
-            outputDirectory: request.outputDirectory,
-            mappingBAMURL: request.mappingBAMURL,
-            mappingBAIURL: request.mappingBAIURL,
-            retainedBAMURL: request.retainedBAMURL,
-            retainedBAIURL: request.retainedBAIURL,
-            reportCSVURL: request.reportCSVURL,
-            sampleSummaryCSVURL: request.sampleSummaryCSVURL,
-            statsJSONURL: request.statsJSONURL,
-            haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
-            workbookURL: request.currentWorkbookURL,
-            reportProvenanceURL: request.reportProvenanceURL,
-            provenanceURL: provenanceURL,
-            referenceFASTAURL: reference.referenceFASTAURL,
-            sourceReferenceBundleURL: reference.sourceReferenceBundleURL,
-            totalInputReads: filter.stats.totalInputReads,
-            retainedUniqueReads: filter.stats.retainedUniqueReads,
-            retainedUniquePercentOfTotalReads: filter.stats.retainedUniquePercentOfTotalReads,
-            assignedUniqueRetainedReads: filter.stats.assignedUniqueRetainedReads,
-            unassignedUniqueRetainedReads: filter.stats.unassignedUniqueRetainedReads
+        try? removeGeneratedAlignmentIntermediates(
+            for: request,
+            mapping: mapping,
+            preserveRetainedEvidence: preserveRetainedEvidence
         )
+        progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
+        return finalizedResult
     }
 
     public static func resolveInputFASTQURLs(for inputURL: URL) throws -> [URL] {
@@ -2833,6 +2881,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         workbookCopy: WorkbookCopyResult,
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         referenceRecordStoreSnapshot: GenotypeReferenceRecordStoreSnapshot.PublishedSnapshot?,
+        scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?,
         startedAt: Date,
         completedAt: Date
     ) throws -> URL {
@@ -3019,6 +3068,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let recordStoreOutputs = referenceRecordStoreSnapshot.map {
             [fileDescriptorDictionary(url: $0.destinationURL, role: "reference-metadata-snapshot")]
         } ?? []
+        let scientificArtifactOutputs = scientificArtifactPublication?.outputURLs.map {
+            fileDescriptorDictionary(url: $0, role: $0.pathExtension.lowercased() == "json" ? "report" : "output")
+        } ?? []
+        let durableAlignmentOutputs: [[String: Any]] = scientificArtifactPublication == nil
+            ? []
+            : [
+                fileDescriptorDictionary(url: request.retainedBAMURL, role: "output"),
+                fileDescriptorDictionary(url: request.retainedBAIURL, role: "index"),
+            ]
         let provenanceInputs: [[String: Any]] = inputs + mappingInputs + [
             fileDescriptorDictionary(url: reference.referenceFASTAURL, role: "reference"),
             fileDescriptorDictionary(url: demuxManifestURL, role: "input"),
@@ -3026,12 +3084,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             fileDescriptorDictionary(url: reportScriptURL, role: "input"),
         ] + (request.barcodeDefinitionsURL.map { [fileDescriptorDictionary(url: $0, role: "input")] } ?? [])
             + comparisonInputs + stagedInputs + haplotypeDefinitionInputs + specialistPromptInputs + recordStoreInputs
-        let transientAlignmentOutputs: [[String: Any]] = [
+        var transientAlignmentOutputs: [[String: Any]] = [
             fileDescriptorDictionary(url: request.mappingBAMURL, role: "intermediate"),
             fileDescriptorDictionary(url: request.mappingBAIURL, role: "intermediate-index"),
-            fileDescriptorDictionary(url: request.retainedBAMURL, role: "intermediate"),
-            fileDescriptorDictionary(url: request.retainedBAIURL, role: "intermediate-index"),
         ] + mapping.transientBAMURLs.map { fileDescriptorDictionary(url: $0, role: "intermediate") }
+        if scientificArtifactPublication == nil {
+            transientAlignmentOutputs += [
+                fileDescriptorDictionary(url: request.retainedBAMURL, role: "intermediate"),
+                fileDescriptorDictionary(url: request.retainedBAIURL, role: "intermediate-index"),
+            ]
+        }
         let currentWorkbookProvenanceOutputs = workbookCopy.provenanceURL
             .map { [fileDescriptorDictionary(url: $0, role: "current-report-provenance")] } ?? []
         let provenanceOutputs: [[String: Any]] = [
@@ -3042,7 +3104,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             fileDescriptorDictionary(url: request.workbookURL, role: "original-report"),
             fileDescriptorDictionary(url: request.currentWorkbookURL, role: "current-report"),
             fileDescriptorDictionary(url: request.reportProvenanceURL, role: "provenance"),
-        ] + currentWorkbookProvenanceOutputs + specialistPromptOutputs + recordStoreOutputs
+        ] + currentWorkbookProvenanceOutputs
+            + specialistPromptOutputs
+            + recordStoreOutputs
+            + durableAlignmentOutputs
+            + scientificArtifactOutputs
         let primaryOutput = fileDescriptorDictionary(url: request.outputDirectory, role: "output")
         let provenanceFiles = provenanceInputs + transientAlignmentOutputs + provenanceOutputs
         let statistics: [String: Any] = [
@@ -3096,6 +3162,40 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "wallTimeSeconds": snapshot.completedAt.timeIntervalSince(snapshot.startedAt),
             ]]
         } ?? []
+        let scientificArtifactSteps: [[String: Any]] = scientificArtifactPublication.map { publication in
+            [[
+                "toolName": "Lungfish Provisional exon 2 artifact publisher",
+                "toolVersion": WorkflowRun.currentAppVersion,
+                "argv": publication.argv,
+                "durableReplayArgv": publication.argv,
+                "reproducibleCommand": publication.argv.map(shellEscape).joined(separator: " "),
+                "resolvedOptions": [
+                    "identifierRule": "case-insensitive-_nov",
+                    "sampleScope": "assigned-only",
+                    "fastaWrap": 80,
+                    "databaseResolution": false,
+                ],
+                "runtimeIdentity": [
+                    "appVersion": WorkflowRun.currentAppVersion,
+                    "executablePath": CommandLine.arguments.first ?? "",
+                    "operatingSystemVersion": WorkflowRun.currentHostOS,
+                    "user": NSUserName(),
+                ],
+                "inputs": [
+                    fileDescriptorDictionary(url: request.reportCSVURL, role: "report"),
+                    fileDescriptorDictionary(url: reference.referenceFASTAURL, role: "reference"),
+                    fileDescriptorDictionary(url: request.retainedBAMURL, role: "output"),
+                    fileDescriptorDictionary(url: request.retainedBAIURL, role: "index"),
+                ],
+                "outputs": scientificArtifactOutputs,
+                "exitStatus": 0,
+                "wallClockSeconds": publication.completedAt.timeIntervalSince(publication.startedAt),
+                "wallTimeSeconds": publication.completedAt.timeIntervalSince(publication.startedAt),
+                "stderr": "",
+                "startedAt": ISO8601DateFormatter().string(from: publication.startedAt),
+                "completedAt": ISO8601DateFormatter().string(from: publication.completedAt),
+            ]]
+        } ?? []
         let steps: [[String: Any]] = mappingProcessSteps + mergeStep + [
             [
                 "toolName": "samtools index",
@@ -3112,7 +3212,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "wallTimeSeconds": filter.wallClockSeconds,
                 "stderr": filter.stderr,
             ],
-        ] + haplotypeSteps + currentHaplotypeSteps + specialistPromptSteps + recordStoreSteps + [
+        ] + scientificArtifactSteps
+            + haplotypeSteps
+            + currentHaplotypeSteps
+            + specialistPromptSteps
+            + recordStoreSteps
+            + [
             [
                 "toolName": "openpyxl ONT genotype workbook report",
                 "argv": [reportPythonURL.path] + report.arguments,
@@ -3205,6 +3310,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             workbookCopy: workbookCopy,
             haplotypeAnalysis: haplotypeAnalysis,
             referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
+            scientificArtifactPublication: scientificArtifactPublication,
             legacyProvenanceURL: provenanceURL,
             options: options,
             resolvedDefaults: resolvedDefaults,
@@ -3236,6 +3342,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         workbookCopy: WorkbookCopyResult,
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         referenceRecordStoreSnapshot: GenotypeReferenceRecordStoreSnapshot.PublishedSnapshot?,
+        scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?,
         legacyProvenanceURL: URL,
         options: [String: Any],
         resolvedDefaults: [String: Any],
@@ -3300,6 +3407,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let recordStoreOutput = try referenceRecordStoreSnapshot.map {
             try canonicalFileDescriptor(url: $0.destinationURL, role: .output)
         }
+        let scientificArtifactOutputs = try scientificArtifactPublication?.outputURLs.map {
+            try canonicalFileDescriptor(
+                url: $0,
+                role: $0.pathExtension.lowercased() == "json" ? .report : .output
+            )
+        } ?? []
+        let durableAlignmentOutputs = scientificArtifactPublication == nil
+            ? []
+            : [retainedBAM, retainedBAI]
         let canonicalOutputs = deduplicated(
             [
                 genotypeCSV,
@@ -3312,6 +3428,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 + (currentWorkbookProvenance.map { [$0] } ?? [])
                 + (specialistPromptOutput.map { [$0] } ?? [])
                 + (recordStoreOutput.map { [$0] } ?? [])
+                + durableAlignmentOutputs
+                + scientificArtifactOutputs
         )
         let outputDirectory = ProvenanceFileDescriptor(
             path: request.outputDirectory.standardizedFileURL.path,
@@ -3385,6 +3503,36 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 stderr: filter.stderr
             ),
         ]
+        if let publication = scientificArtifactPublication {
+            canonicalSteps.append(
+                ProvenanceStep(
+                    toolName: "Lungfish Provisional exon 2 artifact publisher",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    argv: publication.argv,
+                    durableReplayArgv: publication.argv,
+                    resolvedOptions: [
+                        "identifierRule": .string("case-insensitive-_nov"),
+                        "sampleScope": .string("assigned-only"),
+                        "fastaWrap": .integer(80),
+                        "databaseResolution": .boolean(false),
+                    ],
+                    runtimeIdentity: ProvenanceRuntimeIdentity(
+                        appVersion: WorkflowRun.currentAppVersion,
+                        executablePath: CommandLine.arguments.first
+                            ?? ProvenanceRuntimeIdentity.currentExecutablePath,
+                        operatingSystemVersion: WorkflowRun.currentHostOS,
+                        user: NSUserName()
+                    ),
+                    inputs: [genotypeCSV, referenceInput, retainedBAM, retainedBAI],
+                    outputs: scientificArtifactOutputs,
+                    exitStatus: 0,
+                    wallTimeSeconds: publication.completedAt.timeIntervalSince(publication.startedAt),
+                    stderr: "",
+                    startedAt: publication.startedAt,
+                    completedAt: publication.completedAt
+                )
+            )
+        }
         if let haplotypeOutput {
             canonicalSteps.append(
                 ProvenanceStep(
@@ -3522,6 +3670,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         provenanceURL: URL,
         workbookRevision: ONTGenotypeWorkbookRevision,
         referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?,
+        scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?,
         completedAt: Date
     ) throws {
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
@@ -3543,7 +3692,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             presetID: request.presetID,
             presetVersion: request.presetVersion,
             createdAt: ISO8601DateFormatter().string(from: completedAt),
-            referenceRecordStore: referenceRecordStore
+            referenceRecordStore: referenceRecordStore,
+            alignmentArtifacts: scientificArtifactPublication?.alignmentArtifacts,
+            provisionalExon2Artifacts: scientificArtifactPublication?.provisionalExon2Artifacts
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: request.outputDirectory)
 
@@ -3562,15 +3713,70 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private func removeGeneratedAlignmentIntermediates(
         for request: ONTBarcodeDemuxGenotypingRunRequest,
-        mapping: MappingStepResult
+        mapping: MappingStepResult,
+        preserveRetainedEvidence: Bool
     ) throws {
-        for url in [
+        var removableURLs = [
+            request.mappingBAMURL,
+            request.mappingBAIURL,
+        ] + mapping.transientBAMURLs
+        if !preserveRetainedEvidence {
+            removableURLs += [
+                request.retainedBAMURL,
+                request.retainedBAIURL,
+            ]
+        }
+        for url in removableURLs where FileManager.default.fileExists(atPath: url.path) {
+            try fileRemover(url)
+        }
+    }
+
+    private func rollbackScientificOutputsAfterFinalizationFailure(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        mapping: MappingStepResult
+    ) {
+        let alignmentURLs = [
             request.mappingBAMURL,
             request.mappingBAIURL,
             request.retainedBAMURL,
             request.retainedBAIURL,
-        ] + mapping.transientBAMURLs where FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
+        ] + mapping.transientBAMURLs
+        let sequenceDirectory = request.outputDirectory
+            .appendingPathComponent("artifacts/sequences", isDirectory: true)
+        let canonicalProvenanceURL = request.outputDirectory
+            .appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let removableURLs = alignmentURLs + [
+            request.reportCSVURL,
+            request.sampleSummaryCSVURL,
+            request.statsJSONURL,
+            request.workbookURL,
+            request.currentWorkbookURL,
+            request.reportProvenanceURL,
+            request.currentWorkbookProvenanceURL,
+            request.haplotypeAnalysisURL,
+            request.currentHaplotypeAnalysisURL,
+            request.specialistPromptSnapshotURL,
+            request.provenanceURL,
+            canonicalProvenanceURL,
+            ProvenanceSigningConfiguration.signatureURL(for: canonicalProvenanceURL),
+            ProvenanceSigningConfiguration.publicKeyURL(for: canonicalProvenanceURL),
+            ONTGenotypeResultBundle.manifestURL(in: request.outputDirectory),
+            request.outputDirectory.appendingPathComponent(
+                GenotypeReferenceRecordStoreSnapshot.relativeDatabasePath
+            ),
+            sequenceDirectory.appendingPathComponent(
+                "observed-provisional-exon2.json"
+            ),
+            sequenceDirectory.appendingPathComponent(
+                "observed-provisional-exon2.fasta"
+            ),
+            request.outputDirectory.appendingPathComponent(
+                ProvenanceWriter.bundleProvenanceDirectoryName,
+                isDirectory: true
+            ),
+        ]
+        for url in removableURLs where FileManager.default.fileExists(atPath: url.path) {
+            try? fileRemover(url)
         }
     }
 

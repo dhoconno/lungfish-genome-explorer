@@ -337,8 +337,12 @@ public final class GenotypeResultViewController: NSViewController {
     private var knownSequenceRecordsByRowID: [
         GenotypeCandidateMatrixRowID: GenotypeAlleleSequenceRecord
     ] = [:]
+    private var provisionalExon2SequenceRecordsByGenotype: [
+        String: GenotypeAlleleSequenceRecord
+    ] = [:]
     private var renderedAlleleSequenceRecordIdentities: [String] = []
     private var knownAlleleSequenceRecordBuildCount = 0
+    private var provisionalExon2SequenceRecordBuildCount = 0
     private var legacyNonRowDetailBuildCount = 0
     private var currentSelectedSample: String?
     private var currentSelectedLocus: String?
@@ -837,6 +841,7 @@ public final class GenotypeResultViewController: NSViewController {
         candidateAlleleDetailMountCount = 0
         alleleSequenceDetailMountCount = 0
         knownAlleleSequenceRecordBuildCount = 0
+        provisionalExon2SequenceRecordBuildCount = 0
         legacyNonRowDetailBuildCount = 0
         alleleSequenceDetailView.resetForNewResult()
         renderedAlleleSequenceRecordIdentities = []
@@ -846,6 +851,16 @@ public final class GenotypeResultViewController: NSViewController {
         alleleSequenceDetailWidthConstraint = nil
         alleleSequenceDetailHeightConstraint?.isActive = false
         alleleSequenceDetailHeightConstraint = nil
+        if isGenotypeOnlyResult {
+            provisionalExon2SequenceRecordsByGenotype =
+                result.provisionalExon2SequencesByGenotype.mapValues(
+                    GenotypeAlleleSequenceRecord.provisionalExon2
+                )
+            provisionalExon2SequenceRecordBuildCount =
+                provisionalExon2SequenceRecordsByGenotype.count
+        } else {
+            provisionalExon2SequenceRecordsByGenotype = [:]
+        }
         if isFullLengthMHCGenotypeViewport {
             knownSequenceRecordsByRowID = [:]
             for sharedCall in result.locusSummaries.flatMap(\.sharedCalls) {
@@ -3362,6 +3377,20 @@ public final class GenotypeResultViewController: NSViewController {
         ]
         let commentTargets = applicableCommentTargets(for: resolvedMatrixTargets)
         let commentRows = matrixCommentDetailRows(for: commentTargets)
+        if let provisional =
+            result?.provisionalExon2SequencesByGenotype[sharedCall.genotype],
+           let sequenceRecord =
+            provisionalExon2SequenceRecordsByGenotype[sharedCall.genotype] {
+            showProvisionalExon2Selection(
+                provisional,
+                sequenceRecord: sequenceRecord,
+                sharedCall: sharedCall,
+                sample: sample,
+                matrixTargets: resolvedMatrixTargets,
+                commentRows: commentRows
+            )
+            return
+        }
         if isFullLengthMHCGenotypeViewport {
             showAlleleSequenceRows(for: resolvedMatrixTargets)
             publishSelectionState(selectionState(
@@ -3580,6 +3609,12 @@ public final class GenotypeResultViewController: NSViewController {
             ]
                 ?? .unavailable(identity: genotype, displayName: alleleDisplayLabel(for: genotype))
         }
+        showAlleleSequenceRecords(records)
+    }
+
+    private func showAlleleSequenceRecords(
+        _ records: [GenotypeAlleleSequenceRecord]
+    ) {
         candidateAlleleDetailWidthConstraint?.isActive = false
         candidateAlleleDetailWidthConstraint = nil
         if detailStack.arrangedSubviews.count != 1
@@ -3601,6 +3636,59 @@ public final class GenotypeResultViewController: NSViewController {
         }
         renderedAlleleSequenceRecordIdentities = records.map(\.identity)
         alleleSequenceDetailView.show(records: records)
+    }
+
+    private func showProvisionalExon2Selection(
+        _ provisional: ONTGenotypeProvisionalExon2Sequence,
+        sequenceRecord: GenotypeAlleleSequenceRecord,
+        sharedCall: ONTGenotypeSharedCall,
+        sample: String?,
+        matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget],
+        commentRows: [(String, String)]
+    ) {
+        showAlleleSequenceRecords([sequenceRecord])
+        var rows: [(String, String)] = [
+            ("Designation", provisional.designation),
+            (
+                "Interpretation",
+                "Short exon 2 exact run reference match; not an IPD-qualified novel-allele designation."
+            ),
+            ("Run Identifier", provisional.genotype),
+            ("Locus", provisional.locus),
+            ("Sequence Length", "\(provisional.sequence.utf8.count) bp"),
+            ("Observed Samples", "\(provisional.sampleSupport.count)"),
+        ]
+        rows += provisional.sampleSupport.map { support in
+            (
+                "\(support.sample) Support",
+                "\(integer(support.passedUniqueReads)) unique reads; "
+                    + "\(integer(support.passedAlignments)) alignments"
+            )
+        }
+        if let sample,
+           let support = provisional.sampleSupport.first(where: {
+               $0.sample == sample
+           }) {
+            rows += [
+                ("Selected Sample", sample),
+                ("Selected Unique Reads", integer(support.passedUniqueReads)),
+                ("Selected Alignments", integer(support.passedAlignments)),
+            ]
+        }
+        rows += commentRows
+        let target = GenotypeResultHighlightTarget(
+            genotype: sharedCall.genotype,
+            locus: sharedCall.locus,
+            sample: sample
+        )
+        publishSelectionState(GenotypeResultSelectionState(
+            title: provisional.genotype,
+            subtitle: "\(provisional.locus) · Provisional exon 2",
+            detailRows: rows,
+            highlightTarget: target,
+            highlightStyle: comparisonMatrix.highlightStyle(for: target),
+            matrixTargets: matrixTargets
+        ))
     }
 
     private func showGenericMatrixTargetSelection(_ uniqueTargets: [GenotypeAnnotationSidecar.MatrixTarget]) {
@@ -4255,20 +4343,34 @@ public final class GenotypeResultViewController: NSViewController {
         if let unnameableURL = candidateGenBankURLs.unnameableClusters {
             artifactRows.append(artifactRow(label: "Un-nameable Clusters GenBank", url: unnameableURL))
         }
-        let alignmentArtifactURLs = result.manifest.kind == "full-length-ont-mhc-genotype"
-            ? result.mhcAlignmentArtifactURLs
-            : .empty
+        let alignmentArtifactURLs = result.alignmentArtifactURLs
         if let genotypingBAMURL = alignmentArtifactURLs.genotypingBAM {
             artifactRows.append(artifactRow(label: "Genotyping Evidence BAM", url: genotypingBAMURL))
         }
         if let genotypingBAIURL = alignmentArtifactURLs.genotypingBAI {
             artifactRows.append(artifactRow(label: "Genotyping Evidence BAI", url: genotypingBAIURL))
         }
-        if let reciprocalBAMURL = alignmentArtifactURLs.reciprocalBAM {
+        if result.manifest.kind == "full-length-ont-mhc-genotype",
+           let reciprocalBAMURL = alignmentArtifactURLs.reciprocalBAM {
             artifactRows.append(artifactRow(label: "Reciprocal Evidence BAM", url: reciprocalBAMURL))
         }
-        if let reciprocalBAIURL = alignmentArtifactURLs.reciprocalBAI {
+        if result.manifest.kind == "full-length-ont-mhc-genotype",
+           let reciprocalBAIURL = alignmentArtifactURLs.reciprocalBAI {
             artifactRows.append(artifactRow(label: "Reciprocal Evidence BAI", url: reciprocalBAIURL))
+        }
+        if !hasHaplotypingResult,
+           let catalogURL = result.provisionalExon2ArtifactURLs.catalogJSON {
+            artifactRows.append(artifactRow(
+                label: "Observed Provisional Exon 2 JSON",
+                url: catalogURL
+            ))
+        }
+        if !hasHaplotypingResult,
+           let fastaURL = result.provisionalExon2ArtifactURLs.sequencesFASTA {
+            artifactRows.append(artifactRow(
+                label: "Observed Provisional Exon 2 FASTA",
+                url: fastaURL
+            ))
         }
         if let haplotypeAnalysisURL = result.artifacts.haplotypeAnalysisURL {
             artifactRows.append(artifactRow(label: "Haplotype Analysis", url: haplotypeAnalysisURL))
@@ -4351,6 +4453,18 @@ public final class GenotypeResultViewController: NSViewController {
     public func applyAIHaplotypingCompleted(result updatedResult: ONTGenotypeResultBundleData) {
         result = updatedResult
         hasHaplotypingResult = updatedResult.haplotypeAnalysis != nil
+        if hasHaplotypingResult {
+            provisionalExon2SequenceRecordsByGenotype = [:]
+        } else {
+            provisionalExon2SequenceRecordsByGenotype =
+                updatedResult.provisionalExon2SequencesByGenotype.mapValues(
+                    GenotypeAlleleSequenceRecord.provisionalExon2
+                )
+            provisionalExon2SequenceRecordBuildCount +=
+                provisionalExon2SequenceRecordsByGenotype.count
+        }
+        renderedAlleleSequenceRecordIdentities = []
+        alleleSequenceDetailView.clear()
         quickFilterBar.configureSearchCapability(
             hasHaplotypingResult: hasHaplotypingResult
         )
@@ -5532,6 +5646,10 @@ public final class GenotypeResultViewController: NSViewController {
                 rawGenotype: row.genotype,
                 locus: row.locus,
                 stableClusterID: row.stableClusterID,
+                identityAliases: !hasHaplotypingResult
+                    && result.provisionalExon2SequencesByGenotype[row.genotype] != nil
+                    ? ["Provisional exon 2"]
+                    : [],
                 visibleReferenceMetadata: visibleRecord,
                 carrierSampleIDs: Set(row.sampleSupport.map(\.sample))
             )
@@ -7722,6 +7840,14 @@ extension GenotypeResultViewController {
 
     var testingKnownAlleleSequenceCacheCount: Int {
         knownSequenceRecordsByRowID.count
+    }
+
+    var testingProvisionalExon2SequenceRecordBuildCount: Int {
+        provisionalExon2SequenceRecordBuildCount
+    }
+
+    var testingProvisionalExon2SequenceCacheCount: Int {
+        provisionalExon2SequenceRecordsByGenotype.count
     }
 
     var testingLegacyNonRowDetailBuildCount: Int {

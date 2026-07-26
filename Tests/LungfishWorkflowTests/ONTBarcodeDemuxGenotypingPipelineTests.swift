@@ -745,6 +745,375 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(canonicalEnvelope.options.explicit["illuminaMergeResults"], .null)
         XCTAssertTrue(canonicalEnvelope.files.contains { $0.path == sampleB.fastqURL.standardizedFileURL.path && $0.checksumSHA256 != nil })
         XCTAssertFalse(canonicalEnvelope.files.contains { $0.path.hasSuffix("merge-illumina-pairs.py") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.retainedBAMURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.retainedBAIURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.mappingBAMURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.mappingBAIURL.path))
+        XCTAssertTrue(canonicalEnvelope.outputs.contains { descriptor in
+            descriptor.path == request.retainedBAMURL.path
+                && descriptor.checksumSHA256 != nil
+                && descriptor.fileSize != nil
+        })
+        XCTAssertTrue(canonicalEnvelope.outputs.contains { descriptor in
+            descriptor.path == request.retainedBAIURL.path
+                && descriptor.checksumSHA256 != nil
+                && descriptor.fileSize != nil
+        })
+        XCTAssertTrue(canonicalEnvelope.steps.contains { step in
+            step.toolName == "Lungfish Provisional exon 2 artifact publisher"
+                && step.inputs.contains { $0.path == request.reportCSVURL.path }
+                && step.inputs.contains { $0.path == referenceFASTA.standardizedFileURL.path }
+                && step.outputs.isEmpty
+                && step.exitStatus == 0
+        })
+
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        XCTAssertNotNil(manifest.alignmentArtifacts?.genotypingEvidence)
+        XCTAssertNil(manifest.alignmentArtifacts?.reciprocalEvidence)
+        XCTAssertNil(manifest.provisionalExon2Artifacts)
+    }
+
+    func testRunIlluminaModePublishesObservedNovelSequenceAsProvisionalExon2() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let provisionalGenotype = "Mafa-A1*007:08:01:01_1nt_nov"
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(
+            at: condaRoot,
+            genotypeRows: [
+                "DW001,\(provisionalGenotype),12,11",
+                "DW001,Mafa-B*013:01,8,8",
+            ]
+        )
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let outputDirectory = root.appendingPathComponent(
+            "miseq-provisional.lungfishgenotype",
+            isDirectory: true
+        )
+        try """
+        >\(provisionalGenotype)
+        AACCGGTT
+        >Mafa-B*013:01
+        TTTTCCCC
+
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "AACCGGTT"
+        )
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-provisional",
+            analysisName: "MiSeq provisional",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+
+        _ = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request)
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: outputDirectory)
+        let provisional = try XCTUnwrap(
+            result.provisionalExon2SequencesByGenotype[provisionalGenotype]
+        )
+        XCTAssertEqual(provisional.designation, "Provisional exon 2")
+        XCTAssertEqual(provisional.sequence, "AACCGGTT")
+        XCTAssertEqual(provisional.sampleSupport, [
+            ONTGenotypeProvisionalExon2SampleSupport(
+                sample: "DW001",
+                passedAlignments: 12,
+                passedUniqueReads: 11
+            ),
+        ])
+        let catalogURL = try XCTUnwrap(result.provisionalExon2ArtifactURLs.catalogJSON)
+        let fastaURL = try XCTUnwrap(result.provisionalExon2ArtifactURLs.sequencesFASTA)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: catalogURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fastaURL.path))
+        XCTAssertEqual(result.alignmentArtifactURLs.genotypingBAM, request.retainedBAMURL)
+        XCTAssertEqual(result.alignmentArtifactURLs.genotypingBAI, request.retainedBAIURL)
+        XCTAssertNil(result.alignmentArtifactURLs.reciprocalBAM)
+        XCTAssertNil(result.alignmentArtifactURLs.reciprocalBAI)
+
+        let canonicalEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(from: outputDirectory)
+        )
+        for artifactURL in [request.retainedBAMURL, request.retainedBAIURL, catalogURL, fastaURL] {
+            XCTAssertTrue(canonicalEnvelope.outputs.contains { descriptor in
+                descriptor.path == artifactURL.standardizedFileURL.path
+                    && descriptor.checksumSHA256 != nil
+                    && descriptor.fileSize != nil
+            }, "Missing durable scientific output \(artifactURL.path)")
+        }
+        let publicationStep = try XCTUnwrap(canonicalEnvelope.steps.first {
+            $0.toolName == "Lungfish Provisional exon 2 artifact publisher"
+        })
+        XCTAssertEqual(publicationStep.argv, publicationStep.durableReplayArgv)
+        XCTAssertEqual(publicationStep.resolvedOptions["databaseResolution"], .boolean(false))
+        XCTAssertEqual(Set(publicationStep.outputs.map(\.path)), Set([catalogURL.path, fastaURL.path]))
+    }
+
+    func testIlluminaProvisionalPublicationFailureRollsBackScientificOutputs() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let missingGenotype = "Mafa-A1*007:08:01:01_1nt_nov"
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(
+            at: condaRoot,
+            genotypeRows: [
+                "DW001,\(missingGenotype),12,11",
+            ]
+        )
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        try """
+        >Mafa-B*013:01
+        TTTTCCCC
+
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "AACCGGTT"
+        )
+        let outputDirectory = root.appendingPathComponent(
+            "miseq-provisional-failure.lungfishgenotype",
+            isDirectory: true
+        )
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-provisional-failure",
+            analysisName: "MiSeq provisional failure",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+
+        do {
+            _ = try await ONTBarcodeDemuxGenotypingPipeline(
+                condaManager: CondaManager(
+                    rootPrefix: condaRoot,
+                    bundledMicromambaProvider: { bundledMicromamba },
+                    bundledMicromambaVersionProvider: { "test-micromamba" }
+                )
+            ).run(request)
+            XCTFail("Expected provisional publication to fail")
+        } catch {
+            XCTAssertEqual(
+                error as? AmpliconGenotypeScientificArtifactPublisherError,
+                .missingReferenceRecord(missingGenotype)
+            )
+        }
+
+        for url in [
+            request.mappingBAMURL,
+            request.mappingBAIURL,
+            request.retainedBAMURL,
+            request.retainedBAIURL,
+            request.reportCSVURL,
+            request.sampleSummaryCSVURL,
+            request.statsJSONURL,
+            outputDirectory.appendingPathComponent(
+                "artifacts/sequences/observed-provisional-exon2.json"
+            ),
+            outputDirectory.appendingPathComponent(
+                "artifacts/sequences/observed-provisional-exon2.fasta"
+            ),
+            ONTGenotypeResultBundle.manifestURL(in: outputDirectory),
+        ] {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: url.path),
+                "Failed publication left an unprovenanced scientific output: \(url.path)"
+            )
+        }
+    }
+
+    func testIlluminaDownstreamReportFailureRollsBackPublishedScientificOutputs() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let provisionalGenotype = "Mafa-A1*007:08:01:01_1nt_nov"
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(
+            at: condaRoot,
+            genotypeRows: [
+                "DW001,\(provisionalGenotype),12,11",
+            ],
+            failWorkbookReport: true
+        )
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        try """
+        >\(provisionalGenotype)
+        AACCGGTT
+
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "AACCGGTT"
+        )
+        let outputDirectory = root.appendingPathComponent(
+            "miseq-downstream-failure.lungfishgenotype",
+            isDirectory: true
+        )
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-downstream-failure",
+            analysisName: "MiSeq downstream failure",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+
+        do {
+            _ = try await ONTBarcodeDemuxGenotypingPipeline(
+                condaManager: CondaManager(
+                    rootPrefix: condaRoot,
+                    bundledMicromambaProvider: { bundledMicromamba },
+                    bundledMicromambaVersionProvider: { "test-micromamba" }
+                )
+            ).run(request)
+            XCTFail("Expected workbook report generation to fail")
+        } catch {
+            guard case ONTBarcodeDemuxGenotypingError.reportFailed(let status, _) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(status, 73)
+        }
+
+        let sequenceDirectory = outputDirectory
+            .appendingPathComponent("artifacts/sequences", isDirectory: true)
+        for url in [
+            request.mappingBAMURL,
+            request.mappingBAIURL,
+            request.retainedBAMURL,
+            request.retainedBAIURL,
+            request.reportCSVURL,
+            request.sampleSummaryCSVURL,
+            request.statsJSONURL,
+            request.workbookURL,
+            request.currentWorkbookURL,
+            request.reportProvenanceURL,
+            request.currentWorkbookProvenanceURL,
+            request.haplotypeAnalysisURL,
+            request.currentHaplotypeAnalysisURL,
+            request.provenanceURL,
+            outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename),
+            outputDirectory.appendingPathComponent(
+                ProvenanceWriter.bundleProvenanceDirectoryName,
+                isDirectory: true
+            ),
+            outputDirectory.appendingPathComponent(
+                GenotypeReferenceRecordStoreSnapshot.relativeDatabasePath
+            ),
+            sequenceDirectory.appendingPathComponent(
+                "observed-provisional-exon2.json"
+            ),
+            sequenceDirectory.appendingPathComponent(
+                "observed-provisional-exon2.fasta"
+            ),
+            ONTGenotypeResultBundle.manifestURL(in: outputDirectory),
+        ] {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: url.path),
+                "Downstream failure left an unprovenanced output: \(url.path)"
+            )
+        }
+    }
+
+    func testPostCommitIntermediateCleanupFailurePreservesProvenancedResult() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        try ">allele1\nAACCGGTT\n".write(
+            to: referenceFASTA,
+            atomically: true,
+            encoding: .utf8
+        )
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "AACCGGTT"
+        )
+        let outputDirectory = root.appendingPathComponent(
+            "miseq-cleanup-failure.lungfishgenotype",
+            isDirectory: true
+        )
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-cleanup-failure",
+            analysisName: "MiSeq cleanup failure",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+        let pipeline = ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            ),
+            fileRemover: { url in
+                if url.standardizedFileURL == request.mappingBAMURL.standardizedFileURL {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+                try FileManager.default.removeItem(at: url)
+            }
+        )
+
+        let result = try await pipeline.run(request)
+
+        XCTAssertEqual(result.outputDirectory, outputDirectory.standardizedFileURL)
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        XCTAssertNotNil(manifest.alignmentArtifacts?.genotypingEvidence)
+        for url in [
+            request.retainedBAMURL,
+            request.retainedBAIURL,
+            request.reportCSVURL,
+            request.sampleSummaryCSVURL,
+            request.statsJSONURL,
+            request.workbookURL,
+            request.currentWorkbookURL,
+            request.reportProvenanceURL,
+            request.provenanceURL,
+            outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename),
+            ONTGenotypeResultBundle.manifestURL(in: outputDirectory),
+        ] {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: url.path),
+                "Post-commit cleanup failure removed valid output: \(url.path)"
+            )
+        }
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: request.mappingBAMURL.path),
+            "The injected failure should leave only the regenerable intermediate behind"
+        )
     }
 
     func testIlluminaCohortMapsEachSampleWithSeparateMinimap2Invocation() async throws {
@@ -2707,7 +3076,17 @@ print(json.dumps(payload))
         return bundleURL.standardizedFileURL
     }
 
-    private func makeFakeONTGenotypingCondaRoot(at root: URL) throws -> URL {
+    private func makeFakeONTGenotypingCondaRoot(
+        at root: URL,
+        genotypeRows: [String] = [
+            "DW472,A1_063_01,1,1",
+            "DW472,14_M1_DQA1_24_03,100,100",
+            "DW472,14_M1_DQB1_18_01_01,100,100",
+            "DW472,14_M2M6_DQB1_06g:14_M_DQB1_06_01_01,4,4",
+            "DW472,14_M4_DQB1_06_08,4,4",
+        ],
+        failWorkbookReport: Bool = false
+    ) throws -> URL {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         let micromambaScript = #"""
@@ -2863,6 +3242,9 @@ print(json.dumps(payload))
             to: samtoolsBin.appendingPathComponent("samtools")
         )
 
+        let genotypeRowWrites = genotypeRows.map {
+            "        handle.write(\(String(reflecting: $0 + "\n")))"
+        }.joined(separator: "\n")
         let fakePython = #"""
         #!/usr/bin/env python3
         import json
@@ -2896,11 +3278,7 @@ print(json.dumps(payload))
                 handle.write("retained bai\n")
             with open(outputs["genotypes"], "w") as handle:
                 handle.write("sample,genotype,passed_alignments,passed_unique_reads\n")
-                handle.write("DW472,A1_063_01,1,1\n")
-                handle.write("DW472,14_M1_DQA1_24_03,100,100\n")
-                handle.write("DW472,14_M1_DQB1_18_01_01,100,100\n")
-                handle.write("DW472,14_M2M6_DQB1_06g:14_M_DQB1_06_01_01,4,4\n")
-                handle.write("DW472,14_M4_DQB1_06_08,4,4\n")
+        \#(genotypeRowWrites)
             with open(outputs["samples"], "w") as handle:
                 handle.write("sample,passed_alignments,passed_unique_reads\nDW472,1,1\n")
             stats = {
@@ -2921,6 +3299,9 @@ print(json.dumps(payload))
             sys.exit(0)
 
         if script == "write-retained-demux-workbook.py":
+            if \#(failWorkbookReport ? "True" : "False"):
+                print("intentional workbook report failure", file=sys.stderr)
+                sys.exit(73)
             output_xlsx = option("--output-xlsx")
             provenance_json = option("--provenance-json")
             is_client_current = "--client-current-workbook" in sys.argv

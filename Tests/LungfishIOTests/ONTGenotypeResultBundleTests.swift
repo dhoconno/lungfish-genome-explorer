@@ -213,6 +213,214 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertTrue(result.integrityWarnings.isEmpty)
     }
 
+    func testLoadsValidatedGenericGenotypingEvidence() throws {
+        let fixture = try ScientificArtifactBundleFixture()
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.alignmentArtifactURLs.genotypingBAM, fixture.bamURL.standardizedFileURL)
+        XCTAssertEqual(result.alignmentArtifactURLs.genotypingBAI, fixture.baiURL.standardizedFileURL)
+        XCTAssertNil(result.alignmentArtifactURLs.reciprocalBAM)
+        XCTAssertNil(result.alignmentArtifactURLs.reciprocalBAI)
+    }
+
+    func testLoadsValidatedProvisionalExon2Catalog() throws {
+        let fixture = try ScientificArtifactBundleFixture()
+        defer { fixture.remove() }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        let sequence = try XCTUnwrap(
+            result.provisionalExon2SequencesByGenotype[ScientificArtifactBundleFixture.provisionalGenotype]
+        )
+
+        XCTAssertEqual(sequence.designation, "Provisional exon 2")
+        XCTAssertEqual(sequence.sequence, "ACGT")
+        XCTAssertEqual(sequence.locus, "MHC-E")
+        XCTAssertEqual(sequence.sampleSupport, [
+            ONTGenotypeProvisionalExon2SampleSupport(
+                sample: "SampleA",
+                passedAlignments: 9,
+                passedUniqueReads: 8
+            ),
+        ])
+        XCTAssertEqual(
+            result.provisionalExon2ArtifactURLs.catalogJSON,
+            fixture.catalogURL.standardizedFileURL
+        )
+        XCTAssertEqual(
+            result.provisionalExon2ArtifactURLs.sequencesFASTA,
+            fixture.fastaURL.standardizedFileURL
+        )
+    }
+
+    func testLoadsPublisherAggregatedProvisionalSupportFromRepeatedCallRows() throws {
+        let fixture = try ScientificArtifactBundleFixture()
+        defer { fixture.remove() }
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads
+        SampleA,\(ScientificArtifactBundleFixture.provisionalGenotype),4,3
+        SampleA,\(ScientificArtifactBundleFixture.provisionalGenotype),5,5
+        """.write(
+            to: fixture.bundleURL.appendingPathComponent("miseq-genotypes.csv"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(
+            result.provisionalExon2SequencesByGenotype[
+                ScientificArtifactBundleFixture.provisionalGenotype
+            ]?.sampleSupport,
+            ScientificArtifactBundleFixture.defaultRecord.sampleSupport
+        )
+    }
+
+    func testRejectsInvalidProvisionalExon2DuplicateGenotype() throws {
+        let duplicate = ScientificArtifactBundleFixture.defaultRecord
+        let fixture = try ScientificArtifactBundleFixture(records: [duplicate, duplicate])
+        defer { fixture.remove() }
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+    }
+
+    func testRejectsProvisionalGenotypesSharingOneFASTARecord() throws {
+        let secondGenotype = "Mafa-E_02_nov_18"
+        let secondRecord = ONTGenotypeProvisionalExon2Record(
+            genotype: secondGenotype,
+            locus: "MHC-E",
+            fastaRecordID: ScientificArtifactBundleFixture.provisionalGenotype,
+            sequenceLength: 4,
+            sequenceSHA256: ScientificArtifactBundleFixture.sequenceSHA256,
+            sampleSupport: ScientificArtifactBundleFixture.defaultRecord.sampleSupport
+        )
+        let fixture = try ScientificArtifactBundleFixture(records: [
+            ScientificArtifactBundleFixture.defaultRecord,
+            secondRecord,
+        ])
+        defer { fixture.remove() }
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads
+        SampleA,\(ScientificArtifactBundleFixture.provisionalGenotype),9,8
+        SampleA,\(secondGenotype),9,8
+        """.write(
+            to: fixture.bundleURL.appendingPathComponent("miseq-genotypes.csv"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertThrowsError(
+            try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        ) { error in
+            XCTAssertEqual(
+                error as? ONTGenotypeScientificArtifactError,
+                .duplicateFASTARecord(
+                    ScientificArtifactBundleFixture.provisionalGenotype
+                )
+            )
+        }
+    }
+
+    func testRejectsInvalidProvisionalExon2SequenceMismatch() throws {
+        let fixture = try ScientificArtifactBundleFixture(fastaSequence: "TGCA")
+        defer { fixture.remove() }
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+    }
+
+    func testRejectsInvalidProvisionalExon2NonNovelIdentifier() throws {
+        let record = ONTGenotypeProvisionalExon2Record(
+            genotype: "Mafa-E*02:01",
+            locus: "MHC-E",
+            fastaRecordID: "Mafa-E*02:01",
+            sequenceLength: 4,
+            sequenceSHA256: ScientificArtifactBundleFixture.sequenceSHA256,
+            sampleSupport: ScientificArtifactBundleFixture.defaultRecord.sampleSupport
+        )
+        let fixture = try ScientificArtifactBundleFixture(
+            genotype: "Mafa-E*02:01",
+            records: [record],
+            fastaRecordID: "Mafa-E*02:01"
+        )
+        defer { fixture.remove() }
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+    }
+
+    func testRejectsInvalidProvisionalExon2CatalogCallAbsentFromResults() throws {
+        let fixture = try ScientificArtifactBundleFixture(genotype: "Mafa-E*02:01")
+        defer { fixture.remove() }
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+    }
+
+    func testRejectsGenericAlignmentArtifactTraversal() throws {
+        let fixture = try ScientificArtifactBundleFixture(alignmentBAMPath: "../outside.bam")
+        defer { fixture.remove() }
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+    }
+
+    func testRejectsGenericAlignmentArtifactChecksumMismatch() throws {
+        let fixture = try ScientificArtifactBundleFixture(corruptBAMChecksum: true)
+        defer { fixture.remove() }
+
+        XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+    }
+
+    func testLoadsRepresentativeProvisionalCatalogAsynchronouslyWithinBudget() async throws {
+        let fixture = try ScientificArtifactBundleFixture(
+            bulkRecordCount: 100
+        )
+        defer { fixture.remove() }
+
+        let startedAt = Date()
+        let result = try await ONTGenotypeResultBundle.loadResultAsync(
+            from: fixture.bundleURL
+        )
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertEqual(result.provisionalExon2SequencesByGenotype.count, 100)
+        XCTAssertLessThan(
+            elapsed,
+            2.0,
+            "Catalog and FASTA validation should remain a one-pass off-main load"
+        )
+    }
+
+    func testRepeatedLoadsReuseValidatedUnchangedAlignmentArtifactDigests() throws {
+        let fixture = try ScientificArtifactBundleFixture()
+        defer { fixture.remove() }
+        ONTGenotypeResultBundle.resetArtifactValidationCacheForTesting()
+
+        _ = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        let firstPassCount =
+            ONTGenotypeResultBundle.artifactValidationHashingPassCountForTesting
+        _ = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(firstPassCount, 2)
+        XCTAssertEqual(
+            ONTGenotypeResultBundle.artifactValidationHashingPassCountForTesting,
+            firstPassCount,
+            "An unchanged BAM/BAI pair should not be hashed again on the next bundle load"
+        )
+    }
+
+    func testAlignmentArtifactDigestCacheInvalidatesAfterSameSizeMutation() throws {
+        let fixture = try ScientificArtifactBundleFixture()
+        defer { fixture.remove() }
+        ONTGenotypeResultBundle.resetArtifactValidationCacheForTesting()
+        _ = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        let original = try Data(contentsOf: fixture.bamURL)
+        try Data(repeating: 0x58, count: original.count).write(to: fixture.bamURL)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        )
+    }
+
     func testLoadsSchemaV2CandidateAndUnnameableDocuments() throws {
         let fixture = try CandidateBundleFixture(candidateSchemaVersion: 2)
         defer { fixture.remove() }
@@ -1055,6 +1263,75 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
 
         XCTAssertNil(manifest.mhcCandidateArtifacts)
+        XCTAssertNil(manifest.alignmentArtifacts)
+        XCTAssertNil(manifest.provisionalExon2Artifacts)
+    }
+
+    func testRoundTripsGenericAlignmentArtifacts() throws {
+        let alignmentArtifacts = ONTGenotypeAlignmentArtifactManifest(
+            genotypingEvidence: ONTMHCBAMArtifactPair(
+                bam: ONTMHCArtifactReference(
+                    path: "run.retained.demuxed.bam",
+                    sha256: String(repeating: "a", count: 64),
+                    sizeBytes: 3
+                ),
+                bai: ONTMHCArtifactReference(
+                    path: "run.retained.demuxed.bam.bai",
+                    sha256: String(repeating: "b", count: 64),
+                    sizeBytes: 3
+                )
+            ),
+            reciprocalEvidence: nil
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "miseq",
+            analysisName: "miSeq",
+            primaryWorkbookPath: "miseq.xlsx",
+            longSummaryCSVPath: "miseq-genotypes.csv",
+            sampleSummaryCSVPath: "miseq-samples.csv",
+            statsJSONPath: "miseq-stats.json",
+            provenancePath: "provenance.json",
+            alignmentArtifacts: alignmentArtifacts,
+            provisionalExon2Artifacts: nil
+        )
+
+        let data = try JSONEncoder().encode(manifest)
+        let decoded = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+
+        XCTAssertEqual(decoded.alignmentArtifacts, alignmentArtifacts)
+        XCTAssertNil(decoded.alignmentArtifacts?.reciprocalEvidence)
+    }
+
+    func testRoundTripsProvisionalExon2Artifacts() throws {
+        let artifacts = ONTGenotypeProvisionalExon2ArtifactManifest(
+            schemaVersion: 1,
+            catalogJSON: ONTMHCArtifactReference(
+                path: "artifacts/sequences/observed-provisional-exon2.json",
+                sha256: String(repeating: "c", count: 64),
+                sizeBytes: 17
+            ),
+            sequencesFASTA: ONTMHCArtifactReference(
+                path: "artifacts/sequences/observed-provisional-exon2.fasta",
+                sha256: String(repeating: "d", count: 64),
+                sizeBytes: 23
+            )
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "miseq",
+            analysisName: "miSeq",
+            primaryWorkbookPath: "miseq.xlsx",
+            longSummaryCSVPath: "miseq-genotypes.csv",
+            sampleSummaryCSVPath: "miseq-samples.csv",
+            statsJSONPath: "miseq-stats.json",
+            provenancePath: "provenance.json",
+            alignmentArtifacts: nil,
+            provisionalExon2Artifacts: artifacts
+        )
+
+        let data = try JSONEncoder().encode(manifest)
+        let decoded = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+
+        XCTAssertEqual(decoded.provisionalExon2Artifacts, artifacts)
     }
 
     func testRoundTripsMHCCandidateArtifactManifestWithChecksummedBAMPair() throws {
@@ -2068,6 +2345,172 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         }
         """.write(to: statsJSONURL, atomically: true, encoding: .utf8)
         return (genotypeCSVURL, sampleCSVURL, statsJSONURL, provenanceURL)
+    }
+
+    private struct ScientificArtifactBundleFixture {
+        static let provisionalGenotype = "Mafa-E_02_nov_17"
+        static let sequenceSHA256 = SHA256.hash(data: Data("ACGT".utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        static let defaultRecord = ONTGenotypeProvisionalExon2Record(
+            genotype: provisionalGenotype,
+            locus: "MHC-E",
+            fastaRecordID: provisionalGenotype,
+            sequenceLength: 4,
+            sequenceSHA256: sequenceSHA256,
+            sampleSupport: [
+                ONTGenotypeProvisionalExon2SampleSupport(
+                    sample: "SampleA",
+                    passedAlignments: 9,
+                    passedUniqueReads: 8
+                ),
+            ]
+        )
+
+        let rootURL: URL
+        let bundleURL: URL
+        let bamURL: URL
+        let baiURL: URL
+        let catalogURL: URL
+        let fastaURL: URL
+
+        init(
+            genotype: String = provisionalGenotype,
+            records: [ONTGenotypeProvisionalExon2Record] = [defaultRecord],
+            fastaRecordID: String = provisionalGenotype,
+            fastaSequence: String = "ACGT",
+            alignmentBAMPath: String = "run.retained.demuxed.bam",
+            corruptBAMChecksum: Bool = false,
+            bulkRecordCount: Int? = nil
+        ) throws {
+            rootURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("scientific-artifacts-\(UUID().uuidString)", isDirectory: true)
+            bundleURL = rootURL.appendingPathComponent("miseq.lungfishgenotype", isDirectory: true)
+            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+            let workbookURL = bundleURL.appendingPathComponent("miseq.xlsx")
+            let genotypeCSVURL = bundleURL.appendingPathComponent("miseq-genotypes.csv")
+            let sampleCSVURL = bundleURL.appendingPathComponent("miseq-samples.csv")
+            let statsURL = bundleURL.appendingPathComponent("miseq-stats.json")
+            let provenanceURL = bundleURL.appendingPathComponent("provenance.json")
+            try Data("workbook".utf8).write(to: workbookURL)
+            try Data("{}".utf8).write(to: statsURL)
+            try Data("{}".utf8).write(to: provenanceURL)
+            let effectiveRecords: [ONTGenotypeProvisionalExon2Record]
+            let genotypeCSV: String
+            let fastaData: Data
+            if let bulkRecordCount {
+                effectiveRecords = (0..<bulkRecordCount).map { index in
+                    let identifier = String(
+                        format: "Mafa-E_02_nov_%03d",
+                        index
+                    )
+                    return ONTGenotypeProvisionalExon2Record(
+                        genotype: identifier,
+                        locus: "MHC-E",
+                        fastaRecordID: identifier,
+                        sequenceLength: 4,
+                        sequenceSHA256: Self.sequenceSHA256,
+                        sampleSupport: Self.defaultRecord.sampleSupport
+                    )
+                }
+                genotypeCSV = ([
+                    "sample,genotype,passed_alignments,passed_unique_reads",
+                ] + effectiveRecords.map {
+                    "SampleA,\($0.genotype),9,8"
+                }).joined(separator: "\n") + "\n"
+                fastaData = Data(
+                    (effectiveRecords.map {
+                        ">\($0.fastaRecordID)\nACGT"
+                    }.joined(separator: "\n") + "\n").utf8
+                )
+            } else {
+                effectiveRecords = records
+                genotypeCSV = """
+                sample,genotype,passed_alignments,passed_unique_reads
+                SampleA,\(genotype),9,8
+                """
+                fastaData = Data(
+                    ">\(fastaRecordID)\n\(fastaSequence)\n".utf8
+                )
+            }
+            try genotypeCSV.write(
+                to: genotypeCSVURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try """
+            sample,passed_alignments,passed_unique_reads
+            SampleA,9,8
+            """.write(to: sampleCSVURL, atomically: true, encoding: .utf8)
+
+            bamURL = bundleURL.appendingPathComponent("run.retained.demuxed.bam")
+            baiURL = bundleURL.appendingPathComponent("run.retained.demuxed.bam.bai")
+            let bamData = Data("bam".utf8)
+            let baiData = Data("bai".utf8)
+            try bamData.write(to: bamURL)
+            try baiData.write(to: baiURL)
+
+            let sequenceDirectory = bundleURL.appendingPathComponent("artifacts/sequences", isDirectory: true)
+            try FileManager.default.createDirectory(at: sequenceDirectory, withIntermediateDirectories: true)
+            catalogURL = sequenceDirectory.appendingPathComponent("observed-provisional-exon2.json")
+            fastaURL = sequenceDirectory.appendingPathComponent("observed-provisional-exon2.fasta")
+            let catalogData = try JSONEncoder().encode(
+                ONTGenotypeProvisionalExon2Document(records: effectiveRecords)
+            )
+            try catalogData.write(to: catalogURL)
+            try fastaData.write(to: fastaURL)
+
+            let bamReference = ONTMHCArtifactReference(
+                path: alignmentBAMPath,
+                sha256: corruptBAMChecksum
+                    ? String(repeating: "0", count: 64)
+                    : Self.sha256(bamData),
+                sizeBytes: Int64(bamData.count)
+            )
+            let manifest = ONTGenotypeResultBundleManifest(
+                outputName: "miseq",
+                analysisName: "miSeq",
+                primaryWorkbookPath: workbookURL.lastPathComponent,
+                longSummaryCSVPath: genotypeCSVURL.lastPathComponent,
+                sampleSummaryCSVPath: sampleCSVURL.lastPathComponent,
+                statsJSONPath: statsURL.lastPathComponent,
+                provenancePath: provenanceURL.lastPathComponent,
+                alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest(
+                    genotypingEvidence: ONTMHCBAMArtifactPair(
+                        bam: bamReference,
+                        bai: ONTMHCArtifactReference(
+                            path: baiURL.lastPathComponent,
+                            sha256: Self.sha256(baiData),
+                            sizeBytes: Int64(baiData.count)
+                        )
+                    ),
+                    reciprocalEvidence: nil
+                ),
+                provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest(
+                    schemaVersion: 1,
+                    catalogJSON: ONTMHCArtifactReference(
+                        path: "artifacts/sequences/\(catalogURL.lastPathComponent)",
+                        sha256: Self.sha256(catalogData),
+                        sizeBytes: Int64(catalogData.count)
+                    ),
+                    sequencesFASTA: ONTMHCArtifactReference(
+                        path: "artifacts/sequences/\(fastaURL.lastPathComponent)",
+                        sha256: Self.sha256(fastaData),
+                        sizeBytes: Int64(fastaData.count)
+                    )
+                )
+            )
+            try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+        }
+
+        func remove() {
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        private static func sha256(_ data: Data) -> String {
+            SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        }
     }
 
     private func writeAnnotatedReferenceRecordStore(
