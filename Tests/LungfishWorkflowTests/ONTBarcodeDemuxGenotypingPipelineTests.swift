@@ -745,6 +745,123 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(canonicalEnvelope.options.explicit["illuminaMergeResults"], .null)
         XCTAssertTrue(canonicalEnvelope.files.contains { $0.path == sampleB.fastqURL.standardizedFileURL.path && $0.checksumSHA256 != nil })
         XCTAssertFalse(canonicalEnvelope.files.contains { $0.path.hasSuffix("merge-illumina-pairs.py") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.retainedBAMURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.retainedBAIURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.mappingBAMURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.mappingBAIURL.path))
+        XCTAssertTrue(canonicalEnvelope.outputs.contains { descriptor in
+            descriptor.path == request.retainedBAMURL.path
+                && descriptor.checksumSHA256 != nil
+                && descriptor.fileSize != nil
+        })
+        XCTAssertTrue(canonicalEnvelope.outputs.contains { descriptor in
+            descriptor.path == request.retainedBAIURL.path
+                && descriptor.checksumSHA256 != nil
+                && descriptor.fileSize != nil
+        })
+        XCTAssertTrue(canonicalEnvelope.steps.contains { step in
+            step.toolName == "Lungfish Provisional exon 2 artifact publisher"
+                && step.inputs.contains { $0.path == request.reportCSVURL.path }
+                && step.inputs.contains { $0.path == referenceFASTA.standardizedFileURL.path }
+                && step.outputs.isEmpty
+                && step.exitStatus == 0
+        })
+
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        XCTAssertNotNil(manifest.alignmentArtifacts?.genotypingEvidence)
+        XCTAssertNil(manifest.alignmentArtifacts?.reciprocalEvidence)
+        XCTAssertNil(manifest.provisionalExon2Artifacts)
+    }
+
+    func testRunIlluminaModePublishesObservedNovelSequenceAsProvisionalExon2() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let provisionalGenotype = "Mafa-A1*007:08:01:01_1nt_nov"
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(
+            at: condaRoot,
+            genotypeRows: [
+                "DW001,\(provisionalGenotype),12,11",
+                "DW001,Mafa-B*013:01,8,8",
+            ]
+        )
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let outputDirectory = root.appendingPathComponent(
+            "miseq-provisional.lungfishgenotype",
+            isDirectory: true
+        )
+        try """
+        >\(provisionalGenotype)
+        AACCGGTT
+        >Mafa-B*013:01
+        TTTTCCCC
+
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "AACCGGTT"
+        )
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-provisional",
+            analysisName: "MiSeq provisional",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+
+        _ = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request)
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: outputDirectory)
+        let provisional = try XCTUnwrap(
+            result.provisionalExon2SequencesByGenotype[provisionalGenotype]
+        )
+        XCTAssertEqual(provisional.designation, "Provisional exon 2")
+        XCTAssertEqual(provisional.sequence, "AACCGGTT")
+        XCTAssertEqual(provisional.sampleSupport, [
+            ONTGenotypeProvisionalExon2SampleSupport(
+                sample: "DW001",
+                passedAlignments: 12,
+                passedUniqueReads: 11
+            ),
+        ])
+        let catalogURL = try XCTUnwrap(result.provisionalExon2ArtifactURLs.catalogJSON)
+        let fastaURL = try XCTUnwrap(result.provisionalExon2ArtifactURLs.sequencesFASTA)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: catalogURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fastaURL.path))
+        XCTAssertEqual(result.alignmentArtifactURLs.genotypingBAM, request.retainedBAMURL)
+        XCTAssertEqual(result.alignmentArtifactURLs.genotypingBAI, request.retainedBAIURL)
+        XCTAssertNil(result.alignmentArtifactURLs.reciprocalBAM)
+        XCTAssertNil(result.alignmentArtifactURLs.reciprocalBAI)
+
+        let canonicalEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(from: outputDirectory)
+        )
+        for artifactURL in [request.retainedBAMURL, request.retainedBAIURL, catalogURL, fastaURL] {
+            XCTAssertTrue(canonicalEnvelope.outputs.contains { descriptor in
+                descriptor.path == artifactURL.standardizedFileURL.path
+                    && descriptor.checksumSHA256 != nil
+                    && descriptor.fileSize != nil
+            }, "Missing durable scientific output \(artifactURL.path)")
+        }
+        let publicationStep = try XCTUnwrap(canonicalEnvelope.steps.first {
+            $0.toolName == "Lungfish Provisional exon 2 artifact publisher"
+        })
+        XCTAssertEqual(publicationStep.argv, publicationStep.durableReplayArgv)
+        XCTAssertEqual(publicationStep.resolvedOptions["databaseResolution"], .boolean(false))
+        XCTAssertEqual(Set(publicationStep.outputs.map(\.path)), Set([catalogURL.path, fastaURL.path]))
     }
 
     func testIlluminaCohortMapsEachSampleWithSeparateMinimap2Invocation() async throws {
@@ -2707,7 +2824,16 @@ print(json.dumps(payload))
         return bundleURL.standardizedFileURL
     }
 
-    private func makeFakeONTGenotypingCondaRoot(at root: URL) throws -> URL {
+    private func makeFakeONTGenotypingCondaRoot(
+        at root: URL,
+        genotypeRows: [String] = [
+            "DW472,A1_063_01,1,1",
+            "DW472,14_M1_DQA1_24_03,100,100",
+            "DW472,14_M1_DQB1_18_01_01,100,100",
+            "DW472,14_M2M6_DQB1_06g:14_M_DQB1_06_01_01,4,4",
+            "DW472,14_M4_DQB1_06_08,4,4",
+        ]
+    ) throws -> URL {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         let micromambaScript = #"""
@@ -2863,6 +2989,9 @@ print(json.dumps(payload))
             to: samtoolsBin.appendingPathComponent("samtools")
         )
 
+        let genotypeRowWrites = genotypeRows.map {
+            "        handle.write(\(String(reflecting: $0 + "\n")))"
+        }.joined(separator: "\n")
         let fakePython = #"""
         #!/usr/bin/env python3
         import json
@@ -2896,11 +3025,7 @@ print(json.dumps(payload))
                 handle.write("retained bai\n")
             with open(outputs["genotypes"], "w") as handle:
                 handle.write("sample,genotype,passed_alignments,passed_unique_reads\n")
-                handle.write("DW472,A1_063_01,1,1\n")
-                handle.write("DW472,14_M1_DQA1_24_03,100,100\n")
-                handle.write("DW472,14_M1_DQB1_18_01_01,100,100\n")
-                handle.write("DW472,14_M2M6_DQB1_06g:14_M_DQB1_06_01_01,4,4\n")
-                handle.write("DW472,14_M4_DQB1_06_08,4,4\n")
+        \#(genotypeRowWrites)
             with open(outputs["samples"], "w") as handle:
                 handle.write("sample,passed_alignments,passed_unique_reads\nDW472,1,1\n")
             stats = {

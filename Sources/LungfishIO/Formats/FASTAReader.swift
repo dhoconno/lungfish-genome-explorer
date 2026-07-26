@@ -92,6 +92,15 @@ public final class FASTAReader: Sendable {
         return sequences
     }
 
+    /// Streams parsed sequences synchronously without retaining the complete
+    /// FASTA collection in memory.
+    public func forEachSequenceSync(
+        alphabet: SequenceAlphabet? = nil,
+        _ body: (Sequence) throws -> Void
+    ) throws {
+        try parseFileSync(alphabet: alphabet, onSequence: body)
+    }
+
     /// Returns an async sequence of FASTA sequences.
     ///
     /// This is memory-efficient for large files as it yields sequences
@@ -197,7 +206,7 @@ public final class FASTAReader: Sendable {
     /// to avoid O(n²) string concatenation.
     private func parseFileSync(
         alphabet: SequenceAlphabet?,
-        onSequence: (Sequence) -> Void
+        onSequence: (Sequence) throws -> Void
     ) throws {
         var currentName: String?
         var currentDescription: String?
@@ -221,7 +230,7 @@ public final class FASTAReader: Sendable {
                         alphabet: alphabet,
                         lineNumber: lineNumber
                     )
-                    onSequence(seq)
+                    try onSequence(seq)
                 }
 
                 let headerLine = String(trimmedLine.dropFirst())
@@ -245,7 +254,7 @@ public final class FASTAReader: Sendable {
                 alphabet: alphabet,
                 lineNumber: lineNumber
             )
-            onSequence(seq)
+            try onSequence(seq)
         }
     }
 
