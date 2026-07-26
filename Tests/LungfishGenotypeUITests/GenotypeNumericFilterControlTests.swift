@@ -73,6 +73,34 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
         XCTAssertEqual(values, [99_999])
     }
 
+    func testHostedPercentStepperCommitsItsExactNativeValueImmediately() throws {
+        let scheduler = HostedNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        var values: [Double] = []
+        viewModel.onDisplayStateChanged = {
+            values.append($0.matrixMinimumPercent)
+        }
+        let host = hostSection(viewModel)
+        defer { host.window.orderOut(nil) }
+        let percentField = try nativeTextField("Min percent", in: host)
+        let percentStepper = try nativeStepper(
+            adjacentTo: percentField,
+            in: host
+        )
+
+        _ = try replaceText("12.25", in: percentField, host: host)
+        clickDecrement(percentStepper, host: host)
+        flush(host)
+
+        XCTAssertEqual(viewModel.displayState.matrixMinimumPercent, 11.75)
+        XCTAssertEqual(
+            viewModel.matrixMinimumPercentDraft.draftText,
+            "11.75"
+        )
+        XCTAssertEqual(values, [11.75])
+        XCTAssertEqual(scheduler.pendingCount, 0)
+    }
+
     func testHostedControlsUseSharedAccessibilityContractAndNativeActions() throws {
         let scheduler = HostedNumericFilterScheduler()
         let viewModel = makeViewModel(scheduler: scheduler)
@@ -115,6 +143,20 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
         )
         XCTAssertEqual(readsField.stringValue, "0")
         XCTAssertTrue(readsStepper.isEnabled)
+        XCTAssertEqual(readsStepper.minValue, 0)
+        XCTAssertEqual(readsStepper.maxValue, 100_000)
+        XCTAssertEqual(readsStepper.increment, 1)
+        XCTAssertEqual(
+            readsStepper.accessibilityIdentifier(),
+            "genotype-view-minimum-reads-stepper"
+        )
+        XCTAssertEqual(readsStepper.accessibilityLabel(), "Min reads")
+        XCTAssertEqual(readsStepper.accessibilityValueDescription(), "0")
+        XCTAssertEqual(
+            readsStepper.accessibilityHelp(),
+            "Minimum 0, maximum 100,000. Increase Min reads by 1. "
+                + "Decrease Min reads by 1."
+        )
 
         XCTAssertEqual(
             percentDraft.configuration.fieldAccessibilityIdentifier,
@@ -140,6 +182,24 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
         )
         XCTAssertEqual(percentField.stringValue, "0.0")
         XCTAssertTrue(percentStepper.isEnabled)
+        XCTAssertEqual(percentStepper.minValue, 0)
+        XCTAssertEqual(percentStepper.maxValue, 100)
+        XCTAssertEqual(percentStepper.increment, 0.5)
+        XCTAssertEqual(
+            percentStepper.accessibilityIdentifier(),
+            "genotype-view-minimum-percent-stepper"
+        )
+        XCTAssertEqual(percentStepper.accessibilityLabel(), "Min percent")
+        XCTAssertEqual(
+            percentStepper.accessibilityValueDescription(),
+            "0.0 percent"
+        )
+        XCTAssertEqual(
+            percentStepper.accessibilityHelp(),
+            "Minimum 0, maximum 100 percent. "
+                + "Increase Min percent by 0.5 percent. "
+                + "Decrease Min percent by 0.5 percent."
+        )
 
         _ = try replaceText("invalid", in: readsField, host: host)
         flush(host)
@@ -265,7 +325,10 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
     }
 
     private func clickDecrement(_ stepper: NSStepper, host: Host) {
-        stepper.doubleValue = stepper.minValue
+        stepper.doubleValue = max(
+            stepper.minValue,
+            stepper.doubleValue - stepper.increment
+        )
         _ = stepper.sendAction(stepper.action, to: stepper.target)
         flush(host)
     }

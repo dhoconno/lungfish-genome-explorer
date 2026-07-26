@@ -1017,6 +1017,58 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 }
 
+@MainActor
+private struct GenotypeNumericFilterStepper: NSViewRepresentable {
+    let value: Double
+    let configuration: GenotypeNumericFilterConfiguration
+    let accessibility: GenotypeNumericFilterAccessibilityState
+    let onChange: (Double) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange)
+    }
+
+    func makeNSView(context: Context) -> NSStepper {
+        let stepper = NSStepper()
+        stepper.controlSize = .small
+        stepper.valueWraps = false
+        stepper.autorepeat = true
+        stepper.target = context.coordinator
+        stepper.action = #selector(Coordinator.valueChanged(_:))
+        return stepper
+    }
+
+    func updateNSView(_ stepper: NSStepper, context: Context) {
+        context.coordinator.onChange = onChange
+        stepper.minValue = configuration.bounds.lowerBound
+        stepper.maxValue = configuration.bounds.upperBound
+        stepper.increment = configuration.step
+        stepper.doubleValue = value
+        stepper.setAccessibilityIdentifier(
+            configuration.stepperAccessibilityIdentifier
+        )
+        stepper.setAccessibilityLabel(accessibility.label)
+        stepper.setAccessibilityValueDescription(accessibility.value)
+        stepper.setAccessibilityHelp(
+            "\(accessibility.bounds) "
+                + "\(accessibility.incrementAction) "
+                + accessibility.decrementAction
+        )
+    }
+
+    final class Coordinator: NSObject {
+        var onChange: (Double) -> Void
+
+        init(onChange: @escaping (Double) -> Void) {
+            self.onChange = onChange
+        }
+
+        @MainActor @objc func valueChanged(_ sender: NSStepper) {
+            onChange(sender.doubleValue)
+        }
+    }
+}
+
 public struct GenotypeResultDisplaySection: View {
     @Bindable var viewModel: GenotypeResultDisplaySectionViewModel
     @FocusState private var focusedNumericFilter: NumericFilterFocus?
@@ -1239,10 +1291,17 @@ public struct GenotypeResultDisplaySection: View {
                     viewModel.matrixMinimumReadsDraft.configuration.label
                 )
                 Spacer(minLength: 6)
-                TextField("Min reads", text: Binding(
-                    get: { viewModel.matrixMinimumReadsDraft.draftText },
-                    set: { viewModel.updateMatrixMinimumReadsDraft($0) }
-                ))
+                TextField(
+                    viewModel.matrixMinimumReadsDraft.configuration.label,
+                    text: Binding(
+                        get: {
+                            viewModel.matrixMinimumReadsDraft.draftText
+                        },
+                        set: {
+                            viewModel.updateMatrixMinimumReadsDraft($0)
+                        }
+                    )
+                )
                 .multilineTextAlignment(.trailing)
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
@@ -1269,17 +1328,15 @@ public struct GenotypeResultDisplaySection: View {
                         .validationDescription
                         ?? viewModel.matrixMinimumReadsDraft.accessibility.bounds
                 )
-                Stepper(
-                    "Min reads",
-                    value: Binding(
-                        get: {
-                            Int(viewModel.matrixMinimumReadsDraft.stepperValue)
-                        },
-                        set: {
-                            viewModel.setMatrixMinimumReadsFromStepper($0)
-                        }
-                    ),
-                    in: 0 ... 100_000
+                GenotypeNumericFilterStepper(
+                    value: viewModel.matrixMinimumReadsDraft.stepperValue,
+                    configuration:
+                        viewModel.matrixMinimumReadsDraft.configuration,
+                    accessibility:
+                        viewModel.matrixMinimumReadsDraft.accessibility,
+                    onChange: {
+                        viewModel.setMatrixMinimumReadsFromStepper(Int($0))
+                    }
                 )
                 .labelsHidden()
                 .controlSize(.small)
@@ -1305,10 +1362,17 @@ public struct GenotypeResultDisplaySection: View {
                     viewModel.matrixMinimumPercentDraft.configuration.label
                 )
                 Spacer(minLength: 6)
-                TextField("Min percent", text: Binding(
-                    get: { viewModel.matrixMinimumPercentDraft.draftText },
-                    set: { viewModel.updateMatrixMinimumPercentDraft($0) }
-                ))
+                TextField(
+                    viewModel.matrixMinimumPercentDraft.configuration.label,
+                    text: Binding(
+                        get: {
+                            viewModel.matrixMinimumPercentDraft.draftText
+                        },
+                        set: {
+                            viewModel.updateMatrixMinimumPercentDraft($0)
+                        }
+                    )
+                )
                 .multilineTextAlignment(.trailing)
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
@@ -1338,18 +1402,15 @@ public struct GenotypeResultDisplaySection: View {
                 )
                 Text("%")
                     .foregroundStyle(.secondary)
-                Stepper(
-                    "Min percent",
-                    value: Binding(
-                        get: {
-                            viewModel.matrixMinimumPercentDraft.stepperValue
-                        },
-                        set: {
-                            viewModel.setMatrixMinimumPercentFromStepper($0)
-                        }
-                    ),
-                    in: 0 ... 100,
-                    step: 0.5
+                GenotypeNumericFilterStepper(
+                    value: viewModel.matrixMinimumPercentDraft.stepperValue,
+                    configuration:
+                        viewModel.matrixMinimumPercentDraft.configuration,
+                    accessibility:
+                        viewModel.matrixMinimumPercentDraft.accessibility,
+                    onChange: {
+                        viewModel.setMatrixMinimumPercentFromStepper($0)
+                    }
                 )
                 .labelsHidden()
                 .controlSize(.small)
