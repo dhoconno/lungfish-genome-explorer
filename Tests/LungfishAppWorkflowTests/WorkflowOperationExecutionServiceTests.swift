@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 import LungfishIO
 import LungfishWorkflow
@@ -74,6 +75,67 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             resultRefresher.invocations,
             [request.outputDirectory.standardizedFileURL]
         )
+    }
+
+    func testIlluminaGenotypingReportsValidatedScientificArtifacts() async throws {
+        let temp = try temporaryDirectory()
+        let firstReadsURL = temp.appendingPathComponent("sample-a.lungfishfastq", isDirectory: true)
+        let secondReadsURL = temp.appendingPathComponent("sample-b.lungfishfastq", isDirectory: true)
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses/miseq.lungfishgenotype", isDirectory: true)
+        for url in [firstReadsURL, secondReadsURL, referenceURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [firstReadsURL, secondReadsURL],
+            referenceSourceURL: referenceURL,
+            outputDirectory: outputURL,
+            outputName: "miseq",
+            analysisName: "miSeq",
+            projectURL: temp,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+        let operationCenter = OperationCenter()
+        let runner = StubWorkflowOperationCLIProcessRunner(
+            writesGenotypeScientificArtifacts: true
+        )
+        let service = WorkflowOperationExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner,
+            viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
+            bamImporter: StubWorkflowOperationBAMImporter(),
+            resultRefresher: StubWorkflowOperationResultRefresher()
+        )
+
+        let outputs = try await service.run(.ontGenotyping(request))
+
+        let catalogURL = outputURL
+            .appendingPathComponent("artifacts/sequences", isDirectory: true)
+            .appendingPathComponent("observed-provisional-exon2.json")
+        let fastaURL = outputURL
+            .appendingPathComponent("artifacts/sequences", isDirectory: true)
+            .appendingPathComponent("observed-provisional-exon2.fasta")
+        for expectedURL in [
+            request.retainedBAMURL,
+            request.retainedBAIURL,
+            catalogURL,
+            fastaURL,
+        ] {
+            XCTAssertTrue(
+                outputs.contains(expectedURL.standardizedFileURL),
+                "Missing scientific output \(expectedURL.lastPathComponent)"
+            )
+        }
+        XCTAssertFalse(outputs.contains(request.mappingBAMURL.standardizedFileURL))
+        XCTAssertFalse(outputs.contains(request.mappingBAIURL.standardizedFileURL))
+
+        let item = try XCTUnwrap(operationCenter.items.first)
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertTrue(item.outputURLs.contains(request.retainedBAMURL.standardizedFileURL))
+        XCTAssertTrue(item.outputURLs.contains(request.retainedBAIURL.standardizedFileURL))
+        XCTAssertTrue(item.outputURLs.contains(catalogURL.standardizedFileURL))
+        XCTAssertTrue(item.outputURLs.contains(fastaURL.standardizedFileURL))
     }
 
     func testONTGenotypingAISpecialistUsesWorkflowOperationAndUpdatesCurrentWorkbookFromAIRevision() async throws {
@@ -915,19 +977,22 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
     private let stderr: String
     private let writesTwelveSProvenance: Bool
     private let provenanceToolName: String
+    private let writesGenotypeScientificArtifacts: Bool
 
     init(
         exitCode: Int32 = 0,
         stdout: String? = nil,
         stderr: String = "",
         writesTwelveSProvenance: Bool = true,
-        provenanceToolName: String = "lungfish-cli"
+        provenanceToolName: String = "lungfish-cli",
+        writesGenotypeScientificArtifacts: Bool = false
     ) {
         self.exitCode = exitCode
         self.stdout = stdout
         self.stderr = stderr
         self.writesTwelveSProvenance = writesTwelveSProvenance
         self.provenanceToolName = provenanceToolName
+        self.writesGenotypeScientificArtifacts = writesGenotypeScientificArtifacts
     }
 
     func runLungfishCLI(
@@ -1141,17 +1206,49 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
         let retainedBAM = outputDirectory.appendingPathComponent("\(outputName).retained.demuxed.bam")
         let retainedBAI = retainedBAM.appendingPathExtension("bai")
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-        try "input_bundle_name,genotype,filtered_indel_only_mapped_reads,total_reads\n".write(
+        let reportCSV = writesGenotypeScientificArtifacts
+            ? """
+            sample,genotype,passed_alignments,passed_unique_reads
+            SampleA,Mafa-E_02_nov_17,9,8
+
+            """
+            : "input_bundle_name,genotype,filtered_indel_only_mapped_reads,total_reads\n"
+        try reportCSV.write(
             to: reportCSVURL,
             atomically: true,
             encoding: .utf8
         )
-        try "sample,total_input_reads,retained_unique_reads\n".write(to: sampleSummaryCSVURL, atomically: true, encoding: .utf8)
+        let sampleSummaryCSV = writesGenotypeScientificArtifacts
+            ? """
+            sample,passed_alignments,passed_unique_reads
+            SampleA,9,8
+
+            """
+            : "sample,total_input_reads,retained_unique_reads\n"
+        try sampleSummaryCSV.write(
+            to: sampleSummaryCSVURL,
+            atomically: true,
+            encoding: .utf8
+        )
         try #"{"totalInputReads":100,"retainedUniqueReads":42}"#.write(to: statsJSONURL, atomically: true, encoding: .utf8)
         try #"{"toolName":"lungfish fastq ont-barcode-genotype","workflowVersion":"1"}"#.write(to: provenanceURL, atomically: true, encoding: .utf8)
         try Data("workbook".utf8).write(to: workbookURL)
         for url in [mappingBAM, mappingBAI, retainedBAM, retainedBAI] {
             try Data(url.lastPathComponent.utf8).write(to: url)
+        }
+        if writesGenotypeScientificArtifacts {
+            try writeGenotypeScientificArtifacts(
+                outputDirectory: outputDirectory,
+                outputName: outputName,
+                analysisName: analysisName,
+                workbookURL: workbookURL,
+                reportCSVURL: reportCSVURL,
+                sampleSummaryCSVURL: sampleSummaryCSVURL,
+                statsJSONURL: statsJSONURL,
+                provenanceURL: provenanceURL,
+                retainedBAMURL: retainedBAM,
+                retainedBAIURL: retainedBAI
+            )
         }
         let payload = """
         {
@@ -1178,6 +1275,112 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
             standardError: stderr,
             didStreamOutput: outputHandler != nil
         )
+    }
+
+    private func writeGenotypeScientificArtifacts(
+        outputDirectory: URL,
+        outputName: String,
+        analysisName: String,
+        workbookURL: URL,
+        reportCSVURL: URL,
+        sampleSummaryCSVURL: URL,
+        statsJSONURL: URL,
+        provenanceURL: URL,
+        retainedBAMURL: URL,
+        retainedBAIURL: URL
+    ) throws {
+        let genotype = "Mafa-E_02_nov_17"
+        let sequence = "ACGT"
+        let sequenceData = Data(sequence.utf8)
+        let sequenceSHA256 = Self.sha256(sequenceData)
+        let sequenceDirectory = outputDirectory.appendingPathComponent(
+            "artifacts/sequences",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: sequenceDirectory,
+            withIntermediateDirectories: true
+        )
+        let catalogURL = sequenceDirectory.appendingPathComponent(
+            "observed-provisional-exon2.json"
+        )
+        let fastaURL = sequenceDirectory.appendingPathComponent(
+            "observed-provisional-exon2.fasta"
+        )
+        let catalogData = try JSONEncoder().encode(
+            ONTGenotypeProvisionalExon2Document(records: [
+                ONTGenotypeProvisionalExon2Record(
+                    genotype: genotype,
+                    locus: "MHC-E",
+                    fastaRecordID: genotype,
+                    sequenceLength: sequence.count,
+                    sequenceSHA256: sequenceSHA256,
+                    sampleSupport: [
+                        ONTGenotypeProvisionalExon2SampleSupport(
+                            sample: "SampleA",
+                            passedAlignments: 9,
+                            passedUniqueReads: 8
+                        ),
+                    ]
+                ),
+            ])
+        )
+        let fastaData = Data(">\(genotype)\n\(sequence)\n".utf8)
+        try catalogData.write(to: catalogURL)
+        try fastaData.write(to: fastaURL)
+
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: workbookURL.lastPathComponent,
+            longSummaryCSVPath: reportCSVURL.lastPathComponent,
+            sampleSummaryCSVPath: sampleSummaryCSVURL.lastPathComponent,
+            statsJSONPath: statsJSONURL.lastPathComponent,
+            provenancePath: provenanceURL.lastPathComponent,
+            alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest(
+                genotypingEvidence: ONTMHCBAMArtifactPair(
+                    bam: try Self.artifactReference(
+                        for: retainedBAMURL,
+                        path: retainedBAMURL.lastPathComponent
+                    ),
+                    bai: try Self.artifactReference(
+                        for: retainedBAIURL,
+                        path: retainedBAIURL.lastPathComponent
+                    )
+                ),
+                reciprocalEvidence: nil
+            ),
+            provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest(
+                schemaVersion: ONTGenotypeProvisionalExon2Document.supportedSchemaVersion,
+                catalogJSON: ONTMHCArtifactReference(
+                    path: "artifacts/sequences/\(catalogURL.lastPathComponent)",
+                    sha256: Self.sha256(catalogData),
+                    sizeBytes: Int64(catalogData.count)
+                ),
+                sequencesFASTA: ONTMHCArtifactReference(
+                    path: "artifacts/sequences/\(fastaURL.lastPathComponent)",
+                    sha256: Self.sha256(fastaData),
+                    sizeBytes: Int64(fastaData.count)
+                )
+            )
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: outputDirectory)
+    }
+
+    private static func artifactReference(
+        for url: URL,
+        path: String
+    ) throws -> ONTMHCArtifactReference {
+        let data = try Data(contentsOf: url)
+        return ONTMHCArtifactReference(
+            path: path,
+            sha256: sha256(data),
+            sizeBytes: Int64(data.count)
+        )
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func value(after flag: String, in arguments: [String]) throws -> String {

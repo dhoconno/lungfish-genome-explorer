@@ -456,6 +456,12 @@ final class WorkflowOperationExecutionService {
                 for: request,
                 cliPayload: cliPayload
             )
+            let scientificArtifactURLs = await validatedONTGenotypingScientificArtifactURLs(
+                in: request.outputDirectory
+            )
+            outputURLs = deduplicatedExistingURLs(
+                outputURLs + scientificArtifactURLs
+            )
             if request.aiSpecialistPresetID != nil {
                 _ = operationCenter.updateWithLog(
                     id: operationID,
@@ -794,6 +800,27 @@ final class WorkflowOperationExecutionService {
         urls.append(request.provenanceURL)
         urls.append(request.outputDirectory)
         return deduplicatedExistingURLs(urls)
+    }
+
+    private func validatedONTGenotypingScientificArtifactURLs(
+        in bundleURL: URL
+    ) async -> [URL] {
+        guard let manifest = try? ONTGenotypeResultBundle.loadManifest(from: bundleURL),
+              manifest.alignmentArtifacts?.genotypingEvidence != nil
+                || manifest.provisionalExon2Artifacts != nil else {
+            return []
+        }
+        guard let result = try? await ONTGenotypeResultBundle.loadResultAsync(
+            from: bundleURL
+        ) else {
+            return []
+        }
+        return [
+            result.alignmentArtifactURLs.genotypingBAM,
+            result.alignmentArtifactURLs.genotypingBAI,
+            result.provisionalExon2ArtifactURLs.catalogJSON,
+            result.provisionalExon2ArtifactURLs.sequencesFASTA,
+        ].compactMap { $0 }
     }
 
     static func workbookHaplotypeCalls(
