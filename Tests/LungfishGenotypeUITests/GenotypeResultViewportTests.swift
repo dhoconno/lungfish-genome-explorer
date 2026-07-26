@@ -5254,6 +5254,46 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingHaplotypeWorkCount, 0)
     }
 
+    func testAICompletionWithoutAnalysisClearsUnsupportedHaplotypeState() {
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let cohort = GenotypeCohortSmartFilter(
+            name: "Animal A",
+            scope: "bundle",
+            isStarred: true,
+            predicate: .animalIdIn(["AnimalA"])
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [call],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
+        controller.testingApplySmartCohort(cohort)
+        XCTAssertEqual(controller.testingActiveSmartCohort, cohort)
+        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Saved: Animal A")
+        controller.testingResetHaplotypeCapabilityWorkCounters()
+
+        controller.applyAIHaplotypingCompleted(result: makeResult(
+            samples: [],
+            calls: [call],
+            haplotypeAnalysis: nil
+        ))
+
+        XCTAssertFalse(controller.testingHasHaplotypingResult)
+        XCTAssertNil(controller.testingActiveSmartCohort)
+        XCTAssertNil(controller.testingSavedCohortChipTitle)
+        XCTAssertEqual(controller.testingCohortSubjectBuildCount, 0)
+        XCTAssertEqual(controller.testingHaplotypeWorkCount, 0)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
+    }
+
     func testOutlineCellSelectionShowsEvidenceWithoutActivatingNeedsReviewCohort() throws {
         let lowCalls = [
             makeCall(sample: "LowSupport", genotype: "12_M3_B_075_01", reads: 2),

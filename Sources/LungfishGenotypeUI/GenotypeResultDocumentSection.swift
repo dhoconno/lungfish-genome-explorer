@@ -334,34 +334,61 @@ public struct GenotypeResultDocumentSection: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            header
-            Divider()
-            includedLociSection
-            if state.hasHaplotypingResult {
-                Divider()
-                smartCohortsSection
-            }
-            Divider()
-            summarySection
-            Divider()
-            samplesSection
-            if state.currentWorkbookUpdate != nil {
-                Divider()
-                currentWorkbookSection
-            }
-            if !state.haplotypeDefinitionRows.isEmpty {
-                Divider()
-                haplotypeDefinitionsSection
-            }
-            Divider()
-            qcSection
-            Divider()
-            artifactsSection
-            if !state.auditEntries.isEmpty {
-                Divider()
-                auditTimelineSection
+            ForEach(Array(visibleComponents.enumerated()), id: \.offset) { entry in
+                componentView(entry.element)
             }
         }
+    }
+
+    @ViewBuilder
+    private func componentView(_ component: GenotypeResultDocumentComponent) -> some View {
+        switch component {
+        case .header:
+            header
+        case .divider:
+            Divider()
+        case .includedLoci:
+            includedLociSection
+        case .smartCohorts:
+            smartCohortsSection
+        case .summary:
+            summarySection
+        case .samples:
+            samplesSection
+        case .currentWorkbook:
+            currentWorkbookSection
+        case .haplotypeDefinitions:
+            haplotypeDefinitionsSection
+        case .qc:
+            qcSection
+        case .artifacts:
+            artifactsSection
+        case .auditTimeline:
+            auditTimelineSection
+        }
+    }
+
+    private var visibleComponents: [GenotypeResultDocumentComponent] {
+        var components: [GenotypeResultDocumentComponent] = [
+            .header,
+            .divider,
+            .includedLoci,
+        ]
+        if state.hasHaplotypingResult {
+            components += [.divider, .smartCohorts]
+        }
+        components += [.divider, .summary, .divider, .samples]
+        if state.currentWorkbookUpdate != nil {
+            components += [.divider, .currentWorkbook]
+        }
+        if !state.haplotypeDefinitionRows.isEmpty {
+            components += [.divider, .haplotypeDefinitions]
+        }
+        components += [.divider, .qc, .divider, .artifacts]
+        if !state.auditEntries.isEmpty {
+            components += [.divider, .auditTimeline]
+        }
+        return components
     }
 
     private var auditTimelineSection: some View {
@@ -625,26 +652,7 @@ extension GenotypeResultDocumentSection {
     }
 
     var testingVisibleComponents: [GenotypeResultDocumentComponent] {
-        var components: [GenotypeResultDocumentComponent] = [
-            .header,
-            .divider,
-            .includedLoci,
-        ]
-        if state.hasHaplotypingResult {
-            components += [.divider, .smartCohorts]
-        }
-        components += [.divider, .summary, .divider, .samples]
-        if state.currentWorkbookUpdate != nil {
-            components += [.divider, .currentWorkbook]
-        }
-        if !state.haplotypeDefinitionRows.isEmpty {
-            components += [.divider, .haplotypeDefinitions]
-        }
-        components += [.divider, .qc, .divider, .artifacts]
-        if !state.auditEntries.isEmpty {
-            components += [.divider, .auditTimeline]
-        }
-        return components
+        visibleComponents
     }
 }
 #endif

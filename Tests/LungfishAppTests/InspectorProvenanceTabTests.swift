@@ -217,12 +217,30 @@ final class InspectorProvenanceTabTests: XCTestCase {
         let vc = InspectorViewController()
         _ = vc.view
         vc.viewModel.contentMode = .genotype
+        var cohortSubjectBuildCount = 0
+        vc.genotypeCohortSubjectBuilder = { result, sidecar, metadataBySample in
+            cohortSubjectBuildCount += 1
+            return GenotypeCohortSubjectBuilder.buildSubjects(
+                result: result,
+                sidecar: sidecar,
+                metadataBySample: metadataBySample
+            )
+        }
+        let sample = ONTGenotypeSampleResult(
+            sample: "AnimalA",
+            passedAlignments: 42,
+            passedUniqueReads: 42,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedPercent: nil,
+            calls: [call]
+        )
 
         vc.updateGenotypeResultDocument(
             makeGenotypeResult(
                 bundleURL: bundleURL,
                 haplotypeAnalysis: nil,
-                calls: [call]
+                calls: [call],
+                samples: [sample]
             )
         )
 
@@ -231,6 +249,11 @@ final class InspectorProvenanceTabTests: XCTestCase {
         )
         XCTAssertFalse(document.hasHaplotypingResult)
         XCTAssertTrue(document.smartCohorts.isEmpty)
+        XCTAssertEqual(
+            document.qcRows.map { "\($0.0)=\($0.1)" },
+            ["OK=0", "Low Support=1", "Review=0"]
+        )
+        XCTAssertEqual(cohortSubjectBuildCount, 0)
         XCTAssertFalse(vc.viewModel.genotypeResultDisplaySectionViewModel.hasHaplotypingResult)
         XCTAssertEqual(try Data(contentsOf: annotationURL), bytesBeforeOpen)
     }
@@ -238,7 +261,8 @@ final class InspectorProvenanceTabTests: XCTestCase {
     private func makeGenotypeResult(
         bundleURL: URL,
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
-        calls: [ONTGenotypeCall] = []
+        calls: [ONTGenotypeCall] = [],
+        samples: [ONTGenotypeSampleResult] = []
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
@@ -260,7 +284,7 @@ final class InspectorProvenanceTabTests: XCTestCase {
             ),
             stats: ONTGenotypeRunStats(totalInputReads: 100, retainedUniqueReads: 50),
             calls: calls,
-            samples: [],
+            samples: samples,
             haplotypeAnalysis: haplotypeAnalysis
         )
     }

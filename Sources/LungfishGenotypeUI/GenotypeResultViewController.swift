@@ -4119,15 +4119,24 @@ public final class GenotypeResultViewController: NSViewController {
         rebuildMatrixAnnotationIndexes()
         publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
         displayState.summaryViewMode = initialSummaryViewMode(for: updatedResult)
-        rebuildActiveHaplotypeAnalysisIndexes()
         aiHaplotypingStatus = "AI haplotype revision created. Calls require manual review."
-        rebuildHaplotypeLens()
-        rebuildOutline()
-        rebuildHaplotypeMatrix()
-        rebuildCohortSummary()
+        if hasHaplotypingResult {
+            rebuildActiveHaplotypeAnalysisIndexes()
+            rebuildHaplotypeLens()
+            rebuildOutline()
+            rebuildHaplotypeMatrix()
+            rebuildCohortSummary()
+        } else {
+            activeSmartCohort = nil
+            quickFilterBar.setSavedCohortName(nil)
+            displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+            clearUnsupportedHaplotypePresentation()
+        }
         rebuildArtifactLens()
-        if selectedLens == .summary {
+        if hasHaplotypingResult, selectedLens == .summary {
             applySummaryViewModeVisibility()
+        } else if !hasHaplotypingResult {
+            showLens(.summary)
         }
         onDisplayStateChanged?(displayState)
         if let sidecar = annotationStore?.sidecar {

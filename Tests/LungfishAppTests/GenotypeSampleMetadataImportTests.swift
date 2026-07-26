@@ -451,7 +451,10 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         )
         XCTAssertEqual(workbookUpdate.manualChangeCount, 1)
         XCTAssertTrue(workbookUpdate.isEnabled)
-        XCTAssertTrue(workbookUpdate.statusText.contains("1 manual haplotype change"))
+        XCTAssertEqual(
+            workbookUpdate.statusText,
+            "Current — current.xlsx represents the latest LGE review state."
+        )
     }
 
     func testAnnotationSidecarUpdateUsesLoadedResultWithoutReloadingBundle() throws {

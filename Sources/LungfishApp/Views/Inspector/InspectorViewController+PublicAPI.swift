@@ -338,10 +338,10 @@ extension InspectorViewController {
             return GenotypeAnnotationSidecar.empty(generatedAt: "")
         }()
         let subjects = hasHaplotypingResult
-            ? GenotypeCohortSubjectBuilder.buildSubjects(
-                result: result,
-                sidecar: sidecar,
-                metadataBySample: metadataStore?.records ?? [:]
+            ? genotypeCohortSubjectBuilder(
+                result,
+                sidecar,
+                metadataStore?.records ?? [:]
             )
             : []
         let smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] =
@@ -375,7 +375,9 @@ extension InspectorViewController {
             sampleMetadataStore: metadataStore,
             windowStateScope: windowStateScope,
             summaryRows: genotypeSummaryRows(result),
-            qcRows: genotypeQCRows(subjects: subjects),
+            qcRows: hasHaplotypingResult
+                ? genotypeHaplotypeQCRows(subjects: subjects)
+                : genotypeOnlyQCRows(result: result),
             artifactRows: workbookArtifactRows + [
                 GenotypeResultArtifactRow(label: "Long Summary CSV", fileURL: result.artifacts.longSummaryCSVURL),
                 GenotypeResultArtifactRow(label: "Sample Summary CSV", fileURL: result.artifacts.sampleSummaryCSVURL),
@@ -564,10 +566,10 @@ extension InspectorViewController {
         if let result = cachedResult {
             loadedGenotypeResult = result
             if state.hasHaplotypingResult {
-                let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
-                    result: result,
-                    sidecar: sidecar,
-                    metadataBySample: state.sampleMetadataStore?.records ?? [:]
+                let subjects = genotypeCohortSubjectBuilder(
+                    result,
+                    sidecar,
+                    state.sampleMetadataStore?.records ?? [:]
                 )
                 nextState.smartCohorts = sidecar.smartCohorts.map { cohort in
                     GenotypeSmartCohortSection.DisplayedCohort(
@@ -575,7 +577,7 @@ extension InspectorViewController {
                         count: subjects.filter { cohort.predicate.evaluate($0) }.count
                     )
                 }
-                nextState.qcRows = genotypeQCRows(subjects: subjects)
+                nextState.qcRows = genotypeHaplotypeQCRows(subjects: subjects)
             } else {
                 nextState.smartCohorts = []
             }
@@ -639,7 +641,9 @@ extension InspectorViewController {
         ]
     }
 
-    private func genotypeQCRows(subjects: [GenotypeCohortSubject]) -> [(String, String)] {
+    private func genotypeHaplotypeQCRows(
+        subjects: [GenotypeCohortSubject]
+    ) -> [(String, String)] {
         let qcCounts = Dictionary(grouping: subjects, by: \.qcStatus).mapValues(\.count)
         let incomplete = subjects.filter { SmartCohortPredicate.needsHaplotypeReview.evaluate($0) }.count
         let noHaplotypeCalls = subjects.filter(\.calls.isEmpty).count
@@ -649,6 +653,35 @@ extension InspectorViewController {
             ("Review", "\(qcCounts[.review, default: 0])"),
             ("Incomplete Haplotypes", "\(incomplete)"),
             ("No Haplotype Calls", "\(noHaplotypeCalls)"),
+        ]
+    }
+
+    private func genotypeOnlyQCRows(
+        result: ONTGenotypeResultBundleData
+    ) -> [(String, String)] {
+        var qcCounts = result.qcStatusCounts
+        let summarizedSamples = Set(result.samples.map(\.sample))
+        let unsummarizedCalls = Dictionary(
+            grouping: result.calls.filter { !summarizedSamples.contains($0.sample) },
+            by: \.sample
+        )
+        for calls in unsummarizedCalls.values {
+            let alignments = calls.reduce(0) { $0 + max(0, $1.passedAlignments) }
+            let uniqueReads = calls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
+            let status: ONTGenotypeQCStatus
+            if alignments == 0 || uniqueReads == 0 {
+                status = .review
+            } else if alignments < 20 || uniqueReads < 1_000 {
+                status = .lowSupport
+            } else {
+                status = .ok
+            }
+            qcCounts[status, default: 0] += 1
+        }
+        return [
+            ("OK", "\(qcCounts[.ok, default: 0])"),
+            ("Low Support", "\(qcCounts[.lowSupport, default: 0])"),
+            ("Review", "\(qcCounts[.review, default: 0])"),
         ]
     }
 

@@ -39,6 +39,20 @@ public class InspectorViewController: NSViewController {
     /// cohorts progressively sluggish.
     var loadedGenotypeResult: ONTGenotypeResultBundleData?
 
+    /// Injectable seam for proving genotype-only inspector updates do not build
+    /// haplotype-aware Smart Cohort subjects.
+    var genotypeCohortSubjectBuilder: (
+        ONTGenotypeResultBundleData,
+        GenotypeAnnotationSidecar,
+        [String: [String: String]]
+    ) -> [GenotypeCohortSubject] = { result, sidecar, metadataBySample in
+        GenotypeCohortSubjectBuilder.buildSubjects(
+            result: result,
+            sidecar: sidecar,
+            metadataBySample: metadataBySample
+        )
+    }
+
     /// Public access to the selection section view model for wiring enrichment data.
     public var selectionSectionViewModel: SelectionSectionViewModel {
         viewModel.selectionSectionViewModel
