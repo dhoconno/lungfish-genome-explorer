@@ -1059,6 +1059,7 @@ public final class GenotypeAnnotationStore {
             "scope=\(cohort.scope)",
             "starred=\(cohort.isStarred)",
             "predicate=\(cohort.predicate)",
+            "searchProjectionText=\(cohort.searchProjectionText ?? "nil")",
         ].joined(separator: "; ")
     }
 

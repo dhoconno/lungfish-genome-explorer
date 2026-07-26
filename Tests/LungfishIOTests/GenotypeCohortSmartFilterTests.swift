@@ -144,6 +144,70 @@ final class GenotypeCohortSmartFilterTests: XCTestCase {
         XCTAssertEqual(decoded, original)
     }
 
+    func testSharedSearchProjectionHasExactBackwardCompatibleJSONShape() throws {
+        let original = GenotypeCohortSmartFilter(
+            name: "Shared alias",
+            scope: "bundle",
+            isStarred: true,
+            predicate: .animalIdIn(["CR2", "CR10"]),
+            searchProjectionText: "A1*007"
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+
+        let data = try encoder.encode(original)
+
+        XCTAssertEqual(
+            String(decoding: data, as: UTF8.self),
+            #"{"isStarred":true,"name":"Shared alias","predicate":{"ids":["CR2","CR10"],"kind":"animalIdIn"},"scope":"bundle","searchProjectionText":"A1*007"}"#
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(GenotypeCohortSmartFilter.self, from: data),
+            original
+        )
+    }
+
+    func testLegacySmartCohortFixtureDecodesWithoutSearchProjection() throws {
+        let legacy = Data(
+            #"{"name":"Legacy","scope":"bundle","isStarred":false,"predicate":{"kind":"animalIdIn","ids":["B","A"]}}"#
+                .utf8
+        )
+
+        let decoded = try JSONDecoder().decode(
+            GenotypeCohortSmartFilter.self,
+            from: legacy
+        )
+
+        XCTAssertNil(decoded.searchProjectionText)
+        XCTAssertEqual(decoded.predicate, .animalIdIn(["B", "A"]))
+    }
+
+    func testCanonicalSampleIDsProduceStableSavedCohortBytes() throws {
+        func encoded(_ ids: [String]) throws -> Data {
+            let filter = GenotypeCohortSmartFilter(
+                name: "Stable",
+                predicate: .animalIdIn(
+                    GenotypeCohortSmartFilter.canonicalSampleIDs(ids)
+                ),
+                searchProjectionText: "1178"
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            return try encoder.encode(filter)
+        }
+
+        let first = try encoded(["CR10", "CR2", "CR1", "CR2"])
+        let second = try encoded(["CR2", "CR10", "CR1"])
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(
+            GenotypeCohortSmartFilter.canonicalSampleIDs(
+                ["CR10", "CR2", "CR1", "CR2"]
+            ),
+            ["CR1", "CR2", "CR10"]
+        )
+    }
+
     func testJSONRoundTripPreservesNestedPredicates() throws {
         let original = GenotypeCohortSmartFilter(
             name: "Complex",

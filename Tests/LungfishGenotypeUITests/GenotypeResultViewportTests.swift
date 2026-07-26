@@ -1743,6 +1743,55 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(scheduler.scheduledCount, 0)
     }
 
+    func testStalePublicationReappliesActiveSearchAfterReloadingConcurrentComment() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MatrixStaleSearchComment-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_INTERNAL"
+        let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 12)
+        let matchingTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: call.locusGroup,
+            genotype: genotype
+        )
+        let staleAttemptTarget = GenotypeAnnotationSidecar.MatrixTarget.column(
+            sample: "AnimalA"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call]
+        ))
+        controller.testingResetSearchPerformanceCounters()
+        controller.testingSetQuickFilterSearchText("concurrent-search-note")
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 1)
+        XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
+
+        let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
+        try concurrent.upsertMatrixCommentSynchronously(
+            body: "concurrent-search-note",
+            targets: [matchingTarget],
+            author: "other"
+        )
+        var surfacedError: Error?
+        controller.onMatrixAnnotationCommandError = { surfacedError = $0 }
+
+        controller.editMatrixComment(.init(
+            targets: [staleAttemptTarget],
+            intent: .upsert(body: "stale attempt")
+        ))
+
+        XCTAssertTrue(
+            surfacedError?.localizedDescription.contains("changed in another process") == true
+        )
+        XCTAssertEqual(controller.testingQuickSearchText, "concurrent-search-note")
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 2)
+        XCTAssertEqual(controller.testingVisibleGenotypes, [genotype])
+    }
+
     func testStaleAnnotationFailureReconcilesCandidateDisplayOnlySidecarChangeIntoMatrix() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("MatrixStaleCandidateDisplay-\(UUID().uuidString)", isDirectory: true)
@@ -5805,6 +5854,7 @@ final class GenotypeResultViewportTests: XCTestCase {
     // MARK: - Sample column windowing
 
     func testGenBankMatrixDefaultsToAlleleAndOffersEveryReferenceField() {
+        GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility()
         let matrix = GenotypeComparisonMatrixView()
         matrix.configure(result: makeResult(
             samples: [],
@@ -7891,6 +7941,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         let sidecar = try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
         let saved = sidecar.smartCohorts.first { $0.name == "Filter: Cohort=Kenyon20" }
         XCTAssertEqual(saved?.predicate, .metadataFieldContains(field: "Cohort", value: "Kenyon20"))
+        XCTAssertEqual(saved?.searchProjectionText, "Cohort=Kenyon20")
         XCTAssertTrue(sidecar.auditLog.contains { $0.action == "saveSmartCohort" && $0.after?.contains("Cohort=Kenyon20") == true })
     }
 
@@ -8363,7 +8414,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(text.contains("M3B"))
         XCTAssertTrue(text.contains("12_M3_B_075_01"))
         let matrixView = try XCTUnwrap(controller.view.firstDescendant(ofType: GenotypeHaplotypeDefinitionMatrixView.self))
-        XCTAssertTrue(matrixView.isHidden)
+        XCTAssertFalse(matrixView.isHidden)
     }
 
     func testHaplotypeMatrixUsesSavedTextFilterWhenQuickSearchIsCleared() throws {
@@ -8441,7 +8492,143 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(text.contains("M3B"))
         XCTAssertTrue(text.contains("12_M3_B_075_01"))
         let matrixView = try XCTUnwrap(controller.view.firstDescendant(ofType: GenotypeHaplotypeDefinitionMatrixView.self))
-        XCTAssertTrue(matrixView.isHidden)
+        XCTAssertFalse(matrixView.isHidden)
+    }
+
+    func testHaplotypeDefinitionMatrixUsesSharedSearchIndexAndRefreshesRenderedRowsLive() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeHaplotypeSharedSearch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        let metadataURL = bundleURL
+            .appendingPathComponent("metadata", isDirectory: true)
+            .appendingPathComponent("sample_metadata.tsv")
+        try FileManager.default.createDirectory(
+            at: metadataURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        Sample\tCohort
+        M3B\tcontrol
+        Carrier\tspecial-group
+        """.write(to: metadataURL, atomically: true, encoding: .utf8)
+
+        let calls = [
+            makeCall(sample: "M3B", genotype: "01_M1_F_01_w_06", reads: 200),
+            makeCall(sample: "Carrier", genotype: "12_M3_B_075_01", reads: 148),
+            makeCall(sample: "Carrier", genotype: "12_M3_B_165_01", reads: 119),
+            makeCall(sample: "Carrier", genotype: "12_M2_B_019_03", reads: 90),
+        ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "M3B",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M1A",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["01_M1_F_01_w_06"]
+                        ),
+                    ]
+                ),
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "Carrier",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M3B",
+                            haplotype2: "M2B",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 3,
+                            observedGenotypes: [
+                                "12_M3_B_075_01",
+                                "12_M3_B_165_01",
+                                "12_M2_B_019_03",
+                            ]
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let alleleField = GenBankRecordDatabase.FieldDefinition(
+            key: "feature.allele.cross-lens",
+            displayTitle: "Allele",
+            valueType: "text",
+            sourceCategory: "feature",
+            preferredOrder: 0
+        )
+        let referenceMetadata = ONTGenotypeReferenceMetadata(
+            fields: [alleleField],
+            recordsBySequenceName: [
+                "12_M3_B_075_01": [
+                    alleleField.key: "Mafa-A1*007:01",
+                ],
+            ],
+            alleleFieldKey: alleleField.key
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: analysis,
+            referenceMetadata: referenceMetadata
+        ))
+        controller.testingApplyDisplayState(
+            GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop)
+        )
+        let matrix = try XCTUnwrap(
+            controller.view.firstDescendant(
+                ofType: GenotypeHaplotypeDefinitionMatrixView.self
+            )
+        )
+        XCTAssertFalse(matrix.isHidden)
+        controller.testingResetSearchPerformanceCounters()
+
+        controller.testingSetQuickFilterSearchText("M3B")
+        XCTAssertEqual(Set(matrix.testingRenderedRows.map(\.sample)), ["M3B"])
+
+        controller.testingSetQuickFilterSearchText("12_M3_B_075_01")
+        XCTAssertEqual(Set(matrix.testingRenderedRows.map(\.sample)), ["Carrier"])
+
+        controller.testingSetQuickFilterSearchText("M2B")
+        XCTAssertEqual(Set(matrix.testingRenderedRows.map(\.sample)), ["Carrier"])
+
+        controller.testingSetQuickFilterSearchText("special-group")
+        XCTAssertEqual(Set(matrix.testingRenderedRows.map(\.sample)), ["Carrier"])
+
+        controller.testingSetQuickFilterSearchText("does-not-match")
+        XCTAssertTrue(matrix.testingRenderedRows.isEmpty)
+
+        controller.testingSetQuickFilterSearchText("A1*007")
+        XCTAssertEqual(Set(matrix.testingRenderedRows.map(\.sample)), ["Carrier"])
+        controller.testingApplyDisplayState(
+            GenotypeResultDisplayState(summaryViewMode: .outline, layout: .listTop)
+        )
+        XCTAssertEqual(controller.testingVisibleOutlineSamples, ["Carrier"])
+        controller.testingApplyDisplayState(
+            GenotypeResultDisplayState(
+                viewportLens: .review,
+                summaryViewMode: .outline,
+                layout: .listTop
+            )
+        )
+        XCTAssertEqual(controller.testingVisibleOutlineSamples, ["Carrier"])
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 1)
+        XCTAssertEqual(controller.testingSearchQueryCount, 6)
+        XCTAssertEqual(controller.testingSearchHaplotypeRecordBuildCount, 1)
     }
 
     func testSavingActiveHaplotypeDefinitionRefreshesLiveCalls() throws {
@@ -9504,7 +9691,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
 
         let matrixView = try XCTUnwrap(controller.view.firstDescendant(ofType: GenotypeHaplotypeDefinitionMatrixView.self))
-        XCTAssertTrue(matrixView.isHidden)
+        XCTAssertFalse(matrixView.isHidden)
         let text = controller.testingHaplotypeMatrixText
         XCTAssertTrue(text.contains("Diagnostic allele matrix"))
         XCTAssertTrue(text.contains("MHC-DRB"))
@@ -10337,6 +10524,807 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleGenotypes, [genotype])
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AR3628"])
         XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["AR3628"])
+    }
+
+    func testSharedQuickSearchRoutesSampleSubstringAndDisplayedAlleleByStableIDs() {
+        let allele007 = "01_Mafa_A1_INTERNAL_007"
+        let allele007b = "01_Mafa_A1_INTERNAL_007B"
+        let coincidental1178 = "04_Mafa_B_1178_MARKER"
+        let calls = [
+            makeCall(sample: "CR1178", genotype: allele007, reads: 20),
+            makeCall(sample: "CR1178b", genotype: allele007b, reads: 18),
+            makeCall(sample: "OTHER", genotype: coincidental1178, reads: 16),
+        ]
+        let samples = ["CR1178", "CR1178b", "OTHER"].map { sample in
+            let sampleCalls = calls.filter { $0.sample == sample }
+            return ONTGenotypeSampleResult(
+                sample: sample,
+                passedAlignments: sampleCalls.reduce(0) { $0 + $1.passedAlignments },
+                passedUniqueReads: sampleCalls.reduce(0) { $0 + $1.passedUniqueReads },
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: sampleCalls
+            )
+        }
+        let alleleField = GenBankRecordDatabase.FieldDefinition(
+            key: "feature.allele",
+            displayTitle: "Allele",
+            valueType: "text",
+            sourceCategory: "feature",
+            preferredOrder: 0
+        )
+        let metadata = ONTGenotypeReferenceMetadata(
+            fields: [alleleField],
+            recordsBySequenceName: [
+                allele007: ["feature.allele": "Mafa-A1*007:01"],
+                allele007b: ["feature.allele": "Mafa-A1*007:08"],
+                coincidental1178: ["feature.allele": "Mafa-B*001:01"],
+            ],
+            alleleFieldKey: "feature.allele"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: samples,
+            calls: calls,
+            referenceMetadata: metadata
+        ))
+
+        controller.testingSetQuickFilterSearchText("1178")
+        XCTAssertEqual(
+            controller.testingVisibleMatrixSamples,
+            ["CR1178", "CR1178b"]
+        )
+        XCTAssertEqual(
+            Set(controller.testingVisibleGenotypes),
+            [allele007, allele007b]
+        )
+
+        controller.testingSetQuickFilterSearchText("CR1178")
+        XCTAssertEqual(
+            controller.testingVisibleMatrixSamples,
+            ["CR1178", "CR1178b"]
+        )
+        XCTAssertEqual(
+            Set(controller.testingVisibleGenotypes),
+            [allele007, allele007b]
+        )
+
+        controller.testingSetQuickFilterSearchText("A1*007")
+        XCTAssertEqual(
+            controller.testingVisibleMatrixSamples,
+            ["CR1178", "CR1178b", "OTHER"]
+        )
+        XCTAssertEqual(
+            Set(controller.testingVisibleGenotypes),
+            [allele007, allele007b]
+        )
+    }
+
+    func testSharedQuickSearchPreservesStableSampleColumnOrderWidthAndAvoidsEquivalentRebuild() {
+        let calls = [
+            makeCall(sample: "CR1178", genotype: "allele-a", reads: 20),
+            makeCall(sample: "CR1178b", genotype: "allele-b", reads: 18),
+            makeCall(sample: "OTHER", genotype: "allele-c", reads: 16),
+        ]
+        let samples = ["CR1178", "CR1178b", "OTHER"].map { sample in
+            let sampleCalls = calls.filter { $0.sample == sample }
+            return ONTGenotypeSampleResult(
+                sample: sample,
+                passedAlignments: sampleCalls.reduce(0) { $0 + $1.passedAlignments },
+                passedUniqueReads: sampleCalls.reduce(0) { $0 + $1.passedUniqueReads },
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: sampleCalls
+            )
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: samples, calls: calls))
+        let matrix = controller.testingComparisonMatrix
+        matrix.testingMoveSampleColumn(sample: "OTHER", to: 0)
+        matrix.testingSetSampleColumnWidth(sample: "CR1178", width: 123)
+        let sampleSortKey = try! XCTUnwrap(
+            matrix.testingSortKey(forSample: "CR1178")
+        )
+        matrix.testingSetSortDescriptor(key: sampleSortKey, ascending: false)
+
+        controller.testingSetQuickFilterSearchText("CR1178")
+        XCTAssertEqual(
+            controller.testingVisibleMatrixSampleColumnTitles,
+            ["CR1178", "CR1178b"]
+        )
+        XCTAssertEqual(
+            matrix.testingSampleColumnWidth(sample: "CR1178"),
+            123,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, sampleSortKey)
+
+        controller.testingResetProjectionPerformanceCounters()
+        controller.testingSetQuickFilterSearchText("1178")
+        XCTAssertEqual(
+            controller.testingVisibleMatrixSampleColumnTitles,
+            ["CR1178", "CR1178b"]
+        )
+        XCTAssertEqual(
+            controller.testingProjectionPerformanceSnapshot.matrix.columnRebuildCount,
+            0
+        )
+        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, sampleSortKey)
+
+        controller.testingSetQuickFilterSearchText("")
+        XCTAssertEqual(
+            controller.testingVisibleMatrixSampleColumnTitles,
+            ["OTHER", "CR1178", "CR1178b"]
+        )
+        XCTAssertEqual(
+            matrix.testingSampleColumnWidth(sample: "CR1178"),
+            123,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, sampleSortKey)
+    }
+
+    func testVisibleReferenceColumnChangeRebuildsAndReappliesActiveSearchIndex() {
+        GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility()
+        defer {
+            GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility()
+        }
+        let rawGenotype = "internal-a1"
+        let call = makeCall(sample: "AnimalA", genotype: rawGenotype, reads: 9)
+        let sample = ONTGenotypeSampleResult(
+            sample: "AnimalA",
+            passedAlignments: 9,
+            passedUniqueReads: 9,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedPercent: nil,
+            calls: [call]
+        )
+        let alleleKey = "feature.allele.search-regression"
+        let productKey = "feature.product.search-regression"
+        let metadata = ONTGenotypeReferenceMetadata(
+            fields: [
+                .init(
+                    key: alleleKey,
+                    displayTitle: "Allele",
+                    valueType: "text",
+                    sourceCategory: "feature",
+                    preferredOrder: 0
+                ),
+                .init(
+                    key: productKey,
+                    displayTitle: "Product",
+                    valueType: "text",
+                    sourceCategory: "feature",
+                    preferredOrder: 1
+                ),
+            ],
+            recordsBySequenceName: [
+                rawGenotype: [
+                    alleleKey: "Mafa-A1*001:01",
+                    productKey: "hidden-search-product",
+                ],
+            ],
+            alleleFieldKey: alleleKey
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [sample],
+            calls: [call],
+            referenceMetadata: metadata
+        ))
+        let matrix = controller.testingComparisonMatrix
+        matrix.testingSetReferenceColumnVisibleWithoutPersist(
+            fieldKey: productKey,
+            visible: false
+        )
+        controller.testingResetSearchPerformanceCounters()
+
+        controller.testingSetQuickFilterSearchText("hidden-search-product")
+        XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 1)
+
+        matrix.testingSetReferenceColumnVisible(fieldKey: productKey, visible: true)
+
+        XCTAssertEqual(controller.testingVisibleGenotypes, [rawGenotype])
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 2)
+        XCTAssertEqual(controller.testingSearchQueryCount, 2)
+    }
+
+    func testSavingSharedSearchMaterializesDisplayedAliasAndSamplePriorityStableIDs() throws {
+        let allele007 = "01_Mafa_A1_INTERNAL_007"
+        let allele007b = "01_Mafa_A1_INTERNAL_007B"
+        let coincidental1178 = "04_Mafa_B_1178_MARKER"
+        let calls = [
+            makeCall(sample: "CR1178", genotype: allele007, reads: 20),
+            makeCall(sample: "CR1178b", genotype: allele007b, reads: 18),
+            makeCall(sample: "OTHER", genotype: coincidental1178, reads: 16),
+        ]
+        let samples = ["CR1178", "CR1178b", "OTHER"].map { sample in
+            let sampleCalls = calls.filter { $0.sample == sample }
+            return ONTGenotypeSampleResult(
+                sample: sample,
+                passedAlignments: sampleCalls.reduce(0) { $0 + $1.passedAlignments },
+                passedUniqueReads: sampleCalls.reduce(0) { $0 + $1.passedUniqueReads },
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: sampleCalls
+            )
+        }
+        let alleleField = GenBankRecordDatabase.FieldDefinition(
+            key: "feature.allele.saved-search",
+            displayTitle: "Allele",
+            valueType: "text",
+            sourceCategory: "feature",
+            preferredOrder: 0
+        )
+        let metadata = ONTGenotypeReferenceMetadata(
+            fields: [alleleField],
+            recordsBySequenceName: [
+                allele007: [alleleField.key: "Mafa-A1*007:01"],
+                allele007b: [alleleField.key: "Mafa-A1*007:08"],
+                coincidental1178: [alleleField.key: "Mafa-B*001:01"],
+            ],
+            alleleFieldKey: alleleField.key
+        )
+
+        func savedIDs(for query: String) throws -> [String] {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("GenotypeSavedSharedSearch-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let bundleURL = root.appendingPathComponent(
+                "test.lungfishgenotype",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(
+                at: bundleURL,
+                withIntermediateDirectories: true
+            )
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(result: makeResult(
+                bundleURL: bundleURL,
+                samples: samples,
+                calls: calls,
+                haplotypeAnalysis: makeEmptyHaplotypeAnalysis(),
+                referenceMetadata: metadata
+            ))
+            controller.testingSetQuickFilterSearchText(query)
+            try controller.testingSaveCurrentFilterAsSmartCohort()
+            let sidecar = try GenotypeAnnotationStore(
+                bundleURL: bundleURL,
+                author: "test"
+            ).sidecar
+            let saved = try XCTUnwrap(sidecar.smartCohorts.last)
+            guard case let .animalIdIn(ids) = saved.predicate else {
+                XCTFail("Expected stable animalIdIn predicate, got \(saved.predicate)")
+                return []
+            }
+            XCTAssertEqual(saved.searchProjectionText, query)
+            return ids
+        }
+
+        XCTAssertEqual(
+            try savedIDs(for: "A1*007"),
+            ["CR1178", "CR1178b"]
+        )
+        XCTAssertEqual(
+            try savedIDs(for: "1178"),
+            ["CR1178", "CR1178b"]
+        )
+    }
+
+    func testSavingFilterPreservesActiveProjectionAndNewSearchOverridesIt() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeSavedProjection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "test.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let calls = [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001", reads: 9),
+            makeCall(sample: "AnimalB", genotype: "04_Mafa_B_001", reads: 8),
+        ]
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
+        controller.testingApplySmartCohort(GenotypeCohortSmartFilter(
+            name: "Base",
+            predicate: .animalIdIn(["AnimalA", "AnimalB"]),
+            searchProjectionText: "A1*001"
+        ))
+
+        try controller.testingSaveCurrentFilterAsSmartCohort()
+        var sidecar = try GenotypeAnnotationStore(
+            bundleURL: bundleURL,
+            author: "test"
+        ).sidecar
+        XCTAssertEqual(sidecar.smartCohorts.last?.searchProjectionText, "A1*001")
+
+        controller.testingSetQuickFilterSearchText("AnimalA")
+        try controller.testingSaveCurrentFilterAsSmartCohort()
+        sidecar = try GenotypeAnnotationStore(
+            bundleURL: bundleURL,
+            author: "test"
+        ).sidecar
+        XCTAssertEqual(sidecar.smartCohorts.last?.searchProjectionText, "AnimalA")
+        guard case let .all(predicates) = sidecar.smartCohorts.last?.predicate else {
+            return XCTFail("Expected active cohort and new search intersection")
+        }
+        XCTAssertTrue(predicates.contains(.animalIdIn(["AnimalA", "AnimalB"])))
+        XCTAssertTrue(predicates.contains(.animalIdIn(["AnimalA"])))
+    }
+
+    func testQuickSearchCapabilityCopyAccessibilityAndGenotypeOnlyHaplotypeGate() throws {
+        let genotypeController = GenotypeResultViewController()
+        _ = genotypeController.view
+        let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001", reads: 9)
+        genotypeController.configure(result: makeResult(
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 9,
+                    passedUniqueReads: 9,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [call]
+                ),
+            ],
+            calls: [call]
+        ))
+
+        XCTAssertEqual(
+            genotypeController.testingQuickSearchPlaceholder,
+            "Search samples or alleles…"
+        )
+        XCTAssertEqual(
+            genotypeController.testingQuickSearchAccessibilityLabel,
+            "Search samples or alleles"
+        )
+        XCTAssertEqual(
+            genotypeController.testingQuickSearchAccessibilityIdentifier,
+            "genotype-quick-search"
+        )
+        genotypeController.testingResetSearchPerformanceCounters()
+        genotypeController.testingSetQuickFilterSearchText("HAP-A")
+        XCTAssertEqual(genotypeController.testingSearchIndexBuildCount, 1)
+        XCTAssertEqual(genotypeController.testingSearchHaplotypeRecordBuildCount, 0)
+
+        let haplotypedController = GenotypeResultViewController()
+        _ = haplotypedController.view
+        haplotypedController.configure(result: makeResult(
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
+        XCTAssertEqual(
+            haplotypedController.testingQuickSearchPlaceholder,
+            "Search samples, alleles, or haplotypes…"
+        )
+        XCTAssertEqual(
+            haplotypedController.testingQuickSearchAccessibilityLabel,
+            "Search samples, alleles, or haplotypes"
+        )
+    }
+
+    func testQuickSearchEmptyStateAnnouncesOnceRecoversAndDoesNotStealFocus() {
+        let announcements = RecordingGenotypeSearchAnnouncements()
+        let controller = GenotypeResultViewController()
+        controller.testingSetSearchAnnouncementPoster(announcements)
+        _ = controller.view
+        let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001", reads: 9)
+        controller.configure(result: makeResult(
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 9,
+                    passedUniqueReads: 9,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [call]
+                ),
+            ],
+            calls: [call]
+        ))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        let sentinel = NSTextField(string: "Keep focus here")
+        host.addSubview(controller.view)
+        host.addSubview(sentinel)
+        window.contentView = host
+        XCTAssertTrue(window.makeFirstResponder(sentinel))
+        let responderBeforeSearch = window.firstResponder
+
+        controller.testingSetQuickFilterSearchText("not-present")
+
+        XCTAssertTrue(window.firstResponder === responderBeforeSearch)
+        XCTAssertEqual(
+            controller.testingQuickSearchEmptyMessage,
+            "No samples or alleles match “not-present”. Press Escape to clear the search."
+        )
+        XCTAssertEqual(announcements.messages.count, 1)
+
+        controller.testingSetQuickFilterSearchText("not-present")
+        XCTAssertEqual(announcements.messages.count, 1)
+
+        controller.testingSetQuickFilterSearchText("AnimalA")
+        XCTAssertEqual(controller.testingQuickSearchEmptyMessage, "")
+
+        controller.testingSetQuickFilterSearchText("still-not-present")
+        XCTAssertEqual(announcements.messages.count, 2)
+
+        XCTAssertTrue(controller.testingFocusQuickSearch())
+        let fieldEditor = window.firstResponder
+        XCTAssertNotNil(fieldEditor)
+        controller.testingTypeQuickSearchDebounced("debounced-not-present")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        XCTAssertTrue(window.firstResponder === fieldEditor)
+        XCTAssertTrue(controller.testingQuickSearchIsFocused)
+        XCTAssertEqual(controller.testingQuickSearchText, "debounced-not-present")
+        XCTAssertEqual(
+            controller.testingQuickSearchEmptyMessage,
+            "No samples or alleles match “debounced-not-present”. Press Escape to clear the search."
+        )
+    }
+
+    func testQuickSearchIndexIsReusedAndMetadataReplacementInvalidatesIt() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001", reads: 9)
+        controller.configure(result: makeResult(
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 9,
+                    passedUniqueReads: 9,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [call]
+                ),
+            ],
+            calls: [call]
+        ))
+        controller.testingResetSearchPerformanceCounters()
+
+        controller.testingSetQuickFilterSearchText("Animal")
+        controller.testingSetQuickFilterSearchText("A1")
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 1)
+        XCTAssertEqual(controller.testingSearchQueryCount, 2)
+
+        let metadata = try SampleMetadataStore(
+            csvData: Data("Sample\tCohort\nAnimalA\tTreatment Alpha\n".utf8),
+            knownSampleIds: ["AnimalA"]
+        )
+        controller.applySampleMetadataStore(metadata)
+        controller.testingSetQuickFilterSearchText("Treatment Alpha")
+
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 2)
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
+    }
+
+    func testCommandFFocusesQuickSearchAndEscapeClearsIt() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001", reads: 9)
+        controller.configure(result: makeResult(
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 9,
+                    passedUniqueReads: 9,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [call]
+                ),
+            ],
+            calls: [call]
+        ))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = controller.view
+        let commandF = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "f",
+            charactersIgnoringModifiers: "f",
+            isARepeat: false,
+            keyCode: 3
+        ))
+
+        XCTAssertTrue(controller.performKeyEquivalent(with: commandF))
+        XCTAssertTrue(controller.testingQuickSearchIsFocused)
+
+        controller.testingSetQuickFilterSearchText("AnimalA")
+        let escape = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ))
+
+        XCTAssertTrue(controller.performKeyEquivalent(with: escape))
+        XCTAssertEqual(controller.testingQuickSearchText, "")
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
+    }
+
+    func testQuickSearchResultAndReferenceReplacementInvalidatesIndex() {
+        let rawGenotype = "01_Mafa_A1_INTERNAL"
+        let call = makeCall(sample: "AnimalA", genotype: rawGenotype, reads: 9)
+        let sample = ONTGenotypeSampleResult(
+            sample: "AnimalA",
+            passedAlignments: 9,
+            passedUniqueReads: 9,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedPercent: nil,
+            calls: [call]
+        )
+        let alleleField = GenBankRecordDatabase.FieldDefinition(
+            key: "feature.allele",
+            displayTitle: "Allele",
+            valueType: "text",
+            sourceCategory: "feature",
+            preferredOrder: 0
+        )
+        func metadata(_ allele: String) -> ONTGenotypeReferenceMetadata {
+            ONTGenotypeReferenceMetadata(
+                fields: [alleleField],
+                recordsBySequenceName: [
+                    rawGenotype: ["feature.allele": allele],
+                ],
+                alleleFieldKey: "feature.allele"
+            )
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [sample],
+            calls: [call],
+            referenceMetadata: metadata("Mafa-A1*007:01")
+        ))
+        controller.testingResetSearchPerformanceCounters()
+        controller.testingSetQuickFilterSearchText("A1*007")
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 1)
+        XCTAssertEqual(controller.testingVisibleGenotypes, [rawGenotype])
+
+        controller.testingSetQuickFilterSearchText("")
+        controller.configure(result: makeResult(
+            samples: [sample],
+            calls: [call],
+            referenceMetadata: metadata("Mafa-A1*099:01")
+        ))
+        controller.testingSetQuickFilterSearchText("A1*099")
+
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 2)
+        XCTAssertEqual(controller.testingVisibleGenotypes, [rawGenotype])
+    }
+
+    func testCurrentWorkbookResultReplacementRefreshesConfiguredMatrixSearchSource() {
+        let oldCall = makeCall(
+            sample: "AnimalA",
+            genotype: "old-internal-genotype",
+            reads: 9
+        )
+        let newCall = makeCall(
+            sample: "AnimalA",
+            genotype: "new-internal-genotype",
+            reads: 11
+        )
+        let sample: (ONTGenotypeCall) -> ONTGenotypeSampleResult = { call in
+            ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: call.passedAlignments,
+                passedUniqueReads: call.passedUniqueReads,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [call]
+            )
+        }
+        let alleleField = GenBankRecordDatabase.FieldDefinition(
+            key: "feature.allele.workbook-search",
+            displayTitle: "Allele",
+            valueType: "text",
+            sourceCategory: "feature",
+            preferredOrder: 0
+        )
+        let oldMetadata = ONTGenotypeReferenceMetadata(
+            fields: [alleleField],
+            recordsBySequenceName: [
+                oldCall.genotype: [alleleField.key: "Mafa-A1*001:01"],
+            ],
+            alleleFieldKey: alleleField.key
+        )
+        let newMetadata = ONTGenotypeReferenceMetadata(
+            fields: [alleleField],
+            recordsBySequenceName: [
+                newCall.genotype: [alleleField.key: "Mafa-A1*099:01"],
+            ],
+            alleleFieldKey: alleleField.key
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [sample(oldCall)],
+            calls: [oldCall],
+            referenceMetadata: oldMetadata
+        ))
+        _ = controller.testingComparisonMatrix
+        controller.testingSetQuickFilterSearchText("A1*099")
+        XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
+
+        controller.applyCurrentWorkbookUpdateCompleted(result: makeResult(
+            samples: [sample(newCall)],
+            calls: [newCall],
+            referenceMetadata: newMetadata
+        ))
+
+        XCTAssertEqual(
+            controller.testingVisibleGenotypes,
+            [newCall.genotype]
+        )
+    }
+
+    func testQuickSearchMatrixCommentMutationInvalidatesIndex() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeSearchComment-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let genotype = "01_Mafa_A1_INTERNAL"
+        let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 9)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 9,
+                    passedUniqueReads: 9,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [call]
+                ),
+            ],
+            calls: [call]
+        ))
+        controller.testingResetSearchPerformanceCounters()
+        controller.testingSetQuickFilterSearchText("analyst-note")
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 1)
+        XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
+
+        controller.addMatrixComment(GenotypeMatrixCommentEditRequest(
+            targets: [
+                .row(locus: call.locusGroup, genotype: genotype),
+            ],
+            body: "analyst-note"
+        ))
+
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 2)
+        XCTAssertEqual(controller.testingVisibleGenotypes, [genotype])
+
+        controller.applyMatrixReview(GenotypeMatrixReviewRequest(
+            targets: [
+                .cell(
+                    locus: call.locusGroup,
+                    genotype: genotype,
+                    sample: "AnimalA"
+                ),
+            ],
+            intent: .set(.falsePositive)
+        ))
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 2)
+        XCTAssertEqual(controller.testingVisibleGenotypes, [genotype])
+
+        controller.editMatrixComment(GenotypeMatrixCommentEditRequest(
+            targets: [
+                .row(locus: call.locusGroup, genotype: genotype),
+            ],
+            intent: .remove
+        ))
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 3)
+        XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
+    }
+
+    func testQuickSearchCandidateInvalidationDependsOnVisibilityNotTintOrNoOp() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeCandidateSearchDeps-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "test.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let provisionalName = "Mafa-A1*900:01_search_nov"
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeCandidateResult(
+            bundleURL: bundleURL,
+            calls: [
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: "known-control",
+                    reads: 9
+                ),
+            ],
+            candidates: [
+                makeCandidate(
+                    id: "search-candidate",
+                    name: provisionalName,
+                    classification: .novel,
+                    support: .singleton,
+                    samples: ["AnimalA"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(
+                    cluster: "search-candidate",
+                    sample: "AnimalA",
+                    reads: 7
+                ),
+            ]
+        ))
+        _ = controller.testingComparisonMatrix
+        controller.testingResetSearchPerformanceCounters()
+        controller.testingSetQuickFilterSearchText("900:01")
+        XCTAssertEqual(controller.testingVisibleGenotypes, [provisionalName])
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 1)
+
+        var tintState = controller.testingDisplayState
+        var tintSettings = tintState.mhcCandidateDisplaySettings ?? .default
+        tintSettings.tints[.singletonNovel] = AnnotationColor(hex: "#123456")!
+        tintState.mhcCandidateDisplaySettings = tintSettings
+        controller.testingApplyDisplayStateImmediately(tintState)
+        controller.testingApplyDisplayStateImmediately(tintState)
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 1)
+        XCTAssertEqual(controller.testingVisibleGenotypes, [provisionalName])
+
+        var hiddenState = tintState
+        var hiddenSettings = tintSettings
+        hiddenSettings.showSingletonCandidates = false
+        hiddenState.mhcCandidateDisplaySettings = hiddenSettings
+        controller.testingApplyDisplayStateImmediately(hiddenState)
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 2)
+        XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
+
+        controller.testingApplyDisplayStateImmediately(hiddenState)
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, 2)
     }
 
     func testMatrixFreeTextSearchDoesNotTreatLocusMatchAsImplicitSampleFilter() throws {
@@ -11574,6 +12562,104 @@ final class GenotypeResultViewportTests: XCTestCase {
                 + "derived_max=\(performance.derivedProjectionMaximumSeconds), "
                 + "visible_total=\(performance.commitToVisibleTotalSeconds), "
                 + "visible_max=\(performance.commitToVisibleMaximumSeconds)"
+        )
+    }
+
+    func testRepresentativeSharedSearchStressUsesCachedIndexAndDoesNotMutateBundle() throws {
+        func bundleBytes(at root: URL) throws -> [String: Data] {
+            guard let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.isRegularFileKey]
+            ) else { return [:] }
+            var bytes: [String: Data] = [:]
+            for case let url as URL in enumerator {
+                guard try url.resourceValues(
+                    forKeys: [.isRegularFileKey]
+                ).isRegularFile == true else { continue }
+                bytes[url.path.replacingOccurrences(of: root.path + "/", with: "")] =
+                    try Data(contentsOf: url)
+            }
+            return bytes
+        }
+
+        func exercise(
+            base: ONTGenotypeResultBundleData,
+            exactSample: String,
+            equivalentSampleSubstring: String,
+            alleleQuery: String
+        ) throws {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("GenotypeSearchStress-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let bundleURL = root.appendingPathComponent(
+                "stress.lungfishgenotype",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(
+                at: bundleURL.appendingPathComponent("artifacts", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+            try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+                .empty(generatedAt: "2026-07-25T00:00:00Z"),
+                forBundleAt: bundleURL
+            )
+            try Data("audit-sentinel\n".utf8).write(
+                to: bundleURL.appendingPathComponent("audit.ndjson")
+            )
+            try Data([0x01, 0x02, 0x03]).write(
+                to: bundleURL.appendingPathComponent("artifacts/scientific.bin")
+            )
+            let result = makeResult(
+                bundleURL: bundleURL,
+                samples: base.samples,
+                calls: base.calls,
+                referenceMetadata: base.referenceMetadata
+            )
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(result: result)
+            let matrix = controller.testingComparisonMatrix
+            controller.testingResetProjectionPerformanceCounters()
+            controller.testingResetSearchPerformanceCounters()
+            let before = try bundleBytes(at: bundleURL)
+
+            controller.testingSetQuickFilterSearchText(exactSample)
+            controller.testingSetQuickFilterSearchText(exactSample)
+            controller.testingSetQuickFilterSearchText(equivalentSampleSubstring)
+            XCTAssertEqual(
+                controller.testingVisibleMatrixSamples,
+                [exactSample]
+            )
+            controller.testingSetQuickFilterSearchText(alleleQuery)
+
+            let performance = controller.testingProjectionPerformanceSnapshot.matrix
+            XCTAssertEqual(controller.testingSearchIndexBuildCount, 1)
+            XCTAssertEqual(controller.testingSearchQueryCount, 3)
+            XCTAssertEqual(performance.baseProjectionBuildCount, 1)
+            XCTAssertEqual(performance.derivedProjectionPassCount, 0)
+            XCTAssertEqual(performance.columnRebuildCount, 2)
+            XCTAssertLessThanOrEqual(performance.pinnedFullReloadCount, 4)
+            XCTAssertLessThanOrEqual(performance.sampleFullReloadCount, 4)
+            XCTAssertTrue(
+                controller.testingVisibleGenotypes.contains {
+                    $0.localizedCaseInsensitiveContains(alleleQuery)
+                }
+            )
+            XCTAssertEqual(try bundleBytes(at: bundleURL), before)
+            XCTAssertFalse(matrix.testingVisibleRows.isEmpty)
+        }
+
+        try exercise(
+            base: makeRetainedDemuxSizedResult(),
+            exactSample: "LF2800",
+            equivalentSampleSubstring: "2800",
+            alleleQuery: "00_Mafa_A1_000_01"
+        )
+        try exercise(
+            base: makeManySampleResult(sampleCount: 150),
+            exactSample: "SAMPLE_149",
+            equivalentSampleSubstring: "149",
+            alleleQuery: "12_M3_B_075_01"
         )
     }
 
@@ -12962,6 +14048,19 @@ private actor KnownSelectionResultLoaderSpy {
 
     func currentInvocationCount() -> Int {
         invocationCount
+    }
+}
+
+@MainActor
+private final class RecordingGenotypeSearchAnnouncements:
+    AccessibilityAnnouncementPosting {
+    private(set) var messages: [String] = []
+
+    func post(
+        _ message: String,
+        priority _: ContentAccessibilityAnnouncementPriority
+    ) {
+        messages.append(message)
     }
 }
 

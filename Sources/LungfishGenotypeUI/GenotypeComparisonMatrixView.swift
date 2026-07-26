@@ -114,8 +114,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         static func reference(_ fieldKey: String) -> NSUserInterfaceItemIdentifier {
             NSUserInterfaceItemIdentifier(referencePrefix + fieldKey)
         }
-        static func sample(_ index: Int) -> NSUserInterfaceItemIdentifier {
-            NSUserInterfaceItemIdentifier("sample-\(index)")
+        static func sample(_ stableID: String) -> NSUserInterfaceItemIdentifier {
+            NSUserInterfaceItemIdentifier("sample.\(stableID)")
         }
     }
 
@@ -126,6 +126,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     var onMatrixCommentEditRequested: ((GenotypeMatrixCommentEditRequest) -> Void)?
     var onSelectionCleared: (() -> Void)?
     var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
+    var onSearchProjectionChanged: (() -> Void)?
     var matrixCommentBodyProvider: ((String?) -> String?)?
     private var contextMenuSnapshotSourceFactory:
         (GenotypeMatrixContextMenuSnapshot) -> any GenotypeMatrixContextMenuSnapshotProviding = {
@@ -186,6 +187,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var visibleRowIndexByKey: [RowKey: Int] = [:]
     private var visibleRowIndexByID: [GenotypeCandidateMatrixRowID: Int] = [:]
     private var sampleNames: [String] = []
+    private var preferredSampleColumnOrder: [String] = []
+    /// Baseline widths (before the app content-text scale) keyed by stable
+    /// sample ID, not by a transient visual column index.
+    private var sampleColumnWidthsByStableID: [String: CGFloat] = [:]
     /// FULL filtered logical sample set. Read PERVASIVELY by export
     /// (`exportSnapshot`), annotation-target computation (`selectAllVisibleRowsAndColumns`,
     /// `isAllVisibleRowsAndColumnsSelected`), support-cell selection, sort, and
@@ -222,6 +227,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var selectedFilterLocus: String?
     private var selectedRowFilter: Set<GenotypeCandidateMatrixRowID>?
     private var selectedSampleFilter: Set<String>?
+    private var quickSearchRowIDs: Set<GenotypeCandidateMatrixRowID>?
     private var filterText = ""
     private var supportSelectionPreviewMinimumReads = 1
     /// Set of sample IDs allowed by the active Smart Cohort + Quick Filter.
@@ -289,6 +295,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             sampleNames = orderedSamples(from: result.calls)
         }
         appendMissingCandidateSamples(from: result)
+        preferredSampleColumnOrder = sampleNames
+        sampleColumnWidthsByStableID = [:]
         sampleReadTitleByName = sampleReadTitles(from: result)
         selectedRowLocus = nil
         selectedFilterLocus = nil
@@ -303,10 +311,45 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         pendingColumnSelectionCleared = false
         selectedRowFilter = nil
         selectedSampleFilter = nil
+        quickSearchRowIDs = nil
         applyAnnotationSidecar(sidecar, reload: false)
         rebuildBaseProjection()
         rebuildColumns()
         applyDefaultSortDescriptor()
+        applyFilterAndSort()
+    }
+
+    /// Replaces workbook-backed scientific rows while preserving analyst view
+    /// state (stable sample order/widths, sort, filters, and surviving
+    /// selection). This is used after current.xlsx is reloaded.
+    func replaceResultPreservingPresentation(
+        _ result: ONTGenotypeResultBundleData,
+        metadataStore: SampleMetadataStore?,
+        sidecar: GenotypeAnnotationSidecar?
+    ) {
+        captureStableSampleColumnState()
+        self.result = result
+        self.metadataStore = metadataStore
+        configureReferenceColumns(from: result.referenceMetadata)
+        sampleNames = result.sampleNames
+        if sampleNames.isEmpty {
+            sampleNames = orderedSamples(from: result.calls)
+        }
+        appendMissingCandidateSamples(from: result)
+        let validSamples = Set(sampleNames)
+        preferredSampleColumnOrder =
+            preferredSampleColumnOrder.filter(validSamples.contains)
+        let ordered = Set(preferredSampleColumnOrder)
+        preferredSampleColumnOrder.append(
+            contentsOf: sampleNames.filter { !ordered.contains($0) }
+        )
+        sampleColumnWidthsByStableID = sampleColumnWidthsByStableID.filter {
+            validSamples.contains($0.key)
+        }
+        sampleReadTitleByName = sampleReadTitles(from: result)
+        applyAnnotationSidecar(sidecar, reload: false)
+        rebuildBaseProjection()
+        rebuildColumns()
         applyFilterAndSort()
     }
 
@@ -455,11 +498,55 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     func applyFilters(allowedSampleIDs: Set<String>?, text: String) {
         self.allowedSampleIDs = allowedSampleIDs
+        quickSearchRowIDs = nil
         filterField.stringValue = text
         filterText = text
         rebuildColumns()
         applyDefaultSortDescriptor()
         applyFilterAndSort()
+    }
+
+    /// Applies the controller's already-classified shared quick-search result.
+    /// The matrix never reinterprets the query text, so sample/row routing is
+    /// identical in Matrix, Outline, and Review.
+    func applySharedSearchConstraints(
+        allowedSampleIDs: Set<String>?,
+        projectedRowIDs: Set<GenotypeCandidateMatrixRowID>?
+    ) {
+        let previousSamples = activeSampleNames()
+        self.allowedSampleIDs = allowedSampleIDs
+        quickSearchRowIDs = projectedRowIDs
+        filterField.stringValue = ""
+        filterText = ""
+        if activeSampleNames() != previousSamples {
+            rebuildColumns()
+            syncSortDescriptorsToTables()
+        }
+        applyFilterAndSort()
+    }
+
+    func sharedSearchProjectedRows() -> [GenotypeSearchIndex.ProjectedRowRecord] {
+        let rows = baseProjection?.derive(.unfiltered).rows ?? allRows
+        return rows.map { row in
+            let visibleMetadata: [String: String]
+            if row.population == .known {
+                let record = referenceRecords[row.genotype] ?? [:]
+                visibleMetadata = record.filter {
+                    visibleReferenceFieldKeys.contains($0.key)
+                }
+            } else {
+                visibleMetadata = [:]
+            }
+            return GenotypeSearchIndex.ProjectedRowRecord(
+                id: row.id,
+                displayedAllele: biologicalAlleleDisplayName(for: row),
+                rawGenotype: row.genotype,
+                locus: row.locus,
+                stableClusterID: row.stableClusterID,
+                visibleReferenceMetadata: visibleMetadata,
+                carrierSampleIDs: Set(row.sampleSupport.map(\.sample))
+            )
+        }
     }
 
     /// Apply (or clear) the Smart Cohort + Quick Filter sample allow-list.
@@ -878,12 +965,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 #if DEBUG
         testingColumnRebuildCount += 1
 #endif
+        let preservedSortDescriptors = activeSortDescriptors
+        suppressSortDescriptorSync = true
+        captureStableSampleColumnState()
         captureColumnTypographyBaselines()
         removeAllColumns(from: pinnedTableView)
         removeAllColumns(from: tableView)
         sampleColumnLookup.removeAll()
         sampleColumnIdentifierByName.removeAll()
-        visibleSampleNames = activeSampleNames()
+        visibleSampleNames = samplesInPreferredColumnOrder(activeSampleNames())
         pruneSelectedColumnsForVisibleSamples()
 
         addRowSelectorColumn(to: pinnedTableView)
@@ -922,11 +1012,21 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         updatePinnedTableAccessibilityLabel()
 
-        for (index, sample) in visibleSampleNames.enumerated() {
-            let identifier = ColumnID.sample(index)
+        for sample in visibleSampleNames {
+            let identifier = ColumnID.sample(sample)
             sampleColumnLookup[identifier] = sample
             sampleColumnIdentifierByName[sample] = identifier
-            addColumn(to: tableView, identifier: identifier, title: sample, width: 68, minWidth: 58, ascending: false)
+            let width = sampleColumnWidthsByStableID[sample] ?? 68
+            addColumn(
+                to: tableView,
+                identifier: identifier,
+                title: sample,
+                width: width,
+                minWidth: 58,
+                ascending: false
+            )
+            typographyBaselineColumnWidths[identifier.rawValue] = width
+            typographyBaselineColumnMinWidths[identifier.rawValue] = 58
         }
         rebuildVisibleColumnIndex()
         updatePinnedWidth()
@@ -936,6 +1036,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         updateColumnCommentMetadata()
         registerColumnTypographyBaselines()
         applyContentTypography()
+        suppressSortDescriptorSync = false
+        activeSortDescriptors = preservedSortDescriptors
+        syncSortDescriptorsToTables()
     }
 
     private func updatePinnedTableAccessibilityLabel() {
@@ -949,6 +1052,18 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private static let fastaStandardVisibilityKey = "GenotypeMatrix.fasta.visibleStandardColumns"
     private static let referenceVisibilityKey = "GenotypeMatrix.genbank.visibleReferenceFields"
     private static let columnWidthsKey = "GenotypeMatrix.pinnedColumnWidths"
+
+    static func searchVisibleReferenceFieldKeys(
+        for metadata: ONTGenotypeReferenceMetadata?
+    ) -> Set<String> {
+        guard let metadata else { return [] }
+        if let stored = UserDefaults.standard.array(
+            forKey: referenceVisibilityKey
+        ) as? [String] {
+            return Set(stored).intersection(metadata.fields.map(\.key))
+        }
+        return metadata.alleleFieldKey.map { Set([$0]) } ?? []
+    }
 
     private func configureReferenceColumns(from metadata: ONTGenotypeReferenceMetadata?) {
         referenceFields = metadata?.fields.sorted {
@@ -968,13 +1083,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
 
         if metadata != nil {
-            if let stored = columnDefaults.array(forKey: Self.referenceVisibilityKey) as? [String] {
-                visibleReferenceFieldKeys = Set(stored).intersection(referenceFields.map(\.key))
-            } else if let alleleFieldKey {
-                visibleReferenceFieldKeys = [alleleFieldKey]
-            } else {
-                visibleReferenceFieldKeys = []
-            }
+            visibleReferenceFieldKeys = Self.searchVisibleReferenceFieldKeys(
+                for: metadata
+            )
         } else {
             visibleReferenceFieldKeys = []
         }
@@ -1044,10 +1155,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     private func setReferenceColumnVisible(_ fieldKey: String, visible: Bool) {
         guard referenceFields.contains(where: { $0.key == fieldKey }) else { return }
+        let previous = visibleReferenceFieldKeys
         if visible { visibleReferenceFieldKeys.insert(fieldKey) } else { visibleReferenceFieldKeys.remove(fieldKey) }
+        guard previous != visibleReferenceFieldKeys else { return }
         persistColumnVisibility()
         rebuildColumns()
         applyFilterAndSort()
+        onSearchProjectionChanged?()
     }
 
 
@@ -1109,6 +1223,39 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         for column in tableView.tableColumns {
             tableView.removeTableColumn(column)
         }
+    }
+
+    private func samplesInPreferredColumnOrder(_ activeSamples: [String]) -> [String] {
+        let active = Set(activeSamples)
+        let preferred = preferredSampleColumnOrder.filter(active.contains)
+        let preferredSet = Set(preferred)
+        return preferred + activeSamples.filter { !preferredSet.contains($0) }
+    }
+
+    /// Snapshot user-visible order and widths before any filtering rebuild
+    /// removes columns. Replacing only the currently visible positions keeps
+    /// filtered-out samples anchored in the full stable order.
+    private func captureStableSampleColumnState() {
+        let columns = tableView.tableColumns.compactMap { column -> (String, CGFloat)? in
+            guard let sample = sampleColumnLookup[column.identifier] else { return nil }
+            return (sample, column.width / max(contentTypographyScale, 0.01))
+        }
+        guard !columns.isEmpty else { return }
+        for (sample, width) in columns {
+            sampleColumnWidthsByStableID[sample] = width
+        }
+
+        let visibleOrder = columns.map(\.0)
+        let visibleSet = Set(visibleOrder)
+        var replacement = visibleOrder.makeIterator()
+        preferredSampleColumnOrder = preferredSampleColumnOrder.map { sample in
+            guard visibleSet.contains(sample) else { return sample }
+            return replacement.next() ?? sample
+        }
+        let known = Set(preferredSampleColumnOrder)
+        preferredSampleColumnOrder.append(
+            contentsOf: sampleNames.filter { !known.contains($0) }
+        )
     }
 
     private func addColumn(
@@ -1310,6 +1457,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             }
             if let selectedRowFilter,
                !selectedRowFilter.contains(row.id) {
+                return false
+            }
+            if let quickSearchRowIDs,
+               !quickSearchRowIDs.contains(row.id) {
                 return false
             }
             // A row stays only when at least one threshold-surviving cell is
@@ -1695,7 +1846,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return
         }
         captureColumnTypographyBaselines(in: resizedTable)
-        guard resizedTable === pinnedTableView else { return }
+        if resizedTable === tableView {
+            captureStableSampleColumnState()
+            return
+        }
         var widths = restoredColumnWidths
         for column in pinnedTableView.tableColumns where column.identifier != ColumnID.rowSelector {
             widths[column.identifier.rawValue] =
@@ -2846,6 +3000,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
               movedTableView === tableView else {
             return
         }
+        captureStableSampleColumnState()
         rebuildVisibleColumnIndex()
     }
 
@@ -4283,6 +4438,10 @@ enum GenotypeCandidateMatrixTestingColumn {
 }
 
 extension GenotypeComparisonMatrixView {
+    static func testingResetPersistedReferenceVisibility() {
+        UserDefaults.standard.removeObject(forKey: referenceVisibilityKey)
+    }
+
     var testingVisibleRows: [GenotypeCandidateMatrixRow] { visibleRows }
     var testingVisibleGenotypes: [String] { visibleRows.map(\.genotype) }
     var testingSelectedRowID: GenotypeCandidateMatrixRowID? { selectedRowID }
@@ -4499,6 +4658,27 @@ extension GenotypeComparisonMatrixView {
         tableView.tableColumns.compactMap { column in
             sampleColumnLookup[column.identifier] == nil ? nil : column.title
         }
+    }
+    func testingMoveSampleColumn(sample: String, to targetIndex: Int) {
+        guard let sourceIndex = tableView.tableColumns.firstIndex(where: {
+            sampleColumnLookup[$0.identifier] == sample
+        }) else { return }
+        let boundedTarget = min(max(0, targetIndex), max(0, tableView.numberOfColumns - 1))
+        tableView.moveColumn(sourceIndex, toColumn: boundedTarget)
+        captureStableSampleColumnState()
+        rebuildVisibleColumnIndex()
+    }
+    func testingSetSampleColumnWidth(sample: String, width: CGFloat) {
+        guard let column = tableView.tableColumns.first(where: {
+            sampleColumnLookup[$0.identifier] == sample
+        }) else { return }
+        column.width = max(column.minWidth, width)
+        captureStableSampleColumnState()
+    }
+    func testingSampleColumnWidth(sample: String) -> CGFloat {
+        tableView.tableColumns.first(where: {
+            sampleColumnLookup[$0.identifier] == sample
+        })?.width ?? 0
     }
     var testingPinnedColumnTitles: [String] {
         pinnedTableView.tableColumns.map(\.title)

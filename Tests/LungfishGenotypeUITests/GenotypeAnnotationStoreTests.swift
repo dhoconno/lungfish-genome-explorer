@@ -876,7 +876,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             name: "Metadata cohort",
             scope: "bundle",
             isStarred: true,
-            predicate: .metadataFieldContains(field: "Cohort", value: "Kenyon20")
+            predicate: .animalIdIn(["CR1178", "CR1178b"]),
+            searchProjectionText: "A1*007"
         )
 
         try store.saveSmartCohort(cohort)
@@ -905,6 +906,18 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(envelope.outputs.first?.role, .output)
         XCTAssertNotNil(envelope.outputs.first?.checksumSHA256)
         XCTAssertNotNil(envelope.outputs.first?.fileSize)
+        let persisted = try JSONDecoder().decode(
+            GenotypeAnnotationSidecar.self,
+            from: Data(contentsOf: annotationURL)
+        )
+        XCTAssertEqual(
+            persisted.smartCohorts.first { $0.name == cohort.name }?.searchProjectionText,
+            "A1*007"
+        )
+        XCTAssertTrue(
+            persisted.auditLog.last { $0.action == "saveSmartCohort" }?
+                .after?.contains("searchProjectionText=A1*007") == true
+        )
     }
 
     func testDefaultCohortsSeededOnFirstOpen() throws {

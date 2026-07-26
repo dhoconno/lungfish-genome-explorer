@@ -614,6 +614,10 @@ private final class MatrixRowView: NSTableRowView {
 
 #if DEBUG
 extension GenotypeHaplotypeDefinitionMatrixView {
+    var testingRenderedRows: [Row] {
+        rows
+    }
+
     var testingCellFontPointSize: CGFloat {
         guard let row = rows.first ?? allRows.first else { return 0 }
         return font(row: row, column: Column.sample).pointSize
