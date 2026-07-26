@@ -220,6 +220,10 @@ public final class GenotypeResultViewController: NSViewController {
     private var consumerLensBuildCount = 0
     private var anchorLensBuildCount = 0
     private var artifactLensBuildCount = 0
+#if DEBUG
+    private var testingLayoutApplicationCount = 0
+    private var testingCohortSummaryRebuildCount = 0
+#endif
     private static let generatedContentHostingViewIdentifier =
         NSUserInterfaceItemIdentifier("GenotypeGeneratedContentHostingView")
 
@@ -1102,12 +1106,26 @@ public final class GenotypeResultViewController: NSViewController {
         let previousViewMode = displayState.summaryViewMode
         let previousAncillary = displayState.showsAncillaryLoci
         let previousIncludedLoci = displayState.includedLoci
+        let previousCohortFlagThreshold = displayState.cohortFlagThreshold
+        let previousLayout = displayState.layout
+        let lensChanged = selectedLens != state.viewportLens
+        let anchorProjectionChanged =
+            displayState.activeMinimumSupportPercent
+                != state.activeMinimumSupportPercent
+            || displayState.supportDenominator != state.supportDenominator
+        let matrixOnlyChange = state != displayState
+            && state == displayState.replacingMatrixPresentation(from: state)
+        var cohortFlagState = displayState
+        cohortFlagState.cohortFlagThreshold = state.cohortFlagThreshold
+        let cohortFlagOnlyChange = state != displayState
+            && state == cohortFlagState
+        let narrowDisplayChange = matrixOnlyChange || cohortFlagOnlyChange
         displayState = state
         persistSummaryViewPreferenceIfNeeded(
             previousViewMode: previousViewMode,
             nextViewMode: state.summaryViewMode
         )
-        if selectedLens != state.viewportLens {
+        if lensChanged {
             showLens(state.viewportLens)
         } else {
             lensControl.selectedSegment = segmentIndex(for: state.viewportLens)
@@ -1121,16 +1139,26 @@ public final class GenotypeResultViewController: NSViewController {
         } else if comparisonMatrixConfigured {
             comparisonMatrix.applyDisplayState(state)
         }
-        rebuildAnchorLens()
-        rebuildConsumerLens()
+        if anchorProjectionChanged || !narrowDisplayChange {
+            rebuildAnchorLens()
+        }
+        if !narrowDisplayChange {
+            rebuildConsumerLens()
+        }
         if previousViewMode != state.summaryViewMode
             || previousAncillary != state.showsAncillaryLoci
             || previousIncludedLoci != state.includedLoci {
             rebuildOutline()
             rebuildHaplotypeMatrix()
             rebuildCohortSummary()
+        } else if previousCohortFlagThreshold != state.cohortFlagThreshold {
+            rebuildCohortSummary()
         }
-        applyLayoutPreference()
+        if !lensChanged,
+           previousLayout != state.layout
+            || previousViewMode != state.summaryViewMode {
+            applyLayoutPreference()
+        }
         if !matrixWillRefreshActiveSelection,
            currentSelectionState?.matrixTargets.isEmpty == false {
             refreshCurrentSelectionDetails()
@@ -3069,6 +3097,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func applyLayoutPreference() {
+#if DEBUG
+        testingLayoutApplicationCount += 1
+#endif
         guard splitView.arrangedSubviews.count > 1 else { return }
         let listFirst = displayState.layout != .listTrailing
         splitCoordinator.applyLayoutPreference(
@@ -5356,6 +5387,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func rebuildCohortSummary() {
+#if DEBUG
+        testingCohortSummaryRebuildCount += 1
+#endif
         guard let result else {
             cohortSummaryPanel.configure(summary: .init(
                 qcCounts: [],
@@ -7141,7 +7175,41 @@ struct GenotypeGeneratedContentTypographySnapshot: Equatable {
     let scrollOriginY: CGFloat
 }
 
+struct GenotypeResultProjectionPerformanceSnapshot: Equatable {
+    let matrix: GenotypeMatrixProjectionPerformanceSnapshot
+    let anchorLensRebuildCount: Int
+    let consumerLensRebuildCount: Int
+    let cohortSummaryRebuildCount: Int
+    let layoutApplicationCount: Int
+}
+
 extension GenotypeResultViewController {
+    var testingComparisonMatrix: GenotypeComparisonMatrixView {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix
+    }
+
+    func testingResetProjectionPerformanceCounters() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingResetProjectionPerformanceCounters()
+        anchorLensBuildCount = 0
+        consumerLensBuildCount = 0
+        testingCohortSummaryRebuildCount = 0
+        testingLayoutApplicationCount = 0
+    }
+
+    var testingProjectionPerformanceSnapshot:
+        GenotypeResultProjectionPerformanceSnapshot {
+        ensureComparisonMatrixConfigured()
+        return GenotypeResultProjectionPerformanceSnapshot(
+            matrix: comparisonMatrix.testingProjectionPerformanceSnapshot,
+            anchorLensRebuildCount: anchorLensBuildCount,
+            consumerLensRebuildCount: consumerLensBuildCount,
+            cohortSummaryRebuildCount: testingCohortSummaryRebuildCount,
+            layoutApplicationCount: testingLayoutApplicationCount
+        )
+    }
+
     func testingGeneratedContentSnapshot(
         _ surface: GenotypeGeneratedContentSurface
     ) -> GenotypeGeneratedContentTypographySnapshot {

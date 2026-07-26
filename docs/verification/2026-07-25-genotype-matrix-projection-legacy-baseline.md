@@ -163,3 +163,88 @@ stress benchmark in Debug and Release. The comparison must report:
 
 The fixture-level observations in this document may be compared only with
 equivalent whole-case measurements after Task 6.
+
+## Task 6 cached-projection verification
+
+Task 6 replaces repeated whole-result projection with one immutable base
+projection and one derived threshold pass after the twenty-draft debounce. The
+scientific-equivalence tests compare complete ordered rows and occurrence
+support, hidden and total counts, and both support-fraction maps against a
+test-only implementation of the legacy algorithm. The comparison covers both
+denominators, combined thresholds, duplicate call occurrences, known and
+candidate rows, explicit-zero and missing denominators, and a candidate with no
+observed support.
+
+The representative workloads now run through
+`GenotypeResultViewController`, not a bare matrix. Every run asserts:
+
+- one cumulative base-projection build and one derived pass after counter reset;
+- zero column, Anchor, Consumer, cohort-summary, and layout rebuilds;
+- no more than one full reload in either pinned or sample table;
+- the twentieth draft is the committed threshold;
+- stable selection, sort, semantic scroll anchor, surviving row order, sample
+  order, and column widths; and
+- a visible-settle sample taken on the next main-run-loop turn after layout.
+
+The full Debug viewport gate passed 285 tests with zero failures in 64.276
+seconds. Its representative measurements were:
+
+| Fixture | Derived aggregate/max | Visible aggregate/max | Debug ceiling |
+| --- | ---: | ---: | ---: |
+| 52 samples × 120 rows, 20 drafts | 53.316 ms / 53.316 ms | 17.938 ms / 17.938 ms | 500 ms |
+| 150 sample columns, 20 drafts | 1.312 ms / 1.312 ms | 22.067 ms / 22.067 ms | 500 ms |
+
+### Clean direct optimized Release runs
+
+The final optimized test bundle was built with:
+
+```bash
+swift test -c release -Xswiftc -DDEBUG \
+  --filter 'GenotypeResultViewportTests.test(RapidTwentyDraft|OneHundredFiftyColumn|ProjectionRowDiff|CombinedCandidateVisibility|SidecarVisibilityAndStyle)'
+```
+
+All five selected tests passed. As in the legacy baseline, the SwiftPM wrapper
+then exited nonzero because it forwarded `-Xswiftc` to `lungfish-cli`, which
+reported `Unknown option '-Xswiftc'`. The cached optimized XCTest bundle was
+therefore run directly for the clean measurements:
+
+```bash
+for run_index in 1 2 3; do
+  xcrun xctest \
+    -XCTest LungfishGenotypeUITests.GenotypeResultViewportTests/testRapidTwentyDraftThresholdEditsUseOneCachedDerivedPassAndPreserveMatrixState \
+    .build/arm64-apple-macosx/release/LungfishGenomeBrowserPackageTests.xctest
+done
+
+for run_index in 1 2 3; do
+  xcrun xctest \
+    -XCTest LungfishGenotypeUITests.GenotypeResultViewportTests/testOneHundredFiftyColumnThresholdStressDoesNotRebuildColumnsOrLoseWidths \
+    .build/arm64-apple-macosx/release/LungfishGenomeBrowserPackageTests.xctest
+done
+```
+
+All six direct runs passed.
+
+| Fixture/run | Derived | Visible settle |
+| --- | ---: | ---: |
+| 52×120 run 1 | 20.140 ms | 27.343 ms |
+| 52×120 run 2 | 20.121 ms | 29.314 ms |
+| 52×120 run 3 | 20.162 ms | 31.095 ms |
+| **52×120 aggregate** | **60.423 ms** | **87.752 ms** |
+| **52×120 maximum** | **20.162 ms** | **31.095 ms** |
+| 150-column run 1 | 0.468 ms | 32.842 ms |
+| 150-column run 2 | 0.415 ms | 26.027 ms |
+| 150-column run 3 | 0.457 ms | 27.967 ms |
+| **150-column aggregate** | **1.340 ms** | **86.836 ms** |
+| **150-column maximum** | **0.468 ms** | **32.842 ms** |
+
+The optimized maximums pass the approved ceilings of 50 ms per derived pass
+and 100 ms per visible settle. A separate row-diff regression verifies that
+transient AppKit selection callbacks are suppressed only during insert/remove
+transactions and resume immediately afterward. Rendered-cell regressions also
+verify that a combined candidate visibility/tint transition redraws a surviving
+candidate and that a sidecar visibility/style replacement refreshes surviving
+AppKit chrome even when candidate tints are unchanged.
+
+These timings isolate the new threshold projection and visibility settlement.
+They must not be treated as directly comparable to the legacy whole-case
+durations earlier in this document.

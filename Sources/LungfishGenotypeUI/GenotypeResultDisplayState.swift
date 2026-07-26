@@ -216,18 +216,38 @@ public struct GenotypeResultDisplayState: Equatable {
 }
 
 extension GenotypeResultDisplayState {
-    func requiresMatrixRowRebuild(comparedTo previous: GenotypeResultDisplayState) -> Bool {
+    func replacingMatrixPresentation(
+        from source: GenotypeResultDisplayState
+    ) -> GenotypeResultDisplayState {
+        var replaced = self
+        replaced.hideLowSupport = source.hideLowSupport
+        replaced.minimumSupportPercent = source.minimumSupportPercent
+        replaced.supportDenominator = source.supportDenominator
+        replaced.cellColorMode = source.cellColorMode
+        replaced.hideFilteredHighlights = source.hideFilteredHighlights
+        replaced.minimumReads = source.minimumReads
+        replaced.matrixMinimumReads = source.matrixMinimumReads
+        replaced.matrixMinimumPercent = source.matrixMinimumPercent
+        replaced.matrixPercentDenominator = source.matrixPercentDenominator
+        replaced.matrixRowFilterText = source.matrixRowFilterText
+        replaced.matrixSampleFilterText = source.matrixSampleFilterText
+        replaced.mhcCandidateDisplaySettings = source.mhcCandidateDisplaySettings
+        return replaced
+    }
+
+    func requiresMatrixDerivedProjection(
+        comparedTo previous: GenotypeResultDisplayState
+    ) -> Bool {
         hideLowSupport != previous.hideLowSupport
             || minimumSupportPercent != previous.minimumSupportPercent
             || supportDenominator != previous.supportDenominator
             || matrixMinimumReads != previous.matrixMinimumReads
             || matrixMinimumPercent != previous.matrixMinimumPercent
             || matrixPercentDenominator != previous.matrixPercentDenominator
-            || mhcCandidateDisplaySettings != previous.mhcCandidateDisplaySettings
     }
 
     func requiresMatrixFilterPass(comparedTo previous: GenotypeResultDisplayState) -> Bool {
-        requiresMatrixRowRebuild(comparedTo: previous)
+        requiresMatrixDerivedProjection(comparedTo: previous)
             || minimumReads != previous.minimumReads
             || matrixRowFilterText != previous.matrixRowFilterText
             || matrixSampleFilterText != previous.matrixSampleFilterText

@@ -11,6 +11,27 @@ struct GenotypeVisibleSampleAlleleDetail {
     let fraction: Double?
 }
 
+#if DEBUG
+struct GenotypeMatrixProjectionPerformanceSnapshot: Equatable {
+    let baseProjectionBuildCount: Int
+    let derivedProjectionPassCount: Int
+    let derivedProjectionTotalSeconds: TimeInterval
+    let derivedProjectionMaximumSeconds: TimeInterval
+    let commitToVisibleCount: Int
+    let commitToVisibleTotalSeconds: TimeInterval
+    let commitToVisibleMaximumSeconds: TimeInterval
+    let columnRebuildCount: Int
+    let pinnedFullReloadCount: Int
+    let sampleFullReloadCount: Int
+}
+
+struct GenotypeMatrixSemanticScrollSnapshot: Equatable {
+    let rowID: GenotypeCandidateMatrixRowID?
+    let withinRowOffset: CGFloat
+    let sampleHorizontalOrigin: CGFloat
+}
+#endif
+
 /// Enforces the vertical document bounds for every AppKit scroll request while
 /// preserving the requested horizontal position. `NSScrollView` normally
 /// performs this constraint for wheel events, but a direct/provisional clip
@@ -82,16 +103,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
     }
 
-    private struct SupportBucketKey: Hashable {
-        let sample: String
-        let locus: String
-    }
-
-    private struct CallSupportContext {
-        let call: ONTGenotypeCall
-        let locus: String
-    }
-
     private enum ColumnID {
         static let rowSelector = NSUserInterfaceItemIdentifier("rowSelector")
         static let genotype = NSUserInterfaceItemIdentifier("genotype")
@@ -157,9 +168,18 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let withinRowOffset: CGFloat
         let horizontalOrigin: CGFloat
     }
+    private struct SemanticScrollAnchor {
+        let rowID: GenotypeCandidateMatrixRowID
+        let previousRowIndex: Int
+        let previousRowIDs: [GenotypeCandidateMatrixRowID]
+        let withinRowOffset: CGFloat
+        let pinnedHorizontalOrigin: CGFloat
+        let sampleHorizontalOrigin: CGFloat
+    }
     private let columnDefaults = UserDefaults.standard
     private static let pinnedPaneWidthKey = "GenotypeMatrix.pinnedPaneWidth"
     private var displayState = GenotypeResultDisplayState()
+    private var baseProjection: GenotypeMatrixBaseProjection?
     private var metadataStore: SampleMetadataStore?
     private var allRows: [GenotypeCandidateMatrixRow] = []
     private var visibleRows: [GenotypeCandidateMatrixRow] = []
@@ -231,6 +251,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 #if DEBUG
     private var testingLastReloadTargets: [GenotypeAnnotationSidecar.MatrixTarget] = []
     private var testingIncreaseContrastOverride: Bool?
+    private var testingBaseProjectionBuildCount = 0
+    private var testingDerivedProjectionPassCount = 0
+    private var testingDerivedProjectionTotalSeconds: TimeInterval = 0
+    private var testingDerivedProjectionMaximumSeconds: TimeInterval = 0
+    private var testingCommitToVisibleCount = 0
+    private var testingCommitToVisibleTotalSeconds: TimeInterval = 0
+    private var testingCommitToVisibleMaximumSeconds: TimeInterval = 0
+    private var testingColumnRebuildCount = 0
+    private var testingVisibleSettlementGeneration = 0
 #endif
 
     override init(frame frameRect: NSRect) {
@@ -275,7 +304,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectedRowFilter = nil
         selectedSampleFilter = nil
         applyAnnotationSidecar(sidecar, reload: false)
-        rebuildRowsFromResult()
+        rebuildBaseProjection()
         rebuildColumns()
         applyDefaultSortDescriptor()
         applyFilterAndSort()
@@ -284,12 +313,21 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     func applyDisplayState(_ state: GenotypeResultDisplayState) {
         let previousState = displayState
         let previousSamples = activeSampleNames()
+        let previousEffectiveCandidateSettings = effectiveCandidateDisplaySettings
         displayState = state
+        let nextEffectiveCandidateSettings = effectiveCandidateDisplaySettings
+        let candidateVisibilityDidChange = candidateVisibilityChanged(
+            from: previousEffectiveCandidateSettings,
+            to: nextEffectiveCandidateSettings
+        )
+        let candidateTintDidChange =
+            previousEffectiveCandidateSettings.tints
+                != nextEffectiveCandidateSettings.tints
 
-        if state.requiresMatrixRowRebuild(comparedTo: previousState) {
-            rebuildRowsFromResult()
-        } else if state.supportDenominator != previousState.supportDenominator, let result {
-            supportFractionByCell = makeSupportFractionLookup(for: result)
+        if candidateVisibilityDidChange {
+            rebuildBaseProjection()
+        } else if state.requiresMatrixDerivedProjection(comparedTo: previousState) {
+            applyDerivedProjection()
         }
 
         if activeSampleNames() != previousSamples {
@@ -297,9 +335,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             applyDefaultSortDescriptor()
         }
 
-        if state.requiresMatrixFilterPass(comparedTo: previousState) {
+        if candidateVisibilityDidChange
+            || state.requiresMatrixFilterPass(comparedTo: previousState) {
             applyFilterAndSort()
-        } else if state.requiresMatrixRedraw(comparedTo: previousState) {
+            if candidateTintDidChange {
+                reloadVisibleMatrix()
+            }
+        } else if nextEffectiveCandidateSettings != previousEffectiveCandidateSettings
+                    || state.requiresMatrixRedraw(comparedTo: previousState) {
             reloadVisibleMatrix()
             onDisplaySummaryChanged?(visibleRows.count, totalRowCount, hiddenCellCount)
         }
@@ -310,7 +353,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         reload: Bool = true,
         reloading targets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
     ) {
-        let previousCandidateDisplaySettings = candidateDisplaySettings
+        let previousEffectiveCandidateDisplaySettings = effectiveCandidateDisplaySettings
         candidateDisplaySettings = sidecar?.settings.mhcCandidateDisplay ?? .default
         sidecarCellStyles = [:]
         sidecarRowStyles = [:]
@@ -365,9 +408,22 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             )] = review
         }
         updateColumnCommentMetadata()
-        if reload, candidateDisplaySettings != previousCandidateDisplaySettings {
-            rebuildRowsFromResult()
+        let nextEffectiveCandidateDisplaySettings = effectiveCandidateDisplaySettings
+        if reload,
+           candidateVisibilityChanged(
+               from: previousEffectiveCandidateDisplaySettings,
+               to: nextEffectiveCandidateDisplaySettings
+        ) {
+            rebuildBaseProjection()
             applyFilterAndSort()
+            // Sidecar replacement may also change surviving row/cell chrome
+            // (styles, comments, or reviews). It is an infrequent persistence
+            // path, so redraw the visible projection after any visibility diff.
+            reloadVisibleMatrix()
+        } else if reload,
+                  nextEffectiveCandidateDisplaySettings
+                    != previousEffectiveCandidateDisplaySettings {
+            reloadVisibleMatrix()
         } else if reload, let targets, !targets.isEmpty {
             reloadMatrixTargets(targets)
         } else if reload {
@@ -819,6 +875,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func rebuildColumns() {
+#if DEBUG
+        testingColumnRebuildCount += 1
+#endif
         captureColumnTypographyBaselines()
         removeAllColumns(from: pinnedTableView)
         removeAllColumns(from: tableView)
@@ -1103,8 +1162,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         applyFilterAndSort()
     }
 
-    private func rebuildRowsFromResult() {
+    private func rebuildBaseProjection() {
         guard let result else {
+            baseProjection = nil
             allRows = []
             supportByRowAndSample = [:]
             totalRowCount = 0
@@ -1113,96 +1173,71 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return
         }
 
-        let unfilteredSummaries = result.locusSummaries
         let candidateDocument = validatedMHCCandidateDocument(from: result)
-        totalRowCount = unfilteredSummaries.flatMap(\.sharedCalls).count
-            + (candidateDocument?.candidates.count ?? 0)
-        let globalThreshold = displayState.activeMinimumSupportPercent / 100
-        let matrixThreshold = displayState.matrixMinimumPercent / 100
-        let minimumReads = max(0, displayState.matrixMinimumReads)
-        let filteredCalls = result.calls.filter { call in
-            if globalThreshold > 0 {
-                guard let fraction = result.supportFraction(
-                    for: call,
-                    denominator: displayState.supportDenominator
-                ),
-                      fraction >= globalThreshold else {
-                    return false
-                }
-            }
-            if matrixThreshold > 0 {
-                guard let fraction = result.supportFraction(
-                    for: call,
-                    denominator: displayState.matrixPercentDenominator
-                ),
-                      fraction >= matrixThreshold else {
-                    return false
-                }
-            }
-            if minimumReads > 0, call.passedUniqueReads < minimumReads {
-                return false
-            }
-            return true
-        }
-        let filteredSummaries = makeLocusSummaries(from: filteredCalls)
-        allRows = GenotypeCandidateMatrixProjection.rows(
-            knownRows: filteredSummaries.flatMap(\.sharedCalls),
+        baseProjection = GenotypeMatrixBaseProjection(
+            calls: result.calls,
+            samples: result.samples,
             candidateDocument: candidateDocument,
-            settings: effectiveCandidateDisplaySettings,
+            logicalSampleNames: sampleNames,
+            candidateSettings: effectiveCandidateDisplaySettings,
             usesBiologicalAlleleOrder: usesBiologicalAlleleOrder
         )
-        if globalThreshold > 0 || matrixThreshold > 0 || minimumReads > 0 {
-            allRows = allRows.compactMap { row in
-                guard row.population != .known else { return row }
-                if globalThreshold > 0 {
-                    guard let fraction = candidatePopulationSupportFraction(for: row),
-                          fraction >= globalThreshold else {
-                        return nil
-                    }
-                }
-                if matrixThreshold > 0 {
-                    guard let fraction = candidatePopulationSupportFraction(for: row),
-                          fraction >= matrixThreshold else {
-                        return nil
-                    }
-                }
-                let support = minimumReads > 0
-                    ? row.sampleSupport.filter { $0.passedUniqueReads >= minimumReads }
-                    : row.sampleSupport
-                guard !support.isEmpty else { return nil }
-                return GenotypeCandidateMatrixRow(
-                    id: row.id,
-                    alleleName: row.alleleName,
-                    locus: row.locus,
-                    stableClusterID: row.stableClusterID,
-                    population: row.population,
-                    tintCategory: row.tintCategory,
-                    sampleSupport: support,
-                    evidenceBySample: row.evidenceBySample,
-                    candidate: row.candidate
+#if DEBUG
+        testingBaseProjectionBuildCount += 1
+#endif
+        applyDerivedProjection()
+    }
+
+    private func applyDerivedProjection() {
+        guard let baseProjection else {
+            allRows = []
+            supportByRowAndSample = [:]
+            supportFractionByCell = [:]
+            totalRowCount = 0
+            hiddenCellCount = 0
+            rebuildLocusPopup([])
+            return
+        }
+#if DEBUG
+        let derivedStart = ContinuousClock.now
+#endif
+        let derived = baseProjection.derive(.init(
+            globalMinimumPercent: displayState.activeMinimumSupportPercent,
+            globalDenominator: displayState.supportDenominator,
+            matrixMinimumReads: displayState.matrixMinimumReads,
+            matrixMinimumPercent: displayState.matrixMinimumPercent,
+            matrixDenominator: displayState.matrixPercentDenominator
+        ))
+        allRows = derived.rows
+        totalRowCount = derived.totalRowCount
+        hiddenCellCount = derived.hiddenCellCount
+        rebuildSupportLookup()
+        supportFractionByCell = Dictionary(uniqueKeysWithValues:
+            baseProjection.supportFractions(for: displayState.supportDenominator).map {
+                identity, fraction in
+                (
+                    CellKey(
+                        locus: identity.locus,
+                        genotype: identity.genotype,
+                        sample: identity.sample,
+                        stableClusterID: identity.stableClusterID
+                    ),
+                    fraction
                 )
             }
-        }
-        rebuildSupportLookup()
-        let visibleCellCount = allRows.reduce(0) { $0 + $1.sampleCount }
-        let candidateCellCount = candidateDocument.map { document in
-            Set(document.observations.map { "\($0.stableClusterID)\u{0}\($0.sampleID)" }).count
-        } ?? 0
-        hiddenCellCount = max(0, result.calls.count + candidateCellCount - visibleCellCount)
-        supportFractionByCell = makeSupportFractionLookup(for: result)
+        )
         rebuildLocusPopup(Set(allRows.map(\.locus)).sorted {
             $0.localizedStandardCompare($1) == .orderedAscending
         })
-    }
-
-    /// Candidate percentage support is a population occurrence fraction, not
-    /// a read-share fraction: distinct samples supporting this stable sequence
-    /// divided by the full logical sample union represented by the matrix.
-    private func candidatePopulationSupportFraction(for row: GenotypeCandidateMatrixRow) -> Double? {
-        let eligibleSamples = Set(sampleNames)
-        guard !eligibleSamples.isEmpty else { return nil }
-        let supportingSamples = Set(row.sampleSupport.map(\.sample)).intersection(eligibleSamples)
-        return Double(supportingSamples.count) / Double(eligibleSamples.count)
+#if DEBUG
+        let elapsed = Self.seconds(ContinuousClock.now - derivedStart)
+        testingDerivedProjectionPassCount += 1
+        testingDerivedProjectionTotalSeconds += elapsed
+        testingDerivedProjectionMaximumSeconds = max(
+            testingDerivedProjectionMaximumSeconds,
+            elapsed
+        )
+#endif
     }
 
     private func rebuildSupportLookup() {
@@ -1219,6 +1254,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var effectiveCandidateDisplaySettings: ONTMHCCandidateDisplaySettings {
         guard isMHCCandidateViewportEnabled else { return .default }
         return displayState.mhcCandidateDisplaySettings ?? candidateDisplaySettings
+    }
+
+    private func candidateVisibilityChanged(
+        from previous: ONTMHCCandidateDisplaySettings,
+        to next: ONTMHCCandidateDisplaySettings
+    ) -> Bool {
+        previous.showKnown != next.showKnown
+            || previous.showSharedCandidates != next.showSharedCandidates
+            || previous.showSingletonCandidates != next.showSingletonCandidates
     }
 
     private var usesBiologicalAlleleOrder: Bool {
@@ -1249,31 +1293,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         return document
     }
 
-    private func makeLocusSummaries(from calls: [ONTGenotypeCall]) -> [ONTGenotypeLocusSummary] {
-        let callsByLocus = Dictionary(grouping: calls, by: \.locusGroup)
-        return callsByLocus.map { locus, callsForLocus in
-            let callsByGenotype = Dictionary(grouping: callsForLocus, by: \.genotype)
-            let sharedCalls = callsByGenotype.map { genotype, genotypeCalls in
-                ONTGenotypeSharedCall(
-                    locus: locus,
-                    genotype: genotype,
-                    sampleSupport: genotypeCalls.map {
-                        ONTGenotypeSampleSupport(
-                            sample: $0.sample,
-                            passedAlignments: $0.passedAlignments,
-                            passedUniqueReads: $0.passedUniqueReads,
-                            sampleUniqueRetainedReads: $0.sampleUniqueRetainedReads
-                        )
-                    }
-                )
-            }
-            return ONTGenotypeLocusSummary(locus: locus, sharedCalls: sharedCalls)
-        }.sorted { lhs, rhs in
-            lhs.locus.localizedStandardCompare(rhs.locus) == .orderedAscending
-        }
-    }
-
     private func applyFilterAndSort() {
+        let semanticScrollAnchor = captureSemanticScrollAnchor()
+        let previousVisibleRows = visibleRows
+#if DEBUG
+        let commitStart = ContinuousClock.now
+#endif
         let normalizedFilter = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
         let matrixRowFilter = displayState.matrixRowFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedFilterMatchesRowIdentity = !normalizedFilter.isEmpty
@@ -1317,9 +1342,105 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             visibleRows.sort { compare($0, $1, key: key, ascending: descriptor.ascending) }
         }
         rebuildVisibleRowIndex()
-        reloadAllTables()
+        reloadRowsAfterProjectionChange(previousRows: previousVisibleRows)
+        if bounds.width > 0, bounds.height > 0 {
+            layoutSubtreeIfNeeded()
+        }
+        restoreSemanticScrollAnchor(semanticScrollAnchor)
         reconcileSelectionAfterFilter()
         onDisplaySummaryChanged?(visibleRows.count, totalRowCount, hiddenCellCount)
+#if DEBUG
+        testingVisibleSettlementGeneration &+= 1
+        let settlementGeneration = testingVisibleSettlementGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.testingVisibleSettlementGeneration == settlementGeneration else {
+                return
+            }
+            self.layoutSubtreeIfNeeded()
+            let elapsed = Self.seconds(ContinuousClock.now - commitStart)
+            self.testingCommitToVisibleCount += 1
+            self.testingCommitToVisibleTotalSeconds += elapsed
+            self.testingCommitToVisibleMaximumSeconds = max(
+                self.testingCommitToVisibleMaximumSeconds,
+                elapsed
+            )
+        }
+#endif
+    }
+
+#if DEBUG
+    private static func seconds(_ duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
+    }
+#endif
+
+    private func captureSemanticScrollAnchor() -> SemanticScrollAnchor? {
+        guard !visibleRows.isEmpty else { return nil }
+        let y = pinnedScrollView.contentView.bounds.minY
+        var row = pinnedTableView.row(at: NSPoint(x: 0, y: y))
+        if row < 0 {
+            row = min(max(Int(floor(y / max(1, pinnedTableView.rowHeight))), 0), visibleRows.count - 1)
+        }
+        guard visibleRows.indices.contains(row) else { return nil }
+        return SemanticScrollAnchor(
+            rowID: visibleRows[row].id,
+            previousRowIndex: row,
+            previousRowIDs: visibleRows.map(\.id),
+            withinRowOffset: y - pinnedTableView.rect(ofRow: row).minY,
+            pinnedHorizontalOrigin: pinnedScrollView.contentView.bounds.minX,
+            sampleHorizontalOrigin: scrollView.contentView.bounds.minX
+        )
+    }
+
+    private func restoreSemanticScrollAnchor(_ anchor: SemanticScrollAnchor?) {
+        guard let anchor, !visibleRows.isEmpty else { return }
+        let nextIndex: Int?
+        if let stableIndex = visibleRowIndexByID[anchor.rowID] {
+            nextIndex = stableIndex
+        } else {
+            let survivingIDs = Set(visibleRows.map(\.id))
+            var nearestID: GenotypeCandidateMatrixRowID?
+            for distance in 1...max(1, anchor.previousRowIDs.count) {
+                let successor = anchor.previousRowIndex + distance
+                if anchor.previousRowIDs.indices.contains(successor),
+                   survivingIDs.contains(anchor.previousRowIDs[successor]) {
+                    nearestID = anchor.previousRowIDs[successor]
+                    break
+                }
+                let predecessor = anchor.previousRowIndex - distance
+                if anchor.previousRowIDs.indices.contains(predecessor),
+                   survivingIDs.contains(anchor.previousRowIDs[predecessor]) {
+                    nearestID = anchor.previousRowIDs[predecessor]
+                    break
+                }
+            }
+            nextIndex = nearestID.flatMap { visibleRowIndexByID[$0] }
+                ?? min(anchor.previousRowIndex, visibleRows.count - 1)
+        }
+        guard let nextIndex else { return }
+        let proposedY = pinnedTableView.rect(ofRow: nextIndex).minY
+            + anchor.withinRowOffset
+        suppressScrollSync = true
+        scroll(
+            pinnedScrollView,
+            to: NSPoint(x: anchor.pinnedHorizontalOrigin, y: proposedY)
+        )
+        scroll(
+            scrollView,
+            to: NSPoint(x: anchor.sampleHorizontalOrigin, y: proposedY)
+        )
+        suppressScrollSync = false
+    }
+
+    private func scroll(_ scrollView: NSScrollView, to origin: NSPoint) {
+        let clipView = scrollView.contentView
+        var bounds = clipView.bounds
+        bounds.origin = origin
+        clipView.scroll(to: clipView.constrainBoundsRect(bounds).origin)
+        scrollView.reflectScrolledClipView(clipView)
     }
 
     private func reconcileSelectionAfterFilter() {
@@ -1454,91 +1575,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 || title.localizedCaseInsensitiveContains(filter)
                 || value.localizedCaseInsensitiveContains(filter)
         }
-    }
-
-    private func makeSupportFractionLookup(for result: ONTGenotypeResultBundleData) -> [CellKey: Double] {
-        var fractions: [CellKey: Double]
-        switch displayState.supportDenominator {
-        case .viewedLocus:
-            let contexts = result.calls.map { CallSupportContext(call: $0, locus: $0.locusGroup) }
-            var denominators: [SupportBucketKey: Int] = [:]
-            denominators.reserveCapacity(contexts.count)
-            for context in contexts {
-                denominators[
-                    SupportBucketKey(sample: context.call.sample, locus: context.locus),
-                    default: 0
-                ] += context.call.passedUniqueReads
-            }
-            fractions = [:]
-            fractions.reserveCapacity(contexts.count)
-            for context in contexts {
-                guard let denominator = denominators[
-                    SupportBucketKey(sample: context.call.sample, locus: context.locus)
-                ],
-                      denominator > 0 else {
-                    continue
-                }
-                let key = CellKey(
-                    locus: context.locus,
-                    genotype: context.call.genotype,
-                    sample: context.call.sample
-                )
-                insertFirstSupportFraction(
-                    Double(context.call.passedUniqueReads) / Double(denominator),
-                    for: key,
-                    into: &fractions
-                )
-            }
-        case .sampleRetained:
-            let retainedBySample = Dictionary(uniqueKeysWithValues: result.samples.map {
-                ($0.sample, $0.passedUniqueReads)
-            })
-            fractions = [:]
-            fractions.reserveCapacity(result.calls.count)
-            for call in result.calls {
-                guard let denominator = call.sampleUniqueRetainedReads ?? retainedBySample[call.sample],
-                      denominator > 0 else {
-                    continue
-                }
-                let key = CellKey(locus: call.locusGroup, genotype: call.genotype, sample: call.sample)
-                insertFirstSupportFraction(
-                    Double(call.passedUniqueReads) / Double(denominator),
-                    for: key,
-                    into: &fractions
-                )
-            }
-        }
-
-        guard let candidateDocument = validatedMHCCandidateDocument(from: result) else {
-            return fractions
-        }
-        let eligibleSampleCount = Set(sampleNames).count
-        guard eligibleSampleCount > 0 else { return fractions }
-        let observationsByCluster = Dictionary(grouping: candidateDocument.observations, by: \.stableClusterID)
-        for candidate in candidateDocument.candidates {
-            let supportingSamples = Set(
-                (observationsByCluster[candidate.stableClusterID] ?? []).map(\.sampleID)
-            )
-            let populationFraction = Double(supportingSamples.count) / Double(eligibleSampleCount)
-            for sample in supportingSamples {
-                fractions[CellKey(
-                    locus: candidate.locus,
-                    genotype: candidate.provisionalName,
-                    sample: sample,
-                    stableClusterID: candidate.stableClusterID
-                )] = populationFraction
-            }
-        }
-        return fractions
-    }
-
-    private func insertFirstSupportFraction(
-        _ fraction: Double,
-        for key: CellKey,
-        into fractions: inout [CellKey: Double]
-    ) {
-        guard fractions[key] == nil else { return }
-        fractions[key] = fraction
     }
 
     private func compare(
@@ -2595,6 +2631,89 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func reloadAllTables() {
         pinnedTableView.reloadData()
         tableView.reloadData()
+    }
+
+    private func reloadRowsAfterProjectionChange(
+        previousRows: [GenotypeCandidateMatrixRow]
+    ) {
+        let wasSuppressingSelectionCallbacks = suppressSelectionClearedCallback
+        suppressSelectionClearedCallback = true
+        defer {
+            suppressSelectionClearedCallback = wasSuppressingSelectionCallbacks
+        }
+        let previousIDs = previousRows.map(\.id)
+        let nextIDs = visibleRows.map(\.id)
+        let previousByID = Dictionary(uniqueKeysWithValues:
+            previousRows.map { ($0.id, $0) }
+        )
+        let changedNextIndexes = IndexSet(
+            visibleRows.indices.filter { index in
+                previousByID[visibleRows[index].id] != visibleRows[index]
+            }
+        )
+        let nextIDSet = Set(nextIDs)
+        let previousIDSet = Set(previousIDs)
+        let isDeletionOnly = previousIDs.filter(nextIDSet.contains) == nextIDs
+        let isInsertionOnly = nextIDs.filter(previousIDSet.contains) == previousIDs
+        let removedIndexes = IndexSet(
+            previousIDs.indices.filter { !nextIDSet.contains(previousIDs[$0]) }
+        )
+        let insertedIndexes = IndexSet(
+            nextIDs.indices.filter { !previousIDSet.contains(nextIDs[$0]) }
+        )
+
+        for matrixTableView in [pinnedTableView, tableView] {
+            if isDeletionOnly, !removedIndexes.isEmpty {
+                matrixTableView.beginUpdates()
+                matrixTableView.removeRows(
+                    at: removedIndexes,
+                    withAnimation: []
+                )
+                matrixTableView.endUpdates()
+            } else if isInsertionOnly, !insertedIndexes.isEmpty {
+                matrixTableView.beginUpdates()
+                matrixTableView.insertRows(
+                    at: insertedIndexes,
+                    withAnimation: []
+                )
+                matrixTableView.endUpdates()
+            } else if previousIDs != nextIDs {
+                matrixTableView.noteNumberOfRowsChanged()
+            }
+            guard matrixTableView.numberOfRows > 0,
+                  matrixTableView.numberOfColumns > 0 else {
+                continue
+            }
+            if previousIDs == nextIDs
+                || isDeletionOnly
+                || isInsertionOnly {
+                let validChangedIndexes = changedNextIndexes.intersection(
+                    IndexSet(integersIn: 0..<matrixTableView.numberOfRows)
+                )
+                guard !validChangedIndexes.isEmpty else { continue }
+                matrixTableView.reloadData(
+                    forRowIndexes: validChangedIndexes,
+                    columnIndexes: IndexSet(
+                        integersIn: 0..<matrixTableView.numberOfColumns
+                    )
+                )
+                continue
+            }
+            let visibleRange = matrixTableView.rows(in: matrixTableView.visibleRect)
+            guard visibleRange.location != NSNotFound else { continue }
+            let lowerBound = max(0, visibleRange.location)
+            let upperBound = min(
+                matrixTableView.numberOfRows,
+                visibleRange.location + visibleRange.length
+            )
+            guard lowerBound < upperBound else { continue }
+            matrixTableView.reloadData(
+                forRowIndexes: IndexSet(integersIn: lowerBound..<upperBound),
+                columnIndexes: IndexSet(
+                    integersIn: 0..<matrixTableView.numberOfColumns
+                )
+            )
+        }
     }
 
     private func setHeaderViewsNeedDisplay() {
@@ -3714,6 +3833,7 @@ private final class GenotypeMatrixTableView: NSTableView {
         testingPartialReloadCount = 0
         testingPartialReloadedCellCount = 0
     }
+
 #endif
 
     override func reloadData() {
@@ -3763,6 +3883,12 @@ private final class GenotypeMatrixStyledCellView: NSTableCellView {
     private var selectionCornerBracketLength: CGFloat = 0
     private var commentFoldColor: NSColor?
     private var commentFoldSize: CGFloat = 0
+
+#if DEBUG
+    var testingChromeBackgroundColor: NSColor? {
+        chromeBackgroundColor
+    }
+#endif
 
     func configureChrome(
         backgroundColor: NSColor?,
@@ -4194,6 +4320,27 @@ extension GenotypeComparisonMatrixView {
             identifier = sampleIdentifier
         }
         return backgroundColor(for: identifier, row: row, renderedStyle: renderedStyle(for: identifier, row: row))
+    }
+
+    func testingRenderedPinnedCellBackgroundColor(
+        rowID: GenotypeCandidateMatrixRowID,
+        column: GenotypeCandidateMatrixTestingColumn
+    ) -> NSColor? {
+        guard let (identifier, rowIndex) = testingPinnedCellTarget(
+            rowID: rowID,
+            column: column
+        ),
+              let columnIndex = pinnedTableView.tableColumns.firstIndex(
+                where: { $0.identifier == identifier }
+              ),
+              let cell = pinnedTableView.view(
+                atColumn: columnIndex,
+                row: rowIndex,
+                makeIfNecessary: true
+              ) as? GenotypeMatrixStyledCellView else {
+            return nil
+        }
+        return cell.testingChromeBackgroundColor
     }
 
     func testingRenderedTextColor(
@@ -4806,6 +4953,34 @@ extension GenotypeComparisonMatrixView {
         testingLastReloadTargets = []
     }
 
+    func testingResetProjectionPerformanceCounters() {
+        testingDerivedProjectionPassCount = 0
+        testingDerivedProjectionTotalSeconds = 0
+        testingDerivedProjectionMaximumSeconds = 0
+        testingCommitToVisibleCount = 0
+        testingCommitToVisibleTotalSeconds = 0
+        testingCommitToVisibleMaximumSeconds = 0
+        testingColumnRebuildCount = 0
+        testingVisibleSettlementGeneration &+= 1
+        testingResetReloadCounters()
+    }
+
+    var testingProjectionPerformanceSnapshot:
+        GenotypeMatrixProjectionPerformanceSnapshot {
+        GenotypeMatrixProjectionPerformanceSnapshot(
+            baseProjectionBuildCount: testingBaseProjectionBuildCount,
+            derivedProjectionPassCount: testingDerivedProjectionPassCount,
+            derivedProjectionTotalSeconds: testingDerivedProjectionTotalSeconds,
+            derivedProjectionMaximumSeconds: testingDerivedProjectionMaximumSeconds,
+            commitToVisibleCount: testingCommitToVisibleCount,
+            commitToVisibleTotalSeconds: testingCommitToVisibleTotalSeconds,
+            commitToVisibleMaximumSeconds: testingCommitToVisibleMaximumSeconds,
+            columnRebuildCount: testingColumnRebuildCount,
+            pinnedFullReloadCount: pinnedTableView.testingFullReloadCount,
+            sampleFullReloadCount: tableView.testingFullReloadCount
+        )
+    }
+
     var testingFullReloadCount: Int {
         pinnedTableView.testingFullReloadCount + tableView.testingFullReloadCount
     }
@@ -4885,6 +5060,21 @@ extension GenotypeComparisonMatrixView {
             CGFloat(pinned.row), pinned.withinRowOffset, pinned.horizontalOrigin,
             CGFloat(samples.row), samples.withinRowOffset, samples.horizontalOrigin,
         ]
+    }
+
+    var testingSemanticScrollAnchor: GenotypeMatrixSemanticScrollSnapshot {
+        guard let anchor = captureSemanticScrollAnchor() else {
+            return GenotypeMatrixSemanticScrollSnapshot(
+                rowID: nil,
+                withinRowOffset: 0,
+                sampleHorizontalOrigin: scrollView.contentView.bounds.minX
+            )
+        }
+        return GenotypeMatrixSemanticScrollSnapshot(
+            rowID: anchor.rowID,
+            withinRowOffset: anchor.withinRowOffset,
+            sampleHorizontalOrigin: anchor.sampleHorizontalOrigin
+        )
     }
 
     var testingHeaderTextBandsFit: Bool {
