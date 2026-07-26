@@ -2318,12 +2318,19 @@ public enum ONTGenotypeResultBundle {
             guard sequenceChecksum.caseInsensitiveCompare(record.sequenceSHA256) == .orderedSame else {
                 throw ONTGenotypeScientificArtifactError.sequenceChecksumMismatch(record.genotype)
             }
-            let expectedSupport = (callsByGenotype[record.genotype] ?? [])
-                .map {
+            let expectedSupport = Dictionary(
+                grouping: callsByGenotype[record.genotype] ?? [],
+                by: \.sample
+            )
+                .map { sample, calls in
                     ONTGenotypeProvisionalExon2SampleSupport(
-                        sample: $0.sample,
-                        passedAlignments: $0.passedAlignments,
-                        passedUniqueReads: $0.passedUniqueReads
+                        sample: sample,
+                        passedAlignments: calls.reduce(0) {
+                            $0 + $1.passedAlignments
+                        },
+                        passedUniqueReads: calls.reduce(0) {
+                            $0 + $1.passedUniqueReads
+                        }
                     )
                 }
                 .sorted { lhs, rhs in

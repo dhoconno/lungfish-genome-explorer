@@ -254,6 +254,29 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
     }
 
+    func testLoadsPublisherAggregatedProvisionalSupportFromRepeatedCallRows() throws {
+        let fixture = try ScientificArtifactBundleFixture()
+        defer { fixture.remove() }
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads
+        SampleA,\(ScientificArtifactBundleFixture.provisionalGenotype),4,3
+        SampleA,\(ScientificArtifactBundleFixture.provisionalGenotype),5,5
+        """.write(
+            to: fixture.bundleURL.appendingPathComponent("miseq-genotypes.csv"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(
+            result.provisionalExon2SequencesByGenotype[
+                ScientificArtifactBundleFixture.provisionalGenotype
+            ]?.sampleSupport,
+            ScientificArtifactBundleFixture.defaultRecord.sampleSupport
+        )
+    }
+
     func testRejectsInvalidProvisionalExon2DuplicateGenotype() throws {
         let duplicate = ScientificArtifactBundleFixture.defaultRecord
         let fixture = try ScientificArtifactBundleFixture(records: [duplicate, duplicate])

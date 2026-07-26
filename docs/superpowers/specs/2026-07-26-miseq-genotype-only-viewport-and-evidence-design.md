@@ -8,9 +8,11 @@ genotypes, and identify observed `_nov` reference matches as **Provisional
 exon 2** sequences.
 
 The workflow's mapping, filtering, genotype-calling, workbook, and optional
-haplotyping recipes remain unchanged. This feature only makes existing
-scientific outputs durable, adds derived review artifacts, and presents those
-artifacts through shared result-view code.
+haplotyping recipes remain unchanged. Publication is gated on the pipeline's
+resolved `.illuminaPaired` mode, so ONT barcode-demultiplex and ONT
+sample-bundle cleanup behavior remains unchanged. This feature only makes
+existing scientific outputs durable, adds derived review artifacts, and
+presents those artifacts through shared result-view code.
 
 ## Result-mode boundary
 
@@ -43,6 +45,11 @@ backward compatible and are projected through the same loaded URL model.
 The workflow provenance envelope records the retained BAM and BAI as outputs,
 including checksums and sizes. Mapping BAMs and per-sample mapping intermediates
 remain regenerable and are removed as before.
+
+After a GUI-launched workflow completes, Operation Center discovers these
+outputs through the validated bundle manifest and result loader. It reports the
+retained BAM/BAI and optional provisional JSON/FASTA, while continuing to omit
+mapping intermediates.
 
 ## Provisional exon 2 sequences
 
@@ -102,6 +109,12 @@ existing annotation sidecar, audit log, and current-workbook publication path.
 Provisional designation is immutable run evidence, not a user annotation, and
 therefore is not written into the annotation audit log.
 
+Workbook revisions and AI-haplotyping manifest revisions preserve both
+scientific-artifact declarations. When a genotype-only result becomes
+haplotyped, its provisional sequence files remain durable bundle evidence but
+are not added to the haplotyped viewport or Inspector; Genotyping Evidence
+BAM/BAI remain visible as required.
+
 ## Performance and compatibility
 
 Bundle loading remains off the main actor. Artifact validation is a single
@@ -112,4 +125,3 @@ redraw do not parse FASTA or scan artifacts.
 All new manifest fields are optional. Older miSeq bundles continue to load and
 use the native genotype-only matrix when they contain calls, but cannot offer a
 sequence view or BAM artifact link that was not published at run time.
-
