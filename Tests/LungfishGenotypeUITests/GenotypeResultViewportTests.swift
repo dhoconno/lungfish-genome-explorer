@@ -11444,6 +11444,852 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleMatrixSampleReadTitles, ["12", "9"])
     }
 
+    func testMatrixRowSelectorReflectsOnlyWholeRowSelection() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let first = "01_Mafa_A1_SHARED"
+        let second = "02_Mafa_B_SHARED"
+        let firstCall = makeCall(sample: "AnimalA", genotype: first, reads: 12)
+        let secondCall = makeCall(sample: "AnimalA", genotype: second, reads: 9)
+        controller.configure(result: makeResult(samples: [], calls: [firstCall, secondCall]))
+
+        controller.testingClickMatrixCell(genotype: first, sample: "AnimalA")
+        XCTAssertFalse(controller.testingMatrixRowSelectorIsSelected(genotype: first))
+        XCTAssertFalse(controller.testingMatrixColumnSelectorIsSelected(sample: "AnimalA"))
+
+        controller.testingClickMatrixRowChiclet(genotype: first)
+        XCTAssertTrue(controller.testingMatrixRowSelectorIsSelected(genotype: first))
+        XCTAssertFalse(controller.testingMatrixRowSelectorIsSelected(genotype: second))
+
+        let selector = try XCTUnwrap(
+            controller.testingMatrixRowSelectorAccessibility(genotype: first)
+        )
+        XCTAssertEqual(selector.role, .checkBox)
+        XCTAssertEqual(selector.label, "Select allele row \(first)")
+        XCTAssertEqual(selector.value, true)
+        XCTAssertTrue(selector.identifier.hasPrefix("genotype-row-selector.known:"))
+        XCTAssertTrue(selector.identifier.hasSuffix(first))
+        XCTAssertTrue(selector.supportsPress)
+    }
+
+    func testMatrixSelectorsExposeCheckboxSemanticsAndVoiceOverPress() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let first = "01_Mafa_A1_SHARED"
+        let second = "02_Mafa_B_SHARED"
+        let firstCall = makeCall(sample: "AnimalA", genotype: first, reads: 12)
+        let secondCall = makeCall(sample: "AnimalB", genotype: second, reads: 9)
+        controller.configure(result: makeResult(samples: [], calls: [firstCall, secondCall]))
+
+        let row = try XCTUnwrap(
+            controller.testingMatrixRowSelectorAccessibility(genotype: first)
+        )
+        XCTAssertEqual(row.role, .checkBox)
+        XCTAssertFalse(row.value)
+        XCTAssertEqual(row.numericValue, NSNumber(value: 0))
+        XCTAssertEqual(row.valueDescription, "Not selected")
+        XCTAssertTrue(row.acceptsKeyboardFocus)
+        XCTAssertTrue(controller.testingPerformMatrixRowSelectorAccessibilityPress(genotype: first))
+        XCTAssertTrue(controller.testingMatrixRowSelectorIsSelected(genotype: first))
+        let selectedRow = try XCTUnwrap(
+            controller.testingMatrixRowSelectorAccessibility(genotype: first)
+        )
+        XCTAssertEqual(selectedRow.numericValue, NSNumber(value: 1))
+        XCTAssertEqual(selectedRow.valueDescription, "Selected")
+
+        let column = try XCTUnwrap(
+            controller.testingMatrixColumnSelectorAccessibility(sample: "AnimalB")
+        )
+        XCTAssertEqual(column.role, .checkBox)
+        XCTAssertEqual(column.label, "Select sample column AnimalB")
+        XCTAssertEqual(column.identifier, "genotype-column-selector.AnimalB")
+        XCTAssertFalse(column.value)
+        XCTAssertEqual(column.numericValue, NSNumber(value: 0))
+        XCTAssertEqual(column.valueDescription, "Not selected")
+        XCTAssertTrue(column.acceptsKeyboardFocus)
+        XCTAssertTrue(controller.testingPerformMatrixColumnSelectorAccessibilityPress(sample: "AnimalB"))
+        XCTAssertTrue(controller.testingMatrixColumnSelectorIsSelected(sample: "AnimalB"))
+        let selectedColumn = try XCTUnwrap(
+            controller.testingMatrixColumnSelectorAccessibility(sample: "AnimalB")
+        )
+        XCTAssertEqual(selectedColumn.numericValue, NSNumber(value: 1))
+        XCTAssertEqual(selectedColumn.valueDescription, "Selected")
+
+        let selectAll = try XCTUnwrap(controller.testingMatrixSelectAllAccessibility)
+        XCTAssertEqual(selectAll.role, .checkBox)
+        XCTAssertEqual(
+            selectAll.label,
+            "Select all visible allele rows and sample columns"
+        )
+        XCTAssertFalse(selectAll.value)
+        XCTAssertEqual(selectAll.numericValue, NSNumber(value: 0))
+        XCTAssertEqual(selectAll.valueDescription, "Not selected")
+        XCTAssertTrue(selectAll.acceptsKeyboardFocus)
+        XCTAssertTrue(controller.testingPerformMatrixSelectAllAccessibilityPress())
+        let selectedAll = try XCTUnwrap(controller.testingMatrixSelectAllAccessibility)
+        XCTAssertTrue(selectedAll.value)
+        XCTAssertEqual(selectedAll.numericValue, NSNumber(value: 1))
+        XCTAssertEqual(selectedAll.valueDescription, "Selected")
+
+        let rowTree = try XCTUnwrap(
+            controller.testingComparisonMatrix
+                .testingRowSelectorAccessibilityTree(genotype: first)
+        )
+        XCTAssertFalse(rowTree.cellIsAccessibilityElement)
+        XCTAssertFalse(rowTree.chicletIsAccessibilityElement)
+        XCTAssertEqual(rowTree.actionableDescendantCount, 1)
+    }
+
+    func testMatrixSelectorReuseNotifiesOnlyStateChangesForSameIdentity() {
+        let matrix = GenotypeComparisonMatrixView()
+
+        XCTAssertEqual(
+            matrix.testingSelectorReuseNotificationSnapshot(),
+            GenotypeMatrixSelectorReuseNotificationSnapshot(
+                afterInitialConfiguration: 0,
+                afterDifferentIdentityConfiguration: 0,
+                afterSameIdentityStateChange: 1
+            )
+        )
+        XCTAssertEqual(
+            matrix.testingAccessibilityPressModifiers(),
+            NSEvent.ModifierFlags()
+        )
+    }
+
+    func testMatrixSelectorAccessibilityProxiesAreStableAndPostStateNotifications() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
+        let second = makeCall(sample: "AnimalB", genotype: "02_Mafa_B", reads: 9)
+        controller.configure(result: makeResult(samples: [], calls: [first, second]))
+        let matrix = controller.testingComparisonMatrix
+        let rowProxy = try XCTUnwrap(
+            matrix.testingRowSelectorObjectIdentifier(genotype: first.genotype)
+        )
+        let columnProxy = try XCTUnwrap(
+            matrix.testingColumnSelectorObjectIdentifier(sample: "AnimalB")
+        )
+        let selectAllProxy = try XCTUnwrap(
+            matrix.testingSelectAllSelectorObjectIdentifier
+        )
+        let valueChangedBaseline =
+            matrix.testingAccessibilityValueChangedNotificationCount
+
+        XCTAssertTrue(
+            controller.testingPerformMatrixRowSelectorAccessibilityPress(
+                genotype: first.genotype
+            )
+        )
+        XCTAssertTrue(
+            controller.testingPerformMatrixColumnSelectorAccessibilityPress(
+                sample: "AnimalB"
+            )
+        )
+
+        XCTAssertEqual(
+            matrix.testingRowSelectorObjectIdentifier(genotype: first.genotype),
+            rowProxy
+        )
+        XCTAssertEqual(
+            matrix.testingColumnSelectorObjectIdentifier(sample: "AnimalB"),
+            columnProxy
+        )
+        XCTAssertEqual(matrix.testingSelectAllSelectorObjectIdentifier, selectAllProxy)
+        XCTAssertGreaterThan(
+            matrix.testingAccessibilityValueChangedNotificationCount,
+            valueChangedBaseline
+        )
+
+        let layoutBaseline = matrix.testingAccessibilityLayoutChangedNotificationCount
+        controller.testingHideSelectedMatrixColumns()
+        XCTAssertGreaterThan(
+            matrix.testingAccessibilityLayoutChangedNotificationCount,
+            layoutBaseline
+        )
+    }
+
+    func testMatrixVisibilityPublishesImmutableCapabilitiesAndSupportsAllSetActions() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let first = "01_Mafa_A1_SHARED"
+        let second = "02_Mafa_B_SHARED"
+        let firstCall = makeCall(sample: "AnimalA", genotype: first, reads: 12)
+        let secondCall = makeCall(sample: "AnimalB", genotype: second, reads: 9)
+        var snapshots: [GenotypeMatrixVisibilityCapabilitySnapshot] = []
+        controller.onMatrixVisibilityCapabilityChanged = { snapshots.append($0) }
+        controller.configure(result: makeResult(samples: [], calls: [firstCall, secondCall]))
+
+        controller.testingClickMatrixRowChiclet(genotype: first)
+        XCTAssertEqual(snapshots.last?.summary, "Selected: 1 allele row")
+        XCTAssertEqual(snapshots.last?.selectedRowCount, 1)
+        XCTAssertEqual(snapshots.last?.selectedColumnCount, 0)
+        XCTAssertEqual(snapshots.last?.canHideSelectedRows, true)
+        XCTAssertEqual(snapshots.last?.canShowAllRows, false)
+
+        controller.testingShowOnlySelectedMatrixRows()
+        XCTAssertEqual(controller.testingVisibleGenotypes, [first])
+        XCTAssertEqual(snapshots.last?.canShowAllRows, true)
+
+        controller.testingShowAllMatrixRows()
+        XCTAssertEqual(Set(controller.testingVisibleGenotypes), [first, second])
+
+        controller.testingClickMatrixRowChiclet(genotype: second)
+        controller.testingHideSelectedMatrixRows()
+        XCTAssertEqual(controller.testingVisibleGenotypes, [first])
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingHideSelectedMatrixColumns()
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalB"])
+        controller.testingShowAllMatrixColumns()
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA", "AnimalB"])
+
+        controller.testingResetMatrixVisibility()
+        XCTAssertEqual(Set(controller.testingVisibleGenotypes), [first, second])
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA", "AnimalB"])
+        XCTAssertEqual(snapshots.last?.canResetVisibility, false)
+    }
+
+    func testMatrixManualVisibilityComposesWithSearchInspectorThresholdAndSort() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let low = "01_Mafa_A1_LOW"
+        let excluded = "02_Mafa_B_EXCLUDED"
+        let high = "03_Mafa_A1_HIGH"
+        let lowCall = makeCall(sample: "AnimalA", genotype: low, reads: 3)
+        let excludedCall = makeCall(sample: "AnimalB", genotype: excluded, reads: 40)
+        let highCall = makeCall(sample: "AnimalA", genotype: high, reads: 30)
+        controller.configure(result: makeResult(samples: [], calls: [lowCall, excludedCall, highCall]))
+
+        controller.testingClickMatrixRowChiclet(genotype: low)
+        controller.testingClickMatrixRowChiclet(genotype: high, modifiers: [.command])
+        controller.testingShowOnlySelectedMatrixRows()
+        XCTAssertEqual(Set(controller.testingVisibleGenotypes), [low, high])
+
+        controller.testingSetQuickFilterSearchText("AnimalA")
+        var state = controller.testingDisplayState
+        state.matrixRowFilterText = "A1"
+        state.minimumReads = 10
+        controller.testingApplyDisplayStateImmediately(state)
+        let matrix = controller.testingComparisonMatrix
+        matrix.testingSetSortDescriptor(key: "genotype", ascending: false)
+        XCTAssertEqual(controller.testingVisibleGenotypes, [high])
+
+        controller.testingSetQuickFilterSearchText("")
+        state.matrixRowFilterText = ""
+        state.minimumReads = 0
+        controller.testingApplyDisplayStateImmediately(state)
+        XCTAssertEqual(Set(controller.testingVisibleGenotypes), [low, high])
+        XCTAssertFalse(controller.testingVisibleGenotypes.contains(excluded))
+    }
+
+    func testMatrixMinimumReadsIgnoresSupportFromManuallyHiddenSamples() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let genotype = "01_Mafa_A1_HIDDEN_SUPPORT"
+        let hiddenHigh = makeCall(sample: "AnimalA", genotype: genotype, reads: 100)
+        let visibleLow = makeCall(sample: "AnimalB", genotype: genotype, reads: 2)
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [hiddenHigh, visibleLow]
+        ))
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingHideSelectedMatrixColumns()
+        var state = controller.testingDisplayState
+        state.minimumReads = 50
+        controller.testingApplyDisplayStateImmediately(state)
+
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalB"])
+        XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
+    }
+
+    func testMatrixSortByHiddenSampleRetainsStableSemantics() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let first = "01_Mafa_A1_LOW_IN_A"
+        let second = "02_Mafa_A1_HIGH_IN_A"
+        let calls = [
+            makeCall(sample: "AnimalA", genotype: first, reads: 3),
+            makeCall(sample: "AnimalB", genotype: first, reads: 20),
+            makeCall(sample: "AnimalA", genotype: second, reads: 30),
+            makeCall(sample: "AnimalB", genotype: second, reads: 2),
+        ]
+        controller.configure(result: makeResult(samples: [], calls: calls))
+        let matrix = controller.testingComparisonMatrix
+        let animalASortKey = try XCTUnwrap(matrix.testingSortKey(forSample: "AnimalA"))
+        matrix.testingSetSortDescriptor(key: animalASortKey, ascending: true)
+        XCTAssertEqual(controller.testingVisibleGenotypes, [first, second])
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingHideSelectedMatrixColumns()
+
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalB"])
+        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, animalASortKey)
+        XCTAssertEqual(controller.testingVisibleGenotypes, [first, second])
+    }
+
+    func testMatrixVisibilityNoOpCommandsDoNotTriggerProjectionMutation() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
+        let second = makeCall(sample: "AnimalB", genotype: "02_Mafa_B", reads: 9)
+        controller.configure(result: makeResult(samples: [], calls: [first, second]))
+        let matrix = controller.testingComparisonMatrix
+        let baseline = matrix.testingVisibilityMutationCount
+
+        controller.testingShowOnlySelectedMatrixRows()
+        controller.testingHideSelectedMatrixRows()
+        controller.testingShowAllMatrixRows()
+        controller.testingShowOnlySelectedMatrixColumns()
+        controller.testingHideSelectedMatrixColumns()
+        controller.testingShowAllMatrixColumns()
+        controller.testingResetMatrixVisibility()
+        XCTAssertEqual(matrix.testingVisibilityMutationCount, baseline)
+
+        controller.testingClickMatrixRowChiclet(genotype: first.genotype)
+        controller.testingHideSelectedMatrixRows()
+        XCTAssertEqual(matrix.testingVisibilityMutationCount, baseline + 1)
+
+        controller.testingHideSelectedMatrixRows()
+        XCTAssertEqual(matrix.testingVisibilityMutationCount, baseline + 1)
+        controller.testingShowAllMatrixRows()
+        XCTAssertEqual(matrix.testingVisibilityMutationCount, baseline + 2)
+        controller.testingShowAllMatrixRows()
+        XCTAssertEqual(matrix.testingVisibilityMutationCount, baseline + 2)
+    }
+
+    func testMatrixVisibilityActionsStayOnTheLightweightProjectionPath() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12),
+            makeCall(sample: "AnimalB", genotype: "02_Mafa_B", reads: 9),
+        ]
+        controller.configure(result: makeResult(samples: [], calls: calls))
+        let searchBuilds = controller.testingSearchIndexBuildCount
+        let searchQueries = controller.testingSearchQueryCount
+
+        controller.testingClickMatrixRowChiclet(genotype: calls[0].genotype)
+        controller.testingResetProjectionPerformanceCounters()
+        var baseBuilds = controller.testingProjectionPerformanceSnapshot
+            .matrix.baseProjectionBuildCount
+        controller.testingShowOnlySelectedMatrixRows()
+        var performance = controller.testingProjectionPerformanceSnapshot
+        XCTAssertEqual(performance.matrix.baseProjectionBuildCount, baseBuilds)
+        XCTAssertEqual(performance.matrix.derivedProjectionPassCount, 0)
+        XCTAssertEqual(performance.matrix.columnRebuildCount, 0)
+        XCTAssertEqual(performance.anchorLensRebuildCount, 0)
+        XCTAssertEqual(performance.consumerLensRebuildCount, 0)
+        XCTAssertEqual(performance.cohortSummaryRebuildCount, 0)
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, searchBuilds)
+        XCTAssertEqual(controller.testingSearchQueryCount, searchQueries)
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingResetProjectionPerformanceCounters()
+        baseBuilds = controller.testingProjectionPerformanceSnapshot
+            .matrix.baseProjectionBuildCount
+        controller.testingHideSelectedMatrixColumns()
+        performance = controller.testingProjectionPerformanceSnapshot
+        XCTAssertEqual(performance.matrix.baseProjectionBuildCount, baseBuilds)
+        XCTAssertEqual(performance.matrix.derivedProjectionPassCount, 0)
+        XCTAssertEqual(performance.matrix.columnRebuildCount, 1)
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, searchBuilds)
+        XCTAssertEqual(controller.testingSearchQueryCount, searchQueries)
+
+        controller.testingShowAllMatrixColumns()
+        controller.testingShowAllMatrixRows()
+        controller.testingResetProjectionPerformanceCounters()
+        baseBuilds = controller.testingProjectionPerformanceSnapshot
+            .matrix.baseProjectionBuildCount
+        controller.testingShowAllMatrixColumns()
+        controller.testingResetMatrixVisibility()
+        controller.testingResetMatrixVisibility()
+        performance = controller.testingProjectionPerformanceSnapshot
+        XCTAssertEqual(performance.matrix.baseProjectionBuildCount, baseBuilds)
+        XCTAssertEqual(performance.matrix.derivedProjectionPassCount, 0)
+        XCTAssertEqual(performance.matrix.commitToVisibleCount, 0)
+        XCTAssertEqual(performance.matrix.columnRebuildCount, 0)
+        XCTAssertEqual(performance.matrix.pinnedFullReloadCount, 0)
+        XCTAssertEqual(performance.matrix.sampleFullReloadCount, 0)
+        XCTAssertEqual(controller.testingSearchIndexBuildCount, searchBuilds)
+        XCTAssertEqual(controller.testingSearchQueryCount, searchQueries)
+    }
+
+    func testMatrixVisibilityIsPerControllerAndResetsForANewResult() {
+        let callA = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
+        let callB = makeCall(sample: "AnimalB", genotype: "02_Mafa_B", reads: 9)
+        let result = makeResult(samples: [], calls: [callA, callB])
+        let first = GenotypeResultViewController()
+        let second = GenotypeResultViewController()
+        _ = first.view
+        _ = second.view
+        first.configure(result: result)
+        second.configure(result: result)
+
+        first.testingClickMatrixRowChiclet(genotype: callA.genotype)
+        first.testingShowOnlySelectedMatrixRows()
+        XCTAssertEqual(first.testingVisibleGenotypes, [callA.genotype])
+        XCTAssertEqual(Set(second.testingVisibleGenotypes), [callA.genotype, callB.genotype])
+
+        let replacement = makeCall(sample: "AnimalC", genotype: "03_Mafa_C", reads: 7)
+        first.configure(result: makeResult(samples: [], calls: [replacement]))
+        XCTAssertEqual(first.testingVisibleGenotypes, [replacement.genotype])
+        XCTAssertEqual(first.testingMatrixVisibilityCapability.summary, "Scope: Entire matrix")
+        XCTAssertFalse(first.testingMatrixVisibilityCapability.canResetVisibility)
+    }
+
+    func testWorkbookReplacementPreservesStableCandidateVisibilityAcrossRenamedLabel() {
+        let cluster = "stable-cluster"
+        let oldName = "Old_provisional_nov"
+        let newName = "Renamed_provisional_nov"
+        let oldResult = makeCandidateResult(
+            calls: [],
+            candidates: [
+                makeCandidate(
+                    id: cluster,
+                    name: oldName,
+                    classification: .novel,
+                    support: .singleton,
+                    samples: ["AnimalA"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(
+                    cluster: cluster,
+                    sample: "AnimalA",
+                    reads: 7
+                ),
+            ]
+        )
+        let replacement = makeCandidateResult(
+            calls: [],
+            candidates: [
+                makeCandidate(
+                    id: cluster,
+                    name: newName,
+                    classification: .novel,
+                    support: .singleton,
+                    samples: ["AnimalA"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(
+                    cluster: cluster,
+                    sample: "AnimalA",
+                    reads: 9
+                ),
+            ]
+        )
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: oldResult)
+        matrix.testingClickRowChiclet(genotype: oldName)
+        matrix.showOnlySelectedRows()
+        XCTAssertEqual(matrix.testingVisibleGenotypes, [oldName])
+
+        matrix.replaceResultPreservingPresentation(
+            replacement,
+            metadataStore: nil,
+            sidecar: nil
+        )
+
+        XCTAssertEqual(matrix.testingVisibleGenotypes, [newName])
+        XCTAssertTrue(matrix.testingVisibilityCapability.canResetVisibility)
+
+        let newBundle = makeResult(
+            bundleURL: URL(fileURLWithPath: "/tmp/different.lungfishgenotype"),
+            samples: [],
+            calls: [
+                makeCall(
+                    sample: "AnimalB",
+                    genotype: "01_Mafa_A1_NEW_BUNDLE",
+                    reads: 5
+                ),
+            ]
+        )
+        matrix.configure(result: newBundle)
+        XCTAssertFalse(matrix.testingVisibilityCapability.canResetVisibility)
+        XCTAssertEqual(
+            matrix.testingVisibleGenotypes,
+            ["01_Mafa_A1_NEW_BUNDLE"]
+        )
+    }
+
+    func testMatrixVisibilityPreservesColumnGeometrySortAndSemanticScroll() throws {
+        let sampleIDs = ["AnimalA", "AnimalB", "AnimalC", "AnimalD", "AnimalE"]
+        let calls = (0..<12).flatMap { row -> [ONTGenotypeCall] in
+            sampleIDs.enumerated().map { sample, sampleID in
+                makeCall(
+                    sample: sampleID,
+                    genotype: String(format: "%02d_Mafa_A1", row),
+                    reads: row + sample + 1
+                )
+            }
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: calls))
+        let matrix = controller.testingComparisonMatrix
+        matrix.frame = NSRect(x: 0, y: 0, width: 640, height: 260)
+        matrix.layoutSubtreeIfNeeded()
+        matrix.testingMoveSampleColumn(sample: "AnimalE", to: 0)
+        matrix.testingSetSampleColumnWidth(sample: "AnimalB", width: 123)
+        let sortKey = try XCTUnwrap(matrix.testingSortKey(forSample: "AnimalC"))
+        matrix.testingSetSortDescriptor(key: sortKey, ascending: false)
+        matrix.testingSetContentScrollOrigins(
+            pinned: NSPoint(x: 0, y: matrix.testingMatrixRowHeight * 4 + 3),
+            samples: NSPoint(x: 37, y: matrix.testingMatrixRowHeight * 4 + 3)
+        )
+        let anchor = matrix.testingSemanticScrollAnchor
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingHideSelectedMatrixColumns()
+        controller.testingShowAllMatrixColumns()
+
+        XCTAssertEqual(
+            controller.testingVisibleMatrixSampleColumnTitles,
+            ["AnimalE", "AnimalA", "AnimalB", "AnimalC", "AnimalD"]
+        )
+        XCTAssertEqual(matrix.testingSampleColumnWidth(sample: "AnimalB"), 123, accuracy: 0.01)
+        XCTAssertEqual(matrix.testingActiveSortDescriptorKey, sortKey)
+        XCTAssertEqual(matrix.testingSemanticScrollAnchor.rowID, anchor.rowID)
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.withinRowOffset,
+            anchor.withinRowOffset,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.sampleHorizontalOrigin,
+            anchor.sampleHorizontalOrigin,
+            accuracy: 0.01
+        )
+    }
+
+    func testHidingLeadingSampleAnchorsToNearestSuccessorThenPredecessor() {
+        let samples = ["AnimalA", "AnimalB", "AnimalC", "AnimalD", "AnimalE"]
+        let calls = samples.map {
+            makeCall(sample: $0, genotype: "01_Mafa_A1", reads: 10)
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: calls))
+        let matrix = controller.testingComparisonMatrix
+        matrix.frame = NSRect(x: 0, y: 0, width: 320, height: 220)
+        matrix.layoutSubtreeIfNeeded()
+        matrix.testingSetLeadingSampleScrollAnchor(sample: "AnimalC", offset: 7)
+        XCTAssertEqual(matrix.testingSemanticScrollAnchor.leadingSampleID, "AnimalC")
+
+        controller.testingSelectMatrixColumn(sample: "AnimalC")
+        controller.testingHideSelectedMatrixColumns()
+
+        XCTAssertEqual(matrix.testingSemanticScrollAnchor.leadingSampleID, "AnimalD")
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.withinSampleOffset,
+            7,
+            accuracy: 0.01
+        )
+
+        matrix.testingSetLeadingSampleScrollAnchor(sample: "AnimalE", offset: 5)
+        controller.testingSelectMatrixColumn(sample: "AnimalE")
+        controller.testingHideSelectedMatrixColumns()
+
+        XCTAssertEqual(matrix.testingSemanticScrollAnchor.leadingSampleID, "AnimalD")
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.withinSampleOffset,
+            5,
+            accuracy: 0.01
+        )
+    }
+
+    func testHorizontalSemanticAnchorSurvivesZeroVisibleRows() {
+        let samples = ["AnimalA", "AnimalB", "AnimalC", "AnimalD"]
+        let calls = samples.map {
+            makeCall(sample: $0, genotype: "01_Mafa_A1", reads: 10)
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: calls))
+        let matrix = controller.testingComparisonMatrix
+        matrix.frame = NSRect(x: 0, y: 0, width: 260, height: 220)
+        matrix.layoutSubtreeIfNeeded()
+        matrix.testingSetLeadingSampleScrollAnchor(sample: "AnimalC", offset: 6)
+        controller.testingClickMatrixRowChiclet(genotype: "01_Mafa_A1")
+
+        controller.testingHideSelectedMatrixRows()
+
+        XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
+        XCTAssertEqual(matrix.testingSemanticScrollAnchor.leadingSampleID, "AnimalC")
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.withinSampleOffset,
+            6,
+            accuracy: 0.01
+        )
+    }
+
+    func testResetVisibilityRecoversFromEmptySampleColumns() {
+        let samples = ["AnimalA", "AnimalB", "AnimalC"]
+        let calls = samples.map {
+            makeCall(sample: $0, genotype: "01_Mafa_A1", reads: 10)
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: calls))
+
+        controller.testingSelectMatrixColumns(samples: samples)
+        controller.testingHideSelectedMatrixColumns()
+        XCTAssertTrue(controller.testingVisibleMatrixSamples.isEmpty)
+
+        controller.testingResetMatrixVisibility()
+
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, samples)
+        XCTAssertEqual(
+            controller.testingComparisonMatrix
+                .testingSemanticScrollAnchor.sampleHorizontalOrigin,
+            0,
+            accuracy: 0.01
+        )
+    }
+
+    func testHidingFocusedSelectionPrunesItAndMovesFocusToNearestRowSelector() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
+        let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_A1", reads: 9)
+        controller.configure(result: makeResult(samples: [], calls: [first, second]))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = controller.view
+        controller.testingClickMatrixRowChiclet(genotype: first.genotype)
+        XCTAssertTrue(controller.testingFocusMatrixRowSelector(genotype: first.genotype))
+        let focusNotificationBaseline = controller.testingComparisonMatrix
+            .testingAccessibilityFocusChangedNotificationCount
+
+        controller.testingHideSelectedMatrixRows()
+
+        XCTAssertTrue(controller.testingCurrentSelectionMatrixTargets.isEmpty)
+        XCTAssertEqual(controller.testingFocusedMatrixRowSelectorGenotype, second.genotype)
+        XCTAssertEqual(controller.testingMatrixVisibilityCapability.summary, "Scope: Entire matrix")
+        XCTAssertGreaterThan(
+            controller.testingComparisonMatrix
+                .testingAccessibilityFocusChangedNotificationCount,
+            focusNotificationBaseline
+        )
+    }
+
+    func testHidingAccessibilityFocusedRowRecoversNearestWithoutStealingKeyboardFocus() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
+        let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_A1", reads: 9)
+        controller.configure(result: makeResult(samples: [], calls: [first, second]))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        let keyboardSentinel = NSTextField(string: "Keyboard focus stays here")
+        host.addSubview(controller.view)
+        host.addSubview(keyboardSentinel)
+        window.contentView = host
+        XCTAssertTrue(window.makeFirstResponder(keyboardSentinel))
+        let keyboardResponder = window.firstResponder
+
+        controller.testingClickMatrixRowChiclet(genotype: first.genotype)
+        XCTAssertTrue(
+            controller.testingComparisonMatrix
+                .testingSetAccessibilityFocusedRowSelector(genotype: first.genotype)
+        )
+        XCTAssertEqual(
+            controller.testingComparisonMatrix
+                .testingAccessibilityFocusedRowSelectorGenotype,
+            first.genotype
+        )
+
+        controller.testingHideSelectedMatrixRows()
+
+        XCTAssertEqual(
+            controller.testingComparisonMatrix
+                .testingAccessibilityFocusedRowSelectorGenotype,
+            second.genotype
+        )
+        XCTAssertTrue(window.firstResponder === keyboardResponder)
+    }
+
+    func testVisibilityActionDoesNotStealUnrelatedKeyboardOrAccessibilityFocus() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
+        let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_A1", reads: 9)
+        controller.configure(result: makeResult(samples: [], calls: [first, second]))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        let sentinel = NSTextField(string: "Keep focus")
+        host.addSubview(controller.view)
+        host.addSubview(sentinel)
+        window.contentView = host
+        XCTAssertTrue(window.makeFirstResponder(sentinel))
+        let responder = window.firstResponder
+
+        controller.testingClickMatrixRowChiclet(genotype: first.genotype)
+        controller.testingHideSelectedMatrixRows()
+
+        XCTAssertTrue(window.firstResponder === responder)
+        XCTAssertNil(
+            controller.testingComparisonMatrix
+                .testingAccessibilityFocusedRowSelectorGenotype
+        )
+    }
+
+    func testHidingOnlyAccessibilityFocusedRowMovesAXFocusToMatrixWithoutKeyboardTheft() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let only = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
+        controller.configure(result: makeResult(samples: [], calls: [only]))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        let sentinel = NSTextField(string: "Keep keyboard focus")
+        host.addSubview(controller.view)
+        host.addSubview(sentinel)
+        window.contentView = host
+        XCTAssertTrue(window.makeFirstResponder(sentinel))
+        let responder = window.firstResponder
+        controller.testingClickMatrixRowChiclet(genotype: only.genotype)
+        XCTAssertTrue(
+            controller.testingComparisonMatrix
+                .testingSetAccessibilityFocusedRowSelector(genotype: only.genotype)
+        )
+
+        controller.testingHideSelectedMatrixRows()
+
+        XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
+        XCTAssertTrue(
+            controller.testingComparisonMatrix
+                .testingAccessibilityFocusFallsBackToMatrix
+        )
+        XCTAssertTrue(window.firstResponder === responder)
+    }
+
+    func testMatrixVisibilityActionsDoNotMutateBundleArtifactsOrAudit() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeVisibilityNoMutation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
+        _ = try GenotypeAnnotationStore(bundleURL: root, author: "seed")
+        let annotationsURL = root.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = try GenotypeAnnotationSidecar.decode(
+            Data(contentsOf: annotationsURL)
+        )
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "A1",
+            genotype: call.genotype,
+            sample: call.sample
+        )
+        sidecar.matrixComments.append(.init(
+            target: target,
+            body: "Existing analyst comment",
+            author: "analyst",
+            timestamp: "2026-07-26T00:00:00Z"
+        ))
+        sidecar.matrixReviews.append(.init(
+            target: target,
+            disposition: .falsePositive,
+            author: "analyst",
+            timestamp: "2026-07-26T00:00:00Z"
+        ))
+        sidecar.auditLog.append(.init(
+            action: "setMatrixReview",
+            sample: call.sample,
+            locus: "A1",
+            slot: nil,
+            before: nil,
+            after: "falsePositive",
+            color: nil,
+            reason: "matrix-review",
+            rationale: target.stableAuditDescription,
+            author: "analyst",
+            timestamp: "2026-07-26T00:00:00Z"
+        ))
+        try sidecar.encoded().write(to: annotationsURL)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("provenance", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try Data("provenance-sentinel".utf8).write(
+            to: root.appendingPathComponent("provenance/workflow.json")
+        )
+        try Data("xlsx-sentinel".utf8).write(
+            to: root.appendingPathComponent("current.xlsx")
+        )
+        try Data("nested-artifact".utf8).write(
+            to: root.appendingPathComponent("artifact.bin")
+        )
+
+        func recursiveBytes() throws -> [String: Data] {
+            let enumerator = try XCTUnwrap(
+                FileManager.default.enumerator(
+                    at: root,
+                    includingPropertiesForKeys: [.isRegularFileKey]
+                )
+            )
+            var bytes: [String: Data] = [:]
+            for case let url as URL in enumerator {
+                guard try url.resourceValues(forKeys: [.isRegularFileKey])
+                    .isRegularFile == true else {
+                    continue
+                }
+                let relative = url.path.replacingOccurrences(
+                    of: root.path + "/",
+                    with: ""
+                )
+                bytes[relative] = try Data(contentsOf: url)
+            }
+            return bytes
+        }
+
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [call]))
+        let before = try recursiveBytes()
+        controller.testingResetProjectionPerformanceCounters()
+
+        controller.testingClickMatrixRowChiclet(genotype: call.genotype)
+        controller.testingShowOnlySelectedMatrixRows()
+        controller.testingSelectMatrixColumn(sample: call.sample)
+        controller.testingShowOnlySelectedMatrixColumns()
+        controller.testingSetQuickFilterSearchText("AnimalA")
+        var state = controller.testingDisplayState
+        state.minimumReads = 5
+        controller.testingApplyDisplayStateImmediately(state)
+        controller.testingResetMatrixVisibility()
+
+        XCTAssertEqual(try recursiveBytes(), before)
+        XCTAssertFalse(controller.testingCurrentWorkbookNeedsRefresh)
+        XCTAssertFalse(controller.testingCurrentWorkbookRequiresFullUpdate)
+        XCTAssertGreaterThan(
+            controller.testingComparisonMatrix.testingVisibilityMutationCount,
+            0
+        )
+    }
+
     func testMatrixKeepsIdentityColumnsSeparateFromScrollableSamples() {
         let controller = GenotypeResultViewController()
         _ = controller.view

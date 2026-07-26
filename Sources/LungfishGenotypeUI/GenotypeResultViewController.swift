@@ -153,6 +153,8 @@ public final class GenotypeResultViewController: NSViewController {
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
     public var onAnnotationSidecarChanged: ((GenotypeAnnotationSidecar) -> Void)?
     public var onMatrixReviewCapabilityChanged: ((GenotypeMatrixReviewCapabilityState) -> Void)?
+    public var onMatrixVisibilityCapabilityChanged:
+        ((GenotypeMatrixVisibilityCapabilitySnapshot) -> Void)?
     public var onMatrixAnnotationCommandError: ((Error) -> Void)?
     public var onCandidatePersistenceWarningChanged: ((String?) -> Void)?
     public var onCurrentWorkbookSyncRequested: ((GenotypeCurrentWorkbookUIRequest) -> Void)?
@@ -176,6 +178,7 @@ public final class GenotypeResultViewController: NSViewController {
         onDisplayStateChanged = nil
         onAnnotationSidecarChanged = nil
         onMatrixReviewCapabilityChanged = nil
+        onMatrixVisibilityCapabilityChanged = nil
         onMatrixAnnotationCommandError = nil
         onCandidatePersistenceWarningChanged = nil
         onAIHaplotypingRequested = nil
@@ -285,6 +288,10 @@ public final class GenotypeResultViewController: NSViewController {
         reviews: [],
         comments: [],
         isWritable: false
+    )
+    private var matrixVisibilityCapability = GenotypeMatrixVisibilityCapabilitySnapshot(
+        selection: .init(targets: []),
+        visibility: .init()
     )
     private var matrixEvidenceIndexBuildCount = 0
     private var matrixAnnotationIndexBuildCount = 0
@@ -810,6 +817,11 @@ public final class GenotypeResultViewController: NSViewController {
         liveHaplotypeAnalysis = nil
         cachedHaplotypeDefinitionContext = nil
         comparisonMatrixConfigured = false
+        matrixVisibilityCapability = GenotypeMatrixVisibilityCapabilitySnapshot(
+            selection: .init(targets: []),
+            visibility: .init()
+        )
+        onMatrixVisibilityCapabilityChanged?(matrixVisibilityCapability)
         currentWorkbookNeedsRefresh = false
         currentWorkbookRequiresFullUpdate = false
         currentWorkbookUpdateStatus = nil
@@ -1866,14 +1878,38 @@ public final class GenotypeResultViewController: NSViewController {
         comparisonMatrix.showOnlySelectedRows()
     }
 
+    public func hideSelectedMatrixRows() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.hideSelectedRows()
+    }
+
+    public func showAllMatrixRows() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.showAllRows()
+    }
+
     public func showOnlySelectedMatrixColumns() {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.showOnlySelectedColumns()
     }
 
-    public func clearMatrixSelectionFilter() {
+    public func hideSelectedMatrixColumns() {
         ensureComparisonMatrixConfigured()
-        comparisonMatrix.clearSelectionFilter()
+        comparisonMatrix.hideSelectedColumns()
+    }
+
+    public func showAllMatrixColumns() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.showAllColumns()
+    }
+
+    public func resetMatrixVisibility() {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.resetVisibility()
+    }
+
+    public func clearMatrixSelectionFilter() {
+        resetMatrixVisibility()
     }
 
     private func applyHighlightWithoutUndo(_ request: GenotypeResultHighlightRequest) {
@@ -2302,6 +2338,11 @@ public final class GenotypeResultViewController: NSViewController {
             guard let self else { return }
             self.invalidateGenotypeSearchIndex()
             self.refreshVisibleFilterDependentViews()
+        }
+        comparisonMatrix.onMatrixVisibilityCapabilityChanged = { [weak self] capability in
+            guard let self else { return }
+            self.matrixVisibilityCapability = capability
+            self.onMatrixVisibilityCapabilityChanged?(capability)
         }
     }
 
@@ -8003,12 +8044,100 @@ extension GenotypeResultViewController {
         showOnlySelectedMatrixRows()
     }
 
+    func testingHideSelectedMatrixRows() {
+        hideSelectedMatrixRows()
+    }
+
+    func testingShowAllMatrixRows() {
+        showAllMatrixRows()
+    }
+
     func testingShowOnlySelectedMatrixColumns() {
         showOnlySelectedMatrixColumns()
     }
 
+    func testingHideSelectedMatrixColumns() {
+        hideSelectedMatrixColumns()
+    }
+
+    func testingShowAllMatrixColumns() {
+        showAllMatrixColumns()
+    }
+
+    func testingResetMatrixVisibility() {
+        resetMatrixVisibility()
+    }
+
     func testingClearMatrixSelectionFilter() {
         clearMatrixSelectionFilter()
+    }
+
+    var testingMatrixVisibilityCapability:
+        GenotypeMatrixVisibilityCapabilitySnapshot {
+        matrixVisibilityCapability
+    }
+
+    func testingMatrixRowSelectorIsSelected(genotype: String) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingRowSelectorIsSelected(genotype: genotype)
+    }
+
+    func testingMatrixColumnSelectorIsSelected(sample: String) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingColumnSelectorIsSelected(sample: sample)
+    }
+
+    func testingMatrixRowSelectorAccessibility(
+        genotype: String
+    ) -> GenotypeMatrixSelectorAccessibilitySnapshot? {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingRowSelectorAccessibility(genotype: genotype)
+    }
+
+    func testingMatrixColumnSelectorAccessibility(
+        sample: String
+    ) -> GenotypeMatrixSelectorAccessibilitySnapshot? {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingColumnSelectorAccessibility(sample: sample)
+    }
+
+    var testingMatrixSelectAllAccessibility:
+        GenotypeMatrixSelectorAccessibilitySnapshot? {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingSelectAllAccessibility
+    }
+
+    func testingPerformMatrixRowSelectorAccessibilityPress(
+        genotype: String
+    ) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPerformRowSelectorAccessibilityPress(
+            genotype: genotype
+        )
+    }
+
+    func testingPerformMatrixColumnSelectorAccessibilityPress(
+        sample: String
+    ) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPerformColumnSelectorAccessibilityPress(
+            sample: sample
+        )
+    }
+
+    func testingPerformMatrixSelectAllAccessibilityPress() -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPerformSelectAllAccessibilityPress()
+    }
+
+    func testingFocusMatrixRowSelector(genotype: String) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingFocusRowSelector(genotype: genotype)
+    }
+
+    var testingFocusedMatrixRowSelectorGenotype: String? {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingFocusedRowSelectorGenotype
     }
 
     func testingCellValue(genotype: String, sample: String) -> String? {
