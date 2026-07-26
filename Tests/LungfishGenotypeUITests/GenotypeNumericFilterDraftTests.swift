@@ -16,6 +16,11 @@ final class GenotypeNumericFilterDraftTests: XCTestCase {
         XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "")
         XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 0)
         XCTAssertTrue(states.isEmpty)
+        XCTAssertEqual(
+            scheduler.pendingCount,
+            0,
+            "An idle empty draft must stop scheduling until the user edits again."
+        )
     }
 
     func testValidPastedIntegerPublishesAfterExactlyTwoHundredMilliseconds() {
@@ -119,6 +124,74 @@ final class GenotypeNumericFilterDraftTests: XCTestCase {
         XCTAssertEqual(viewModel.matrixMinimumPercentDraft.draftText, "100.0")
     }
 
+    func testExplicitReadsCommitLeavesOtherValidDraftPending() {
+        let scheduler = ManualGenotypeNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        var states: [GenotypeResultDisplayState] = []
+        viewModel.onDisplayStateChanged = { states.append($0) }
+        viewModel.updateMatrixMinimumReadsDraft("8")
+        viewModel.updateMatrixMinimumPercentDraft("12.5")
+
+        viewModel.commitMatrixMinimumReadsDraft()
+
+        XCTAssertEqual(states.map(\.matrixMinimumReads), [8])
+        XCTAssertEqual(states.map(\.matrixMinimumPercent), [0])
+        XCTAssertEqual(viewModel.matrixMinimumPercentDraft.draftText, "12.5")
+        XCTAssertEqual(scheduler.pendingCount, 1)
+
+        scheduler.advance(by: 0.2)
+
+        XCTAssertEqual(states.map(\.matrixMinimumPercent), [0, 12.5])
+    }
+
+    func testExplicitEmptyReadsCommitLeavesOtherValidDraftPending() {
+        let scheduler = ManualGenotypeNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        viewModel.updateDisplayState(.init(
+            matrixMinimumReads: 7,
+            matrixMinimumPercent: 2.5
+        ))
+        var states: [GenotypeResultDisplayState] = []
+        viewModel.onDisplayStateChanged = { states.append($0) }
+        viewModel.updateMatrixMinimumReadsDraft("")
+        viewModel.updateMatrixMinimumPercentDraft("12.5")
+
+        viewModel.commitMatrixMinimumReadsDraft()
+
+        XCTAssertTrue(states.isEmpty)
+        XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "7")
+        XCTAssertEqual(viewModel.matrixMinimumPercentDraft.draftText, "12.5")
+        XCTAssertEqual(scheduler.pendingCount, 1)
+
+        scheduler.advance(by: 0.2)
+
+        XCTAssertEqual(states.map(\.matrixMinimumPercent), [12.5])
+    }
+
+    func testExplicitInvalidReadsCommitLeavesOtherValidDraftPending() {
+        let scheduler = ManualGenotypeNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        viewModel.updateDisplayState(.init(
+            matrixMinimumReads: 7,
+            matrixMinimumPercent: 2.5
+        ))
+        var states: [GenotypeResultDisplayState] = []
+        viewModel.onDisplayStateChanged = { states.append($0) }
+        viewModel.updateMatrixMinimumReadsDraft("invalid")
+        viewModel.updateMatrixMinimumPercentDraft("12.5")
+
+        viewModel.commitMatrixMinimumReadsDraft()
+
+        XCTAssertTrue(states.isEmpty)
+        XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "7")
+        XCTAssertEqual(viewModel.matrixMinimumPercentDraft.draftText, "12.5")
+        XCTAssertEqual(scheduler.pendingCount, 1)
+
+        scheduler.advance(by: 0.2)
+
+        XCTAssertEqual(states.map(\.matrixMinimumPercent), [12.5])
+    }
+
     func testEscapeRestoresLastCommittedValueWithoutPublishing() {
         let scheduler = ManualGenotypeNumericFilterScheduler()
         let viewModel = makeViewModel(scheduler: scheduler)
@@ -135,23 +208,23 @@ final class GenotypeNumericFilterDraftTests: XCTestCase {
         XCTAssertTrue(states.isEmpty)
     }
 
-    func testStepperValueIsVisibleImmediatelyAndPublishesOnlyLatestValue() {
+    func testStepperCommitsImmediatelyAndEscapeCannotUndoTheClick() {
         let scheduler = ManualGenotypeNumericFilterScheduler()
         let viewModel = makeViewModel(scheduler: scheduler)
         var values: [Int] = []
         viewModel.onDisplayStateChanged = { values.append($0.matrixMinimumReads) }
 
-        viewModel.stepMatrixMinimumReads(up: true)
+        viewModel.setMatrixMinimumReadsFromStepper(1)
         XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "1")
-        XCTAssertTrue(values.isEmpty)
-        viewModel.stepMatrixMinimumReads(up: true)
-        viewModel.stepMatrixMinimumReads(up: true)
-        XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "3")
+        XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 1)
+        XCTAssertEqual(values, [1])
+        XCTAssertEqual(scheduler.pendingCount, 0)
 
-        scheduler.runAllIncludingCancelled()
+        viewModel.restoreMatrixMinimumReadsDraft()
 
-        XCTAssertEqual(values, [3])
-        XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 3)
+        XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "1")
+        XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 1)
+        XCTAssertEqual(values, [1])
     }
 
     func testPendingDraftCannotPublishAfterBundleSwitch() {

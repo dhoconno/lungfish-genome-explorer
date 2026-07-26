@@ -214,6 +214,10 @@ final class GenotypeNumericFilterDraft {
         return number.doubleValue
     }
 
+    var stepperValue: Double {
+        configuration.bounds.clamped(parsedValue ?? committedValue)
+    }
+
     @discardableResult
     func commitIfValid() -> Double? {
         guard let parsedValue else {
@@ -236,15 +240,6 @@ final class GenotypeNumericFilterDraft {
         committedValue = configuration.bounds.clamped(value)
         isInvalid = false
         draftText = formatted(committedValue)
-    }
-
-    func step(up: Bool) {
-        let base = parsedValue.map(configuration.bounds.clamped)
-            ?? committedValue
-        let delta = up ? configuration.step : -configuration.step
-        let value = configuration.bounds.clamped(base + delta)
-        isInvalid = false
-        draftText = formatted(value)
     }
 
     private func formatted(_ value: Double) -> String {

@@ -385,16 +385,18 @@ public final class GenotypeResultDisplaySectionViewModel {
         restoreNumericFilterDraft(.minimumPercent)
     }
 
-    func stepMatrixMinimumReads(up: Bool) {
-        matrixMinimumReadsDraft.step(up: up)
-        dirtyNumericFilterFields.insert(.minimumReads)
-        scheduleNumericFilterCommit()
+    func setMatrixMinimumReadsFromStepper(_ value: Int) {
+        commitNumericFilterStepperValue(
+            Double(value),
+            for: .minimumReads
+        )
     }
 
-    func stepMatrixMinimumPercent(up: Bool) {
-        matrixMinimumPercentDraft.step(up: up)
-        dirtyNumericFilterFields.insert(.minimumPercent)
-        scheduleNumericFilterCommit()
+    func setMatrixMinimumPercentFromStepper(_ value: Double) {
+        commitNumericFilterStepperValue(
+            value,
+            for: .minimumPercent
+        )
     }
 
     func setMatrixPercentDenominator(_ denominator: ONTGenotypeSupportDenominator) {
@@ -841,7 +843,14 @@ public final class GenotypeResultDisplaySectionViewModel {
         explicitField: NumericFilterField?
     ) {
         numericFilterCommitCoalescer.cancel()
-        let fields = dirtyNumericFilterFields
+        let fields: Set<NumericFilterField>
+        if let explicitField {
+            fields = dirtyNumericFilterFields.contains(explicitField)
+                ? [explicitField]
+                : []
+        } else {
+            fields = dirtyNumericFilterFields
+        }
         var changed = false
         for field in fields {
             let draft = numericFilterDraft(for: field)
@@ -851,8 +860,8 @@ public final class GenotypeResultDisplaySectionViewModel {
             if isEmpty {
                 if explicitField != nil {
                     draft.restore()
-                    dirtyNumericFilterFields.remove(field)
                 }
+                dirtyNumericFilterFields.remove(field)
                 continue
             }
             guard let value = draft.commitIfValid() else {
@@ -873,6 +882,36 @@ public final class GenotypeResultDisplaySectionViewModel {
                 }
             }
             dirtyNumericFilterFields.remove(field)
+        }
+        if changed {
+            notifyStateChanged()
+        }
+        if !dirtyNumericFilterFields.isEmpty {
+            scheduleNumericFilterCommit()
+        }
+    }
+
+    private func commitNumericFilterStepperValue(
+        _ value: Double,
+        for field: NumericFilterField
+    ) {
+        numericFilterCommitCoalescer.cancel()
+        let draft = numericFilterDraft(for: field)
+        draft.applyCommittedValue(value)
+        dirtyNumericFilterFields.remove(field)
+        var changed = false
+        switch field {
+        case .minimumReads:
+            let integerValue = Int(draft.committedValue)
+            if displayState.matrixMinimumReads != integerValue {
+                displayState.matrixMinimumReads = integerValue
+                changed = true
+            }
+        case .minimumPercent:
+            if displayState.matrixMinimumPercent != draft.committedValue {
+                displayState.matrixMinimumPercent = draft.committedValue
+                changed = true
+            }
         }
         if changed {
             notifyStateChanged()
@@ -1196,7 +1235,9 @@ public struct GenotypeResultDisplaySection: View {
             .buttonStyle(.borderless)
             .controlSize(.small)
             HStack(spacing: 6) {
-                Text("Min reads")
+                Text(
+                    viewModel.matrixMinimumReadsDraft.configuration.label
+                )
                 Spacer(minLength: 6)
                 TextField("Min reads", text: Binding(
                     get: { viewModel.matrixMinimumReadsDraft.draftText },
@@ -1213,8 +1254,13 @@ public struct GenotypeResultDisplaySection: View {
                 .onExitCommand {
                     viewModel.restoreMatrixMinimumReadsDraft()
                 }
-                .accessibilityIdentifier("genotype-view-minimum-reads-field")
-                .accessibilityLabel("Min reads")
+                .accessibilityIdentifier(
+                    viewModel.matrixMinimumReadsDraft.configuration
+                        .fieldAccessibilityIdentifier
+                )
+                .accessibilityLabel(
+                    viewModel.matrixMinimumReadsDraft.accessibility.label
+                )
                 .accessibilityValue(
                     viewModel.matrixMinimumReadsDraft.accessibility.value
                 )
@@ -1227,21 +1273,10 @@ public struct GenotypeResultDisplaySection: View {
                     "Min reads",
                     value: Binding(
                         get: {
-                            Int(
-                                viewModel.matrixMinimumReadsDraft.parsedValue
-                                    ?? viewModel.matrixMinimumReadsDraft
-                                        .committedValue
-                            )
+                            Int(viewModel.matrixMinimumReadsDraft.stepperValue)
                         },
-                        set: { value in
-                            let current = Int(
-                                viewModel.matrixMinimumReadsDraft.parsedValue
-                                    ?? viewModel.matrixMinimumReadsDraft
-                                        .committedValue
-                            )
-                            viewModel.stepMatrixMinimumReads(
-                                up: value >= current
-                            )
+                        set: {
+                            viewModel.setMatrixMinimumReadsFromStepper($0)
                         }
                     ),
                     in: 0 ... 100_000
@@ -1249,9 +1284,12 @@ public struct GenotypeResultDisplaySection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier(
-                    "genotype-view-minimum-reads-stepper"
+                    viewModel.matrixMinimumReadsDraft.configuration
+                        .stepperAccessibilityIdentifier
                 )
-                .accessibilityLabel("Min reads")
+                .accessibilityLabel(
+                    viewModel.matrixMinimumReadsDraft.accessibility.label
+                )
                 .accessibilityValue(
                     viewModel.matrixMinimumReadsDraft.accessibility.value
                 )
@@ -1263,7 +1301,9 @@ public struct GenotypeResultDisplaySection: View {
                 )
             }
             HStack(spacing: 6) {
-                Text("Min percent")
+                Text(
+                    viewModel.matrixMinimumPercentDraft.configuration.label
+                )
                 Spacer(minLength: 6)
                 TextField("Min percent", text: Binding(
                     get: { viewModel.matrixMinimumPercentDraft.draftText },
@@ -1281,9 +1321,12 @@ public struct GenotypeResultDisplaySection: View {
                     viewModel.restoreMatrixMinimumPercentDraft()
                 }
                 .accessibilityIdentifier(
-                    "genotype-view-minimum-percent-field"
+                    viewModel.matrixMinimumPercentDraft.configuration
+                        .fieldAccessibilityIdentifier
                 )
-                .accessibilityLabel("Min percent")
+                .accessibilityLabel(
+                    viewModel.matrixMinimumPercentDraft.accessibility.label
+                )
                 .accessibilityValue(
                     viewModel.matrixMinimumPercentDraft.accessibility.value
                 )
@@ -1299,18 +1342,10 @@ public struct GenotypeResultDisplaySection: View {
                     "Min percent",
                     value: Binding(
                         get: {
-                            viewModel.matrixMinimumPercentDraft.parsedValue
-                                ?? viewModel.matrixMinimumPercentDraft
-                                    .committedValue
+                            viewModel.matrixMinimumPercentDraft.stepperValue
                         },
-                        set: { value in
-                            let current =
-                                viewModel.matrixMinimumPercentDraft.parsedValue
-                                ?? viewModel.matrixMinimumPercentDraft
-                                    .committedValue
-                            viewModel.stepMatrixMinimumPercent(
-                                up: value >= current
-                            )
+                        set: {
+                            viewModel.setMatrixMinimumPercentFromStepper($0)
                         }
                     ),
                     in: 0 ... 100,
@@ -1319,9 +1354,12 @@ public struct GenotypeResultDisplaySection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier(
-                    "genotype-view-minimum-percent-stepper"
+                    viewModel.matrixMinimumPercentDraft.configuration
+                        .stepperAccessibilityIdentifier
                 )
-                .accessibilityLabel("Min percent")
+                .accessibilityLabel(
+                    viewModel.matrixMinimumPercentDraft.accessibility.label
+                )
                 .accessibilityValue(
                     viewModel.matrixMinimumPercentDraft.accessibility.value
                 )

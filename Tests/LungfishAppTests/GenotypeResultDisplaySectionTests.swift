@@ -383,17 +383,25 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var colorControls"))
         let controls = String(source[start.lowerBound..<end.lowerBound])
 
-        XCTAssertTrue(controls.contains("Text(\"Min reads\")"))
-        XCTAssertTrue(controls.contains("Text(\"Min percent\")"))
+        XCTAssertTrue(
+            controls.contains(
+                "viewModel.matrixMinimumReadsDraft.configuration.label"
+            )
+        )
+        XCTAssertTrue(
+            controls.contains(
+                "viewModel.matrixMinimumPercentDraft.configuration.label"
+            )
+        )
         XCTAssertTrue(controls.contains("TextField("))
         XCTAssertTrue(controls.contains("Stepper("))
         XCTAssertTrue(controls.contains(".labelsHidden()"))
         XCTAssertTrue(controls.contains("Text(\"%\")"))
         XCTAssertTrue(controls.contains("Text(\"0 = Off.\")"))
-        XCTAssertTrue(controls.contains("\"genotype-view-minimum-reads-field\""))
-        XCTAssertTrue(controls.contains("\"genotype-view-minimum-reads-stepper\""))
-        XCTAssertTrue(controls.contains("\"genotype-view-minimum-percent-field\""))
-        XCTAssertTrue(controls.contains("\"genotype-view-minimum-percent-stepper\""))
+        XCTAssertTrue(controls.contains(".fieldAccessibilityIdentifier"))
+        XCTAssertTrue(controls.contains(".stepperAccessibilityIdentifier"))
+        XCTAssertTrue(controls.contains("setMatrixMinimumReadsFromStepper"))
+        XCTAssertTrue(controls.contains("setMatrixMinimumPercentFromStepper"))
         XCTAssertFalse(controls.contains("\"Min reads: \\("))
         XCTAssertFalse(controls.contains("\"Min percent: \\("))
     }
