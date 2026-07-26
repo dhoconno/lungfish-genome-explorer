@@ -175,11 +175,70 @@ final class InspectorProvenanceTabTests: XCTestCase {
         let rows = vc.viewModel.documentSectionViewModel.genotypeResultDocument?.haplotypeDefinitionRows ?? []
         XCTAssertTrue(rows.contains { $0.0 == "Active" && $0.1 == "Inspector Custom Definition" })
         XCTAssertTrue(rows.contains { $0.0 == "Definition ID" && $0.1 == custom.id })
+        XCTAssertTrue(
+            vc.viewModel.documentSectionViewModel.genotypeResultDocument?
+                .hasHaplotypingResult ?? false
+        )
+    }
+
+    func testGenotypeOnlyDocumentHidesCohortsWithoutRewritingPreseededSidecar() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "inspector-genotype-only-cohorts-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-25T00:00:00Z")
+        sidecar.smartCohorts = [
+            GenotypeCohortSmartFilter(
+                name: "Persisted cohort",
+                scope: "bundle",
+                isStarred: true,
+                predicate: .animalIdIn(["AnimalA"])
+            ),
+        ]
+        let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "test")
+        let bytesBeforeOpen = try Data(contentsOf: annotationURL)
+        let call = ONTGenotypeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            passedAlignments: 42,
+            passedUniqueReads: 42,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedReads: nil,
+            sampleUniqueRetainedPercent: nil,
+            overallInputReads: nil,
+            overallUniqueRetainedReads: nil,
+            overallUniqueRetainedPercent: nil
+        )
+        let vc = InspectorViewController()
+        _ = vc.view
+        vc.viewModel.contentMode = .genotype
+
+        vc.updateGenotypeResultDocument(
+            makeGenotypeResult(
+                bundleURL: bundleURL,
+                haplotypeAnalysis: nil,
+                calls: [call]
+            )
+        )
+
+        let document = try XCTUnwrap(
+            vc.viewModel.documentSectionViewModel.genotypeResultDocument
+        )
+        XCTAssertFalse(document.hasHaplotypingResult)
+        XCTAssertTrue(document.smartCohorts.isEmpty)
+        XCTAssertFalse(vc.viewModel.genotypeResultDisplaySectionViewModel.hasHaplotypingResult)
+        XCTAssertEqual(try Data(contentsOf: annotationURL), bytesBeforeOpen)
     }
 
     private func makeGenotypeResult(
         bundleURL: URL,
-        haplotypeAnalysis: GenotypeHaplotypeAnalysis?
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        calls: [ONTGenotypeCall] = []
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
@@ -200,7 +259,7 @@ final class InspectorProvenanceTabTests: XCTestCase {
                 provenanceURL: bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json")
             ),
             stats: ONTGenotypeRunStats(totalInputReads: 100, retainedUniqueReads: 50),
-            calls: [],
+            calls: calls,
             samples: [],
             haplotypeAnalysis: haplotypeAnalysis
         )

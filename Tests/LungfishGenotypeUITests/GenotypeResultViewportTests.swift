@@ -5195,6 +5195,65 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingSavedCohortChipTitle, "Saved: Needs review")
     }
 
+    func testTransitionToGenotypeOnlyClearsSmartCohortAndSkipsHaplotypeWork() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeCapabilityTransition-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test",
+            definitionSetName: "Test",
+            speciesName: "Test",
+            samples: []
+        )
+        let cohort = GenotypeCohortSmartFilter(
+            name: "Animal A",
+            scope: "bundle",
+            isStarred: true,
+            predicate: .animalIdIn(["AnimalA"])
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call],
+            haplotypeAnalysis: analysis
+        ))
+        controller.testingApplySmartCohort(cohort)
+        XCTAssertTrue(controller.testingHasHaplotypingResult)
+        XCTAssertEqual(controller.testingActiveSmartCohort, cohort)
+        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Saved: Animal A")
+        controller.testingResetHaplotypeCapabilityWorkCounters()
+
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call],
+            haplotypeAnalysis: nil
+        ))
+
+        XCTAssertFalse(controller.testingHasHaplotypingResult)
+        XCTAssertNil(controller.testingActiveSmartCohort)
+        XCTAssertNil(controller.testingSavedCohortChipTitle)
+        XCTAssertEqual(controller.testingCohortSubjectBuildCount, 0)
+        XCTAssertEqual(controller.testingHaplotypeWorkCount, 0)
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
+
+        controller.testingApplySmartCohort(cohort)
+        try controller.testingSaveCurrentFilterAsSmartCohort()
+        XCTAssertNil(controller.testingActiveSmartCohort)
+        XCTAssertEqual(controller.testingCohortSubjectBuildCount, 0)
+        XCTAssertEqual(controller.testingHaplotypeWorkCount, 0)
+    }
+
     func testOutlineCellSelectionShowsEvidenceWithoutActivatingNeedsReviewCohort() throws {
         let lowCalls = [
             makeCall(sample: "LowSupport", genotype: "12_M3_B_075_01", reads: 2),
@@ -7182,24 +7241,29 @@ final class GenotypeResultViewportTests: XCTestCase {
             makeCall(sample: "DW472", genotype: "12_M3_B_075_01", reads: 148),
             makeCall(sample: "DW474", genotype: "12_M3_B_075_01", reads: 119),
         ]
-        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
-            ONTGenotypeSampleResult(
-                sample: "DW472",
-                passedAlignments: 148,
-                passedUniqueReads: 148,
-                sampleTotalReads: nil,
-                sampleUniqueRetainedPercent: nil,
-                calls: [calls[0]]
-            ),
-            ONTGenotypeSampleResult(
-                sample: "DW474",
-                passedAlignments: 119,
-                passedUniqueReads: 119,
-                sampleTotalReads: nil,
-                sampleUniqueRetainedPercent: nil,
-                calls: [calls[1]]
-            ),
-        ], calls: calls))
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "DW472",
+                    passedAlignments: 148,
+                    passedUniqueReads: 148,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [calls[0]]
+                ),
+                ONTGenotypeSampleResult(
+                    sample: "DW474",
+                    passedAlignments: 119,
+                    passedUniqueReads: 119,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [calls[1]]
+                ),
+            ],
+            calls: calls,
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
         controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix))
 
         controller.testingSetUnifiedSampleFilter("DW472")
@@ -7686,7 +7750,12 @@ final class GenotypeResultViewportTests: XCTestCase {
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let controller = GenotypeResultViewController()
         _ = controller.view
-        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: []))
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
         controller.testingSetUnifiedSampleFilter("Cohort=Kenyon20")
 
         try controller.testingSaveCurrentFilterAsSmartCohort()
@@ -7708,7 +7777,12 @@ final class GenotypeResultViewportTests: XCTestCase {
             makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
             makeCall(sample: "AnimalA", genotype: "04_Mafa_B_001_01", reads: 42),
         ]
-        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: calls))
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
         controller.testingSetUnifiedSampleFilter("MHC-B")
         try controller.testingSaveCurrentFilterAsSmartCohort()
         controller.testingSetUnifiedSampleFilter("")
@@ -7732,8 +7806,18 @@ final class GenotypeResultViewportTests: XCTestCase {
         controllerB.windowStateScope = scopeB
         _ = controllerA.view
         _ = controllerB.view
-        controllerA.configure(result: makeResult(bundleURL: bundleA, samples: [], calls: []))
-        controllerB.configure(result: makeResult(bundleURL: bundleB, samples: [], calls: []))
+        controllerA.configure(result: makeResult(
+            bundleURL: bundleA,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
+        controllerB.configure(result: makeResult(
+            bundleURL: bundleB,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
         controllerA.testingSetUnifiedSampleFilter("Cohort=Kenyon20")
         controllerB.testingSetUnifiedSampleFilter("Cohort=Control")
 
@@ -8249,6 +8333,29 @@ final class GenotypeResultViewportTests: XCTestCase {
             diagnosticAllele: "12_M8_B_001_01"
         ))
         let calls = [makeCall(sample: "DW472", genotype: "12_M9_B_001_01", reads: 150)]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: definitionID,
+            definitionSetName: "Custom test",
+            speciesName: "Test species",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "ERR: NO HAP",
+                            haplotype2: "ERR: NO HAP",
+                            status: .noHaplotype,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["12_M9_B_001_01"]
+                        ),
+                    ]
+                ),
+            ]
+        )
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(
@@ -8264,6 +8371,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 )
             ],
             calls: calls,
+            haplotypeAnalysis: analysis,
             haplotypeDefinitionSetID: definitionID
         ))
         XCTAssertEqual(controller.callEvidence(sample: "DW472", locus: "MHC-B")?.h1Name, "ERR: NO HAP")
@@ -8455,6 +8563,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 )
             ],
             calls: calls,
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis(),
             haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
         ))
         XCTAssertNotEqual(controller.callEvidence(sample: "DW472", locus: "MHC-B")?.h1Name, "NewB")
@@ -11445,6 +11554,16 @@ final class GenotypeResultViewportTests: XCTestCase {
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: [],
             referenceMetadata: referenceMetadata
+        )
+    }
+
+    private func makeEmptyHaplotypeAnalysis() -> GenotypeHaplotypeAnalysis {
+        GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test.haplotype-definitions",
+            definitionSetName: "Test haplotype definitions",
+            speciesName: "Test species",
+            samples: []
         )
     }
 

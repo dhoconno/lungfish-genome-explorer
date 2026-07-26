@@ -12,6 +12,35 @@ import LungfishIO
 
 @MainActor
 final class GenotypeSmartCohortSectionTests: XCTestCase {
+    func testDocumentStateEqualityIncludesHaplotypingCapability() {
+        let genotypeOnly = documentState(hasHaplotypingResult: false)
+        let haplotyped = documentState(hasHaplotypingResult: true)
+
+        XCTAssertNotEqual(genotypeOnly, haplotyped)
+    }
+
+    func testDocumentLayoutOmitsSmartCohortsAndOnlyTheirAdjacentDividerWithoutHaplotypes() {
+        let genotypeOnly = GenotypeResultDocumentSection(
+            state: documentState(hasHaplotypingResult: false)
+        )
+        let haplotyped = GenotypeResultDocumentSection(
+            state: documentState(hasHaplotypingResult: true)
+        )
+
+        XCTAssertEqual(
+            genotypeOnly.testingVisibleComponents,
+            [.header, .divider, .includedLoci, .divider, .summary, .divider, .samples,
+             .divider, .qc, .divider, .artifacts]
+        )
+        XCTAssertEqual(
+            haplotyped.testingVisibleComponents,
+            [.header, .divider, .includedLoci, .divider, .smartCohorts, .divider,
+             .summary, .divider, .samples, .divider, .qc, .divider, .artifacts]
+        )
+        XCTAssertFalse(genotypeOnly.testingSmartCohortActionsAvailable)
+        XCTAssertTrue(haplotyped.testingSmartCohortActionsAvailable)
+    }
+
     func testSectionInstantiatesWithThreeCohortsAndExposesEachRow() {
         let cohorts = sampleCohorts()
         let section = GenotypeSmartCohortSection(
@@ -147,5 +176,19 @@ final class GenotypeSmartCohortSectionTests: XCTestCase {
                 count: 3
             ),
         ]
+    }
+
+    private func documentState(
+        hasHaplotypingResult: Bool
+    ) -> GenotypeResultDocumentState {
+        GenotypeResultDocumentState(
+            title: "Result",
+            sampleIds: ["AnimalA"],
+            summaryRows: [],
+            qcRows: [],
+            artifactRows: [],
+            hasHaplotypingResult: hasHaplotypingResult,
+            smartCohorts: sampleCohorts()
+        )
     }
 }

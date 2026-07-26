@@ -162,6 +162,7 @@ public struct GenotypeResultDocumentState: Equatable {
     public var availableHaplotypeLoci: [String] = []
     public var includedHaplotypeLoci: Set<String> = []
     public var defaultIncludedHaplotypeLoci: Set<String> = []
+    public var hasHaplotypingResult: Bool = false
     public var smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = []
     public var auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = []
     public var haplotypeDefinitionRows: [(String, String)] = []
@@ -183,6 +184,7 @@ public struct GenotypeResultDocumentState: Equatable {
         availableHaplotypeLoci: [String] = [],
         includedHaplotypeLoci: Set<String> = [],
         defaultIncludedHaplotypeLoci: Set<String> = [],
+        hasHaplotypingResult: Bool = false,
         smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = [],
         auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = [],
         haplotypeDefinitionRows: [(String, String)] = [],
@@ -203,6 +205,7 @@ public struct GenotypeResultDocumentState: Equatable {
         self.availableHaplotypeLoci = availableHaplotypeLoci
         self.includedHaplotypeLoci = includedHaplotypeLoci
         self.defaultIncludedHaplotypeLoci = defaultIncludedHaplotypeLoci
+        self.hasHaplotypingResult = hasHaplotypingResult
         self.smartCohorts = smartCohorts
         self.auditEntries = auditEntries
         self.haplotypeDefinitionRows = haplotypeDefinitionRows
@@ -267,12 +270,27 @@ public struct GenotypeResultDocumentState: Equatable {
             lhs.availableHaplotypeLoci == rhs.availableHaplotypeLoci &&
             lhs.includedHaplotypeLoci == rhs.includedHaplotypeLoci &&
             lhs.defaultIncludedHaplotypeLoci == rhs.defaultIncludedHaplotypeLoci &&
+            lhs.hasHaplotypingResult == rhs.hasHaplotypingResult &&
             lhs.smartCohorts == rhs.smartCohorts &&
             lhs.auditEntries == rhs.auditEntries &&
             lhs.haplotypeDefinitionRows.elementsEqual(rhs.haplotypeDefinitionRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.haplotypeDefinitionsFolderURL == rhs.haplotypeDefinitionsFolderURL &&
             lhs.currentWorkbookUpdate == rhs.currentWorkbookUpdate
     }
+}
+
+enum GenotypeResultDocumentComponent: Equatable {
+    case header
+    case divider
+    case includedLoci
+    case smartCohorts
+    case summary
+    case samples
+    case currentWorkbook
+    case haplotypeDefinitions
+    case qc
+    case artifacts
+    case auditTimeline
 }
 
 public struct GenotypeResultDocumentSection: View {
@@ -319,8 +337,10 @@ public struct GenotypeResultDocumentSection: View {
             header
             Divider()
             includedLociSection
-            Divider()
-            smartCohortsSection
+            if state.hasHaplotypingResult {
+                Divider()
+                smartCohortsSection
+            }
             Divider()
             summarySection
             Divider()
@@ -407,12 +427,15 @@ public struct GenotypeResultDocumentSection: View {
         GenotypeSmartCohortSection(
             cohorts: state.smartCohorts,
             onSelect: { cohort in
+                guard state.hasHaplotypingResult else { return }
                 onSmartCohortSelected?(cohort)
             },
             onDelete: { cohort in
+                guard state.hasHaplotypingResult else { return }
                 onSmartCohortDeleted?(cohort)
             },
             onAdd: {
+                guard state.hasHaplotypingResult else { return }
                 onSmartCohortAddRequested?()
             }
         )
@@ -594,3 +617,34 @@ public struct GenotypeResultDocumentSection: View {
         return [NotificationUserInfoKey.windowStateScope: scope]
     }
 }
+
+#if DEBUG
+extension GenotypeResultDocumentSection {
+    var testingSmartCohortActionsAvailable: Bool {
+        state.hasHaplotypingResult
+    }
+
+    var testingVisibleComponents: [GenotypeResultDocumentComponent] {
+        var components: [GenotypeResultDocumentComponent] = [
+            .header,
+            .divider,
+            .includedLoci,
+        ]
+        if state.hasHaplotypingResult {
+            components += [.divider, .smartCohorts]
+        }
+        components += [.divider, .summary, .divider, .samples]
+        if state.currentWorkbookUpdate != nil {
+            components += [.divider, .currentWorkbook]
+        }
+        if !state.haplotypeDefinitionRows.isEmpty {
+            components += [.divider, .haplotypeDefinitions]
+        }
+        components += [.divider, .qc, .divider, .artifacts]
+        if !state.auditEntries.isEmpty {
+            components += [.divider, .auditTimeline]
+        }
+        return components
+    }
+}
+#endif

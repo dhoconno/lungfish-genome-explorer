@@ -319,6 +319,7 @@ extension InspectorViewController {
     /// Updates the Document inspector with genotype-result bundle statistics.
     func updateGenotypeResultDocument(_ result: ONTGenotypeResultBundleData) {
         loadedGenotypeResult = result
+        let hasHaplotypingResult = result.haplotypeAnalysis != nil
         let sampleIds = genotypeSampleIds(result)
         let metadataStore = SampleMetadataStore.load(
             from: result.bundleURL,
@@ -336,15 +337,20 @@ extension InspectorViewController {
             }
             return GenotypeAnnotationSidecar.empty(generatedAt: "")
         }()
-        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
-            result: result,
-            sidecar: sidecar,
-            metadataBySample: metadataStore?.records ?? [:]
-        )
-        let smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = sidecar.smartCohorts.map { cohort in
-            let count = subjects.filter { cohort.predicate.evaluate($0) }.count
-            return GenotypeSmartCohortSection.DisplayedCohort(filter: cohort, count: count)
-        }
+        let subjects = hasHaplotypingResult
+            ? GenotypeCohortSubjectBuilder.buildSubjects(
+                result: result,
+                sidecar: sidecar,
+                metadataBySample: metadataStore?.records ?? [:]
+            )
+            : []
+        let smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] =
+            hasHaplotypingResult
+            ? sidecar.smartCohorts.map { cohort in
+                let count = subjects.filter { cohort.predicate.evaluate($0) }.count
+                return GenotypeSmartCohortSection.DisplayedCohort(filter: cohort, count: count)
+            }
+            : []
         let workbookArtifactRows: [GenotypeResultArtifactRow] = {
             var rows = [
                 GenotypeResultArtifactRow(label: "Workbook", fileURL: result.artifacts.workbookURL),
@@ -407,6 +413,7 @@ extension InspectorViewController {
                     fileURL: ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: result.bundleURL)
                 ),
             ].compactMap { $0 },
+            hasHaplotypingResult: hasHaplotypingResult,
             smartCohorts: smartCohorts,
             auditEntries: sidecar.auditLog,
             haplotypeDefinitionRows: genotypeHaplotypeDefinitionRows(result, sidecar: sidecar),
@@ -439,7 +446,7 @@ extension InspectorViewController {
         viewModel.genotypeResultDisplaySectionViewModel.update(
             isAvailable: true,
             state: currentDisplay,
-            hasHaplotypingResult: result.haplotypeAnalysis != nil,
+            hasHaplotypingResult: state.hasHaplotypingResult,
             isGenotypeOnlyResult: isGenotypeOnlyResult
         )
         viewModel.genotypeResultDisplaySectionViewModel.updateMHCCandidatePresentation(from: result)
@@ -556,18 +563,22 @@ extension InspectorViewController {
         }
         if let result = cachedResult {
             loadedGenotypeResult = result
-            let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
-                result: result,
-                sidecar: sidecar,
-                metadataBySample: state.sampleMetadataStore?.records ?? [:]
-            )
-            nextState.smartCohorts = sidecar.smartCohorts.map { cohort in
-                GenotypeSmartCohortSection.DisplayedCohort(
-                    filter: cohort,
-                    count: subjects.filter { cohort.predicate.evaluate($0) }.count
+            if state.hasHaplotypingResult {
+                let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
+                    result: result,
+                    sidecar: sidecar,
+                    metadataBySample: state.sampleMetadataStore?.records ?? [:]
                 )
+                nextState.smartCohorts = sidecar.smartCohorts.map { cohort in
+                    GenotypeSmartCohortSection.DisplayedCohort(
+                        filter: cohort,
+                        count: subjects.filter { cohort.predicate.evaluate($0) }.count
+                    )
+                }
+                nextState.qcRows = genotypeQCRows(subjects: subjects)
+            } else {
+                nextState.smartCohorts = []
             }
-            nextState.qcRows = genotypeQCRows(subjects: subjects)
             nextState.haplotypeDefinitionRows = genotypeHaplotypeDefinitionRows(result, sidecar: sidecar)
             if let currentWorkbookUpdate = nextState.currentWorkbookUpdate {
                 nextState.currentWorkbookUpdate = GenotypeResultCurrentWorkbookUpdateState(

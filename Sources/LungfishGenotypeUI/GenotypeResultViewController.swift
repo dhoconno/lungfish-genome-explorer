@@ -235,6 +235,7 @@ public final class GenotypeResultViewController: NSViewController {
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
 
     private var result: ONTGenotypeResultBundleData?
+    private var hasHaplotypingResult = false
     private var sampleMetadataStore: SampleMetadataStore?
     private var annotationStore: GenotypeAnnotationStore?
     private var manualHaplotypingSelection: Set<String> = []
@@ -275,6 +276,8 @@ public final class GenotypeResultViewController: NSViewController {
     )
     private var matrixEvidenceIndexBuildCount = 0
     private var matrixAnnotationIndexBuildCount = 0
+    private var cohortSubjectBuildCount = 0
+    private var haplotypeWorkCount = 0
     private var indexedMatrixMutationRevision: UInt64?
     private var comparisonMatrixConfigured = false
     private var sampleDetailHostingController: NSHostingController<GenotypeSampleDetailSheet>?
@@ -348,11 +351,11 @@ public final class GenotypeResultViewController: NSViewController {
 
     private var isGenotypeOnlyResult: Bool {
         guard let result else { return false }
-        return result.haplotypeAnalysis == nil && !result.calls.isEmpty
+        return !hasHaplotypingResult && !result.calls.isEmpty
     }
 
     private var isFullLengthMHCGenotypeViewport: Bool {
-        result?.haplotypeAnalysis == nil
+        !hasHaplotypingResult
             && result?.manifest.kind == "full-length-ont-mhc-genotype"
     }
 
@@ -437,19 +440,30 @@ public final class GenotypeResultViewController: NSViewController {
 
     @objc private func handleSmartCohortApplied(_ notification: Notification) {
         guard shouldAcceptScopedNotification(notification) else { return }
+        guard hasHaplotypingResult else {
+            activeSmartCohort = nil
+            quickFilterBar.setSavedCohortName(nil)
+            return
+        }
         guard let data = notification.userInfo?["cohort"] as? Data else {
             clearActiveSmartCohort()
             return
         }
         if let cohort = try? JSONDecoder().decode(GenotypeCohortSmartFilter.self, from: data) {
-            activeSmartCohort = cohort
-            quickFilterBar.setSavedCohortName(cohort.name)
-            refreshVisibleFilterDependentViews()
+            applySmartCohort(cohort)
         }
+    }
+
+    private func applySmartCohort(_ cohort: GenotypeCohortSmartFilter) {
+        guard hasHaplotypingResult else { return }
+        activeSmartCohort = cohort
+        quickFilterBar.setSavedCohortName(cohort.name)
+        refreshVisibleFilterDependentViews()
     }
 
     @objc private func handleSmartCohortSaveRequested(_ notification: Notification) {
         guard shouldAcceptScopedNotification(notification) else { return }
+        guard hasHaplotypingResult else { return }
         do {
             try saveCurrentFilterAsSmartCohort()
         } catch {
@@ -459,6 +473,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     @objc private func handleSmartCohortDeleteRequested(_ notification: Notification) {
         guard shouldAcceptScopedNotification(notification) else { return }
+        guard hasHaplotypingResult else { return }
         guard let data = notification.userInfo?["cohort"] as? Data,
               let cohort = try? JSONDecoder().decode(GenotypeCohortSmartFilter.self, from: data),
               let store = annotationStore else { return }
@@ -477,6 +492,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func saveCurrentFilterAsSmartCohort() throws {
+        guard hasHaplotypingResult else { return }
         guard let store = annotationStore else { return }
         let author = annotationAuthorProvider()
         var predicates: [SmartCohortPredicate] = []
@@ -697,6 +713,11 @@ public final class GenotypeResultViewController: NSViewController {
         pendingCandidateSettingsRequest = nil
         candidateSettingsPersistenceGeneration &+= 1
         self.result = result
+        hasHaplotypingResult = result.haplotypeAnalysis != nil
+        if !hasHaplotypingResult {
+            activeSmartCohort = nil
+            quickFilterBar.setSavedCohortName(nil)
+        }
         displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
         applyViewportHeaderVisibility()
         liveHaplotypeAnalysis = nil
@@ -782,15 +803,19 @@ public final class GenotypeResultViewController: NSViewController {
             : (annotationStore?.sidecar.settings.mhcCandidateDisplay ?? .default)
         displayState.summaryViewMode = initialSummaryViewMode(for: result)
         displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
-        if shouldEagerlyRecomputeHaplotypeAnalysis(for: result) {
-            recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
+        if hasHaplotypingResult {
+            if shouldEagerlyRecomputeHaplotypeAnalysis(for: result) {
+                recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
+            } else {
+                liveHaplotypeAnalysis = nil
+            }
+            rebuildActiveHaplotypeAnalysisIndexes()
+            rebuildOutline()
+            rebuildHaplotypeMatrix()
+            rebuildCohortSummary()
         } else {
-            liveHaplotypeAnalysis = nil
+            clearUnsupportedHaplotypePresentation()
         }
-        rebuildActiveHaplotypeAnalysisIndexes()
-        rebuildOutline()
-        rebuildHaplotypeMatrix()
-        rebuildCohortSummary()
         if isGenotypeOnlyResult || isFullLengthMHCGenotypeViewport {
             showEmptySelection()
         }
@@ -872,6 +897,11 @@ public final class GenotypeResultViewController: NSViewController {
         activeHaplotypeSampleNames.removeAll()
         diagnosticIdentifierSetsBySample.removeAll()
         animalGenotypesBySample.removeAll()
+        guard hasHaplotypingResult else {
+            allFilterableSampleNamesCache = []
+            return
+        }
+        haplotypeWorkCount += 1
         guard let analysis = activeHaplotypeAnalysis() else { return }
         activeHaplotypeSampleNames.reserveCapacity(analysis.samples.count)
         diagnosticIdentifierSetsBySample.reserveCapacity(analysis.samples.count)
@@ -881,6 +911,20 @@ public final class GenotypeResultViewController: NSViewController {
             diagnosticIdentifierSetsBySample[sample.sample] = diagnosticIdentifiers(for: sample)
         }
         allFilterableSampleNamesCache = []
+    }
+
+    private func clearUnsupportedHaplotypePresentation() {
+        liveHaplotypeAnalysis = nil
+        activeHaplotypeSamplesByName.removeAll()
+        activeHaplotypeSampleNames.removeAll()
+        diagnosticIdentifierSetsBySample.removeAll()
+        animalGenotypesBySample.removeAll()
+        allFilterableSampleNamesCache = []
+        outlineRowsBySample.removeAll()
+        outlineRowOrder.removeAll()
+        outlineView.configure(rows: [])
+        haplotypeMatrixView.configure(rows: [], definitionName: nil)
+        manualHaplotypingSelection = []
     }
 
     /// Thresholds that were fixed at genotyping time and recorded in the run
@@ -2168,6 +2212,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func activateNeedsReviewCohort() {
+        guard hasHaplotypingResult else { return }
         let cohort = annotationStore?.sidecar.smartCohorts.first {
             $0.name == "Needs review" && $0.scope == "bundle"
         } ?? GenotypeCohortSmartFilter(
@@ -4062,6 +4107,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func applyAIHaplotypingCompleted(result updatedResult: ONTGenotypeResultBundleData) {
         result = updatedResult
+        hasHaplotypingResult = updatedResult.haplotypeAnalysis != nil
         applyViewportHeaderVisibility()
         liveHaplotypeAnalysis = nil
         comparisonMatrixConfigured = false
@@ -4547,6 +4593,11 @@ public final class GenotypeResultViewController: NSViewController {
     /// genotyping-run thresholds. Falls back to the pipeline-persisted
     /// analysis when no definition set is available.
     private func recomputeLiveHaplotypeAnalysis(evaluator: GenotypeDropoutEvaluator?) {
+        guard hasHaplotypingResult else {
+            liveHaplotypeAnalysis = nil
+            return
+        }
+        haplotypeWorkCount += 1
         guard let result, let definitionSet = definitionSetForResult(result) else {
             liveHaplotypeAnalysis = nil
             rebuildActiveHaplotypeAnalysisIndexes()
@@ -4599,6 +4650,7 @@ public final class GenotypeResultViewController: NSViewController {
     /// dropout-aware recomputation when present, otherwise the
     /// pipeline-persisted version embedded in the bundle.
     private func activeHaplotypeAnalysis() -> GenotypeHaplotypeAnalysis? {
+        guard hasHaplotypingResult else { return nil }
         if let liveHaplotypeAnalysis { return liveHaplotypeAnalysis }
         return result?.haplotypeAnalysis
     }
@@ -4815,6 +4867,12 @@ public final class GenotypeResultViewController: NSViewController {
     private func rebuildOutline() {
         outlineRowsBySample.removeAll()
         outlineRowOrder.removeAll()
+        guard hasHaplotypingResult else {
+            outlineView.configure(rows: [])
+            syncOutlineReviewSelection()
+            return
+        }
+        haplotypeWorkCount += 1
         guard let result, let analysis = activeHaplotypeAnalysis(), !analysis.samples.isEmpty else {
             outlineView.configure(rows: [])
             syncOutlineReviewSelection()
@@ -4869,9 +4927,14 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func rebuildHaplotypeMatrix() {
+        guard hasHaplotypingResult else {
+            haplotypeMatrixView.configure(rows: [], definitionName: nil)
+            return
+        }
         guard selectedLens == .summary && displayState.summaryViewMode == .matrix else {
             return
         }
+        haplotypeWorkCount += 1
         if activeHaplotypeAnalysis() == nil {
             recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
         }
@@ -5077,12 +5140,15 @@ public final class GenotypeResultViewController: NSViewController {
     ) -> Set<String> {
         let names = allFilterableSampleNames(result: result)
         var allowed = Set(names)
-        let predicates: [SmartCohortPredicate] = [
-            activeSmartCohort?.predicate,
-            quickFilterPredicate,
-        ].compactMap { $0 }
+        let predicates: [SmartCohortPredicate] = hasHaplotypingResult
+            ? [
+                activeSmartCohort?.predicate,
+                quickFilterPredicate,
+            ].compactMap { $0 }
+            : []
         if !predicates.isEmpty {
             let liveSidecar = sidecar ?? GenotypeAnnotationSidecar.empty(generatedAt: "")
+            cohortSubjectBuildCount += 1
             let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
                 result: resultWithActiveHaplotypeAnalysis(result),
                 sidecar: liveSidecar,
@@ -5159,9 +5225,12 @@ public final class GenotypeResultViewController: NSViewController {
             return allFilterableSampleNamesCache
         }
         var seen = Set<String>()
-        let sources = activeHaplotypeSampleNames
-            + (activeHaplotypeAnalysis()?.samples ?? []).map(\.sample)
-            + (result.haplotypeAnalysis?.samples ?? []).map(\.sample)
+        let haplotypeSources = hasHaplotypingResult
+            ? activeHaplotypeSampleNames
+                + (activeHaplotypeAnalysis()?.samples ?? []).map(\.sample)
+                + (result.haplotypeAnalysis?.samples ?? []).map(\.sample)
+            : []
+        let sources = haplotypeSources
             + result.sampleNames
             + result.samples.map(\.sample)
             + callsBySample.keys.sorted {
@@ -5233,6 +5302,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func haplotypeCallMatches(sampleId: String, searchText: String) -> Bool {
+        guard hasHaplotypingResult else { return false }
         guard let sample = activeHaplotypeSamplesByName[sampleId]
             ?? activeHaplotypeAnalysis()?.samples.first(where: { $0.sample == sampleId }) else {
             return false
@@ -7691,6 +7761,31 @@ extension GenotypeResultViewController {
 
     func testingSaveCurrentFilterAsSmartCohort() throws {
         try saveCurrentFilterAsSmartCohort()
+    }
+
+    func testingApplySmartCohort(_ cohort: GenotypeCohortSmartFilter) {
+        applySmartCohort(cohort)
+    }
+
+    var testingHasHaplotypingResult: Bool {
+        hasHaplotypingResult
+    }
+
+    var testingActiveSmartCohort: GenotypeCohortSmartFilter? {
+        activeSmartCohort
+    }
+
+    var testingCohortSubjectBuildCount: Int {
+        cohortSubjectBuildCount
+    }
+
+    var testingHaplotypeWorkCount: Int {
+        haplotypeWorkCount
+    }
+
+    func testingResetHaplotypeCapabilityWorkCounters() {
+        cohortSubjectBuildCount = 0
+        haplotypeWorkCount = 0
     }
 
     func testingCurrentExportSnapshot() -> GenotypeViewportExportSnapshot? {
