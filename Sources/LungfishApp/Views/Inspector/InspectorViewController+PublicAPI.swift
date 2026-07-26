@@ -319,32 +319,39 @@ extension InspectorViewController {
     /// Updates the Document inspector with genotype-result bundle statistics.
     func updateGenotypeResultDocument(_ result: ONTGenotypeResultBundleData) {
         loadedGenotypeResult = result
+        let hasHaplotypingResult = result.haplotypeAnalysis != nil
         let sampleIds = genotypeSampleIds(result)
         let metadataStore = SampleMetadataStore.load(
             from: result.bundleURL,
             knownSampleIds: Set(sampleIds)
         )
         metadataStore?.wireAutosave(bundleURL: result.bundleURL)
-        // Loading via the store triggers default-cohort seeding the first
-        // time a bundle is opened so the inspector lists Needs review et al.
+        // Haplotype-capable bundles seed the default cohorts on first open.
+        // Genotype-only inspection must remain byte-preserving.
         let sidecar: GenotypeAnnotationSidecar = {
             if let store = try? GenotypeAnnotationStore(
                 bundleURL: result.bundleURL,
-                author: resolvedAnalystIdentity()
+                author: resolvedAnalystIdentity(),
+                seedBuiltInSmartCohorts: hasHaplotypingResult
             ) {
                 return store.sidecar
             }
             return GenotypeAnnotationSidecar.empty(generatedAt: "")
         }()
-        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
-            result: result,
-            sidecar: sidecar,
-            metadataBySample: metadataStore?.records ?? [:]
-        )
-        let smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = sidecar.smartCohorts.map { cohort in
-            let count = subjects.filter { cohort.predicate.evaluate($0) }.count
-            return GenotypeSmartCohortSection.DisplayedCohort(filter: cohort, count: count)
-        }
+        let subjects = hasHaplotypingResult
+            ? genotypeCohortSubjectBuilder(
+                result,
+                sidecar,
+                metadataStore?.records ?? [:]
+            )
+            : []
+        let smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] =
+            hasHaplotypingResult
+            ? sidecar.smartCohorts.map { cohort in
+                let count = subjects.filter { cohort.predicate.evaluate($0) }.count
+                return GenotypeSmartCohortSection.DisplayedCohort(filter: cohort, count: count)
+            }
+            : []
         let workbookArtifactRows: [GenotypeResultArtifactRow] = {
             var rows = [
                 GenotypeResultArtifactRow(label: "Workbook", fileURL: result.artifacts.workbookURL),
@@ -369,7 +376,9 @@ extension InspectorViewController {
             sampleMetadataStore: metadataStore,
             windowStateScope: windowStateScope,
             summaryRows: genotypeSummaryRows(result),
-            qcRows: genotypeQCRows(subjects: subjects),
+            qcRows: hasHaplotypingResult
+                ? genotypeHaplotypeQCRows(subjects: subjects)
+                : genotypeOnlyQCRows(result: result),
             artifactRows: workbookArtifactRows + [
                 GenotypeResultArtifactRow(label: "Long Summary CSV", fileURL: result.artifacts.longSummaryCSVURL),
                 GenotypeResultArtifactRow(label: "Sample Summary CSV", fileURL: result.artifacts.sampleSummaryCSVURL),
@@ -407,6 +416,7 @@ extension InspectorViewController {
                     fileURL: ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: result.bundleURL)
                 ),
             ].compactMap { $0 },
+            hasHaplotypingResult: hasHaplotypingResult,
             smartCohorts: smartCohorts,
             auditEntries: sidecar.auditLog,
             haplotypeDefinitionRows: genotypeHaplotypeDefinitionRows(result, sidecar: sidecar),
@@ -439,7 +449,7 @@ extension InspectorViewController {
         viewModel.genotypeResultDisplaySectionViewModel.update(
             isAvailable: true,
             state: currentDisplay,
-            hasHaplotypingResult: result.haplotypeAnalysis != nil,
+            hasHaplotypingResult: state.hasHaplotypingResult,
             isGenotypeOnlyResult: isGenotypeOnlyResult
         )
         viewModel.genotypeResultDisplaySectionViewModel.updateMHCCandidatePresentation(from: result)
@@ -556,18 +566,22 @@ extension InspectorViewController {
         }
         if let result = cachedResult {
             loadedGenotypeResult = result
-            let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
-                result: result,
-                sidecar: sidecar,
-                metadataBySample: state.sampleMetadataStore?.records ?? [:]
-            )
-            nextState.smartCohorts = sidecar.smartCohorts.map { cohort in
-                GenotypeSmartCohortSection.DisplayedCohort(
-                    filter: cohort,
-                    count: subjects.filter { cohort.predicate.evaluate($0) }.count
+            if state.hasHaplotypingResult {
+                let subjects = genotypeCohortSubjectBuilder(
+                    result,
+                    sidecar,
+                    state.sampleMetadataStore?.records ?? [:]
                 )
+                nextState.smartCohorts = sidecar.smartCohorts.map { cohort in
+                    GenotypeSmartCohortSection.DisplayedCohort(
+                        filter: cohort,
+                        count: subjects.filter { cohort.predicate.evaluate($0) }.count
+                    )
+                }
+                nextState.qcRows = genotypeHaplotypeQCRows(subjects: subjects)
+            } else {
+                nextState.smartCohorts = []
             }
-            nextState.qcRows = genotypeQCRows(subjects: subjects)
             nextState.haplotypeDefinitionRows = genotypeHaplotypeDefinitionRows(result, sidecar: sidecar)
             if let currentWorkbookUpdate = nextState.currentWorkbookUpdate {
                 nextState.currentWorkbookUpdate = GenotypeResultCurrentWorkbookUpdateState(
@@ -628,7 +642,9 @@ extension InspectorViewController {
         ]
     }
 
-    private func genotypeQCRows(subjects: [GenotypeCohortSubject]) -> [(String, String)] {
+    private func genotypeHaplotypeQCRows(
+        subjects: [GenotypeCohortSubject]
+    ) -> [(String, String)] {
         let qcCounts = Dictionary(grouping: subjects, by: \.qcStatus).mapValues(\.count)
         let incomplete = subjects.filter { SmartCohortPredicate.needsHaplotypeReview.evaluate($0) }.count
         let noHaplotypeCalls = subjects.filter(\.calls.isEmpty).count
@@ -638,6 +654,35 @@ extension InspectorViewController {
             ("Review", "\(qcCounts[.review, default: 0])"),
             ("Incomplete Haplotypes", "\(incomplete)"),
             ("No Haplotype Calls", "\(noHaplotypeCalls)"),
+        ]
+    }
+
+    private func genotypeOnlyQCRows(
+        result: ONTGenotypeResultBundleData
+    ) -> [(String, String)] {
+        var qcCounts = result.qcStatusCounts
+        let summarizedSamples = Set(result.samples.map(\.sample))
+        let unsummarizedCalls = Dictionary(
+            grouping: result.calls.filter { !summarizedSamples.contains($0.sample) },
+            by: \.sample
+        )
+        for calls in unsummarizedCalls.values {
+            let alignments = calls.reduce(0) { $0 + max(0, $1.passedAlignments) }
+            let uniqueReads = calls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
+            let status: ONTGenotypeQCStatus
+            if alignments == 0 || uniqueReads == 0 {
+                status = .review
+            } else if alignments < 20 || uniqueReads < 1_000 {
+                status = .lowSupport
+            } else {
+                status = .ok
+            }
+            qcCounts[status, default: 0] += 1
+        }
+        return [
+            ("OK", "\(qcCounts[.ok, default: 0])"),
+            ("Low Support", "\(qcCounts[.lowSupport, default: 0])"),
+            ("Review", "\(qcCounts[.review, default: 0])"),
         ]
     }
 

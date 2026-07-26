@@ -44,6 +44,12 @@ extension Notification.Name {
     /// to update their rendering accordingly.
     public static let appearanceChanged = Notification.Name("appearanceChanged")
 
+    /// Posted when primary list/table/detail content typography must be
+    /// re-resolved. This is intentionally narrower than `appearanceChanged`.
+    public static let contentTextSizeDidChange = Notification.Name(
+        "com.lungfish.contentTextSizeDidChange"
+    )
+
     /// Posted when any application-level setting has changed (via AppSettings.save()).
     ///
     /// Observers should re-read relevant values from `AppSettings.shared` and

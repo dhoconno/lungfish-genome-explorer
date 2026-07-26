@@ -451,7 +451,10 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         )
         XCTAssertEqual(workbookUpdate.manualChangeCount, 1)
         XCTAssertTrue(workbookUpdate.isEnabled)
-        XCTAssertTrue(workbookUpdate.statusText.contains("1 manual haplotype change"))
+        XCTAssertEqual(
+            workbookUpdate.statusText,
+            "Current — current.xlsx represents the latest LGE review state."
+        )
     }
 
     func testAnnotationSidecarUpdateUsesLoadedResultWithoutReloadingBundle() throws {
@@ -478,7 +481,18 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
                 overallUniqueRetainedPercent: nil
             )
         ]
-        let result = makeResult(bundleURL: bundleURL, calls: calls)
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test.haplotype-definitions",
+            definitionSetName: "Test haplotype definitions",
+            speciesName: "Test species",
+            samples: []
+        )
+        let result = makeResult(
+            bundleURL: bundleURL,
+            calls: calls,
+            haplotypeAnalysis: analysis
+        )
         let inspector = InspectorViewController()
         _ = inspector.view
         inspector.updateGenotypeResultDocument(result)
@@ -522,6 +536,7 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         bundleURL: URL,
         calls: [ONTGenotypeCall],
         kind: String = "ont-barcode-genotype",
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
         mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty,
         mhcAlignmentArtifactURLs: ONTMHCAlignmentArtifactURLs = .empty
     ) -> ONTGenotypeResultBundleData {
@@ -556,7 +571,7 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
                     calls: calls
                 )
             ],
-            haplotypeAnalysis: nil,
+            haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: nil,
             mhcUnnameableClusters: nil,
             mhcCandidateSequencesByStableClusterID: [:],

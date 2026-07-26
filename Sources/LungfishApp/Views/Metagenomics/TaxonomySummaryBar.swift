@@ -58,7 +58,7 @@ final class TaxonomySummaryBar: GenomicSummaryCardBar {
             dominantSpeciesName = "\u{2014}"
         }
 
-        needsDisplay = true
+        cardsDidChange()
     }
 
     /// Updates the summary bar to show batch aggregation statistics.
@@ -74,7 +74,7 @@ final class TaxonomySummaryBar: GenomicSummaryCardBar {
         batchSampleCount = sampleCount
         batchTotalRows = totalRows
         batchDatabaseName = databaseName
-        needsDisplay = true
+        cardsDidChange()
     }
 
     // MARK: - Cards

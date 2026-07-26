@@ -61,6 +61,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     internal var aiAssistantService: AIAssistantService?
     internal var helpWindowController: HelpWindowController?
     private var windowSizeDialogController: WindowSizeDialogController?
+    internal var contentTextSizeAnnouncementPoster: any AccessibilityAnnouncementPosting =
+        AccessibilityAnnouncementPoster()
 
     /// AI tool registry for the assistant
     internal var aiToolRegistry: AIToolRegistry?
@@ -1232,6 +1234,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         if menuItem.action == #selector(checkForUpdates(_:)) {
             return canCheckForUpdatesHandler?() ?? false
+        }
+
+        if menuItem.action == #selector(increaseContentTextSize(_:))
+            || menuItem.action == #selector(decreaseContentTextSize(_:))
+            || menuItem.action == #selector(resetContentTextSize(_:)) {
+            return canPerformContentTextSizeAction(menuItem.action)
         }
 
         // "Import VCF Variants..." is always enabled (auto-ingest creates bundle if needed)

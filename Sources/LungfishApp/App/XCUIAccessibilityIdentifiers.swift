@@ -33,6 +33,7 @@ enum SettingsAccessibilityID {
     static let aiErrorMessage = "settings-ai-error-message"
     static let experimentalFeaturesToggle = "settings-advanced-experimental-features-toggle"
     static let analystIdentityField = "settings-general-analyst-identity-field"
+    static let contentTextSizePicker = "settings-appearance-content-text-size-picker"
 
     static func tab(_ tab: SettingsNavigationTab) -> String {
         switch tab {
@@ -70,6 +71,27 @@ enum SettingsAccessibilityID {
 }
 
 enum InspectorAccessibilityID {
+    static let genotypeContentTextSizeDecrease =
+        "genotype-view-content-text-size-decrease"
+    static let genotypeContentTextSizeValue =
+        "genotype-view-content-text-size-value"
+    static let genotypeContentTextSizeIncrease =
+        "genotype-view-content-text-size-increase"
+    static let genotypeContentTextSizeDefault =
+        "genotype-view-content-text-size-default"
+    static let genotypeVisibilityGroup = "genotype-view-visibility-group"
+    static let genotypeVisibilityScope = "genotype-view-visibility-scope"
+    static let genotypeVisibilityStatus = "genotype-view-visibility-status"
+    static let genotypeVisibilityGuidance = "genotype-view-visibility-guidance"
+    static let genotypeRowVisibilityMenu = "genotype-view-row-visibility-menu"
+    static let genotypeHideSelectedRows = "genotype-view-hide-selected-rows"
+    static let genotypeShowOnlySelectedRows = "genotype-view-show-only-selected-rows"
+    static let genotypeShowAllRows = "genotype-view-show-all-rows"
+    static let genotypeColumnVisibilityMenu = "genotype-view-column-visibility-menu"
+    static let genotypeHideSelectedColumns = "genotype-view-hide-selected-columns"
+    static let genotypeShowOnlySelectedColumns = "genotype-view-show-only-selected-columns"
+    static let genotypeShowAllColumns = "genotype-view-show-all-columns"
+    static let genotypeResetVisibility = "genotype-view-reset-visibility"
     static let analystIdentityLabel = "genotype-annotation-analyst-identity-label"
     static let analystIdentitySettingsButton = "genotype-annotation-analyst-identity-settings-button"
     static let reviewGroup = "genotype-annotation-review-group"
@@ -181,6 +203,10 @@ enum MainMenuAccessibilityID {
 
     static let focusViewer = "view-menu-focus-viewer"
     static let restoreSidePanes = "view-menu-restore-side-panes"
+    static let contentTextSize = "view-menu-content-text-size"
+    static let contentTextSizeLarger = "view-menu-content-text-size-larger"
+    static let contentTextSizeSmaller = "view-menu-content-text-size-smaller"
+    static let contentTextSizeDefault = "view-menu-content-text-size-default"
 
     static let callVariants = "tools-menu-call-variants"
     static let freyjaDemix = "tools-menu-freyja-demix"

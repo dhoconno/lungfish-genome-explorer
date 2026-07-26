@@ -822,12 +822,18 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     // MARK: - Layout
 
     private func layoutSubviews() {
+        let summaryHeight = summaryBar.heightAnchor.constraint(
+            equalToConstant: summaryBar.preferredContentHeight
+        )
+        summaryBar.onPreferredContentHeightChanged = { [weak summaryHeight] height in
+            summaryHeight?.constant = height
+        }
         NSLayoutConstraint.activate([
             // Summary bar (top, below safe area to avoid title bar overlap)
             summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            summaryBar.heightAnchor.constraint(equalToConstant: 48),
+            summaryHeight,
 
             // Breadcrumb bar (below summary)
             breadcrumbBar.topAnchor.constraint(equalTo: summaryBar.bottomAnchor),

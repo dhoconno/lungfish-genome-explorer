@@ -8,6 +8,14 @@ import LungfishCore
 /// Prefix used for all metadata column identifiers to distinguish them from standard columns.
 private let metadataColumnPrefix = "metadata_"
 
+@MainActor
+private final class MetadataContentTextField:
+    NSTextField,
+    ContentTypographySemanticFontProviding
+{
+    let contentTypographyRole = ContentTypography.Role.body
+}
+
 // MARK: - MetadataColumnController
 
 /// Manages dynamic metadata columns in classifier taxonomy tables.
@@ -43,10 +51,26 @@ private let metadataColumnPrefix = "metadata_"
 /// This class is `@MainActor` isolated.
 @MainActor
 public final class MetadataColumnController {
+    public enum ContentTypographyOwnership {
+        case standalone
+        case embedded
+    }
 
     // MARK: - Properties
 
-    public init() {}
+    public init(contentTypographyOwnership: ContentTypographyOwnership = .standalone) {
+        self.contentTypographyOwnership = contentTypographyOwnership
+        if contentTypographyOwnership == .standalone {
+            let notifications = NotificationCenterContentTypographyNotifications(
+                notificationCenter: .default
+            )
+            contentTypographyObservation = notifications.observe(
+                .contentTextSizeDidChange
+            ) { [weak self] in
+                self?.applyContentTypography()
+            }
+        }
+    }
 
     private static let zeroWidthDisableThreshold: CGFloat = 0.5
     private static let metadataCellTextFieldTag = 51_001
@@ -82,6 +106,10 @@ public final class MetadataColumnController {
     /// Observer token for zero-width column resize detection.
     private nonisolated(unsafe) var columnResizeObserver: NSObjectProtocol?
 
+    /// Live content-size preference observation.
+    private var contentTypographyObservation: ContentTypographyNotificationObservation?
+    private let contentTypographyOwnership: ContentTypographyOwnership
+
     /// Avoids recursive resize/visibility handling while applying manager changes.
     private var isApplyingColumnVisibility = false
 
@@ -107,6 +135,42 @@ public final class MetadataColumnController {
         captureAndRelaxExistingColumns(on: table)
         installResizeObserver(on: table)
         rebuildHeaderMenu()
+        applyContentTypography()
+    }
+
+    /// Applies semantic metadata-cell and header typography without recreating
+    /// the owning controller.
+    public func applyContentTypography() {
+        guard let tableView else { return }
+        let typography = ContentTypography.current()
+        if contentTypographyOwnership == .standalone {
+            tableView.rowHeight = typography.tableRowHeight()
+            if let headerView = tableView.headerView {
+                var frame = headerView.frame
+                frame.size.height = typography.tableHeaderHeight()
+                headerView.frame = frame
+            }
+            tableView.enclosingScrollView?.tile()
+        }
+        for column in tableView.tableColumns where Self.isMetadataColumn(column.identifier) {
+            column.headerCell.font = typography.font(for: .tableHeader)
+        }
+        let visibleRows = tableView.rows(in: tableView.visibleRect)
+        guard visibleRows.location != NSNotFound else { return }
+        for row in visibleRows.location..<min(
+            NSMaxRange(visibleRows),
+            tableView.numberOfRows
+        ) {
+            for (columnIndex, column) in tableView.tableColumns.enumerated()
+            where Self.isMetadataColumn(column.identifier) && !column.isHidden {
+                let cell = tableView.view(
+                    atColumn: columnIndex,
+                    row: row,
+                    makeIfNecessary: false
+                ) as? NSTableCellView
+                cell?.textField?.font = typography.font(for: .body)
+            }
+        }
     }
 
     // MARK: - Update
@@ -186,6 +250,7 @@ public final class MetadataColumnController {
 
         tableView.reloadData()
         rebuildHeaderMenu()
+        applyContentTypography()
     }
 
     // MARK: - Flexible Resizing
@@ -445,9 +510,10 @@ public final class MetadataColumnController {
     private func makeMetadataCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
         let cell = NSTableCellView()
         cell.identifier = identifier
-        let field = NSTextField(labelWithString: "")
+        let field = MetadataContentTextField(labelWithString: "")
         field.tag = Self.metadataCellTextFieldTag
-        field.font = .systemFont(ofSize: 11)
+        let typography = ContentTypography.current()
+        field.font = typography.font(for: .body)
         field.lineBreakMode = .byTruncatingTail
         field.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(field)
@@ -463,7 +529,8 @@ public final class MetadataColumnController {
     private func configureMetadataCell(_ cell: NSTableCellView, value: String) {
         let field = cell.textField ?? cell.viewWithTag(Self.metadataCellTextFieldTag) as? NSTextField
         field?.stringValue = value
-        field?.font = .systemFont(ofSize: 11)
+        let typography = ContentTypography.current()
+        field?.font = typography.font(for: .body)
         field?.lineBreakMode = .byTruncatingTail
         field?.textColor = value == "\u{2014}" ? .tertiaryLabelColor : .labelColor
         field?.toolTip = value == "\u{2014}" ? nil : value

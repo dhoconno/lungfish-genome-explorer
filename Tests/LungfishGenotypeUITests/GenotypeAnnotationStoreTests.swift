@@ -876,7 +876,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             name: "Metadata cohort",
             scope: "bundle",
             isStarred: true,
-            predicate: .metadataFieldContains(field: "Cohort", value: "Kenyon20")
+            predicate: .animalIdIn(["CR1178", "CR1178b"]),
+            searchProjectionText: "A1*007"
         )
 
         try store.saveSmartCohort(cohort)
@@ -905,6 +906,18 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(envelope.outputs.first?.role, .output)
         XCTAssertNotNil(envelope.outputs.first?.checksumSHA256)
         XCTAssertNotNil(envelope.outputs.first?.fileSize)
+        let persisted = try JSONDecoder().decode(
+            GenotypeAnnotationSidecar.self,
+            from: Data(contentsOf: annotationURL)
+        )
+        XCTAssertEqual(
+            persisted.smartCohorts.first { $0.name == cohort.name }?.searchProjectionText,
+            "A1*007"
+        )
+        XCTAssertTrue(
+            persisted.auditLog.last { $0.action == "saveSmartCohort" }?
+                .after?.contains("searchProjectionText=A1*007") == true
+        )
     }
 
     func testDefaultCohortsSeededOnFirstOpen() throws {
@@ -917,6 +930,64 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertTrue(names.contains("Needs review"))
         XCTAssertTrue(names.contains("Homozygous"))
         XCTAssertTrue(names.contains("Recombinants"))
+    }
+
+    func testWritableNonseedingOpenPreservesSidecarAndProvenanceUntilExplicitMutation() async throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T00:00:00Z"
+        )
+        sidecar.smartCohorts = [
+            GenotypeCohortSmartFilter(
+                name: "Analyst custom",
+                scope: "bundle",
+                isStarred: true,
+                predicate: .animalIdIn(["Animal-1"])
+            ),
+        ]
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try sidecar.encoded().write(to: annotationURL)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let provenanceBytes = Data("existing provenance".utf8)
+        try provenanceBytes.write(to: provenanceURL)
+        let sidecarBytes = try Data(contentsOf: annotationURL)
+
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "test",
+            seedBuiltInSmartCohorts: false
+        )
+
+        XCTAssertFalse(store.isReadOnly)
+        XCTAssertEqual(store.sidecar.smartCohorts.map(\.name), ["Analyst custom"])
+        XCTAssertEqual(try Data(contentsOf: annotationURL), sidecarBytes)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), provenanceBytes)
+
+        let target = GenotypeAnnotationSidecar.MatrixTarget.column(
+            sample: "Animal-1"
+        )
+        try await store.upsertMatrixComment(
+            body: "Unexpected sample behavior.",
+            targets: [target],
+            author: "test"
+        )
+
+        XCTAssertEqual(store.sidecar.matrixComments.map(\.body), [
+            "Unexpected sample behavior.",
+        ])
+        XCTAssertEqual(store.sidecar.auditLog.last?.action, "upsertMatrixComment")
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(
+                fromSidecar: provenanceURL
+            )
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["action"],
+            .string("upsertMatrixComment")
+        )
     }
 
     func testDefaultCohortsDoNotOverwriteAnalystCustomVersion() throws {

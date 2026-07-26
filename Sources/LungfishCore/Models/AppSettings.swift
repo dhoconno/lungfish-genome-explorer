@@ -34,6 +34,90 @@ public enum ScrollDirectionPreference: String, Sendable, CaseIterable, Codable {
     }
 }
 
+/// User-selected scaling for primary list, table, and detail content.
+///
+/// `system` uses the semantic AppKit preferred font sizes without applying an
+/// additional Lungfish scale. Custom values are normalized to one of the
+/// supported percentages before persistence or use.
+public enum ContentTextSizePreference: Sendable, Equatable, Codable {
+    case system
+    case custom(Int)
+
+    public static let supportedPercentages = [90, 100, 125, 150, 175, 200]
+
+    public var normalized: Self {
+        switch self {
+        case .system:
+            return .system
+        case .custom(let percentage):
+            let boundedPercentage = max(
+                Self.supportedPercentages[0],
+                min(Self.supportedPercentages[Self.supportedPercentages.count - 1], percentage)
+            )
+            let nearest = Self.supportedPercentages.min { lhs, rhs in
+                let lhsDistance = abs(lhs - boundedPercentage)
+                let rhsDistance = abs(rhs - boundedPercentage)
+                return lhsDistance == rhsDistance ? lhs < rhs : lhsDistance < rhsDistance
+            } ?? 100
+            return .custom(nearest)
+        }
+    }
+
+    public var percentage: Int? {
+        guard case .custom(let percentage) = normalized else { return nil }
+        return percentage
+    }
+
+    public var scaleFactor: Double {
+        Double(percentage ?? 100) / 100
+    }
+
+    public var larger: Self {
+        switch normalized {
+        case .system:
+            return .custom(125)
+        case .custom(let percentage):
+            return .custom(Self.adjacentPercentage(to: percentage, direction: 1))
+        }
+    }
+
+    public var smaller: Self {
+        switch normalized {
+        case .system:
+            return .custom(90)
+        case .custom(let percentage):
+            return .custom(Self.adjacentPercentage(to: percentage, direction: -1))
+        }
+    }
+
+    private static func adjacentPercentage(to percentage: Int, direction: Int) -> Int {
+        guard let index = supportedPercentages.firstIndex(of: percentage) else {
+            return percentage
+        }
+        let destination = max(0, min(supportedPercentages.count - 1, index + direction))
+        return supportedPercentages[destination]
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(Int.self) {
+            self = .custom(value).normalized
+        } else {
+            self = .system
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch normalized {
+        case .system:
+            try container.encode("system")
+        case .custom(let percentage):
+            try container.encode(percentage)
+        }
+    }
+}
+
 /// High-level presentation state for the shared managed storage configuration.
 public enum ManagedStorageDisplayState: Sendable, Equatable {
     case defaultRoot
@@ -98,6 +182,9 @@ public final class AppSettings {
     }
 
     // MARK: - Appearance
+
+    /// Primary list/table/detail content size.
+    public var contentTextSizePreference: ContentTextSizePreference = .system
 
     /// Nucleotide base color configuration (persisted as hex strings).
     public var sequenceAppearance: SequenceAppearance = .default
@@ -316,6 +403,7 @@ public final class AppSettings {
         var provenanceSigningPublicKeyPath: String
         var analystIdentityOverride: String
         // Appearance
+        var contentTextSizePreference: ContentTextSizePreference
         var sequenceAppearance: SequenceAppearance
         var annotationTypeColorHexes: [String: String]
         var variantColorThemeName: String
@@ -352,6 +440,7 @@ public final class AppSettings {
             provenanceSigningProvider: String,
             provenanceSigningPublicKeyPath: String,
             analystIdentityOverride: String,
+            contentTextSizePreference: ContentTextSizePreference,
             sequenceAppearance: SequenceAppearance,
             annotationTypeColorHexes: [String: String],
             variantColorThemeName: String,
@@ -384,6 +473,7 @@ public final class AppSettings {
             self.provenanceSigningProvider = provenanceSigningProvider
             self.provenanceSigningPublicKeyPath = provenanceSigningPublicKeyPath
             self.analystIdentityOverride = analystIdentityOverride
+            self.contentTextSizePreference = contentTextSizePreference
             self.sequenceAppearance = sequenceAppearance
             self.annotationTypeColorHexes = annotationTypeColorHexes
             self.variantColorThemeName = variantColorThemeName
@@ -421,6 +511,10 @@ public final class AppSettings {
             provenanceSigningPublicKeyPath = try container.decodeIfPresent(String.self, forKey: .provenanceSigningPublicKeyPath) ?? ""
             analystIdentityOverride = try container.decodeIfPresent(String.self, forKey: .analystIdentityOverride) ?? ""
             // Appearance
+            contentTextSizePreference = try container.decodeIfPresent(
+                ContentTextSizePreference.self,
+                forKey: .contentTextSizePreference
+            )?.normalized ?? .system
             sequenceAppearance = try container.decodeIfPresent(SequenceAppearance.self, forKey: .sequenceAppearance) ?? .default
             annotationTypeColorHexes = try container.decodeIfPresent([String: String].self, forKey: .annotationTypeColorHexes) ?? [
                 "gene": "#339933",
@@ -518,6 +612,7 @@ public final class AppSettings {
             provenanceSigningProvider: Self.normalizedProvenanceSigningProvider(provenanceSigningProvider),
             provenanceSigningPublicKeyPath: provenanceSigningPublicKeyPath.trimmingCharacters(in: .whitespacesAndNewlines),
             analystIdentityOverride: analystIdentityOverride.trimmingCharacters(in: .whitespacesAndNewlines),
+            contentTextSizePreference: contentTextSizePreference.normalized,
             sequenceAppearance: sequenceAppearance,
             annotationTypeColorHexes: annotationTypeColorHexes,
             variantColorThemeName: Self.normalizedVariantThemeName(variantColorThemeName),
@@ -553,6 +648,7 @@ public final class AppSettings {
         provenanceSigningProvider = Self.normalizedProvenanceSigningProvider(snapshot.provenanceSigningProvider)
         provenanceSigningPublicKeyPath = snapshot.provenanceSigningPublicKeyPath.trimmingCharacters(in: .whitespacesAndNewlines)
         analystIdentityOverride = snapshot.analystIdentityOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+        contentTextSizePreference = snapshot.contentTextSizePreference.normalized
         sequenceAppearance = snapshot.sequenceAppearance
         annotationTypeColorHexes = snapshot.annotationTypeColorHexes
         variantColorThemeName = Self.normalizedVariantThemeName(snapshot.variantColorThemeName)
@@ -581,11 +677,14 @@ public final class AppSettings {
 
     /// Persists current settings to UserDefaults and posts change notifications.
     public func save() {
+        let previousContentTextSizePreference = Self.persistedContentTextSizePreference()
+        let normalizedContentTextSizePreference = contentTextSizePreference.normalized
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
             let snapshot = makeSnapshot()
             analystIdentityOverride = snapshot.analystIdentityOverride
+            contentTextSizePreference = snapshot.contentTextSizePreference
             let data = try encoder.encode(snapshot)
             UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
             settingsLogger.info("Settings saved")
@@ -595,6 +694,17 @@ public final class AppSettings {
 
         NotificationCenter.default.post(name: .appSettingsChanged, object: nil)
         NotificationCenter.default.post(name: .appearanceChanged, object: nil)
+        if previousContentTextSizePreference != normalizedContentTextSizePreference {
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        }
+    }
+
+    private static func persistedContentTextSizePreference() -> ContentTextSizePreference {
+        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
+              let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else {
+            return .system
+        }
+        return snapshot.contentTextSizePreference.normalized
     }
 
     /// Loads settings from UserDefaults into the shared instance.
@@ -642,6 +752,7 @@ public final class AppSettings {
             provenanceSigningPublicKeyPath = fresh.provenanceSigningPublicKeyPath
             analystIdentityOverride = fresh.analystIdentityOverride
         case .appearance:
+            contentTextSizePreference = fresh.contentTextSizePreference
             sequenceAppearance = fresh.sequenceAppearance
             annotationTypeColorHexes = fresh.annotationTypeColorHexes
             variantColorThemeName = fresh.variantColorThemeName

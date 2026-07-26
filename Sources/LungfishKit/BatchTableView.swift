@@ -201,6 +201,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     /// Pending user-typed free-text filter application.
     private var pendingFilterTask: Task<Void, Never>?
 
+    /// Live content-size preference observation.
+    private var contentTypographyObservation: ContentTypographyNotificationObservation?
+
     /// Stable selection IDs for the current table.
     private var selectionIdentities = SelectionIdentityStore<String>()
 
@@ -221,7 +224,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     // MARK: - Metadata Columns
 
     /// Controller for dynamic sample-metadata columns (from imported CSV/TSV).
-    public let metadataColumns = MetadataColumnController()
+    public let metadataColumns = MetadataColumnController(
+        contentTypographyOwnership: .embedded
+    )
 
     /// Optional contextual menu assigned to the table.
     public var tableContextMenu: NSMenu? {
@@ -236,6 +241,10 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     public private(set) var tableView: NSTableView!
     private var scrollView: NSScrollView!
     private var searchField: NSSearchField!
+    private var searchHeightConstraint: NSLayoutConstraint!
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private var overridePreferredFontCanonicalPointSize: CGFloat = 0
 
     // MARK: - Init
 
@@ -256,6 +265,8 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     // MARK: - Setup
 
     private func setupTableView() {
+        overridePreferredFontCanonicalPointSize = preferredFontProvider
+            .canonicalUnscaledPointSize(for: .body)
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -263,7 +274,6 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         let sf = NSSearchField()
         sf.translatesAutoresizingMaskIntoConstraints = false
         sf.placeholderString = searchPlaceholder
-        sf.font = .systemFont(ofSize: 11)
         sf.controlSize = .small
         sf.target = self
         sf.action = #selector(filterChanged(_:))
@@ -287,11 +297,13 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         addSubview(sv)
         self.scrollView = sv
 
+        let searchHeightConstraint = sf.heightAnchor.constraint(equalToConstant: 24)
+        self.searchHeightConstraint = searchHeightConstraint
         NSLayoutConstraint.activate([
             sf.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             sf.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             sf.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            sf.heightAnchor.constraint(equalToConstant: 24),
+            searchHeightConstraint,
             sv.topAnchor.constraint(equalTo: sf.bottomAnchor, constant: 4),
             sv.leadingAnchor.constraint(equalTo: leadingAnchor),
             sv.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -304,7 +316,6 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         tv.allowsColumnResizing    = true
         tv.allowsColumnSelection   = false
         tv.allowsMultipleSelection = true
-        tv.rowHeight               = 22
         tv.style                   = .plain
         tv.delegate                = self
         tv.dataSource              = self
@@ -326,6 +337,69 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         metadataColumns.isMultiSampleMode = true
         metadataColumns.standardColumnNames = standardColumnNames
         metadataColumns.install(on: tv)
+        applyContentTypography()
+        let notifications = NotificationCenterContentTypographyNotifications(
+            notificationCenter: .default
+        )
+        contentTypographyObservation = notifications.observe(
+            .contentTextSizeDidChange
+        ) { [weak self] in
+            self?.applyContentTypography()
+        }
+    }
+
+    /// Applies shared semantic content fonts and adaptive table geometry.
+    ///
+    /// Subclasses overriding this hook must call `super`.
+    open func applyContentTypography() {
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
+        let selectedRows = tableView.selectedRowIndexes
+        isRestoringSelection = true
+        defer { isRestoringSelection = false }
+        searchField.font = typography.font(for: .body)
+        searchHeightConstraint.constant = max(
+            24,
+            ceil(typography.font(for: .body).boundingRectForFont.height + 8)
+        )
+        tableView.rowHeight = typography.tableRowHeight()
+        if let headerView = tableView.headerView {
+            var frame = headerView.frame
+            frame.size.height = typography.tableHeaderHeight()
+            headerView.frame = frame
+        }
+        scrollView.tile()
+        for column in tableView.tableColumns {
+            column.headerCell.font = typography.font(for: .tableHeader)
+        }
+        tableView.reloadData()
+        tableView.selectRowIndexes(selectedRows, byExtendingSelection: false)
+    }
+
+    /// Replaces the semantic preferred-font source and resets the stable
+    /// baseline used for explicit subclass font overrides.
+    public func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        overridePreferredFontCanonicalPointSize = provider
+            .canonicalUnscaledPointSize(for: .body)
+        applyContentTypography()
+    }
+
+    /// The resolved semantic typography currently used by this table.
+    ///
+    /// Exposed for subclasses that adapt non-font geometry, such as column
+    /// widths, to the same resolved system metrics.
+    public func resolvedContentTypography() -> ContentTypography {
+        ContentTypography.current(preferredFontProvider: preferredFontProvider)
+    }
+
+    /// Returns the unscaled canonical point size supplied by the active
+    /// preferred-font source.
+    public func canonicalContentPointSize(for role: ContentTypography.Role) -> CGFloat {
+        preferredFontProvider.canonicalUnscaledPointSize(for: role)
     }
 
     private func addFixedColumns() {
@@ -428,6 +502,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         }
         metadataColumns.standardColumnNames = standardColumnNames
         metadataColumns.refreshAfterStandardColumnsChanged()
+        applyContentTypography()
     }
 
     // MARK: - Empty Column Hiding
@@ -619,7 +694,10 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         let tf = BatchQuickCopyTextField(labelWithString: "")
         tf.pasteboard = cellCopyPasteboard
         tf.copiedValue = { [weak tf] in tf?.stringValue ?? "" }
-        tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
+        tf.font = typography.font(for: .monospaced)
         tf.lineBreakMode = .byTruncatingTail
         tf.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(tf)
@@ -858,10 +936,28 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             copyField.pasteboard = cellCopyPasteboard
         }
         if let font {
-            cellView.textField?.font = font
+            cellView.textField?.font = scaledContentFont(from: font)
+        } else {
+            cellView.textField?.font = ContentTypography.current(
+                preferredFontProvider: preferredFontProvider
+            ).font(for: .monospaced)
         }
 
         return cellView
+    }
+
+    private func scaledContentFont(from baseline: NSFont) -> NSFont {
+        let preferenceScale = CGFloat(
+            AppSettings.shared.contentTextSizePreference.normalized.scaleFactor
+        )
+        let currentPreferredPointSize = preferredFontProvider
+            .preferredFont(for: .body)
+            .pointSize
+        let systemMetricScale = currentPreferredPointSize
+            / max(overridePreferredFontCanonicalPointSize, 1)
+        let scale = preferenceScale * systemMetricScale
+        let pointSize = max(ContentTypography.minimumPointSize, baseline.pointSize * scale)
+        return NSFont(descriptor: baseline.fontDescriptor, size: pointSize) ?? baseline
     }
 
     open func tableViewSelectionDidChange(_ notification: Notification) {

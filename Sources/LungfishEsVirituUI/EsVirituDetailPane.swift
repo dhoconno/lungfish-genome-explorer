@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishKit
 import LungfishIO
 import os.log
@@ -79,6 +80,22 @@ public final class EsVirituDetailPane: NSView {
     // Detail subviews
     private let virusNameLabel = NSTextField(labelWithString: "")
     private let coveragePlotView = CoverageAreaChartView()
+    private lazy var contentTypographyApplicator = ContentTypographyViewApplicator { [weak self] view in
+        return view is NSButton
+            || view is NSSegmentedControl
+            || view is NSPopUpButton
+            || view is NSSlider
+            || view === self?.coveragePlotView
+            || view === self?.topVirusesView
+            || view is SegmentCompletenessView
+            || view === self?.miniBAMViewController?.view
+    }
+    private var contentTypographyObservation: ContentTypographyViewObservation?
+    private weak var activeMetricsView: NSStackView?
+    private var activeMetricWidthConstraints: [NSLayoutConstraint] = []
+    #if DEBUG
+    private var contentRebuildCount = 0
+    #endif
 
     // MARK: - Init
 
@@ -105,6 +122,13 @@ public final class EsVirituDetailPane: NSView {
 
         setupOverviewSubviews()
         setupDetailSubviews()
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: contentTypographyApplicator,
+            rootProvider: { [weak self] in self?.contentView },
+            afterApply: { [weak self] in
+                self?.updateAdaptiveMetricLayout()
+            }
+        )
     }
 
     // MARK: - Setup
@@ -120,7 +144,8 @@ public final class EsVirituDetailPane: NSView {
     private func setupDetailSubviews() {
         virusNameLabel.font = .systemFont(ofSize: 16, weight: .bold)
         virusNameLabel.textColor = .labelColor
-        virusNameLabel.lineBreakMode = .byTruncatingTail
+        virusNameLabel.lineBreakMode = .byWordWrapping
+        virusNameLabel.maximumNumberOfLines = 0
         virusNameLabel.translatesAutoresizingMaskIntoConstraints = false
 
         coveragePlotView.translatesAutoresizingMaskIntoConstraints = false
@@ -172,6 +197,12 @@ public final class EsVirituDetailPane: NSView {
     // MARK: - Content Rebuild
 
     private func rebuildContent() {
+        #if DEBUG
+        contentRebuildCount += 1
+        #endif
+        NSLayoutConstraint.deactivate(activeMetricWidthConstraints)
+        activeMetricWidthConstraints = []
+        activeMetricsView = nil
         // Remove all subviews from content
         for subview in contentView.subviews {
             subview.removeFromSuperview()
@@ -187,6 +218,7 @@ public final class EsVirituDetailPane: NSView {
         // Keep the primary content (mini-BAM when present) visible at the top.
         scrollView.contentView.scroll(to: .zero)
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        contentTypographyObservation?.refresh()
     }
 
     // MARK: - Overview Content
@@ -255,6 +287,8 @@ public final class EsVirituDetailPane: NSView {
         let familyLabel = NSTextField(labelWithString: assembly.family ?? "")
         familyLabel.font = .systemFont(ofSize: 11)
         familyLabel.textColor = .secondaryLabelColor
+        familyLabel.lineBreakMode = .byWordWrapping
+        familyLabel.maximumNumberOfLines = 0
         familyLabel.translatesAutoresizingMaskIntoConstraints = false
         headerStack.addSubview(familyLabel)
 
@@ -364,11 +398,16 @@ public final class EsVirituDetailPane: NSView {
             ("Family", assembly.family ?? "Unknown"),
         ]
 
+        activeMetricWidthConstraints = []
         for (label, value) in metrics {
             let metricView = makeMetricPill(label: label, value: value)
             container.addArrangedSubview(metricView)
+            activeMetricWidthConstraints.append(
+                metricView.widthAnchor.constraint(equalTo: container.widthAnchor)
+            )
         }
 
+        activeMetricsView = container
         return container
     }
 
@@ -380,14 +419,16 @@ public final class EsVirituDetailPane: NSView {
         labelField.font = .systemFont(ofSize: 9, weight: .medium)
         labelField.textColor = .tertiaryLabelColor
         labelField.alignment = .center
-        labelField.lineBreakMode = .byTruncatingTail
+        labelField.lineBreakMode = .byWordWrapping
+        labelField.maximumNumberOfLines = 0
         labelField.translatesAutoresizingMaskIntoConstraints = false
 
         let valueField = NSTextField(labelWithString: value)
         valueField.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         valueField.textColor = .labelColor
         valueField.alignment = .center
-        valueField.lineBreakMode = .byTruncatingTail
+        valueField.lineBreakMode = .byCharWrapping
+        valueField.maximumNumberOfLines = 0
         valueField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         valueField.translatesAutoresizingMaskIntoConstraints = false
 
@@ -406,6 +447,28 @@ public final class EsVirituDetailPane: NSView {
         ])
 
         return pill
+    }
+
+    private func updateAdaptiveMetricLayout() {
+        guard let metrics = activeMetricsView else { return }
+        let shouldStack = AppSettings.shared.contentTextSizePreference.normalized.scaleFactor >= 1.5
+            || scrollView.contentView.bounds.width < 420
+        let orientation: NSUserInterfaceLayoutOrientation = shouldStack ? .vertical : .horizontal
+        guard metrics.orientation != orientation else { return }
+        if shouldStack {
+            NSLayoutConstraint.activate(activeMetricWidthConstraints)
+        } else {
+            NSLayoutConstraint.deactivate(activeMetricWidthConstraints)
+        }
+        metrics.orientation = orientation
+        metrics.alignment = shouldStack ? .width : .top
+        metrics.distribution = shouldStack ? .fill : .fillEqually
+        contentView.needsLayout = true
+    }
+
+    public override func layout() {
+        super.layout()
+        updateAdaptiveMetricLayout()
     }
 
     private func formatNumber(_ n: Int) -> String {
@@ -458,6 +521,68 @@ public final class EsVirituDetailPane: NSView {
         }
         return false
     }
+
+    #if DEBUG
+    struct TestingTypographyMetrics: Equatable {
+        let titlePointSize: CGFloat
+        let summaryPointSize: CGFloat
+        let metricOrientation: NSUserInterfaceLayoutOrientation?
+        let metricFieldsAreContained: Bool
+    }
+
+    var testingTypographyMetrics: TestingTypographyMetrics {
+        let summary = allTextFields(in: contentView).first {
+            $0.stringValue.contains("assemblies detected")
+        }
+        return TestingTypographyMetrics(
+            titlePointSize: overviewTitleLabel.font?.pointSize ?? 0,
+            summaryPointSize: summary?.font?.pointSize ?? 0,
+            metricOrientation: activeMetricsView?.orientation,
+            metricFieldsAreContained: activeMetricsView.map { metrics in
+                metrics.layoutSubtreeIfNeeded()
+                let fields = allTextFields(in: metrics)
+                return !fields.isEmpty && fields.allSatisfy { field in
+                    guard let parent = field.superview else { return false }
+                    return field.frame.width > 0
+                        && field.frame.height > 0
+                        && parent.bounds.insetBy(dx: -2, dy: -2).contains(field.frame)
+                }
+            } ?? true
+        )
+    }
+
+    var testingContentRebuildCount: Int {
+        contentRebuildCount
+    }
+
+    var testingScientificViewIdentities: [ObjectIdentifier] {
+        [ObjectIdentifier(topVirusesView), ObjectIdentifier(coveragePlotView)]
+    }
+
+    var testingMetricFrameDescription: String {
+        guard let metrics = activeMetricsView else { return "no metrics" }
+        return allTextFields(in: metrics).map {
+            "\($0.stringValue): frame=\(NSStringFromRect($0.frame)) parent=\(NSStringFromRect($0.superview?.bounds ?? .zero))"
+        }.joined(separator: " | ")
+    }
+
+    var testingFullTextAccessibility: [(String, String?, String?)] {
+        allTextFields(in: contentView).map {
+            (
+                $0.stringValue,
+                $0.toolTip,
+                $0.accessibilityValue()
+            )
+        }
+    }
+
+    private func allTextFields(in root: NSView) -> [NSTextField] {
+        root.subviews.flatMap { view -> [NSTextField] in
+            let own = (view as? NSTextField).map { [$0] } ?? []
+            return own + allTextFields(in: view)
+        }
+    }
+    #endif
 }
 
 // MARK: - TopVirusBarChartView

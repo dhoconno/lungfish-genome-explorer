@@ -9,15 +9,41 @@ import LungfishKit
 @MainActor
 final class AssemblyContigTableView: BatchTableView<AssemblyContigRecord> {
     var scalarPasteboard: PasteboardWriting = DefaultPasteboard()
+    private var baselineWidths: [String: CGFloat] = [:]
+    private var baselineMinimumWidths: [String: CGFloat] = [:]
+    private var lastProgrammaticWidths: [String: CGFloat] = [:]
+    private var lastResolvedScale: CGFloat = 1
+    private var isApplyingAdaptiveColumnWidths = false
 
     override var columnSpecs: [BatchColumnSpec] {
         [
             .init(identifier: NSUserInterfaceItemIdentifier("rank"), title: "#", width: 44, minWidth: 34, defaultAscending: true),
             .init(identifier: NSUserInterfaceItemIdentifier("name"), title: "Contig", width: 220, minWidth: 140, defaultAscending: true),
-            .init(identifier: NSUserInterfaceItemIdentifier("length"), title: "Length (bp)", width: 110, minWidth: 90, defaultAscending: false),
+            .init(
+                identifier: NSUserInterfaceItemIdentifier("length"),
+                title: "Length (bp)",
+                width: 110,
+                minWidth: 90,
+                defaultAscending: false,
+                toolTip: "Length (bp)"
+            ),
             .init(identifier: NSUserInterfaceItemIdentifier("gc"), title: "GC %", width: 90, minWidth: 70, defaultAscending: false),
-            .init(identifier: NSUserInterfaceItemIdentifier("share"), title: "Share of Assembly (%)", width: 150, minWidth: 120, defaultAscending: false),
-            .init(identifier: NSUserInterfaceItemIdentifier("preview"), title: "Sequence Preview", width: 360, minWidth: 220, defaultAscending: true),
+            .init(
+                identifier: NSUserInterfaceItemIdentifier("share"),
+                title: "Share of Assembly (%)",
+                width: 150,
+                minWidth: 120,
+                defaultAscending: false,
+                toolTip: "Share of Assembly (%)"
+            ),
+            .init(
+                identifier: NSUserInterfaceItemIdentifier("preview"),
+                title: "Sequence Preview",
+                width: 360,
+                minWidth: 220,
+                defaultAscending: true,
+                toolTip: "Sequence Preview"
+            ),
         ]
     }
 
@@ -27,6 +53,60 @@ final class AssemblyContigTableView: BatchTableView<AssemblyContigRecord> {
     override var tableAccessibilityIdentifier: String? { "assembly-result-contig-table" }
     override var tableAccessibilityLabel: String? { "Assembly contig table" }
     override var cellCopyPasteboard: PasteboardWriting? { scalarPasteboard }
+
+    override func applyContentTypography() {
+        captureUserColumnWidths()
+        super.applyContentTypography()
+        applyAdaptiveColumnWidths()
+    }
+
+    private func captureUserColumnWidths() {
+        guard tableView != nil, !isApplyingAdaptiveColumnWidths else { return }
+        for column in tableView.tableColumns {
+            let identifier = column.identifier.rawValue
+            if baselineWidths[identifier] == nil {
+                baselineWidths[identifier] = column.width
+                baselineMinimumWidths[identifier] = column.minWidth
+            } else if let lastWidth = lastProgrammaticWidths[identifier],
+                      abs(column.width - lastWidth) > 0.5 {
+                baselineWidths[identifier] = column.width / max(lastResolvedScale, 0.01)
+            }
+        }
+    }
+
+    private func applyAdaptiveColumnWidths() {
+        guard tableView != nil else { return }
+        let typography = resolvedContentTypography()
+        let scale = typography.font(for: .body).pointSize
+            / max(canonicalContentPointSize(for: .body), 1)
+        isApplyingAdaptiveColumnWidths = true
+        defer {
+            isApplyingAdaptiveColumnWidths = false
+            lastResolvedScale = scale
+        }
+        for column in tableView.tableColumns {
+            let identifier = column.identifier.rawValue
+            let baselineWidth = baselineWidths[identifier] ?? column.width
+            let baselineMinimum = baselineMinimumWidths[identifier] ?? column.minWidth
+            baselineWidths[identifier] = baselineWidth
+            baselineMinimumWidths[identifier] = baselineMinimum
+
+            let headerWidth = ceil(column.headerCell.cellSize.width + 20)
+            let adaptiveMinimum = scale > 1.01
+                ? max(baselineMinimum, headerWidth)
+                : baselineMinimum
+            let adaptiveWidth = max(
+                adaptiveMinimum,
+                max(
+                    baselineWidth * scale,
+                    scale > 1.01 ? headerWidth : 0
+                )
+            )
+            column.minWidth = adaptiveMinimum
+            column.width = adaptiveWidth
+            lastProgrammaticWidths[identifier] = column.width
+        }
+    }
 
     override var columnTypeHints: [String : Bool] {
         [

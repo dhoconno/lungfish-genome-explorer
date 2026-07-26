@@ -880,6 +880,53 @@ final class FASTQDashboardTests: XCTestCase {
     }
 
     @MainActor
+    func testFASTQSummaryHostAdaptsForScaleAndLateStatisticsWithoutLosingAccessibility() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+            NotificationCenter.default.post(
+                name: .contentTextSizeDidChange,
+                object: nil
+            )
+        }
+        settings.contentTextSizePreference = .custom(100)
+        let controller = FASTQDatasetViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 360, height: 800)
+        controller.view.layoutSubtreeIfNeeded()
+        let emptyHeight = controller.testingSummaryBarHeight
+        XCTAssertEqual(controller.testingSummaryCardCount, 0)
+
+        controller.configure(statistics: makeSampleStatistics(), records: [])
+        controller.view.layoutSubtreeIfNeeded()
+        let baselineHeight = controller.testingSummaryBarHeight
+        let baselineTopHeight = controller.testingTopPaneHeight
+        let baselineDivider = controller.testingMainDividerPosition
+        XCTAssertEqual(controller.testingSummaryCardCount, 9)
+        XCTAssertGreaterThan(baselineHeight, emptyHeight)
+        XCTAssertEqual(controller.testingSummaryAccessibilityChildren.count, 9)
+        XCTAssertEqual(
+            controller.testingSummaryAccessibilityChildren.first?.accessibilityLabel(),
+            "Reads"
+        )
+
+        settings.contentTextSizePreference = .custom(200)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        controller.view.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(controller.testingSummaryBarHeight, baselineHeight)
+        XCTAssertGreaterThan(controller.testingTopPaneHeight, baselineTopHeight)
+        XCTAssertGreaterThan(controller.testingMainDividerPosition, baselineDivider)
+
+        settings.contentTextSizePreference = .custom(100)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        controller.view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(controller.testingSummaryBarHeight, baselineHeight, accuracy: 0.5)
+        XCTAssertEqual(controller.testingTopPaneHeight, baselineTopHeight, accuracy: 0.5)
+        XCTAssertEqual(controller.testingMainDividerPosition, baselineDivider, accuracy: 0.5)
+    }
+
+    @MainActor
     func testFASTQHistogramChartViewCreation() {
         let chart = FASTQHistogramChartView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         let histData = FASTQHistogramChartView.HistogramData(

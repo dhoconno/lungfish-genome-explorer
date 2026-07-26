@@ -153,6 +153,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private let detectionTableView = ViralDetectionTableView()
     let actionBar = ClassifierActionBar()
     private var splitViewBottomConstraint: NSLayoutConstraint?
+    private let contentTypographyApplicator = ContentTypographyViewApplicator()
+    private var contentTypographyObservation: ContentTypographyViewObservation?
 
     // MARK: - Custom Action Bar Buttons
 
@@ -178,12 +180,16 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         let primary = NSTextField(labelWithString: "")
         primary.font = .systemFont(ofSize: 13, weight: .semibold)
         primary.alignment = .center
+        primary.lineBreakMode = .byWordWrapping
+        primary.maximumNumberOfLines = 0
         primary.translatesAutoresizingMaskIntoConstraints = false
 
         let secondary = NSTextField(labelWithString: "Select a single row to view details")
         secondary.font = .systemFont(ofSize: 11)
         secondary.textColor = .tertiaryLabelColor
         secondary.alignment = .center
+        secondary.lineBreakMode = .byWordWrapping
+        secondary.maximumNumberOfLines = 0
         secondary.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = NSStackView(views: [primary, secondary])
@@ -196,6 +202,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
+            stack.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -32),
         ])
 
         container.isHidden = true
@@ -321,6 +330,10 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         layoutSubviews()
         wireCallbacks()
         applyLayoutPreference()
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: contentTypographyApplicator,
+            rootProvider: { [weak self] in self?.multiSelectionPlaceholder }
+        )
 
         NotificationCenter.default.addObserver(
             self,
@@ -1054,12 +1067,18 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     // MARK: - Layout
 
     private func layoutSubviews() {
+        let summaryHeight = summaryBar.heightAnchor.constraint(
+            equalToConstant: summaryBar.preferredContentHeight
+        )
+        summaryBar.onPreferredContentHeightChanged = { [weak summaryHeight] height in
+            summaryHeight?.constant = height
+        }
         NSLayoutConstraint.activate([
             // Summary bar (top, below safe area)
             summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            summaryBar.heightAnchor.constraint(equalToConstant: 48),
+            summaryHeight,
 
             // Action bar (bottom, fixed height)
             actionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -1524,6 +1543,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         }
         detailPane.isHidden = true
         multiSelectionPlaceholder.isHidden = false
+        contentTypographyObservation?.refresh()
     }
 
     private func hideMultiSelectionPlaceholder() {
@@ -1884,6 +1904,42 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     /// Returns the contig currently targeted by mini-BAM updates.
     var testCurrentBAMContigAccession: String? { currentBAMContigAccession }
+
+    #if DEBUG
+    struct TestingPlaceholderTypographyMetrics: Equatable {
+        let primaryPointSize: CGFloat
+        let secondaryPointSize: CGFloat
+        let fieldsAreContained: Bool
+    }
+
+    func testingShowMultiSelectionPlaceholder(count: Int) {
+        showMultiSelectionPlaceholder(count: count)
+        view.layoutSubtreeIfNeeded()
+        multiSelectionPlaceholder.layoutSubtreeIfNeeded()
+    }
+
+    var testingPlaceholderTypographyMetrics: TestingPlaceholderTypographyMetrics {
+        let stack = multiSelectionPlaceholder.subviews.first as? NSStackView
+        let fields = stack?.arrangedSubviews.compactMap { $0 as? NSTextField } ?? []
+        return TestingPlaceholderTypographyMetrics(
+            primaryPointSize: fields.first?.font?.pointSize ?? 0,
+            secondaryPointSize: fields.dropFirst().first?.font?.pointSize ?? 0,
+            fieldsAreContained: fields.allSatisfy { field in
+                guard let parent = field.superview else { return false }
+                return field.frame.width > 0
+                    && field.frame.height > 0
+                    && parent.bounds.insetBy(dx: -2, dy: -2).contains(field.frame)
+            }
+        )
+    }
+
+    var testingPlaceholderFrameDescription: String {
+        let stack = multiSelectionPlaceholder.subviews.first as? NSStackView
+        return (stack?.arrangedSubviews.compactMap { $0 as? NSTextField } ?? []).map {
+            "\($0.stringValue): frame=\(NSStringFromRect($0.frame)) parent=\(NSStringFromRect($0.superview?.bounds ?? .zero))"
+        }.joined(separator: " | ")
+    }
+    #endif
 }
 
 // MARK: - EsVirituSummaryBar
@@ -1914,7 +1970,7 @@ final class EsVirituSummaryBar: GenomicSummaryCardBar {
         topVirus = result.assemblies
             .max(by: { $0.totalReads < $1.totalReads })?
             .name ?? "\u{2014}"
-        needsDisplay = true
+        cardsDidChange()
     }
 
     /// Updates the summary bar to show batch aggregation statistics.
@@ -1928,7 +1984,7 @@ final class EsVirituSummaryBar: GenomicSummaryCardBar {
         isBatchMode = true
         batchSampleCount = sampleCount
         batchTotalDetections = totalDetections
-        needsDisplay = true
+        cardsDidChange()
     }
 
     override var cards: [Card] {

@@ -17,8 +17,22 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertEqual(SettingsAccessibilityID.aiClearKeysButton, "settings-ai-clear-keys-button")
         XCTAssertEqual(SettingsAccessibilityID.experimentalFeaturesToggle, "settings-advanced-experimental-features-toggle")
         XCTAssertEqual(SettingsAccessibilityID.analystIdentityField, "settings-general-analyst-identity-field")
+        XCTAssertEqual(SettingsAccessibilityID.contentTextSizePicker, "settings-appearance-content-text-size-picker")
         XCTAssertEqual(InspectorAccessibilityID.analystIdentityLabel, "genotype-annotation-analyst-identity-label")
         XCTAssertEqual(InspectorAccessibilityID.analystIdentitySettingsButton, "genotype-annotation-analyst-identity-settings-button")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeVisibilityGroup, "genotype-view-visibility-group")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeVisibilityScope, "genotype-view-visibility-scope")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeVisibilityStatus, "genotype-view-visibility-status")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeVisibilityGuidance, "genotype-view-visibility-guidance")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeRowVisibilityMenu, "genotype-view-row-visibility-menu")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeHideSelectedRows, "genotype-view-hide-selected-rows")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeShowOnlySelectedRows, "genotype-view-show-only-selected-rows")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeShowAllRows, "genotype-view-show-all-rows")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeColumnVisibilityMenu, "genotype-view-column-visibility-menu")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeHideSelectedColumns, "genotype-view-hide-selected-columns")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeShowOnlySelectedColumns, "genotype-view-show-only-selected-columns")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeShowAllColumns, "genotype-view-show-all-columns")
+        XCTAssertEqual(InspectorAccessibilityID.genotypeResetVisibility, "genotype-view-reset-visibility")
     }
 
     func testImportCenterAccessibilityIdentifierCatalogIsStable() {
@@ -33,6 +47,10 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertEqual(MainMenuAccessibilityID.applicationMenu, "main-menu-application")
         XCTAssertEqual(MainMenuAccessibilityID.fileMenu, "main-menu-file")
         XCTAssertEqual(MainMenuAccessibilityID.helpMenu, "main-menu-help")
+        XCTAssertEqual(MainMenuAccessibilityID.contentTextSize, "view-menu-content-text-size")
+        XCTAssertEqual(MainMenuAccessibilityID.contentTextSizeLarger, "view-menu-content-text-size-larger")
+        XCTAssertEqual(MainMenuAccessibilityID.contentTextSizeSmaller, "view-menu-content-text-size-smaller")
+        XCTAssertEqual(MainMenuAccessibilityID.contentTextSizeDefault, "view-menu-content-text-size-default")
         XCTAssertEqual(MainMenuAccessibilityID.newProject, "file-menu-new-project")
         XCTAssertEqual(MainMenuAccessibilityID.importCenter, "file-menu-import-center")
         XCTAssertEqual(MainMenuAccessibilityID.callVariants, "tools-menu-call-variants")
@@ -130,6 +148,38 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("SettingsAccessibilityID.panel(.advanced)"))
         XCTAssertTrue(advancedSource.contains("SettingsAccessibilityID.experimentalFeaturesToggle"))
         XCTAssertTrue(advancedSource.contains("settings.experimentalFeaturesEnabled"))
+    }
+
+    func testAppearanceSettingsExposeAccessibleContentTextSizePicker() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Settings/AppearanceSettingsTab.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("Section(\"Content Text Size\")"))
+        XCTAssertTrue(source.contains("Text(\"System\")"))
+        XCTAssertTrue(source.contains("ContentTextSizePreference.supportedPercentages"))
+        XCTAssertTrue(source.contains("SettingsAccessibilityID.contentTextSizePicker"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Content text size\")"))
+        XCTAssertTrue(source.contains("settings.contentTextSizePreference ="))
+        XCTAssertTrue(source.contains("settings.save()"))
+        XCTAssertFalse(source.contains(".onChange(of: colorA)"))
+        XCTAssertFalse(source.contains(".onChange(of: colorT)"))
+        XCTAssertFalse(source.contains(".onChange(of: colorG)"))
+        XCTAssertFalse(source.contains(".onChange(of: colorC)"))
+        XCTAssertFalse(source.contains(".onChange(of: colorN)"))
+        XCTAssertFalse(source.contains(".onChange(of: colorU)"))
+        XCTAssertFalse(source.contains(".onChange(of: settings.variantColorThemeName)"))
+        XCTAssertFalse(source.contains(".onChange(of: settings.defaultAnnotationHeight)"))
+        XCTAssertFalse(source.contains(".onChange(of: settings.defaultAnnotationSpacing)"))
+        XCTAssertFalse(source.contains(".onChange(of: settings.horizontalScrollDirection)"))
+        XCTAssertFalse(source.contains(".onChange(of: settings.verticalScrollDirection)"))
+        XCTAssertTrue(source.contains("selection: variantColorThemeSelection"))
+        XCTAssertTrue(source.contains("value: annotationHeightSelection"))
+        XCTAssertTrue(source.contains("value: annotationSpacingSelection"))
+        XCTAssertTrue(source.contains("selection: horizontalScrollDirectionSelection"))
+        XCTAssertTrue(source.contains("selection: verticalScrollDirectionSelection"))
     }
 
     func testAnalystIdentitySettingsAndInspectorUseStableIdentifiersAndResolvedAuthors() throws {

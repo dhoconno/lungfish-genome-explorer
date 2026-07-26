@@ -258,19 +258,32 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     // MARK: - Multi-Selection Placeholder
 
+    private let multiSelectionPrimaryLabel = NSTextField(labelWithString: "")
+    private let multiSelectionSecondaryLabel = NSTextField(
+        labelWithString: "Select a single row to view details"
+    )
+
     private lazy var multiSelectionPlaceholder: NSView = {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
 
-        let primary = NSTextField(labelWithString: "")
+        let primary = multiSelectionPrimaryLabel
         primary.font = .systemFont(ofSize: 13, weight: .semibold)
         primary.alignment = .center
+        primary.lineBreakMode = .byWordWrapping
+        primary.maximumNumberOfLines = 0
+        primary.cell?.wraps = true
+        primary.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         primary.translatesAutoresizingMaskIntoConstraints = false
 
-        let secondary = NSTextField(labelWithString: "Select a single row to view details")
+        let secondary = multiSelectionSecondaryLabel
         secondary.font = .systemFont(ofSize: 11)
         secondary.textColor = .tertiaryLabelColor
         secondary.alignment = .center
+        secondary.lineBreakMode = .byWordWrapping
+        secondary.maximumNumberOfLines = 0
+        secondary.cell?.wraps = true
+        secondary.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         secondary.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = NSStackView(views: [primary, secondary])
@@ -283,6 +296,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
         ])
 
         container.isHidden = true
@@ -386,6 +401,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private var sampleFilterTopSpacingConstraint: NSLayoutConstraint?
     /// Bottom spacing constraint between sample filter and split view.
     private var sampleFilterBottomSpacingConstraint: NSLayoutConstraint?
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private nonisolated(unsafe) var contentTypographyObserver: NSObjectProtocol?
+#if DEBUG
+    private var miniBAMLoadCount = 0
+#endif
 
     /// Whether the BLAST results drawer is currently visible.
     public private(set) var isBlastDrawerOpen = false
@@ -491,6 +512,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             object: nil
         )
 
+        installContentTypographyObservation()
         applyLayoutPreference()
     }
 
@@ -502,6 +524,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     deinit {
         databaseRowLoadTask?.cancel()
         deduplicatedReadCountTask?.cancel()
+        if let contentTypographyObserver {
+            NotificationCenter.default.removeObserver(contentTypographyObserver)
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -1213,6 +1238,64 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         view.addSubview(organismSearchField)
     }
 
+    private func installContentTypographyObservation() {
+        contentTypographyObserver = NotificationCenter.default.addObserver(
+            forName: .contentTextSizeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applyResultContentTypography()
+            }
+        }
+        applyResultContentTypography()
+    }
+
+    private func applyResultContentTypography() {
+        organismSearchField.font = taxTriageContentFont(
+            canonicalPointSize: 11,
+            preferredFontProvider: preferredFontProvider
+        )
+        multiSelectionPrimaryLabel.font = taxTriageContentFont(
+            canonicalPointSize: 13,
+            weight: .semibold,
+            preferredFontProvider: preferredFontProvider
+        )
+        multiSelectionSecondaryLabel.font = taxTriageContentFont(
+            canonicalPointSize: 11,
+            preferredFontProvider: preferredFontProvider
+        )
+        for field in [multiSelectionPrimaryLabel, multiSelectionSecondaryLabel] {
+            if !field.stringValue.isEmpty {
+                field.toolTip = field.stringValue
+                field.setAccessibilityValue(field.stringValue)
+            }
+        }
+        updateFilterRowHeightForContentTypography()
+        multiSelectionPlaceholder.needsLayout = true
+        view.needsLayout = true
+    }
+
+    private func updateFilterRowHeightForContentTypography() {
+        let isVisible = !sampleFilterControl.isHidden || !organismSearchField.isHidden
+        guard isVisible else {
+            sampleFilterHeightConstraint?.constant = 0
+            return
+        }
+        let fontHeight = organismSearchField.font?.boundingRectForFont.height ?? 0
+        sampleFilterHeightConstraint?.constant = max(24, ceil(fontHeight + 8))
+    }
+
+    private func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        organismTableView.setContentPreferredFontProvider(provider)
+        batchOverviewView.setContentPreferredFontProvider(provider)
+        batchFlatTableView.setContentPreferredFontProvider(provider)
+        applyResultContentTypography()
+    }
+
     @objc private func organismSearchAction(_ sender: NSSearchField) {
         organismFilterWorkItem?.cancel()
         let query = sender.stringValue
@@ -1275,7 +1358,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         sampleFilterControl.selectedSegment = selectedSampleIndex
         sampleFilterControl.isHidden = false
         organismSearchField.isHidden = false
-        sampleFilterHeightConstraint?.constant = 24
+        updateFilterRowHeightForContentTypography()
         sampleFilterTopSpacingConstraint?.constant = 4
         sampleFilterBottomSpacingConstraint?.constant = 4
     }
@@ -2351,6 +2434,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         indexURL: URL?,
         accessions: [String]
     ) {
+#if DEBUG
+        miniBAMLoadCount += 1
+#endif
         bamReferenceLengthLoadTask?.cancel()
         bamReferenceLengthLoadGeneration = UUID()
         let generation = bamReferenceLengthLoadGeneration
@@ -2642,7 +2728,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         // Show the organism search field.
         organismSearchField.isHidden = false
-        sampleFilterHeightConstraint?.constant = 24
+        updateFilterRowHeightForContentTypography()
         sampleFilterTopSpacingConstraint?.constant = 4
         sampleFilterBottomSpacingConstraint?.constant = 4
 
@@ -2852,7 +2938,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // Show organism search field in the filter row.
         // rebuildSampleFilterSegments already set height to 24/4/4 above; keep that.
         organismSearchField.isHidden = false
-        sampleFilterHeightConstraint?.constant = 24
+        updateFilterRowHeightForContentTypography()
         sampleFilterTopSpacingConstraint?.constant = 4
         sampleFilterBottomSpacingConstraint?.constant = 4
 
@@ -2975,13 +3061,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         sampleFilterTopSpacingConstraint = filterTop
         let filterBottom = splitView.topAnchor.constraint(equalTo: sampleFilterControl.bottomAnchor, constant: 0)
         sampleFilterBottomSpacingConstraint = filterBottom
+        let summaryHeight = summaryBar.heightAnchor.constraint(
+            equalToConstant: summaryBar.preferredContentHeight
+        )
+        summaryBar.onPreferredContentHeightChanged = { [weak summaryHeight] height in
+            summaryHeight?.constant = height
+        }
 
         NSLayoutConstraint.activate([
             // Summary bar (top, below safe area)
             summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            summaryBar.heightAnchor.constraint(equalToConstant: 48),
+            summaryHeight,
 
             // Sample filter control (between summary bar and split view)
             filterTop,
@@ -3450,10 +3542,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     // MARK: - Multi-Selection Helpers
 
     private func showMultiSelectionPlaceholder(count: Int) {
-        if let stack = multiSelectionPlaceholder.subviews.first as? NSStackView,
-           let primary = stack.arrangedSubviews.first as? NSTextField {
-            primary.stringValue = "\(count) items selected"
-        }
+        multiSelectionPrimaryLabel.stringValue = "\(count) items selected"
+        multiSelectionPrimaryLabel.toolTip = multiSelectionPrimaryLabel.stringValue
+        multiSelectionPrimaryLabel.setAccessibilityValue(
+            multiSelectionPrimaryLabel.stringValue
+        )
         miniBAMController?.view.isHidden = true
         multiSelectionPlaceholder.isHidden = false
     }
@@ -4011,6 +4104,55 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     public func testAccessions(forOrganism organism: String, sampleId: String? = nil) -> [String]? {
         accessions(for: organism, sampleId: sampleId)
     }
+
+#if DEBUG
+    var testingOrganismSearchField: NSSearchField { organismSearchField }
+    var testingFilterRowHeight: CGFloat {
+        sampleFilterHeightConstraint?.constant ?? 0
+    }
+    var testingPlaceholderFields: [NSTextField] {
+        [multiSelectionPrimaryLabel, multiSelectionSecondaryLabel]
+    }
+    var testingPlaceholderFieldsAreContainedAndSeparated: Bool {
+        let containerBounds = multiSelectionPlaceholder.bounds.insetBy(dx: -0.5, dy: -0.5)
+        let frames = testingPlaceholderFields.map {
+            $0.convert($0.bounds, to: multiSelectionPlaceholder)
+        }
+        return frames.allSatisfy(containerBounds.contains)
+            && !frames[0].intersects(frames[1])
+    }
+    var testingMiniBAMControllerIdentity: ObjectIdentifier? {
+        miniBAMController.map(ObjectIdentifier.init)
+    }
+    var testingMiniBAMLoadCount: Int { miniBAMLoadCount }
+
+    func testingSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        setContentPreferredFontProvider(provider)
+    }
+
+    func testingShowFilterRow() {
+        organismSearchField.isHidden = false
+        sampleFilterTopSpacingConstraint?.constant = 4
+        sampleFilterBottomSpacingConstraint?.constant = 4
+        updateFilterRowHeightForContentTypography()
+    }
+
+    func testingShowMultiSelectionPlaceholder(count: Int) {
+        showMultiSelectionPlaceholder(count: count)
+    }
+
+    func testingLayoutMultiSelectionPlaceholder(width: CGFloat, height: CGFloat) {
+        multiSelectionPlaceholder.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: width,
+            height: height
+        )
+        multiSelectionPlaceholder.layoutSubtreeIfNeeded()
+    }
+#endif
 }
 
 
@@ -4127,7 +4269,9 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     // MARK: - Metadata Columns
 
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
-    let metadataColumns = MetadataColumnController()
+    let metadataColumns = MetadataColumnController(
+        contentTypographyOwnership: .embedded
+    )
 
     // MARK: - Data
 
@@ -4189,7 +4333,13 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     // MARK: - Subviews
 
     private let scrollView = NSScrollView()
-    private let tableView = NSTableView()
+    private let tableView = TaxTriageTableView()
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private nonisolated(unsafe) var contentTypographyObserver: NSObjectProtocol?
+#if DEBUG
+    private var typographyRealizedCellResolutionCount = 0
+#endif
 
     private var tableHasKeyboardFocus: Bool {
         guard let firstResponder = window?.firstResponder else { return false }
@@ -4218,6 +4368,13 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         setupTableView()
         setupLayout()
         setupContextMenu()
+        installContentTypographyObservation()
+    }
+
+    deinit {
+        if let contentTypographyObserver {
+            NotificationCenter.default.removeObserver(contentTypographyObserver)
+        }
     }
 
     // MARK: - Setup
@@ -4310,6 +4467,77 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
             "Organism", "TASS Score", "Reads", "Unique Reads", "Coverage", "Confidence",
         ]
         metadataColumns.install(on: tableView)
+    }
+
+    private func installContentTypographyObservation() {
+        contentTypographyObserver = NotificationCenter.default.addObserver(
+            forName: .contentTextSizeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applyContentTypography()
+            }
+        }
+        applyContentTypography()
+    }
+
+    private func applyContentTypography() {
+        taxTriageApplyTableGeometry(
+            to: tableView,
+            minimumRowHeight: 24,
+            preferredFontProvider: preferredFontProvider
+        )
+        metadataColumns.applyContentTypography()
+        let realizedCount = taxTriageForEachRealizedCell(in: tableView) {
+            [weak self] column, _, view in
+            guard let self else { return }
+            if view is TaxTriageConfidenceCellView {
+                return
+            }
+            guard let field = (view as? NSTextField)
+                ?? (view as? NSTableCellView)?.textField else {
+                return
+            }
+            self.applyContentTypography(to: field, column: column.identifier)
+        }
+#if DEBUG
+        typographyRealizedCellResolutionCount = realizedCount
+#endif
+    }
+
+    private func applyContentTypography(
+        to field: NSTextField,
+        column: NSUserInterfaceItemIdentifier
+    ) {
+        if MetadataColumnController.isMetadataColumn(column) {
+            field.font = ContentTypography.current(
+                preferredFontProvider: preferredFontProvider
+            ).font(for: .body)
+        } else if column == ColumnID.organism {
+            field.font = taxTriageContentFont(
+                canonicalPointSize: 12,
+                weight: .medium,
+                preferredFontProvider: preferredFontProvider
+            )
+        } else {
+            field.font = taxTriageContentFont(
+                canonicalPointSize: 11,
+                digitsOnly: true,
+                preferredFontProvider: preferredFontProvider
+            )
+        }
+        if !field.stringValue.isEmpty {
+            field.toolTip = field.toolTip ?? field.stringValue
+            field.setAccessibilityValue(field.stringValue)
+        }
+    }
+
+    func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        applyContentTypography()
     }
 
     private func setupLayout() {
@@ -4645,16 +4873,29 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         field.lineBreakMode = .byTruncatingTail
 
         if bold {
-            field.font = .systemFont(ofSize: 12, weight: .medium)
+            field.font = taxTriageContentFont(
+                canonicalPointSize: 12,
+                weight: .medium,
+                preferredFontProvider: preferredFontProvider
+            )
         } else if monospaced {
-            field.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+            field.font = taxTriageContentFont(
+                canonicalPointSize: 11,
+                digitsOnly: true,
+                preferredFontProvider: preferredFontProvider
+            )
         } else {
-            field.font = .systemFont(ofSize: 11, weight: .regular)
+            field.font = taxTriageContentFont(
+                canonicalPointSize: 11,
+                preferredFontProvider: preferredFontProvider
+            )
         }
 
         if dimmed {
             field.textColor = .tertiaryLabelColor
         }
+        field.toolTip = text
+        field.setAccessibilityValue(text)
 
         return field
     }
@@ -4664,6 +4905,46 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         if score >= 0.4 { return "Medium confidence" }
         return "Low confidence"
     }
+
+#if DEBUG
+    var testingTableView: NSTableView { tableView }
+    var testingTableReloadCount: Int { tableView.testingReloadDataCallCount }
+    var testingTypographyRealizedCellResolutionCount: Int {
+        typographyRealizedCellResolutionCount
+    }
+    var testingPresentationState: TaxTriageTablePresentationState {
+        TaxTriageTablePresentationState(tableView: tableView)
+    }
+
+    func testingSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        setContentPreferredFontProvider(provider)
+    }
+
+    func testingCellView(column identifier: String, row: Int) -> NSView? {
+        guard let columnIndex = tableView.tableColumns.firstIndex(where: {
+            $0.identifier.rawValue == identifier
+        }) else {
+            return nil
+        }
+        return tableView.view(
+            atColumn: columnIndex,
+            row: row,
+            makeIfNecessary: true
+        )
+    }
+
+    func testingCell(column identifier: String, row: Int) -> NSTextField? {
+        let view = testingCellView(column: identifier, row: row)
+        return (view as? NSTextField) ?? (view as? NSTableCellView)?.textField
+    }
+
+    func testingScroll(to origin: NSPoint) {
+        scrollView.contentView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+#endif
 }
 
 
@@ -4698,7 +4979,7 @@ public final class TaxTriageSummaryBar: GenomicSummaryCardBar {
         self.runtime = runtime
         self.highConfidenceCount = highConfidenceCount
         self.sampleCount = sampleCount
-        needsDisplay = true
+        cardsDidChange()
     }
 
     /// Updates the summary bar to show batch aggregation statistics.
@@ -4712,7 +4993,7 @@ public final class TaxTriageSummaryBar: GenomicSummaryCardBar {
         isBatchMode = true
         batchSampleCount = sampleCount
         batchTotalOrganisms = totalOrganisms
-        needsDisplay = true
+        cardsDidChange()
     }
 
     public override var cards: [Card] {

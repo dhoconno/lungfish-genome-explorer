@@ -72,12 +72,31 @@ public final class GenotypeAnnotationStore {
     public private(set) var isReadOnly: Bool
 
     public convenience init(bundleURL: URL, author: String) throws {
-        try self.init(bundleURL: bundleURL, author: author, publicationFaultInjector: nil)
+        try self.init(
+            bundleURL: bundleURL,
+            author: author,
+            seedBuiltInSmartCohorts: true,
+            publicationFaultInjector: nil
+        )
+    }
+
+    public convenience init(
+        bundleURL: URL,
+        author: String,
+        seedBuiltInSmartCohorts: Bool
+    ) throws {
+        try self.init(
+            bundleURL: bundleURL,
+            author: author,
+            seedBuiltInSmartCohorts: seedBuiltInSmartCohorts,
+            publicationFaultInjector: nil
+        )
     }
 
     init(
         bundleURL: URL,
         author: String,
+        seedBuiltInSmartCohorts: Bool = true,
         publicationFaultInjector: GenotypeAnnotationPublicationFaultInjector?
     ) throws {
         let loadedSidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
@@ -91,7 +110,7 @@ public final class GenotypeAnnotationStore {
         // attempts to persist so the analyst can still browse the bundle
         // without a stream of NSAlert sheets.
         self.isReadOnly = !FileManager.default.isWritableFile(atPath: bundleURL.path)
-        if !isReadOnly {
+        if !isReadOnly, seedBuiltInSmartCohorts {
             try seedBuiltInSmartCohortsIfNeeded()
         }
     }
@@ -1059,6 +1078,7 @@ public final class GenotypeAnnotationStore {
             "scope=\(cohort.scope)",
             "starred=\(cohort.isStarred)",
             "predicate=\(cohort.predicate)",
+            "searchProjectionText=\(cohort.searchProjectionText ?? "nil")",
         ].joined(separator: "; ")
     }
 

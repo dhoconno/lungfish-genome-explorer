@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishKit
 
 @inline(__always)
 func isSupportedMHCCandidateDocumentSchemaVersion(_ schemaVersion: Int) -> Bool {
@@ -60,8 +61,14 @@ public final class GenotypeResultDisplaySectionViewModel {
         comments: [],
         isWritable: false
     )
+    public private(set) var matrixVisibilityCapability =
+        GenotypeMatrixVisibilityCapabilitySnapshot.empty
 
-    public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
+    public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)? {
+        didSet {
+            cancelPendingNumericFilterCommitAndRestoreDrafts()
+        }
+    }
     public var onGenotypeHighlightRequested: ((GenotypeResultHighlightRequest) -> Void)?
     public var onMatrixStyleRequested: ((GenotypeMatrixStyleRequest) -> Void)?
     public var onMatrixReviewRequested: ((GenotypeMatrixReviewRequest) -> Void)?
@@ -71,18 +78,120 @@ public final class GenotypeResultDisplaySectionViewModel {
         set { onMatrixCommentRequested = newValue }
     }
     public var onSupportSelectionPreviewChanged: ((Int) -> Void)?
-    public var onShowOnlySelectedMatrixRowsRequested: (() -> Void)?
-    public var onShowOnlySelectedMatrixColumnsRequested: (() -> Void)?
-    public var onClearMatrixSelectionFilterRequested: (() -> Void)?
+    public var onMatrixVisibilityCommandRequested:
+        ((GenotypeMatrixVisibilityCommand) -> Void)?
 
     @ObservationIgnored
     private var isUpdatingFromSelection = false
+    @ObservationIgnored
+    private let contentTextSizeAnnouncementPoster: any AccessibilityAnnouncementPosting
+    let matrixMinimumReadsDraft: GenotypeNumericFilterDraft
+    let matrixMinimumPercentDraft: GenotypeNumericFilterDraft
+    @ObservationIgnored
+    private let numericFilterCommitCoalescer:
+        GenotypeNumericFilterCommitCoalescer
+    @ObservationIgnored
+    private var dirtyNumericFilterFields: Set<NumericFilterField> = []
+    @ObservationIgnored
+    private var hasPendingNumericFilterPublication = false
+    @ObservationIgnored
+    private var isNumericFilterStepperBurstActive = false
     private var matrixCommentDrafts: [GenotypeMatrixCommentScope: String] = [:]
     @ObservationIgnored
     private var loadedMatrixCommentStates:
         [GenotypeMatrixCommentScope: GenotypeMatrixValueState<String>] = [:]
 
-    public init() {}
+    public convenience init(
+        contentTextSizeAnnouncementPoster: any AccessibilityAnnouncementPosting =
+            AccessibilityAnnouncementPoster()
+    ) {
+        self.init(
+            contentTextSizeAnnouncementPoster:
+                contentTextSizeAnnouncementPoster,
+            numericFilterScheduler:
+                GenotypeNumericFilterRunLoopScheduler(),
+            numericFilterLocale: .autoupdatingCurrent,
+            numericFilterValidationAnnouncementPoster:
+                AccessibilityAnnouncementPoster()
+        )
+    }
+
+    init(
+        contentTextSizeAnnouncementPoster: any AccessibilityAnnouncementPosting =
+            AccessibilityAnnouncementPoster(),
+        numericFilterScheduler: any GenotypeNumericFilterScheduling,
+        numericFilterLocale: Locale,
+        numericFilterValidationAnnouncementPoster:
+            any AccessibilityAnnouncementPosting
+    ) {
+        self.contentTextSizeAnnouncementPoster = contentTextSizeAnnouncementPoster
+        matrixMinimumReadsDraft = GenotypeNumericFilterDraft(
+            configuration: .matrixMinimumReads,
+            committedValue: 0,
+            locale: numericFilterLocale,
+            validationAnnouncementPoster:
+                numericFilterValidationAnnouncementPoster
+        )
+        matrixMinimumPercentDraft = GenotypeNumericFilterDraft(
+            configuration: .matrixMinimumPercent,
+            committedValue: 0,
+            locale: numericFilterLocale,
+            validationAnnouncementPoster:
+                numericFilterValidationAnnouncementPoster
+        )
+        numericFilterCommitCoalescer = GenotypeNumericFilterCommitCoalescer(
+            scheduler: numericFilterScheduler
+        )
+    }
+
+    public var contentTextSizePreference: ContentTextSizePreference {
+        AppSettings.shared.contentTextSizePreference.normalized
+    }
+
+    public var contentTextSizeLabel: String {
+        switch contentTextSizePreference {
+        case .system:
+            return "System"
+        case .custom(let percentage):
+            return "\(percentage)%"
+        }
+    }
+
+    public var canIncreaseContentTextSize: Bool {
+        contentTextSizePreference.larger != contentTextSizePreference
+    }
+
+    public var canDecreaseContentTextSize: Bool {
+        contentTextSizePreference.smaller != contentTextSizePreference
+    }
+
+    public func increaseContentTextSize() {
+        applyContentTextSizePreference(contentTextSizePreference.larger)
+    }
+
+    public func decreaseContentTextSize() {
+        applyContentTextSizePreference(contentTextSizePreference.smaller)
+    }
+
+    public func restoreSystemContentTextSize() {
+        applyContentTextSizePreference(.system)
+    }
+
+    private func applyContentTextSizePreference(
+        _ requestedPreference: ContentTextSizePreference
+    ) {
+        let preference = requestedPreference.normalized
+        guard preference != contentTextSizePreference else { return }
+        AppSettings.shared.contentTextSizePreference = preference
+        AppSettings.shared.save()
+        let announcement = switch preference {
+        case .system:
+            "Content text size System"
+        case .custom(let percentage):
+            "Content text size \(percentage) percent"
+        }
+        contentTextSizeAnnouncementPoster.post(announcement, priority: .medium)
+    }
 
     public func update(
         isAvailable: Bool,
@@ -90,10 +199,13 @@ public final class GenotypeResultDisplaySectionViewModel {
         hasHaplotypingResult: Bool = false,
         isGenotypeOnlyResult: Bool = false
     ) {
+        cancelPendingNumericFilterCommit()
         self.isAvailable = isAvailable
         self.hasHaplotypingResult = hasHaplotypingResult
         self.isGenotypeOnlyResult = isGenotypeOnlyResult
+        matrixVisibilityCapability = .empty
         setNormalizedDisplayState(state)
+        synchronizeNumericFilterDrafts()
         updateSelection(nil)
     }
 
@@ -104,12 +216,16 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     public func updateDisplayState(_ state: GenotypeResultDisplayState) {
+        cancelPendingNumericFilterCommit()
         setNormalizedDisplayState(state)
+        synchronizeNumericFilterDrafts()
     }
 
     public func clear() {
+        cancelPendingNumericFilterCommit()
         isAvailable = false
         displayState = GenotypeResultDisplayState()
+        synchronizeNumericFilterDrafts()
         visibleRowCount = 0
         totalRowCount = 0
         hiddenCellCount = 0
@@ -119,6 +235,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         mhcCandidatePersistenceWarning = nil
         isGenotypeOnlyResult = false
         matrixReviewCapability = Self.emptyMatrixReviewCapability
+        matrixVisibilityCapability = .empty
         matrixCommentDrafts = [:]
         loadedMatrixCommentStates = [:]
         updateSelection(nil)
@@ -232,13 +349,61 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     func setMatrixMinimumReads(_ value: Int) {
-        displayState.matrixMinimumReads = max(0, value)
+        cancelPendingNumericFilterCommit()
+        let value = max(0, min(100_000, value))
+        displayState.matrixMinimumReads = value
+        matrixMinimumReadsDraft.applyCommittedValue(Double(value))
         notifyStateChanged()
     }
 
     func setMatrixMinimumPercent(_ value: Double) {
-        displayState.matrixMinimumPercent = max(0, min(100, value))
+        cancelPendingNumericFilterCommit()
+        let value = max(0, min(100, value))
+        displayState.matrixMinimumPercent = value
+        matrixMinimumPercentDraft.applyCommittedValue(value)
         notifyStateChanged()
+    }
+
+    func updateMatrixMinimumReadsDraft(_ value: String) {
+        matrixMinimumReadsDraft.updateDraftText(value)
+        dirtyNumericFilterFields.insert(.minimumReads)
+        scheduleNumericFilterCommit()
+    }
+
+    func updateMatrixMinimumPercentDraft(_ value: String) {
+        matrixMinimumPercentDraft.updateDraftText(value)
+        dirtyNumericFilterFields.insert(.minimumPercent)
+        scheduleNumericFilterCommit()
+    }
+
+    func commitMatrixMinimumReadsDraft() {
+        commitNumericFilterDrafts(explicitField: .minimumReads)
+    }
+
+    func commitMatrixMinimumPercentDraft() {
+        commitNumericFilterDrafts(explicitField: .minimumPercent)
+    }
+
+    func restoreMatrixMinimumReadsDraft() {
+        restoreNumericFilterDraft(.minimumReads)
+    }
+
+    func restoreMatrixMinimumPercentDraft() {
+        restoreNumericFilterDraft(.minimumPercent)
+    }
+
+    func setMatrixMinimumReadsFromStepper(_ value: Int) {
+        commitNumericFilterStepperValue(
+            Double(value),
+            for: .minimumReads
+        )
+    }
+
+    func setMatrixMinimumPercentFromStepper(_ value: Double) {
+        commitNumericFilterStepperValue(
+            value,
+            for: .minimumPercent
+        )
     }
 
     func setMatrixPercentDenominator(_ denominator: ONTGenotypeSupportDenominator) {
@@ -256,16 +421,69 @@ public final class GenotypeResultDisplaySectionViewModel {
         notifyStateChanged()
     }
 
+    public func updateMatrixVisibilityCapability(
+        _ capability: GenotypeMatrixVisibilityCapabilitySnapshot
+    ) {
+        matrixVisibilityCapability = capability
+    }
+
+    public var matrixVisibilityScopeSummary: String {
+        matrixVisibilityCapability.summary
+    }
+
+    public var matrixVisibilityStatus: String {
+        switch (
+            matrixVisibilityCapability.isRowVisibilityActive,
+            matrixVisibilityCapability.isColumnVisibilityActive
+        ) {
+        case (false, false):
+            return "No manual visibility restrictions."
+        case (true, false):
+            return "Manual allele-row visibility is active."
+        case (false, true):
+            return "Manual sample-column visibility is active."
+        case (true, true):
+            return "Manual allele-row and sample-column visibility are active."
+        }
+    }
+
+    public var canResetMatrixVisibility: Bool {
+        matrixVisibilityCapability.canResetVisibility
+    }
+
+    func hideSelectedMatrixRows() {
+        guard matrixVisibilityCapability.canHideSelectedRows else { return }
+        onMatrixVisibilityCommandRequested?(.hideSelectedRows)
+    }
+
     func showOnlySelectedMatrixRows() {
-        onShowOnlySelectedMatrixRowsRequested?()
+        guard matrixVisibilityCapability.canShowOnlySelectedRows else { return }
+        onMatrixVisibilityCommandRequested?(.showOnlySelectedRows)
+    }
+
+    func showAllMatrixRows() {
+        guard matrixVisibilityCapability.canShowAllRows else { return }
+        onMatrixVisibilityCommandRequested?(.showAllRows)
+    }
+
+    func hideSelectedMatrixColumns() {
+        guard matrixVisibilityCapability.canHideSelectedColumns else { return }
+        onMatrixVisibilityCommandRequested?(.hideSelectedColumns)
     }
 
     func showOnlySelectedMatrixColumns() {
-        onShowOnlySelectedMatrixColumnsRequested?()
+        guard matrixVisibilityCapability.canShowOnlySelectedColumns else { return }
+        onMatrixVisibilityCommandRequested?(.showOnlySelectedColumns)
     }
 
-    func clearMatrixSelectionFilter() {
-        onClearMatrixSelectionFilterRequested?()
+    func showAllMatrixColumns() {
+        guard matrixVisibilityCapability.canShowAllColumns else { return }
+        onMatrixVisibilityCommandRequested?(.showAllColumns)
+    }
+
+    func resetMatrixVisibility() {
+        guard matrixVisibilityCapability.canResetVisibility else { return }
+        onMatrixVisibilityCommandRequested?(.reset)
     }
 
     func setSupportDenominator(_ denominator: ONTGenotypeSupportDenominator) {
@@ -670,6 +888,157 @@ public final class GenotypeResultDisplaySectionViewModel {
         return body
     }
 
+    private enum NumericFilterField: Hashable {
+        case minimumReads
+        case minimumPercent
+    }
+
+    private func scheduleNumericFilterCommit() {
+        numericFilterCommitCoalescer.schedule(after: 0.2) { [weak self] in
+            self?.commitNumericFilterDrafts(explicitField: nil)
+        }
+    }
+
+    private func commitNumericFilterDrafts(
+        explicitField: NumericFilterField?
+    ) {
+        numericFilterCommitCoalescer.cancel()
+        let fields: Set<NumericFilterField>
+        if let explicitField {
+            fields = [explicitField]
+        } else {
+            fields = dirtyNumericFilterFields
+        }
+        var changed = false
+        for field in fields {
+            let draft = numericFilterDraft(for: field)
+            let isEmpty = draft.draftText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+            if isEmpty {
+                if explicitField != nil {
+                    draft.restore()
+                }
+                dirtyNumericFilterFields.remove(field)
+                continue
+            }
+            guard let value = draft.commitIfValid() else {
+                dirtyNumericFilterFields.remove(field)
+                continue
+            }
+            switch field {
+            case .minimumReads:
+                let integerValue = Int(value)
+                if displayState.matrixMinimumReads != integerValue {
+                    displayState.matrixMinimumReads = integerValue
+                    changed = true
+                }
+            case .minimumPercent:
+                if displayState.matrixMinimumPercent != value {
+                    displayState.matrixMinimumPercent = value
+                    changed = true
+                }
+            }
+            dirtyNumericFilterFields.remove(field)
+        }
+        if changed {
+            hasPendingNumericFilterPublication = true
+        }
+        if explicitField != nil || dirtyNumericFilterFields.isEmpty {
+            publishPendingNumericFilterStateIfNeeded()
+            isNumericFilterStepperBurstActive = false
+        }
+        if !dirtyNumericFilterFields.isEmpty {
+            scheduleNumericFilterCommit()
+        }
+    }
+
+    private func commitNumericFilterStepperValue(
+        _ value: Double,
+        for field: NumericFilterField
+    ) {
+        numericFilterCommitCoalescer.cancel()
+        let draft = numericFilterDraft(for: field)
+        draft.applyCommittedValue(value)
+        dirtyNumericFilterFields.remove(field)
+        var changed = false
+        switch field {
+        case .minimumReads:
+            let integerValue = Int(draft.committedValue)
+            if displayState.matrixMinimumReads != integerValue {
+                displayState.matrixMinimumReads = integerValue
+                changed = true
+            }
+        case .minimumPercent:
+            if displayState.matrixMinimumPercent != draft.committedValue {
+                displayState.matrixMinimumPercent = draft.committedValue
+                changed = true
+            }
+        }
+        if changed {
+            if isNumericFilterStepperBurstActive {
+                hasPendingNumericFilterPublication = true
+            } else {
+                isNumericFilterStepperBurstActive = true
+                notifyStateChanged()
+            }
+        }
+        if isNumericFilterStepperBurstActive
+            || hasPendingNumericFilterPublication
+            || !dirtyNumericFilterFields.isEmpty {
+            scheduleNumericFilterCommit()
+        }
+    }
+
+    private func restoreNumericFilterDraft(_ field: NumericFilterField) {
+        numericFilterCommitCoalescer.cancel()
+        numericFilterDraft(for: field).restore()
+        dirtyNumericFilterFields.remove(field)
+        if isNumericFilterStepperBurstActive
+            || hasPendingNumericFilterPublication
+            || !dirtyNumericFilterFields.isEmpty {
+            scheduleNumericFilterCommit()
+        }
+    }
+
+    private func publishPendingNumericFilterStateIfNeeded() {
+        guard hasPendingNumericFilterPublication else { return }
+        hasPendingNumericFilterPublication = false
+        notifyStateChanged()
+    }
+
+    private func numericFilterDraft(
+        for field: NumericFilterField
+    ) -> GenotypeNumericFilterDraft {
+        switch field {
+        case .minimumReads:
+            matrixMinimumReadsDraft
+        case .minimumPercent:
+            matrixMinimumPercentDraft
+        }
+    }
+
+    private func cancelPendingNumericFilterCommit() {
+        numericFilterCommitCoalescer.cancel()
+        dirtyNumericFilterFields.removeAll()
+        hasPendingNumericFilterPublication = false
+        isNumericFilterStepperBurstActive = false
+    }
+
+    private func cancelPendingNumericFilterCommitAndRestoreDrafts() {
+        cancelPendingNumericFilterCommit()
+        synchronizeNumericFilterDrafts()
+    }
+
+    private func synchronizeNumericFilterDrafts() {
+        matrixMinimumReadsDraft.applyCommittedValue(
+            Double(displayState.matrixMinimumReads)
+        )
+        matrixMinimumPercentDraft.applyCommittedValue(
+            displayState.matrixMinimumPercent
+        )
+    }
+
     func notifyStateChanged() {
         onDisplayStateChanged?(displayState)
     }
@@ -727,8 +1096,67 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 }
 
+@MainActor
+private struct GenotypeNumericFilterStepper: NSViewRepresentable {
+    let value: Double
+    let configuration: GenotypeNumericFilterConfiguration
+    let accessibility: GenotypeNumericFilterAccessibilityState
+    let onChange: (Double) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange)
+    }
+
+    func makeNSView(context: Context) -> NSStepper {
+        let stepper = NSStepper()
+        stepper.controlSize = .small
+        stepper.valueWraps = false
+        stepper.autorepeat = true
+        stepper.target = context.coordinator
+        stepper.action = #selector(Coordinator.valueChanged(_:))
+        return stepper
+    }
+
+    func updateNSView(_ stepper: NSStepper, context: Context) {
+        context.coordinator.onChange = onChange
+        stepper.minValue = configuration.bounds.lowerBound
+        stepper.maxValue = configuration.bounds.upperBound
+        stepper.increment = configuration.step
+        stepper.doubleValue = value
+        stepper.setAccessibilityIdentifier(
+            configuration.stepperAccessibilityIdentifier
+        )
+        stepper.setAccessibilityLabel(accessibility.label)
+        stepper.setAccessibilityValue(NSNumber(value: value))
+        stepper.setAccessibilityValueDescription(accessibility.value)
+        stepper.setAccessibilityHelp(
+            "\(accessibility.bounds) "
+                + "\(accessibility.incrementAction) "
+                + accessibility.decrementAction
+        )
+    }
+
+    final class Coordinator: NSObject {
+        var onChange: (Double) -> Void
+
+        init(onChange: @escaping (Double) -> Void) {
+            self.onChange = onChange
+        }
+
+        @MainActor @objc func valueChanged(_ sender: NSStepper) {
+            onChange(sender.doubleValue)
+        }
+    }
+}
+
 public struct GenotypeResultDisplaySection: View {
     @Bindable var viewModel: GenotypeResultDisplaySectionViewModel
+    @FocusState private var focusedNumericFilter: NumericFilterFocus?
+
+    private enum NumericFilterFocus: Hashable {
+        case minimumReads
+        case minimumPercent
+    }
 
     public init(viewModel: GenotypeResultDisplaySectionViewModel) {
         self.viewModel = viewModel
@@ -739,6 +1167,7 @@ public struct GenotypeResultDisplaySection: View {
             DisclosureGroup(isExpanded: $viewModel.isExpanded) {
                 VStack(alignment: .leading, spacing: 10) {
                     summary
+                    contentTextSizeControls
                     if viewModel.mhcCandidateControlsAvailable
                         || !viewModel.mhcCandidateIntegrityWarnings.isEmpty
                         || viewModel.mhcCandidatePersistenceWarning != nil {
@@ -754,6 +1183,7 @@ public struct GenotypeResultDisplaySection: View {
                     }
                     thresholdGuidance
                     matrixFilterControls
+                    matrixVisibilityControls
                     colorControls
                     highlightControls
                     Text("Visual filters do not change genotype calls.")
@@ -766,6 +1196,55 @@ public struct GenotypeResultDisplaySection: View {
                 Label("Genotype Display", systemImage: "tablecells")
                     .font(.headline)
             }
+            .onChange(of: focusedNumericFilter) { oldValue, newValue in
+                guard oldValue != newValue else { return }
+                switch oldValue {
+                case .minimumReads:
+                    viewModel.commitMatrixMinimumReadsDraft()
+                case .minimumPercent:
+                    viewModel.commitMatrixMinimumPercentDraft()
+                case nil:
+                    break
+                }
+            }
+        }
+    }
+
+    private var contentTextSizeControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Content Text Size")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("A−") {
+                    viewModel.decreaseContentTextSize()
+                }
+                .disabled(!viewModel.canDecreaseContentTextSize)
+                .accessibilityLabel("Decrease content text size")
+                .accessibilityIdentifier("genotype-view-content-text-size-decrease")
+
+                Text(viewModel.contentTextSizeLabel)
+                    .frame(minWidth: 48)
+                    .accessibilityLabel("Content text size")
+                    .accessibilityValue(viewModel.contentTextSizeLabel)
+                    .accessibilityIdentifier("genotype-view-content-text-size-value")
+
+                Button("A+") {
+                    viewModel.increaseContentTextSize()
+                }
+                .disabled(!viewModel.canIncreaseContentTextSize)
+                .accessibilityLabel("Increase content text size")
+                .accessibilityIdentifier("genotype-view-content-text-size-increase")
+
+                Button("Default") {
+                    viewModel.restoreSystemContentTextSize()
+                }
+                .disabled(viewModel.contentTextSizePreference == .system)
+                .accessibilityLabel("Use system content text size")
+                .accessibilityIdentifier("genotype-view-content-text-size-default")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
         }
     }
 
@@ -838,10 +1317,14 @@ public struct GenotypeResultDisplaySection: View {
 
     private var thresholdGuidance: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Haplotype thresholds")
+            Text("Run and Calling Thresholds")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("Thresholds are fixed by the genotyping run. Re-run miSeq amplicon MHC genotyping to change min reads or percent thresholds.")
+            Text(
+                "Genotype calls and haplotype thresholds are fixed by the completed run. "
+                    + "Re-run the original genotyping workflow to change them. "
+                    + "The editable search and support filters below affect only this view."
+            )
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -850,10 +1333,10 @@ public struct GenotypeResultDisplaySection: View {
 
     private var matrixFilterControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Matrix Filters")
+            Text("Search and Support Filters")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            TextField("Rows: locus, genotype, or sample", text: Binding(
+            TextField("Alleles", text: Binding(
                 get: { viewModel.displayState.matrixRowFilterText },
                 set: { viewModel.setMatrixRowFilterText($0) }
             ))
@@ -865,48 +1348,122 @@ public struct GenotypeResultDisplaySection: View {
             ))
             .textFieldStyle(.roundedBorder)
             .controlSize(.small)
-            HStack(spacing: 8) {
-                Button {
-                    viewModel.showOnlySelectedMatrixRows()
-                } label: {
-                    Label("Rows", systemImage: "line.3.horizontal.decrease.circle")
+            HStack(spacing: 6) {
+                Text(
+                    viewModel.matrixMinimumReadsDraft.configuration.label
+                )
+                Spacer(minLength: 6)
+                TextField(
+                    viewModel.matrixMinimumReadsDraft.configuration.label,
+                    text: Binding(
+                        get: {
+                            viewModel.matrixMinimumReadsDraft.draftText
+                        },
+                        set: {
+                            viewModel.updateMatrixMinimumReadsDraft($0)
+                        }
+                    )
+                )
+                .multilineTextAlignment(.trailing)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(width: 88)
+                .focused($focusedNumericFilter, equals: .minimumReads)
+                .onSubmit {
+                    viewModel.commitMatrixMinimumReadsDraft()
                 }
-                .disabled(!viewModel.hasMatrixSelection)
-
-                Button {
-                    viewModel.showOnlySelectedMatrixColumns()
-                } label: {
-                    Label("Columns", systemImage: "rectangle.split.3x1")
+                .onExitCommand {
+                    viewModel.restoreMatrixMinimumReadsDraft()
                 }
-                .disabled(!viewModel.hasMatrixSelection)
-
-                Button {
-                    viewModel.clearMatrixSelectionFilter()
-                } label: {
-                    Label("Clear", systemImage: "xmark.circle")
-                }
+                .accessibilityIdentifier(
+                    viewModel.matrixMinimumReadsDraft.configuration
+                        .fieldAccessibilityIdentifier
+                )
+                .accessibilityLabel(
+                    viewModel.matrixMinimumReadsDraft.accessibility.label
+                )
+                .accessibilityValue(
+                    viewModel.matrixMinimumReadsDraft.accessibility.value
+                )
+                .accessibilityHint(
+                    viewModel.matrixMinimumReadsDraft.accessibility
+                        .validationDescription
+                        ?? viewModel.matrixMinimumReadsDraft.accessibility.bounds
+                )
+                GenotypeNumericFilterStepper(
+                    value: viewModel.matrixMinimumReadsDraft.stepperValue,
+                    configuration:
+                        viewModel.matrixMinimumReadsDraft.configuration,
+                    accessibility:
+                        viewModel.matrixMinimumReadsDraft.accessibility,
+                    onChange: {
+                        viewModel.setMatrixMinimumReadsFromStepper(Int($0))
+                    }
+                )
+                .labelsHidden()
+                .controlSize(.small)
             }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-            Stepper(
-                "Min reads: \(viewModel.displayState.matrixMinimumReads)",
-                value: Binding(
-                    get: { viewModel.displayState.matrixMinimumReads },
-                    set: { viewModel.setMatrixMinimumReads($0) }
-                ),
-                in: 0...100_000
-            )
-            .controlSize(.small)
-            Stepper(
-                "Min percent: \(viewModel.displayState.matrixMinimumPercent, specifier: "%.1f")%",
-                value: Binding(
-                    get: { viewModel.displayState.matrixMinimumPercent },
-                    set: { viewModel.setMatrixMinimumPercent($0) }
-                ),
-                in: 0...100,
-                step: 0.5
-            )
-            .controlSize(.small)
+            HStack(spacing: 6) {
+                Text(
+                    viewModel.matrixMinimumPercentDraft.configuration.label
+                )
+                Spacer(minLength: 6)
+                TextField(
+                    viewModel.matrixMinimumPercentDraft.configuration.label,
+                    text: Binding(
+                        get: {
+                            viewModel.matrixMinimumPercentDraft.draftText
+                        },
+                        set: {
+                            viewModel.updateMatrixMinimumPercentDraft($0)
+                        }
+                    )
+                )
+                .multilineTextAlignment(.trailing)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(width: 88)
+                .focused($focusedNumericFilter, equals: .minimumPercent)
+                .onSubmit {
+                    viewModel.commitMatrixMinimumPercentDraft()
+                }
+                .onExitCommand {
+                    viewModel.restoreMatrixMinimumPercentDraft()
+                }
+                .accessibilityIdentifier(
+                    viewModel.matrixMinimumPercentDraft.configuration
+                        .fieldAccessibilityIdentifier
+                )
+                .accessibilityLabel(
+                    viewModel.matrixMinimumPercentDraft.accessibility.label
+                )
+                .accessibilityValue(
+                    viewModel.matrixMinimumPercentDraft.accessibility.value
+                )
+                .accessibilityHint(
+                    viewModel.matrixMinimumPercentDraft.accessibility
+                        .validationDescription
+                        ?? viewModel.matrixMinimumPercentDraft.accessibility
+                            .bounds
+                )
+                Text("%")
+                    .foregroundStyle(.secondary)
+                GenotypeNumericFilterStepper(
+                    value: viewModel.matrixMinimumPercentDraft.stepperValue,
+                    configuration:
+                        viewModel.matrixMinimumPercentDraft.configuration,
+                    accessibility:
+                        viewModel.matrixMinimumPercentDraft.accessibility,
+                    onChange: {
+                        viewModel.setMatrixMinimumPercentFromStepper($0)
+                    }
+                )
+                .labelsHidden()
+                .controlSize(.small)
+            }
+            Text("0 = Off.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             Picker("Percent Basis", selection: Binding(
                 get: { viewModel.displayState.matrixPercentDenominator },
                 set: { viewModel.setMatrixPercentDenominator($0) }
@@ -918,6 +1475,84 @@ public struct GenotypeResultDisplaySection: View {
             .pickerStyle(.segmented)
             .controlSize(.small)
         }
+    }
+
+    private var matrixVisibilityControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Selected Rows and Columns")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(viewModel.matrixVisibilityScopeSummary)
+                .font(.callout)
+                .accessibilityIdentifier("genotype-view-visibility-scope")
+            Text(viewModel.matrixVisibilityStatus)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("genotype-view-visibility-status")
+            Text(
+                "Select allele row markers or sample column headers to change visibility. "
+                    + "Visibility actions use the selection. Search and support filters always "
+                    + "apply to the currently visible matrix."
+            )
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("genotype-view-visibility-guidance")
+            HStack(spacing: 8) {
+                Menu("Rows…") {
+                    Button("Hide Selected Rows") {
+                        viewModel.hideSelectedMatrixRows()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canHideSelectedRows)
+                    .accessibilityIdentifier("genotype-view-hide-selected-rows")
+                    Button("Show Only Selected Rows") {
+                        viewModel.showOnlySelectedMatrixRows()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canShowOnlySelectedRows)
+                    .accessibilityIdentifier("genotype-view-show-only-selected-rows")
+                    Divider()
+                    Button("Show All Rows") {
+                        viewModel.showAllMatrixRows()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canShowAllRows)
+                    .accessibilityIdentifier("genotype-view-show-all-rows")
+                }
+                .accessibilityIdentifier("genotype-view-row-visibility-menu")
+
+                Menu("Columns…") {
+                    Button("Hide Selected Columns") {
+                        viewModel.hideSelectedMatrixColumns()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canHideSelectedColumns)
+                    .accessibilityIdentifier("genotype-view-hide-selected-columns")
+                    Button("Show Only Selected Columns") {
+                        viewModel.showOnlySelectedMatrixColumns()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canShowOnlySelectedColumns)
+                    .accessibilityIdentifier("genotype-view-show-only-selected-columns")
+                    Divider()
+                    Button("Show All Columns") {
+                        viewModel.showAllMatrixColumns()
+                    }
+                    .disabled(!viewModel.matrixVisibilityCapability.canShowAllColumns)
+                    .accessibilityIdentifier("genotype-view-show-all-columns")
+                }
+                .accessibilityIdentifier("genotype-view-column-visibility-menu")
+            }
+            .controlSize(.small)
+
+            Button {
+                viewModel.resetMatrixVisibility()
+            } label: {
+                Label("Reset Visibility", systemImage: "arrow.counterclockwise")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .disabled(!viewModel.canResetMatrixVisibility)
+            .accessibilityIdentifier("genotype-view-reset-visibility")
+        }
+        .accessibilityIdentifier("genotype-view-visibility-group")
     }
 
     private var colorControls: some View {

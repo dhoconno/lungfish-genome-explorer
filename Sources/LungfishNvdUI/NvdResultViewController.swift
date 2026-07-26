@@ -56,6 +56,30 @@ private final class FlippedNvdContentView: NSView {
     override var isFlipped: Bool { true }
 }
 
+@MainActor
+private func nvdDescendants<T: NSView>(of type: T.Type, in root: NSView) -> [T] {
+    var result: [T] = []
+    if let typed = root as? T {
+        result.append(typed)
+    }
+    for subview in root.subviews {
+        result.append(contentsOf: nvdDescendants(of: type, in: subview))
+    }
+    return result
+}
+
+@MainActor
+private func nvdHasAncestor<T: NSView>(of type: T.Type, from view: NSView) -> Bool {
+    var ancestor = view.superview
+    while let current = ancestor {
+        if current is T {
+            return true
+        }
+        ancestor = current.superview
+    }
+    return false
+}
+
 // MARK: - NvdResultViewController
 
 /// A full-screen NVD (Novel Virus Diagnostics) BLAST result browser.
@@ -108,13 +132,38 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Displayed Data
 
     /// Best hits (hit_rank=1) for currently selected samples.
-    private var displayedContigs: [NvdBlastHit] = []
+    private var displayedContigs: [NvdBlastHit] = [] {
+        didSet {
+            displayedContigLookup = Dictionary(
+                displayedContigs.map {
+                    (Self.contigLookupKey(sampleId: $0.sampleId, qseqid: $0.qseqid), $0)
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
+    }
+
+    /// Updated only when the result projection changes. Typography refreshes
+    /// resolve a realized row in O(1) instead of rescanning every contig for
+    /// every visible column.
+    private var displayedContigLookup: [String: NvdBlastHit] = [:]
 
     /// Cache of child hits per contig. Key: "sampleId\tqseqid".
     private var childHitsCache: [String: [NvdBlastHit]] = [:]
 
     /// Taxon groups for byTaxon grouping mode.
-    private var taxonGroups: [NvdTaxonGroup] = []
+    private var taxonGroups: [NvdTaxonGroup] = [] {
+        didSet {
+            taxonGroupLookup = Dictionary(
+                taxonGroups.map { ($0.adjustedTaxidName, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
+    }
+
+    /// Updated only when the by-taxon projection changes so each realized
+    /// typography cell resolves its group in O(1).
+    private var taxonGroupLookup: [String: NvdTaxonGroup] = [:]
 
     /// Contigs under each taxon group. Key: taxon name.
     private var taxonContigs: [String: [NvdBlastHit]] = [:]
@@ -177,7 +226,51 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     }
 
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
-    private let metadataColumnController = MetadataColumnController()
+    /// This viewport owns the typography observation for standard and metadata
+    /// cells, so the embedded metadata controller must not observe separately.
+    private let metadataColumnController = MetadataColumnController(
+        contentTypographyOwnership: .embedded
+    )
+
+    // MARK: - Content Typography
+
+    private var contentPreferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+    private lazy var contentTypographyApplicator = ContentTypographyViewApplicator(
+        preferredFontProvider: contentPreferredFontProvider,
+        excludedSubtree: { [weak self] candidate in
+            guard let self else { return true }
+            return candidate === self.summaryBar
+                || candidate === self.actionBar
+                || candidate === self.outlineView
+                || candidate === self.blastDrawerContainer
+                || candidate === self.miniBAMController?.view
+                || candidate is NSButton
+                || candidate is NSSegmentedControl
+                || candidate is NSPopUpButton
+                || candidate is NSSlider
+        }
+    )
+    private lazy var outlineTypographyApplicator = ContentTypographyViewApplicator(
+        preferredFontProvider: contentPreferredFontProvider,
+        excludedSubtree: { candidate in candidate is NSTableCellView }
+    )
+    private var contentTypographyObservation: ContentTypographyViewObservation?
+    private var typographyDetailScrollOrigin: NSPoint?
+    private var typographyDividerPosition: CGFloat?
+    private weak var detailMetricsStack: NSStackView?
+    private var isApplyingOutlineTypography = false
+
+#if DEBUG
+    private var outlineReloadCount = 0
+    private var childHitLoadCount = 0
+    private var detailRebuildCount = 0
+    private var miniBAMLoadCount = 0
+    private var typographyDisplayedContigScanCount = 0
+    private var typographyTaxonGroupScanCount = 0
+    private var typographyRealizedCellResolutionCount = 0
+    var testDisableMiniBAMLoading = false
+#endif
 
     // MARK: - Callbacks
 
@@ -218,12 +311,16 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         let primary = NSTextField(labelWithString: "")
         primary.font = .systemFont(ofSize: 13, weight: .semibold)
         primary.alignment = .center
+        primary.maximumNumberOfLines = 0
+        primary.lineBreakMode = .byWordWrapping
         primary.translatesAutoresizingMaskIntoConstraints = false
 
         let secondary = NSTextField(labelWithString: "Select a single row to view details")
         secondary.font = .systemFont(ofSize: 11)
         secondary.textColor = .tertiaryLabelColor
         secondary.alignment = .center
+        secondary.maximumNumberOfLines = 0
+        secondary.lineBreakMode = .byWordWrapping
         secondary.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = NSStackView(views: [primary, secondary])
@@ -236,6 +333,10 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -12),
+            primary.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -24),
+            secondary.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -24),
         ])
 
         container.isHidden = true
@@ -298,6 +399,56 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         setupLoadingOverlay()
         layoutSubviews()
         wireCallbacks()
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: contentTypographyApplicator,
+            rootProvider: { [weak self] in self?.view },
+            beforeApply: { [weak self] in
+                guard let self else { return }
+                self.typographyDetailScrollOrigin =
+                    self.detailScrollView.contentView.bounds.origin
+                if let first = self.splitView.arrangedSubviews.first {
+                    self.typographyDividerPosition = self.splitView.isVertical
+                        ? first.frame.maxX
+                        : first.frame.maxY
+                }
+                if self.miniBAMHeightConstraint == nil,
+                   let bamView = self.miniBAMController?.view,
+                   bamView.bounds.height > 0 {
+                    let fixedHeight = bamView.heightAnchor.constraint(
+                        equalToConstant: bamView.bounds.height
+                    )
+                    fixedHeight.priority = .required - 2
+                    fixedHeight.isActive = true
+                    self.miniBAMHeightConstraint = fixedHeight
+                }
+                self.updateDetailTypographyLayout()
+            },
+            afterApply: { [weak self] in
+                guard let self else { return }
+                let divider = self.typographyDividerPosition
+                if let divider,
+                   self.splitView.arrangedSubviews.count == 2 {
+                    self.splitView.setPosition(divider, ofDividerAt: 0)
+                }
+                self.applyOutlineTypography()
+                self.updateDetailTypographyLayout()
+                let origin = self.typographyDetailScrollOrigin
+                self.resizeDetailContentToFit(restoringScrollOrigin: origin)
+                self.isApplyingOutlineTypography = false
+                self.typographyDetailScrollOrigin = nil
+                self.typographyDividerPosition = nil
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.isApplyingOutlineTypography = true
+                    defer { self.isApplyingOutlineTypography = false }
+                    if let divider, self.splitView.arrangedSubviews.count == 2 {
+                        self.splitView.setPosition(divider, ofDividerAt: 0)
+                        self.splitView.layoutSubtreeIfNeeded()
+                    }
+                    self.resizeDetailContentToFit(restoringScrollOrigin: origin)
+                }
+            }
+        )
     }
 
     public override func viewDidLayout() {
@@ -432,6 +583,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Data Reload
 
     private func reloadOutlineData() {
+#if DEBUG
+        outlineReloadCount += 1
+#endif
         guard let database else {
             displayedContigs = []
             taxonGroups = []
@@ -505,6 +659,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Detail Pane Content
 
     private func showOverview() {
+#if DEBUG
+        detailRebuildCount += 1
+#endif
         teardownMiniBAM()
         hideMultiSelectionPlaceholder()
 
@@ -515,6 +672,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
         let titleLabel = NSTextField(labelWithString: "NVD Results Overview")
         titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        titleLabel.maximumNumberOfLines = 0
+        titleLabel.lineBreakMode = .byWordWrapping
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         detailContentView.addSubview(titleLabel)
 
@@ -522,6 +681,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         let subtitleLabel = NSTextField(labelWithString: "Experiment \(experiment). Select a contig in the outline to view alignments.")
         subtitleLabel.font = .systemFont(ofSize: 11)
         subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.maximumNumberOfLines = 0
+        subtitleLabel.lineBreakMode = .byWordWrapping
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         detailContentView.addSubview(subtitleLabel)
 
@@ -537,10 +698,14 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
         actionBar.updateInfoText("Select a contig to view details")
         actionBar.setBlastEnabled(false)
+        contentTypographyObservation?.refresh()
         resizeDetailContentToFit()
     }
 
     private func showContigDetail(_ hit: NvdBlastHit) {
+#if DEBUG
+        detailRebuildCount += 1
+#endif
         teardownMiniBAM()
         hideMultiSelectionPlaceholder()
 
@@ -551,6 +716,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
         buildContigDetailContent(hit)
         updateActionBarForHit(hit)
+        contentTypographyObservation?.refresh()
 
         DispatchQueue.main.async { [weak self] in
             self?.resizeDetailContentToFit()
@@ -562,7 +728,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         let displayName = NvdDataConverter.displayName(for: hit.qseqid, qlen: hit.qlen)
         let nameLabel = NSTextField(labelWithString: displayName)
         nameLabel.font = .systemFont(ofSize: 14, weight: .bold)
-        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.maximumNumberOfLines = 0
+        nameLabel.lineBreakMode = .byWordWrapping
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         detailContentView.addSubview(nameLabel)
 
@@ -575,6 +742,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         )
         subtitleLabel.font = .systemFont(ofSize: 10)
         subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.maximumNumberOfLines = 0
+        subtitleLabel.lineBreakMode = .byWordWrapping
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         detailContentView.addSubview(subtitleLabel)
 
@@ -619,6 +788,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         container.distribution = .fillEqually
         container.spacing = 8
         container.translatesAutoresizingMaskIntoConstraints = false
+        detailMetricsStack = container
 
         let metrics: [(String, String)] = [
             ("Identity", String(format: "%.1f%%", hit.pident)),
@@ -645,12 +815,16 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         labelField.font = .systemFont(ofSize: 9, weight: .medium)
         labelField.textColor = .tertiaryLabelColor
         labelField.alignment = .center
+        labelField.maximumNumberOfLines = 0
+        labelField.lineBreakMode = .byWordWrapping
         labelField.translatesAutoresizingMaskIntoConstraints = false
 
         let valueField = NSTextField(labelWithString: value)
         valueField.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         valueField.textColor = .labelColor
         valueField.alignment = .center
+        valueField.maximumNumberOfLines = 0
+        valueField.lineBreakMode = .byWordWrapping
         valueField.translatesAutoresizingMaskIntoConstraints = false
 
         pill.addSubview(labelField)
@@ -686,11 +860,14 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             let label = NSTextField(labelWithString: "No BAM data available.")
             label.font = .systemFont(ofSize: 11)
             label.textColor = .secondaryLabelColor
+            label.maximumNumberOfLines = 0
+            label.lineBreakMode = .byWordWrapping
             label.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(label)
             NSLayoutConstraint.activate([
                 label.topAnchor.constraint(equalTo: container.topAnchor),
                 label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+                label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8),
                 label.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             ])
             return container
@@ -699,6 +876,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         // Header
         let headerLabel = NSTextField(labelWithString: "Contig Alignment")
         headerLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        headerLabel.maximumNumberOfLines = 0
+        headerLabel.lineBreakMode = .byWordWrapping
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(headerLabel)
 
@@ -708,7 +887,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         )
         accessionLabel.font = .systemFont(ofSize: 10)
         accessionLabel.textColor = .secondaryLabelColor
-        accessionLabel.lineBreakMode = .byTruncatingTail
+        accessionLabel.maximumNumberOfLines = 0
+        accessionLabel.lineBreakMode = .byWordWrapping
         accessionLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(accessionLabel)
 
@@ -748,12 +928,21 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         ])
 
         // Load BAM asynchronously
+#if DEBUG
+        if !testDisableMiniBAMLoading {
+            loadMiniBAM(miniBAM: miniBAM, hit: hit, database: database, bundleURL: bundleURL)
+        }
+#else
         loadMiniBAM(miniBAM: miniBAM, hit: hit, database: database, bundleURL: bundleURL)
+#endif
 
         return container
     }
 
     private func loadMiniBAM(miniBAM: MiniBAMViewController, hit: NvdBlastHit, database: NvdDatabase, bundleURL: URL) {
+#if DEBUG
+        miniBAMLoadCount += 1
+#endif
         // Get BAM path from database
         do {
             guard let bamRelPath = try database.bamPath(forSample: hit.sampleId) else {
@@ -795,7 +984,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     // MARK: - Detail Content Sizing
 
-    private func resizeDetailContentToFit() {
+    private func resizeDetailContentToFit(restoringScrollOrigin: NSPoint? = nil) {
         let clipWidth = detailScrollView.contentView.bounds.width
         guard clipWidth > 0 else { return }
 
@@ -809,8 +998,32 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             height: max(fittingSize.height, 400)
         )
 
-        detailScrollView.contentView.scroll(to: .zero)
+        let requestedOrigin = restoringScrollOrigin ?? .zero
+        let maxX = max(0, detailContentView.frame.width - detailScrollView.contentView.bounds.width)
+        let maxY = max(0, detailContentView.frame.height - detailScrollView.contentView.bounds.height)
+        detailScrollView.contentView.scroll(to: NSPoint(
+            x: min(max(0, requestedOrigin.x), maxX),
+            y: min(max(0, requestedOrigin.y), maxY)
+        ))
         detailScrollView.reflectScrolledClipView(detailScrollView.contentView)
+    }
+
+    private func updateDetailTypographyLayout() {
+        let typography = ContentTypography(
+            preference: AppSettings.shared.contentTextSizePreference,
+            preferredFontProvider: contentPreferredFontProvider
+        )
+        let scale = typography.font(for: .body).pointSize / max(
+            contentPreferredFontProvider.canonicalUnscaledPointSize(for: .body),
+            1
+        )
+        let shouldStack = scale >= 1.5
+            || detailScrollView.contentView.bounds.width < 320
+        detailMetricsStack?.orientation = shouldStack ? .vertical : .horizontal
+        detailMetricsStack?.distribution = shouldStack ? .fill : .fillEqually
+        detailMetricsStack?.alignment = shouldStack ? .width : .top
+        detailContentView.needsLayout = true
+        detailContentView.layoutSubtreeIfNeeded()
     }
 
     // MARK: - Loading Overlay
@@ -1065,6 +1278,142 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         metadataColumnController.install(on: outlineView)
     }
 
+    /// Updates only realized outline content and geometry. It deliberately
+    /// avoids `reloadData`, which would collapse items and clear lazy children.
+    private func applyOutlineTypography() {
+        let exactScrollOrigin = outlineView.enclosingScrollView?.contentView.bounds.origin
+        isApplyingOutlineTypography = true
+        defer {
+            if let exactScrollOrigin,
+               let scrollView = outlineView.enclosingScrollView {
+                scrollView.contentView.scroll(to: exactScrollOrigin)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+        }
+        outlineTypographyApplicator.apply(to: outlineView)
+        let visibleRows = outlineView.rows(in: outlineView.visibleRect)
+        guard visibleRows.location != NSNotFound else { return }
+        for row in visibleRows.location..<min(
+            NSMaxRange(visibleRows),
+            outlineView.numberOfRows
+        ) {
+            guard let item = outlineView.item(atRow: row) as? NvdOutlineItem else {
+                continue
+            }
+            for (columnIndex, column) in outlineView.tableColumns.enumerated()
+            where !column.isHidden {
+                guard let cell = outlineView.view(
+                    atColumn: columnIndex,
+                    row: row,
+                    makeIfNecessary: false
+                ) as? NSTableCellView else {
+                    continue
+                }
+                if column.identifier.rawValue.hasPrefix("metadata_") {
+                    contentTypographyApplicator.apply(to: cell)
+                } else {
+                    configureExistingCell(cell, column: column.identifier, item: item)
+                }
+            }
+        }
+    }
+
+    private func configureExistingCell(
+        _ cell: NSTableCellView,
+        column: NSUserInterfaceItemIdentifier,
+        item: NvdOutlineItem
+    ) {
+#if DEBUG
+        typographyRealizedCellResolutionCount += 1
+#endif
+        switch item {
+        case .contig(let sampleId, let qseqid):
+            guard let hit = displayedContigLookup[
+                Self.contigLookupKey(sampleId: sampleId, qseqid: qseqid)
+            ] else { return }
+            configureCell(cell, column: column.rawValue, hit: hit, isChild: false)
+        case .childHit(let sampleId, let qseqid, let hitRank):
+            let key = "\(sampleId)\t\(qseqid)"
+            guard let hit = childHitsCache[key]?.first(where: {
+                $0.hitRank == hitRank
+            }) else { return }
+            configureCell(cell, column: column.rawValue, hit: hit, isChild: true)
+        case .taxonGroup(let name):
+            configureTaxonCell(cell, column: column.rawValue, name: name)
+        }
+    }
+
+    private func resolvedContentFont(
+        size: CGFloat,
+        weight: NSFont.Weight = .regular,
+        monospaced: Bool = false,
+        digitsOnly: Bool = false
+    ) -> NSFont {
+        let typography = ContentTypography(
+            preference: AppSettings.shared.contentTextSizePreference,
+            preferredFontProvider: contentPreferredFontProvider
+        )
+        let scale = typography.font(for: .body).pointSize / max(
+            contentPreferredFontProvider.canonicalUnscaledPointSize(for: .body),
+            1
+        )
+        let resolvedSize = max(ContentTypography.minimumPointSize, size * scale)
+        if digitsOnly {
+            return .monospacedDigitSystemFont(ofSize: resolvedSize, weight: weight)
+        }
+        if monospaced {
+            return .monospacedSystemFont(ofSize: resolvedSize, weight: weight)
+        }
+        return .systemFont(ofSize: resolvedSize, weight: weight)
+    }
+
+    private static func contigLookupKey(sampleId: String, qseqid: String) -> String {
+        "\(sampleId)\u{1F}\(qseqid)"
+    }
+
+    private func finishPrimaryCell(_ cell: NSTableCellView, childAlpha: CGFloat = 1) {
+        guard let field = cell.textField else { return }
+        field.alphaValue = childAlpha
+        field.toolTip = field.stringValue
+        field.setAccessibilityLabel(field.stringValue)
+        field.setAccessibilityValue(field.stringValue)
+    }
+
+    private func configureTaxonCell(
+        _ cell: NSTableCellView,
+        column: String,
+        name: String
+    ) {
+        guard let field = cell.textField else { return }
+        switch column {
+        case "contig":
+            field.stringValue = name.isEmpty ? "Unclassified" : name
+            field.font = resolvedContentFont(size: 11, weight: .semibold)
+            field.alignment = .left
+        case "mappedReads":
+            if let group = taxonGroupLookup[name] {
+                field.stringValue = nvdFormatCount(group.totalMappedReads)
+                field.font = resolvedContentFont(
+                    size: 11, weight: .medium, digitsOnly: true
+                )
+                field.alignment = .right
+            } else {
+                field.stringValue = ""
+            }
+        case "rank":
+            if let group = taxonGroupLookup[name] {
+                field.stringValue = group.adjustedTaxidRank
+                field.font = resolvedContentFont(size: 11)
+                field.alignment = .left
+            } else {
+                field.stringValue = ""
+            }
+        default:
+            field.stringValue = ""
+        }
+        finishPrimaryCell(cell)
+    }
+
     private func makeFilterBar() -> NSView {
         let filterBar = NSStackView()
         filterBar.orientation = .horizontal
@@ -1118,12 +1467,18 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Layout
 
     private func layoutSubviews() {
+        let summaryHeight = summaryBar.heightAnchor.constraint(
+            equalToConstant: summaryBar.preferredContentHeight
+        )
+        summaryBar.onPreferredContentHeightChanged = { [weak summaryHeight] height in
+            summaryHeight?.constant = height
+        }
         NSLayoutConstraint.activate([
             // Summary bar (top)
             summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            summaryBar.heightAnchor.constraint(equalToConstant: 48),
+            summaryHeight,
 
             // Action bar (bottom, fixed height)
             actionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -1869,9 +2224,16 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             return cached
         }
 
+        // Row-height/header relayout can ask the outline whether newly realized
+        // rows are expandable. A typography-only transaction must never turn
+        // those layout queries into database reads or cache mutations.
+        guard !isApplyingOutlineTypography else { return [] }
         guard let database else { return [] }
 
         do {
+#if DEBUG
+            childHitLoadCount += 1
+#endif
             let children = try database.childHits(sampleId: sampleId, qseqid: qseqid)
             childHitsCache[key] = children
             return children
@@ -1992,6 +2354,7 @@ extension NvdResultViewController {
                 rowSampleId = nil
             }
             if let cell = metadataColumnController.cellForColumn(tableColumn, in: outlineView, sampleId: rowSampleId) {
+                contentTypographyApplicator.apply(to: cell)
                 return cell
             }
         }
@@ -2003,7 +2366,9 @@ extension NvdResultViewController {
 
         switch outlineItem {
         case .contig(let sampleId, let qseqid):
-            guard let hit = displayedContigs.first(where: { $0.sampleId == sampleId && $0.qseqid == qseqid }) else {
+            guard let hit = displayedContigLookup[
+                Self.contigLookupKey(sampleId: sampleId, qseqid: qseqid)
+            ] else {
                 cellView.textField?.stringValue = ""
                 return cellView
             }
@@ -2019,29 +2384,7 @@ extension NvdResultViewController {
             }
 
         case .taxonGroup(let name):
-            if identifier.rawValue == "contig" {
-                cellView.textField?.stringValue = name.isEmpty ? "Unclassified" : name
-                cellView.textField?.font = .systemFont(ofSize: 11, weight: .semibold)
-                cellView.textField?.alignment = .left
-            } else if identifier.rawValue == "mappedReads" {
-                if let group = taxonGroups.first(where: { $0.adjustedTaxidName == name }) {
-                    cellView.textField?.stringValue = nvdFormatCount(group.totalMappedReads)
-                    cellView.textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-                    cellView.textField?.alignment = .right
-                } else {
-                    cellView.textField?.stringValue = ""
-                }
-            } else if identifier.rawValue == "rank" {
-                if let group = taxonGroups.first(where: { $0.adjustedTaxidName == name }) {
-                    cellView.textField?.stringValue = group.adjustedTaxidRank
-                    cellView.textField?.font = .systemFont(ofSize: 11)
-                    cellView.textField?.alignment = .left
-                } else {
-                    cellView.textField?.stringValue = ""
-                }
-            } else {
-                cellView.textField?.stringValue = ""
-            }
+            configureTaxonCell(cellView, column: identifier.rawValue, name: name)
         }
 
         return cellView
@@ -2057,60 +2400,51 @@ extension NvdResultViewController {
                 ? "Hit #\(hit.hitRank)"
                 : NvdDataConverter.displayName(for: hit.qseqid, qlen: hit.qlen)
             textField?.font = isChild
-                ? .systemFont(ofSize: 10, weight: .regular)
-                : .systemFont(ofSize: 11, weight: .medium)
-            textField?.alphaValue = childAlpha
+                ? resolvedContentFont(size: 10)
+                : resolvedContentFont(size: 11, weight: .medium)
             textField?.alignment = .left
         case "sampleId":
             textField?.stringValue = hit.sampleId
-            textField?.font = .systemFont(ofSize: 10)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(size: 10)
             textField?.alignment = .left
         case "length":
             textField?.stringValue = nvdFormatCount(hit.qlen)
-            textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(size: 11, digitsOnly: true)
             textField?.alignment = .right
         case "classification":
             textField?.stringValue = hit.adjustedTaxidName.isEmpty ? "Unclassified" : hit.adjustedTaxidName
-            textField?.font = .systemFont(ofSize: 11)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(size: 11)
             textField?.alignment = .left
         case "rank":
             textField?.stringValue = hit.adjustedTaxidRank
-            textField?.font = .systemFont(ofSize: 11)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(size: 11)
             textField?.alignment = .left
         case "accession":
             textField?.stringValue = hit.sseqid
-            textField?.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(size: 10, monospaced: true)
             textField?.alignment = .left
         case "subject":
             textField?.stringValue = hit.stitle
-            textField?.font = .systemFont(ofSize: 10)
+            textField?.font = resolvedContentFont(size: 10)
             textField?.lineBreakMode = .byTruncatingTail
-            textField?.alphaValue = childAlpha
             textField?.alignment = .left
         case "pident":
             textField?.stringValue = String(format: "%.1f", hit.pident)
-            textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(size: 11, digitsOnly: true)
             textField?.alignment = .right
         case "evalue":
             textField?.stringValue = formatEvalue(hit.evalue)
-            textField?.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(size: 10, digitsOnly: true)
             textField?.alignment = .right
         case "bitscore":
             textField?.stringValue = String(format: "%.0f", hit.bitscore)
-            textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(size: 11, digitsOnly: true)
             textField?.alignment = .right
         case "mappedReads":
             textField?.stringValue = nvdFormatCount(hit.mappedReads)
-            textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(
+                size: 11, weight: .medium, digitsOnly: true
+            )
             textField?.alignment = .right
         case "uniqueReads":
             let unique = ClassifierUniqueReads.normalizedOrFloor(
@@ -2118,22 +2452,20 @@ extension NvdResultViewController {
                 readCount: hit.mappedReads
             )
             textField?.stringValue = nvdFormatCount(unique)
-            textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(size: 11, digitsOnly: true)
             textField?.alignment = .right
         case "readsPerBillion":
             textField?.stringValue = String(format: "%.0f", hit.readsPerBillion)
-            textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(size: 11, digitsOnly: true)
             textField?.alignment = .right
         case "coverage":
             textField?.stringValue = nvdFormatCount(hit.length)
-            textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-            textField?.alphaValue = childAlpha
+            textField?.font = resolvedContentFont(size: 11, digitsOnly: true)
             textField?.alignment = .right
         default:
             textField?.stringValue = ""
         }
+        finishPrimaryCell(cellView, childAlpha: childAlpha)
     }
 
     public func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -2304,6 +2636,150 @@ extension NvdResultViewController {
     var testOutlineContainer: NSView? { outlineContainer }
     var testSplitView: NSSplitView { splitView }
     var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
+    var testOutlineView: NSOutlineView { outlineView }
+    var testSearchField: NSSearchField { searchField }
+    var testDetailContentView: NSView { detailContentView }
+    var testDetailScrollView: NSScrollView { detailScrollView }
+
+#if DEBUG
+    var testOutlineReloadCount: Int { outlineReloadCount }
+    var testChildHitLoadCount: Int { childHitLoadCount }
+    var testDetailRebuildCount: Int { detailRebuildCount }
+    var testMiniBAMLoadCount: Int { miniBAMLoadCount }
+    var testTypographyDisplayedContigScanCount: Int {
+        typographyDisplayedContigScanCount
+    }
+    var testTypographyTaxonGroupScanCount: Int {
+        typographyTaxonGroupScanCount
+    }
+    var testTypographyRealizedCellResolutionCount: Int {
+        typographyRealizedCellResolutionCount
+    }
+    var testMiniBAMControllerIdentity: ObjectIdentifier? {
+        miniBAMController.map(ObjectIdentifier.init)
+    }
+    var testMiniBAMViewHeight: CGFloat? { miniBAMController?.view.bounds.height }
+    var testMetricStackOrientation: NSUserInterfaceLayoutOrientation? {
+        detailMetricsStack?.orientation
+    }
+    var testExpandedOutlineItemIdentities: [String] {
+        (0..<outlineView.numberOfRows).compactMap { row in
+            guard let item = outlineView.item(atRow: row) as? NvdOutlineItem,
+                  outlineView.isItemExpanded(item) else {
+                return nil
+            }
+            return selectionIdentity(for: item)
+        }
+    }
+    var testDetailPrimaryPointSizes: [CGFloat] {
+        let miniRoot = miniBAMController?.view
+        return nvdDescendants(of: NSTextField.self, in: detailContentView)
+            .filter { field in
+                !(miniRoot.map { field.isDescendant(of: $0) } ?? false)
+                    && !nvdHasAncestor(of: NSButton.self, from: field)
+            }
+            .compactMap { $0.font?.pointSize }
+    }
+    var testDetailPrimaryFieldsAreContained: Bool {
+        let miniRoot = miniBAMController?.view
+        return nvdDescendants(of: NSTextField.self, in: detailContentView)
+            .filter { field in
+                !(miniRoot.map { field.isDescendant(of: $0) } ?? false)
+                    && !nvdHasAncestor(of: NSButton.self, from: field)
+            }
+            .allSatisfy { field in
+                let frame = field.convert(field.bounds, to: detailContentView)
+                return frame.minX >= -0.5
+                    && frame.maxX <= detailContentView.bounds.width + 0.5
+            }
+    }
+    var testDetailFullTextAccessibility: Bool {
+        let miniRoot = miniBAMController?.view
+        return nvdDescendants(of: NSTextField.self, in: detailContentView)
+            .filter { field in
+                !field.stringValue.isEmpty
+                    && !(miniRoot.map { field.isDescendant(of: $0) } ?? false)
+                    && !nvdHasAncestor(of: NSButton.self, from: field)
+            }
+            .allSatisfy {
+                $0.toolTip == $0.stringValue
+                    && $0.accessibilityValue() == $0.stringValue
+            }
+    }
+    var testPlaceholderFieldsAreContained: Bool {
+        nvdDescendants(of: NSTextField.self, in: multiSelectionPlaceholder)
+            .allSatisfy { field in
+                let frame = field.convert(field.bounds, to: multiSelectionPlaceholder)
+                return frame.minX >= -0.5
+                    && frame.maxX <= multiSelectionPlaceholder.bounds.width + 0.5
+            }
+    }
+    var testPlaceholderPointSizes: [CGFloat] {
+        nvdDescendants(of: NSTextField.self, in: multiSelectionPlaceholder)
+            .compactMap { $0.font?.pointSize }
+    }
+    var testLoadingPointSize: CGFloat? { loadingLabel.font?.pointSize }
+    func testDetailPrimaryPointSize(containing text: String) -> CGFloat? {
+        let miniRoot = miniBAMController?.view
+        return nvdDescendants(of: NSTextField.self, in: detailContentView)
+            .first { field in
+                field.stringValue.contains(text)
+                    && !(miniRoot.map { field.isDescendant(of: $0) } ?? false)
+            }?
+            .font?
+            .pointSize
+    }
+
+    func testingSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        precondition(
+            !isViewLoaded,
+            "The preferred-font provider must be injected before loading the view."
+        )
+        contentPreferredFontProvider = provider
+    }
+
+    func testExpandFirstContig() {
+        guard outlineView.numberOfRows > 0,
+              let item = outlineView.item(atRow: 0) else { return }
+        outlineView.expandItem(item)
+    }
+
+    func testResetTypographyDisplayedContigScanCount() {
+        typographyDisplayedContigScanCount = 0
+        typographyTaxonGroupScanCount = 0
+        typographyRealizedCellResolutionCount = 0
+    }
+
+    func testSetGroupingMode(_ mode: GroupingMode) {
+        groupingMode = mode
+        reloadOutlineData()
+    }
+
+    func testExpandFirstTaxon() {
+        guard outlineView.numberOfRows > 0,
+              let item = outlineView.item(atRow: 0) else { return }
+        outlineView.expandItem(item)
+    }
+
+    func testShowMetadataColumn(_ name: String, store: SampleMetadataStore) {
+        metadataColumnController.visibleColumns.insert(name)
+        sampleMetadataStore = store
+    }
+
+    func testSetDetailPaneWidth(_ width: CGFloat) {
+        detailScrollView.frame.size.width = width
+        detailScrollView.contentView.frame.size.width = width
+        detailContentView.frame.size.width = width
+        resizeDetailContentToFit()
+    }
+
+    func testingShowMultiSelectionPlaceholder(count: Int) {
+        showMultiSelectionPlaceholder(count: count)
+        contentTypographyObservation?.refresh()
+    }
+#endif
 
     func testSelectOutlineRow(_ row: Int) {
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
@@ -2447,7 +2923,7 @@ final class NvdSummaryBar: GenomicSummaryCardBar {
         let hitStr = hitFmt.string(from: NSNumber(value: hitCount)) ?? "\(hitCount)"
         hitsLabel = "\(hitStr) hits"
 
-        needsDisplay = true
+        cardsDidChange()
     }
 
     override var cards: [Card] {

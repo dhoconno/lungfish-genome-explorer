@@ -492,6 +492,56 @@ public final class MainMenu {
 
         viewMenu.addItem(.separator())
 
+        // Primary content text size. Option differentiates these app-wide
+        // accessibility commands from the scientific viewport zoom commands.
+        let contentTextSizeItem = NSMenuItem(
+            title: "Content Text Size",
+            action: nil,
+            keyEquivalent: ""
+        )
+        contentTextSizeItem.identifier = NSUserInterfaceItemIdentifier(
+            MainMenuAccessibilityID.contentTextSize
+        )
+        contentTextSizeItem.setAccessibilityLabel("Content text size")
+        let contentTextSizeMenu = NSMenu(title: "Content Text Size")
+
+        let largerTextItem = contentTextSizeMenu.addItem(
+            withTitle: "Larger",
+            action: #selector(ViewMenuActions.increaseContentTextSize(_:)),
+            keyEquivalent: "+"
+        )
+        largerTextItem.keyEquivalentModifierMask = [.command, .option]
+        largerTextItem.identifier = NSUserInterfaceItemIdentifier(
+            MainMenuAccessibilityID.contentTextSizeLarger
+        )
+        largerTextItem.setAccessibilityLabel("Increase content text size")
+
+        let smallerTextItem = contentTextSizeMenu.addItem(
+            withTitle: "Smaller",
+            action: #selector(ViewMenuActions.decreaseContentTextSize(_:)),
+            keyEquivalent: "-"
+        )
+        smallerTextItem.keyEquivalentModifierMask = [.command, .option]
+        smallerTextItem.identifier = NSUserInterfaceItemIdentifier(
+            MainMenuAccessibilityID.contentTextSizeSmaller
+        )
+        smallerTextItem.setAccessibilityLabel("Decrease content text size")
+
+        let defaultTextItem = contentTextSizeMenu.addItem(
+            withTitle: "Default",
+            action: #selector(ViewMenuActions.resetContentTextSize(_:)),
+            keyEquivalent: "0"
+        )
+        defaultTextItem.keyEquivalentModifierMask = [.command, .option]
+        defaultTextItem.identifier = NSUserInterfaceItemIdentifier(
+            MainMenuAccessibilityID.contentTextSizeDefault
+        )
+        defaultTextItem.setAccessibilityLabel("Reset content text size to System")
+
+        contentTextSizeItem.submenu = contentTextSizeMenu
+        viewMenu.addItem(contentTextSizeItem)
+        viewMenu.addItem(.separator())
+
         // Zoom controls
         viewMenu.addItem(
             withTitle: "Zoom In",
@@ -1082,6 +1132,9 @@ enum ProvenanceExportMenuModel {
     func zoomOut(_ sender: Any?)
     func zoomToFit(_ sender: Any?)
     func zoomReset(_ sender: Any?)
+    func increaseContentTextSize(_ sender: Any?)
+    func decreaseContentTextSize(_ sender: Any?)
+    func resetContentTextSize(_ sender: Any?)
     func toggleNucleotideMode(_ sender: Any?)
     func resetViewSettingsToDefaults(_ sender: Any?)
     func showAIAssistant(_ sender: Any?)

@@ -341,12 +341,19 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     // MARK: - Metadata Columns
 
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
-    let metadataColumns = MetadataColumnController()
+    let metadataColumns = MetadataColumnController(contentTypographyOwnership: .embedded)
 
     private let scrollView = NSScrollView()
     private let outlineView = NSOutlineView()
     private let searchField = NSSearchField()
     private let countLabel = NSTextField(labelWithString: "")
+    private var searchHeightConstraint: NSLayoutConstraint?
+    private let contentTypographyApplicator = ContentTypographyViewApplicator()
+    private var contentTypographyObservation: ContentTypographyViewObservation?
+    #if DEBUG
+    private var debugOutlineReloadCount = 0
+    private var debugItemRebuildCount = 0
+    #endif
 
     // MARK: - Column Identifiers
 
@@ -380,6 +387,18 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         setupSearchField()
         setupOutlineView()
         setupLayout()
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: contentTypographyApplicator,
+            rootProvider: { [weak self] in self },
+            afterApply: { [weak self] in
+                guard let self else { return }
+                self.searchHeightConstraint?.constant = max(
+                    24,
+                    ceil((self.searchField.font?.boundingRectForFont.height ?? 0) + 8)
+                )
+                self.layoutSubtreeIfNeeded()
+            }
+        )
     }
 
     // MARK: - Setup
@@ -518,6 +537,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         let searchTop = searchField.topAnchor.constraint(equalTo: topAnchor, constant: 4)
         let searchLeading = searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8)
         let searchHeight = searchField.heightAnchor.constraint(equalToConstant: 24)
+        searchHeightConstraint = searchHeight
         let labelGap = countLabel.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 8)
         let labelTrailing = countLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
         let scrollBottom = scrollView.bottomAnchor.constraint(equalTo: bottomAnchor)
@@ -548,6 +568,9 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
     /// Rebuilds the reference-type item wrappers from the current result.
     private func rebuildItems() {
+        #if DEBUG
+        debugItemRebuildCount += 1
+        #endif
         guard let result else {
             assemblyItems = []
             return
@@ -584,7 +607,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
     private func reloadData() {
         refreshSortedItems()
-        outlineView.reloadData()
+        performOutlineReload()
         updateCountLabel()
 
         // Expand assemblies with more than one contig by default.
@@ -592,6 +615,13 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             outlineView.expandItem(item)
         }
         restoreSelectionAfterDisplayedItemsChanged()
+    }
+
+    private func performOutlineReload() {
+        #if DEBUG
+        debugOutlineReloadCount += 1
+        #endif
+        outlineView.reloadData()
     }
 
     private func updateCountLabel() {
@@ -670,7 +700,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         }
 
         refreshSortedItems()
-        outlineView.reloadData()
+        performOutlineReload()
         updateCountLabel()
 
         // Expand all when filtering
@@ -1100,7 +1130,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         currentSortKey = key
         currentSortAscending = descriptor.ascending
         refreshSortedItems()
-        outlineView.reloadData()
+        performOutlineReload()
         restoreSelectionAfterDisplayedItemsChanged()
     }
 
@@ -1256,7 +1286,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             )
             self.refreshSortedItems()
             ColumnFilter.updateColumnTitleIndicators(columns: self.outlineView.tableColumns, filters: self.columnFilters, originalTitles: &self.originalColumnTitles)
-            self.outlineView.reloadData()
+            self.performOutlineReload()
             self.restoreSelectionAfterDisplayedItemsChanged()
         }
     }
@@ -1266,7 +1296,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
               let composition = ColumnFilterComposition(rawValue: rawValue) else { return }
         columnFilterSet.composition = composition
         refreshSortedItems()
-        outlineView.reloadData()
+        performOutlineReload()
         restoreSelectionAfterDisplayedItemsChanged()
     }
 
@@ -1276,7 +1306,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         currentSortKey = key
         currentSortAscending = true
         refreshSortedItems()
-        outlineView.reloadData()
+        performOutlineReload()
         restoreSelectionAfterDisplayedItemsChanged()
     }
 
@@ -1286,7 +1316,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         currentSortKey = key
         currentSortAscending = false
         refreshSortedItems()
-        outlineView.reloadData()
+        performOutlineReload()
         restoreSelectionAfterDisplayedItemsChanged()
     }
 
@@ -1295,7 +1325,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         columnFilterSet.removeFilters(for: columnId)
         refreshSortedItems()
         ColumnFilter.updateColumnTitleIndicators(columns: outlineView.tableColumns, filters: columnFilters, originalTitles: &originalColumnTitles)
-        outlineView.reloadData()
+        performOutlineReload()
         restoreSelectionAfterDisplayedItemsChanged()
     }
 
@@ -1303,7 +1333,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         columnFilterSet.removeAll()
         refreshSortedItems()
         ColumnFilter.updateColumnTitleIndicators(columns: outlineView.tableColumns, filters: columnFilters, originalTitles: &originalColumnTitles)
-        outlineView.reloadData()
+        performOutlineReload()
         restoreSelectionAfterDisplayedItemsChanged()
     }
 
@@ -1694,6 +1724,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
         ])
 
+        contentTypographyApplicator.apply(to: cellView)
         return cellView
     }
 
@@ -1713,6 +1744,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
         ])
 
+        contentTypographyApplicator.apply(to: cellView)
         return cellView
     }
 
@@ -1734,6 +1766,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
         ])
 
+        contentTypographyApplicator.apply(to: cellView)
         return cellView
     }
 
@@ -1755,6 +1788,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
         ])
 
+        contentTypographyApplicator.apply(to: cellView)
         return cellView
     }
 
@@ -1799,6 +1833,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             ])
         }
 
+        contentTypographyApplicator.apply(to: cellView)
         return cellView
     }
 
@@ -1896,7 +1931,76 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     var testDisplayedAssemblyCount: Int { displayItems.count }
 
     #if DEBUG
+    struct TestingTypographyMetrics: Equatable {
+        let searchPointSize: CGFloat
+        let countPointSize: CGFloat
+        let nameCellPointSize: CGFloat
+        let numericCellPointSize: CGFloat
+        let rowHeight: CGFloat
+        let headerHeight: CGFloat
+        let searchHeight: CGFloat
+    }
+
+    var testingTypographyMetrics: TestingTypographyMetrics {
+        outlineView.layoutSubtreeIfNeeded()
+        let nameIndex = outlineView.column(withIdentifier: .init(ColumnID.name))
+        let readsIndex = outlineView.column(withIdentifier: .init(ColumnID.reads))
+        let nameCell = nameIndex >= 0
+            ? outlineView.view(atColumn: nameIndex, row: 0, makeIfNecessary: true)
+                as? NSTableCellView
+            : nil
+        let numericCell = readsIndex >= 0
+            ? outlineView.view(atColumn: readsIndex, row: 0, makeIfNecessary: true)
+                as? NSTableCellView
+            : nil
+        return TestingTypographyMetrics(
+            searchPointSize: searchField.font?.pointSize ?? 0,
+            countPointSize: countLabel.font?.pointSize ?? 0,
+            nameCellPointSize: nameCell?.textField?.font?.pointSize ?? 0,
+            numericCellPointSize: numericCell?.textField?.font?.pointSize ?? 0,
+            rowHeight: outlineView.rowHeight,
+            headerHeight: outlineView.headerView?.frame.height ?? 0,
+            searchHeight: searchHeightConstraint?.constant ?? 0
+        )
+    }
+
+    var testingSearchField: NSSearchField { searchField }
+
+    var testingScrollOriginY: CGFloat {
+        scrollView.contentView.bounds.origin.y
+    }
+
+    var testingTopVisibleRow: Int {
+        let rows = outlineView.rows(in: outlineView.visibleRect)
+        return rows.location == NSNotFound ? -1 : rows.location
+    }
+
+    func testingScrollRowToVisible(_ row: Int) {
+        outlineView.scrollRowToVisible(row)
+    }
+
+    func testingRealizedCell(column identifier: String, row: Int) -> NSTableCellView? {
+        let column = outlineView.column(withIdentifier: .init(identifier))
+        guard column >= 0 else { return nil }
+        return outlineView.view(
+            atColumn: column,
+            row: row,
+            makeIfNecessary: true
+        ) as? NSTableCellView
+    }
+
+    func testingCoverageSparkline(row: Int) -> ViralCoverageSparklineView? {
+        testingRealizedCell(column: ColumnID.coverage, row: row)?
+            .subviews
+            .compactMap { $0 as? ViralCoverageSparklineView }
+            .first
+    }
+
     var testingFilterApplicationCount: Int { debugFilterApplicationCount }
+
+    var testingOutlineReloadCount: Int { debugOutlineReloadCount }
+
+    var testingItemRebuildCount: Int { debugItemRebuildCount }
 
     func testingSubmitSearchText(_ text: String) {
         searchField.stringValue = text
@@ -1926,7 +2030,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
         outlineView.dataSource = stub
-        outlineView.reloadData()
+        performOutlineReload()
         outlineView.selectRowIndexes(IndexSet(indices), byExtendingSelection: false)
     }
 

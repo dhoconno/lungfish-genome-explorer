@@ -7,14 +7,45 @@ public struct GenotypeCohortSmartFilter: Codable, Equatable, Sendable {
     public var scope: String
     public var isStarred: Bool
     public var predicate: SmartCohortPredicate
+    /// Text used to reproduce the saved viewport row/haplotype projection.
+    ///
+    /// The predicate remains composed from established schema cases so older
+    /// readers can still evaluate the saved sample cohort. Older readers
+    /// safely ignore this additive top-level key.
+    public var searchProjectionText: String?
 
     public init(name: String, description: String? = nil, scope: String = "bundle",
-                isStarred: Bool = false, predicate: SmartCohortPredicate = .all([])) {
+                isStarred: Bool = false, predicate: SmartCohortPredicate = .all([]),
+                searchProjectionText: String? = nil) {
         self.name = name
         self.description = description
         self.scope = scope
         self.isStarred = isStarred
         self.predicate = predicate
+        self.searchProjectionText = searchProjectionText
+    }
+
+    /// Returns de-duplicated stable IDs in deterministic natural order.
+    ///
+    /// Fixed POSIX natural collation provides the ordering users expect (for
+    /// example CR2 before CR10) without depending on the current user locale;
+    /// the raw comparison makes the comparator total when collation considers
+    /// two IDs equal.
+    public static func canonicalSampleIDs<S: Swift.Sequence>(
+        _ sampleIDs: S
+    ) -> [String] where S.Element == String {
+        Set(sampleIDs).sorted { lhs, rhs in
+            let natural = lhs.compare(
+                rhs,
+                options: [.caseInsensitive, .numeric],
+                range: nil,
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            if natural != .orderedSame {
+                return natural == .orderedAscending
+            }
+            return lhs < rhs
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 import AppKit
+import LungfishKit
 
 @MainActor
 final class GenotypeAlleleSequenceDetailView: NSView {
@@ -17,6 +18,12 @@ final class GenotypeAlleleSequenceDetailView: NSView {
     private let scrollView = NSScrollView(frame: .zero)
     private let textView = NSTextView(frame: .zero)
     private var records: [GenotypeAlleleSequenceRecord] = []
+    private var contentTypographyObservation: ContentTypographyViewObservation?
+    private let sequenceFontBaseline = NSFont.monospacedSystemFont(
+        ofSize: NSFont.smallSystemFontSize,
+        weight: .regular
+    )
+    private(set) var testingRenderCount = 0
 
     private(set) var currentFormat: Format = .genBank
 
@@ -85,10 +92,7 @@ final class GenotypeAlleleSequenceDetailView: NSView {
         textView.isSelectable = true
         textView.isRichText = false
         textView.allowsUndo = false
-        textView.font = .monospacedSystemFont(
-            ofSize: NSFont.smallSystemFontSize,
-            weight: .regular
-        )
+        textView.font = resolvedSequenceFont()
         textView.textColor = .textColor
         textView.backgroundColor = .textBackgroundColor
         textView.textContainerInset = NSSize(width: 10, height: 10)
@@ -131,6 +135,11 @@ final class GenotypeAlleleSequenceDetailView: NSView {
             heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
         ])
 
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: ContentTypographyViewApplicator(excludedSubtree: { _ in true }),
+            rootProvider: { [weak self] in self },
+            afterApply: { [weak self] in self?.applyContentTypography() }
+        )
         clear()
     }
 
@@ -141,6 +150,7 @@ final class GenotypeAlleleSequenceDetailView: NSView {
     }
 
     private func render() {
+        testingRenderCount += 1
         let values = records.map { record in
             switch currentFormat {
             case .genBank:
@@ -153,4 +163,47 @@ final class GenotypeAlleleSequenceDetailView: NSView {
         }
         textView.string = values.joined(separator: "\n")
     }
+
+    private func applyContentTypography() {
+        let resolvedFont = resolvedSequenceFont()
+        guard !hasSameFontSignature(textView.font, resolvedFont) else { return }
+        let selectedRange = textView.selectedRange()
+        let scrollOrigin = scrollView.contentView.bounds.origin
+        textView.font = resolvedFont
+        textView.setSelectedRange(selectedRange)
+        scrollView.contentView.setBoundsOrigin(scrollOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        needsLayout = true
+    }
+
+    private func resolvedSequenceFont() -> NSFont {
+        let bodyFont = ContentTypography.current().font(for: .body)
+        let scale = bodyFont.pointSize / max(NSFont.systemFontSize, 1)
+        let pointSize = max(
+            ContentTypography.minimumPointSize,
+            sequenceFontBaseline.pointSize * scale
+        )
+        return NSFont(
+            descriptor: sequenceFontBaseline.fontDescriptor,
+            size: pointSize
+        ) ?? sequenceFontBaseline
+    }
+
+    private func hasSameFontSignature(_ lhs: NSFont?, _ rhs: NSFont) -> Bool {
+        guard let lhs else { return false }
+        return lhs.fontName == rhs.fontName
+            && abs(lhs.pointSize - rhs.pointSize) < 0.001
+            && lhs.fontDescriptor.symbolicTraits == rhs.fontDescriptor.symbolicTraits
+    }
+
+#if DEBUG
+    var testingTextFontPointSize: CGFloat {
+        textView.font?.pointSize ?? 0
+    }
+
+    var testingSelectedRange: NSRange {
+        get { textView.selectedRange() }
+        set { textView.setSelectedRange(newValue) }
+    }
+#endif
 }

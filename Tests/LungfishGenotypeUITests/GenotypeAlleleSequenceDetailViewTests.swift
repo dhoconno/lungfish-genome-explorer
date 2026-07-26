@@ -1,9 +1,46 @@
 import AppKit
 import XCTest
+import LungfishCore
 @testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeAlleleSequenceDetailViewTests: XCTestCase {
+    func testContentTypographyScalesSequenceReaderWithoutRerenderingOrLosingSelection() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        let view = GenotypeAlleleSequenceDetailView(
+            frame: NSRect(x: 0, y: 0, width: 640, height: 360)
+        )
+        view.show(records: [makeRecord("A")])
+        view.testingSelectFormat(.fasta)
+        view.testingSelectedRange = NSRange(location: 2, length: 4)
+        let baselineFont = view.testingTextFontPointSize
+        let baselineText = view.renderedText
+        let baselineRenderCount = view.testingRenderCount
+
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+
+        XCTAssertEqual(view.testingTextFontPointSize, baselineFont * 2, accuracy: 0.01)
+        XCTAssertEqual(view.renderedText, baselineText)
+        XCTAssertEqual(view.testingSelectedRange, NSRange(location: 2, length: 4))
+        XCTAssertEqual(view.testingRenderCount, baselineRenderCount)
+
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+
+        XCTAssertEqual(view.testingTextFontPointSize, baselineFont, accuracy: 0.01)
+        XCTAssertEqual(view.renderedText, baselineText)
+        XCTAssertEqual(view.testingSelectedRange, NSRange(location: 2, length: 4))
+        XCTAssertEqual(view.testingRenderCount, baselineRenderCount)
+    }
+
     func testInitialStateIsEmptyAndDefaultsToGenBank() throws {
         let view = GenotypeAlleleSequenceDetailView(frame: .zero)
 

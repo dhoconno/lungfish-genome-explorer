@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishKit
 
 /// Modal sheet that surfaces a single sample's per-locus calls with
 /// override controls inline. Opens when the analyst clicks a sample in
@@ -28,9 +29,14 @@ struct GenotypeSampleDetailSheet: View {
     var onSaveOverride: (CallRow, GenotypeOverrideSection.OverrideDraft) -> Void
     var onClearOverride: (CallRow) -> Void
     var onDismiss: () -> Void
+    var typographyModel: ContentTypographyModel = .shared
 
     @State private var editingRowId: String?
     @State private var editingDraft = GenotypeOverrideSection.OverrideDraft()
+
+    private var contentEmphasizedFont: Font { typographyModel.font(for: .emphasizedBody) }
+    private var contentCaptionFont: Font { typographyModel.font(for: .caption) }
+    private var contentMonospacedFont: Font { typographyModel.font(for: .monospaced) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -40,21 +46,26 @@ struct GenotypeSampleDetailSheet: View {
             Divider()
             footer
         }
-        .frame(width: 540, height: 580)
+        .frame(
+            minWidth: 540,
+            idealWidth: min(760, typographyModel.scaledPointSize(fromCanonicalPointSize: 540)),
+            minHeight: 580,
+            idealHeight: min(760, typographyModel.scaledPointSize(fromCanonicalPointSize: 580))
+        )
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(sampleId)
-                    .font(.title2.weight(.semibold))
+                    .font(contentEmphasizedFont)
                     .textSelection(.enabled)
                 Spacer()
                 Button("Done", action: onDismiss)
                     .keyboardShortcut(.cancelAction)
             }
             Text("\(rows.count) call(s) · \(rows.filter { $0.status != .called && $0.status != .notAssayed && $0.status != .specialCase }.count) need review")
-                .font(.caption)
+                .font(contentCaptionFont)
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
@@ -79,7 +90,7 @@ struct GenotypeSampleDetailSheet: View {
         HStack(spacing: 6) {
             Spacer()
             Text("Overrides write to the bundle's annotations.json")
-                .font(.caption2)
+                .font(contentCaptionFont)
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 16)
@@ -90,56 +101,17 @@ struct GenotypeSampleDetailSheet: View {
     private func rowView(_ row: CallRow) -> some View {
         let override = overrides.first(where: { $0.locus == row.locus && $0.slot == row.slot })
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                swatch(forName: row.callName, status: row.status)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(row.locus)
-                            .font(.callout.weight(.semibold))
-                        Text(row.slot.displayName)
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    HStack(spacing: 6) {
-                        Text(displayedCall(row: row, override: override))
-                            .font(.callout.monospaced())
-                            .foregroundStyle(.primary)
-                        if let override {
-                            Text("(was \(override.originalCall))")
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.tertiary)
-                        }
-                        statusChip(row.status)
-                    }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    rowContent(row, override: override)
+                    Spacer(minLength: 8)
+                    rowActions(row, override: override)
                 }
-                if let override {
-                    Button {
-                        onClearOverride(row)
-                    } label: {
-                        Label("Clear", systemImage: "arrow.uturn.backward")
-                            .labelStyle(.iconOnly)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Revert to the pipeline call (\(override.originalCall))")
+                VStack(alignment: .leading, spacing: 8) {
+                    rowContent(row, override: override)
+                    rowActions(row, override: override)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                Button(editingRowId == row.id ? "Hide" : (override == nil ? "Override\u{2026}" : "Edit\u{2026}")) {
-                    if editingRowId == row.id {
-                        editingRowId = nil
-                    } else {
-                        editingRowId = row.id
-                        if let override {
-                            editingDraft = GenotypeOverrideSection.OverrideDraft(
-                                target: override.overrideCall,
-                                reason: override.reasonTag,
-                                rationale: override.rationale
-                            )
-                        } else {
-                            editingDraft = GenotypeOverrideSection.OverrideDraft()
-                        }
-                    }
-                }
-                .controlSize(.small)
             }
             if editingRowId == row.id {
                 GenotypeOverrideSection(
@@ -160,6 +132,71 @@ struct GenotypeSampleDetailSheet: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(editingRowId == row.id ? Color.accentColor.opacity(0.08) : Color.clear)
+    }
+
+    private func rowContent(
+        _ row: CallRow,
+        override: GenotypeAnnotationSidecar.CallOverride?
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            swatch(forName: row.callName, status: row.status)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(row.locus)
+                        .font(contentEmphasizedFont)
+                    Text(row.slot.displayName)
+                        .font(contentCaptionFont.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 6) {
+                    Text(displayedCall(row: row, override: override))
+                        .font(contentMonospacedFont)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let override {
+                        Text("(was \(override.originalCall))")
+                            .font(contentCaptionFont.monospaced())
+                            .foregroundStyle(.tertiary)
+                    }
+                    statusChip(row.status)
+                }
+            }
+        }
+    }
+
+    private func rowActions(
+        _ row: CallRow,
+        override: GenotypeAnnotationSidecar.CallOverride?
+    ) -> some View {
+        HStack(spacing: 8) {
+            if let override {
+                Button {
+                    onClearOverride(row)
+                } label: {
+                    Label("Clear", systemImage: "arrow.uturn.backward")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .help("Revert to the pipeline call (\(override.originalCall))")
+            }
+            Button(editingRowId == row.id ? "Hide" : (override == nil ? "Override\u{2026}" : "Edit\u{2026}")) {
+                if editingRowId == row.id {
+                    editingRowId = nil
+                } else {
+                    editingRowId = row.id
+                    if let override {
+                        editingDraft = GenotypeOverrideSection.OverrideDraft(
+                            target: override.overrideCall,
+                            reason: override.reasonTag,
+                            rationale: override.rationale
+                        )
+                    } else {
+                        editingDraft = GenotypeOverrideSection.OverrideDraft()
+                    }
+                }
+            }
+            .controlSize(.small)
+        }
     }
 
     private func swatch(forName name: String, status: GenotypeHaplotypeCallStatus) -> some View {
@@ -211,7 +248,14 @@ struct GenotypeSampleDetailSheet: View {
             }
         }()
         Text(label)
-            .font(.caption2)
+            .font(contentCaptionFont)
             .foregroundStyle(color)
+    }
+
+    var testingContentTypographyPointSizes: (body: CGFloat, caption: CGFloat) {
+        (
+            typographyModel.resolvedNSFont(for: .body).pointSize,
+            typographyModel.resolvedNSFont(for: .caption).pointSize
+        )
     }
 }

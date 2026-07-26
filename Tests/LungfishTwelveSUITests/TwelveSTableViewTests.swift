@@ -1,11 +1,235 @@
 import XCTest
 import AppKit
+import LungfishCore
 import LungfishIO
 import LungfishKit
 @testable import LungfishTwelveSUI
 
 @MainActor
 final class TwelveSTableViewTests: XCTestCase {
+    func testCustomTypographyRoundTripStylesLateMetadataAndDistinctAccessibleTables() throws {
+        try preservingTwelveSTableContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            let provider = MutableTwelveSTableFontProvider(pointSize: 13)
+            let target = TwelveSTargetTableView(
+                frame: NSRect(x: 0, y: 0, width: 700, height: 360)
+            )
+            let unresolved = TwelveSUnresolvedTableView(
+                frame: NSRect(x: 0, y: 0, width: 700, height: 360)
+            )
+            target.setContentPreferredFontProvider(provider)
+            unresolved.setContentPreferredFontProvider(provider)
+            target.configure(rows: [
+                makeSampleRow(
+                    name: "An exceptionally long scientific name for accessibility",
+                    sampleID: "SampleA",
+                    sampleName: "Sample A"
+                ),
+            ])
+            let fullSequence = String(repeating: "ACGT", count: 30)
+            unresolved.configure(rows: [
+                makeUnresolved(id: "cluster-1", reads: 7, sequence: fullSequence),
+            ])
+            target.tableView.tableColumn(withIdentifier: .init("scientificName"))?.width = 177
+            unresolved.tableView.tableColumn(withIdentifier: .init("sequence"))?.width = 223
+            let baselineTargetRowHeight = target.tableView.rowHeight
+            let baselineUnresolvedRowHeight = unresolved.tableView.rowHeight
+
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+            let enlargedTargetWidth = try XCTUnwrap(
+                target.tableView.tableColumn(withIdentifier: .init("scientificName"))?.width
+            )
+            let enlargedSequenceWidth = try XCTUnwrap(
+                unresolved.tableView.tableColumn(withIdentifier: .init("sequence"))?.width
+            )
+            XCTAssertGreaterThan(enlargedTargetWidth, 177)
+            XCTAssertGreaterThan(enlargedSequenceWidth, 223)
+            XCTAssertGreaterThan(target.tableView.rowHeight, baselineTargetRowHeight)
+            XCTAssertGreaterThan(unresolved.tableView.rowHeight, baselineUnresolvedRowHeight)
+
+            let csv = "sample_id,collection location\nSampleA,A very long collection location\n"
+            let store = try SampleMetadataStore(
+                csvData: Data(csv.utf8),
+                knownSampleIds: ["SampleA"]
+            )
+            target.setSampleColumns(
+                sampleIDs: ["SampleA"],
+                displayNames: ["SampleA": "Sample A"],
+                showReads: true,
+                showPercent: true,
+                store: store,
+                metadataFields: ["collection location"]
+            )
+            let metadataColumn = try XCTUnwrap(
+                target.tableView.tableColumn(
+                    withIdentifier: .init("sampleMeta::collection location")
+                )
+            )
+            let firstMetadataWidth = metadataColumn.width
+            XCTAssertEqual(metadataColumn.headerCell.font?.pointSize ?? 0, 26, accuracy: 0.01)
+            XCTAssertEqual(metadataColumn.headerToolTip, "collection location")
+            XCTAssertGreaterThanOrEqual(firstMetadataWidth, 240)
+            let metadataCell = try XCTUnwrap(
+                renderedTwelveSTextField(
+                    table: target.tableView,
+                    columnIdentifier: "sampleMeta::collection location"
+                )
+            )
+            XCTAssertEqual(metadataCell.font?.pointSize ?? 0, 26, accuracy: 0.01)
+            XCTAssertEqual(metadataCell.stringValue, "A very long collection location")
+
+            target.setSampleColumns(
+                sampleIDs: ["SampleA"],
+                displayNames: ["SampleA": "Sample A"],
+                showReads: true,
+                showPercent: true,
+                store: store,
+                metadataFields: []
+            )
+            target.setSampleColumns(
+                sampleIDs: ["SampleA"],
+                displayNames: ["SampleA": "Sample A"],
+                showReads: true,
+                showPercent: true,
+                store: store,
+                metadataFields: ["collection location"]
+            )
+            XCTAssertEqual(
+                target.tableView.tableColumn(
+                    withIdentifier: .init("sampleMeta::collection location")
+                )?.width ?? 0,
+                firstMetadataWidth,
+                accuracy: 0.01
+            )
+
+            let enlargedCounts = (
+                target.typographyApplicationCount,
+                unresolved.typographyApplicationCount
+            )
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+            XCTAssertEqual(target.typographyApplicationCount, enlargedCounts.0 + 1)
+            XCTAssertEqual(unresolved.typographyApplicationCount, enlargedCounts.1 + 1)
+            XCTAssertEqual(
+                target.tableView.tableColumn(
+                    withIdentifier: .init("scientificName")
+                )?.width ?? 0,
+                enlargedTargetWidth,
+                accuracy: 0.01
+            )
+            XCTAssertEqual(
+                unresolved.tableView.tableColumn(
+                    withIdentifier: .init("sequence")
+                )?.width ?? 0,
+                enlargedSequenceWidth,
+                accuracy: 0.01
+            )
+
+            XCTAssertEqual(target.tableView.accessibilityIdentifier(), "twelve-s-target-result-table")
+            XCTAssertEqual(target.tableView.accessibilityLabel(), "12S target match results")
+            XCTAssertEqual(unresolved.tableView.accessibilityIdentifier(), "twelve-s-unresolved-result-table")
+            XCTAssertEqual(unresolved.tableView.accessibilityLabel(), "12S unresolved sequence results")
+            XCTAssertEqual(target.testSearchField.accessibilityLabel(), "Filter 12S target match results")
+            XCTAssertEqual(unresolved.testSearchField.accessibilityLabel(), "Filter 12S unresolved sequences")
+            let sequenceCell = try XCTUnwrap(
+                renderedTwelveSTextField(
+                    table: unresolved.tableView,
+                    columnIdentifier: "sequence"
+                )
+            )
+            XCTAssertTrue(sequenceCell.font?.isFixedPitch ?? false)
+            XCTAssertEqual(sequenceCell.font?.pointSize ?? 0, 22, accuracy: 0.01)
+            XCTAssertEqual(sequenceCell.stringValue, fullSequence)
+
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            XCTAssertEqual(
+                target.tableView.tableColumn(
+                    withIdentifier: .init("scientificName")
+                )?.width ?? 0,
+                177,
+                accuracy: 0.01
+            )
+            XCTAssertEqual(
+                unresolved.tableView.tableColumn(
+                    withIdentifier: .init("sequence")
+                )?.width ?? 0,
+                223,
+                accuracy: 0.01
+            )
+
+            target.setSampleColumns(
+                sampleIDs: ["SampleA"],
+                displayNames: ["SampleA": "Sample A"],
+                showReads: true,
+                showPercent: true,
+                store: store,
+                metadataFields: []
+            )
+            provider.pointSize = 24
+            settings.contentTextSizePreference = .system
+            settings.save()
+            target.setSampleColumns(
+                sampleIDs: ["SampleA"],
+                displayNames: ["SampleA": "Sample A"],
+                showReads: true,
+                showPercent: true,
+                store: store,
+                metadataFields: ["collection location"]
+            )
+            let enlargedSystemMetadata = try XCTUnwrap(
+                target.tableView.tableColumn(
+                    withIdentifier: .init("sampleMeta::collection location")
+                )
+            )
+            let enlargedSystemMetadataWidth = enlargedSystemMetadata.width
+            XCTAssertEqual(enlargedSystemMetadata.headerCell.font?.pointSize ?? 0, 24, accuracy: 0.01)
+            XCTAssertGreaterThan(enlargedSystemMetadataWidth, 120)
+            XCTAssertEqual(
+                renderedTwelveSTextField(
+                    table: target.tableView,
+                    columnIdentifier: "sampleMeta::collection location"
+                )?.font?.pointSize ?? 0,
+                24,
+                accuracy: 0.01
+            )
+            target.setSampleColumns(
+                sampleIDs: ["SampleA"],
+                displayNames: ["SampleA": "Sample A"],
+                showReads: true,
+                showPercent: true,
+                store: store,
+                metadataFields: []
+            )
+            target.setSampleColumns(
+                sampleIDs: ["SampleA"],
+                displayNames: ["SampleA": "Sample A"],
+                showReads: true,
+                showPercent: true,
+                store: store,
+                metadataFields: ["collection location"]
+            )
+            XCTAssertEqual(
+                target.tableView.tableColumn(
+                    withIdentifier: .init("sampleMeta::collection location")
+                )?.width ?? 0,
+                enlargedSystemMetadataWidth,
+                accuracy: 0.01
+            )
+            provider.pointSize = 13
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+            XCTAssertEqual(
+                target.tableView.tableColumn(
+                    withIdentifier: .init("sampleMeta::collection location")
+                )?.width ?? 0,
+                120,
+                accuracy: 0.01
+            )
+        }
+    }
+
 
     private func makeAggregateRow(
         name: String,
@@ -313,4 +537,55 @@ final class TwelveSTableViewTests: XCTestCase {
         vc.configureSamples(oneEntry, state: state)
         XCTAssertTrue(vc.testingSampleFilterButtonHidden)
     }
+}
+
+@MainActor
+private func preservingTwelveSTableContentTextSizePreference(
+    _ body: () throws -> Void
+) rethrows {
+    let settings = AppSettings.shared
+    let original = settings.contentTextSizePreference
+    defer {
+        settings.contentTextSizePreference = original
+        settings.save()
+    }
+    try body()
+}
+
+@MainActor
+private final class MutableTwelveSTableFontProvider: ContentPreferredFontProviding {
+    var pointSize: CGFloat
+
+    init(pointSize: CGFloat) {
+        self.pointSize = pointSize
+    }
+
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        switch role {
+        case .monospaced:
+            return .monospacedSystemFont(ofSize: pointSize, weight: .regular)
+        case .emphasizedBody, .tableHeader:
+            return .systemFont(ofSize: pointSize, weight: .semibold)
+        default:
+            return .systemFont(ofSize: pointSize)
+        }
+    }
+}
+
+@MainActor
+private func renderedTwelveSTextField(
+    table: NSTableView,
+    columnIdentifier: String,
+    row: Int = 0
+) -> NSTextField? {
+    guard row >= 0,
+          row < table.numberOfRows,
+          let column = table.tableColumns.firstIndex(where: {
+              $0.identifier.rawValue == columnIdentifier
+          }) else { return nil }
+    return (table.view(
+        atColumn: column,
+        row: row,
+        makeIfNecessary: true
+    ) as? NSTableCellView)?.textField
 }

@@ -403,6 +403,56 @@ extension AppDelegate {
         activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.zoomReset()
     }
 
+    @objc func increaseContentTextSize(_ sender: Any?) {
+        applyContentTextSizePreference(
+            AppSettings.shared.contentTextSizePreference.larger
+        )
+    }
+
+    @objc func decreaseContentTextSize(_ sender: Any?) {
+        applyContentTextSizePreference(
+            AppSettings.shared.contentTextSizePreference.smaller
+        )
+    }
+
+    @objc func resetContentTextSize(_ sender: Any?) {
+        applyContentTextSizePreference(.system)
+    }
+
+    func canPerformContentTextSizeAction(_ action: Selector?) -> Bool {
+        let preference = AppSettings.shared.contentTextSizePreference.normalized
+        switch action {
+        case #selector(increaseContentTextSize(_:)):
+            return preference.larger != preference
+        case #selector(decreaseContentTextSize(_:)):
+            return preference.smaller != preference
+        case #selector(resetContentTextSize(_:)):
+            return preference != .system
+        default:
+            return false
+        }
+    }
+
+    private func applyContentTextSizePreference(
+        _ requestedPreference: ContentTextSizePreference
+    ) {
+        let preference = requestedPreference.normalized
+        guard AppSettings.shared.contentTextSizePreference.normalized != preference else {
+            return
+        }
+        AppSettings.shared.contentTextSizePreference = preference
+        AppSettings.shared.save()
+
+        let announcement: String
+        switch preference {
+        case .system:
+            announcement = "Content text size System"
+        case .custom(let percentage):
+            announcement = "Content text size \(percentage) percent"
+        }
+        contentTextSizeAnnouncementPoster.post(announcement, priority: .medium)
+    }
+
     @objc func toggleNucleotideMode(_ sender: Any?) {
         guard let viewerController = activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController else {
             return

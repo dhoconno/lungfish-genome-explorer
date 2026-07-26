@@ -4,10 +4,312 @@ import XCTest
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import SwiftUI
 
 @MainActor
 final class GenotypeResultDisplaySectionTests: XCTestCase {
+    func testMatrixVisibilityCapabilityPresentsExactScopeAndActiveStatus() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        let empty = GenotypeMatrixVisibilityCapabilitySnapshot(
+            selection: .init(targets: []),
+            visibility: .init()
+        )
+
+        viewModel.updateMatrixVisibilityCapability(empty)
+
+        XCTAssertEqual(viewModel.matrixVisibilityScopeSummary, "Scope: Entire matrix")
+        XCTAssertEqual(
+            viewModel.matrixVisibilityStatus,
+            "No manual visibility restrictions."
+        )
+        XCTAssertFalse(viewModel.canResetMatrixVisibility)
+
+        let targets: [GenotypeAnnotationSidecar.MatrixTarget] = [
+            .cell(locus: "MHC-A", genotype: "A1", sample: "AnimalA"),
+            .cell(locus: "MHC-A", genotype: "A1", sample: "AnimalB"),
+        ]
+        let active = GenotypeMatrixVisibilityCapabilitySnapshot(
+            selection: .init(targets: targets),
+            visibility: GenotypeMatrixVisibilityState()
+                .hidingRows([.known(locus: "MHC-B", genotype: "B1")])
+                .hidingSamples(["AnimalC"])
+        )
+
+        viewModel.updateMatrixVisibilityCapability(active)
+
+        XCTAssertEqual(
+            viewModel.matrixVisibilityScopeSummary,
+            "Selected: 2 cells (1 row × 2 columns)"
+        )
+        XCTAssertEqual(
+            viewModel.matrixVisibilityStatus,
+            "Manual allele-row and sample-column visibility are active."
+        )
+        XCTAssertTrue(viewModel.canResetMatrixVisibility)
+
+        viewModel.updateMatrixVisibilityCapability(
+            GenotypeMatrixVisibilityCapabilitySnapshot(
+                selection: .init(targets: []),
+                visibility: GenotypeMatrixVisibilityState()
+                    .hidingRows([.known(locus: "MHC-B", genotype: "B1")])
+            )
+        )
+        XCTAssertEqual(
+            viewModel.matrixVisibilityStatus,
+            "Manual allele-row visibility is active."
+        )
+
+        viewModel.updateMatrixVisibilityCapability(
+            GenotypeMatrixVisibilityCapabilitySnapshot(
+                selection: .init(targets: []),
+                visibility: GenotypeMatrixVisibilityState()
+                    .hidingSamples(["AnimalC"])
+            )
+        )
+        XCTAssertEqual(
+            viewModel.matrixVisibilityStatus,
+            "Manual sample-column visibility is active."
+        )
+    }
+
+    func testMatrixVisibilityActionsRouteOnlyEnabledImmutableCommands() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        var commands: [GenotypeMatrixVisibilityCommand] = []
+        viewModel.onMatrixVisibilityCommandRequested = { commands.append($0) }
+        viewModel.updateMatrixVisibilityCapability(
+            GenotypeMatrixVisibilityCapabilitySnapshot(
+                selection: .init(targets: [
+                    .row(locus: "MHC-A", genotype: "A1"),
+                ]),
+                visibility: .init()
+            )
+        )
+
+        viewModel.hideSelectedMatrixRows()
+        viewModel.showOnlySelectedMatrixRows()
+        viewModel.hideSelectedMatrixColumns()
+        viewModel.showAllMatrixRows()
+        viewModel.resetMatrixVisibility()
+
+        XCTAssertEqual(commands, [.hideSelectedRows, .showOnlySelectedRows])
+
+        viewModel.updateMatrixVisibilityCapability(
+            GenotypeMatrixVisibilityCapabilitySnapshot(
+                selection: .init(targets: []),
+                visibility: GenotypeMatrixVisibilityState()
+                    .hidingRows([.known(locus: "MHC-A", genotype: "A1")])
+            )
+        )
+        viewModel.showAllMatrixRows()
+        viewModel.resetMatrixVisibility()
+
+        XCTAssertEqual(
+            commands,
+            [
+                .hideSelectedRows,
+                .showOnlySelectedRows,
+                .showAllRows,
+                .reset,
+            ]
+        )
+    }
+
+    func testMatrixVisibilitySnapshotClearsWithInspectorDocumentState() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        let active = GenotypeMatrixVisibilityCapabilitySnapshot(
+            selection: .init(targets: [
+                .column(sample: "AnimalA"),
+            ]),
+            visibility: GenotypeMatrixVisibilityState()
+                .hidingSamples(["AnimalB"])
+        )
+        viewModel.updateMatrixVisibilityCapability(active)
+
+        viewModel.update(isAvailable: true)
+
+        XCTAssertEqual(viewModel.matrixVisibilityScopeSummary, "Scope: Entire matrix")
+        XCTAssertFalse(viewModel.canResetMatrixVisibility)
+
+        viewModel.updateMatrixVisibilityCapability(
+            GenotypeMatrixVisibilityCapabilitySnapshot(
+                selection: .init(targets: [
+                    .column(sample: "AnimalA"),
+                ]),
+                visibility: GenotypeMatrixVisibilityState()
+                    .hidingSamples(["AnimalB"])
+            )
+        )
+
+        viewModel.clear()
+
+        XCTAssertEqual(viewModel.matrixVisibilityScopeSummary, "Scope: Entire matrix")
+        XCTAssertEqual(
+            viewModel.matrixVisibilityStatus,
+            "No manual visibility restrictions."
+        )
+        XCTAssertFalse(viewModel.canResetMatrixVisibility)
+    }
+
+    func testMatrixVisibilityInspectorUsesApprovedGuidanceAndStableIdentifiers() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift"
+            )
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Text(\"Search and Support Filters\")"))
+        XCTAssertTrue(source.contains("Text(\"Selected Rows and Columns\")"))
+        XCTAssertTrue(source.contains(
+            "Select allele row markers or sample column headers to change visibility."
+        ))
+        XCTAssertTrue(source.contains(
+            "Visibility actions use the selection. Search and support filters always "
+        ))
+        for title in [
+            "Hide Selected Rows",
+            "Show Only Selected Rows",
+            "Show All Rows",
+            "Hide Selected Columns",
+            "Show Only Selected Columns",
+            "Show All Columns",
+            "Reset Visibility",
+        ] {
+            XCTAssertTrue(source.contains("\"\(title)\""), title)
+        }
+        for identifier in [
+            InspectorAccessibilityID.genotypeVisibilityGroup,
+            InspectorAccessibilityID.genotypeVisibilityScope,
+            InspectorAccessibilityID.genotypeVisibilityStatus,
+            InspectorAccessibilityID.genotypeVisibilityGuidance,
+            InspectorAccessibilityID.genotypeRowVisibilityMenu,
+            InspectorAccessibilityID.genotypeHideSelectedRows,
+            InspectorAccessibilityID.genotypeShowOnlySelectedRows,
+            InspectorAccessibilityID.genotypeShowAllRows,
+            InspectorAccessibilityID.genotypeColumnVisibilityMenu,
+            InspectorAccessibilityID.genotypeHideSelectedColumns,
+            InspectorAccessibilityID.genotypeShowOnlySelectedColumns,
+            InspectorAccessibilityID.genotypeShowAllColumns,
+            InspectorAccessibilityID.genotypeResetVisibility,
+        ] {
+            XCTAssertTrue(source.contains("\"\(identifier)\""), identifier)
+        }
+    }
+
+    func testMatrixVisibilityMainSplitWiringUsesActiveControllerAndInspectorCleanup() {
+        let mainSplitSource = combinedMainSplitViewControllerSource()
+        let inspectorSource = combinedInspectorViewControllerSource()
+
+        XCTAssertTrue(mainSplitSource.contains(
+            "controller.onMatrixVisibilityCapabilityChanged = { [weak self, weak controller] capability in"
+        ))
+        XCTAssertTrue(mainSplitSource.contains(
+            "self.viewerController.genotypeResultViewController === controller"
+        ))
+        XCTAssertTrue(mainSplitSource.contains(
+            "onMatrixVisibilityCommandRequested = { [weak self, weak controller] command in"
+        ))
+        XCTAssertTrue(mainSplitSource.contains(
+            "controller?.performMatrixVisibilityCommand(command)"
+        ))
+        XCTAssertTrue(mainSplitSource.contains(
+            "controller.notifyMatrixVisibilityCapabilityIfAvailable()"
+        ))
+        XCTAssertTrue(inspectorSource.contains(
+            "onMatrixVisibilityCommandRequested = nil"
+        ))
+        XCTAssertFalse(inspectorSource.contains(
+            "onClearMatrixSelectionFilterRequested = nil"
+        ))
+    }
+
+    func testContentTextSizeActionsUseGlobalPreferenceWithoutPublishingDisplayState() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+
+        let announcements = RecordingContentTextSizeAnnouncements()
+        let viewModel = GenotypeResultDisplaySectionViewModel(
+            contentTextSizeAnnouncementPoster: announcements
+        )
+        var displayStatePublicationCount = 0
+        viewModel.onDisplayStateChanged = { _ in displayStatePublicationCount += 1 }
+
+        XCTAssertEqual(viewModel.contentTextSizeLabel, "100%")
+        XCTAssertTrue(viewModel.canDecreaseContentTextSize)
+        XCTAssertTrue(viewModel.canIncreaseContentTextSize)
+
+        viewModel.increaseContentTextSize()
+
+        XCTAssertEqual(settings.contentTextSizePreference, .custom(125))
+        XCTAssertEqual(viewModel.contentTextSizeLabel, "125%")
+        XCTAssertEqual(announcements.messages, ["Content text size 125 percent"])
+        XCTAssertEqual(displayStatePublicationCount, 0)
+
+        viewModel.restoreSystemContentTextSize()
+
+        XCTAssertEqual(settings.contentTextSizePreference, .system)
+        XCTAssertEqual(viewModel.contentTextSizeLabel, "System")
+        XCTAssertEqual(
+            announcements.messages,
+            ["Content text size 125 percent", "Content text size System"]
+        )
+        XCTAssertEqual(displayStatePublicationCount, 0)
+    }
+
+    func testContentTextSizeActionsRespectSupportedBoundsAndDoNotAnnounceNoOp() {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        let announcements = RecordingContentTextSizeAnnouncements()
+        let viewModel = GenotypeResultDisplaySectionViewModel(
+            contentTextSizeAnnouncementPoster: announcements
+        )
+
+        settings.contentTextSizePreference = .custom(90)
+        settings.save()
+        XCTAssertFalse(viewModel.canDecreaseContentTextSize)
+        viewModel.decreaseContentTextSize()
+        XCTAssertEqual(settings.contentTextSizePreference, .custom(90))
+        XCTAssertTrue(announcements.messages.isEmpty)
+
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+        XCTAssertFalse(viewModel.canIncreaseContentTextSize)
+        viewModel.increaseContentTextSize()
+        XCTAssertEqual(settings.contentTextSizePreference, .custom(200))
+        XCTAssertTrue(announcements.messages.isEmpty)
+    }
+
+    func testContentTextSizeInspectorUsesStableAccessibleControls() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Text(\"Content Text Size\")"))
+        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-decrease\""))
+        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-value\""))
+        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-increase\""))
+        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-default\""))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Decrease content text size\")"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Increase content text size\")"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Use system content text size\")"))
+    }
+
     func testDisplayViewModelEmitsLayoutAndThresholdChanges() {
         let viewModel = GenotypeResultDisplaySectionViewModel()
         var receivedStates: [GenotypeResultDisplayState] = []
@@ -267,8 +569,8 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertFalse(source.contains("Hide Low Support"))
         XCTAssertFalse(source.contains("Minimum Reads"))
         XCTAssertFalse(source.contains("Slider("))
-        XCTAssertTrue(source.contains("Thresholds are fixed by the genotyping run"))
-        XCTAssertTrue(source.contains("Re-run miSeq amplicon MHC genotyping"))
+        XCTAssertTrue(source.contains("Genotype calls and haplotype thresholds are fixed"))
+        XCTAssertTrue(source.contains("Re-run the original genotyping workflow"))
     }
 
     func testGenotypeDisplaySectionKeepsThresholdGuidanceSeparateFromColorControls() throws {
@@ -282,9 +584,45 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var matrixFilterControls"))
         let thresholdSource = String(source[start.lowerBound..<end.lowerBound])
 
-        XCTAssertTrue(thresholdSource.contains("Haplotype thresholds"))
+        XCTAssertTrue(thresholdSource.contains("Run and Calling Thresholds"))
         XCTAssertFalse(thresholdSource.contains("TextField("))
         XCTAssertFalse(thresholdSource.contains("Stepper("))
+    }
+
+    func testMatrixThresholdControlsUseEditableFieldsHiddenLabelSteppersAndOffGuidance() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "private var matrixFilterControls"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var colorControls"))
+        let controls = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertTrue(
+            controls.contains(
+                "viewModel.matrixMinimumReadsDraft.configuration.label"
+            )
+        )
+        XCTAssertTrue(
+            controls.contains(
+                "viewModel.matrixMinimumPercentDraft.configuration.label"
+            )
+        )
+        XCTAssertTrue(controls.contains("TextField("))
+        XCTAssertTrue(controls.contains("Stepper("))
+        XCTAssertTrue(controls.contains(".labelsHidden()"))
+        XCTAssertTrue(controls.contains("Text(\"%\")"))
+        XCTAssertTrue(controls.contains("Text(\"0 = Off.\")"))
+        XCTAssertTrue(controls.contains(".fieldAccessibilityIdentifier"))
+        XCTAssertTrue(
+            source.contains("configuration.stepperAccessibilityIdentifier")
+        )
+        XCTAssertTrue(controls.contains("setMatrixMinimumReadsFromStepper"))
+        XCTAssertTrue(controls.contains("setMatrixMinimumPercentFromStepper"))
+        XCTAssertFalse(controls.contains("\"Min reads: \\("))
+        XCTAssertFalse(controls.contains("\"Min percent: \\("))
     }
 
     func testGenotypeViewSectionExposesHaplotypeViewportControl() throws {
@@ -1142,5 +1480,17 @@ private enum ColorBridge {
             blue: annotationColor.blue,
             opacity: annotationColor.alpha
         )
+    }
+}
+
+@MainActor
+private final class RecordingContentTextSizeAnnouncements: AccessibilityAnnouncementPosting {
+    private(set) var messages: [String] = []
+
+    func post(
+        _ message: String,
+        priority: ContentAccessibilityAnnouncementPriority
+    ) {
+        messages.append(message)
     }
 }

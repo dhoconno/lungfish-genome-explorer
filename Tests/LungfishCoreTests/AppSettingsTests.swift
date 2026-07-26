@@ -42,6 +42,7 @@ final class AppSettingsTests: XCTestCase {
     @MainActor
     func testDefaultValues() {
         let settings = AppSettings.shared
+        XCTAssertEqual(settings.contentTextSizePreference, .system)
         XCTAssertEqual(settings.defaultZoomWindow, 10_000)
         XCTAssertEqual(settings.maxUndoLevels, 100)
         XCTAssertEqual(settings.vcfImportProfile, "auto")
@@ -106,6 +107,7 @@ final class AppSettingsTests: XCTestCase {
         let settings = AppSettings.shared
 
         // Modify several values
+        settings.contentTextSizePreference = .custom(150)
         settings.defaultZoomWindow = 50_000
         settings.maxAnnotationRows = 100
         settings.vcfImportProfile = "fast"
@@ -128,6 +130,7 @@ final class AppSettingsTests: XCTestCase {
 
         // Load from UserDefaults
         AppSettings.load()
+        XCTAssertEqual(settings.contentTextSizePreference, .custom(150))
         XCTAssertEqual(settings.defaultZoomWindow, 50_000)
         XCTAssertEqual(settings.maxAnnotationRows, 100)
         XCTAssertEqual(settings.vcfImportProfile, "fast")
@@ -203,6 +206,7 @@ final class AppSettingsTests: XCTestCase {
     @MainActor
     func testResetToDefaults() {
         let settings = AppSettings.shared
+        settings.contentTextSizePreference = .custom(200)
         settings.maxAnnotationRows = 200
         settings.defaultZoomWindow = 99_999
         settings.aiSearchEnabled = true
@@ -210,6 +214,7 @@ final class AppSettingsTests: XCTestCase {
         settings.save()
 
         settings.resetToDefaults()
+        XCTAssertEqual(settings.contentTextSizePreference, .system)
         XCTAssertEqual(settings.maxAnnotationRows, 50)
         XCTAssertEqual(settings.defaultZoomWindow, 10_000)
         XCTAssertFalse(settings.aiSearchEnabled)
@@ -236,6 +241,7 @@ final class AppSettingsTests: XCTestCase {
         let settings = AppSettings.shared
 
         // Change values across multiple sections
+        settings.contentTextSizePreference = .custom(175)
         settings.defaultZoomWindow = 50_000      // general
         settings.maxAnnotationRows = 200         // rendering
         settings.annotationTypeColorHexes["gene"] = "#FF0000"  // appearance
@@ -260,6 +266,7 @@ final class AppSettingsTests: XCTestCase {
 
         // Reset appearance section
         settings.resetSection(.appearance)
+        XCTAssertEqual(settings.contentTextSizePreference, .system)
         XCTAssertEqual(settings.annotationTypeColorHexes["gene"], "#339933", "Appearance section should be reset")
 
         // Reset AI Services section
@@ -320,6 +327,7 @@ final class AppSettingsTests: XCTestCase {
         AppSettings.load()
 
         let settings = AppSettings.shared
+        XCTAssertEqual(settings.contentTextSizePreference, .system)
         XCTAssertEqual(settings.defaultZoomWindow, 42_000)
         XCTAssertEqual(settings.maxUndoLevels, 100)
         XCTAssertEqual(settings.vcfImportProfile, "auto")
@@ -346,7 +354,8 @@ final class AppSettingsTests: XCTestCase {
           "densityThresholdBpPerPixel": 1,
           "squishedThresholdBpPerPixel": 999999,
           "showLettersThresholdBpPerPixel": 999,
-          "tooltipDelay": 20
+          "tooltipDelay": 20,
+          "contentTextSizePreference": 137
         }
         """
         UserDefaults.standard.set(invalidJSON.data(using: .utf8), forKey: "com.lungfish.appSettings")
@@ -354,6 +363,7 @@ final class AppSettingsTests: XCTestCase {
         AppSettings.load()
         let settings = AppSettings.shared
 
+        XCTAssertEqual(settings.contentTextSizePreference, .custom(125))
         XCTAssertEqual(settings.defaultZoomWindow, 1_000_000)
         XCTAssertEqual(settings.maxUndoLevels, 10)
         XCTAssertEqual(settings.vcfImportProfile, "auto")
@@ -428,4 +438,49 @@ final class AppSettingsTests: XCTestCase {
         AppSettings.shared.save()
         wait(for: [expectation], timeout: 1.0)
     }
+
+    @MainActor
+    func testContentTextSizeSupportedStopsAndNavigation() {
+        XCTAssertEqual(ContentTextSizePreference.supportedPercentages, [90, 100, 125, 150, 175, 200])
+        XCTAssertEqual(ContentTextSizePreference.system.larger, .custom(125))
+        XCTAssertEqual(ContentTextSizePreference.system.smaller, .custom(90))
+        XCTAssertEqual(ContentTextSizePreference.custom(125).larger, .custom(150))
+        XCTAssertEqual(ContentTextSizePreference.custom(125).smaller, .custom(100))
+        XCTAssertEqual(ContentTextSizePreference.custom(200).larger, .custom(200))
+        XCTAssertEqual(ContentTextSizePreference.custom(90).smaller, .custom(90))
+    }
+
+    @MainActor
+    func testContentTextSizeNotificationPostsOnlyForNormalizedPreferenceChange() {
+        let notifications = AppSettingsNotificationCounter()
+        let token = NotificationCenter.default.addObserver(
+            forName: .contentTextSizeDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            MainActor.assumeIsolated {
+                notifications.count += 1
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        AppSettings.shared.maxAnnotationRows = 99
+        AppSettings.shared.save()
+        XCTAssertEqual(notifications.count, 0)
+
+        AppSettings.shared.contentTextSizePreference = .custom(137)
+        AppSettings.shared.save()
+        XCTAssertEqual(AppSettings.shared.contentTextSizePreference, .custom(125))
+        XCTAssertEqual(notifications.count, 1)
+
+        AppSettings.shared.contentTextSizePreference = .custom(126)
+        AppSettings.shared.save()
+        XCTAssertEqual(AppSettings.shared.contentTextSizePreference, .custom(125))
+        XCTAssertEqual(notifications.count, 1)
+    }
+}
+
+@MainActor
+private final class AppSettingsNotificationCounter {
+    var count = 0
 }

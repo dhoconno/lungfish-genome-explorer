@@ -1,13 +1,13 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 
 /// Single filter bar above the active genotype content.
 ///
-/// The text field is sample-oriented: animal IDs, haplotype names, comments,
-/// genotype strings, and imported metadata fields/values are all evaluated by
-/// the owning viewport. Toggle pills remain a compact way to apply common
-/// sample predicates without duplicating filtering in the Inspector.
+/// The owning viewport routes the text through one shared sample/allele/
+/// haplotype index. Toggle pills remain a compact way to apply common sample
+/// predicates without duplicating filtering in the Inspector.
 @MainActor
 final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
     private static let preferredHeight: CGFloat = 40
@@ -89,13 +89,19 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
     var onSavedCohortCleared: (() -> Void)?
 
     private let searchField = NSSearchField()
+    private let emptyStateLabel = NSTextField(labelWithString: "")
     private let savedCohortButton = NSButton()
     private let pillStack = NSStackView()
     private let pillScrollView = NSScrollView()
     private var pillButtons: [Pill: NSButton] = [:]
     private var activePills: Set<Pill> = []
     private var currentSearchText: String = ""
+    private var hasHaplotypingResult = false
+    private var lastAnnouncedEmptyState: String?
+    private var searchAnnouncementPoster: any AccessibilityAnnouncementPosting =
+        AccessibilityAnnouncementPoster()
     private let searchDebounceInterval: TimeInterval = 0.18
+    private var contentTypographyObservation: ContentTypographyViewObservation?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -112,10 +118,20 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         setContentCompressionResistancePriority(.required, for: .vertical)
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholderString = "Search samples or haplotypes…"
+        searchField.placeholderString = "Search samples or alleles…"
         searchField.delegate = self
         searchField.font = NSFont.systemFont(ofSize: 11)
         searchField.sendsSearchStringImmediately = true
+        searchField.identifier = NSUserInterfaceItemIdentifier("genotype-quick-search")
+        searchField.setAccessibilityIdentifier("genotype-quick-search")
+        searchField.setAccessibilityLabel("Search samples or alleles")
+
+        emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
+        emptyStateLabel.isHidden = true
+        emptyStateLabel.textColor = .secondaryLabelColor
+        emptyStateLabel.lineBreakMode = .byTruncatingTail
+        emptyStateLabel.setAccessibilityRole(.staticText)
+        emptyStateLabel.setAccessibilityIdentifier("genotype-quick-search-empty-state")
 
         pillStack.translatesAutoresizingMaskIntoConstraints = false
         pillStack.orientation = .horizontal
@@ -140,6 +156,7 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         containerStack.spacing = 6
         containerStack.edgeInsets = NSEdgeInsets(top: 7, left: 10, bottom: 7, right: 10)
         containerStack.addArrangedSubview(searchField)
+        containerStack.addArrangedSubview(emptyStateLabel)
 
         addSubview(containerStack)
 
@@ -150,10 +167,30 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
             containerStack.bottomAnchor.constraint(equalTo: bottomAnchor),
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
         ])
+        contentTypographyObservation = ContentTypographyViewObservation(
+            applicator: ContentTypographyViewApplicator(),
+            rootProvider: { [weak self] in self },
+            afterApply: { [weak self] in
+                self?.applyContentTypography()
+            }
+        )
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: Self.preferredHeight)
+        let lineHeight = searchField.font?.boundingRectForFont.height ?? 0
+        return NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: max(
+                Self.preferredHeight,
+                ceil(lineHeight + (emptyStateLabel.isHidden ? 26 : 48))
+            )
+        )
+    }
+
+    private func applyContentTypography() {
+        searchField.font = ContentTypography.current().font(for: .body)
+        invalidateIntrinsicContentSize()
+        needsLayout = true
     }
 
     private func configureSavedCohortButton() {
@@ -198,6 +235,55 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         emitChange()
     }
 
+    func configureSearchCapability(hasHaplotypingResult: Bool) {
+        self.hasHaplotypingResult = hasHaplotypingResult
+        let label = hasHaplotypingResult
+            ? "Search samples, alleles, or haplotypes"
+            : "Search samples or alleles"
+        searchField.placeholderString = "\(label)…"
+        searchField.setAccessibilityLabel(label)
+        if !emptyStateLabel.isHidden {
+            updateEmptyState(query: currentSearchText, hasMatches: false)
+        }
+    }
+
+    func updateEmptyState(query: String, hasMatches: Bool) {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, !hasMatches else {
+            emptyStateLabel.stringValue = ""
+            emptyStateLabel.isHidden = true
+            lastAnnouncedEmptyState = nil
+            invalidateIntrinsicContentSize()
+            return
+        }
+        let subject = hasHaplotypingResult
+            ? "samples, alleles, or haplotypes"
+            : "samples or alleles"
+        let message = "No \(subject) match “\(query)”. Press Escape to clear the search."
+        emptyStateLabel.stringValue = message
+        emptyStateLabel.isHidden = false
+        if lastAnnouncedEmptyState != message {
+            searchAnnouncementPoster.post(message, priority: .medium)
+            lastAnnouncedEmptyState = message
+        }
+        invalidateIntrinsicContentSize()
+    }
+
+    @discardableResult
+    func focusSearchField() -> Bool {
+        guard let window else { return false }
+        return window.makeFirstResponder(searchField)
+    }
+
+    func clearSearch() {
+        guard !currentSearchText.isEmpty || !searchField.stringValue.isEmpty else {
+            updateEmptyState(query: "", hasMatches: true)
+            return
+        }
+        setSearchText("")
+        updateEmptyState(query: "", hasMatches: true)
+    }
+
     func controlTextDidChange(_ notification: Notification) {
         guard let field = notification.object as? NSSearchField, field === searchField else { return }
         currentSearchText = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -211,6 +297,19 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
             with: nil,
             afterDelay: searchDebounceInterval
         )
+    }
+
+    func control(
+        _ control: NSControl,
+        textView: NSTextView,
+        doCommandBy commandSelector: Selector
+    ) -> Bool {
+        guard control === searchField,
+              commandSelector == #selector(NSResponder.cancelOperation(_:)) else {
+            return false
+        }
+        clearSearch()
+        return true
     }
 
     private func emitChange() {
@@ -289,6 +388,40 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         return nil
     }
 }
+
+#if DEBUG
+extension GenotypeQuickFilterBarView {
+    var testingSearchFontPointSize: CGFloat {
+        searchField.font?.pointSize ?? 0
+    }
+
+    var testingSearchPlaceholder: String {
+        searchField.placeholderString ?? ""
+    }
+
+    var testingSearchAccessibilityLabel: String {
+        searchField.accessibilityLabel() ?? ""
+    }
+
+    var testingSearchAccessibilityIdentifier: String {
+        searchField.accessibilityIdentifier()
+    }
+
+    var testingEmptyStateMessage: String {
+        emptyStateLabel.isHidden ? "" : emptyStateLabel.stringValue
+    }
+
+    func testingSetAnnouncementPoster(
+        _ poster: any AccessibilityAnnouncementPosting
+    ) {
+        searchAnnouncementPoster = poster
+    }
+
+    var testingSearchField: NSSearchField {
+        searchField
+    }
+}
+#endif
 
 #if DEBUG
 extension GenotypeQuickFilterBarView {

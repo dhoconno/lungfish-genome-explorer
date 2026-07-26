@@ -21,7 +21,7 @@ final class FASTQSummaryBar: GenomicSummaryCardBar {
 
     func update(with stats: FASTQDatasetStatistics) {
         self.statistics = stats
-        needsDisplay = true
+        cardsDidChange()
         updateAccessibility(stats)
     }
 

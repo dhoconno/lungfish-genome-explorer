@@ -5,6 +5,61 @@
 import SwiftUI
 import LungfishCore
 
+@MainActor
+struct AppearanceSettingsPersistence {
+    let settings: AppSettings
+    let notificationCenter: NotificationCenter
+
+    init(
+        settings: AppSettings,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        self.settings = settings
+        self.notificationCenter = notificationCenter
+    }
+
+    func updateVariantTheme(_ themeName: String) {
+        guard settings.variantColorThemeName != themeName else { return }
+        settings.variantColorThemeName = themeName
+        settings.save()
+        notificationCenter.post(name: .variantColorThemeDidChange, object: nil)
+    }
+
+    func updateAnnotationHeight(_ height: Double) {
+        guard settings.defaultAnnotationHeight != height else { return }
+        settings.defaultAnnotationHeight = height
+        settings.save()
+    }
+
+    func updateAnnotationSpacing(_ spacing: Double) {
+        guard settings.defaultAnnotationSpacing != spacing else { return }
+        settings.defaultAnnotationSpacing = spacing
+        settings.save()
+    }
+
+    func updateHorizontalScrollDirection(_ direction: ScrollDirectionPreference) {
+        guard settings.horizontalScrollDirection != direction else { return }
+        settings.horizontalScrollDirection = direction
+        settings.save()
+    }
+
+    func updateVerticalScrollDirection(_ direction: ScrollDirectionPreference) {
+        guard settings.verticalScrollDirection != direction else { return }
+        settings.verticalScrollDirection = direction
+        settings.save()
+    }
+
+    func restoreDefaults(reloadColors: () -> Void) {
+        let previousThemeName = settings.variantColorThemeName
+        settings.resetSection(.appearance)
+        settings.save()
+        if settings.variantColorThemeName != previousThemeName {
+            notificationCenter.post(name: .variantColorThemeDidChange, object: nil)
+        }
+        reloadColors()
+    }
+}
+
 /// Appearance preferences: nucleotide colors, annotation type colors, dimensions.
 struct AppearanceSettingsTab: View {
 
@@ -28,6 +83,27 @@ struct AppearanceSettingsTab: View {
 
     var body: some View {
         Form {
+            Section("Content Text Size") {
+                Picker(
+                    "Content text size:",
+                    selection: contentTextSizeSelection
+                ) {
+                    Text("System").tag(0)
+                    ForEach(
+                        Array(ContentTextSizePreference.supportedPercentages.enumerated()),
+                        id: \.offset
+                    ) { index, percentage in
+                        Text("\(percentage)%").tag(index + 1)
+                    }
+                }
+                .accessibilityLabel("Content text size")
+                .accessibilityIdentifier(SettingsAccessibilityID.contentTextSizePicker)
+
+                Text("Adjusts primary list, table, and detail text throughout Lungfish.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Nucleotide Colors") {
                 HStack(spacing: 16) {
                     baseColorPicker("A", color: $colorA)
@@ -54,7 +130,7 @@ struct AppearanceSettingsTab: View {
             }
 
             Section("Variant Theme") {
-                Picker("Color theme:", selection: $settings.variantColorThemeName) {
+                Picker("Color theme:", selection: variantColorThemeSelection) {
                     Text("Modern").tag("Modern")
                     Text("IGV Classic").tag("IGV Classic")
                     Text("High Contrast").tag("High Contrast")
@@ -65,14 +141,14 @@ struct AppearanceSettingsTab: View {
             Section("Dimensions") {
                 HStack {
                     Text("Annotation height:")
-                    Slider(value: $settings.defaultAnnotationHeight, in: 8...32, step: 1)
+                    Slider(value: annotationHeightSelection, in: 8...32, step: 1)
                     Text("\(Int(settings.defaultAnnotationHeight)) px")
                         .monospacedDigit()
                         .frame(width: 44, alignment: .trailing)
                 }
                 HStack {
                     Text("Row spacing:")
-                    Slider(value: $settings.defaultAnnotationSpacing, in: 0...8, step: 1)
+                    Slider(value: annotationSpacingSelection, in: 0...8, step: 1)
                     Text("\(Int(settings.defaultAnnotationSpacing)) px")
                         .monospacedDigit()
                         .frame(width: 44, alignment: .trailing)
@@ -80,12 +156,12 @@ struct AppearanceSettingsTab: View {
             }
 
             Section("Scrolling") {
-                Picker("Horizontal:", selection: $settings.horizontalScrollDirection) {
+                Picker("Horizontal:", selection: horizontalScrollDirectionSelection) {
                     ForEach(ScrollDirectionPreference.allCases, id: \.self) { option in
                         Text(option.label).tag(option)
                     }
                 }
-                Picker("Vertical:", selection: $settings.verticalScrollDirection) {
+                Picker("Vertical:", selection: verticalScrollDirectionSelection) {
                     ForEach(ScrollDirectionPreference.allCases, id: \.self) { option in
                         Text(option.label).tag(option)
                     }
@@ -98,36 +174,98 @@ struct AppearanceSettingsTab: View {
             HStack {
                 Spacer()
                 Button("Restore Defaults") {
-                    settings.resetSection(.appearance)
-                    loadColorsFromSettings()
+                    restoreAppearanceDefaults()
                 }
             }
         }
         .formStyle(.grouped)
         .onAppear { loadColorsFromSettings() }
-        .onChange(of: colorA) { _, _ in syncBaseColor("A", from: colorA) }
-        .onChange(of: colorT) { _, _ in syncBaseColor("T", from: colorT) }
-        .onChange(of: colorG) { _, _ in syncBaseColor("G", from: colorG) }
-        .onChange(of: colorC) { _, _ in syncBaseColor("C", from: colorC) }
-        .onChange(of: colorN) { _, _ in syncBaseColor("N", from: colorN) }
-        .onChange(of: colorU) { _, _ in syncBaseColor("U", from: colorU) }
-        .onChange(of: settings.variantColorThemeName) { _, _ in
-            settings.save()
-            NotificationCenter.default.post(name: .variantColorThemeDidChange, object: nil)
-        }
-        .onChange(of: settings.defaultAnnotationHeight) { _, _ in settings.save() }
-        .onChange(of: settings.defaultAnnotationSpacing) { _, _ in settings.save() }
-        .onChange(of: settings.horizontalScrollDirection) { _, _ in settings.save() }
-        .onChange(of: settings.verticalScrollDirection) { _, _ in settings.save() }
     }
 
     // MARK: - Subviews
+
+    private var appearancePersistence: AppearanceSettingsPersistence {
+        AppearanceSettingsPersistence(settings: settings)
+    }
+
+    private var contentTextSizeSelection: Binding<Int> {
+        Binding(
+            get: {
+                switch settings.contentTextSizePreference.normalized {
+                case .system:
+                    return 0
+                case .custom(let percentage):
+                    return (ContentTextSizePreference.supportedPercentages.firstIndex(
+                        of: percentage
+                    ) ?? 0) + 1
+                }
+            },
+            set: { selection in
+                let preference: ContentTextSizePreference
+                if selection == 0 {
+                    preference = .system
+                } else {
+                    let index = selection - 1
+                    guard ContentTextSizePreference.supportedPercentages.indices.contains(index) else {
+                        return
+                    }
+                    preference = .custom(
+                        ContentTextSizePreference.supportedPercentages[index]
+                    )
+                }
+                guard settings.contentTextSizePreference.normalized != preference else {
+                    return
+                }
+                settings.contentTextSizePreference = preference
+                settings.save()
+            }
+        )
+    }
+
+    private var variantColorThemeSelection: Binding<String> {
+        Binding(
+            get: { settings.variantColorThemeName },
+            set: { appearancePersistence.updateVariantTheme($0) }
+        )
+    }
+
+    private var annotationHeightSelection: Binding<Double> {
+        Binding(
+            get: { settings.defaultAnnotationHeight },
+            set: { appearancePersistence.updateAnnotationHeight($0) }
+        )
+    }
+
+    private var annotationSpacingSelection: Binding<Double> {
+        Binding(
+            get: { settings.defaultAnnotationSpacing },
+            set: { appearancePersistence.updateAnnotationSpacing($0) }
+        )
+    }
+
+    private var horizontalScrollDirectionSelection: Binding<ScrollDirectionPreference> {
+        Binding(
+            get: { settings.horizontalScrollDirection },
+            set: { appearancePersistence.updateHorizontalScrollDirection($0) }
+        )
+    }
+
+    private var verticalScrollDirectionSelection: Binding<ScrollDirectionPreference> {
+        Binding(
+            get: { settings.verticalScrollDirection },
+            set: { appearancePersistence.updateVerticalScrollDirection($0) }
+        )
+    }
 
     private func baseColorPicker(_ base: String, color: Binding<Color>) -> some View {
         VStack(spacing: 4) {
             Text(base)
                 .font(.system(.body, design: .monospaced, weight: .bold))
-            ColorPicker("", selection: color, supportsOpacity: false)
+            ColorPicker(
+                "",
+                selection: persistedBaseColorBinding(base, color: color),
+                supportsOpacity: false
+            )
                 .labelsHidden()
         }
     }
@@ -172,6 +310,23 @@ struct AppearanceSettingsTab: View {
         let hex = AppSettings.hexString(from: nsColor)
         settings.sequenceAppearance.baseColors[base] = hex
         settings.save()
+    }
+
+    private func persistedBaseColorBinding(
+        _ base: String,
+        color: Binding<Color>
+    ) -> Binding<Color> {
+        Binding(
+            get: { color.wrappedValue },
+            set: { newColor in
+                color.wrappedValue = newColor
+                syncBaseColor(base, from: newColor)
+            }
+        )
+    }
+
+    private func restoreAppearanceDefaults() {
+        appearancePersistence.restoreDefaults(reloadColors: loadColorsFromSettings)
     }
 
     private func annotationColorBinding(for type: String) -> Binding<Color> {

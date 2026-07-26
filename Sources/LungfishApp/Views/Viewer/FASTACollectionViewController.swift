@@ -438,13 +438,19 @@ public final class FASTACollectionViewController: NSViewController,
         guard let searchBarView = view.subviews.first(where: {
             $0.identifier == NSUserInterfaceItemIdentifier("searchBar")
         }) else { return }
+        let summaryHeight = summaryBar.heightAnchor.constraint(
+            equalToConstant: summaryBar.preferredContentHeight
+        )
+        summaryBar.onPreferredContentHeightChanged = { [weak summaryHeight] height in
+            summaryHeight?.constant = height
+        }
 
         NSLayoutConstraint.activate([
             // Summary bar (top, below safe area to avoid overlapping title bar)
             summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            summaryBar.heightAnchor.constraint(equalToConstant: 48),
+            summaryHeight,
 
             // Search bar (below summary)
             searchBarView.topAnchor.constraint(equalTo: summaryBar.bottomAnchor),
@@ -888,7 +894,7 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
             meanGCPercent = gcSum / Double(sequences.count)
         }
 
-        needsDisplay = true
+        cardsDidChange()
     }
 
     // MARK: - Cards

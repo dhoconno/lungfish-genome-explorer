@@ -17,6 +17,35 @@ import AppKit
 import LungfishWorkflow
 import LungfishKit
 
+@MainActor
+private final class AlignmentTypographyObservation {
+    private var token: NSObjectProtocol?
+
+    init(handler: @escaping @MainActor () -> Void) {
+        token = NotificationCenter.default.addObserver(
+            forName: .contentTextSizeDidChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                handler()
+            }
+        }
+    }
+
+    func cancel() {
+        guard let token else { return }
+        self.token = nil
+        NotificationCenter.default.removeObserver(token)
+    }
+
+    isolated deinit {
+        if let token {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+}
+
 // MARK: - AlignmentResultViewController
 
 /// Viewport controller for BAM alignment results.
@@ -50,33 +79,29 @@ public final class AlignmentResultViewController: NSViewController {
     private let summaryBar: NSView = {
         let bar = NSView()
         bar.translatesAutoresizingMaskIntoConstraints = false
-
-        let label = NSTextField(labelWithString: "Alignment Results")
-        label.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
-        label.textColor = .secondaryLabelColor
-        label.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(label)
-
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 12),
-            label.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-            bar.heightAnchor.constraint(equalToConstant: 32),
-        ])
-
         return bar
     }()
+    private let summaryLabel = NSTextField(wrappingLabelWithString: "Alignment Results")
+    private var summaryBarHeightConstraint: NSLayoutConstraint?
 
     // MARK: - Placeholder content
 
     /// Placeholder text field shown until a result is configured.
     private let placeholderLabel: NSTextField = {
-        let label = NSTextField(labelWithString: "No alignment loaded")
-        label.font = .systemFont(ofSize: 13)
+        let label = NSTextField(wrappingLabelWithString: "No alignment loaded")
         label.textColor = .tertiaryLabelColor
         label.alignment = .center
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 0
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
+    private var contentTypographyObservation: AlignmentTypographyObservation?
+    private var preferredFontProvider: any ContentPreferredFontProviding =
+        AppKitContentPreferredFontProvider()
+#if DEBUG
+    private var typographyApplicationCount = 0
+#endif
 
     // MARK: - Lifecycle
 
@@ -89,22 +114,111 @@ public final class AlignmentResultViewController: NSViewController {
     public override func viewDidLoad() {
         super.viewDidLoad()
 
+        summaryLabel.textColor = .secondaryLabelColor
+        summaryLabel.lineBreakMode = .byWordWrapping
+        summaryLabel.maximumNumberOfLines = 0
+        summaryLabel.translatesAutoresizingMaskIntoConstraints = false
+        summaryBar.addSubview(summaryLabel)
+
         view.addSubview(summaryBar)
         view.addSubview(placeholderLabel)
 
+        let summaryBarHeightConstraint = summaryBar.heightAnchor.constraint(equalToConstant: 32)
+        self.summaryBarHeightConstraint = summaryBarHeightConstraint
         NSLayoutConstraint.activate([
             // Summary bar pinned to the top
             summaryBar.topAnchor.constraint(equalTo: view.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            summaryBarHeightConstraint,
+            summaryLabel.leadingAnchor.constraint(equalTo: summaryBar.leadingAnchor, constant: 12),
+            summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: summaryBar.trailingAnchor, constant: -12),
+            summaryLabel.centerYAnchor.constraint(equalTo: summaryBar.centerYAnchor),
 
             // Placeholder centered in the remaining space
             placeholderLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             placeholderLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            placeholderLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
+            placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24),
+            placeholderLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 680),
+            placeholderLabel.topAnchor.constraint(greaterThanOrEqualTo: summaryBar.bottomAnchor, constant: 12),
+            placeholderLabel.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -12),
         ])
+
+        applyContentTypography()
+        contentTypographyObservation = AlignmentTypographyObservation { [weak self] in
+            self?.applyContentTypography()
+        }
+    }
+
+    public override func viewDidLayout() {
+        super.viewDidLayout()
+        updateSummaryBarHeight()
+    }
+
+    isolated deinit {
+        contentTypographyObservation?.cancel()
     }
 
     // MARK: - Private helpers
+
+    private func applyContentTypography() {
+        let typography = ContentTypography.current(
+            preferredFontProvider: preferredFontProvider
+        )
+        let summaryFont = typography.font(for: .caption)
+        summaryLabel.font = summaryFont
+        placeholderLabel.font = typography.font(for: .detail)
+        updateSummaryBarHeight()
+        view.needsLayout = true
+#if DEBUG
+        typographyApplicationCount += 1
+#endif
+    }
+
+    private func updateSummaryBarHeight() {
+        guard let summaryFont = summaryLabel.font else { return }
+        let availableWidth = max(
+            1,
+            (summaryBar.bounds.width > 0 ? summaryBar.bounds.width : view.bounds.width) - 24
+        )
+        let measuredHeight = measuredTextHeight(
+            summaryLabel.stringValue,
+            font: summaryFont,
+            width: availableWidth,
+            maximumLines: summaryLabel.maximumNumberOfLines
+        )
+        let requiredHeight = max(
+            32,
+            ceil(measuredHeight + 12)
+        )
+        if abs((summaryBarHeightConstraint?.constant ?? 0) - requiredHeight) > 0.5 {
+            summaryBarHeightConstraint?.constant = requiredHeight
+        }
+    }
+
+    private func measuredTextHeight(
+        _ text: String,
+        font: NSFont,
+        width: CGFloat,
+        maximumLines: Int
+    ) -> CGFloat {
+        let measured = (text as NSString).boundingRect(
+            with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        ).height
+        guard maximumLines > 0 else { return ceil(measured) }
+        return ceil(min(measured, font.boundingRectForFont.height * CGFloat(maximumLines)))
+    }
+
+    private func setContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        preferredFontProvider = provider
+        guard isViewLoaded else { return }
+        applyContentTypography()
+    }
 
     /// Updates the summary bar label to reflect the current result.
     private func updateSummaryBar() {
@@ -114,10 +228,8 @@ public final class AlignmentResultViewController: NSViewController {
         let total = result.totalReads
         let pct = total > 0 ? String(format: "%.1f%%", Double(mapped) / Double(total) * 100) : "—"
 
-        // Find the label inside the summary bar and update it
-        if let label = summaryBar.subviews.compactMap({ $0 as? NSTextField }).first {
-            label.stringValue = "Alignment Results — \(mapped.formatted()) / \(total.formatted()) reads mapped (\(pct))"
-        }
+        summaryLabel.stringValue = "Alignment Results — \(mapped.formatted()) / \(total.formatted()) reads mapped (\(pct))"
+        updateSummaryBarHeight()
     }
 
     /// Updates the placeholder to show the BAM file name once a result is set.
@@ -131,6 +243,7 @@ public final class AlignmentResultViewController: NSViewController {
         BAM: \(name)
         Alignment summary only. Open the BAM track for pileup and coverage inspection.
         """
+        view.needsLayout = true
     }
 }
 
@@ -168,3 +281,41 @@ extension AlignmentResultViewController: ResultViewportController {
         )
     }
 }
+
+#if DEBUG
+extension AlignmentResultViewController {
+    var testSummaryFontPointSize: CGFloat { summaryLabel.font?.pointSize ?? 0 }
+    var testSummaryFontLineHeight: CGFloat {
+        summaryLabel.font?.boundingRectForFont.height ?? 0
+    }
+    var testPlaceholderFontPointSize: CGFloat { placeholderLabel.font?.pointSize ?? 0 }
+    var testSummaryBarHeight: CGFloat { summaryBarHeightConstraint?.constant ?? 0 }
+    var testPlaceholderMaximumNumberOfLines: Int { placeholderLabel.maximumNumberOfLines }
+    var testPlaceholderLineBreakMode: NSLineBreakMode { placeholderLabel.lineBreakMode }
+    var testTypographyApplicationCount: Int { typographyApplicationCount }
+    var testSummaryBarBounds: NSRect { summaryBar.bounds }
+    var testSummaryLabelFrame: NSRect { summaryLabel.frame }
+    var testPlaceholderFrame: NSRect { placeholderLabel.frame }
+    var testSummaryMeasuredTextHeight: CGFloat {
+        guard let font = summaryLabel.font else { return 0 }
+        return measuredTextHeight(
+            summaryLabel.stringValue,
+            font: font,
+            width: max(1, summaryLabel.bounds.width),
+            maximumLines: summaryLabel.maximumNumberOfLines
+        )
+    }
+    var testHasAmbiguousPrimaryLayout: Bool {
+        view.hasAmbiguousLayout
+            || summaryBar.hasAmbiguousLayout
+            || summaryLabel.hasAmbiguousLayout
+            || placeholderLabel.hasAmbiguousLayout
+    }
+
+    func testSetContentPreferredFontProvider(
+        _ provider: any ContentPreferredFontProviding
+    ) {
+        setContentPreferredFontProvider(provider)
+    }
+}
+#endif

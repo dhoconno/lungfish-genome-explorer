@@ -1,9 +1,382 @@
 import AppKit
 import XCTest
+@testable import LungfishCore
 @testable import LungfishKit
 
 @MainActor
 final class BatchTableViewTests: XCTestCase {
+    func testSharedContentTypographyUpdatesTableAndMetadataWithoutRecreatingView() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+
+            let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+            table.configure(rows: [
+                TestBatchRow(name: "alpha"),
+                TestBatchRow(name: "beta"),
+            ])
+            table.tableView.sortDescriptors = [
+                NSSortDescriptor(key: "name", ascending: false),
+            ]
+
+            let metadataStore = try SampleMetadataStore(
+                csvData: Data("Sample\tGroup\nalpha\tcase\nbeta\tcontrol\n".utf8),
+                knownSampleIds: Set(["alpha", "beta"])
+            )
+            table.metadataColumns.visibleColumns = ["Group"]
+            table.metadataColumns.update(store: metadataStore, sampleId: nil)
+            table.tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+
+            let searchField = try XCTUnwrap(table.firstDescendant(of: NSSearchField.self))
+            let standardColumn = try XCTUnwrap(
+                table.tableView.tableColumns.first { $0.identifier.rawValue == "name" }
+            )
+            let metadataColumn = try XCTUnwrap(
+                table.tableView.tableColumns.first { $0.identifier.rawValue == "metadata_Group" }
+            )
+            let standardCell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: standardColumn, row: 0) as? NSTableCellView
+            )
+            let metadataCell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: metadataColumn, row: 0) as? NSTableCellView
+            )
+            let identity = ObjectIdentifier(table)
+            let baseline = TypographySnapshot(
+                searchPointSize: try XCTUnwrap(searchField.font).pointSize,
+                cellPointSize: try XCTUnwrap(standardCell.textField?.font).pointSize,
+                metadataPointSize: try XCTUnwrap(metadataCell.textField?.font).pointSize,
+                headerPointSize: try XCTUnwrap(standardColumn.headerCell.font).pointSize,
+                rowHeight: table.tableView.rowHeight,
+                headerHeight: try XCTUnwrap(table.tableView.headerView).frame.height
+            )
+
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+
+            let enlargedStandardCell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: standardColumn, row: 0) as? NSTableCellView
+            )
+            let enlargedMetadataCell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: metadataColumn, row: 0) as? NSTableCellView
+            )
+            XCTAssertEqual(ObjectIdentifier(table), identity)
+            XCTAssertEqual(try XCTUnwrap(searchField.font).pointSize, baseline.searchPointSize * 2, accuracy: 0.01)
+            XCTAssertEqual(
+                try XCTUnwrap(enlargedStandardCell.textField?.font).pointSize,
+                baseline.cellPointSize * 2,
+                accuracy: 0.01
+            )
+            XCTAssertEqual(
+                try XCTUnwrap(enlargedMetadataCell.textField?.font).pointSize,
+                baseline.metadataPointSize * 2,
+                accuracy: 0.01
+            )
+            XCTAssertEqual(
+                try XCTUnwrap(standardColumn.headerCell.font).pointSize,
+                baseline.headerPointSize * 2,
+                accuracy: 0.01
+            )
+            XCTAssertGreaterThan(table.tableView.rowHeight, baseline.rowHeight)
+            XCTAssertGreaterThan(try XCTUnwrap(table.tableView.headerView).frame.height, baseline.headerHeight)
+            XCTAssertEqual(table.tableView.selectedRowIndexes, IndexSet(integer: 1))
+            XCTAssertEqual(table.tableView.sortDescriptors.first?.key, "name")
+
+            table.metadataColumns.visibleColumns = ["Group", "Location"]
+            let expandedMetadataStore = try SampleMetadataStore(
+                csvData: Data("Sample\tGroup\tLocation\nalpha\tcase\tBoston\nbeta\tcontrol\tSeattle\n".utf8),
+                knownSampleIds: Set(["alpha", "beta"])
+            )
+            table.metadataColumns.update(store: expandedMetadataStore, sampleId: nil)
+            let addedAtTwoHundredPercent = try XCTUnwrap(
+                table.tableView.tableColumns.first { $0.identifier.rawValue == "metadata_Location" }
+            )
+            XCTAssertEqual(
+                try XCTUnwrap(addedAtTwoHundredPercent.headerCell.font).pointSize,
+                baseline.headerPointSize * 2,
+                accuracy: 0.01
+            )
+            table.tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+
+            let restoredStandardCell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: standardColumn, row: 0) as? NSTableCellView
+            )
+            let restoredMetadataCell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: metadataColumn, row: 0) as? NSTableCellView
+            )
+            XCTAssertEqual(try XCTUnwrap(searchField.font).pointSize, baseline.searchPointSize, accuracy: 0.01)
+            XCTAssertEqual(
+                try XCTUnwrap(restoredStandardCell.textField?.font).pointSize,
+                baseline.cellPointSize,
+                accuracy: 0.01
+            )
+            XCTAssertEqual(
+                try XCTUnwrap(restoredMetadataCell.textField?.font).pointSize,
+                baseline.metadataPointSize,
+                accuracy: 0.01
+            )
+            XCTAssertEqual(try XCTUnwrap(standardColumn.headerCell.font).pointSize, baseline.headerPointSize, accuracy: 0.01)
+            XCTAssertEqual(table.tableView.rowHeight, baseline.rowHeight, accuracy: 0.01)
+            XCTAssertEqual(try XCTUnwrap(table.tableView.headerView).frame.height, baseline.headerHeight, accuracy: 0.01)
+            XCTAssertEqual(table.tableView.selectedRowIndexes, IndexSet(integer: 1))
+            XCTAssertEqual(table.tableView.sortDescriptors.first?.key, "name")
+        }
+    }
+
+    func testTypographyRoundTripPreservesSearchEditingAndTableViewState() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+
+            let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 160))
+            table.configure(rows: (0..<40).map { TestBatchRow(name: "alpha-\($0)") })
+            table.setFilterText("alpha")
+            table.tableView.sortDescriptors = [
+                NSSortDescriptor(key: "name", ascending: false),
+            ]
+            let standardColumn = try XCTUnwrap(table.tableView.tableColumns.first)
+            standardColumn.width = 173
+            table.tableView.selectRowIndexes(IndexSet(integer: 12), byExtendingSelection: false)
+            table.scrollRowToTop(12)
+            let scrollOrigin = table.currentScrollOriginY
+            let selectedRows = table.tableView.selectedRowIndexes
+            let sortDescriptors = table.tableView.sortDescriptors
+            let columnOrder = table.tableView.tableColumns.map(\.identifier)
+            let columnWidths = table.tableView.tableColumns.map(\.width)
+            let hiddenState = table.tableView.tableColumns.map(\.isHidden)
+            let metadataVisibility = table.metadataColumns.visibleColumns
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 160),
+                styleMask: [.titled],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentView = table
+            window.makeKeyAndOrderFront(nil)
+            defer { window.close() }
+            let searchField = try XCTUnwrap(table.firstDescendant(of: NSSearchField.self))
+            _ = try XCTUnwrap(table.firstDescendant(of: NSScrollView.self))
+            let headerClipView = try XCTUnwrap(table.tableView.headerView?.superview as? NSClipView)
+            let baselineHeaderClipHeight = headerClipView.frame.height
+            XCTAssertTrue(window.makeFirstResponder(searchField))
+            searchField.currentEditor()?.selectedRange = NSRange(location: 2, length: 2)
+
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+            let enlargedHeaderClipHeight = headerClipView.frame.height
+            XCTAssertGreaterThan(enlargedHeaderClipHeight, baselineHeaderClipHeight)
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+
+            XCTAssertEqual(ObjectIdentifier(window.firstResponder as AnyObject), ObjectIdentifier(searchField.currentEditor() as AnyObject))
+            XCTAssertEqual(searchField.currentEditor()?.selectedRange, NSRange(location: 2, length: 2))
+            XCTAssertEqual(table.currentFilterText, "alpha")
+            XCTAssertEqual(table.tableView.sortDescriptors, sortDescriptors)
+            XCTAssertEqual(table.tableView.selectedRowIndexes, selectedRows)
+            XCTAssertEqual(table.currentScrollOriginY, scrollOrigin, accuracy: 0.01)
+            XCTAssertEqual(table.tableView.tableColumns.map(\.identifier), columnOrder)
+            XCTAssertEqual(table.tableView.tableColumns.map(\.width), columnWidths)
+            XCTAssertEqual(table.tableView.tableColumns.map(\.isHidden), hiddenState)
+            XCTAssertEqual(table.metadataColumns.visibleColumns, metadataVisibility)
+            XCTAssertEqual(
+                headerClipView.frame.height,
+                baselineHeaderClipHeight,
+                accuracy: 0.01
+            )
+        }
+    }
+
+    func testSharedTableFixedFontInventoryUsesContentTypography() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let batchSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishKit/BatchTableView.swift"),
+            encoding: .utf8
+        )
+        let metadataSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishKit/MetadataColumnController.swift"),
+            encoding: .utf8
+        )
+
+        // Shared-scope fixed-font inventory:
+        // - Batch search field: primary content, ContentTypography.body.
+        // - Batch standard cells: primary content, ContentTypography.monospaced.
+        // - Batch headers: primary content, ContentTypography.tableHeader.
+        // - Metadata cells: primary content, ContentTypography.body.
+        // No control-chrome or scientific zoom/geometry fonts exist in this scope.
+        XCTAssertTrue(batchSource.contains("typography.font(for: .body)"))
+        XCTAssertTrue(batchSource.contains("typography.font(for: .monospaced)"))
+        XCTAssertTrue(batchSource.contains("typography.font(for: .tableHeader)"))
+        XCTAssertTrue(metadataSource.contains("typography.font(for: .body)"))
+        XCTAssertFalse(batchSource.contains(".systemFont(ofSize: 11)"))
+        XCTAssertFalse(batchSource.contains(".monospacedDigitSystemFont(ofSize: 11"))
+        XCTAssertFalse(metadataSource.contains(".systemFont(ofSize: 11)"))
+        XCTAssertTrue(
+            batchSource.contains("contentTypographyOwnership: .embedded"),
+            "Batch tables must explicitly own the one live typography observation"
+        )
+        XCTAssertFalse(
+            batchSource.contains("metadataColumns.applyContentTypography()"),
+            "An embedded metadata controller must not scan cells before Batch reloads them"
+        )
+        XCTAssertTrue(metadataSource.contains("if contentTypographyOwnership == .standalone"))
+        XCTAssertTrue(metadataSource.contains("tableView.rows(in: tableView.visibleRect)"))
+        XCTAssertFalse(metadataSource.contains("for row in 0..<tableView.numberOfRows"))
+    }
+
+    func testSubclassFontOverrideScalesFromStableBaselineWithoutCompounding() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            let table = OverrideFontBatchTableView(
+                frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+            )
+            table.configure(rows: [TestBatchRow(name: "alpha")])
+            let column = try XCTUnwrap(table.tableView.tableColumns.first)
+
+            @MainActor
+            func resolvedFont() throws -> NSFont {
+                let cell = try XCTUnwrap(
+                    table.tableView(table.tableView, viewFor: column, row: 0) as? NSTableCellView
+                )
+                return try XCTUnwrap(cell.textField?.font)
+            }
+
+            let baseline = try resolvedFont()
+            XCTAssertTrue(baseline.fontDescriptor.symbolicTraits.contains(.bold))
+
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+            let enlarged = try resolvedFont()
+            XCTAssertEqual(enlarged.pointSize, baseline.pointSize * 2, accuracy: 0.01)
+            XCTAssertTrue(enlarged.fontDescriptor.symbolicTraits.contains(.bold))
+
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            let restored = try resolvedFont()
+            XCTAssertEqual(restored.pointSize, baseline.pointSize, accuracy: 0.01)
+            XCTAssertTrue(restored.fontDescriptor.symbolicTraits.contains(.bold))
+        }
+    }
+
+    func testSystemPreferredMetricChangeRescalesStableSubclassOverride() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .system
+            settings.save()
+            let provider = MutablePreferredFontProvider(pointSize: 13)
+            let table = ProviderOverrideFontBatchTableView(
+                frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+            )
+            table.setContentPreferredFontProvider(provider)
+            table.configure(rows: [TestBatchRow(name: "alpha")])
+            let column = try XCTUnwrap(table.tableView.tableColumns.first)
+            let baselineCell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: column, row: 0) as? NSTableCellView
+            )
+            let baseline = try XCTUnwrap(baselineCell.textField?.font)
+
+            provider.pointSize = 19.5
+            NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+
+            let updatedCell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: column, row: 0) as? NSTableCellView
+            )
+            let updated = try XCTUnwrap(updatedCell.textField?.font)
+            XCTAssertEqual(updated.pointSize, baseline.pointSize * 1.5, accuracy: 0.01)
+            XCTAssertTrue(updated.fontDescriptor.symbolicTraits.contains(.bold))
+        }
+    }
+
+    func testInitiallyEnlargedSystemMetricsScaleSubclassOverrideFromCanonicalReference() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .system
+            settings.save()
+            let provider = MutablePreferredFontProvider(pointSize: 19.5)
+            let table = ProviderOverrideFontBatchTableView(
+                frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+            )
+            table.setContentPreferredFontProvider(provider)
+            table.configure(rows: [TestBatchRow(name: "alpha")])
+            let column = try XCTUnwrap(table.tableView.tableColumns.first)
+            let cell = try XCTUnwrap(
+                table.tableView(table.tableView, viewFor: column, row: 0) as? NSTableCellView
+            )
+            let resolved = try XCTUnwrap(cell.textField?.font)
+
+            XCTAssertEqual(resolved.pointSize, 16.5, accuracy: 0.01)
+            XCTAssertTrue(resolved.fontDescriptor.symbolicTraits.contains(.bold))
+        }
+    }
+
+    func testRebuildAtTwoHundredPercentImmediatelyStylesNewStandardHeader() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+            let table = ReconfigurableBatchTableView(
+                frame: NSRect(x: 0, y: 0, width: 360, height: 240)
+            )
+            let existingHeaderSize = try XCTUnwrap(
+                table.tableView.tableColumns.first?.headerCell.font
+            ).pointSize
+
+            table.showScoreColumn = true
+            table.rebuildStandardColumns()
+
+            let score = try XCTUnwrap(
+                table.tableView.tableColumns.first { $0.identifier.rawValue == "score" }
+            )
+            XCTAssertEqual(
+                try XCTUnwrap(score.headerCell.font).pointSize,
+                existingHeaderSize,
+                accuracy: 0.01
+            )
+        }
+    }
+
+    func testStandaloneMetadataControllerSynchronizesTableGeometryAndTiling() throws {
+        try preservingContentTextSizePreference {
+            let settings = AppSettings.shared
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            let table = NSTableView()
+            table.addTableColumn(NSTableColumn(identifier: .init("metadata_Group")))
+            let scrollView = NSScrollView(
+                frame: NSRect(x: 0, y: 0, width: 320, height: 160)
+            )
+            scrollView.documentView = table
+            let controller = MetadataColumnController()
+            controller.install(on: table)
+            let baselineRowHeight = table.rowHeight
+            let baselineHeaderHeight = try XCTUnwrap(table.headerView).frame.height
+            let headerClipView = try XCTUnwrap(table.headerView?.superview as? NSClipView)
+            let baselineClipHeight = headerClipView.frame.height
+
+            settings.contentTextSizePreference = .custom(200)
+            settings.save()
+
+            XCTAssertGreaterThan(table.rowHeight, baselineRowHeight)
+            XCTAssertGreaterThan(try XCTUnwrap(table.headerView).frame.height, baselineHeaderHeight)
+            XCTAssertGreaterThan(headerClipView.frame.height, baselineClipHeight)
+
+            settings.contentTextSizePreference = .custom(100)
+            settings.save()
+            XCTAssertEqual(table.rowHeight, baselineRowHeight, accuracy: 0.01)
+            XCTAssertEqual(try XCTUnwrap(table.headerView).frame.height, baselineHeaderHeight, accuracy: 0.01)
+            XCTAssertEqual(headerClipView.frame.height, baselineClipHeight, accuracy: 0.01)
+        }
+    }
+
     func testUserSearchInputIsDebouncedBeforeFilteringRows() async throws {
         let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
         table.configure(rows: [
@@ -118,6 +491,15 @@ final class BatchTableViewTests: XCTestCase {
     }
 }
 
+private struct TypographySnapshot {
+    let searchPointSize: CGFloat
+    let cellPointSize: CGFloat
+    let metadataPointSize: CGFloat
+    let headerPointSize: CGFloat
+    let rowHeight: CGFloat
+    let headerHeight: CGFloat
+}
+
 private struct TestBatchRow: Equatable {
     let name: String
 }
@@ -155,6 +537,10 @@ private final class TestBatchTableView: BatchTableView<TestBatchRow> {
 
     override func rowMatchesFilter(_ row: TestBatchRow, filterText: String) -> Bool {
         row.name.localizedCaseInsensitiveContains(filterText)
+    }
+
+    override func rowIdentity(for row: TestBatchRow) -> String? {
+        row.name
     }
 
     override func didApplyDisplayedRows() {
@@ -209,6 +595,70 @@ private final class NumericBatchTableView: BatchTableView<NumericBatchRow> {
 }
 
 @MainActor
+private final class OverrideFontBatchTableView: BatchTableView<TestBatchRow> {
+    override var columnSpecs: [BatchColumnSpec] {
+        [
+            BatchColumnSpec(
+                identifier: .init("name"),
+                title: "Name",
+                width: 120,
+                minWidth: 80,
+                defaultAscending: true
+            ),
+        ]
+    }
+
+    override func cellContent(
+        for column: NSUserInterfaceItemIdentifier,
+        row: TestBatchRow
+    ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
+        (row.name, .left, .boldSystemFont(ofSize: 11))
+    }
+}
+
+@MainActor
+private final class ProviderOverrideFontBatchTableView: BatchTableView<TestBatchRow> {
+    override var columnSpecs: [BatchColumnSpec] {
+        [
+            BatchColumnSpec(
+                identifier: .init("name"),
+                title: "Name",
+                width: 120,
+                minWidth: 80,
+                defaultAscending: true
+            ),
+        ]
+    }
+
+    override func cellContent(
+        for column: NSUserInterfaceItemIdentifier,
+        row: TestBatchRow
+    ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
+        (row.name, .left, .boldSystemFont(ofSize: 11))
+    }
+}
+
+@MainActor
+private final class MutablePreferredFontProvider: ContentPreferredFontProviding {
+    var pointSize: CGFloat
+
+    init(pointSize: CGFloat) {
+        self.pointSize = pointSize
+    }
+
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        switch role {
+        case .emphasizedBody, .tableHeader:
+            return .boldSystemFont(ofSize: pointSize)
+        case .monospaced:
+            return .monospacedSystemFont(ofSize: pointSize, weight: .regular)
+        default:
+            return .systemFont(ofSize: pointSize)
+        }
+    }
+}
+
+@MainActor
 private final class ReconfigurableBatchTableView: BatchTableView<TestBatchRow> {
     var showScoreColumn = false
 
@@ -258,4 +708,15 @@ private func waitUntil(
         try await Task.sleep(for: .milliseconds(10))
     }
     XCTAssertTrue(condition(), file: file, line: line)
+}
+
+@MainActor
+private func preservingContentTextSizePreference(_ body: () throws -> Void) rethrows {
+    let settings = AppSettings.shared
+    let original = settings.contentTextSizePreference
+    defer {
+        settings.contentTextSizePreference = original
+        settings.save()
+    }
+    try body()
 }
