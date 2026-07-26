@@ -233,6 +233,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest?
     public let mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts?
     public let referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?
+    public let alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest?
+    public let provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?
 
     public init(
         schemaVersion: Int = 1,
@@ -259,6 +261,62 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts? = nil,
         referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil
     ) {
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            currentWorkbookPath: currentWorkbookPath,
+            workbookRevisions: workbookRevisions,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: mhcCandidateArtifacts,
+            mhcReferenceVisualizations: mhcReferenceVisualizations,
+            referenceRecordStore: referenceRecordStore,
+            alignmentArtifacts: nil,
+            provisionalExon2Artifacts: nil
+        )
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        currentWorkbookPath: String? = nil,
+        workbookRevisions: [ONTGenotypeWorkbookRevision]? = nil,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil,
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts? = nil,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
+        alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest?,
+        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?
+    ) {
         self.schemaVersion = schemaVersion
         self.kind = kind
         self.outputName = outputName
@@ -282,6 +340,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         self.mhcCandidateArtifacts = mhcCandidateArtifacts
         self.mhcReferenceVisualizations = mhcReferenceVisualizations
         self.referenceRecordStore = referenceRecordStore
+        self.alignmentArtifacts = alignmentArtifacts
+        self.provisionalExon2Artifacts = provisionalExon2Artifacts
     }
 
     public init(
@@ -331,7 +391,64 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             haplotypeAnalysisRevisions: haplotypeAnalysisRevisions,
             mhcCandidateArtifacts: mhcCandidateArtifacts,
             mhcReferenceVisualizations: nil,
-            referenceRecordStore: referenceRecordStore
+            referenceRecordStore: referenceRecordStore,
+            alignmentArtifacts: nil,
+            provisionalExon2Artifacts: nil
+        )
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String = "ont-barcode-genotype",
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        currentWorkbookPath: String? = nil,
+        workbookRevisions: [ONTGenotypeWorkbookRevision]? = nil,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil,
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
+        alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest?,
+        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?
+    ) {
+        self.init(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            outputName: outputName,
+            analysisName: analysisName,
+            primaryWorkbookPath: primaryWorkbookPath,
+            currentWorkbookPath: currentWorkbookPath,
+            workbookRevisions: workbookRevisions,
+            longSummaryCSVPath: longSummaryCSVPath,
+            sampleSummaryCSVPath: sampleSummaryCSVPath,
+            statsJSONPath: statsJSONPath,
+            provenancePath: provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath: deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAssayID,
+            presetID: presetID,
+            presetVersion: presetVersion,
+            createdAt: createdAt,
+            activeHaplotypeAnalysisRevisionID: activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions: haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: mhcCandidateArtifacts,
+            mhcReferenceVisualizations: nil,
+            referenceRecordStore: referenceRecordStore,
+            alignmentArtifacts: alignmentArtifacts,
+            provisionalExon2Artifacts: provisionalExon2Artifacts
         )
     }
 }

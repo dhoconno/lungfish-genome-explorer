@@ -1055,6 +1055,75 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
 
         XCTAssertNil(manifest.mhcCandidateArtifacts)
+        XCTAssertNil(manifest.alignmentArtifacts)
+        XCTAssertNil(manifest.provisionalExon2Artifacts)
+    }
+
+    func testRoundTripsGenericAlignmentArtifacts() throws {
+        let alignmentArtifacts = ONTGenotypeAlignmentArtifactManifest(
+            genotypingEvidence: ONTMHCBAMArtifactPair(
+                bam: ONTMHCArtifactReference(
+                    path: "run.retained.demuxed.bam",
+                    sha256: String(repeating: "a", count: 64),
+                    sizeBytes: 3
+                ),
+                bai: ONTMHCArtifactReference(
+                    path: "run.retained.demuxed.bam.bai",
+                    sha256: String(repeating: "b", count: 64),
+                    sizeBytes: 3
+                )
+            ),
+            reciprocalEvidence: nil
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "miseq",
+            analysisName: "miSeq",
+            primaryWorkbookPath: "miseq.xlsx",
+            longSummaryCSVPath: "miseq-genotypes.csv",
+            sampleSummaryCSVPath: "miseq-samples.csv",
+            statsJSONPath: "miseq-stats.json",
+            provenancePath: "provenance.json",
+            alignmentArtifacts: alignmentArtifacts,
+            provisionalExon2Artifacts: nil
+        )
+
+        let data = try JSONEncoder().encode(manifest)
+        let decoded = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+
+        XCTAssertEqual(decoded.alignmentArtifacts, alignmentArtifacts)
+        XCTAssertNil(decoded.alignmentArtifacts?.reciprocalEvidence)
+    }
+
+    func testRoundTripsProvisionalExon2Artifacts() throws {
+        let artifacts = ONTGenotypeProvisionalExon2ArtifactManifest(
+            schemaVersion: 1,
+            catalogJSON: ONTMHCArtifactReference(
+                path: "artifacts/sequences/observed-provisional-exon2.json",
+                sha256: String(repeating: "c", count: 64),
+                sizeBytes: 17
+            ),
+            sequencesFASTA: ONTMHCArtifactReference(
+                path: "artifacts/sequences/observed-provisional-exon2.fasta",
+                sha256: String(repeating: "d", count: 64),
+                sizeBytes: 23
+            )
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "miseq",
+            analysisName: "miSeq",
+            primaryWorkbookPath: "miseq.xlsx",
+            longSummaryCSVPath: "miseq-genotypes.csv",
+            sampleSummaryCSVPath: "miseq-samples.csv",
+            statsJSONPath: "miseq-stats.json",
+            provenancePath: "provenance.json",
+            alignmentArtifacts: nil,
+            provisionalExon2Artifacts: artifacts
+        )
+
+        let data = try JSONEncoder().encode(manifest)
+        let decoded = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+
+        XCTAssertEqual(decoded.provisionalExon2Artifacts, artifacts)
     }
 
     func testRoundTripsMHCCandidateArtifactManifestWithChecksummedBAMPair() throws {
