@@ -154,6 +154,41 @@ struct GenotypeAlleleSequenceRecord: Equatable {
         )
     }
 
+    static func provisionalExon2(
+        _ source: ONTGenotypeProvisionalExon2Sequence
+    ) -> Self {
+        let sequence = source.sequence.uppercased()
+        let definition = "Provisional exon 2 exact run reference match."
+        let caveat = "Short exon 2 evidence; not an IPD-qualified novel-allele designation."
+        return Self(
+            identity: source.genotype,
+            displayName: source.genotype,
+            genBankText: normalizedTrailingNewline([
+                "LOCUS       \(source.genotype) \(sequence.utf8.count) bp DNA linear",
+                "DEFINITION  \(definition)",
+                "ACCESSION   \(source.genotype)",
+                "COMMENT     \(caveat)",
+                "ORIGIN",
+                sequence,
+                "//",
+            ].joined(separator: "\n")),
+            fastaText: fasta(
+                accession: source.genotype,
+                displayName: "Provisional exon 2",
+                sequence: sequence
+            ),
+            emblText: normalizedTrailingNewline([
+                "ID   \(source.genotype); linear; DNA; \(sequence.utf8.count) BP.",
+                "AC   \(source.genotype);",
+                "DE   \(definition)",
+                "CC   \(caveat)",
+                "SQ   Sequence \(sequence.utf8.count) BP;",
+                sequence,
+                "//",
+            ].joined(separator: "\n"))
+        )
+    }
+
     static func unavailable(identity: String, displayName: String) -> Self {
         let definition = "Validated allele record unavailable."
         return Self(

@@ -365,9 +365,10 @@ extension InspectorViewController {
             return rows
         }()
         let candidateGenBankURLs = result.mhcCandidateGenBankArtifactURLs
-        let alignmentArtifactURLs = result.manifest.kind == "full-length-ont-mhc-genotype"
-            ? result.mhcAlignmentArtifactURLs
-            : .empty
+        let alignmentArtifactURLs = result.alignmentArtifactURLs
+        let provisionalExon2ArtifactURLs = hasHaplotypingResult
+            ? ONTGenotypeProvisionalExon2ArtifactURLs.empty
+            : result.provisionalExon2ArtifactURLs
         var state = GenotypeResultDocumentState(
             title: result.manifest.analysisName,
             subtitle: "\(result.manifest.kind) • \(result.manifest.outputName)",
@@ -409,6 +410,18 @@ extension InspectorViewController {
                 },
                 alignmentArtifactURLs.reciprocalBAI.map {
                     GenotypeResultArtifactRow(label: "Reciprocal Evidence BAI", fileURL: $0)
+                },
+                provisionalExon2ArtifactURLs.catalogJSON.map {
+                    GenotypeResultArtifactRow(
+                        label: "Observed Provisional Exon 2 JSON",
+                        fileURL: $0
+                    )
+                },
+                provisionalExon2ArtifactURLs.sequencesFASTA.map {
+                    GenotypeResultArtifactRow(
+                        label: "Observed Provisional Exon 2 FASTA",
+                        fileURL: $0
+                    )
                 },
                 GenotypeResultArtifactRow(label: "Provenance", fileURL: result.artifacts.provenanceURL),
                 GenotypeResultArtifactRow(

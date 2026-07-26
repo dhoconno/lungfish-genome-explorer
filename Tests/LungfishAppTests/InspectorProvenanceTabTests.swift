@@ -335,11 +335,77 @@ final class InspectorProvenanceTabTests: XCTestCase {
         XCTAssertEqual(try recursiveBytes(at: bundleURL), before)
     }
 
+    func testMiSeqScientificArtifactsRespectGenotypeOnlyBoundary() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "inspector-miseq-artifacts-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let alignmentURLs = ONTMHCAlignmentArtifactURLs(
+            genotypingBAM: bundleURL.appendingPathComponent("evidence.bam"),
+            genotypingBAI: bundleURL.appendingPathComponent("evidence.bam.bai"),
+            reciprocalBAM: nil,
+            reciprocalBAI: nil
+        )
+        let provisionalURLs = ONTGenotypeProvisionalExon2ArtifactURLs(
+            catalogJSON: bundleURL.appendingPathComponent(
+                "artifacts/sequences/observed-provisional-exon2.json"
+            ),
+            sequencesFASTA: bundleURL.appendingPathComponent(
+                "artifacts/sequences/observed-provisional-exon2.fasta"
+            )
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        inspector.viewModel.contentMode = .genotype
+
+        inspector.updateGenotypeResultDocument(makeGenotypeResult(
+            bundleURL: bundleURL,
+            haplotypeAnalysis: nil,
+            alignmentArtifactURLs: alignmentURLs,
+            provisionalExon2ArtifactURLs: provisionalURLs
+        ))
+        let genotypeOnlyLabels = try XCTUnwrap(
+            inspector.viewModel.documentSectionViewModel.genotypeResultDocument
+        ).artifactRows.map(\.label)
+        XCTAssertTrue(genotypeOnlyLabels.contains("Genotyping Evidence BAM"))
+        XCTAssertTrue(genotypeOnlyLabels.contains("Genotyping Evidence BAI"))
+        XCTAssertTrue(genotypeOnlyLabels.contains("Observed Provisional Exon 2 JSON"))
+        XCTAssertTrue(genotypeOnlyLabels.contains("Observed Provisional Exon 2 FASTA"))
+        XCTAssertFalse(genotypeOnlyLabels.contains { $0.contains("Reciprocal Evidence") })
+        XCTAssertFalse(genotypeOnlyLabels.contains { $0.contains("Candidate Alleles") })
+
+        inspector.updateGenotypeResultDocument(makeGenotypeResult(
+            bundleURL: bundleURL,
+            haplotypeAnalysis: GenotypeHaplotypeAnalysis(
+                assayID: "MHC-exon2-miSeq",
+                definitionSetID: "test",
+                definitionSetName: "Test",
+                speciesName: "Test",
+                samples: []
+            ),
+            alignmentArtifactURLs: alignmentURLs,
+            provisionalExon2ArtifactURLs: provisionalURLs
+        ))
+        let haplotypedLabels = try XCTUnwrap(
+            inspector.viewModel.documentSectionViewModel.genotypeResultDocument
+        ).artifactRows.map(\.label)
+        XCTAssertTrue(haplotypedLabels.contains("Genotyping Evidence BAM"))
+        XCTAssertTrue(haplotypedLabels.contains("Genotyping Evidence BAI"))
+        XCTAssertFalse(haplotypedLabels.contains("Observed Provisional Exon 2 JSON"))
+        XCTAssertFalse(haplotypedLabels.contains("Observed Provisional Exon 2 FASTA"))
+    }
+
     private func makeGenotypeResult(
         bundleURL: URL,
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         calls: [ONTGenotypeCall] = [],
-        samples: [ONTGenotypeSampleResult] = []
+        samples: [ONTGenotypeSampleResult] = [],
+        alignmentArtifactURLs: ONTMHCAlignmentArtifactURLs = .empty,
+        provisionalExon2ArtifactURLs:
+            ONTGenotypeProvisionalExon2ArtifactURLs = .empty
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
@@ -362,7 +428,17 @@ final class InspectorProvenanceTabTests: XCTestCase {
             stats: ONTGenotypeRunStats(totalInputReads: 100, retainedUniqueReads: 50),
             calls: calls,
             samples: samples,
-            haplotypeAnalysis: haplotypeAnalysis
+            haplotypeAnalysis: haplotypeAnalysis,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            mhcCandidateSequencesByStableClusterID: [:],
+            mhcCandidateGenBankArtifactURLs: .empty,
+            mhcAlignmentArtifactURLs: alignmentArtifactURLs,
+            mhcReferenceVisualizations: nil,
+            integrityWarnings: [],
+            referenceMetadata: nil,
+            provisionalExon2SequencesByGenotype: [:],
+            provisionalExon2ArtifactURLs: provisionalExon2ArtifactURLs
         )
     }
 }

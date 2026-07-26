@@ -5147,7 +5147,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(lensText.contains(reciprocalBAIURL.standardizedFileURL.path))
     }
 
-    func testArtifactsLensOmitsInjectedMHCAlignmentArtifactsForNonFullLengthResult() {
+    func testArtifactsLensListsValidatedAlignmentArtifactsForNonFullLengthResult() {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeNonMHCAlignmentArtifactLens-\(UUID().uuidString)", isDirectory: true)
         let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
@@ -5169,14 +5169,120 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingSelectLens(.audit)
 
         let lensText = visibleText(in: controller.view)
-        for label in [
-            "Genotyping Evidence BAM",
-            "Genotyping Evidence BAI",
-            "Reciprocal Evidence BAM",
-            "Reciprocal Evidence BAI",
-        ] {
-            XCTAssertFalse(lensText.contains(label))
-        }
+        XCTAssertTrue(lensText.contains("Genotyping Evidence BAM"))
+        XCTAssertTrue(lensText.contains("Genotyping Evidence BAI"))
+        XCTAssertTrue(lensText.contains("Reciprocal Evidence BAM"))
+        XCTAssertTrue(lensText.contains("Reciprocal Evidence BAI"))
+    }
+
+    func testGenotypeOnlyMiSeqPresentsProvisionalExon2SequenceAndArtifacts() {
+        let genotype = "Mafa-A1*007:08:01:01_1nt_nov"
+        let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 11)
+        let provisional = ONTGenotypeProvisionalExon2Sequence(
+            genotype: genotype,
+            locus: call.locusGroup,
+            sequence: "AACCGGTT",
+            sequenceSHA256: String(repeating: "a", count: 64),
+            sampleSupport: [
+                .init(sample: "AnimalA", passedAlignments: 12, passedUniqueReads: 11),
+            ]
+        )
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MiSeqProvisional-\(UUID().uuidString).lungfishgenotype")
+        let catalogURL = bundleURL.appendingPathComponent(
+            "artifacts/sequences/observed-provisional-exon2.json"
+        )
+        let fastaURL = bundleURL.appendingPathComponent(
+            "artifacts/sequences/observed-provisional-exon2.fasta"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call],
+            mhcAlignmentArtifactURLs: .init(
+                genotypingBAM: bundleURL.appendingPathComponent("evidence.bam"),
+                genotypingBAI: bundleURL.appendingPathComponent("evidence.bam.bai"),
+                reciprocalBAM: nil,
+                reciprocalBAI: nil
+            ),
+            provisionalExon2SequencesByGenotype: [genotype: provisional],
+            provisionalExon2ArtifactURLs: .init(
+                catalogJSON: catalogURL,
+                sequencesFASTA: fastaURL
+            )
+        ))
+
+        let matrix = controller.testingComparisonMatrix
+        let rowID = GenotypeCandidateMatrixRowID.known(
+            locus: call.locusGroup,
+            genotype: genotype
+        )
+        XCTAssertNotNil(matrix.testingBackgroundColor(rowID: rowID, column: .alleleName))
+        XCTAssertTrue(matrix.testingAlleleIdentityToolTip(genotype: genotype)?.contains(
+            "Provisional exon 2"
+        ) == true)
+        XCTAssertTrue(matrix.testingReviewLegendText.contains("Provisional exon 2"))
+        XCTAssertNotEqual(
+            matrix.testingBackgroundColor(rowID: rowID, column: .alleleName),
+            matrix.testingBackgroundColor(rowID: rowID, column: .sample("AnimalA"))
+        )
+
+        controller.testingSelectMatrixCell(genotype: genotype, sample: "AnimalA")
+        controller.testingSelectAlleleSequenceFormat(.fasta)
+        XCTAssertTrue(controller.testingAlleleSequenceText.contains(">\(genotype)"))
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("Designation", "Provisional exon 2")
+        })
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0.0 == "Interpretation" && $0.1.contains("not an IPD-qualified")
+        })
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("AnimalA Support", "11 unique reads; 12 alignments")
+        })
+
+        controller.testingSetQuickFilterSearchText("Provisional exon 2")
+        XCTAssertEqual(controller.testingVisibleGenotypes, [genotype])
+    }
+
+    func testProvisionalExon2PresentationClearsWhenAIHaplotypingCompletes() {
+        let genotype = "Mafa-A1*007:08:01:01_1nt_nov"
+        let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 11)
+        let provisional = ONTGenotypeProvisionalExon2Sequence(
+            genotype: genotype,
+            locus: call.locusGroup,
+            sequence: "AACCGGTT",
+            sequenceSHA256: String(repeating: "a", count: 64),
+            sampleSupport: [
+                .init(sample: "AnimalA", passedAlignments: 12, passedUniqueReads: 11),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [call],
+            provisionalExon2SequencesByGenotype: [genotype: provisional]
+        ))
+        controller.testingSelectMatrixCell(genotype: genotype, sample: "AnimalA")
+        XCTAssertFalse(controller.testingAlleleSequenceText.isEmpty)
+
+        controller.applyAIHaplotypingCompleted(result: makeResult(
+            samples: [],
+            calls: [call],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis(),
+            provisionalExon2SequencesByGenotype: [genotype: provisional]
+        ))
+
+        let matrix = controller.testingComparisonMatrix
+        let rowID = GenotypeCandidateMatrixRowID.known(
+            locus: call.locusGroup,
+            genotype: genotype
+        )
+        XCTAssertFalse(matrix.testingReviewLegendText.contains("Provisional exon 2"))
+        XCTAssertNil(matrix.testingBackgroundColor(rowID: rowID, column: .alleleName))
+        XCTAssertEqual(controller.testingAlleleSequenceText, "")
     }
 
     func testArtifactsLensMHCAlignmentLabelsFitWithoutClipping() throws {
@@ -14996,7 +15102,11 @@ final class GenotypeResultViewportTests: XCTestCase {
         mhcAlignmentArtifactURLs: ONTMHCAlignmentArtifactURLs = .empty,
         stats: ONTGenotypeRunStats = ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60),
         referenceMetadata: ONTGenotypeReferenceMetadata? = nil,
-        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact? = nil,
+        provisionalExon2SequencesByGenotype:
+            [String: ONTGenotypeProvisionalExon2Sequence] = [:],
+        provisionalExon2ArtifactURLs:
+            ONTGenotypeProvisionalExon2ArtifactURLs = .empty
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
@@ -15030,7 +15140,10 @@ final class GenotypeResultViewportTests: XCTestCase {
             mhcAlignmentArtifactURLs: mhcAlignmentArtifactURLs,
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: [],
-            referenceMetadata: referenceMetadata
+            referenceMetadata: referenceMetadata,
+            provisionalExon2SequencesByGenotype:
+                provisionalExon2SequencesByGenotype,
+            provisionalExon2ArtifactURLs: provisionalExon2ArtifactURLs
         )
     }
 

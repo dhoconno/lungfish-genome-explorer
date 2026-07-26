@@ -268,6 +268,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var sampleColumnIdentifierByName: [String: NSUserInterfaceItemIdentifier] = [:]
     private var visibleColumnIndexBySample: [String: Int] = [:]
     private var sampleReadTitleByName: [String: String] = [:]
+    private var provisionalExon2Genotypes: Set<String> = []
     private var supportByRowAndSample: [GenotypeCandidateMatrixRowID: [String: ONTGenotypeSampleSupport]] = [:]
     private var selectedGenotype: String?
     private var selectedSampleName: String?
@@ -367,6 +368,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     ) {
         self.result = result
         self.metadataStore = metadataStore
+        provisionalExon2Genotypes = result.haplotypeAnalysis == nil
+            ? Set(result.provisionalExon2SequencesByGenotype.keys)
+            : []
+        updateReviewLegend()
         configureReferenceColumns(from: result.referenceMetadata)
         sampleNames = result.sampleNames
         if sampleNames.isEmpty {
@@ -408,6 +413,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         captureStableSampleColumnState()
         self.result = result
         self.metadataStore = metadataStore
+        provisionalExon2Genotypes = result.haplotypeAnalysis == nil
+            ? Set(result.provisionalExon2SequencesByGenotype.keys)
+            : []
+        updateReviewLegend()
         configureReferenceColumns(from: result.referenceMetadata)
         sampleNames = result.sampleNames
         if sampleNames.isEmpty {
@@ -631,6 +640,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 rawGenotype: row.genotype,
                 locus: row.locus,
                 stableClusterID: row.stableClusterID,
+                identityAliases: isProvisionalExon2(row)
+                    ? ["Provisional exon 2"]
+                    : [],
                 visibleReferenceMetadata: visibleMetadata,
                 carrierSampleIDs: Set(row.sampleSupport.map(\.sample))
             )
@@ -1552,6 +1564,33 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         return displayState.mhcCandidateDisplaySettings ?? candidateDisplaySettings
     }
 
+    private func isProvisionalExon2(_ row: GenotypeCandidateMatrixRow) -> Bool {
+        provisionalExon2Genotypes.contains(row.genotype)
+    }
+
+    private var provisionalExon2Tint: AnnotationColor {
+        AnnotationColor(
+            red: 1.0,
+            green: 0.62,
+            blue: 0.0,
+            alpha: accessibilityDisplayShouldIncreaseContrast ? 0.30 : 0.18
+        )
+    }
+
+    private func updateReviewLegend() {
+        let provisional = provisionalExon2Genotypes.isEmpty
+            ? ""
+            : "   ◼ Provisional exon 2"
+        reviewLegend.stringValue =
+            "[n] False positive   ▣ False negative   ◥ Comment\(provisional)"
+        let provisionalAccessibility = provisionalExon2Genotypes.isEmpty
+            ? ""
+            : " amber allele identity means Provisional exon 2;"
+        reviewLegend.setAccessibilityLabel(
+            "Matrix review legend:\(provisionalAccessibility) bracketed read count means false positive; inner frame means false negative; folded corner means comment."
+        )
+    }
+
     private func candidateVisibilityChanged(
         from previous: ONTMHCCandidateDisplaySettings,
         to next: ONTMHCCandidateDisplaySettings
@@ -1920,7 +1959,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func rowMatchesIdentity(_ row: GenotypeCandidateMatrixRow, filter: String) -> Bool {
         if row.locus.localizedCaseInsensitiveContains(filter)
             || row.genotype.localizedCaseInsensitiveContains(filter)
-            || (row.stableClusterID?.localizedCaseInsensitiveContains(filter) ?? false) {
+            || (row.stableClusterID?.localizedCaseInsensitiveContains(filter) ?? false)
+            || (isProvisionalExon2(row)
+                && "Provisional exon 2".localizedCaseInsensitiveContains(filter)) {
             return true
         }
         guard let record = referenceRecords[row.genotype] else { return false }
@@ -2354,6 +2395,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     private func rowTooltip(row: GenotypeCandidateMatrixRow, fallback: String) -> String {
         var lines = [fallback]
+        if isProvisionalExon2(row) {
+            lines.append("Provisional exon 2")
+        }
         if let stableClusterID = row.stableClusterID {
             lines.append("Stable cluster ID: \(stableClusterID)")
         }
@@ -3989,7 +4033,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func rowAccessibilityLabel(_ row: GenotypeCandidateMatrixRow) -> String {
         let count = commentsForRow(row).count
         let suffix = count == 1 ? "comment" : "comments"
-        return "Allele row \(row.genotype), locus \(row.locus). \(count) allele row \(suffix)."
+        let designation = isProvisionalExon2(row)
+            ? " Designation: Provisional exon 2."
+            : ""
+        return "Allele row \(row.genotype), locus \(row.locus).\(designation) \(count) allele row \(suffix)."
     }
 
     private func cellAccessibilityLabel(
@@ -4245,6 +4292,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return Self.color(from: color)
         }
 
+        if isAlleleIdentityColumn(identifier), isProvisionalExon2(row) {
+            return Self.color(from: provisionalExon2Tint)
+        }
+
         if isAlleleIdentityColumn(identifier),
            let category = row.tintCategory,
            let tint = effectiveCandidateDisplaySettings.tints[category] {
@@ -4297,6 +4348,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let effectiveBackground: AnnotationColor?
         if displayState.cellColorMode != .none, let fillColor = rendered.fillColor {
             effectiveBackground = fillColor
+        } else if isAlleleIdentityColumn(identifier),
+                  isProvisionalExon2(row) {
+            effectiveBackground = provisionalExon2Tint
         } else if isAlleleIdentityColumn(identifier),
                   let category = row.tintCategory {
             effectiveBackground = effectiveCandidateDisplaySettings.tints[category]
@@ -5999,6 +6053,13 @@ extension GenotypeComparisonMatrixView {
             row: row,
             base: sampleTooltip(sample: sample, uniqueReads: support.passedUniqueReads)
         )
+    }
+
+    func testingAlleleIdentityToolTip(genotype: String) -> String? {
+        guard let row = visibleRows.first(where: { $0.genotype == genotype }) else {
+            return nil
+        }
+        return rowTooltip(row: row, fallback: row.genotype)
     }
 
     func testingCellCommentMarkerHost(genotype: String, sample: String) -> NSView? {
