@@ -3122,6 +3122,87 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testRepeatedCandidateRowSelectionsPreserveSequenceDetailConstraintsAtConfiguredContentSizes() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        let result = makeCandidateResult(
+            calls: [],
+            candidates: [
+                makeCandidate(
+                    id: "cluster-heavy",
+                    name: "Collision_nov",
+                    classification: .novel,
+                    support: .singleton,
+                    samples: ["AnimalA"]
+                ),
+                makeCandidate(
+                    id: "cluster-light",
+                    name: "Collision_nov",
+                    classification: .novel,
+                    support: .singleton,
+                    samples: ["AnimalA"]
+                ),
+            ],
+            observations: [
+                makeCandidateObservation(
+                    cluster: "cluster-heavy",
+                    sample: "AnimalA",
+                    reads: 18_000,
+                    evidenceCount: 18_000
+                ),
+                makeCandidateObservation(cluster: "cluster-light", sample: "AnimalA", reads: 7),
+            ],
+            candidateSequences: [
+                "cluster-heavy": String(repeating: "A", count: 32),
+                "cluster-light": String(repeating: "C", count: 28),
+            ],
+            mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact(
+                schemaVersion: 1,
+                records: [
+                    makeCandidateReferenceVisualizationRecord(
+                        rawReferenceID: "reference-heavy",
+                        alleleName: "Mafa-A1*001:01",
+                        stableClusterID: "cluster-heavy"
+                    ),
+                    makeCandidateReferenceVisualizationRecord(
+                        rawReferenceID: "reference-light",
+                        alleleName: "Mafa-A1*002:01",
+                        stableClusterID: "cluster-light"
+                    ),
+                ]
+            )
+        )
+
+        for percent in [100, 200] {
+            settings.contentTextSizePreference = .custom(percent)
+            settings.save()
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(result: result)
+            controller.testingSelectCandidateRow(stableClusterID: "cluster-heavy")
+            let detail = try XCTUnwrap(onlyAlleleSequenceDetail(in: controller.view))
+            let baselineConstraintIDs = Set(
+                activeConstraints(in: detail).map(ObjectIdentifier.init)
+            )
+
+            for _ in 0..<20 {
+                controller.testingSelectCandidateRow(stableClusterID: "cluster-light")
+                controller.testingSelectCandidateRow(stableClusterID: "cluster-heavy")
+                let current = try XCTUnwrap(onlyAlleleSequenceDetail(in: controller.view))
+                XCTAssertTrue(detail === current, "Content size \(percent)%")
+                XCTAssertEqual(
+                    Set(activeConstraints(in: current).map(ObjectIdentifier.init)),
+                    baselineConstraintIDs,
+                    "Content size \(percent)%"
+                )
+            }
+        }
+    }
+
     func testMissingCandidateRecordUsesUnavailableSequenceWithoutReloading() async throws {
         let result = makeCandidateResult(
             calls: [],
@@ -6642,6 +6723,139 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingLegacyNonRowDetailBuildCount, baselineBuildCount)
         XCTAssertEqual(controller.testingDetailScrollOriginY, 7, accuracy: 0.01)
         XCTAssertEqual(displayStateChanges, 0)
+    }
+
+    func testLateGeneratedContentRebuildsUseCurrentTypographyWithoutTypographySideEffects() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LateGeneratedTypography-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genotype = "01_Mafa_A1_LATE_TYPOGRAPHY"
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: genotype,
+            sample: "AnimalA"
+        )
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test-definitions",
+            definitionSetName: "Late Typography Definitions",
+            speciesName: "Test species",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "AnimalA",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M1A",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: [genotype]
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.view.frame = NSRect(x: 0, y: 0, width: 900, height: 300)
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 17)],
+            haplotypeAnalysis: analysis
+        ))
+        controller.testingShowMatrixTargetSelection([target])
+
+        var displayCallbacks = 0
+        var annotationCallbacks = 0
+        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
+        controller.onDisplayStateChanged = { _ in displayCallbacks += 1 }
+        controller.onAnnotationSidecarChanged = { _ in annotationCallbacks += 1 }
+        controller.onCurrentWorkbookSyncRequested = { workbookActions.append($0.action) }
+
+        controller.applySampleMetadataStore(nil)
+        controller.testingApplyDisplayState(controller.testingDisplayState)
+        controller.testingSelectLens(.review)
+        controller.testingSelectLens(.audit)
+        controller.applyAIHaplotypingFailed(NSError(domain: "TypographyTest", code: 1))
+        controller.editMatrixComment(.init(
+            targets: [target],
+            intent: .upsert(body: "Late typography annotation")
+        ))
+
+        let enlargedSnapshots = GenotypeGeneratedContentSurface.allCases.map {
+            controller.testingGeneratedContentSnapshot($0)
+        }
+        XCTAssertTrue(enlargedSnapshots.allSatisfy { !$0.fontPointSizes.isEmpty })
+        XCTAssertTrue(enlargedSnapshots.allSatisfy {
+            $0.fontPointSizes.allSatisfy { $0 >= 20 }
+                && $0.allFieldsAllowWrapping
+        })
+        XCTAssertEqual(displayCallbacks, 0)
+        XCTAssertEqual(annotationCallbacks, 1)
+        XCTAssertEqual(workbookActions, [.markDirty])
+        XCTAssertNil(controller.testingCurrentCallEvidenceSample)
+
+        for surface in GenotypeGeneratedContentSurface.allCases {
+            controller.testingSetGeneratedContentScrollOriginY(7, surface: surface)
+        }
+        let stableEnlargedSnapshots = GenotypeGeneratedContentSurface.allCases.map {
+            controller.testingGeneratedContentSnapshot($0)
+        }
+        let rebuildCounts = controller.testingGeneratedContentRebuildCounts
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+        NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+
+        XCTAssertEqual(
+            GenotypeGeneratedContentSurface.allCases.map {
+                controller.testingGeneratedContentSnapshot($0)
+            },
+            stableEnlargedSnapshots
+        )
+        XCTAssertEqual(controller.testingGeneratedContentRebuildCounts.haplotype, rebuildCounts.haplotype)
+        XCTAssertEqual(controller.testingGeneratedContentRebuildCounts.consumer, rebuildCounts.consumer)
+        XCTAssertEqual(controller.testingGeneratedContentRebuildCounts.anchor, rebuildCounts.anchor)
+        XCTAssertEqual(controller.testingGeneratedContentRebuildCounts.artifact, rebuildCounts.artifact)
+        XCTAssertEqual(displayCallbacks, 0)
+        XCTAssertEqual(annotationCallbacks, 1)
+        XCTAssertEqual(workbookActions, [.markDirty])
+
+        settings.contentTextSizePreference = .system
+        settings.save()
+        controller.applySampleMetadataStore(nil)
+        controller.testingApplyDisplayState(controller.testingDisplayState)
+        controller.testingSelectLens(.review)
+        controller.testingSelectLens(.audit)
+        controller.applyAIHaplotypingFailed(NSError(domain: "TypographyTest", code: 2))
+        controller.editMatrixComment(.init(
+            targets: [target],
+            intent: .upsert(body: "System typography annotation")
+        ))
+        let systemSnapshots = GenotypeGeneratedContentSurface.allCases.map {
+            controller.testingGeneratedContentSnapshot($0)
+        }
+        XCTAssertTrue(systemSnapshots.allSatisfy { !$0.fontPointSizes.isEmpty })
+        XCTAssertTrue(systemSnapshots.allSatisfy {
+            $0.fontPointSizes.allSatisfy { $0 >= 10 && $0 < 20 }
+                && $0.allFieldsAllowWrapping
+        })
+        XCTAssertEqual(displayCallbacks, 0)
+        XCTAssertEqual(annotationCallbacks, 2)
+        XCTAssertEqual(workbookActions, [.markDirty, .markDirty])
+        XCTAssertNil(controller.testingCurrentCallEvidenceSample)
     }
 
     func testComparisonMatrixTypographyUpdatesInPlaceAndRecoversWithoutChangingViewState() {

@@ -2,10 +2,105 @@ import AppKit
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishKit
 @testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
+    func testGenBankAndFASTATextTypographyScalesWithoutChangingReaderOrScientificState() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        let candidate = makeCandidate()
+        let reference = makeReference(
+            genBankText: String(repeating: "LOCUS NHP0068\nFEATURES 1..24\n", count: 80)
+        )
+        let candidateSequence = String(repeating: "TGCA", count: 800)
+        let view = GenotypeCandidateAlleleDetailView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 560)
+        )
+        view.configure(
+            candidate: candidate,
+            closestReference: reference,
+            candidateSequence: candidateSequence,
+            selectedSampleID: "CR1178",
+            selectedSampleReadCount: 8
+        )
+        try modeButton("candidateModeGenBank", in: view).performClick(nil)
+        view.layoutSubtreeIfNeeded()
+        let genBank = try textView("candidateGenBankTextView", in: view)
+        try modeButton("candidateModeFASTA", in: view).performClick(nil)
+        view.layoutSubtreeIfNeeded()
+        let fasta = try textView("candidateFASTATextView", in: view)
+        try modeButton("candidateModeGenBank", in: view).performClick(nil)
+        view.layoutSubtreeIfNeeded()
+        let genBankScroll = try XCTUnwrap(genBank.enclosingScrollView)
+        let fastaScroll = try XCTUnwrap(fasta.enclosingScrollView)
+        genBank.setSelectedRange(NSRange(location: 11, length: 7))
+        fasta.setSelectedRange(NSRange(location: 10, length: 13))
+        genBankScroll.contentView.setBoundsOrigin(NSPoint(x: 0, y: 22))
+        fastaScroll.contentView.setBoundsOrigin(NSPoint(x: 0, y: 14))
+        let baseline = try XCTUnwrap(genBank.font).pointSize
+        let baselineGenBankText = genBank.string
+        let baselineFASTAText = fasta.string
+        let genBankIdentity = ObjectIdentifier(genBank)
+        let fastaIdentity = ObjectIdentifier(fasta)
+        let differenceConfigurations = view.differenceTrackConfigurationCount
+        let differenceApplications = view.differenceTrackPresentationApplicationCount
+        let referenceConfigurations = view.referenceOverviewConfigurationCount
+        let immutableApplications = view.immutablePresentationApplicationCount
+        let fastaFormattingCount = view.fastaFormattingCount
+        let fastaAssignments = view.fastaTextAssignmentCount
+        let genBankAssignments = view.genBankTextAssignmentCount
+        let scientificGeometry = view.testingDifferenceTrackGeometry
+
+        for preference in [
+            ContentTextSizePreference.custom(90),
+            .custom(150),
+            .custom(200),
+            .custom(150),
+            .system,
+            .custom(100),
+        ] {
+            settings.contentTextSizePreference = preference
+            settings.save()
+            if preference == .custom(150) {
+                NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+                NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+            }
+            view.layoutSubtreeIfNeeded()
+
+            let expected = expectedSequencePointSize(
+                baselineAtOneHundredPercent: baseline,
+                preference: preference
+            )
+            XCTAssertEqual(genBank.font?.pointSize ?? 0, expected, accuracy: 0.01)
+            XCTAssertEqual(fasta.font?.pointSize ?? 0, expected, accuracy: 0.01)
+            XCTAssertEqual(genBank.string, baselineGenBankText)
+            XCTAssertEqual(fasta.string, baselineFASTAText)
+            XCTAssertEqual(genBank.selectedRange(), NSRange(location: 11, length: 7))
+            XCTAssertEqual(fasta.selectedRange(), NSRange(location: 10, length: 13))
+            XCTAssertEqual(genBankScroll.contentView.bounds.origin.y, 22, accuracy: 0.01)
+            XCTAssertEqual(fastaScroll.contentView.bounds.origin.y, 14, accuracy: 0.01)
+            XCTAssertEqual(ObjectIdentifier(genBank), genBankIdentity)
+            XCTAssertEqual(ObjectIdentifier(fasta), fastaIdentity)
+            XCTAssertEqual(view.currentMode, .genBank)
+            XCTAssertEqual(view.differenceTrackConfigurationCount, differenceConfigurations)
+            XCTAssertEqual(view.differenceTrackPresentationApplicationCount, differenceApplications)
+            XCTAssertEqual(view.referenceOverviewConfigurationCount, referenceConfigurations)
+            XCTAssertEqual(view.immutablePresentationApplicationCount, immutableApplications)
+            XCTAssertEqual(view.fastaFormattingCount, fastaFormattingCount)
+            XCTAssertEqual(view.fastaTextAssignmentCount, fastaAssignments)
+            XCTAssertEqual(view.genBankTextAssignmentCount, genBankAssignments)
+            XCTAssertEqual(view.testingDifferenceTrackGeometry, scientificGeometry)
+        }
+    }
+
     func testContentTypographyScalesCandidateTextWithoutReconfiguringScientificTracks() throws {
         let settings = AppSettings.shared
         let original = settings.contentTextSizePreference
@@ -666,7 +761,25 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
         )
     }
 
-    private func makeReference(sequenceLength: Int = 24) -> ONTMHCReferenceVisualizationRecord {
+    private func expectedSequencePointSize(
+        baselineAtOneHundredPercent baseline: CGFloat,
+        preference: ContentTextSizePreference
+    ) -> CGFloat {
+        let factor: CGFloat
+        switch preference {
+        case .system:
+            factor = ContentTypography.current().font(for: .body).pointSize
+                / max(NSFont.systemFontSize, 1)
+        case .custom(let percent):
+            factor = CGFloat(percent) / 100
+        }
+        return max(ContentTypography.minimumPointSize, baseline * factor)
+    }
+
+    private func makeReference(
+        sequenceLength: Int = 24,
+        genBankText: String? = nil
+    ) -> ONTMHCReferenceVisualizationRecord {
         let sequence = String(repeating: "A", count: sequenceLength)
         return ONTMHCReferenceVisualizationRecord(
             rawReferenceID: "NHP0068",
@@ -681,7 +794,8 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
                 feature(start: 14, end: 18, ordinal: 2, numberKey: "number", number: "4"),
             ] : [],
             annotatedTranslation: nil,
-            genBankText: "LOCUS       NHP0068 24 bp DNA\nFEATURES             Location/Qualifiers\n//\n",
+            genBankText: genBankText
+                ?? "LOCUS       NHP0068 24 bp DNA\nFEATURES             Location/Qualifiers\n//\n",
             fastaText: ">NHP0068 Mafa-A1*063:01\n\(sequence)\n",
             roles: [.init(role: .closestNovelReference, candidateStableClusterIDs: ["cluster-a"])]
         )

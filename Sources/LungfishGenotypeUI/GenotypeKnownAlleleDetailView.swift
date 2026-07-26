@@ -76,6 +76,10 @@ final class GenotypeKnownAlleleDetailView: NSView {
     private var overviewConfigurationCount = 0
     private var configuredOverviewRecord: ONTMHCReferenceVisualizationRecord?
     private var contentTypographyObservation: ContentTypographyViewObservation?
+    private let sequenceTextFontBaseline = NSFont.monospacedSystemFont(
+        ofSize: NSFont.smallSystemFontSize,
+        weight: .regular
+    )
     private(set) var testingCommentContentReplacementCount = 0
 
     var testingActiveContentConstraintIdentifiers: [ObjectIdentifier] {
@@ -291,6 +295,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
             }),
             rootProvider: { [weak self] in self },
             afterApply: { [weak self] in
+                self?.applySequenceTextTypography()
                 self?.invalidateIntrinsicContentSize()
                 self?.needsLayout = true
             }
@@ -742,6 +747,40 @@ final class GenotypeKnownAlleleDetailView: NSView {
         scrollView.autohidesScrollers = true
         scrollView.documentView = textView
         return (scrollView, textView)
+    }
+
+    private func applySequenceTextTypography() {
+        let bodyFont = ContentTypography.current().font(for: .body)
+        let scale = bodyFont.pointSize / max(NSFont.systemFontSize, 1)
+        let pointSize = max(
+            ContentTypography.minimumPointSize,
+            sequenceTextFontBaseline.pointSize * scale
+        )
+        let resolvedFont = NSFont(
+            descriptor: sequenceTextFontBaseline.fontDescriptor,
+            size: pointSize
+        ) ?? sequenceTextFontBaseline
+        for (scrollView, textView) in [
+            (genBankScrollView, genBankTextView),
+            (fastaScrollView, fastaTextView),
+        ] {
+            if let currentFont = textView.font,
+               currentFont.fontName == resolvedFont.fontName,
+               abs(currentFont.pointSize - resolvedFont.pointSize) < 0.001,
+               currentFont.fontDescriptor.symbolicTraits
+                    == resolvedFont.fontDescriptor.symbolicTraits {
+                continue
+            }
+            let selectedRange = textView.selectedRange()
+            let scrollOrigin = scrollView.contentView.bounds.origin
+            textView.font = resolvedFont
+            if let textContainer = textView.textContainer {
+                textView.layoutManager?.ensureLayout(for: textContainer)
+            }
+            textView.setSelectedRange(selectedRange)
+            scrollView.contentView.setBoundsOrigin(scrollOrigin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
     }
 
     private static func roleText(

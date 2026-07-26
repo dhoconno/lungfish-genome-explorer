@@ -213,7 +213,15 @@ public final class GenotypeResultViewController: NSViewController {
     private let candidateAlleleDetailView = GenotypeCandidateAlleleDetailView()
     private let alleleSequenceDetailView = GenotypeAlleleSequenceDetailView()
     private var detailContentTypographyObservation: ContentTypographyViewObservation?
-    private var lensContentTypographyObservations: [ContentTypographyViewObservation] = []
+    private var styledGeneratedDetailFields: [NSTextField] = []
+    private var lensContentTypographyObservations:
+        [ObjectIdentifier: ContentTypographyViewObservation] = [:]
+    private var haplotypeLensBuildCount = 0
+    private var consumerLensBuildCount = 0
+    private var anchorLensBuildCount = 0
+    private var artifactLensBuildCount = 0
+    private static let generatedContentHostingViewIdentifier =
+        NSUserInterfaceItemIdentifier("GenotypeGeneratedContentHostingView")
 
     private let haplotypeScrollView = NSScrollView()
     private let haplotypeStack = NSStackView()
@@ -1974,9 +1982,8 @@ public final class GenotypeResultViewController: NSViewController {
         stack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 16, right: 16)
         stack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         stack.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor).isActive = true
-        lensContentTypographyObservations.append(
+        lensContentTypographyObservations[ObjectIdentifier(stack)] =
             makeGeneratedContentTypographyObservation(root: stack, scrollView: scrollView)
-        )
     }
 
     private func makeGeneratedContentTypographyObservation(
@@ -1986,13 +1993,7 @@ public final class GenotypeResultViewController: NSViewController {
         var preservedOrigin = NSPoint.zero
         return ContentTypographyViewObservation(
             applicator: ContentTypographyViewApplicator(excludedSubtree: { [weak self] view in
-                view is NSButton
-                    || view is NSSegmentedControl
-                    || view is NSPopUpButton
-                    || view is NSSlider
-                    || view === self?.knownAlleleDetailView
-                    || view === self?.candidateAlleleDetailView
-                    || view === self?.alleleSequenceDetailView
+                self?.isGeneratedContentTypographyExcludedSubtree(view) ?? true
             }),
             rootProvider: { root },
             beforeApply: {
@@ -2022,10 +2023,26 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func generatedDetailTextFields(in root: NSView) -> [NSTextField] {
-        root.subviews.flatMap { subview in
+        root.subviews.flatMap { subview -> [NSTextField] in
+            guard !isGeneratedContentTypographyExcludedSubtree(subview) else { return [] }
             let field = (subview as? NSTextField).map { [$0] } ?? []
             return field + generatedDetailTextFields(in: subview)
         }
+    }
+
+    private func isGeneratedContentTypographyExcludedSubtree(_ view: NSView) -> Bool {
+        view is NSButton
+            || view is NSSegmentedControl
+            || view is NSPopUpButton
+            || view is NSSlider
+            || view === knownAlleleDetailView
+            || view === candidateAlleleDetailView
+            || view === alleleSequenceDetailView
+            || view.identifier == Self.generatedContentHostingViewIdentifier
+    }
+
+    private func refreshGeneratedContentTypography(in stack: NSStackView) {
+        lensContentTypographyObservations[ObjectIdentifier(stack)]?.refresh()
     }
 
     private func layout() {
@@ -2116,7 +2133,7 @@ public final class GenotypeResultViewController: NSViewController {
             rebuildArtifactLens()
             installContentView(artifactScrollView)
         }
-        lensContentTypographyObservations.forEach { $0.refresh() }
+        lensContentTypographyObservations.values.forEach { $0.refresh() }
     }
 
     private func applyReviewLensVisibility(autoActivateNeedsReview: Bool = true) {
@@ -3795,11 +3812,28 @@ public final class GenotypeResultViewController: NSViewController {
     private func publishSelectionState(_ state: GenotypeResultSelectionState?) {
         currentSelectionState = state
         publishMatrixReviewCapability(for: state?.matrixTargets ?? [])
-        detailContentTypographyObservation?.refresh()
+        refreshGeneratedDetailTypographyIfNeeded()
         onSelectionStateChanged?(state)
     }
 
+    private func refreshGeneratedDetailTypographyIfNeeded() {
+        let fields = generatedDetailTextFields(in: detailStack)
+        guard !fields.isEmpty else {
+            styledGeneratedDetailFields = []
+            return
+        }
+        let fieldsAreAlreadyStyled = fields.count == styledGeneratedDetailFields.count
+            && zip(fields, styledGeneratedDetailFields).allSatisfy { pair in
+                pair.0 === pair.1
+            }
+        guard !fieldsAreAlreadyStyled else { return }
+        styledGeneratedDetailFields = fields
+        detailContentTypographyObservation?.refresh()
+    }
+
     private func rebuildHaplotypeLens() {
+        haplotypeLensBuildCount += 1
+        defer { refreshGeneratedContentTypography(in: haplotypeStack) }
         removeArrangedSubviews(from: haplotypeStack)
         haplotypeSampleActionTags.removeAll()
         nextHaplotypeSampleActionTag = 1
@@ -3842,6 +3876,8 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func rebuildConsumerLens() {
+        consumerLensBuildCount += 1
+        defer { refreshGeneratedContentTypography(in: consumerStack) }
         removeArrangedSubviews(from: consumerStack)
         guard let result else { return }
         let qcCounts = result.qcStatusCounts
@@ -3870,6 +3906,8 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func rebuildAnchorLens() {
+        anchorLensBuildCount += 1
+        defer { refreshGeneratedContentTypography(in: anchorStack) }
         removeArrangedSubviews(from: anchorStack)
         guard let result else { return }
         let anchors = anchorSummaries(in: result)
@@ -3888,6 +3926,8 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func rebuildArtifactLens() {
+        artifactLensBuildCount += 1
+        defer { refreshGeneratedContentTypography(in: artifactStack) }
         removeArrangedSubviews(from: artifactStack)
         guard let result else { return }
         if let entries = annotationStore?.sidecar.auditLog, !entries.isEmpty {
@@ -4378,6 +4418,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func makeAuditTimelineHost(entries: [GenotypeAnnotationSidecar.AuditEntry]) -> NSView {
         let container = NSHostingView(rootView: GenotypeAuditTimelineSection(entries: entries, entryLimit: 12))
+        container.identifier = Self.generatedContentHostingViewIdentifier
         container.translatesAutoresizingMaskIntoConstraints = false
         container.frame.size.height = 240
         NSLayoutConstraint.activate([
@@ -4587,6 +4628,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func makeManualHaplotypingHost() -> NSView {
         let container = NSHostingView(rootView: manualHaplotypingSectionBody())
+        container.identifier = Self.generatedContentHostingViewIdentifier
         container.translatesAutoresizingMaskIntoConstraints = false
         container.frame.size.height = 240
         NSLayoutConstraint.activate([
@@ -7003,7 +7045,78 @@ extension GenotypeResultViewController: NSSplitViewDelegate {
 }
 
 #if DEBUG
+enum GenotypeGeneratedContentSurface: CaseIterable {
+    case detail
+    case haplotype
+    case consumer
+    case anchor
+    case artifact
+}
+
+struct GenotypeGeneratedContentTypographySnapshot: Equatable {
+    let fontPointSizes: [CGFloat]
+    let fieldTexts: [String]
+    let fieldIdentities: [ObjectIdentifier]
+    let arrangedSubviewIdentities: [ObjectIdentifier]
+    let allFieldsAllowWrapping: Bool
+    let scrollOriginY: CGFloat
+}
+
 extension GenotypeResultViewController {
+    func testingGeneratedContentSnapshot(
+        _ surface: GenotypeGeneratedContentSurface
+    ) -> GenotypeGeneratedContentTypographySnapshot {
+        let (stack, scrollView) = generatedContentTestSurface(surface)
+        let fields = generatedDetailTextFields(in: stack)
+        return GenotypeGeneratedContentTypographySnapshot(
+            fontPointSizes: fields.compactMap { $0.font?.pointSize },
+            fieldTexts: fields.map(\.stringValue),
+            fieldIdentities: fields.map(ObjectIdentifier.init),
+            arrangedSubviewIdentities: stack.arrangedSubviews.map(ObjectIdentifier.init),
+            allFieldsAllowWrapping: fields.allSatisfy {
+                !$0.usesSingleLineMode && $0.maximumNumberOfLines != 1
+            },
+            scrollOriginY: scrollView.contentView.bounds.origin.y
+        )
+    }
+
+    func testingSetGeneratedContentScrollOriginY(
+        _ y: CGFloat,
+        surface: GenotypeGeneratedContentSurface
+    ) {
+        let (_, scrollView) = generatedContentTestSurface(surface)
+        var origin = scrollView.contentView.bounds.origin
+        origin.y = y
+        scrollView.contentView.setBoundsOrigin(origin)
+    }
+
+    var testingGeneratedContentRebuildCounts:
+        (haplotype: Int, consumer: Int, anchor: Int, artifact: Int) {
+        (
+            haplotypeLensBuildCount,
+            consumerLensBuildCount,
+            anchorLensBuildCount,
+            artifactLensBuildCount
+        )
+    }
+
+    private func generatedContentTestSurface(
+        _ surface: GenotypeGeneratedContentSurface
+    ) -> (NSStackView, NSScrollView) {
+        switch surface {
+        case .detail:
+            return (detailStack, detailScrollView)
+        case .haplotype:
+            return (haplotypeStack, haplotypeScrollView)
+        case .consumer:
+            return (consumerStack, consumerScrollView)
+        case .anchor:
+            return (anchorStack, anchorScrollView)
+        case .artifact:
+            return (artifactStack, artifactScrollView)
+        }
+    }
+
     func testingSelectFirstSharedCall() {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.selectFirstSharedCall()

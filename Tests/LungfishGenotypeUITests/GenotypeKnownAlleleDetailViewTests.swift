@@ -2,10 +2,98 @@ import AppKit
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishKit
 @testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
+    func testGenBankAndFASTATextTypographyScalesWithoutChangingReaderOrScientificState() throws {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        let record = makeRecord(
+            genBankText: String(repeating: "LOCUS NHP0068\nFEATURES 1..24\n", count: 80),
+            fastaText: ">NHP0068\n" + String(
+                repeating: "ACGTACGTACGTACGTACGTACGTACGTACGT\n",
+                count: 80
+            )
+        )
+        let view = makeView()
+        view.configure(record: record, observedSample: "CR1178")
+        try modeButton("knownAlleleModeGenBank", in: view).performClick(nil)
+        view.layoutSubtreeIfNeeded()
+        let genBank = try XCTUnwrap(find("knownAlleleGenBankTextView", in: view) as? NSTextView)
+        try modeButton("knownAlleleModeFASTA", in: view).performClick(nil)
+        view.layoutSubtreeIfNeeded()
+        let fasta = try XCTUnwrap(find("knownAlleleFASTATextView", in: view) as? NSTextView)
+        try modeButton("knownAlleleModeGenBank", in: view).performClick(nil)
+        view.layoutSubtreeIfNeeded()
+        let genBankScroll = try XCTUnwrap(genBank.enclosingScrollView)
+        let fastaScroll = try XCTUnwrap(fasta.enclosingScrollView)
+        genBank.setSelectedRange(NSRange(location: 12, length: 9))
+        fasta.setSelectedRange(NSRange(location: 9, length: 12))
+        genBankScroll.contentView.setBoundsOrigin(NSPoint(x: 0, y: 24))
+        fastaScroll.contentView.setBoundsOrigin(NSPoint(x: 0, y: 12))
+        let baseline = try XCTUnwrap(genBank.font).pointSize
+        let genBankIdentity = ObjectIdentifier(genBank)
+        let fastaIdentity = ObjectIdentifier(fasta)
+        let overviewConfigurationCount = view.testingOverviewConfigurationCount
+        let scientificGeometry = view.testingScientificOverviewGeometry
+
+        for preference in [
+            ContentTextSizePreference.custom(90),
+            .custom(150),
+            .custom(200),
+            .custom(150),
+            .system,
+            .custom(100),
+        ] {
+            settings.contentTextSizePreference = preference
+            settings.save()
+            if preference == .custom(150) {
+                NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+                NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
+            }
+            view.layoutSubtreeIfNeeded()
+
+            let expected = expectedSequencePointSize(
+                baselineAtOneHundredPercent: baseline,
+                preference: preference
+            )
+            XCTAssertEqual(genBank.font?.pointSize ?? 0, expected, accuracy: 0.01)
+            XCTAssertEqual(fasta.font?.pointSize ?? 0, expected, accuracy: 0.01)
+            XCTAssertEqual(genBank.string, record.genBankText)
+            XCTAssertEqual(fasta.string, record.fastaText)
+            XCTAssertEqual(genBank.selectedRange(), NSRange(location: 12, length: 9))
+            XCTAssertEqual(fasta.selectedRange(), NSRange(location: 9, length: 12))
+            XCTAssertEqual(genBankScroll.contentView.bounds.origin.y, 24, accuracy: 0.01)
+            XCTAssertEqual(ObjectIdentifier(genBank), genBankIdentity)
+            XCTAssertEqual(ObjectIdentifier(fasta), fastaIdentity)
+            XCTAssertEqual(view.currentMode, .genBank)
+            XCTAssertEqual(view.testingOverviewConfigurationCount, overviewConfigurationCount)
+            XCTAssertEqual(view.testingScientificOverviewGeometry, scientificGeometry)
+        }
+
+        try modeButton("knownAlleleModeFASTA", in: view).performClick(nil)
+        view.layoutSubtreeIfNeeded()
+        fastaScroll.contentView.setBoundsOrigin(NSPoint(x: 0, y: 12))
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+        view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(fastaScroll.contentView.bounds.origin.y, 12, accuracy: 0.01)
+        XCTAssertEqual(view.currentMode, .fasta)
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(fastaScroll.contentView.bounds.origin.y, 12, accuracy: 0.01)
+        XCTAssertEqual(view.currentMode, .fasta)
+    }
+
     func testContentTypographyScalesDetailTextWithoutReconfiguringScientificOverview() throws {
         let settings = AppSettings.shared
         let original = settings.contentTextSizePreference
@@ -553,6 +641,21 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         let view = GenotypeKnownAlleleDetailView(frame: NSRect(x: 0, y: 0, width: 900, height: 560))
         view.layoutSubtreeIfNeeded()
         return view
+    }
+
+    private func expectedSequencePointSize(
+        baselineAtOneHundredPercent baseline: CGFloat,
+        preference: ContentTextSizePreference
+    ) -> CGFloat {
+        let factor: CGFloat
+        switch preference {
+        case .system:
+            factor = ContentTypography.current().font(for: .body).pointSize
+                / max(NSFont.systemFontSize, 1)
+        case .custom(let percent):
+            factor = CGFloat(percent) / 100
+        }
+        return max(ContentTypography.minimumPointSize, baseline * factor)
     }
 
     private func makeRecord(

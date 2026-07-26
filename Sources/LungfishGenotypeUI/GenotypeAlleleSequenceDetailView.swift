@@ -92,7 +92,7 @@ final class GenotypeAlleleSequenceDetailView: NSView {
         textView.isSelectable = true
         textView.isRichText = false
         textView.allowsUndo = false
-        textView.font = sequenceFontBaseline
+        textView.font = resolvedSequenceFont()
         textView.textColor = .textColor
         textView.backgroundColor = .textBackgroundColor
         textView.textContainerInset = NSSize(width: 10, height: 10)
@@ -165,17 +165,35 @@ final class GenotypeAlleleSequenceDetailView: NSView {
     }
 
     private func applyContentTypography() {
+        let resolvedFont = resolvedSequenceFont()
+        guard !hasSameFontSignature(textView.font, resolvedFont) else { return }
+        let selectedRange = textView.selectedRange()
+        let scrollOrigin = scrollView.contentView.bounds.origin
+        textView.font = resolvedFont
+        textView.setSelectedRange(selectedRange)
+        scrollView.contentView.setBoundsOrigin(scrollOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        needsLayout = true
+    }
+
+    private func resolvedSequenceFont() -> NSFont {
         let bodyFont = ContentTypography.current().font(for: .body)
         let scale = bodyFont.pointSize / max(NSFont.systemFontSize, 1)
         let pointSize = max(
             ContentTypography.minimumPointSize,
             sequenceFontBaseline.pointSize * scale
         )
-        textView.font = NSFont(
+        return NSFont(
             descriptor: sequenceFontBaseline.fontDescriptor,
             size: pointSize
         ) ?? sequenceFontBaseline
-        needsLayout = true
+    }
+
+    private func hasSameFontSignature(_ lhs: NSFont?, _ rhs: NSFont) -> Bool {
+        guard let lhs else { return false }
+        return lhs.fontName == rhs.fontName
+            && abs(lhs.pointSize - rhs.pointSize) < 0.001
+            && lhs.fontDescriptor.symbolicTraits == rhs.fontDescriptor.symbolicTraits
     }
 
 #if DEBUG
