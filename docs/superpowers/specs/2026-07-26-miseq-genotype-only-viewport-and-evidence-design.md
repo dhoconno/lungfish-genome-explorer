@@ -46,6 +46,11 @@ The workflow provenance envelope records the retained BAM and BAI as outputs,
 including checksums and sizes. Mapping BAMs and per-sample mapping intermediates
 remain regenerable and are removed as before.
 
+If provisional publication fails before provenance can be committed, the
+pipeline transactionally removes its generated BAM/BAI, genotype summaries,
+and provisional files. A failed command therefore cannot leave
+unprovenanced scientific payloads masquerading as a result bundle.
+
 After a GUI-launched workflow completes, Operation Center discovers these
 outputs through the validated bundle manifest and result loader. It reports the
 retained BAM/BAI and optional provisional JSON/FASTA, while continuing to omit

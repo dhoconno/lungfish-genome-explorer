@@ -369,6 +369,26 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
     }
 
+    func testLoadsRepresentativeProvisionalCatalogAsynchronouslyWithinBudget() async throws {
+        let fixture = try ScientificArtifactBundleFixture(
+            bulkRecordCount: 100
+        )
+        defer { fixture.remove() }
+
+        let startedAt = Date()
+        let result = try await ONTGenotypeResultBundle.loadResultAsync(
+            from: fixture.bundleURL
+        )
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertEqual(result.provisionalExon2SequencesByGenotype.count, 100)
+        XCTAssertLessThan(
+            elapsed,
+            2.0,
+            "Catalog and FASTA validation should remain a one-pass off-main load"
+        )
+    }
+
     func testLoadsSchemaV2CandidateAndUnnameableDocuments() throws {
         let fixture = try CandidateBundleFixture(candidateSchemaVersion: 2)
         defer { fixture.remove() }
@@ -2328,7 +2348,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             fastaRecordID: String = provisionalGenotype,
             fastaSequence: String = "ACGT",
             alignmentBAMPath: String = "run.retained.demuxed.bam",
-            corruptBAMChecksum: Bool = false
+            corruptBAMChecksum: Bool = false,
+            bulkRecordCount: Int? = nil
         ) throws {
             rootURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("scientific-artifacts-\(UUID().uuidString)", isDirectory: true)
@@ -2343,10 +2364,49 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             try Data("workbook".utf8).write(to: workbookURL)
             try Data("{}".utf8).write(to: statsURL)
             try Data("{}".utf8).write(to: provenanceURL)
-            try """
-            sample,genotype,passed_alignments,passed_unique_reads
-            SampleA,\(genotype),9,8
-            """.write(to: genotypeCSVURL, atomically: true, encoding: .utf8)
+            let effectiveRecords: [ONTGenotypeProvisionalExon2Record]
+            let genotypeCSV: String
+            let fastaData: Data
+            if let bulkRecordCount {
+                effectiveRecords = (0..<bulkRecordCount).map { index in
+                    let identifier = String(
+                        format: "Mafa-E_02_nov_%03d",
+                        index
+                    )
+                    return ONTGenotypeProvisionalExon2Record(
+                        genotype: identifier,
+                        locus: "MHC-E",
+                        fastaRecordID: identifier,
+                        sequenceLength: 4,
+                        sequenceSHA256: Self.sequenceSHA256,
+                        sampleSupport: Self.defaultRecord.sampleSupport
+                    )
+                }
+                genotypeCSV = ([
+                    "sample,genotype,passed_alignments,passed_unique_reads",
+                ] + effectiveRecords.map {
+                    "SampleA,\($0.genotype),9,8"
+                }).joined(separator: "\n") + "\n"
+                fastaData = Data(
+                    (effectiveRecords.map {
+                        ">\($0.fastaRecordID)\nACGT"
+                    }.joined(separator: "\n") + "\n").utf8
+                )
+            } else {
+                effectiveRecords = records
+                genotypeCSV = """
+                sample,genotype,passed_alignments,passed_unique_reads
+                SampleA,\(genotype),9,8
+                """
+                fastaData = Data(
+                    ">\(fastaRecordID)\n\(fastaSequence)\n".utf8
+                )
+            }
+            try genotypeCSV.write(
+                to: genotypeCSVURL,
+                atomically: true,
+                encoding: .utf8
+            )
             try """
             sample,passed_alignments,passed_unique_reads
             SampleA,9,8
@@ -2364,9 +2424,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             catalogURL = sequenceDirectory.appendingPathComponent("observed-provisional-exon2.json")
             fastaURL = sequenceDirectory.appendingPathComponent("observed-provisional-exon2.fasta")
             let catalogData = try JSONEncoder().encode(
-                ONTGenotypeProvisionalExon2Document(records: records)
+                ONTGenotypeProvisionalExon2Document(records: effectiveRecords)
             )
-            let fastaData = Data(">\(fastaRecordID)\n\(fastaSequence)\n".utf8)
             try catalogData.write(to: catalogURL)
             try fastaData.write(to: fastaURL)
 
