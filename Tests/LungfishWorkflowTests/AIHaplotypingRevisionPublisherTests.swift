@@ -40,6 +40,11 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
             XCTAssertEqual(reference.sizeBytes, Int64(try ProvenanceFileHasher.fileSize(of: url)))
         }
         XCTAssertEqual(manifest.referenceRecordStore, fixture.result.manifest.referenceRecordStore)
+        XCTAssertEqual(manifest.alignmentArtifacts, fixture.result.manifest.alignmentArtifacts)
+        XCTAssertEqual(
+            manifest.provisionalExon2Artifacts,
+            fixture.result.manifest.provisionalExon2Artifacts
+        )
     }
 
     func testPublishWritesActiveRevisionFinalProvenanceAndSidecarReview() throws {
@@ -326,6 +331,18 @@ private extension AIHaplotypingRevisionPublisherTests {
             sha256: String(repeating: "c", count: 64),
             sizeBytes: 1_024
         )
+        let alignmentArtifacts = ONTGenotypeAlignmentArtifactManifest(
+            genotypingEvidence: ONTMHCBAMArtifactPair(
+                bam: candidateArtifact,
+                bai: candidateArtifact
+            ),
+            reciprocalEvidence: nil
+        )
+        let provisionalArtifacts = ONTGenotypeProvisionalExon2ArtifactManifest(
+            schemaVersion: 1,
+            catalogJSON: candidateArtifact,
+            sequencesFASTA: candidateArtifact
+        )
         let referenceDirectoryURL = bundleURL.appendingPathComponent("artifacts/reference", isDirectory: true)
         try FileManager.default.createDirectory(at: referenceDirectoryURL, withIntermediateDirectories: true)
         let referenceVisualizationJSONURL = referenceDirectoryURL
@@ -383,7 +400,9 @@ private extension AIHaplotypingRevisionPublisherTests {
                 fieldCount: 4,
                 sha256: String(repeating: "a", count: 64),
                 sizeBytes: 512
-            )
+            ),
+            alignmentArtifacts: alignmentArtifacts,
+            provisionalExon2Artifacts: provisionalArtifacts
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
 

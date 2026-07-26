@@ -284,7 +284,9 @@ public struct AIHaplotypingRevisionPublisher {
             haplotypeAnalysisRevisions: (manifest.haplotypeAnalysisRevisions ?? []) + [revision],
             mhcCandidateArtifacts: manifest.mhcCandidateArtifacts,
             mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
-            referenceRecordStore: manifest.referenceRecordStore
+            referenceRecordStore: manifest.referenceRecordStore,
+            alignmentArtifacts: manifest.alignmentArtifacts,
+            provisionalExon2Artifacts: manifest.provisionalExon2Artifacts
         )
     }
 

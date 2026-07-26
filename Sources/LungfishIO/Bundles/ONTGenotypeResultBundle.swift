@@ -1131,6 +1131,12 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     public let mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact?
     public let integrityWarnings: [ONTGenotypeIntegrityWarning]
     public let referenceMetadata: ONTGenotypeReferenceMetadata?
+    public let provisionalExon2SequencesByGenotype: [String: ONTGenotypeProvisionalExon2Sequence]
+    public let provisionalExon2ArtifactURLs: ONTGenotypeProvisionalExon2ArtifactURLs
+
+    public var alignmentArtifactURLs: ONTMHCAlignmentArtifactURLs {
+        mhcAlignmentArtifactURLs
+    }
 
     public init(
         bundleURL: URL,
@@ -1175,6 +1181,46 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         integrityWarnings: [ONTGenotypeIntegrityWarning],
         referenceMetadata: ONTGenotypeReferenceMetadata?
     ) {
+        self.init(
+            bundleURL: bundleURL,
+            manifest: manifest,
+            artifacts: artifacts,
+            stats: stats,
+            calls: calls,
+            samples: samples,
+            haplotypeAnalysis: haplotypeAnalysis,
+            mhcCandidates: mhcCandidates,
+            mhcUnnameableClusters: mhcUnnameableClusters,
+            mhcCandidateSequencesByStableClusterID: mhcCandidateSequencesByStableClusterID,
+            mhcCandidateGenBankArtifactURLs: mhcCandidateGenBankArtifactURLs,
+            mhcAlignmentArtifactURLs: mhcAlignmentArtifactURLs,
+            mhcReferenceVisualizations: mhcReferenceVisualizations,
+            integrityWarnings: integrityWarnings,
+            referenceMetadata: referenceMetadata,
+            provisionalExon2SequencesByGenotype: [:],
+            provisionalExon2ArtifactURLs: .empty
+        )
+    }
+
+    public init(
+        bundleURL: URL,
+        manifest: ONTGenotypeResultBundleManifest,
+        artifacts: ONTGenotypeResultArtifacts,
+        stats: ONTGenotypeRunStats,
+        calls: [ONTGenotypeCall],
+        samples: [ONTGenotypeSampleResult],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        mhcCandidates: ONTMHCCandidateAllelesDocument?,
+        mhcUnnameableClusters: ONTMHCUnnameableClustersDocument?,
+        mhcCandidateSequencesByStableClusterID: [String: String],
+        mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs,
+        mhcAlignmentArtifactURLs: ONTMHCAlignmentArtifactURLs,
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifact?,
+        integrityWarnings: [ONTGenotypeIntegrityWarning],
+        referenceMetadata: ONTGenotypeReferenceMetadata?,
+        provisionalExon2SequencesByGenotype: [String: ONTGenotypeProvisionalExon2Sequence],
+        provisionalExon2ArtifactURLs: ONTGenotypeProvisionalExon2ArtifactURLs
+    ) {
         self.bundleURL = bundleURL.standardizedFileURL
         self.manifest = manifest
         self.artifacts = artifacts
@@ -1190,6 +1236,8 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         self.mhcReferenceVisualizations = mhcReferenceVisualizations
         self.integrityWarnings = integrityWarnings
         self.referenceMetadata = referenceMetadata
+        self.provisionalExon2SequencesByGenotype = provisionalExon2SequencesByGenotype
+        self.provisionalExon2ArtifactURLs = provisionalExon2ArtifactURLs
     }
 
     public init(
@@ -1269,6 +1317,8 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         case mhcReferenceVisualizations
         case integrityWarnings
         case referenceMetadata
+        case provisionalExon2SequencesByGenotype
+        case provisionalExon2ArtifactURLs
     }
 
     public init(from decoder: Decoder) throws {
@@ -1309,7 +1359,15 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
             referenceMetadata: try container.decodeIfPresent(
                 ONTGenotypeReferenceMetadata.self,
                 forKey: .referenceMetadata
-            )
+            ),
+            provisionalExon2SequencesByGenotype: try container.decodeIfPresent(
+                [String: ONTGenotypeProvisionalExon2Sequence].self,
+                forKey: .provisionalExon2SequencesByGenotype
+            ) ?? [:],
+            provisionalExon2ArtifactURLs: try container.decodeIfPresent(
+                ONTGenotypeProvisionalExon2ArtifactURLs.self,
+                forKey: .provisionalExon2ArtifactURLs
+            ) ?? .empty
         )
     }
 
@@ -1339,6 +1397,11 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         try container.encodeIfPresent(mhcReferenceVisualizations, forKey: .mhcReferenceVisualizations)
         try container.encode(integrityWarnings, forKey: .integrityWarnings)
         try container.encodeIfPresent(referenceMetadata, forKey: .referenceMetadata)
+        try container.encode(
+            provisionalExon2SequencesByGenotype,
+            forKey: .provisionalExon2SequencesByGenotype
+        )
+        try container.encode(provisionalExon2ArtifactURLs, forKey: .provisionalExon2ArtifactURLs)
     }
 
     public var sampleCount: Int {
@@ -1669,6 +1732,16 @@ public enum ONTGenotypeResultBundle {
             genBankArtifactURLs: .empty,
             alignmentArtifactURLs: .empty,
             warnings: []
+        )
+    }
+
+    private struct ProvisionalExon2Projection {
+        let sequencesByGenotype: [String: ONTGenotypeProvisionalExon2Sequence]
+        let artifactURLs: ONTGenotypeProvisionalExon2ArtifactURLs
+
+        static let absent = ProvisionalExon2Projection(
+            sequencesByGenotype: [:],
+            artifactURLs: .empty
         )
     }
 
@@ -2052,6 +2125,7 @@ public enum ONTGenotypeResultBundle {
         let sampleRows = try loadCSVRows(from: artifacts.sampleSummaryCSVURL)
         let stats = try ONTGenotypeRunStats.load(from: artifacts.statsJSONURL)
         let haplotypeAnalysis = try loadHaplotypeAnalysisIfPresent(from: artifacts.haplotypeAnalysisURL)
+        let calls = callRows.compactMap(makeCall(row:)).filter { isAssignedSample($0.sample) }
         let mhcProjection: MHCCandidateProjection
         if manifest.kind == "full-length-ont-mhc-genotype" {
             mhcProjection = try loadMHCCandidateProjection(
@@ -2062,6 +2136,21 @@ public enum ONTGenotypeResultBundle {
         } else {
             mhcProjection = .absent
         }
+        if let generic = manifest.alignmentArtifacts,
+           let nested = manifest.mhcCandidateArtifacts,
+           generic.genotypingEvidence != nested.genotypingEvidence
+            || generic.reciprocalEvidence != nested.reciprocalEvidence {
+            throw ONTGenotypeScientificArtifactError.conflictingAlignmentDeclarations
+        }
+        let alignmentArtifactURLs = try loadGenericAlignmentArtifacts(
+            from: manifest.alignmentArtifacts,
+            bundleURL: bundleURL
+        ) ?? mhcProjection.alignmentArtifactURLs
+        let provisionalExon2Projection = try loadProvisionalExon2Projection(
+            from: manifest.provisionalExon2Artifacts,
+            bundleURL: bundleURL,
+            calls: calls
+        )
         let mhcReferenceVisualizations = try loadMHCReferenceVisualizations(
             from: manifest.mhcReferenceVisualizations,
             bundleURL: bundleURL
@@ -2071,7 +2160,6 @@ public enum ONTGenotypeResultBundle {
             from: bundleURL
         )
 
-        let calls = callRows.compactMap(makeCall(row:)).filter { isAssignedSample($0.sample) }
         let callsBySample = Dictionary(grouping: calls, by: \.sample)
         let orderedSampleNames = orderedAssignedSampleNames(sampleRows: sampleRows, calls: calls)
         let samples = orderedSampleNames.map { sampleName in
@@ -2103,10 +2191,169 @@ public enum ONTGenotypeResultBundle {
             mhcUnnameableClusters: mhcProjection.unnameable,
             mhcCandidateSequencesByStableClusterID: mhcProjection.candidateSequencesByStableClusterID,
             mhcCandidateGenBankArtifactURLs: mhcProjection.genBankArtifactURLs,
-            mhcAlignmentArtifactURLs: mhcProjection.alignmentArtifactURLs,
+            mhcAlignmentArtifactURLs: alignmentArtifactURLs,
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: mhcProjection.warnings,
-            referenceMetadata: referenceMetadata
+            referenceMetadata: referenceMetadata,
+            provisionalExon2SequencesByGenotype: provisionalExon2Projection.sequencesByGenotype,
+            provisionalExon2ArtifactURLs: provisionalExon2Projection.artifactURLs
+        )
+    }
+
+    private static func loadGenericAlignmentArtifacts(
+        from manifest: ONTGenotypeAlignmentArtifactManifest?,
+        bundleURL: URL
+    ) throws -> ONTMHCAlignmentArtifactURLs? {
+        guard let manifest else { return nil }
+        for reference in [
+            manifest.genotypingEvidence?.bam,
+            manifest.genotypingEvidence?.bai,
+            manifest.reciprocalEvidence?.bam,
+            manifest.reciprocalEvidence?.bai,
+        ].compactMap({ $0 }) {
+            _ = try validateArtifact(reference, in: bundleURL, collectData: false)
+        }
+        return ONTMHCAlignmentArtifactURLs(
+            genotypingBAM: try manifest.genotypingEvidence.map {
+                try normalizedValidatedArtifactURL($0.bam, in: bundleURL)
+            },
+            genotypingBAI: try manifest.genotypingEvidence.map {
+                try normalizedValidatedArtifactURL($0.bai, in: bundleURL)
+            },
+            reciprocalBAM: try manifest.reciprocalEvidence.map {
+                try normalizedValidatedArtifactURL($0.bam, in: bundleURL)
+            },
+            reciprocalBAI: try manifest.reciprocalEvidence.map {
+                try normalizedValidatedArtifactURL($0.bai, in: bundleURL)
+            }
+        )
+    }
+
+    private static func loadProvisionalExon2Projection(
+        from manifest: ONTGenotypeProvisionalExon2ArtifactManifest?,
+        bundleURL: URL,
+        calls: [ONTGenotypeCall]
+    ) throws -> ProvisionalExon2Projection {
+        guard let manifest else { return .absent }
+        guard manifest.schemaVersion == ONTGenotypeProvisionalExon2Document.supportedSchemaVersion else {
+            throw ONTGenotypeScientificArtifactError.unsupportedProvisionalExon2Schema(
+                manifest.schemaVersion
+            )
+        }
+        let jsonData = try validateArtifact(
+            manifest.catalogJSON,
+            in: bundleURL,
+            collectData: true
+        ) ?? Data()
+        let document: ONTGenotypeProvisionalExon2Document
+        do {
+            document = try JSONDecoder().decode(
+                ONTGenotypeProvisionalExon2Document.self,
+                from: jsonData
+            )
+        } catch {
+            throw ONTGenotypeScientificArtifactError.malformedProvisionalExon2JSON(
+                error.localizedDescription
+            )
+        }
+        guard document.schemaVersion == ONTGenotypeProvisionalExon2Document.supportedSchemaVersion,
+              document.schemaVersion == manifest.schemaVersion else {
+            throw ONTGenotypeScientificArtifactError.unsupportedProvisionalExon2Schema(
+                document.schemaVersion
+            )
+        }
+
+        let genotypes = document.records.map(\.genotype)
+        guard Set(genotypes).count == genotypes.count else {
+            let duplicate = Dictionary(grouping: genotypes, by: { $0 })
+                .first(where: { $0.value.count > 1 })?.key ?? ""
+            throw ONTGenotypeScientificArtifactError.duplicateProvisionalGenotype(duplicate)
+        }
+        let observedGenotypes = Set(calls.map(\.genotype))
+        for record in document.records {
+            guard record.genotype.localizedCaseInsensitiveContains("_nov") else {
+                throw ONTGenotypeScientificArtifactError.invalidProvisionalGenotype(record.genotype)
+            }
+            guard observedGenotypes.contains(record.genotype) else {
+                throw ONTGenotypeScientificArtifactError.unobservedProvisionalGenotype(record.genotype)
+            }
+        }
+
+        let requiredFASTAIDs = Set(document.records.map(\.fastaRecordID))
+        var parser = StreamingFASTAParser(
+            path: manifest.sequencesFASTA.path,
+            requiredIDs: requiredFASTAIDs,
+            retainRequiredSequences: true
+        )
+        var parserFailure: Error?
+        _ = try validateArtifact(
+            manifest.sequencesFASTA,
+            in: bundleURL,
+            collectData: false,
+            chunkHandler: { chunk in
+                guard parserFailure == nil else { return }
+                do { try parser.consume(chunk) } catch { parserFailure = error }
+            }
+        )
+        if let parserFailure { throw parserFailure }
+        let parsedFASTA = try parser.finish()
+        guard Set(parsedFASTA.counts.keys) == requiredFASTAIDs else {
+            throw ONTGenotypeScientificArtifactError.unexpectedFASTARecords
+        }
+        if let duplicate = parsedFASTA.counts.first(where: { $0.value != 1 })?.key {
+            throw ONTGenotypeScientificArtifactError.duplicateFASTARecord(duplicate)
+        }
+
+        let callsByGenotype = Dictionary(grouping: calls, by: \.genotype)
+        var sequencesByGenotype: [String: ONTGenotypeProvisionalExon2Sequence] = [:]
+        sequencesByGenotype.reserveCapacity(document.records.count)
+        for record in document.records {
+            guard let sequence = parsedFASTA.sequencesByID[record.fastaRecordID],
+                  let sequenceChecksum = parsedFASTA.sequenceChecksums[record.fastaRecordID] else {
+                throw ONTGenotypeScientificArtifactError.missingFASTARecord(record.fastaRecordID)
+            }
+            guard sequence.utf8.count == record.sequenceLength else {
+                throw ONTGenotypeScientificArtifactError.sequenceLengthMismatch(record.genotype)
+            }
+            guard sequenceChecksum.caseInsensitiveCompare(record.sequenceSHA256) == .orderedSame else {
+                throw ONTGenotypeScientificArtifactError.sequenceChecksumMismatch(record.genotype)
+            }
+            let expectedSupport = (callsByGenotype[record.genotype] ?? [])
+                .map {
+                    ONTGenotypeProvisionalExon2SampleSupport(
+                        sample: $0.sample,
+                        passedAlignments: $0.passedAlignments,
+                        passedUniqueReads: $0.passedUniqueReads
+                    )
+                }
+                .sorted { lhs, rhs in
+                    lhs.sample.localizedStandardCompare(rhs.sample) == .orderedAscending
+                }
+            let observedLoci = Set((callsByGenotype[record.genotype] ?? []).map(\.locusGroup))
+            guard observedLoci == [record.locus] else {
+                throw ONTGenotypeScientificArtifactError.locusMismatch(record.genotype)
+            }
+            let declaredSupport = record.sampleSupport.sorted { lhs, rhs in
+                lhs.sample.localizedStandardCompare(rhs.sample) == .orderedAscending
+            }
+            guard declaredSupport == expectedSupport else {
+                throw ONTGenotypeScientificArtifactError.sampleSupportMismatch(record.genotype)
+            }
+            sequencesByGenotype[record.genotype] = ONTGenotypeProvisionalExon2Sequence(
+                genotype: record.genotype,
+                locus: record.locus,
+                sequence: sequence,
+                sequenceSHA256: sequenceChecksum,
+                sampleSupport: declaredSupport
+            )
+        }
+
+        return ProvisionalExon2Projection(
+            sequencesByGenotype: sequencesByGenotype,
+            artifactURLs: ONTGenotypeProvisionalExon2ArtifactURLs(
+                catalogJSON: try normalizedValidatedArtifactURL(manifest.catalogJSON, in: bundleURL),
+                sequencesFASTA: try normalizedValidatedArtifactURL(manifest.sequencesFASTA, in: bundleURL)
+            )
         )
     }
 
