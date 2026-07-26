@@ -1048,6 +1048,7 @@ private struct GenotypeNumericFilterStepper: NSViewRepresentable {
             configuration.stepperAccessibilityIdentifier
         )
         stepper.setAccessibilityLabel(accessibility.label)
+        stepper.setAccessibilityValue(NSNumber(value: value))
         stepper.setAccessibilityValueDescription(accessibility.value)
         stepper.setAccessibilityHelp(
             "\(accessibility.bounds) "
@@ -1340,22 +1341,6 @@ public struct GenotypeResultDisplaySection: View {
                 )
                 .labelsHidden()
                 .controlSize(.small)
-                .accessibilityIdentifier(
-                    viewModel.matrixMinimumReadsDraft.configuration
-                        .stepperAccessibilityIdentifier
-                )
-                .accessibilityLabel(
-                    viewModel.matrixMinimumReadsDraft.accessibility.label
-                )
-                .accessibilityValue(
-                    viewModel.matrixMinimumReadsDraft.accessibility.value
-                )
-                .accessibilityHint(
-                    "\(viewModel.matrixMinimumReadsDraft.accessibility.bounds) "
-                        + "\(viewModel.matrixMinimumReadsDraft.accessibility.incrementAction) "
-                        + viewModel.matrixMinimumReadsDraft.accessibility
-                            .decrementAction
-                )
             }
             HStack(spacing: 6) {
                 Text(
@@ -1414,22 +1399,6 @@ public struct GenotypeResultDisplaySection: View {
                 )
                 .labelsHidden()
                 .controlSize(.small)
-                .accessibilityIdentifier(
-                    viewModel.matrixMinimumPercentDraft.configuration
-                        .stepperAccessibilityIdentifier
-                )
-                .accessibilityLabel(
-                    viewModel.matrixMinimumPercentDraft.accessibility.label
-                )
-                .accessibilityValue(
-                    viewModel.matrixMinimumPercentDraft.accessibility.value
-                )
-                .accessibilityHint(
-                    "\(viewModel.matrixMinimumPercentDraft.accessibility.bounds) "
-                        + "\(viewModel.matrixMinimumPercentDraft.accessibility.incrementAction) "
-                        + viewModel.matrixMinimumPercentDraft.accessibility
-                            .decrementAction
-                )
             }
             Text("0 = Off.")
                 .font(.caption2)

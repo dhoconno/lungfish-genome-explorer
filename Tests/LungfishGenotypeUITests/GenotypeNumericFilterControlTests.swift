@@ -62,6 +62,14 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
         XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "99,999")
         XCTAssertEqual(values, [99_999])
         XCTAssertEqual(scheduler.pendingCount, 0)
+        XCTAssertEqual(
+            (readsStepper.accessibilityValue() as? NSNumber)?.doubleValue,
+            99_999
+        )
+        XCTAssertEqual(
+            readsStepper.accessibilityValueDescription(),
+            "99,999"
+        )
 
         readsField = try nativeTextField("Min reads", in: host)
         _ = try focus(readsField, host: host)
@@ -99,6 +107,14 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
         )
         XCTAssertEqual(values, [11.75])
         XCTAssertEqual(scheduler.pendingCount, 0)
+        XCTAssertEqual(
+            (percentStepper.accessibilityValue() as? NSNumber)?.doubleValue,
+            11.75
+        )
+        XCTAssertEqual(
+            percentStepper.accessibilityValueDescription(),
+            "11.75 percent"
+        )
     }
 
     func testHostedControlsUseSharedAccessibilityContractAndNativeActions() throws {
@@ -147,6 +163,10 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
         XCTAssertEqual(readsStepper.maxValue, 100_000)
         XCTAssertEqual(readsStepper.increment, 1)
         XCTAssertEqual(
+            (readsStepper.accessibilityValue() as? NSNumber)?.doubleValue,
+            0
+        )
+        XCTAssertEqual(
             readsStepper.accessibilityIdentifier(),
             "genotype-view-minimum-reads-stepper"
         )
@@ -185,6 +205,10 @@ final class GenotypeNumericFilterControlTests: XCTestCase {
         XCTAssertEqual(percentStepper.minValue, 0)
         XCTAssertEqual(percentStepper.maxValue, 100)
         XCTAssertEqual(percentStepper.increment, 0.5)
+        XCTAssertEqual(
+            (percentStepper.accessibilityValue() as? NSNumber)?.doubleValue,
+            0
+        )
         XCTAssertEqual(
             percentStepper.accessibilityIdentifier(),
             "genotype-view-minimum-percent-stepper"

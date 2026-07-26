@@ -399,7 +399,9 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(controls.contains("Text(\"%\")"))
         XCTAssertTrue(controls.contains("Text(\"0 = Off.\")"))
         XCTAssertTrue(controls.contains(".fieldAccessibilityIdentifier"))
-        XCTAssertTrue(controls.contains(".stepperAccessibilityIdentifier"))
+        XCTAssertTrue(
+            source.contains("configuration.stepperAccessibilityIdentifier")
+        )
         XCTAssertTrue(controls.contains("setMatrixMinimumReadsFromStepper"))
         XCTAssertTrue(controls.contains("setMatrixMinimumPercentFromStepper"))
         XCTAssertFalse(controls.contains("\"Min reads: \\("))
