@@ -285,6 +285,43 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertThrowsError(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
     }
 
+    func testRejectsProvisionalGenotypesSharingOneFASTARecord() throws {
+        let secondGenotype = "Mafa-E_02_nov_18"
+        let secondRecord = ONTGenotypeProvisionalExon2Record(
+            genotype: secondGenotype,
+            locus: "MHC-E",
+            fastaRecordID: ScientificArtifactBundleFixture.provisionalGenotype,
+            sequenceLength: 4,
+            sequenceSHA256: ScientificArtifactBundleFixture.sequenceSHA256,
+            sampleSupport: ScientificArtifactBundleFixture.defaultRecord.sampleSupport
+        )
+        let fixture = try ScientificArtifactBundleFixture(records: [
+            ScientificArtifactBundleFixture.defaultRecord,
+            secondRecord,
+        ])
+        defer { fixture.remove() }
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads
+        SampleA,\(ScientificArtifactBundleFixture.provisionalGenotype),9,8
+        SampleA,\(secondGenotype),9,8
+        """.write(
+            to: fixture.bundleURL.appendingPathComponent("miseq-genotypes.csv"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertThrowsError(
+            try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        ) { error in
+            XCTAssertEqual(
+                error as? ONTGenotypeScientificArtifactError,
+                .duplicateFASTARecord(
+                    ScientificArtifactBundleFixture.provisionalGenotype
+                )
+            )
+        }
+    }
+
     func testRejectsInvalidProvisionalExon2SequenceMismatch() throws {
         let fixture = try ScientificArtifactBundleFixture(fastaSequence: "TGCA")
         defer { fixture.remove() }

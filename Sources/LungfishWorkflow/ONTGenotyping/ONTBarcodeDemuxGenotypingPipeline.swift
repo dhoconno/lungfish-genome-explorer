@@ -813,13 +813,22 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?
         if resolvedMode == .illuminaPaired {
             progressHandler?(0.78, "Publishing genotyping evidence and provisional exon 2 sequences.")
-            scientificArtifactPublication = try AmpliconGenotypeScientificArtifactPublisher().publish(
-                reportCSVURL: request.reportCSVURL,
-                referenceFASTAURL: reference.referenceFASTAURL,
-                retainedBAMURL: request.retainedBAMURL,
-                retainedBAIURL: request.retainedBAIURL,
-                outputDirectoryURL: request.outputDirectory
-            )
+            do {
+                scientificArtifactPublication =
+                    try AmpliconGenotypeScientificArtifactPublisher().publish(
+                        reportCSVURL: request.reportCSVURL,
+                        referenceFASTAURL: reference.referenceFASTAURL,
+                        retainedBAMURL: request.retainedBAMURL,
+                        retainedBAIURL: request.retainedBAIURL,
+                        outputDirectoryURL: request.outputDirectory
+                    )
+            } catch {
+                try rollbackScientificOutputsAfterPublicationFailure(
+                    request: request,
+                    mapping: mapping
+                )
+                throw error
+            }
         } else {
             scientificArtifactPublication = nil
         }
@@ -3698,6 +3707,32 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ]
         }
         for url in removableURLs where FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func rollbackScientificOutputsAfterPublicationFailure(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        mapping: MappingStepResult
+    ) throws {
+        try removeGeneratedAlignmentIntermediates(
+            for: request,
+            mapping: mapping,
+            preserveRetainedEvidence: false
+        )
+        let sequenceDirectory = request.outputDirectory
+            .appendingPathComponent("artifacts/sequences", isDirectory: true)
+        for url in [
+            request.reportCSVURL,
+            request.sampleSummaryCSVURL,
+            request.statsJSONURL,
+            sequenceDirectory.appendingPathComponent(
+                "observed-provisional-exon2.json"
+            ),
+            sequenceDirectory.appendingPathComponent(
+                "observed-provisional-exon2.fasta"
+            ),
+        ] where FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
     }

@@ -1581,8 +1581,20 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let provisional = provisionalExon2Genotypes.isEmpty
             ? ""
             : "   ◼ Provisional exon 2"
-        reviewLegend.stringValue =
+        let text =
             "[n] False positive   ▣ False negative   ◥ Comment\(provisional)"
+        let attributed = NSMutableAttributedString(
+            string: text,
+            attributes: [.foregroundColor: NSColor.secondaryLabelColor]
+        )
+        if let swatchRange = text.range(of: "◼ Provisional exon 2") {
+            attributed.addAttribute(
+                .foregroundColor,
+                value: NSColor.systemOrange,
+                range: NSRange(swatchRange, in: text)
+            )
+        }
+        reviewLegend.attributedStringValue = attributed
         let provisionalAccessibility = provisionalExon2Genotypes.isEmpty
             ? ""
             : " amber allele identity means Provisional exon 2;"
@@ -6092,6 +6104,18 @@ extension GenotypeComparisonMatrixView {
 
     var testingReviewLegendText: String {
         reviewLegend.stringValue
+    }
+
+    var testingReviewLegendProvisionalSwatchColor: NSColor? {
+        let text = reviewLegend.attributedStringValue.string
+        guard let range = text.range(of: "◼ Provisional exon 2") else {
+            return nil
+        }
+        return reviewLegend.attributedStringValue.attribute(
+            .foregroundColor,
+            at: NSRange(range, in: text).location,
+            effectiveRange: nil
+        ) as? NSColor
     }
 
     func testingBuildContextMenu(

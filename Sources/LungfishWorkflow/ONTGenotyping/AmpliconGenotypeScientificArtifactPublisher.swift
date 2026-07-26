@@ -44,11 +44,6 @@ public struct AmpliconGenotypeScientificArtifactPublication: Equatable, Sendable
 }
 
 public struct AmpliconGenotypeScientificArtifactPublisher: Sendable {
-    private struct SupportKey: Hashable {
-        let genotype: String
-        let sample: String
-    }
-
     private struct MutableSupport {
         var passedAlignments: Int
         var passedUniqueReads: Int
@@ -135,10 +130,11 @@ public struct AmpliconGenotypeScientificArtifactPublisher: Sendable {
             throw AmpliconGenotypeScientificArtifactPublisherError.missingReferenceRecord(missing)
         }
 
-        var supportByKey: [SupportKey: MutableSupport] = [:]
+        var supportByGenotypeAndSample:
+            [String: [String: MutableSupport]] = [:]
         for call in provisionalCalls {
-            let key = SupportKey(genotype: call.genotype, sample: call.sample)
-            var support = supportByKey[key] ?? MutableSupport(
+            var support = supportByGenotypeAndSample[call.genotype]?[call.sample]
+                ?? MutableSupport(
                 passedAlignments: 0,
                 passedUniqueReads: 0,
                 loci: []
@@ -146,14 +142,14 @@ public struct AmpliconGenotypeScientificArtifactPublisher: Sendable {
             support.passedAlignments += call.passedAlignments
             support.passedUniqueReads += call.passedUniqueReads
             support.loci.insert(call.locusGroup)
-            supportByKey[key] = support
+            supportByGenotypeAndSample[call.genotype, default: [:]][call.sample] =
+                support
         }
 
         let records = try identifiers.sorted().map { genotype in
-            let matchingSupport = supportByKey
-                .filter { $0.key.genotype == genotype }
+            let matchingSupport = (supportByGenotypeAndSample[genotype] ?? [:])
                 .sorted {
-                    $0.key.sample.localizedStandardCompare($1.key.sample) == .orderedAscending
+                    $0.key.localizedStandardCompare($1.key) == .orderedAscending
                 }
             let loci = matchingSupport.reduce(into: Set<String>()) {
                 $0.formUnion($1.value.loci)
@@ -170,7 +166,7 @@ public struct AmpliconGenotypeScientificArtifactPublisher: Sendable {
                 sequenceSHA256: sha256(Data(sequence.utf8)),
                 sampleSupport: matchingSupport.map {
                     ONTGenotypeProvisionalExon2SampleSupport(
-                        sample: $0.key.sample,
+                        sample: $0.key,
                         passedAlignments: $0.value.passedAlignments,
                         passedUniqueReads: $0.value.passedUniqueReads
                     )

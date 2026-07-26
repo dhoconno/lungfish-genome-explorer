@@ -342,6 +342,7 @@ public final class GenotypeResultViewController: NSViewController {
     ] = [:]
     private var renderedAlleleSequenceRecordIdentities: [String] = []
     private var knownAlleleSequenceRecordBuildCount = 0
+    private var provisionalExon2SequenceRecordBuildCount = 0
     private var legacyNonRowDetailBuildCount = 0
     private var currentSelectedSample: String?
     private var currentSelectedLocus: String?
@@ -840,6 +841,7 @@ public final class GenotypeResultViewController: NSViewController {
         candidateAlleleDetailMountCount = 0
         alleleSequenceDetailMountCount = 0
         knownAlleleSequenceRecordBuildCount = 0
+        provisionalExon2SequenceRecordBuildCount = 0
         legacyNonRowDetailBuildCount = 0
         alleleSequenceDetailView.resetForNewResult()
         renderedAlleleSequenceRecordIdentities = []
@@ -849,11 +851,16 @@ public final class GenotypeResultViewController: NSViewController {
         alleleSequenceDetailWidthConstraint = nil
         alleleSequenceDetailHeightConstraint?.isActive = false
         alleleSequenceDetailHeightConstraint = nil
-        provisionalExon2SequenceRecordsByGenotype = isGenotypeOnlyResult
-            ? result.provisionalExon2SequencesByGenotype.mapValues(
-                GenotypeAlleleSequenceRecord.provisionalExon2
-            )
-            : [:]
+        if isGenotypeOnlyResult {
+            provisionalExon2SequenceRecordsByGenotype =
+                result.provisionalExon2SequencesByGenotype.mapValues(
+                    GenotypeAlleleSequenceRecord.provisionalExon2
+                )
+            provisionalExon2SequenceRecordBuildCount =
+                provisionalExon2SequenceRecordsByGenotype.count
+        } else {
+            provisionalExon2SequenceRecordsByGenotype = [:]
+        }
         if isFullLengthMHCGenotypeViewport {
             knownSequenceRecordsByRowID = [:]
             for sharedCall in result.locusSummaries.flatMap(\.sharedCalls) {
@@ -4343,10 +4350,12 @@ public final class GenotypeResultViewController: NSViewController {
         if let genotypingBAIURL = alignmentArtifactURLs.genotypingBAI {
             artifactRows.append(artifactRow(label: "Genotyping Evidence BAI", url: genotypingBAIURL))
         }
-        if let reciprocalBAMURL = alignmentArtifactURLs.reciprocalBAM {
+        if result.manifest.kind == "full-length-ont-mhc-genotype",
+           let reciprocalBAMURL = alignmentArtifactURLs.reciprocalBAM {
             artifactRows.append(artifactRow(label: "Reciprocal Evidence BAM", url: reciprocalBAMURL))
         }
-        if let reciprocalBAIURL = alignmentArtifactURLs.reciprocalBAI {
+        if result.manifest.kind == "full-length-ont-mhc-genotype",
+           let reciprocalBAIURL = alignmentArtifactURLs.reciprocalBAI {
             artifactRows.append(artifactRow(label: "Reciprocal Evidence BAI", url: reciprocalBAIURL))
         }
         if !hasHaplotypingResult,
@@ -4444,11 +4453,16 @@ public final class GenotypeResultViewController: NSViewController {
     public func applyAIHaplotypingCompleted(result updatedResult: ONTGenotypeResultBundleData) {
         result = updatedResult
         hasHaplotypingResult = updatedResult.haplotypeAnalysis != nil
-        provisionalExon2SequenceRecordsByGenotype = hasHaplotypingResult
-            ? [:]
-            : updatedResult.provisionalExon2SequencesByGenotype.mapValues(
-                GenotypeAlleleSequenceRecord.provisionalExon2
-            )
+        if hasHaplotypingResult {
+            provisionalExon2SequenceRecordsByGenotype = [:]
+        } else {
+            provisionalExon2SequenceRecordsByGenotype =
+                updatedResult.provisionalExon2SequencesByGenotype.mapValues(
+                    GenotypeAlleleSequenceRecord.provisionalExon2
+                )
+            provisionalExon2SequenceRecordBuildCount +=
+                provisionalExon2SequenceRecordsByGenotype.count
+        }
         renderedAlleleSequenceRecordIdentities = []
         alleleSequenceDetailView.clear()
         quickFilterBar.configureSearchCapability(
@@ -7826,6 +7840,14 @@ extension GenotypeResultViewController {
 
     var testingKnownAlleleSequenceCacheCount: Int {
         knownSequenceRecordsByRowID.count
+    }
+
+    var testingProvisionalExon2SequenceRecordBuildCount: Int {
+        provisionalExon2SequenceRecordBuildCount
+    }
+
+    var testingProvisionalExon2SequenceCacheCount: Int {
+        provisionalExon2SequenceRecordsByGenotype.count
     }
 
     var testingLegacyNonRowDetailBuildCount: Int {

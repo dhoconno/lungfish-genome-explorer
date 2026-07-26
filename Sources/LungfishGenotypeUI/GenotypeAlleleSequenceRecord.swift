@@ -166,7 +166,6 @@ struct GenotypeAlleleSequenceRecord: Equatable {
             genBankText: normalizedTrailingNewline([
                 "LOCUS       \(source.genotype) \(sequence.utf8.count) bp DNA linear",
                 "DEFINITION  \(definition)",
-                "ACCESSION   \(source.genotype)",
                 "COMMENT     \(caveat)",
                 "ORIGIN",
                 sequence,
@@ -179,7 +178,6 @@ struct GenotypeAlleleSequenceRecord: Equatable {
             ),
             emblText: normalizedTrailingNewline([
                 "ID   \(source.genotype); linear; DNA; \(sequence.utf8.count) BP.",
-                "AC   \(source.genotype);",
                 "DE   \(definition)",
                 "CC   \(caveat)",
                 "SQ   Sequence \(sequence.utf8.count) BP;",

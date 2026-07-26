@@ -864,6 +864,85 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(Set(publicationStep.outputs.map(\.path)), Set([catalogURL.path, fastaURL.path]))
     }
 
+    func testIlluminaProvisionalPublicationFailureRollsBackScientificOutputs() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let missingGenotype = "Mafa-A1*007:08:01:01_1nt_nov"
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(
+            at: condaRoot,
+            genotypeRows: [
+                "DW001,\(missingGenotype),12,11",
+            ]
+        )
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        try """
+        >Mafa-B*013:01
+        TTTTCCCC
+
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "AACCGGTT"
+        )
+        let outputDirectory = root.appendingPathComponent(
+            "miseq-provisional-failure.lungfishgenotype",
+            isDirectory: true
+        )
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-provisional-failure",
+            analysisName: "MiSeq provisional failure",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+
+        do {
+            _ = try await ONTBarcodeDemuxGenotypingPipeline(
+                condaManager: CondaManager(
+                    rootPrefix: condaRoot,
+                    bundledMicromambaProvider: { bundledMicromamba },
+                    bundledMicromambaVersionProvider: { "test-micromamba" }
+                )
+            ).run(request)
+            XCTFail("Expected provisional publication to fail")
+        } catch {
+            XCTAssertEqual(
+                error as? AmpliconGenotypeScientificArtifactPublisherError,
+                .missingReferenceRecord(missingGenotype)
+            )
+        }
+
+        for url in [
+            request.mappingBAMURL,
+            request.mappingBAIURL,
+            request.retainedBAMURL,
+            request.retainedBAIURL,
+            request.reportCSVURL,
+            request.sampleSummaryCSVURL,
+            request.statsJSONURL,
+            outputDirectory.appendingPathComponent(
+                "artifacts/sequences/observed-provisional-exon2.json"
+            ),
+            outputDirectory.appendingPathComponent(
+                "artifacts/sequences/observed-provisional-exon2.fasta"
+            ),
+            ONTGenotypeResultBundle.manifestURL(in: outputDirectory),
+        ] {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: url.path),
+                "Failed publication left an unprovenanced scientific output: \(url.path)"
+            )
+        }
+    }
+
     func testIlluminaCohortMapsEachSampleWithSeparateMinimap2Invocation() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -5147,7 +5147,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(lensText.contains(reciprocalBAIURL.standardizedFileURL.path))
     }
 
-    func testArtifactsLensListsValidatedAlignmentArtifactsForNonFullLengthResult() {
+    func testArtifactsLensListsOnlyGenotypingEvidenceForNonFullLengthResult() {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeNonMHCAlignmentArtifactLens-\(UUID().uuidString)", isDirectory: true)
         let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
@@ -5171,8 +5171,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         let lensText = visibleText(in: controller.view)
         XCTAssertTrue(lensText.contains("Genotyping Evidence BAM"))
         XCTAssertTrue(lensText.contains("Genotyping Evidence BAI"))
-        XCTAssertTrue(lensText.contains("Reciprocal Evidence BAM"))
-        XCTAssertTrue(lensText.contains("Reciprocal Evidence BAI"))
+        XCTAssertFalse(lensText.contains("Reciprocal Evidence BAM"))
+        XCTAssertFalse(lensText.contains("Reciprocal Evidence BAI"))
     }
 
     func testGenotypeOnlyMiSeqPresentsProvisionalExon2SequenceAndArtifacts() {
@@ -5224,6 +5224,10 @@ final class GenotypeResultViewportTests: XCTestCase {
             "Provisional exon 2"
         ) == true)
         XCTAssertTrue(matrix.testingReviewLegendText.contains("Provisional exon 2"))
+        XCTAssertEqual(
+            matrix.testingReviewLegendProvisionalSwatchColor,
+            NSColor.systemOrange
+        )
         XCTAssertNotEqual(
             matrix.testingBackgroundColor(rowID: rowID, column: .alleleName),
             matrix.testingBackgroundColor(rowID: rowID, column: .sample("AnimalA"))
@@ -5232,6 +5236,11 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingSelectMatrixCell(genotype: genotype, sample: "AnimalA")
         controller.testingSelectAlleleSequenceFormat(.fasta)
         XCTAssertTrue(controller.testingAlleleSequenceText.contains(">\(genotype)"))
+        XCTAssertTrue(controller.testingAlleleSequenceText.contains("AACCGGTT"))
+        controller.testingSelectAlleleSequenceFormat(.genBank)
+        XCTAssertFalse(controller.testingAlleleSequenceText.contains("ACCESSION"))
+        controller.testingSelectAlleleSequenceFormat(.embl)
+        XCTAssertFalse(controller.testingAlleleSequenceText.contains("\nAC   "))
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
             $0 == ("Designation", "Provisional exon 2")
         })
@@ -5241,6 +5250,17 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
             $0 == ("AnimalA Support", "11 unique reads; 12 alignments")
         })
+        XCTAssertEqual(controller.testingProvisionalExon2SequenceRecordBuildCount, 1)
+        XCTAssertEqual(controller.testingProvisionalExon2SequenceCacheCount, 1)
+        for _ in 0..<25 {
+            controller.testingSelectMatrixCell(
+                genotype: genotype,
+                sample: "AnimalA"
+            )
+        }
+        XCTAssertEqual(controller.testingProvisionalExon2SequenceRecordBuildCount, 1)
+        XCTAssertEqual(controller.testingProvisionalExon2SequenceCacheCount, 1)
+        XCTAssertEqual(controller.testingAlleleSequenceDetailMountCount, 1)
 
         controller.testingSetQuickFilterSearchText("Provisional exon 2")
         XCTAssertEqual(controller.testingVisibleGenotypes, [genotype])
@@ -5283,6 +5303,85 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(matrix.testingReviewLegendText.contains("Provisional exon 2"))
         XCTAssertNil(matrix.testingBackgroundColor(rowID: rowID, column: .alleleName))
         XCTAssertEqual(controller.testingAlleleSequenceText, "")
+    }
+
+    func testProvisionalExon2TintStaysBelowAnalystStyleAndReadReviewChrome() throws {
+        let genotype = "Mafa-A1*007:08:01:01_1nt_nov"
+        let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 11)
+        let provisional = ONTGenotypeProvisionalExon2Sequence(
+            genotype: genotype,
+            locus: call.locusGroup,
+            sequence: "AACCGGTT",
+            sequenceSHA256: String(repeating: "a", count: 64),
+            sampleSupport: [
+                .init(
+                    sample: "AnimalA",
+                    passedAlignments: 12,
+                    passedUniqueReads: 11
+                ),
+            ]
+        )
+        let cellTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: call.locusGroup,
+            genotype: genotype,
+            sample: "AnimalA"
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T00:00:00Z"
+        )
+        sidecar.matrixStyles = [
+            .init(
+                target: .row(locus: call.locusGroup, genotype: genotype),
+                style: .init(fillColor: "#123456"),
+                author: "test",
+                timestamp: "2026-07-26T00:00:01Z"
+            ),
+        ]
+        sidecar.matrixReviews = [
+            .init(
+                target: cellTarget,
+                disposition: .falsePositive,
+                author: "test",
+                timestamp: "2026-07-26T00:00:02Z"
+            ),
+        ]
+        sidecar.matrixComments = [
+            .init(
+                target: cellTarget,
+                body: "Analyst note.",
+                author: "test",
+                timestamp: "2026-07-26T00:00:03Z"
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [call],
+                provisionalExon2SequencesByGenotype: [genotype: provisional]
+            ),
+            sidecar: sidecar
+        )
+
+        let rowID = GenotypeCandidateMatrixRowID.known(
+            locus: call.locusGroup,
+            genotype: genotype
+        )
+        let identityColor = try XCTUnwrap(
+            matrix.testingBackgroundColor(rowID: rowID, column: .alleleName)
+        )
+        XCTAssertEqual(identityColor.redComponent, 0x12 / 255.0, accuracy: 0.000_000_1)
+        XCTAssertEqual(identityColor.greenComponent, 0x34 / 255.0, accuracy: 0.000_000_1)
+        XCTAssertEqual(identityColor.blueComponent, 0x56 / 255.0, accuracy: 0.000_000_1)
+        let semantic = try XCTUnwrap(
+            matrix.testingSemanticCellState(
+                genotype: genotype,
+                sample: "AnimalA"
+            )
+        )
+        XCTAssertEqual(semantic.text.value, "[11]")
+        XCTAssertTrue(semantic.text.isItalic)
+        XCTAssertTrue(semantic.hasNativeCellCommentMarker)
     }
 
     func testArtifactsLensMHCAlignmentLabelsFitWithoutClipping() throws {

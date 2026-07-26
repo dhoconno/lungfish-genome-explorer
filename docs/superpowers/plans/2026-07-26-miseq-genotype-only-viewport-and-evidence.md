@@ -611,4 +611,3 @@ Because the user requested implementation without additional checkpoints,
 merge the verified feature branch into `main`, rerun the affected gate on the
 merged commit, and push `main`. Preserve the worktree until the pushed commit
 is verified to match `origin/main`.
-

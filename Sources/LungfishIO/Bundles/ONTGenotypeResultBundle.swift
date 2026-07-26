@@ -2269,6 +2269,14 @@ public enum ONTGenotypeResultBundle {
                 .first(where: { $0.value.count > 1 })?.key ?? ""
             throw ONTGenotypeScientificArtifactError.duplicateProvisionalGenotype(duplicate)
         }
+        let fastaRecordIDs = document.records.map(\.fastaRecordID)
+        guard Set(fastaRecordIDs).count == fastaRecordIDs.count else {
+            let duplicate = Dictionary(grouping: fastaRecordIDs, by: { $0 })
+                .first(where: { $0.value.count > 1 })?.key ?? ""
+            throw ONTGenotypeScientificArtifactError.duplicateFASTARecord(
+                duplicate
+            )
+        }
         let observedGenotypes = Set(calls.map(\.genotype))
         for record in document.records {
             guard record.genotype.localizedCaseInsensitiveContains("_nov") else {

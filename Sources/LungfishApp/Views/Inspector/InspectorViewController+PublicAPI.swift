@@ -405,10 +405,14 @@ extension InspectorViewController {
                 alignmentArtifactURLs.genotypingBAI.map {
                     GenotypeResultArtifactRow(label: "Genotyping Evidence BAI", fileURL: $0)
                 },
-                alignmentArtifactURLs.reciprocalBAM.map {
+                (result.manifest.kind == "full-length-ont-mhc-genotype"
+                    ? alignmentArtifactURLs.reciprocalBAM
+                    : nil).map {
                     GenotypeResultArtifactRow(label: "Reciprocal Evidence BAM", fileURL: $0)
                 },
-                alignmentArtifactURLs.reciprocalBAI.map {
+                (result.manifest.kind == "full-length-ont-mhc-genotype"
+                    ? alignmentArtifactURLs.reciprocalBAI
+                    : nil).map {
                     GenotypeResultArtifactRow(label: "Reciprocal Evidence BAI", fileURL: $0)
                 },
                 provisionalExon2ArtifactURLs.catalogJSON.map {

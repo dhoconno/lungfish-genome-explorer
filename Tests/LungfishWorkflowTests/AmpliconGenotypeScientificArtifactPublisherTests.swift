@@ -108,6 +108,54 @@ final class AmpliconGenotypeScientificArtifactPublisherTests: XCTestCase {
         XCTAssertNotNil(publication.alignmentArtifacts.genotypingEvidence)
     }
 
+    func testPublishesRepresentativeProvisionalCatalogWithinLinearBudget() throws {
+        let genotypes = (0..<100).map {
+            String(format: "Mafa-E_02_nov_%03d", $0)
+        }
+        let samples = (0..<52).map {
+            String(format: "Sample%02d", $0)
+        }
+        var csvLines = [
+            "sample,genotype,passed_alignments,passed_unique_reads",
+        ]
+        for genotype in genotypes {
+            for sample in samples {
+                csvLines.append("\(sample),\(genotype),9,8")
+            }
+        }
+        let fasta = genotypes.map {
+            ">\($0)\nACGTACGT"
+        }.joined(separator: "\n")
+        let fixture = try Fixture(
+            csv: csvLines.joined(separator: "\n"),
+            fasta: fasta
+        )
+        defer { fixture.remove() }
+
+        let startedAt = Date()
+        let publication = try AmpliconGenotypeScientificArtifactPublisher()
+            .publish(
+                reportCSVURL: fixture.csvURL,
+                referenceFASTAURL: fixture.fastaURL,
+                retainedBAMURL: fixture.bamURL,
+                retainedBAIURL: fixture.baiURL,
+                outputDirectoryURL: fixture.outputDirectory
+            )
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertEqual(publication.provisionalExon2Document?.records.count, 100)
+        XCTAssertTrue(
+            publication.provisionalExon2Document?.records.allSatisfy {
+                $0.sampleSupport.count == 52
+            } == true
+        )
+        XCTAssertLessThan(
+            elapsed,
+            2.0,
+            "Publishing should group support once instead of rescanning all support for every genotype"
+        )
+    }
+
     func testRejectsObservedNovelIdentifierMissingFromExactRunReference() throws {
         let fixture = try Fixture(
             csv: """
