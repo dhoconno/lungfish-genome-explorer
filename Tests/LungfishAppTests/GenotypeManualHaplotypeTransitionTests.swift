@@ -201,6 +201,64 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
         XCTAssertEqual(secondTransitions, [.appQuit])
     }
 
+    func testAppQuitAwaitsEveryDirtyWindowWhenFirstVetoesAndRepeatedRequestsStaySingleFlight()
+        async
+    {
+        let first = MainWindowController()
+        let second = MainWindowController()
+        let delegate = AppDelegate()
+        let secondGate = AsyncManualHaplotypeDecisionGate()
+        var firstPromptCount = 0
+        var secondPromptCount = 0
+        var replies: [Bool] = []
+        first.testingSetManualHaplotypeTransitionState(
+            hasUnsavedDraft: { true },
+            prepare: { transition in
+                XCTAssertEqual(transition, .appQuit)
+                firstPromptCount += 1
+                return false
+            }
+        )
+        second.testingSetManualHaplotypeTransitionState(
+            hasUnsavedDraft: { true },
+            prepare: { transition in
+                XCTAssertEqual(transition, .appQuit)
+                secondPromptCount += 1
+                return await secondGate.wait() != .cancel
+            }
+        )
+        delegate.testingSetMainWindowControllers([first, second])
+
+        XCTAssertEqual(
+            delegate.testingApplicationShouldTerminate {
+                replies.append($0)
+            },
+            .terminateLater
+        )
+        XCTAssertEqual(
+            delegate.testingApplicationShouldTerminate {
+                replies.append($0)
+            },
+            .terminateLater
+        )
+        for _ in 0..<100 where !(await secondGate.isPending) {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(firstPromptCount, 1)
+        XCTAssertEqual(secondPromptCount, 1)
+        let secondPromptIsPending = await secondGate.isPending
+        XCTAssertTrue(secondPromptIsPending)
+        XCTAssertTrue(replies.isEmpty)
+
+        await secondGate.resume(with: .discard)
+        await delegate.testingWaitForManualHaplotypeTermination()
+
+        XCTAssertEqual(firstPromptCount, 1)
+        XCTAssertEqual(secondPromptCount, 1)
+        XCTAssertEqual(replies, [false])
+    }
+
     func testApplicationTerminationRepliesOnceAndReentryTerminatesNow()
         async
     {
@@ -258,6 +316,10 @@ private actor AsyncManualHaplotypeDecisionGate {
         while continuation == nil {
             await Task.yield()
         }
+    }
+
+    var isPending: Bool {
+        continuation != nil
     }
 
     func resume(with decision: GenotypeManualHaplotypeDraftDecision) {

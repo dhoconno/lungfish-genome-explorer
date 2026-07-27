@@ -1781,7 +1781,7 @@ public final class GenotypeResultViewController: NSViewController {
         clearDeferredMatrixAnnotationStatusIfNeeded()
         if let pendingConfigurationResult {
             self.pendingConfigurationResult = nil
-            configureImmediately(result: pendingConfigurationResult)
+            configure(result: pendingConfigurationResult)
         }
         onDeferredMatrixAnnotationMutationsDrained?()
     }
@@ -2196,6 +2196,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func refreshCurrentSelectionDetails() {
+        guard !hasUnsavedManualHaplotypeDraft else {
+            return
+        }
         if let currentSharedCall {
             showSharedCall(
                 currentSharedCall,
@@ -4956,18 +4959,12 @@ public final class GenotypeResultViewController: NSViewController {
                     return
                 }
                 self.currentWorkbookResultReloadTask = nil
-                self.applyCurrentWorkbookUpdatedResult(updatedResult)
-                if !annotationOnly {
-                    self.currentWorkbookRequiresFullUpdate = false
-                }
-                self.currentWorkbookNeedsRefresh = self.currentWorkbookRequiresFullUpdate
-                self.currentWorkbookUpdateStatus = self.currentWorkbookRequiresFullUpdate
-                    ? "Updated workbook annotations. Other current.xlsx changes still require an explicit update."
-                    : "Updated current.xlsx. Previous workbook saved in revisions."
-                self.rebuildArtifactLens()
-                if let sidecar = self.annotationStore?.sidecar {
-                    self.onAnnotationSidecarChanged?(sidecar)
-                }
+                self.applyReloadedCurrentWorkbookResult(
+                    updatedResult,
+                    annotationOnly: annotationOnly,
+                    expectedBundleURL: expectedBundleURL,
+                    expectedGeneration: expectedGeneration
+                )
             } catch is CancellationError {
                 return
             } catch {
@@ -4981,6 +4978,43 @@ public final class GenotypeResultViewController: NSViewController {
                 self.rebuildArtifactLens()
                 self.presentSheetAlert(error: error)
             }
+        }
+    }
+
+    private func applyReloadedCurrentWorkbookResult(
+        _ updatedResult: ONTGenotypeResultBundleData,
+        annotationOnly: Bool,
+        expectedBundleURL: URL,
+        expectedGeneration: UInt64
+    ) {
+        guard resultConfigurationGeneration == expectedGeneration,
+              result?.bundleURL.standardizedFileURL == expectedBundleURL,
+              updatedResult.bundleURL.standardizedFileURL
+                == expectedBundleURL else {
+            return
+        }
+        if hasUnsavedManualHaplotypeDraft {
+            deferManualHaplotypeTransition(.reload) { [weak self] in
+                self?.applyReloadedCurrentWorkbookResult(
+                    updatedResult,
+                    annotationOnly: annotationOnly,
+                    expectedBundleURL: expectedBundleURL,
+                    expectedGeneration: expectedGeneration
+                )
+            }
+            return
+        }
+        applyCurrentWorkbookUpdatedResult(updatedResult)
+        if !annotationOnly {
+            currentWorkbookRequiresFullUpdate = false
+        }
+        currentWorkbookNeedsRefresh = currentWorkbookRequiresFullUpdate
+        currentWorkbookUpdateStatus = currentWorkbookRequiresFullUpdate
+            ? "Updated workbook annotations. Other current.xlsx changes still require an explicit update."
+            : "Updated current.xlsx. Previous workbook saved in revisions."
+        rebuildArtifactLens()
+        if let sidecar = annotationStore?.sidecar {
+            onAnnotationSidecarChanged?(sidecar)
         }
     }
 

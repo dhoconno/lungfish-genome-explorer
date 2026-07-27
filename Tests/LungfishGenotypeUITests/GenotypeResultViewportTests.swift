@@ -1932,6 +1932,92 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testDeferredConfigurationCancelPreservesDraftOpenedBeforeAnnotationRetryDrains()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "MatrixDeferredConfigureDraft-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstBundle = root.appendingPathComponent(
+            "first.lungfishgenotype",
+            isDirectory: true
+        )
+        let secondBundle = root.appendingPathComponent(
+            "second.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: firstBundle,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: secondBundle,
+            withIntermediateDirectories: true
+        )
+        let firstCall = makeCall(
+            sample: "AnimalA",
+            genotype: "FIRST",
+            reads: 9
+        )
+        let retryScheduler = MatrixWorkbookUpdateSchedulerSpy()
+        let controller = GenotypeResultViewController()
+        controller.matrixAnnotationRetryScheduler = retryScheduler
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: firstBundle,
+            samples: [],
+            calls: [firstCall]
+        ))
+        let publicationLock =
+            try ONTGenotypeBundlePublicationLock.acquire(for: firstBundle)
+        controller.editMatrixComment(.init(
+            targets: [.column(sample: "AnimalA")],
+            intent: .upsert(body: "belongs to first")
+        ))
+        controller.configure(result: makeResult(
+            bundleURL: secondBundle,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        var promptCount = 0
+        controller.testingSetManualHaplotypeDraftDecisionProvider {
+            transition in
+            XCTAssertEqual(transition, .eligibilityChange)
+            promptCount += 1
+            return .cancel
+        }
+
+        publicationLock.release()
+        retryScheduler.fireScheduledActions()
+        for _ in 0..<100 where promptCount == 0 {
+            await Task.yield()
+        }
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(
+            controller.testingResultBundleURL,
+            firstBundle.standardizedFileURL
+        )
+        XCTAssertNil(controller.testingPendingConfigurationBundleURL)
+        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+        XCTAssertEqual(
+            controller.testingManualHaplotypeEditorSample,
+            "AnimalA"
+        )
+        guard case .eligible = controller.manualHaplotypeEligibility else {
+            return XCTFail(
+                "Cancel must preserve the current genotype-only eligibility."
+            )
+        }
+    }
+
     func testDeferredFailureOverlayRestoresUnderlyingWorkbookStatus() throws {
         struct WorkbookFailure: Error {}
 
@@ -14497,6 +14583,149 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingResultTotalInputReads, 20)
     }
 
+    func testCurrentWorkbookFallbackReloadCancelPreservesDraftOpenedWhileLoadIsInFlight()
+        async throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "CurrentWorkbookReloadDraftCancel-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let original = makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call],
+            stats: ONTGenotypeRunStats(
+                totalInputReads: 10,
+                retainedUniqueReads: 5
+            )
+        )
+        let updated = makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call],
+            stats: ONTGenotypeRunStats(
+                totalInputReads: 20,
+                retainedUniqueReads: 9
+            )
+        )
+        let loader = DeferredGenotypeResultLoader()
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: original)
+        controller.genotypeResultLoader = { url in
+            await loader.load(url)
+        }
+
+        controller.testingReloadCurrentWorkbookResult()
+        await loader.waitUntilStarted()
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        var promptCount = 0
+        controller.testingSetManualHaplotypeDraftDecisionProvider {
+            transition in
+            XCTAssertEqual(transition, .reload)
+            promptCount += 1
+            return .cancel
+        }
+        await loader.resume(returning: updated)
+        for _ in 0..<100 where promptCount == 0 {
+            await Task.yield()
+        }
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(controller.testingResultTotalInputReads, 10)
+        XCTAssertEqual(
+            controller.testingManualHaplotypeEditorSample,
+            "AnimalA"
+        )
+        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+    }
+
+    func testCurrentWorkbookFallbackReloadDiscardAppliesLoadedEligibilityChangeWithoutReloading()
+        async throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "CurrentWorkbookReloadEligibility-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let original = makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call],
+            stats: ONTGenotypeRunStats(
+                totalInputReads: 10,
+                retainedUniqueReads: 5
+            )
+        )
+        let updated = makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis(),
+            stats: ONTGenotypeRunStats(
+                totalInputReads: 20,
+                retainedUniqueReads: 9
+            )
+        )
+        let loader = DeferredGenotypeResultLoader()
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: original)
+        controller.genotypeResultLoader = { url in
+            await loader.load(url)
+        }
+
+        controller.testingReloadCurrentWorkbookResult()
+        await loader.waitUntilStarted()
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        var promptCount = 0
+        controller.testingSetManualHaplotypeDraftDecisionProvider {
+            transition in
+            XCTAssertEqual(transition, .reload)
+            promptCount += 1
+            return .discard
+        }
+        await loader.resume(returning: updated)
+        for _ in 0..<100
+        where controller.testingResultTotalInputReads != 20 {
+            await Task.yield()
+        }
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(controller.testingResultTotalInputReads, 20)
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertFalse(controller.testingManualHaplotypeEditorIsDirty)
+        if case .eligible = controller.manualHaplotypeEligibility {
+            XCTFail("The loaded haplotyped result must become ineligible.")
+        }
+        let invocationCount = await loader.currentInvocationCount()
+        XCTAssertEqual(invocationCount, 1)
+    }
+
     func testCurrentWorkbookFallbackReloadIgnoresCancelledStaleResult() async {
         let firstBundleURL = URL(fileURLWithPath: "/tmp/current-workbook-first.lungfishgenotype")
         let secondBundleURL = URL(fileURLWithPath: "/tmp/current-workbook-second.lungfishgenotype")
@@ -16710,9 +16939,11 @@ private final class MutableGenotypePreferredFonts: ContentPreferredFontProviding
 
 private actor DeferredGenotypeResultLoader {
     private var hasStarted = false
+    private(set) var invocationCount = 0
     private var continuation: CheckedContinuation<ONTGenotypeResultBundleData, Never>?
 
     func load(_ url: URL) async -> ONTGenotypeResultBundleData {
+        invocationCount += 1
         hasStarted = true
         return await withCheckedContinuation { continuation in
             self.continuation = continuation
@@ -16723,6 +16954,10 @@ private actor DeferredGenotypeResultLoader {
         while !hasStarted {
             await Task.yield()
         }
+    }
+
+    func currentInvocationCount() -> Int {
+        invocationCount
     }
 
     func resume(returning result: ONTGenotypeResultBundleData) {

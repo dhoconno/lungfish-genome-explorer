@@ -615,14 +615,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private func prepareForManualHaplotypeTermination(
         in controllers: [MainWindowController]
     ) async -> Bool {
+        var allAllowed = true
         for controller in controllers
         where controller.hasUnsavedManualHaplotypeDraft {
-            guard await controller
-                .prepareForManualHaplotypeTransition(.appQuit) else {
-                return false
+            if !(await controller
+                .prepareForManualHaplotypeTransition(.appQuit)) {
+                allAllowed = false
             }
         }
-        return true
+        return allAllowed
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
