@@ -575,6 +575,17 @@ def matrix_target_key(target):
     return matrix_target_parts(target)
 
 
+def structured_matrix_target(target):
+    kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
+    return {
+        "kind": kind,
+        "locus": locus,
+        "genotype": genotype,
+        "sample": sample,
+        "stableClusterID": stable_id or None,
+    }
+
+
 def semantic_target_description(target):
     kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
     identity = " ".join(part for part in [locus, genotype, sample] if part)
@@ -616,7 +627,7 @@ resolved_matrix_styles = resolve_current_annotations(matrix_styles)
 resolved_matrix_comments = resolve_current_annotations(matrix_comments)
 MANAGED_REVIEW_STATE_SHEET = "_LGE Matrix Review State"
 MANAGED_REVIEW_STATE_SCHEMA_ID = "org.lungfish.matrix-review-state"
-MANAGED_REVIEW_STATE_SCHEMA_VERSION = 3
+MANAGED_REVIEW_STATE_SCHEMA_VERSION = 4
 LEGACY_MANAGED_REVIEW_STATE_HEADERS = [
     "Sheet", "Target Kind", "Locus", "Genotype", "Sample",
     "Stable Cluster ID", "Coordinate", "Disposition", "Original Value",
@@ -634,6 +645,10 @@ UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS = [
 VERSIONED_MANAGED_REVIEW_STATE_PREFIX = (
     UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS
     + [MANAGED_REVIEW_STATE_SCHEMA_ID, MANAGED_REVIEW_STATE_SCHEMA_VERSION]
+)
+VERSION_3_MANAGED_REVIEW_STATE_PREFIX = (
+    UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS
+    + [MANAGED_REVIEW_STATE_SCHEMA_ID, 3]
 )
 managed_state_created_for_current_run = False
 ANNOTATION_ONLY_BLOCK_CALL_TYPE = "analyst-annotation-only-block"
@@ -1424,13 +1439,13 @@ def prepare_missing_false_negative_rows():
                 "adapter": adapter["kind"],
                 "row": row,
                 "marker_row": marker_row,
-                "identity": "|".join([
-                    clean(catalog_row.get("kind")),
-                    clean(catalog_row.get("call_id")),
-                    clean(catalog_row.get("locus")),
-                    clean(catalog_row.get("display_name")),
-                    clean(catalog_row.get("stable_id")),
-                ]),
+                "identity": {
+                    "kind": clean(catalog_row.get("kind")),
+                    "callID": clean(catalog_row.get("call_id")),
+                    "displayName": clean(catalog_row.get("display_name")),
+                    "locus": clean(catalog_row.get("locus")),
+                    "stableID": clean(catalog_row.get("stable_id")) or None,
+                },
                 "cells": [
                     adapter["ws"].cell(row, col).coordinate
                     for _sample, col in sorted(adapter["sample_columns"].items())
@@ -1704,7 +1719,11 @@ def managed_review_state_sheet():
     return ws
 
 
-def managed_state_payload_digest(state, authority):
+def managed_state_payload_digest(
+    state,
+    authority,
+    schema_version=MANAGED_REVIEW_STATE_SCHEMA_VERSION,
+):
     def color_payload(color):
         if color is None:
             return None
@@ -1722,17 +1741,41 @@ def managed_state_payload_digest(state, authority):
         return {"type": color_type, "value": value}
 
     def font_payload(font):
-        return {
+        payload = {
             "italic": bool(font.i),
             "color": color_payload(font.color),
         }
+        if schema_version >= 4:
+            payload["bold"] = bool(font.b)
+        return payload
 
     def fill_payload(fill):
-        return {
+        if schema_version < 4:
+            return {
+                "type": clean(fill.fill_type),
+                "foreground": color_payload(fill.fgColor),
+                "background": color_payload(fill.bgColor),
+            }
+        payload = {
+            "class": type(fill).__name__,
             "type": clean(fill.fill_type),
-            "foreground": color_payload(fill.fgColor),
-            "background": color_payload(fill.bgColor),
         }
+        if hasattr(fill, "fgColor"):
+            payload["foreground"] = color_payload(fill.fgColor)
+        if hasattr(fill, "bgColor"):
+            payload["background"] = color_payload(fill.bgColor)
+        for attribute in ("degree", "left", "right", "top", "bottom"):
+            if hasattr(fill, attribute):
+                payload[attribute] = getattr(fill, attribute)
+        if hasattr(fill, "stop"):
+            payload["stops"] = [
+                {
+                    "position": stop.position,
+                    "color": color_payload(stop.color),
+                }
+                for stop in fill.stop
+            ]
+        return payload
 
     def side_payload(side):
         if side is None:
@@ -1831,11 +1874,19 @@ def managed_review_state_schema():
     versioned_prefix = [
         clean(value) for value in VERSIONED_MANAGED_REVIEW_STATE_PREFIX
     ]
+    version_3_prefix = [
+        clean(value) for value in VERSION_3_MANAGED_REVIEW_STATE_PREFIX
+    ]
     if (
         len(headers) == len(versioned_prefix) + 2
         and headers[:len(versioned_prefix)] == versioned_prefix
     ):
         schema = "versioned-current"
+    elif (
+        len(headers) == len(version_3_prefix) + 2
+        and headers[:len(version_3_prefix)] == version_3_prefix
+    ):
+        schema = "versioned-3"
     elif headers == LEGACY_MANAGED_REVIEW_STATE_HEADERS:
         schema = "legacy"
     else:
@@ -1861,10 +1912,18 @@ def managed_review_state_schema():
                 "Reserved managed review-state sheet contains malformed records; "
                 "workbook was not modified"
             )
-    if schema == "versioned-current":
+    if schema in {"versioned-current", "versioned-3"}:
         authority = headers[-2]
         recorded_digest = headers[-1].lower()
-        calculated_digest = managed_state_payload_digest(state, authority)
+        calculated_digest = managed_state_payload_digest(
+            state,
+            authority,
+            schema_version=(
+                MANAGED_REVIEW_STATE_SCHEMA_VERSION
+                if schema == "versioned-current"
+                else 3
+            ),
+        )
         if (
             not expected_managed_state_authority
             or authority != expected_managed_state_authority
@@ -2120,7 +2179,9 @@ def restore_prior_managed_matrix_annotations():
         })
         return
     state = wb[MANAGED_REVIEW_STATE_SHEET]
-    legacy_state = managed_review_state_schema() == "legacy"
+    state_schema = managed_review_state_schema()
+    legacy_state = state_schema == "legacy"
+    version_3_state = state_schema == "versioned-3"
     signature_cache = {}
     synthetic_safety = {}
     marker_safety = {}
@@ -2191,20 +2252,47 @@ def restore_prior_managed_matrix_annotations():
 
     for row in range(2, state.max_row + 1):
         cell = state_destination(state, row)
+        target = {
+            "kind": clean(state.cell(row, 2).value),
+            "locus": clean(state.cell(row, 3).value),
+            "genotype": clean(state.cell(row, 4).value),
+            "sample": clean(state.cell(row, 5).value),
+        }
+        stable_id = clean(state.cell(row, 6).value)
+        if stable_id:
+            target["stableClusterID"] = stable_id
+        disposition = clean(state.cell(row, 8).value)
         if cell is None:
+            managed_review_restoration_decisions.append({
+                "action": "unresolved-cell",
+                "worksheet": clean(state.cell(row, 1).value) or None,
+                "cell": clean(state.cell(row, 7).value) or None,
+                "target": structured_matrix_target(target),
+                "disposition": disposition,
+                "properties": {},
+            })
             continue
         if legacy_state:
-            disposition = clean(state.cell(row, 8).value)
+            property_decisions = {}
             if disposition == "falsePositive":
                 value = clean(cell.value)
                 if value.startswith("[") and value.endswith("]"):
                     cell.value = state.cell(row, 9).value
+                    property_decisions["value"] = "restored"
+                else:
+                    property_decisions["value"] = "preserved"
                 font = copy(cell.font)
                 original_font = state.cell(row, 10).font
                 if bool(font.italic):
                     font.italic = original_font.italic
+                    property_decisions["font.italic"] = "restored"
+                else:
+                    property_decisions["font.italic"] = "preserved"
                 if color_has_rgb_suffix(font.color, "767676"):
                     font.color = copy(original_font.color)
+                    property_decisions["font.color"] = "restored"
+                else:
+                    property_decisions["font.color"] = "preserved"
                 cell.font = font
             elif disposition == "falseNegative":
                 border = copy(cell.border)
@@ -2214,22 +2302,87 @@ def restore_prior_managed_matrix_annotations():
                     original_side = getattr(original_border, side_name)
                     if clean(current_side.style) == "thick":
                         current_side.style = original_side.style
+                        property_decisions[
+                            "border." + side_name + ".style"
+                        ] = "restored"
+                    else:
+                        property_decisions[
+                            "border." + side_name + ".style"
+                        ] = "preserved"
                     if color_has_rgb_suffix(current_side.color, "000000"):
                         current_side.color = copy(original_side.color)
+                        property_decisions[
+                            "border." + side_name + ".color"
+                        ] = "restored"
+                    else:
+                        property_decisions[
+                            "border." + side_name + ".color"
+                        ] = "preserved"
                     setattr(border, side_name, current_side)
                 cell.border = border
+            managed_review_restoration_decisions.append({
+                "action": "restore-legacy-cell",
+                "worksheet": cell.parent.title,
+                "cell": cell.coordinate,
+                "target": structured_matrix_target(target),
+                "disposition": disposition,
+                "properties": property_decisions,
+            })
             continue
-        disposition = clean(state.cell(row, 8).value)
+        if version_3_state and disposition == "falseNegative":
+            property_decisions = {
+                "value": "not-managed",
+                "font.bold": "not-managed",
+                "font.color": "not-managed",
+                "fill.patternType": "not-managed",
+                "fill.fgColor": "not-managed",
+            }
+            border = copy(cell.border)
+            expected_border = state.cell(row, 16).border
+            original_border = state.cell(row, 12).border
+            for side_name in ("left", "right", "top", "bottom"):
+                if style_matches(
+                    getattr(border, side_name),
+                    getattr(expected_border, side_name),
+                ):
+                    setattr(
+                        border,
+                        side_name,
+                        copy(getattr(original_border, side_name)),
+                    )
+                    property_decisions[f"border.{side_name}"] = "restored"
+                else:
+                    property_decisions[f"border.{side_name}"] = "preserved"
+            cell.border = border
+            managed_review_restoration_decisions.append({
+                "action": "restore-version-3-cell",
+                "worksheet": cell.parent.title,
+                "cell": cell.coordinate,
+                "target": structured_matrix_target(target),
+                "disposition": disposition,
+                "properties": property_decisions,
+            })
+            continue
+        property_decisions = {}
         if serialize_managed_value(cell.value) == clean(state.cell(row, 13).value):
             cell.value = deserialize_managed_value(state.cell(row, 9).value)
+            property_decisions["value"] = "restored"
+        else:
+            property_decisions["value"] = "preserved"
         if disposition == "falsePositive":
             font = copy(cell.font)
             expected_font = state.cell(row, 14).font
             original_font = state.cell(row, 10).font
             if font.italic == expected_font.italic:
                 font.italic = original_font.italic
+                property_decisions["font.italic"] = "restored"
+            else:
+                property_decisions["font.italic"] = "preserved"
             if style_matches(font.color, expected_font.color):
                 font.color = copy(original_font.color)
+                property_decisions["font.color"] = "restored"
+            else:
+                property_decisions["font.color"] = "preserved"
             cell.font = font
         elif disposition == "falseNegative":
             font = copy(cell.font)
@@ -2237,17 +2390,25 @@ def restore_prior_managed_matrix_annotations():
             original_font = state.cell(row, 10).font
             if font.bold == expected_font.bold:
                 font.bold = original_font.bold
+                property_decisions["font.bold"] = "restored"
+            else:
+                property_decisions["font.bold"] = "preserved"
             if style_matches(font.color, expected_font.color):
                 font.color = copy(original_font.color)
+                property_decisions["font.color"] = "restored"
+            else:
+                property_decisions["font.color"] = "preserved"
             cell.font = font
             fill = copy(cell.fill)
             expected_fill = state.cell(row, 15).fill
             original_fill = state.cell(row, 11).fill
-            if fill.patternType == expected_fill.patternType:
-                fill.patternType = original_fill.patternType
-            if style_matches(fill.fgColor, expected_fill.fgColor):
-                fill.fgColor = copy(original_fill.fgColor)
-            cell.fill = fill
+            if style_matches(fill, expected_fill):
+                cell.fill = copy(original_fill)
+                property_decisions["fill.patternType"] = "restored"
+                property_decisions["fill.fgColor"] = "restored"
+            else:
+                property_decisions["fill.patternType"] = "preserved"
+                property_decisions["fill.fgColor"] = "preserved"
             border = copy(cell.border)
             expected_border = state.cell(row, 16).border
             original_border = state.cell(row, 12).border
@@ -2257,7 +2418,18 @@ def restore_prior_managed_matrix_annotations():
                     getattr(expected_border, side_name),
                 ):
                     setattr(border, side_name, copy(getattr(original_border, side_name)))
+                    property_decisions[f"border.{side_name}"] = "restored"
+                else:
+                    property_decisions[f"border.{side_name}"] = "preserved"
             cell.border = border
+        managed_review_restoration_decisions.append({
+            "action": "restore-cell",
+            "worksheet": cell.parent.title,
+            "cell": cell.coordinate,
+            "target": structured_matrix_target(target),
+            "disposition": disposition,
+            "properties": property_decisions,
+        })
 
     rows_to_delete = [
         key for key, is_safe in synthetic_safety.items()
@@ -2367,12 +2539,12 @@ def apply_review_format(result):
         else:
             fn_side = Side(style="mediumDashed", color="FFC65911")
             cell.value = "FN"
-            cell.border = Border(
-                left=fn_side,
-                right=fn_side,
-                top=fn_side,
-                bottom=fn_side,
-            )
+            border = copy(cell.border)
+            border.left = copy(fn_side)
+            border.right = copy(fn_side)
+            border.top = copy(fn_side)
+            border.bottom = copy(fn_side)
+            cell.border = border
             cell.fill = PatternFill(fill_type="solid", fgColor="FFFFF2CC")
             font = copy(cell.font)
             font.bold = True
@@ -2392,24 +2564,27 @@ def record_false_negative_target_decisions(matrix_review_results):
             false_negative_target_cell_decisions.append({
                 "worksheet": None,
                 "cell": None,
-                "target": "|".join(matrix_target_parts(target)),
+                "target": structured_matrix_target(target),
                 "disposition": disposition,
                 "status": result["status"],
                 "reason": result["reason"],
                 "synthetic": False,
+                "presentationPrecedence": "not-applied",
             })
             continue
         for ws, _item, cell in destinations:
             false_negative_target_cell_decisions.append({
                 "worksheet": ws.title,
                 "cell": cell.coordinate,
-                "target": "|".join(matrix_target_parts(target)),
+                "target": structured_matrix_target(target),
                 "disposition": disposition,
                 "status": result["status"],
                 "reason": result["reason"],
                 "synthetic": (
                     (ws.title, cell.row) in synthetic_rows_for_current_run
                 ),
+                "presentationPrecedence":
+                    "false-negative-over-viewport-style",
             })
 
 

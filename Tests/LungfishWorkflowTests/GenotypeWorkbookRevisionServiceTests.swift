@@ -5441,6 +5441,23 @@ wb.save(path)
             )
         }
         try sidecar.encoded().write(to: annotationURL)
+        let callsURL = root.appendingPathComponent("displayed-calls.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let cliArgv = [
+            "lungfish-cli", "fastq", "update-current-workbook",
+            fixture.bundleURL.path,
+            "--calls-json", callsURL.path,
+            "--annotations", annotationURL.path,
+        ]
+        let cliProvenanceContext = GenotypeWorkbookRevisionProvenanceContext(
+            toolName: "lungfish-cli fastq update-current-workbook",
+            toolKind: "cli",
+            argv: cliArgv,
+            cliInputDescriptors: [
+                try ProvenanceFileDescriptor.file(url: callsURL, role: .input),
+                try ProvenanceFileDescriptor.file(url: annotationURL, role: .input),
+            ]
+        )
 
         let clock = IncrementingDateProvider(
             start: Date(timeIntervalSince1970: 8_100),
@@ -5458,7 +5475,8 @@ wb.save(path)
         let updated = try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
-            into: fixture.bundleURL
+            into: fixture.bundleURL,
+            provenanceContext: cliProvenanceContext
         )
 
         let inspection = try inspectAnnotationOnlyReviewWorkbook(currentURL)
@@ -5531,6 +5549,11 @@ wb.save(path)
             ProvenanceEnvelope.self,
             from: Data(contentsOf: provenanceURL)
         )
+        XCTAssertEqual(
+            envelope.toolName,
+            "lungfish-cli fastq update-current-workbook"
+        )
+        XCTAssertEqual(envelope.argv, cliArgv)
         let pythonStep = try XCTUnwrap(
             envelope.steps.first {
                 $0.toolName == "python openpyxl workbook candidate update"
@@ -5576,7 +5599,13 @@ wb.save(path)
         XCTAssertEqual(synthesisDecisions.count, 1)
         XCTAssertEqual(
             synthesisDecisions.first?.dictionaryValue?["identity"],
-            .string("reference|reference:MHC-A:Mamu-A1*001:01|MHC-A|Mamu-A1*001:01|")
+            .dictionary([
+                "kind": .string("reference"),
+                "callID": .string("reference:MHC-A:Mamu-A1*001:01"),
+                "displayName": .string("Mamu-A1*001:01"),
+                "locus": .string("MHC-A"),
+                "stableID": .null,
+            ])
         )
         XCTAssertEqual(
             synthesisDecisions.first?.dictionaryValue?["cells"],
@@ -5592,6 +5621,17 @@ wb.save(path)
                 $0.dictionaryValue?["cell"]?.stringValue
             }),
             ["M3", "N3"]
+        )
+        XCTAssertTrue(targetDecisions.allSatisfy {
+            $0.dictionaryValue?["presentationPrecedence"]
+                == .string("false-negative-over-viewport-style")
+        })
+        XCTAssertEqual(
+            Set(targetDecisions.compactMap {
+                $0.dictionaryValue?["target"]?.dictionaryValue?["sample"]?
+                    .stringValue
+            }),
+            ["Sample-A", "Sample-B"]
         )
         XCTAssertEqual(
             pythonStep.resolvedOptions["managedReviewRestorationDecisions"],
@@ -6511,10 +6551,14 @@ wb.save(path)
             generatedAt: "2026-07-27T00:00:00Z"
         ).encoded().write(to: annotationURL)
 
-        _ = try GenotypeWorkbookRevisionService(
+        let updated = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 8_325) },
             userProvider: { "tester" },
-            pythonExecutableURL: testPythonExecutableURL
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
         ).applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
@@ -6524,6 +6568,37 @@ wb.save(path)
         let inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
         XCTAssertEqual(inspection["existingRow"], "Mamu-A1*existing|5|1|5")
         XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        let decisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["managedReviewRestorationDecisions"]?
+                .arrayValue
+        )
+        let legacy = try XCTUnwrap(
+            decisions.first {
+                $0.dictionaryValue?["cell"] == .string("D7")
+            }?.dictionaryValue
+        )
+        XCTAssertEqual(legacy["action"], .string("restore-legacy-cell"))
+        XCTAssertEqual(
+            legacy["properties"]?.dictionaryValue?["value"],
+            .string("restored")
+        )
+        XCTAssertEqual(
+            legacy["properties"]?.dictionaryValue?["font.italic"],
+            .string("restored")
+        )
     }
 
     func testUnreleasedUnversionedTask4ManagedStateFailsClosed() throws {
@@ -6598,6 +6673,276 @@ wb.save(path)
             )
         )
         XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testManagedFalseNegativeStateDigestBindsExpectedBold() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "managed-fn-bold-integrity"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installSemanticReviewMatrix(in: currentURL)
+        try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-Zero",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_360),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from copy import copy
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+state = wb["_LGE Matrix Review State"]
+font = copy(state.cell(2, 14).font)
+font.bold = False
+state.cell(2, 14).font = font
+wb.save(path)
+"""#, currentURL.path])
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testVersion3ManagedFalseNegativeStateRestoresAndMigratesSafely() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "managed-fn-v3-migration"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installSemanticReviewMatrix(in: currentURL)
+        try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-Zero",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_365),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import hashlib
+import json
+import sys
+from copy import copy
+from openpyxl import load_workbook
+from openpyxl.styles import Side
+
+def clean(value):
+    return "" if value is None else str(value).strip()
+
+def serialized(value):
+    if value is None:
+        payload = {"type": "none", "value": None}
+    elif isinstance(value, bool):
+        payload = {"type": "bool", "value": value}
+    elif isinstance(value, int):
+        payload = {"type": "int", "value": value}
+    elif isinstance(value, float):
+        payload = {"type": "float", "value": value}
+    else:
+        payload = {"type": "string", "value": str(value)}
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+def color_payload(color):
+    if color is None:
+        return None
+    color_type = clean(color.type)
+    if color_type == "rgb":
+        value = clean(color.rgb).upper()
+    elif color_type == "indexed":
+        value = color.indexed
+    elif color_type == "theme":
+        value = color.theme
+    elif color_type == "auto":
+        value = bool(color.auto)
+    else:
+        value = None
+    return {"type": color_type, "value": value}
+
+def side_payload(side):
+    if side is None:
+        return None
+    return {
+        "style": clean(side.style),
+        "color": color_payload(side.color),
+    }
+
+path = sys.argv[1]
+wb = load_workbook(path)
+matrix = wb["matrix"]
+state = wb["_LGE Matrix Review State"]
+row = 2
+cell = matrix["E7"]
+cell.value = json.loads(state.cell(row, 9).value)["value"]
+cell.font = copy(state.cell(row, 10).font)
+cell.fill = copy(state.cell(row, 11).fill)
+border = copy(state.cell(row, 12).border)
+managed_side = Side(style="thick", color="FF000000")
+for side_name in ("left", "right", "top", "bottom"):
+    setattr(border, side_name, copy(managed_side))
+cell.border = border
+state.cell(row, 13).value = state.cell(row, 9).value
+state.cell(row, 14).font = copy(state.cell(row, 10).font)
+state.cell(row, 15).fill = copy(state.cell(row, 11).fill)
+state.cell(row, 16).border = copy(cell.border)
+state.cell(1, 24).value = 3
+
+rows = []
+for state_row in range(2, state.max_row + 1):
+    cells = []
+    for col in range(1, 23):
+        state_cell = state.cell(state_row, col)
+        payload = {"value": serialized(state_cell.value)}
+        if col in (10, 14):
+            payload["font"] = {
+                "italic": bool(state_cell.font.i),
+                "color": color_payload(state_cell.font.color),
+            }
+        elif col in (11, 15):
+            payload["fill"] = {
+                "type": clean(state_cell.fill.fill_type),
+                "foreground": color_payload(state_cell.fill.fgColor),
+                "background": color_payload(state_cell.fill.bgColor),
+            }
+        elif col in (12, 16):
+            payload["border"] = {
+                name: side_payload(getattr(state_cell.border, name))
+                for name in ("left", "right", "top", "bottom", "diagonal")
+            }
+        cells.append(payload)
+    rows.append(cells)
+authority = state.cell(1, 25).value
+digest_payload = json.dumps(
+    {"authority": authority, "rows": rows},
+    sort_keys=True,
+    separators=(",", ":"),
+)
+state.cell(1, 26).value = hashlib.sha256(
+    digest_payload.encode("utf-8")
+).hexdigest()
+wb.save(path)
+"""#, currentURL.path])
+
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        let updated = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let inspection = try inspectSemanticReviewWorkbook(currentURL)
+        XCTAssertEqual(inspection["explicitZeroValue"], "0")
+        XCTAssertEqual(inspection["explicitZeroBorders"], "|||")
+        XCTAssertEqual(inspection["hasManagedReviewStateSheet"], "false")
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        let decisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["managedReviewRestorationDecisions"]?
+                .arrayValue
+        )
+        XCTAssertEqual(
+            decisions.first {
+                $0.dictionaryValue?["cell"] == .string("E7")
+            }?.dictionaryValue?["action"],
+            .string("restore-version-3-cell")
+        )
     }
 
     func testLegacyManagedStateRequiresExactRecordedCoordinateAndManagedPresentation() throws {
@@ -7766,7 +8111,11 @@ wb.save(path)
         let updated = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 8_000) },
             userProvider: { "tester" },
-            pythonExecutableURL: testPythonExecutableURL
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
         ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
 
         let inspection = try inspectSemanticReviewWorkbook(currentURL)
@@ -7825,8 +8174,13 @@ wb.save(path)
             }?.dictionaryValue
         )
         XCTAssertEqual(invalidDecision["cell"], .null)
-        XCTAssertTrue(
-            invalidDecision["target"]?.stringValue?.contains("cluster-c") == true
+        XCTAssertEqual(
+            invalidDecision["target"]?.dictionaryValue?["stableClusterID"],
+            .string("cluster-c")
+        )
+        XCTAssertEqual(
+            invalidDecision["presentationPrecedence"],
+            .string("not-applied")
         )
         XCTAssertTrue(
             invalidDecision["reason"]?.stringValue?.contains(
@@ -7885,7 +8239,11 @@ wb.save(path)
         let service = GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 8_025) },
             userProvider: { "tester" },
-            pythonExecutableURL: testPythonExecutableURL
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
         )
         _ = try service.applyHaplotypeOverrides(
             [],
@@ -7920,7 +8278,7 @@ wb.save(path)
 
         sidecar.matrixReviews = []
         try sidecar.encoded().write(to: annotationURL)
-        _ = try service.applyHaplotypeOverrides(
+        let cleared = try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
@@ -7938,6 +8296,18 @@ wb.save(path)
             originalInspection["explicitZeroFill"]
         )
         XCTAssertEqual(
+            inspection["explicitZeroFillBackground"],
+            originalInspection["explicitZeroFillBackground"]
+        )
+        XCTAssertEqual(
+            inspection["explicitZeroDiagonalBorder"],
+            originalInspection["explicitZeroDiagonalBorder"]
+        )
+        XCTAssertEqual(
+            inspection["explicitZeroDiagonalUp"],
+            originalInspection["explicitZeroDiagonalUp"]
+        )
+        XCTAssertEqual(
             inspection["explicitZeroBold"],
             originalInspection["explicitZeroBold"]
         )
@@ -7950,6 +8320,51 @@ wb.save(path)
         XCTAssertEqual(inspection["absentType"], "n")
         XCTAssertEqual(inspection["hasMatrixAnnotationsSheet"], "false")
         XCTAssertEqual(inspection["hasManagedReviewStateSheet"], "false")
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(cleared.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        let restorationDecisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["managedReviewRestorationDecisions"]?
+                .arrayValue
+        )
+        let zeroRestoration = try XCTUnwrap(
+            restorationDecisions.first {
+                $0.dictionaryValue?["cell"] == .string("E7")
+            }?.dictionaryValue
+        )
+        XCTAssertEqual(
+            zeroRestoration["target"]?.dictionaryValue?["sample"],
+            .string("Sample-Zero")
+        )
+        let zeroProperties = try XCTUnwrap(
+            zeroRestoration["properties"]?.dictionaryValue
+        )
+        XCTAssertEqual(zeroProperties["value"], .string("restored"))
+        XCTAssertEqual(zeroProperties["font.bold"], .string("restored"))
+        XCTAssertEqual(zeroProperties["font.color"], .string("restored"))
+        XCTAssertEqual(zeroProperties["fill.patternType"], .string("restored"))
+        XCTAssertEqual(zeroProperties["fill.fgColor"], .string("restored"))
+        XCTAssertEqual(zeroProperties["border.left"], .string("preserved"))
+        XCTAssertEqual(zeroProperties["border.right"], .string("restored"))
+        let blankRestoration = try XCTUnwrap(
+            restorationDecisions.first {
+                $0.dictionaryValue?["cell"] == .string("F7")
+            }?.dictionaryValue
+        )
+        XCTAssertEqual(
+            blankRestoration["properties"]?.dictionaryValue?["value"],
+            .string("restored")
+        )
     }
 
     func testDuplicateExactReviewTargetsFailClosedInEitherOrder() throws {
@@ -8729,6 +9144,7 @@ wb.save(path)
 import sys
 from openpyxl import Workbook
 from openpyxl.comments import Comment
+from openpyxl.styles import Border, PatternFill, Side
 
 path = sys.argv[1]
 with_comments = sys.argv[2] == "true"
@@ -8744,6 +9160,15 @@ ws.append(["Genotype", "Locus", "Stable Cluster ID", "Sample-FP", "Sample-Zero",
 ws.append(["Mamu-I*collision", "MHC-A", "cluster-a", 42, 0, None])
 ws.append(["Mamu-I*collision", "MHC-B", "cluster-b", 42, None, None])
 ws.append(["Mamu-I*collision", "MHC-A", "cluster-c", 42, None, None])
+ws["E7"].fill = PatternFill(
+    fill_type="solid",
+    fgColor="FFABCDEF",
+    bgColor="FF112233",
+)
+ws["E7"].border = Border(
+    diagonal=Side(style="dashDot", color="FF345678"),
+    diagonalUp=True,
+)
 if with_comments:
     ws["A7"].comment = Comment("Existing row note", "existing-author")
     ws["D7"].comment = Comment("Existing cell note", "existing-author")
@@ -9395,6 +9820,12 @@ payload = {
     "explicitZeroType": text(ws["E7"].data_type),
     "explicitZeroBorders": borders(ws["E7"]),
     "explicitZeroFill": fill(ws["E7"]),
+    "explicitZeroFillBackground": color_suffix(ws["E7"].fill.bgColor),
+    "explicitZeroDiagonalBorder": "|".join([
+        text(getattr(ws["E7"].border.diagonal, "style", None)),
+        color_suffix(getattr(ws["E7"].border.diagonal, "color", None)),
+    ]),
+    "explicitZeroDiagonalUp": str(bool(ws["E7"].border.diagonalUp)).lower(),
     "explicitZeroBold": str(bool(ws["E7"].font.bold)).lower(),
     "explicitZeroColor": color_suffix(ws["E7"].font.color),
     "explicitZeroComment": (

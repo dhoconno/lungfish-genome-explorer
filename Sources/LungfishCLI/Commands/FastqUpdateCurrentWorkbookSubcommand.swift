@@ -74,6 +74,21 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        FileHandle.standardError.write(Data("[ 10%] Resolving managed openpyxl runtime.\n".utf8))
+        let pythonURL = try await CondaManager.shared.toolPath(
+            name: "python",
+            environment: "openpyxl"
+        )
+        try runResolved(
+            pythonExecutableURL: pythonURL,
+            workbookAttestationRootURL: nil
+        )
+    }
+
+    func runResolved(
+        pythonExecutableURL: URL,
+        workbookAttestationRootURL: URL?
+    ) throws {
         let attestation = try validatedAttestation()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL
         guard ONTGenotypeResultBundle.isBundleURL(bundleURL) else {
@@ -86,8 +101,6 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             try immutableJSONInput(at: $0)
         }
 
-        FileHandle.standardError.write(Data("[ 10%] Resolving managed openpyxl runtime.\n".utf8))
-        let pythonURL = try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl")
         FileHandle.standardError.write(Data("[ 35%] Loading displayed haplotype call snapshot.\n".utf8))
         let calls = try JSONDecoder().decode(
             [GenotypeWorkbookHaplotypeCall].self,
@@ -107,7 +120,10 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             attestation: attestation
         )
         FileHandle.standardError.write(Data("[ 55%] Applying haplotype edits to current.xlsx.\n".utf8))
-        _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: pythonURL)
+        _ = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: pythonExecutableURL,
+            workbookAttestationRootURL: workbookAttestationRootURL
+        )
             .applyHaplotypeOverrides(
                 callInputs.mutationCalls,
                 annotationSidecarURL: annotationURL,
